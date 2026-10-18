@@ -1,10 +1,9 @@
-# The embedded server runtime that stage-runtime.mjs puts beside its pin (the
+# The embedded server runtime that tools/stage-runtime/stage-runtime.mjs puts beside its pin (the
 # release archive and its manifest), and its download cache. Only the pin is committed.
 /server-runtime/*
 !/server-runtime/runtime-pin.json
 /.runtime-cache/
-# Declarations the dev producer writes beside app.ts (moved here from the root .gitignore in
-# adopt-main-fixes-r7, so the branch carries no framework-file edits).
+# Declarations the dev producer writes beside app.ts.
 /app.contract.d.ts
 # The terminal page, built by terminal-host/build.mjs.
 /assets/terminal-host.html
@@ -12,3 +11,38 @@
 /assets/terminal-ghostty-vt.wasm
 /assets/terminal-ghostty-write-pty.wasm
 /assets/terminal-symbols-nerd-font-mono.woff2
+# Task records, evidence and diaries: local state, never committed (docs/diary.md).
+/.exact/
+# Generated sources (tools/generate/generate.mjs writes them; the app build runs it): built, not
+# committed (rules/RULES.md).
+/src/highlight/grammar.ts
+/src/highlight/grammar-*.ts
+/src/highlight/css-words.ts
+/src/highlight/shell-parser/
+/src/settings/settings-b-lucide.ts
+/src/settings/settings-icons.contract
+/src/settings/settings-brands.contract
+/src/shared/pages-icons.contract
+/src/shared/icons.contract
+/src/shared/timeline-files.contract
+/src/shared/timeline-files-tables.ts
+/src/shell/shell-icons.contract
+/src/shell/editor-icons.contract
+/src/shell/shell-morph.contract
+/src/sidebar/sidebar-icons.contract
+/src/timeline/timeline-icons.contract
+/src/panel/panel-icons.contract
+/src/providers/provider-icons.contract
+/src/diff/diff-glyphs.contract
+/assets/composer-icons.json
+/assets/mermaid/vendor/
+/data/pierre-icons.tsv
+/macos/tests/terminal/vectors.json
+# The iOS app's copies (its bake captures only mobile/).
+/mobile/shared/r12-render-grammar.ts
+/mobile/shared/r12-render-grammar-more.ts
+/mobile/shared/r7-polish-css-words.ts
+/mobile/shared/settings-b-lucide.ts
+/mobile/file-icons.contract
+# The app's own Cargo workspace builds here (Cargo.toml).
+/target/

@@ -1,5 +1,5 @@
 // Source365aa87982 use-composer-drafts appendComposerDraftAttachments keeps one ordered list.
-// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import type { T3Client } from './shared/client';
 import { obj, str, type Obj } from './shared/domain';
 import { draftFiles, referencedFiles } from './shared/composer-editor-files';

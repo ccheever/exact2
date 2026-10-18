@@ -1,5 +1,5 @@
 // Pinned365aa87982 use-composer-command-menu.ts, state/queries.ts and runtime.ts.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';

@@ -1,5 +1,5 @@
 // AudioFilePreview365aa87982. Layout stays Contract; native owns only playback.
-// @ref llp/1109.005-composer-and-transcript.decision.md#media-presentation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#media-presentation
 use ReviewColors from "./review-shapes.contract"
 shape AttachmentAudioStatus
   identifier: string

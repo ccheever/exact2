@@ -1,11 +1,10 @@
 // Starter: one screen: today's total, buttons that log an amount, a dated log kept in a file.
-// The one colour written is the accent, on the root: any system colour, as here (teal, mint or
-// yellow as well), or one pair, `accent-color="light-dark(#0a7d61, #3dd6a8)"`. Surfaces and
-// text are roles or unsaid, so dark mode is the platform's: a hex on a page, card or text stays
-// light as the bars turn dark.
+// No colour is written: the accent is the platform's blue, and a brand is an `app.tamber`
+// (docs/recipes/tamber.md). Surfaces and text are roles or unsaid, so dark mode is the
+// platform's: a hex on a page, card or text stays light as the bars turn dark.
 // One route: a second screen is a route under `home`, an `if e.name == …` beside this one and
 // `nav = push(nav, path(…))`, and `follow` keeps the browser's Back and deep links working.
-use SummaryCard, RoundButton, RowText from "exact:content"
+use SummaryCard, RowText from "exact:content"
 
 routes nav
   home "/"
@@ -18,6 +17,7 @@ shape Drink
   id: string
   ml: number
   day: string
+  at: number
 
 shape Log
   total: number
@@ -33,7 +33,8 @@ component App
   resource time = exactTime() as shape Time
   state now = 0
   derive goal = 2000
-  derive today = formatDate(time.epochAtZero + now, time.utcOffset, "iso")
+  derive shown = time.epochAtZero + now
+  derive today = formatDate(shown, time.utcOffset, "iso")
   resource log = loadLog(today) as shape Log else empty()
   mutation saved as shape Reply queue refreshes log
   task tick mount
@@ -44,14 +45,13 @@ component App
   action add(ml: number)
     let at = time.epochAtZero + performanceNow()
     now = performanceNow()
-    send saved = addEntry(ml, formatDate(at, time.utcOffset, "iso"))
+    send saved = addEntry(ml, formatDate(at, time.utcOffset, "iso"), at)
   action undo
     send saved = undoEntry(today)
   action follow(url: string)
     nav = go(nav, url)
   view
     main testId="root" navigationKey=`${top(nav).id}` navigate=follow width="100%" height="100%"
-      accent-color="-exact-system-indigo"
       for e in stack(nav) key=e.id
         if e.name == "home"
           column navigationKey=`${e.id}` navigationScroll="content" position="absolute" inset=0
@@ -60,20 +60,31 @@ component App
               text "Starter" role="heading" aria-level=1 flex=1
               button press=undo disabled=(log.total == 0) testId="undo"
                 text "Undo"
-            scroll id="content" flex=1 min-height=0
-              // One number and its buttons: a focused column, centred, a phone's width at most, so on a
-              // wide window the buttons are not at the window's two edges. A list and its detail, or a
-              // dashboard, take two columns (`pattern dashboard`).
-              column gap=24 padding=16 max-width=420 margin-left="auto" margin-right="auto"
-                SummaryCard(label="Today", value=formatNumber(log.total, "decimal"), detail=(log.total >= goal ? "Goal reached" : `of ${formatNumber(goal, "decimal")} ml`), progress=some(min(1, log.total / goal)), symbol=some("symbol:activity"))
-                // Emphasis is a part, not paint on a button: round buttons, the accent for the main one.
-                row justify-content="space-between"
-                  RoundButton(label="250 ml", tint=none, press=add(250), disabled=false, testId="add-250")
-                  RoundButton(label="500 ml", tint=some("AccentColor"), press=add(500), disabled=false, testId="add-500")
-                // A card of your own on this plain page: `-exact-secondary-background`, a role for its text.
-                column padding="20px 20px 10px" border-radius=16 background-color="-exact-secondary-background" testId="history"
-                  text "History" role="heading" aria-level=3
-                  if log.entries.length == 0
-                    text "Nothing yet. Tap an amount to log a drink." color="-exact-secondary-label" padding-top=6 padding-bottom=10 testId="history-empty"
-                  for x in log.entries key=x.id
-                    RowText(title=`${x.ml} ml`, detail=(x.day == today ? "Today" : x.day), value=none)
+            // A grouped page: the number and its buttons on it (a section with no card), the log
+            // an inset-grouped section under them. A form of labelled entries is one too (`grouped-form`).
+            list id="content" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              section background-color="transparent"
+                // One number and its buttons: a focused column, centred, a phone's width at most, so
+                // on a wide window the buttons are not at the window's two edges. A list and its
+                // detail, or a dashboard, take two columns (`pattern dashboard`).
+                row
+                  column flex=1 min-width=0 gap=24 max-width="26.25rem" margin-left="auto" margin-right="auto"
+                    SummaryCard(label="Today", value=formatNumber(log.total, "decimal"), detail=(log.total >= goal ? "Goal reached" : `of ${formatNumber(goal, "decimal")} ml`), progress=some(min(1, log.total / goal)), symbol=some("symbol:activity"))
+                    // Amounts of equal weight: equal widths a fixed gap apart, as a stack view fills
+                    // them, never pushed to the row's two ends; `large` is UIKit's tall button. A
+                    // basis in `rem` grows with the text size, so the largest sizes stack them.
+                    row flex-wrap="wrap" gap=12
+                      button press=add(250) buttonStyle="filled" -exact-control-size="large" flex-grow=1 flex-basis="8rem" testId="add-250"
+                        text "+250 ml"
+                      button press=add(500) buttonStyle="filled" -exact-control-size="large" flex-grow=1 flex-basis="8rem" testId="add-500"
+                        text "+500 ml"
+              section testId="history"
+                header
+                  text "History"
+                // `RowText` straight in a section is the row: a title over its detail. A day's label
+                // is `formatDay` (Today, Yesterday, Mar 12, 2026), never the key or a weekday the
+                // data module writes.
+                for x in log.entries key=x.id
+                  RowText(title=`${x.ml} ml`, detail=formatDay(x.at, shown, time.utcOffset, "day-time"), value=none)
+                footer
+                  text (log.entries.length == 0 ? "Nothing yet. Tap an amount to log a drink." : "") testId="history-empty"

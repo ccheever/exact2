@@ -17,7 +17,7 @@ extension Agent {
             guard p.count == 2, let x = (p[0] as? NSNumber)?.doubleValue, let y = (p[1] as? NSNumber)?.doubleValue else { return nil }
             return CGPoint(x: x, y: y)
         }
-        guard !points.isEmpty else { return ["error": "sample needs points: sample <x> <y> [<x> <y>…], in view points"] }
+        guard !points.isEmpty else { return ["malformed": true, "error": "sample needs points: sample <x> <y> [<x> <y>…], in view points"] }
         let view = presenter.viewport
         #if os(iOS) || os(tvOS)
         let layer = view.layer
@@ -34,7 +34,22 @@ extension Agent {
         // Rows top-down, as view points are.
         ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)
         CATransaction.flush()
+        #if os(iOS) || os(tvOS)
+        // A presentation mounts beside the viewport (LLP 1123 D2): the
+        // viewport's area is read from the window, sheets composited
+        if !presenter.modals.mountRoots.isEmpty, let window = view.window {
+            // The viewport's area in the window, which the agent's window
+            // size can scale (as `screenshot` maps it)
+            let area = view.convert(view.bounds, to: window)
+            if area.width > 0, area.height > 0 { ctx.scaleBy(x: size.width / area.width, y: size.height / area.height) }
+            ctx.translateBy(x: -area.minX, y: -area.minY)
+            window.layer.render(in: ctx)
+        } else {
+            layer.render(in: ctx)
+        }
+        #else
         layer.render(in: ctx)
+        #endif
         let px = data.assumingMemoryBound(to: Float.self)
         let values: [[Double]] = points.map { p in
             let (x, y) = (min(w - 1, max(0, Int(p.x))), min(h - 1, max(0, Int(p.y))))

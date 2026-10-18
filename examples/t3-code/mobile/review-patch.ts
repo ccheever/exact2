@@ -2,7 +2,7 @@
 // Boundary/name/recovery semantics adapted from @pierre/diffs1.5.2
 // utils/parsePatchFiles and parseQuotedDiffFileName, Apache-2.0, license below.
 // MODIFIED: handwritten mobile row/marker adapter; no desktop parser or runtime dependency.
-// @ref llp/1109.006-review-and-files.decision.md#mobile-presentation
+// @ref examples/t3-code/mobile/docs/1130.006-review-and-files.decision.md#mobile-presentation
 import type { DiffFileModel } from './shared/diff';
 type Hunk = DiffFileModel['hunks'][number];
 export type ReviewPatchFile = DiffFileModel & { id: string; pureRename: boolean };

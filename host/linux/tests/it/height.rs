@@ -5,23 +5,13 @@ use exact_kernel::{
 };
 use exact_linux::Host;
 use exact_motion::{HoldEnd, Property, Value};
-use exact_runner::{DataError, DataSource, Event};
+use exact_runner::Event;
 use std::{cell::Cell, rc::Rc};
 
-struct Empty;
-impl DataSource for Empty {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
-fn boot(source: &str, measurer: Box<dyn TextMeasurer>) -> Host<Empty> {
+fn boot(source: &str, measurer: Box<dyn TextMeasurer>) -> Host<()> {
     let (h, error) = Host::boot(
         &contract::compile(source).unwrap().encode(),
-        Empty,
+        (),
         measurer,
         400.,
         300.,
@@ -60,19 +50,19 @@ const APP: &str = r#"component App
       box testId="content" height=80
       image testId="image"
 "#;
-fn fixture() -> Host<Empty> {
+fn fixture() -> Host<()> {
     boot(APP, Box::new(MonospaceMeasurer::default()))
 }
-fn id(h: &Host<Empty>, name: &str) -> u32 {
+fn id(h: &Host<()>, name: &str) -> u32 {
     h.kernel()
         .node_by_key(h.kernel().find_by_test_id(name)[0])
         .unwrap()
         .id
 }
-fn height(h: &Host<Empty>, view: u32) -> f32 {
+fn height(h: &Host<()>, view: u32) -> f32 {
     h.kernel().node(view).unwrap().frame.height
 }
-fn press(h: &mut Host<Empty>, name: &str, now: f64) {
+fn press(h: &mut Host<()>, name: &str, now: f64) {
     assert!(h.dispatch_at(id(h, name), Event::Press, now).is_none());
 }
 
@@ -106,7 +96,7 @@ fn runner_refuses_multiple_roots_before_registration() {
     assert!(matches!(
         Host::boot(
             &plan.encode(),
-            Empty,
+            (),
             Box::new(MonospaceMeasurer::default()),
             400.,
             300.

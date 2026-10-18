@@ -171,19 +171,15 @@ impl<D: DataSource> Runner<D> {
                     }
                 },
             )?;
-        if !self.reorder_ops.is_empty() {
-            let mut prefix = std::mem::take(&mut self.reorder_ops);
+        // The queued patches' colours stay kept until this commit marks them.
+        let (mut prefix, _queued) = self.take_reorder_ops();
+        if !prefix.is_empty() {
             prefix.append(&mut ops);
             ops = prefix;
         }
         let change = self.router_change()?;
         self.batch += 1;
-        let language = self.resolved_locale().to_owned();
-        let direction = if self.direction() == "rtl" {
-            exact_kernel::Direction::Rtl
-        } else {
-            exact_kernel::Direction::Ltr
-        };
+        let (language, direction) = self.document_facts();
         self.kernel
             .begin_document_commit(0, self.batch, &ops, Some((&language, direction)))?;
         let mut effects = CommitReceipt::default();

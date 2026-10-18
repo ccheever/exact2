@@ -9,6 +9,7 @@ Where an app keeps what it keeps, and the line of `app.ts`'s `grants` that reach
 | A collection that grows, or is queried | SQLite, `storage.sqlite` | `sqlite.open app:/data/journal.db` |
 | A secret: a token | `store.get`, `store.set` | `secret.keep token` |
 | A server | `fetch` ([rest-backend](rest-backend.md)) | `net.fetch https://api.example.com` |
+| A server the person names at run time | `fetch`, a socket | `net.fetch https:`, `net.websocket wss:` (every host and port of the scheme) |
 
 A journal in SQLite (its field and Add are start-here's):
 

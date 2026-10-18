@@ -10,3 +10,4 @@ description = "Snapback4's client protocol without I/O, over any device: shared 
 serde_json = "1"
 sha2 = "0.10"
 snapback4-device.workspace = true
+snapback4-core.workspace = true

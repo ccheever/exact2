@@ -1,6 +1,6 @@
 #if os(iOS)
 // Existing X22/#127: app-owned UIKit facts for mobile safe-area-dependent chrome.
-// @ref llp/1109.004-home-projection.decision.md#rendering
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#rendering
 import UIKit
 
 private final class T3LayoutProbe: UIView {

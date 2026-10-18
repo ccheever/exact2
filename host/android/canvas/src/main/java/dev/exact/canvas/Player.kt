@@ -103,6 +103,14 @@ internal class Player(private val fonts: Map<Int, Font>) {
     private val current = Matrix()
     private val backdropBounds = RectF()
 
+    /** [anim] over [bounds]: drawn at the origin, under a translation, with bounds of its size alone. Android 10's
+     * `AnimatedImageDrawable` drew a strip of its frames, or nothing, at bounds away from the origin. */
+    private fun drawAnimated(c: Canvas, anim: android.graphics.drawable.Drawable) {
+        c.save(); c.translate(bounds.left.toFloat(), bounds.top.toFloat())
+        anim.setBounds(0, 0, bounds.width(), bounds.height()); anim.draw(c)
+        c.restore()
+    }
+
     /**
      * A material's backdrop (op 27 at [at]): what this replay drew from [from] up to it, again, into a node at the
      * blur's device bounds with a blur effect, drawn within the rounded rect. HWUI keeps the blurred layer until the
@@ -110,6 +118,8 @@ internal class Player(private val fonts: Map<Int, Font>) {
      */
     /** Op 27 (one blur) or 42 (ordered functions: kind 0 blur, 1 saturation), over what [b] drew from [from] to [at]. */
     private fun backdrop(c: Canvas, b: IntBuffer, from: Int, at: Int) {
+        // No backdrop filter before RenderEffect (Android 12): what is behind shows unfiltered.
+        if (android.os.Build.VERSION.SDK_INT < 31) return
         val ordered = b.get(at) == 42
         val count = if (ordered) b.get(at + 1) else 1
         readRRect(b, if (ordered) at + 2 + 2 * count else at + 2)
@@ -238,6 +248,19 @@ internal class Player(private val fonts: Map<Int, Font>) {
 
     /** The last DASH: its intervals (path units) and phase; null when solid. */
     private var dash: FloatArray? = null
+    /** The last SHADER, for the next shape op; null when it paints its colour. */
+    private var shader: android.graphics.Shader? = null
+    /** BLUR (op 44): the sigma the next GLYPHS draws through, and the last mask made for one. */
+    private var glyphBlur = 0f
+    private var blurMask: Pair<Float, android.graphics.BlurMaskFilter>? = null
+    private fun blurFilter(sigma: Float): android.graphics.MaskFilter? {
+        if (sigma <= 0f) return null
+        blurMask?.let { (s, m) -> if (s == sigma) return m }
+        // BlurMaskFilter takes a radius; Skia's sigma is 0.57735 of it, plus half a pixel.
+        val m = android.graphics.BlurMaskFilter(Math.max(0.01f, (sigma - 0.5f) / 0.57735f), android.graphics.BlurMaskFilter.Blur.NORMAL)
+        blurMask = sigma to m
+        return m
+    }
     private var dashPeriod = 0f
     private var dashPhase = 0f
     private val measure = android.graphics.PathMeasure()
@@ -685,19 +708,23 @@ internal class Player(private val fonts: Map<Int, Font>) {
                 2 -> {
                     fill.color = b.get(i + 1)
                     if (tint < 1f) fill.alpha = Math.round(fill.alpha * tint)
+                    fill.shader = shader
                     if (readRRect(b, i + 2)) c.drawRect(rect, fill)
                     else if (uniform()) c.drawRoundRect(rect, radii[0], radii[1], fill)
                     else { path.rewind(); path.addRoundRect(rect, radii, Path.Direction.CW); c.drawPath(path, fill) }
+                    fill.shader = null; shader = null
                     i += 14
                 }
                 3 -> {
                     fill.color = b.get(i + 1)
+                    fill.shader = shader
                     val pathAt3 = i + 2
                     i = readPath(b, i + 3, b.get(i + 2) == 1)
                     if (circle) {
                         oval.set(circleX - circleR, circleY - circleR, circleX + circleR, circleY + circleR)
                         c.drawOval(oval, fill)
-                    } else if (!icon(c, b, pathAt3, i, fill)) c.drawPath(path, fill)
+                    } else if (shader != null || !icon(c, b, pathAt3, i, fill)) c.drawPath(path, fill)
+                    fill.shader = null; shader = null
                 }
                 4 -> {
                     c.save()
@@ -727,7 +754,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     rect.set(f(b, i + 2), f(b, i + 3), f(b, i + 2) + f(b, i + 4), f(b, i + 3) + f(b, i + 5))
                     val anim = animated(b.get(i + 1))
                     if (anim != null) {
-                        rect.round(bounds); anim.bounds = bounds; anim.draw(c)
+                        rect.round(bounds); drawAnimated(c, anim)
                     } else image(b.get(i + 1))?.let { bmp -> c.drawBitmap(bmp, null, rect, imagePaint) }
                     i += 6
                 }
@@ -739,12 +766,14 @@ internal class Player(private val fonts: Map<Int, Font>) {
                         glyphPaint.textSize = f(b, i + 2)
                         glyphPaint.color = b.get(i + 3)
                         glyphPaint.textSkewX = f(b, i + 4)
+                        glyphPaint.maskFilter = blurFilter(glyphBlur); glyphBlur = 0f
                         if (glyphIds.size < count) { glyphIds = IntArray(count * 2); positions = FloatArray(count * 4) }
                         var at = i + 6
                         for (g in 0 until count) {
                             glyphIds[g] = b.get(at); positions[2 * g] = f(b, at + 1); positions[2 * g + 1] = f(b, at + 2); at += 3
                         }
-                        c.drawGlyphs(glyphIds, 0, positions, 0, count, font, glyphPaint)
+                        if (android.os.Build.VERSION.SDK_INT >= 31) c.drawGlyphs(glyphIds, 0, positions, 0, count, font, glyphPaint)
+                        else LegacyGlyphs.draw(c, glyphIds, positions, count, font, glyphPaint)
                     }
                     i += 6 + 3 * count
                 }
@@ -761,7 +790,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                         c.save()
                         path.rewind(); path.addRoundRect(rect, radii, Path.Direction.CW); c.clipPath(path)
                         dstRect.set(f(b, i + 2), f(b, i + 3), f(b, i + 2) + f(b, i + 4), f(b, i + 3) + f(b, i + 5))
-                        dstRect.round(bounds); anim.bounds = bounds; anim.draw(c)
+                        dstRect.round(bounds); drawAnimated(c, anim)
                         c.restore()
                     } else image(b.get(i + 1))?.let { bmp ->
                         // Drawn under a clip, not as a BitmapShader's fill: a shader keeps its bitmap's pixels (for a
@@ -783,6 +812,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                 }
                 13 -> {
                     stroke.color = b.get(i + 1)
+                    stroke.shader = shader
                     stroke.strokeWidth = f(b, i + 2)
                     stroke.strokeCap = when (b.get(i + 3)) { 1 -> Paint.Cap.ROUND; 2 -> Paint.Cap.SQUARE; else -> Paint.Cap.BUTT }
                     stroke.strokeJoin = when (b.get(i + 4)) { 1 -> Paint.Join.ROUND; 2 -> Paint.Join.BEVEL; else -> Paint.Join.MITER }
@@ -795,9 +825,11 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     else if (circle && (circleClosed || stroke.strokeCap != Paint.Cap.SQUARE)) {
                         oval.set(circleX - circleR, circleY - circleR, circleX + circleR, circleY + circleR)
                         c.drawOval(oval, stroke)
-                    } else if (!strokePolyline(c, b, pathAt) && !icon(c, b, pathAt, i, stroke)) c.drawPath(path, stroke)
-                    dash = null
+                    } else if (!strokePolyline(c, b, pathAt) && (shader != null || !icon(c, b, pathAt, i, stroke))) c.drawPath(path, stroke)
+                    dash = null; stroke.shader = null; shader = null
                 }
+                43 -> { shader = Shaders.read(b, i); i += 2 + b.get(i + 1) }
+                44 -> { glyphBlur = f(b, i + 1); i += 2 }
                 25 -> {
                     val n = b.get(i + 2)
                     val d = FloatArray(n) { f(b, i + 3 + it) }

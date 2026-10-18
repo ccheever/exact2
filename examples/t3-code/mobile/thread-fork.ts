@@ -1,5 +1,5 @@
 // Pinned365aa87982 ThreadFeed.AssistantForkButton and threadForkNavigation.
-// @ref llp/1109.005-composer-and-transcript.decision.md#fork-from-response
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#fork-from-response
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Files, type Native } from './shared/protocol';

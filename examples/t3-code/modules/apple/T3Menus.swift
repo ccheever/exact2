@@ -6,11 +6,21 @@ import UniformTypeIdentifiers
 /// the host's: Edit gains Paste as Text (⇧⌘V; the host files a paste variant after Paste and
 /// gives Edit its Speech since exact2 #226, but an app item is a Contract button's press, and
 /// this one is the responder chain's `pasteAsPlainText:` as the reference's pasteAndMatchStyle
-/// is: an app-declared role item waits on #141), View gains Actual Size, Zoom In
+/// is: `-exact-menu` gives a press, not a responder-chain role), View gains Actual Size, Zoom In
 /// and Zoom Out (the main window's zoom, Electron's 0.5-level steps). Settings… (⌘,) is the
 /// host's placement of the app's Meta+, command. ⌘Q from the keyboard goes through the
 /// Quit shortcut setting (QuitHold.ts); Quit from the menu stays immediate. Check for
-/// Updates... sits under About and in Help, as the reference's darwin template places it.
+/// Updates… sits under About and in Help, as the reference's darwin template places it.
+///
+/// These stay native, each for a reason the adopted API leaves open:
+/// - Check for Updates…: an `-exact-menu` button's item is enabled only while its window is key
+///   and has no sheet (ShortcutsMac `validateMenuItem`), where the reference's is always enabled
+///   (it reopens the main window); the host files app-menu items after About's separator
+///   (ShortcutsMac `sync`), where the reference's sits directly under About; and a Contract
+///   `alertdialog` is a sheet on the window (AlertsMac), where the reference's box has no parent.
+/// - Zoom: no Contract API zooms the main window (`setRootFontSize` leaves px lengths as they are),
+///   and an app chord is heard only inside a shown modal while one is up (Shortcuts.swift `shortcutModal`).
+/// - The hidden Help book item: `-exact-menu-remove` names none of the Edit, Help or Go/Develop items.
 final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private weak var window: NSWindow?
     private var monitor: Any?
@@ -26,8 +36,8 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     var presentAlert: (NSAlert) -> Void = { _ = $0.runModal() }
     private lazy var appUpdatesItem = makeUpdatesItem()
     private lazy var helpUpdatesItem = makeUpdatesItem()
-    /// Lane r8-keys: File, View, Edit › Undo and the host's extra menus as the reference bar has them (R8KeysMenus.swift).
-    let keys = R8KeysMenus()
+    /// File, View, Edit › Undo and the host's extra menus as the reference bar has them (T3MenuBar.swift).
+    let keys = T3MenuBar()
 
     override init() {
         super.init()
@@ -61,7 +71,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     /// DesktopWindow.ts: a held ⌘W can outlive the panel that took its first press, so its
     /// auto-repeats (no ⌥, no ⇧) never reach the menu's Close Window. Matched by key code 13 as
     /// well, since a non-Latin source (Korean 2-Set) reports ㅈ there: this monitor reads the raw
-    /// event, which exact2 #168's physical-key matching of declared chords does not reach (X15).
+    /// event, which exact2 #168's physical-key matching of declared chords does not reach (#110).
     static func dropsHeldClose(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard event.type == .keyDown, event.isARepeat, flags.contains(.command), !flags.contains(.option), !flags.contains(.shift) else { return false }
@@ -101,17 +111,19 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         if let view = bar.items.first(where: { $0.submenu?.title == "View" })?.submenu, view.item(withTitle: "Actual Size") == nil {
             let items: [(String, Selector, String, Bool)] = [("Actual Size", #selector(actualSize(_:)), "0", false), ("Zoom In", #selector(zoomIn(_:)), "=", false),
                                                             ("Zoom In", #selector(zoomIn(_:)), "+", true), ("Zoom Out", #selector(zoomOut(_:)), "-", false)]
+            // After the window's Reload and Force Reload, which the host files first with a separator of its own.
+            let start = Self.afterCommands(view)
             for (index, (title, action, key, hidden)) in items.enumerated() {
                 let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
                 item.target = self
                 item.isHidden = hidden
                 item.allowsKeyEquivalentWhenHidden = hidden
-                view.insertItem(item, at: index)
+                view.insertItem(item, at: start + index)
             }
-            view.insertItem(.separator(), at: items.count)
+            view.insertItem(.separator(), at: start + items.count)
         }
         // The host's Help since LLP 1115 D8 ("<app> Help" ⌘? and AppKit's search field): the reference's holds
-        // Check for Updates... alone, so the help-book item hides and leaves ⇧⌘/ to the search field.
+        // Check for Updates… alone, so the help-book item hides and leaves ⇧⌘/ to the search field.
         if let help = bar.items.first(where: { $0.submenu?.title == "Help" })?.submenu {
             for item in help.items where item.action == #selector(NSApplication.showHelp(_:)) && !item.isHidden { item.isHidden = true }
         }
@@ -119,7 +131,15 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         keys.arrange(bar)
     }
 
-    // MARK: Check for Updates...
+    /// The index past the app commands the host files at the top of `menu` and the separator it puts after them.
+    static func afterCommands(_ menu: NSMenu) -> Int {
+        var index = 0
+        while index < menu.numberOfItems, T3MenuBar.isCommand(menu.items[index]) { index += 1 }
+        if index > 0, index < menu.numberOfItems, menu.items[index].isSeparatorItem { index += 1 }
+        return index
+    }
+
+    // MARK: Check for Updates…
 
     /// DesktopUpdates getAutoUpdateDisabledReason: a bundle without an update store (its
     /// receipt's composition "embedded", app.json deploy.store "0") has no update feed.
@@ -139,7 +159,8 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         return alert
     }
     private func makeUpdatesItem() -> NSMenuItem {
-        let item = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        // DesktopApplicationMenu.ts:164 and 261 say "Check for Updates...", which Electron's Mac menus draw with an ellipsis.
+        let item = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         item.target = self
         return item
     }
@@ -176,7 +197,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         }
     }
     func menuNeedsUpdate(_ menu: NSMenu) { Self.orderApplicationMenu(menu, updates: appUpdatesItem) }
-    /// The reference's app menu: About, Check for Updates..., —, Settings..., —, then the
+    /// The reference's app menu: About, Check for Updates…, —, Settings…, —, then the
     /// host's Services / Hide / Quit groups with their own separators, none doubled.
     static func orderApplicationMenu(_ menu: NSMenu, updates: NSMenuItem) {
         let items = menu.items
@@ -254,8 +275,8 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         if let window { panel.beginSheetModal(for: window, completionHandler: finish) } else { finish(panel.runModal()) }
     }
 
-    /// WORKSPACE_IMAGE_PREVIEW_EXTENSIONS (packages/shared/src/filePreview.ts), without the dot.
-    static let faviconExtensions = ["avif", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"]
+    /// PROJECT_FAVICON_EXTENSIONS (packages/shared/src/projectFavicon.ts), without the dot.
+    static let faviconExtensions = ["avif", "gif", "icns", "ico", "jpeg", "jpg", "png", "svg", "webp"]
 
     /// pickProjectFavicon (apps/desktop/src/ipc/methods/window.ts): one image file, starting in the
     /// project's workspace root, as a sheet on the main window. The panel is built by `faviconPanel`
@@ -371,8 +392,8 @@ final class T3QuitHold {
         }
     }
     /// The event's key; Q's key code stands in when a non-Latin source (Korean 2-Set's ㅂ) types no
-    /// Latin letter there, as the r10-connect chords do: the quit hold reads raw key events, which
-    /// exact2 #168 (declared chords only) does not reach (X15).
+    /// Latin letter there, as T3LatinChords's chords do: the quit hold reads raw key events, which
+    /// exact2 #168 (declared chords only) does not reach (#110).
     static func key(_ event: NSEvent) -> String {
         let key = (event.charactersIgnoringModifiers ?? "").lowercased()
         return event.keyCode == 12 && !key.unicodeScalars.contains(where: { $0.isASCII }) ? "q" : key

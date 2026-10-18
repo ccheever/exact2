@@ -4,8 +4,10 @@ function withoutLines(s) { let o = "", bracket = 0; for (let i = 0; i < s.length
 function trackCount(s) { let count = 0; for (let i = 0; i < s.length;) { while (/\s/.test(s[i])) i++; if (i >= s.length) break; if (s[i] === "[") { for (i++; i < s.length && s[i] !== "]"; i += s[i] === "\\" ? 2 : 1); i++; continue; } const start = i; let depth = 0; for (; i < s.length; i++) { if (s[i] === "(") depth++; else if (s[i] === ")") depth--; else if (!depth && /\s/.test(s[i])) break; } const part = s.slice(start, i); if (/^repeat\(/i.test(part)) { const comma = part.indexOf(","), n = part.slice(7, comma).trim(); count += (/^\d+$/.test(n) ? Number(n) : 1) * trackCount(part.slice(comma + 1, -1)); } else count++; } return count; }
 export function gridValue(kind, value) {
   if (value == null) return value;
+  // A design token's property (LLP 1121 D7): each tuple's value was checked as this row's when it was built.
+  if (/^\s*var\(--x-[\w-]+\)\s*$/.test(String(value))) return value;
   const prop = kind === "tracks" ? "grid-template-columns" : kind === "placement" ? "grid-column" : kind === "flow" ? "grid-auto-flow" : "justify-items", v = normal(prop, String(value));
-  const refuse = why => { say(`unset ${prop}: ${JSON.stringify(value)} (${why})`); return null; };
+  const refuse = why => { say(`unset ${prop}: ${JSON.stringify(value)} (${why})`); return "unset"; };
   if (!v) return refuse("the browser rejected it");
   const lower = v.toLowerCase(), wide = /^(?:inherit|initial|unset|revert|revert-layer)$/;
   if (wide.test(lower)) return refuse("CSS-wide values have no kernel cascade");

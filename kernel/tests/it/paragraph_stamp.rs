@@ -162,7 +162,14 @@ fn inline_run_inheritance_matches_leaf_styles_after_override_clear_and_reparent(
     check(&k, &[4, 6, 8, 7], &[16.0, 40.0, 40.0, 20.0]);
     let mut mask = StyleMask::EMPTY;
     mask.set(StyleId::FontSize);
-    apply(&mut k, &[Op::ClearStyle { id: 5, mask }]);
+    apply(
+        &mut k,
+        &[Op::ClearStyle {
+            id: 5,
+            mask,
+            written: false,
+        }],
+    );
     check(&k, &[4, 6, 8, 7], &[16.0, 16.0, 16.0, 20.0]);
     apply(&mut k, &[children(3, &[4]), children(2, &[3, 5, 7])]);
     check(&k, &[4, 6, 8, 7], &[16.0, 20.0, 20.0, 20.0]);
@@ -220,6 +227,7 @@ fn metric_changes_invalidate_only_affected_owners_and_propagate_inheritance() {
         &[Op::ClearStyle {
             id: 7,
             mask: StyleMask::of(StyleId::FontSize),
+            written: false,
         }],
     );
     assert!(!inherited.same_metrics(&stamp(&k, 8)));
@@ -250,6 +258,7 @@ fn paint_changes_keep_metric_proof_and_update_source_mapping_revision() {
         &[Op::ClearStyle {
             id: 1,
             mask: StyleMask::of(StyleId::TextColor),
+            written: false,
         }],
     );
     assert!(old.same_metrics(&stamp(&k, 2)));
@@ -273,6 +282,7 @@ fn noops_and_rejected_mixed_batches_preserve_every_stamp() {
             Op::ClearStyle {
                 id: 2,
                 mask: StyleMask::of(StyleId::TextColor),
+                written: false,
             },
         ],
     );
@@ -369,6 +379,7 @@ fn detaching_a_container_refreshes_descendant_inheritance_before_becoming_root()
             Op::ClearStyle {
                 id: 7,
                 mask: StyleMask::of(StyleId::FontSize),
+                written: false,
             },
         ],
     );
@@ -416,6 +427,7 @@ fn attaching_an_orphan_container_only_remeasures_changed_inherited_values() {
             Op::ClearStyle {
                 id: 7,
                 mask: StyleMask::of(StyleId::FontSize),
+                written: false,
             },
             font(1, 24.0),
         ],

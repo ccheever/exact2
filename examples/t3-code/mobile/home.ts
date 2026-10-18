@@ -1,9 +1,9 @@
 import { blankHomeProvider, mobileHomeProvider, type HomeProvider } from './home-provider';
 import { blankHomeSwipe, type HomeSwipeData } from './home-swipe';
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // Mobile HomeScreen/threadListV2 at upstream 365aa87982; projection over the shared V2 shell.
-// @ref llp/1109.000-mobile-app-layout.decision.md#shared-typescript
-// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref examples/t3-code/mobile/docs/1130.000-mobile-app-layout.decision.md#shared-typescript
+// @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
 import { mobileClient } from './client';
 import { mobileOutboxPendingTasks, projectHomePending, mobileOutboxStatus, mobileOutboxOwner, type MobilePendingTask } from './mobile-outbox-presentation';
 import { mobilePendingTaskEditorsSnapshot, type MobilePendingTaskMarker } from './mobile-pending-task-state';

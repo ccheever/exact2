@@ -80,6 +80,17 @@ fn a_style_is_a_listed_literal() {
     );
     refused(r#""compact")"#, r#"(likes > 1 ? "compact" : "compact"))"#);
     refused(r#"offset, "short")"#, r#"offset, `short`)"#);
+    // LLP 1116.020 D8: `formatDay`'s mode likewise.
+    let e = contract::compile(
+        "component A\n  state m = \"day\"\n  view\n    text formatDay(0, 0, 0, m)\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-format-style", "{e}");
+    assert!(
+        e.message
+            .contains(r#"one of `"day"`, `"day-time"`, `"list"`"#),
+        "{e}"
+    );
     // A wrapper can't forward a style: its parameter is an expression.
     let e = contract::compile(
         "fn day(t: number, s: string): string = formatDate(t, 0, s)\ncomponent A\n  view\n    text day(0, \"medium\")\n",
@@ -106,7 +117,7 @@ fn the_roster_names_are_the_roster_s() {
             "day 3",
         ),
         (
-            "fn indexOf(xs: string[], p: string): number = 7\ncomponent A\n  state s = [\"a\", \"b\"]\n  view\n    text `${s.indexOf(\"b\")}` testId=\"x\"\n",
+            "fn indexOf(xs: string[], p: string): number = 7\ncomponent A\n  state s = [\"a\", \"b\"]\n  view\n    text `${indexOf(s, \"b\")}` testId=\"x\"\n",
             "7",
         ),
         (

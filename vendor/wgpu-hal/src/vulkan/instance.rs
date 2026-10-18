@@ -191,6 +191,16 @@ impl super::InstanceShared {
 }
 
 impl super::Instance {
+    /// EXACT (EXACT-PATCHES.md, 11): opt this instance's future adapters into
+    /// SHADER_F16 for arithmetic/storage even without 16-bit uniform access.
+    /// Such uniform shaders fail pipeline translation; this is not WebGPU's
+    /// full shader-f16 guarantee. Call before enumerating/requesting adapters.
+    pub fn enable_f16_arithmetic(&self) {
+        self.shared
+            .f16_arithmetic
+            .store(true, core::sync::atomic::Ordering::Relaxed);
+    }
+
     pub fn shared_instance(&self) -> &super::InstanceShared {
         &self.shared
     }
@@ -369,6 +379,8 @@ impl super::Instance {
 
         Ok(Self {
             shared: Arc::new(super::InstanceShared {
+                // EXACT (EXACT-PATCHES.md, 11): other consumers keep WebGPU's guarantee.
+                f16_arithmetic: core::sync::atomic::AtomicBool::new(false),
                 raw: raw_instance,
                 extensions,
                 drop_guard,

@@ -17,24 +17,53 @@ use contract_syntax::{
 use contract_types::Checked;
 use exact_kernel::StyleId;
 use exact_plan::Stdlib;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod counts;
+mod launch;
+pub(crate) mod line_height;
 mod miswiring;
+mod nested_header;
 mod parts;
 mod roles;
+mod root_replace;
+mod rows;
 mod screens;
+mod scroll_bound;
+mod states;
+mod svg;
 mod title;
 mod width;
 
-/// At most this many warnings from one compile, before the colours that
-/// stay one scheme: those name every site, each in a short line, since a
-/// repair of the first twenty would only show the next (rules/RULES.md,
-/// "Every check reports all failures in one run").
+pub(crate) use width::horizontal_flex;
+
+/// At most this many warnings from one compile, before `tamber-unreachable`
+/// and the colours that stay one scheme: those name every site, briefly,
+/// since a repair of the first twenty would only show the next
+/// (rules/RULES.md, "Every check reports all failures in one run").
 pub const MAX_WARNINGS: usize = 20;
 
 /// Every warning the checked file earns, in source order of its checks.
 pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
+    crate::control_roles::unlowered();
+    with_text_styles(checked, &TextStyles::new())
+}
+
+/// Effective text sizing and native control boundaries from lowering. A reused
+/// source site whose own style differs between instances stays unknown. The tag
+/// distinguishes a button from the title synthesized at the same source span.
+pub(crate) type TextStyles = std::collections::BTreeMap<(Span, u32, String), Option<TextStyle>>;
+
+#[derive(Clone, PartialEq)]
+pub(crate) struct TextStyle {
+    pub(crate) native: Option<bool>,
+    pub(crate) font: Option<Attr>,
+    pub(crate) layout: Vec<Attr>,
+    /// The lowered parent includes list cards and swipe scrollers absent from the source.
+    pub(crate) parent_horizontal_flex: Option<bool>,
+}
+
+pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> Vec<LowerError> {
     let root = &checked.expanded.root;
     let mut out = Vec::new();
     // Each node, whether a navigation root (the outermost element with a
@@ -66,6 +95,9 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                 out.extend(button.filter(|_| fresh));
                 out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
                 out.extend(roles::level_without_heading(tag, attrs, span).filter(|_| fresh));
+                if fresh {
+                    line_height::multiplier(attrs, &mut out);
+                }
                 let keyed = has(attrs, "navigationKey");
                 // @ref LLP 1116.010 D5 — a name or a key that meets nothing.
                 miswiring::swipe(attrs, children, fresh, &mut out);
@@ -83,6 +115,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                 let no_bar = literal(attrs, "navigationBar") == Some("none");
                 if route && !no_bar {
                     route_header(children, &[], &mut out);
+                    nested_header::nested_header(children, &mut out);
                 }
                 if let (true, Some(name)) = (route, back) {
                     drawn_back(attrs, children, name, &mut out);
@@ -107,12 +140,35 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
         };
         stack.extend(children.into_iter().rev().map(|n| (n, in_root, back)));
     }
+    for style in &checked.file.styles {
+        line_height::multiplier(&style.attrs, &mut out);
+    }
     out.extend(screens::screen_by_state(checked));
+    // A `replace` the router refuses on a root route's screen.
+    out.extend(root_replace::root_replace(checked));
     out.extend(counts::count_plural(checked));
+    // @ref LLP 1116.016 D4 — a row that searches another data list.
+    out.extend(rows::row_lookup(checked));
+    // @ref LLP 1116.020 D1 — a `delete=` no list row holds.
+    out.extend(crate::swipe_rows::unplaced(
+        &root.view,
+        &checked.file.styles,
+    ));
     // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
     out.extend(parts::round_button_label(checked));
+    // @ref LLP 1116.020 D5 — an empty state drawn as a list's row.
+    out.extend(parts::empty_state_in_list(checked));
+    // @ref LLP 1116.021 D7 — a summary card in a grouped list's card.
+    out.extend(parts::summary_card_in_list(checked));
+    // @ref LLP 1121 D8 — a node's own state part it never meets.
+    states::dead(&root.view, &mut out);
     performance_now(root, &checked.file.fns, &mut out);
+    // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
+    launch::launch_identity(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);
+    scroll_bound::scroll_grows(&root.view, &checked.file.styles, &mut out);
+    width::text_px_width(&root.view, &checked.file.styles, lowered, &mut out);
+    svg::use_foreign_object(&root.view, &mut out);
     out.extend(
         contract_analyze::read_after_assign(checked)
             .into_iter()
@@ -122,9 +178,42 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                 span: e.span,
             }),
     );
+    // @ref LLP 1121 D15 — the design's values of params the app no longer has.
+    if let Some(source) = &checked.file.design {
+        if let Ok(design) = exact_tamber::parse(&source.text) {
+            let params = crate::params::tokens(checked.file);
+            out.extend(crate::params::unknown(
+                &design,
+                &params,
+                &crate::params::identities(checked.file),
+                source.source_id,
+            ));
+        }
+    }
     out.truncate(MAX_WARNINGS);
-    one_scheme(root, &checked.file.styles, &checked.file.fns, &mut out);
+    crate::control_roles::unreachable(&root.view, &checked.file.styles, &mut out);
+    one_scheme(
+        root,
+        &checked.file.styles,
+        &checked.file.fns,
+        crate::theme::theme_decl(checked.file).as_ref(),
+        &Tokens {
+            one: crate::theme::one_scheme_tokens(checked.file),
+            design: checked.file.theme.is_none(),
+        },
+        &mut out,
+    );
     out
+}
+
+/// What the one-scheme warning knows of the app's tokens (LLP 1121 D3).
+struct Tokens {
+    /// The tokens one colour in light and dark, not marked `scheme=fixed`,
+    /// with that colour and whether in every tuple (`theme::one_scheme_tokens`).
+    one: Vec<(String, String, bool)>,
+    /// The tokens are a design's (`app.tamber`), which can mark one, not an
+    /// inline `theme`'s.
+    design: bool,
 }
 
 fn has(attrs: &[Attr], name: &str) -> bool {
@@ -178,6 +267,9 @@ enum Part {
     Tablist,
     /// A button that presses, or opens a popover: a bar item.
     Pressable,
+    /// `role="status"`: a readout, a bar item that nothing presses (LLP
+    /// 1075.003 §9.15), what it holds its face.
+    Status,
     /// A plain box, walked into.
     Box,
     /// Anything else.
@@ -205,6 +297,9 @@ fn part(node: &Node) -> Part {
     if has(attrs, "press") || (tag == "button" && opens) || tag == "link" {
         return Part::Pressable;
     }
+    if role == Some("status") && tag != "header" {
+        return Part::Status;
+    }
     match tag.as_str() {
         "text" if role == Some("heading") => Part::Heading,
         "text" => Part::Text,
@@ -226,7 +321,12 @@ fn kids(node: &Node) -> &[Node] {
 /// cannot see through: then a box around it is walked, not dropped whole.
 fn holds_placed(node: &Node) -> bool {
     kids(node).iter().any(|k| match part(k) {
-        Part::Doubt | Part::Heading | Part::Search | Part::Tablist | Part::Pressable => true,
+        Part::Doubt
+        | Part::Heading
+        | Part::Search
+        | Part::Tablist
+        | Part::Pressable
+        | Part::Status => true,
         Part::Box => holds_placed(k),
         Part::Hidden | Part::Text | Part::Other => false,
     })
@@ -235,7 +335,7 @@ fn holds_placed(node: &Node) -> bool {
 fn holds_heading(node: &Node) -> bool {
     kids(node).iter().any(|k| match part(k) {
         Part::Heading => true,
-        Part::Box | Part::Pressable => holds_heading(k),
+        Part::Box | Part::Pressable | Part::Status => holds_heading(k),
         _ => false,
     })
 }
@@ -304,7 +404,8 @@ const OR_NO_BAR: &str =
 /// iOS navigation bar does not place (LLP 1075.003 §9.10, LLP 1116 D6). The
 /// bar takes one heading as its title, the first text after it as the
 /// subtitle (a filled box before it as the avatar), one search field, one
-/// tablist and the buttons that press or open a popover; the rest of the
+/// tablist, the buttons that press or open a popover and the readouts
+/// (`role="status"`, LLP 1075.003 §9.15); the rest of the
 /// header is hidden with it. With no heading or with two, the bar takes
 /// nothing and the header is shown as written, so nothing is dropped; that
 /// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). An `if` first
@@ -351,7 +452,7 @@ fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<Lowe
         out.push(LowerError {
             id: "lower-header-unplaced",
             message: format!(
-                "{what} in this route's `header` is not shown on iOS: the navigation bar there takes one heading as its title, the first text after it as the subtitle, one `input type=\"search\"`, one `role=\"tablist\"` and the buttons that press, and hides the rest of the header. Move it below the `header`, into the route's content (the scroller's first row), or make it a button that presses (docs/contract-for-agents.md, \"Tabs and stacks\")"
+                "{what} in this route's `header` is not shown on iOS: the navigation bar there takes one heading as its title, the first text after it as the subtitle, one `input type=\"search\"`, one `role=\"tablist\"`, the buttons that press and the readouts (`role=\"status\"`), and hides the rest of the header. Move it below the `header`, into the route's content (the scroller's first row), make it a button that presses, or, if it is a status that nothing presses (a \"● Live\" beside the title), give it `role=\"status\"` (docs/contract-for-agents.md, \"Tabs and stacks\")"
             ),
             span,
         });
@@ -383,6 +484,9 @@ fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
                 walk(kids(node), bar);
             }
             Part::Pressable => {}
+            // A status around the heading is no readout: walked for it.
+            Part::Status if holds_heading(node) => walk(kids(node), bar),
+            Part::Status => {}
             Part::Text if bar.passed && !bar.subtitle => bar.subtitle = true,
             Part::Text => bar.unplaced.push((
                 span,
@@ -544,71 +648,120 @@ fn single_tab(tablist: &Node, out: &mut Vec<LowerError>) {
     }
 }
 
+/// What a number may be, as far as the clock goes: a bit set. A value may
+/// be several (a state assigned a reading in one action and a duration in
+/// another). The empty set is a state or derive not yet resolved, which
+/// adds nothing to what reads it (see `performance_now`).
+type Kinds = u8;
+/// A reading of `performanceNow()`, the milliseconds since this launch, or
+/// a number made from one: a launch-relative time.
+const TIME: Kinds = 1;
+/// One reading less another: a span of time, the same on every launch.
+const SPAN: Kinds = 2;
+/// A value the source writes, or one of no clock (a literal, a count, a
+/// truth, a call of literals).
+const CONST: Kinds = 4;
+/// A value the compiler cannot see (a source's field, a parameter): taken,
+/// as an anchor, to be on the clock.
+const UNSEEN: Kinds = 8;
+/// The launch's wall-clock origin, `epochAtZero`.
+const EPOCH: Kinds = 16;
+const ALL: [Kinds; 5] = [TIME, SPAN, CONST, UNSEEN, EPOCH];
+
+/// One kind with another, under `op`: a time with the origin added is the
+/// wall-clock time; a time less a time or an unseen anchor is a span, less
+/// a constant, a span or the origin still a time; otherwise what either is,
+/// a constant only when both are.
+fn pair(op: BinOp, x: Kinds, y: Kinds) -> Kinds {
+    let join = if x == y || y == CONST {
+        x
+    } else if x == CONST {
+        y
+    } else {
+        x | y
+    };
+    match op {
+        BinOp::Add if x | y == TIME | EPOCH => UNSEEN,
+        BinOp::Sub if x == TIME => match y {
+            TIME | UNSEEN => SPAN,
+            _ => TIME,
+        },
+        BinOp::Sub if y == TIME => TIME,
+        _ => join,
+    }
+}
+
+/// `op` over every kind `a` may be and every kind `b` may be: monotone, so
+/// the names' kinds only grow. Either side unresolved, nothing yet.
+fn arith(op: BinOp, a: Kinds, b: Kinds) -> Kinds {
+    let mut out = 0;
+    for x in ALL.into_iter().filter(|x| a & x != 0) {
+        for y in ALL.into_iter().filter(|y| b & y != 0) {
+            out |= pair(op, x, y);
+        }
+    }
+    out
+}
+
 /// What the expanded root's names may hold, as far as the clock goes.
 struct Clock<'a> {
     fns: &'a [FnDecl],
-    /// Names whose value may be a reading of `performanceNow()`: the
-    /// milliseconds since this launch, or a number made from one.
-    marks: BTreeSet<String>,
-    /// Names whose value is the launch's wall-clock origin, `epochAtZero`.
-    epochs: BTreeSet<String>,
+    /// Each state's and derive's kinds, from what is assigned to it; empty
+    /// while not yet resolved.
+    names: BTreeMap<String, Kinds>,
 }
 
 impl Clock<'_> {
-    fn epoch(&self, e: &Expr, locals: &[(String, bool)]) -> bool {
-        match e {
-            Expr::Member(_, field, _) => field == "epochAtZero",
-            Expr::Ident(name, _) => {
-                !locals.iter().any(|(n, _)| n == name) && self.epochs.contains(name)
-            }
-            Expr::Typed(inner, _, _) => self.epoch(inner, locals),
-            _ => false,
-        }
+    /// Whether `e` may be a launch-relative time.
+    fn mark(&self, e: &Expr, locals: &[(String, Kinds)], depth: u32) -> bool {
+        self.kinds(e, locals, depth) & TIME != 0
     }
 
-    /// Whether `e` may be a launch-relative time: `performanceNow()`, a name
-    /// or a computation holding one, unless `epochAtZero` is added to it
-    /// (the wall-clock time) or another reading is taken from it (a
-    /// duration). `depth` bounds a `fn`'s expansion.
-    fn mark(&self, e: &Expr, locals: &[(String, bool)], depth: u32) -> bool {
-        let m = |e: &Expr| self.mark(e, locals, depth);
+    /// What `e` may be (`pair`). `depth` bounds a `fn`'s expansion.
+    fn kinds(&self, e: &Expr, locals: &[(String, Kinds)], depth: u32) -> Kinds {
+        let k = |e: &Expr| self.kinds(e, locals, depth);
         match e {
-            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => false,
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => CONST,
             Expr::Ident(name, _) => match locals.iter().rev().find(|(n, _)| n == name) {
-                Some(&(_, marked)) => marked,
-                None => self.marks.contains(name),
+                Some(&(_, kinds)) => kinds,
+                None => self.names.get(name).copied().unwrap_or(UNSEEN),
             },
-            Expr::Member(inner, field, _) => field != "epochAtZero" && m(inner),
+            Expr::Member(_, field, _) if field == "epochAtZero" => EPOCH,
+            Expr::Member(inner, _, _) => UNSEEN | (k(inner) & (TIME | EPOCH)),
             Expr::Call(name, args, _) => {
                 if let Some(f) = self.fns.iter().find(|f| &f.name == name) {
                     if depth == 0 {
-                        return args.iter().any(m);
+                        return args.iter().fold(UNSEEN, |acc, a| acc | k(a));
                     }
-                    let bound: Vec<(String, bool)> = f
+                    let bound: Vec<(String, Kinds)> = f
                         .params
                         .iter()
                         .zip(args)
-                        .map(|(p, a)| (p.name.clone(), m(a)))
+                        .map(|(p, a)| (p.name.clone(), k(a)))
                         .collect();
-                    return self.mark(&f.body, &bound, depth - 1);
+                    return self.kinds(&f.body, &bound, depth - 1);
                 }
                 match Stdlib::from_name(name) {
-                    Some(Stdlib::PerformanceNow) => true,
+                    Some(Stdlib::PerformanceNow) => TIME,
                     // A count, a position or a truth is no time.
-                    Some(f) if f.returns() == "bool" => false,
-                    Some(Stdlib::Length | Stdlib::IndexOf) => false,
-                    _ => args.iter().any(m),
+                    Some(f) if f.returns() == "bool" => CONST,
+                    Some(Stdlib::Length | Stdlib::IndexOf) => CONST,
+                    _ => args
+                        .iter()
+                        .map(k)
+                        .reduce(|a, b| arith(BinOp::Mul, a, b))
+                        .unwrap_or(UNSEEN),
                 }
             }
             Expr::Binary(op, a, b, _) => match op {
-                BinOp::Add if self.epoch(a, locals) || self.epoch(b, locals) => false,
-                BinOp::Sub if m(a) && m(b) => false,
-                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => m(a) || m(b),
-                _ => false,
+                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+                    arith(*op, k(a), k(b))
+                }
+                _ => CONST,
             },
-            Expr::Unary(UnOp::Neg, inner, _) => m(inner),
-            Expr::Unary(..) => false,
-            Expr::Ternary(_, a, b, _) => m(a) || m(b),
+            Expr::Unary(UnOp::Neg, inner, _) => k(inner),
+            Expr::Unary(..) => CONST,
+            Expr::Ternary(_, a, b, _) => k(a) | k(b),
             Expr::Match {
                 subject,
                 var,
@@ -617,47 +770,72 @@ impl Clock<'_> {
                 ..
             } => {
                 let mut inner = locals.to_vec();
-                inner.push((var.clone(), m(subject)));
-                self.mark(some, &inner, depth) || m(none)
+                inner.push((var.clone(), k(subject)));
+                self.kinds(some, &inner, depth) | k(none)
             }
             Expr::Let {
                 name, value, body, ..
             } => {
                 let mut inner = locals.to_vec();
-                inner.push((name.clone(), m(value)));
-                self.mark(body, &inner, depth)
+                inner.push((name.clone(), k(value)));
+                self.kinds(body, &inner, depth)
             }
-            Expr::Template(parts, _) => parts.iter().any(|p| match p {
-                TemplatePart::Expr(e) => m(e),
-                TemplatePart::Text(_) => false,
+            Expr::Template(parts, _) => parts.iter().fold(CONST, |acc, p| match p {
+                TemplatePart::Expr(e) => acc | (k(e) & TIME),
+                TemplatePart::Text(_) => acc,
             }),
-            Expr::List(items, _) => items.iter().any(m),
+            Expr::List(items, _) => items.iter().fold(0, |acc, e| acc | k(e)),
             Expr::Some(inner, _) | Expr::NamedArg(_, inner, _) | Expr::Typed(inner, _, _) => {
-                m(inner)
+                k(inner)
             }
-            Expr::Arrow { body, .. } => m(body),
+            Expr::Arrow { body, .. } => k(body),
         }
     }
 }
 
-/// Every state a statement list assigns a mark to, with its `let`s.
+/// The states an assignment computes from themselves (`mark = performanceNow() - mark`).
+fn self_assigned(body: &[Stmt], out: &mut BTreeSet<String>) {
+    for s in body {
+        match s {
+            Stmt::Assign { target, expr, .. } => {
+                let mut read = Vec::new();
+                screens::idents(expr, &mut read);
+                if read.contains(target) {
+                    out.insert(target.clone());
+                }
+            }
+            Stmt::If {
+                then, otherwise, ..
+            } => {
+                self_assigned(then, out);
+                self_assigned(otherwise, out);
+            }
+            Stmt::Match { some, none, .. } => {
+                self_assigned(&some.1, out);
+                self_assigned(none, out);
+            }
+            Stmt::Call { body, .. } => self_assigned(body, out),
+            Stmt::Let { .. } | Stmt::Command { .. } | Stmt::Send { .. } | Stmt::Refresh { .. } => {}
+        }
+    }
+}
+
+/// Each state a statement list assigns, with what it may assign, and its `let`s.
 fn assigned(
     clock: &Clock<'_>,
     body: &[Stmt],
-    locals: &mut Vec<(String, bool)>,
-    out: &mut BTreeSet<String>,
+    locals: &mut Vec<(String, Kinds)>,
+    out: &mut BTreeMap<String, Kinds>,
 ) {
     let scope = locals.len();
     for s in body {
         match s {
             Stmt::Let { name, expr, .. } => {
-                let marked = clock.mark(expr, locals, 4);
-                locals.push((name.clone(), marked));
+                let kinds = clock.kinds(expr, locals, 4);
+                locals.push((name.clone(), kinds));
             }
             Stmt::Assign { target, expr, .. } => {
-                if clock.mark(expr, locals, 4) {
-                    out.insert(target.clone());
-                }
+                *out.entry(target.clone()).or_default() |= clock.kinds(expr, locals, 4);
             }
             Stmt::If {
                 then, otherwise, ..
@@ -671,8 +849,8 @@ fn assigned(
                 none,
                 ..
             } => {
-                let marked = clock.mark(subject, locals, 4);
-                locals.push((some.0.clone(), marked));
+                let kinds = clock.kinds(subject, locals, 4);
+                locals.push((some.0.clone(), kinds));
                 assigned(clock, &some.1, locals, out);
                 locals.pop();
                 assigned(clock, none, locals, out);
@@ -688,15 +866,15 @@ fn assigned(
 fn sent(
     clock: &Clock<'_>,
     body: &[Stmt],
-    locals: &mut Vec<(String, bool)>,
+    locals: &mut Vec<(String, Kinds)>,
     out: &mut Vec<(Span, String)>,
 ) {
     let scope = locals.len();
     for s in body {
         match s {
             Stmt::Let { name, expr, .. } => {
-                let marked = clock.mark(expr, locals, 4);
-                locals.push((name.clone(), marked));
+                let kinds = clock.kinds(expr, locals, 4);
+                locals.push((name.clone(), kinds));
             }
             Stmt::Send { source, args, .. } => {
                 for a in args.iter().filter(|a| clock.mark(a, locals, 4)) {
@@ -715,8 +893,8 @@ fn sent(
                 none,
                 ..
             } => {
-                let marked = clock.mark(subject, locals, 4);
-                locals.push((some.0.clone(), marked));
+                let kinds = clock.kinds(subject, locals, 4);
+                locals.push((some.0.clone(), kinds));
                 sent(clock, &some.1, locals, out);
                 locals.pop();
                 sent(clock, none, locals, out);
@@ -733,37 +911,48 @@ fn sent(
 /// persisted state (LLP 1116 D6, D5).
 /// `performanceNow()` counts from 0 at each launch, so a start mark a
 /// source keeps reads as a time before the next launch began (stopwatch:
-/// laps of `0-5:0-41`). A duration, one reading less another, is kept as
+/// laps of `0-5:0-41`). A span, one reading less another (or less an
+/// anchor the compiler cannot see, euxy's `transport.anchorAt`), is kept as
 /// it is.
 fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut Vec<LowerError>) {
+    // Every state and derive starts unresolved (no kinds), so what reads one
+    // waits for it: a derive of the origin read before it resolves gives
+    // nothing, not a guess it keeps.
+    let names = root.states.iter().chain(&root.derives);
     let mut clock = Clock {
         fns,
-        marks: BTreeSet::new(),
-        epochs: BTreeSet::new(),
+        names: names.map(|b| (b.name.clone(), 0)).collect(),
     };
-    // Settle which states and derives hold marks. Each round recomputes
-    // them from the last, so a name marked before what it subtracts was
-    // known (a duration, `performanceNow() - start`) is cleared again; the
-    // rounds are bounded by the names.
-    let names = root.states.len() + root.derives.len() + 1;
-    for _ in 0..=names {
-        let mut marks = BTreeSet::new();
-        let mut epochs = BTreeSet::new();
-        for b in root.states.iter().chain(&root.derives) {
-            if clock.mark(&b.expr, &[], 4) {
-                marks.insert(b.name.clone());
-            }
-            if clock.epoch(&b.expr, &[]) {
-                epochs.insert(b.name.clone());
-            }
+    // What each grows to, round by round, from what is assigned to it, until
+    // nothing more is added: every step is monotone (`arith`), so the rounds
+    // end, at most five kinds a name. An assigned state's initial number is
+    // its placeholder (`state start = 0`), only a reading there counting,
+    // unless an assignment computes the state from itself, whose first run
+    // reads that number; one never assigned is its initial value.
+    let mut targets = BTreeMap::new();
+    let mut selfish = BTreeSet::new();
+    for a in &root.actions {
+        assigned(&clock, &a.body, &mut Vec::new(), &mut targets);
+        self_assigned(&a.body, &mut selfish);
+    }
+    let rounds = (clock.names.len() + 1) * ALL.len();
+    for _ in 0..rounds {
+        let mut names = clock.names.clone();
+        for s in &root.states {
+            let placeholder = targets.contains_key(&s.name) && !selfish.contains(&s.name);
+            let kept = if placeholder { TIME } else { !0 };
+            *names.entry(s.name.clone()).or_default() |= clock.kinds(&s.expr, &[], 4) & kept;
+        }
+        for d in &root.derives {
+            *names.entry(d.name.clone()).or_default() |= clock.kinds(&d.expr, &[], 4);
         }
         for a in &root.actions {
-            assigned(&clock, &a.body, &mut Vec::new(), &mut marks);
+            assigned(&clock, &a.body, &mut Vec::new(), &mut names);
         }
-        if marks == clock.marks && epochs == clock.epochs {
+        if names == clock.names {
             break;
         }
-        (clock.marks, clock.epochs) = (marks, epochs);
+        clock.names = names;
     }
     let mut found = Vec::new();
     for a in &root.actions {
@@ -771,7 +960,7 @@ fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut 
     }
     // A persisted state outlives the launch as a source's copy does (D5).
     for s in root.states.iter().filter(|s| root.persists(&s.name)) {
-        if clock.marks.contains(&s.name) {
+        if clock.names.get(&s.name).is_some_and(|k| k & TIME != 0) {
             out.push(LowerError {
                 id: "type-performance-now-persisted",
                 message: format!(
@@ -898,16 +1087,47 @@ fn literal_colours(text: &str, out: &mut Vec<String>) {
 struct Leaves<'a> {
     fns: &'a [FnDecl],
     derives: &'a [Binding],
+    /// The theme's entries, by every spelling a row names them (LLP 1095
+    /// D4): a name is the colour it stands for.
+    theme: Vec<(String, &'a str)>,
+    /// The entries a row names: their colours are their declaration's to
+    /// report, once, not each row's.
+    named: std::cell::RefCell<Vec<String>>,
 }
 
 impl Leaves<'_> {
+    /// The entry a theme name is, as declared, and the colour text it
+    /// stands for: a name exactly, a role's spelling without case (LLP 1095
+    /// D4).
+    fn entry_named(&self, word: &str) -> Option<(&str, &str)> {
+        self.theme
+            .iter()
+            .find(|(name, _)| {
+                *name == word
+                    || exact_kernel::style::roles::role(name).is_some()
+                        && name.eq_ignore_ascii_case(word)
+            })
+            .map(|(name, value)| (name.as_str(), *value))
+    }
+
     /// The literal colours `e` may be: its string leaves, through `?:`,
     /// `match`, a template's text, a `fn`'s body and a derive. A name the
     /// view binds, a state, a field or a call of the stdlib is given the
     /// benefit of the doubt. `depth` bounds the expansion.
     fn colours(&self, e: &Expr, locals: &[String], depth: u32, out: &mut Vec<String>) {
         match e {
-            Expr::Str(text, _) => literal_colours(text, out),
+            Expr::Str(text, _) => {
+                literal_colours(text, out);
+                // A token's colours are its declaration's (LLP 1121 D3).
+                for word in text.split(|c: char| c.is_whitespace() || c == ',') {
+                    if let Some((name, _)) = self.entry_named(word) {
+                        let mut named = self.named.borrow_mut();
+                        if !named.iter().any(|n| n == name) {
+                            named.push(name.to_string());
+                        }
+                    }
+                }
+            }
             Expr::Template(parts, _) => {
                 for p in parts {
                     if let TemplatePart::Text(text) = p {
@@ -951,12 +1171,14 @@ impl Leaves<'_> {
     }
 }
 
-/// One attribute that sets a literal colour.
+/// One attribute that sets a literal colour, or a token one colour in
+/// every scheme, at its declaration.
 struct Site {
     span: Span,
     name: String,
     paints: Paints,
     colours: Vec<String>,
+    token: bool,
 }
 
 /// Every attribute of `attrs` that sets a literal colour on the page's own
@@ -977,9 +1199,28 @@ fn colour_sites(attrs: &[Attr], leaves: &Leaves<'_>, locals: &[String], out: &mu
                 name: a.name.clone(),
                 paints,
                 colours,
+                token: false,
             });
         }
     }
+}
+
+/// Whether `e` is, or can choose, the string `word`.
+fn names(e: &Expr, word: &str) -> bool {
+    match e {
+        Expr::Str(s, _) => s == word,
+        Expr::Ternary(_, a, b, _) => names(a, word) || names(b, word),
+        _ => false,
+    }
+}
+
+/// Whether a literal colour is white.
+fn white(c: &str) -> bool {
+    let c = c.trim().to_ascii_lowercase().replace(' ', "");
+    matches!(
+        c.as_str(),
+        "white" | "#fff" | "#ffff" | "#ffffff" | "#ffffffff" | "rgb(255,255,255)"
+    )
 }
 
 /// `lower-colour-one-scheme`: a literal colour (a hex, `rgb()`, `hsl()`, a
@@ -994,29 +1235,114 @@ fn colour_sites(attrs: &[Attr], leaves: &Leaves<'_>, locals: &[String], out: &mu
 /// One line a node and property, each short, so every site is named in
 /// one run; with more than one, a last line says why and what the accent
 /// may be.
-fn one_scheme(root: &Component, styles: &[StyleDecl], fns: &[FnDecl], out: &mut Vec<LowerError>) {
+fn one_scheme(
+    root: &Component,
+    styles: &[StyleDecl],
+    fns: &[FnDecl],
+    theme: Option<&contract_syntax::ThemeDecl>,
+    tokens: &Tokens,
+    out: &mut Vec<LowerError>,
+) {
     // A game (LLP 1046) reads its world through `exactSurface`: its HUD and
     // title screen are its art, over a world no scheme repaints.
     if root.resources.iter().any(|r| r.source == "exactSurface") {
         return;
     }
+    let entries = theme.map_or(&[][..], |t| &t.entries[..]);
+    let mut spelled = Vec::new();
+    for e in entries {
+        let Expr::Str(value, _) = &e.value else {
+            continue;
+        };
+        spelled.push((e.name.clone(), value.as_str()));
+        spelled.push((format!("-exact-{}", e.name), value.as_str()));
+    }
     let leaves = Leaves {
         fns,
         derives: &root.derives,
+        theme: spelled,
+        named: Default::default(),
+    };
+    // A token's colour when it is one in light and dark, by any spelling.
+    let one = |name: &str| {
+        let bare = name.strip_prefix("-exact-").unwrap_or(name);
+        tokens
+            .one
+            .iter()
+            .find(|(n, ..)| n == name || n == bare)
+            .map(|(_, c, _)| vec![c.clone()])
+            .unwrap_or_default()
     };
     let mut sites = Vec::new();
+    // An entry that replaces a role the page paints with no row naming it
+    // (its text, its ground) is a site of its own.
+    for e in entries {
+        let role = exact_kernel::style::roles::role(&e.name)
+            .or_else(|| exact_kernel::style::roles::role(&format!("-exact-{}", e.name)));
+        let paints = match role
+            .and_then(exact_kernel::style::roles::role_of)
+            .map(|r| r.name)
+        {
+            Some("CanvasText" | "label" | "secondary-label" | "FieldText") => Paints::Text,
+            Some(
+                "Canvas"
+                | "background"
+                | "grouped-background"
+                | "secondary-background"
+                | "secondary-grouped-background"
+                | "Field",
+            ) => Paints::Surface,
+            Some("separator" | "opaque-separator") => Paints::Line,
+            _ => continue,
+        };
+        let colours = one(&e.name);
+        if !colours.is_empty() {
+            // A declaration: the token's repair, the mark or a pair.
+            sites.push(Site {
+                span: e.span,
+                name: e.name.clone(),
+                paints,
+                colours,
+                token: true,
+            });
+        }
+    }
     for s in styles {
         colour_sites(&s.attrs, &leaves, &[], &mut sites);
     }
-    let mut stack: Vec<(&Node, Vec<String>)> =
-        root.view.iter().rev().map(|n| (n, Vec::new())).collect();
-    while let Some((node, locals)) = stack.pop() {
+    // Each node with whether the nearest fill over it (its own included)
+    // can be the accent.
+    let mut stack: Vec<(&Node, Vec<String>, bool)> = root
+        .view
+        .iter()
+        .rev()
+        .map(|n| (n, Vec::new(), false))
+        .collect();
+    while let Some((node, locals, on_accent)) = stack.pop() {
+        let mut accent = on_accent;
         let (children, locals): (Vec<&Node>, Vec<String>) = match node {
             Node::Element { tag, .. } if tag == "svg" => continue,
             Node::Element {
                 attrs, children, ..
             } => {
+                if let Some(fill) = attrs.iter().rev().find(|a| a.name == "background-color") {
+                    accent = names(&fill.value, "AccentColor");
+                }
+                let first = sites.len();
                 colour_sites(attrs, &leaves, &locals, &mut sites);
+                // @ref LLP 1116.020 D7 — white text on an accent fill is a
+                // filled button's label (Messages' bubble): the accent stays
+                // a fill in both schemes, and `check` holds the pair to 3:1.
+                if accent {
+                    let mut i = first;
+                    while i < sites.len() {
+                        if sites[i].name == "color" && sites[i].colours.iter().all(|c| white(c)) {
+                            sites.remove(i);
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
                 (children.iter().collect(), locals)
             }
             Node::When {
@@ -1040,7 +1366,31 @@ fn one_scheme(root: &Component, styles: &[StyleDecl], fns: &[FnDecl], out: &mut 
             Node::Use { children, .. } => (children.iter().collect(), locals),
             Node::Children { .. } => continue,
         };
-        stack.extend(children.into_iter().rev().map(|n| (n, locals.clone())));
+        stack.extend(
+            children
+                .into_iter()
+                .rev()
+                .map(|n| (n, locals.clone(), accent)),
+        );
+    }
+    // A token a row names that is one colour in every scheme: one line, at
+    // its declaration, however many rows name it (LLP 1121 D3).
+    let named = leaves.named.borrow().clone();
+    for e in entries {
+        let spellings = [e.name.clone(), format!("-exact-{}", e.name)];
+        if !named.iter().any(|n| spellings.contains(n)) {
+            continue;
+        }
+        let colours = one(&e.name);
+        if !colours.is_empty() {
+            sites.push(Site {
+                span: e.span,
+                name: e.name.clone(),
+                paints: Paints::Text,
+                colours,
+                token: true,
+            });
+        }
     }
     // A component used twice is inlined twice: one line for its source.
     let mut seen = BTreeSet::new();
@@ -1053,7 +1403,7 @@ fn one_scheme(root: &Component, styles: &[StyleDecl], fns: &[FnDecl], out: &mut 
             s.name.clone(),
         ))
     });
-    let why = "The one authored colour is the accent: a role, or one `light-dark(light, dark)` pair on `accent-color`. A forced `color-scheme` is no repair: the app then has no dark mode (docs/contract-for-agents.md, \"Colours: say a role, not a value\")";
+    let why = "Leave the accent unsaid (the platform's; a brand is an `app.tamber`), or write it as a role or one `light-dark(light, dark)` pair on `accent-color`. A forced `color-scheme` is no repair: the app then has no dark mode (docs/contract-for-agents.md, \"Colours: say a role, not a value\")";
     // `#fff` on `color` stays; `#fff`, `#eee` on `background-color` stay.
     let shown = |s: &Site| {
         let mut shown: Vec<String> = s.colours.iter().take(3).map(|c| format!("`{c}`")).collect();
@@ -1067,7 +1417,36 @@ fn one_scheme(root: &Component, styles: &[StyleDecl], fns: &[FnDecl], out: &mut 
         };
         format!("{} on `{}` {stay}", shown.join(", "), s.name)
     };
+    // A token's line names it and both ways out (LLP 1121 D3).
+    let mark = match tokens.design {
+        true => "mark it `scheme=fixed` in the design if one colour is deliberate (an ink on a fixed fill, a ground under media)",
+        false => "an inline `theme` cannot mark one deliberate: move it to `app.tamber` and mark it `scheme=fixed`",
+    };
+    let token = |s: &Site| {
+        // Marked only where it is one colour in every app mode.
+        let every = tokens.one.iter().any(|(n, _, all)| *all && (*n == s.name));
+        if !every {
+            return format!(
+                "`{}` is the same colour in light and dark in some app modes ({}): give it a `light-dark(light, dark)` pair in those (`scheme=fixed` is for a token one colour in every mode)",
+                s.name,
+                s.colours.iter().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
+            );
+        }
+        format!(
+            "`{}` is the same colour in light and dark ({}): give it a `light-dark(light, dark)` pair, or {mark}",
+            s.name,
+            s.colours.iter().take(3).map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
+        )
+    };
     if let [s] = sites.as_slice() {
+        if s.token {
+            out.push(LowerError {
+                id: "lower-colour-one-scheme",
+                message: token(s),
+                span: s.span,
+            });
+            return;
+        }
         out.push(LowerError {
             id: "lower-colour-one-scheme",
             message: format!(
@@ -1082,16 +1461,37 @@ fn one_scheme(root: &Component, styles: &[StyleDecl], fns: &[FnDecl], out: &mut 
     for s in &sites {
         out.push(LowerError {
             id: "lower-colour-one-scheme",
-            message: format!("{} the same in dark mode: {}", shown(s), s.paints.repair()),
+            message: match s.token {
+                true => token(s),
+                false => format!("{} the same in dark mode: {}", shown(s), s.paints.repair()),
+            },
             span: s.span,
         });
+    }
+    // Every line a token's: their closer is a token's repair.
+    if let Some(first) = sites.first().filter(|_| sites.iter().all(|s| s.token)) {
+        out.push(LowerError {
+            id: "lower-colour-one-scheme",
+            message: format!(
+                "these {} tokens are the same colour in light and dark: each line above says how to repair it",
+                sites.len()
+            ),
+            span: first.span,
+        });
+        return;
     }
     if let Some(first) = sites.first() {
         out.push(LowerError {
             id: "lower-colour-one-scheme",
             message: format!(
-                "these {} literal colours stay the same in dark mode while the platform's text and controls change, so a light card keeps its colour under the platform's white text: name a role for each or leave it unsaid. {why}",
-                sites.len()
+                "these {} {}colours stay the same in dark mode while the platform's text and controls change, so a light card keeps its colour under the platform's white text: name a role for each{} or leave it unsaid. {why}",
+                sites.len(),
+                if sites.iter().any(|s| s.token) { "" } else { "literal " },
+                if sites.iter().any(|s| s.token) {
+                    " literal (each token's line says its own repair)"
+                } else {
+                    ""
+                }
             ),
             span: first.span,
         });

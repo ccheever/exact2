@@ -32,12 +32,46 @@ pub enum Op {
     ClearProp { id: ViewId, prop: PropId },
     /// Apply a masked style patch.
     SetStyle { id: ViewId, patch: Box<StyleProps> },
-    /// Reset the rows in `mask` to their defaults.
-    ClearStyle { id: ViewId, mask: StyleMask },
+    /// Clear own values; `written` retains an explicit authored CSS clear.
+    ClearStyle {
+        id: ViewId,
+        mask: StyleMask,
+        written: bool,
+    },
     /// Replace the ordered child list.
     SetChildren { id: ViewId, children: Vec<ViewId> },
     /// Register `id` as a layout root. Roots have no parent.
     AttachRoot { id: ViewId },
+    /// Replace `id`'s state looks (LLP 1121 D8): each a state
+    /// ([`LOOK_HOVER`], [`LOOK_FOCUS_VISIBLE`]; ascending, each once) and a
+    /// patch of [`look_rows`] only, resolved as a static row is. Empty
+    /// clears them. `:active` is no look: it lowers to the press paint.
+    SetLooks {
+        id: ViewId,
+        looks: Vec<(u8, StyleProps)>,
+    },
+}
+
+/// A look's state: `:hover`.
+pub const LOOK_HOVER: u8 = 1;
+/// A look's state: `:focus-visible`.
+pub const LOOK_FOCUS_VISIBLE: u8 = 2;
+
+/// The rows a state look may set (LLP 1121 D8, stage 8 A's lowering).
+pub fn look_rows() -> StyleMask {
+    let mut mask = StyleMask::EMPTY;
+    for id in [
+        crate::StyleId::BackgroundColor,
+        crate::StyleId::BorderColorTop,
+        crate::StyleId::BorderColorRight,
+        crate::StyleId::BorderColorBottom,
+        crate::StyleId::BorderColorLeft,
+        crate::StyleId::Opacity,
+        crate::StyleId::BoxShadow,
+    ] {
+        mask.set(id);
+    }
+    mask
 }
 
 impl Op {
@@ -52,6 +86,7 @@ impl Op {
             Op::ClearStyle { .. } => OpCode::ClearStyle,
             Op::SetChildren { .. } => OpCode::SetChildren,
             Op::AttachRoot { .. } => OpCode::AttachRoot,
+            Op::SetLooks { .. } => OpCode::SetLooks,
         }
     }
 
@@ -65,7 +100,8 @@ impl Op {
             | Op::SetStyle { id, .. }
             | Op::ClearStyle { id, .. }
             | Op::SetChildren { id, .. }
-            | Op::AttachRoot { id } => *id,
+            | Op::AttachRoot { id }
+            | Op::SetLooks { id, .. } => *id,
         }
     }
 
@@ -86,11 +122,21 @@ impl Op {
             }
             Op::ClearProp { prop, .. } => w.u16(*prop as u16),
             Op::SetStyle { patch, .. } => patch.encode_patch(w),
-            Op::ClearStyle { mask, .. } => w.style_mask(*mask),
+            Op::ClearStyle { mask, written, .. } => {
+                w.style_mask(*mask);
+                w.u8(u8::from(*written));
+            }
             Op::SetChildren { children, .. } => {
                 w.u32(children.len() as u32);
                 for child in children {
                     w.u32(*child);
+                }
+            }
+            Op::SetLooks { looks, .. } => {
+                w.u8(looks.len() as u8);
+                for (state, patch) in looks {
+                    w.u8(*state);
+                    patch.encode_patch(w);
                 }
             }
         }
@@ -144,6 +190,11 @@ impl Op {
             OpCode::ClearStyle => Op::ClearStyle {
                 id,
                 mask: r.style_mask()?,
+                written: match r.u8()? {
+                    0 => false,
+                    1 => true,
+                    value => return Err(DecodeError::NonCanonicalBool(value)),
+                },
             },
             OpCode::SetChildren => {
                 let count = r.u32()?;
@@ -158,6 +209,24 @@ impl Op {
                 Op::SetChildren { id, children }
             }
             OpCode::AttachRoot => Op::AttachRoot { id },
+            OpCode::SetLooks => {
+                let count = r.u8()?;
+                if count > 2 {
+                    return Err(DecodeError::TooManyLooks(count));
+                }
+                let mut looks = Vec::with_capacity(count as usize);
+                for _ in 0..count {
+                    let state = r.u8()?;
+                    // Ascending, each once: one encoding of one set.
+                    if !(LOOK_HOVER..=LOOK_FOCUS_VISIBLE).contains(&state)
+                        || looks.last().is_some_and(|(s, _)| *s >= state)
+                    {
+                        return Err(DecodeError::LookState(state));
+                    }
+                    looks.push((state, StyleProps::decode_patch(r)?));
+                }
+                Op::SetLooks { id, looks }
+            }
         };
         if !r.is_empty() {
             return Err(DecodeError::TrailingPayload {
@@ -182,6 +251,36 @@ mod tests {
         let decoded =
             Op::decode_payload(op.opcode(), op.target(), &mut Reader::new(&bytes)).unwrap();
         assert_eq!(decoded, op);
+    }
+
+    #[test]
+    fn set_looks_round_trips_and_refuses_a_state_twice_or_out_of_order() {
+        let mut active = StyleProps::default();
+        active.opacity = 0.5;
+        active.mask.set(StyleId::Opacity);
+        let hover = active.clone();
+        round_trip(Op::SetLooks {
+            id: 7,
+            looks: vec![(LOOK_HOVER, active.clone()), (LOOK_FOCUS_VISIBLE, hover)],
+        });
+        round_trip(Op::SetLooks {
+            id: 7,
+            looks: vec![],
+        });
+        for looks in [
+            vec![
+                (LOOK_FOCUS_VISIBLE, active.clone()),
+                (LOOK_HOVER, active.clone()),
+            ],
+            vec![(LOOK_HOVER, active.clone()), (LOOK_HOVER, active.clone())],
+            vec![(0, active.clone())],
+            vec![(3, active.clone())],
+        ] {
+            let mut w = Writer::new();
+            Op::SetLooks { id: 7, looks }.encode_payload(&mut w);
+            let bytes = w.into_vec();
+            assert!(Op::decode_payload(OpCode::SetLooks, 7, &mut Reader::new(&bytes)).is_err());
+        }
     }
 
     #[test]
@@ -229,7 +328,16 @@ mod tests {
                 id: 4,
                 patch: Box::new(patch),
             },
-            Op::ClearStyle { id: 4, mask },
+            Op::ClearStyle {
+                id: 4,
+                mask,
+                written: false,
+            },
+            Op::ClearStyle {
+                id: 4,
+                mask,
+                written: true,
+            },
             Op::SetChildren {
                 id: 5,
                 children: vec![1, 2, 3],
@@ -240,18 +348,32 @@ mod tests {
         }
     }
 
-    /// LLP 1115.000 D2: a patch says "written" only of a row it sets.
     #[test]
-    fn a_patch_that_writes_a_row_it_does_not_set_is_rejected() {
+    fn a_clear_with_a_noncanonical_author_bit_is_rejected() {
         let mut w = Writer::new();
-        w.style_mask(StyleMask::of(StyleId::Opacity));
-        w.style_mask(StyleMask::of(StyleId::Width));
-        w.f32(0.5);
-        let bytes = w.into_vec();
+        w.style_mask(StyleMask::of(StyleId::TextColor));
+        w.u8(2);
         assert_eq!(
-            Op::decode_payload(OpCode::SetStyle, 1, &mut Reader::new(&bytes)),
-            Err(DecodeError::WrittenUnsetRow)
+            Op::decode_payload(OpCode::ClearStyle, 1, &mut Reader::new(w.as_slice())),
+            Err(DecodeError::NonCanonicalBool(2))
         );
+    }
+
+    #[test]
+    fn explicit_clear_intent_round_trips_with_and_without_values() {
+        for value in [false, true] {
+            let mut patch = StyleProps::default();
+            patch.written.set(StyleId::TextColor);
+            if value {
+                patch.width = Dimension::Points(24.0);
+                patch.mask.set(StyleId::Width);
+                patch.written.set(StyleId::Width);
+            }
+            round_trip(Op::SetStyle {
+                id: 1,
+                patch: Box::new(patch),
+            });
+        }
     }
 
     #[test]

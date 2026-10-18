@@ -15,7 +15,7 @@ import { mobileDraftAttachmentRecord, mobileDraftAttachmentOrdersHydrate, mobile
 import { mobileDraftSettingsHandles } from './mobile-draft-settings';
 import { mobileOutboxTransferCompletionsHydrate, mobileOutboxTransferCompletionsPersisted, mobileOutboxTransferReleaseHandle } from './mobile-outbox-transfer-cleanup';
 // Pinned365aa87982 use-thread-composer-state run-loss recovery and composerContext.
-// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { T3Client, type Pending } from './shared/client';
 import { fleet } from './shared/settings-b-fleet';
 import { letGo, letGoAware } from './shared/let-go';

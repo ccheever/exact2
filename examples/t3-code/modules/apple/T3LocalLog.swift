@@ -1,4 +1,4 @@
-// The embedded server's failure log (20261005-embedded-server-runtime), after T3 Code's desktop
+// The embedded server's failure log, after T3 Code's desktop
 // app (MIT, see LICENSE-T3; reference 1e2ecbd975: apps/desktop/src/app/DesktopObservability.ts
 // `appendBoundedOutputChunk`, `makeRotatingLogFileWriter`, `makeBackendOutputLogShape`).
 //

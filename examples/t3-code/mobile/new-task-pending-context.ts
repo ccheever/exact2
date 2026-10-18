@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#pending-task-editor-save-and-restart-recovery
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#pending-task-editor-save-and-restart-recovery
 import type { T3Client } from './shared/client';
 import { mobileNewTaskDraftCurrent, mobileNewTaskDraftIsPendingKey } from './mobile-new-task-drafts';
 import { mobilePendingTaskEditorsSnapshot } from './mobile-pending-task-state';

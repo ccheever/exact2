@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 import XCTest
 
-// browser-surface part 3 (capture): Annotate (T3BrowserAnnotate.swift, assets/browser-annotate.js) against fixture pages
+// Annotate (T3BrowserAnnotate.swift, assets/browser-annotate.js) against fixture pages
 // in a window, driven by real AppKit mouse and key events into the web view where the reference's user drives the
 // guest (a click selects, Enter attaches, ⌘Enter sends, Escape cancels, drags draw and mark regions); the closed
 // shadow root's controls are reached through the overlay's own content world (`__t3codeAnnotate.test`), which the
@@ -162,6 +162,16 @@ final class BrowserAnnotateTests: XCTestCase {
     }
 
     // MARK: Tests
+
+    func testCommentDirectionFollowsItsTextOnARightToLeftPage() {
+        _ = CaptureSpin.evaluate(web, "document.documentElement.dir = 'rtl'; 'ok'")
+        start()
+        XCTAssertEqual(overlay()?["direction"] as? String, "ltr", "the toolbar keeps its layout")
+        test("setComment('Make this clearer')")
+        XCTAssertEqual(overlay()?["commentDirection"] as? String, "ltr")
+        test("setComment('مرحبا')")
+        XCTAssertEqual(overlay()?["commentDirection"] as? String, "rtl")
+    }
 
     func testTheOverlayShowsItsToolsAndKeepsItsShadowRootFromThePage() throws {
         start()

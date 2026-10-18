@@ -1,6 +1,6 @@
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
@@ -189,16 +189,21 @@ export function artifactDigest(host, dist, artifacts) {
 }
 // Shared by the proof and its artifact lifecycle regression: mode is baked only on web.
 export function buildInputHash(host, target, mode = '0', profile = process.env.EXACT_GAME_PROOF_PROFILE ?? 'gpu-dev') {
-  const hash = createHash('sha256').update(host).update(target);
+  // Receipts made before complete directory checks may describe stale artifacts.
+  const hash = createHash('sha256').update('exact game proof receipt v4\0').update(host).update(target);
   if (host === 'web') hash.update(mode);
   if (host === 'linux' || host === 'windows') hash.update(profile);
   return hash;
 }
 export async function ensureBuildReceipt({receipt, inputs, artifact, build}) {
-  let digest = artifact();
-  const stamp = () => JSON.stringify({inputs, artifact:digest});
+  const readInputs = typeof inputs === 'function' ? inputs : () => inputs;
+  let currentInputs = readInputs(), digest = artifact();
+  const stamp = () => JSON.stringify({inputs:currentInputs, artifact:digest});
   if (digest && existsSync(receipt) && readFileSync(receipt, 'utf8') === stamp()) return false;
   await build();
+  // A bake may rewrite generated inputs; bind them to the product from that same build.
+  try { currentInputs = readInputs(); }
+  catch (error) { rmSync(receipt, {force:true}); throw error; }
   digest = artifact();
   if (!digest) throw new Error('build produced no complete proof artifact');
   writeFileSync(receipt, stamp());
@@ -267,8 +272,14 @@ export function pinInputs(rows) {
     throw new Error('repin refused: proof inputs missing or changed between runs; pins.json unchanged');
   return inputs;
 }
+export function pinSourceInputs(rows) {
+  const inputs=rows[0]?.sourceInputs;
+  if(!/^[a-f0-9]{64}$/.test(inputs ?? '') || rows.some(row=>row.sourceInputs!==inputs))
+    throw new Error('repin refused: source inputs missing or changed between runs; pins.json unchanged');
+  return inputs;
+}
 /** Provenance without a commit is valid only for an unborn or non-Git game. */
-export function pinRevision(app, inputs) {
+export function pinRevision(app, sourceInputs) {
   const git = args => spawnSync('git', args, {cwd:app, encoding:'utf8', env:{...process.env, LC_ALL:'C'}});
   const refuse = result => { throw new Error(`repin refused: git provenance failed: ${result.error?.message ?? result.stderr?.trim() ?? result.status}; pins.json unchanged`); };
   const inside = git(['rev-parse', '--is-inside-work-tree']);
@@ -278,7 +289,7 @@ export function pinRevision(app, inputs) {
       if (existsSync(resolve(dir, '.git'))) { repository = true; break; }
       if (dirname(dir) === dir) break;
     }
-    if (!repository && inside.status === 128 && /not a git repository/.test(inside.stderr)) return `inputs:${inputs}`;
+    if (!repository && inside.status === 128 && /not a git repository/.test(inside.stderr)) return `inputs:${sourceInputs}`;
     refuse(inside);
   }
   const revision = git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
@@ -286,7 +297,7 @@ export function pinRevision(app, inputs) {
   const branch = git(['symbolic-ref', '-q', 'HEAD']);
   if (revision.status === 1 && branch.status === 0) {
     const missing = git(['show-ref', '--exists', branch.stdout.trim()]);
-    if (missing.status === 2) return `inputs:${inputs}`;
+    if (missing.status === 2) return `inputs:${sourceInputs}`;
   }
   refuse(revision);
 }
@@ -337,7 +348,9 @@ export function facilityReport(replies) {
 /// outputs. Source extensions, app assets, and Apple module inputs are admitted.
 /// A game's own scripts (bench.mjs, a proxy, a probe) are tools, not bake inputs:
 /// no bake reads a .mjs/.js outside its logic, data, gpu, render and asset folders.
-export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
+export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`, root = resolve(import.meta.dir, '..')) {
+  const gamePrefix = file.startsWith(appPrefix) ? appPrefix : file.startsWith('game/') ? 'game/' : null;
+  const gameParts = gamePrefix === null ? [] : file.slice(gamePrefix.length).split('/').slice(0, -1);
   return /^(issues|\.claude)\//.test(file)
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
     || (file.startsWith(appPrefix) && gameNonInput(file.slice(appPrefix.length)))
@@ -349,7 +362,8 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
     || ['node_modules/', 'target/', '.shells/', 'dist/', 'dist.previous/', 'dist-windows/', 'artifacts/'].some(output => file.startsWith(output) || file.startsWith('game/' + output) || file.startsWith(appPrefix + output))
     || /^(host\/web\/dist(?:\.previous)?|host\/apple\/\.build|game\/render\/target)\//.test(file)
     || (file.startsWith('apps/') && !file.startsWith(appPrefix))
-    || (file.startsWith('game/') && /\/(tests|examples)\//.test(file));
+    || gameParts.some((part, i) => ['tests', 'examples'].includes(part)
+      && existsSync(resolve(root, gamePrefix, ...gameParts.slice(0, i), 'Cargo.toml')));
 }
 export function proofInputFiles(root, app, inventory) {
   const top = inventory ? {status:0, stdout:root} : spawnSync('git', ['rev-parse','--show-toplevel'], {cwd:root, encoding:'utf8'});
@@ -366,11 +380,12 @@ export function proofInputFiles(root, app, inventory) {
   sources.push(...walk(app).map(file => relative(repository, resolve(app, file)).replaceAll('\\', '/')));
   const prefix = relative(repository, app).replaceAll('\\', '/') + '/';
   return [...new Set(sources)].sort().filter(file =>
-    !proofInputExcluded(file, basename(app), prefix) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
+    !proofInputExcluded(file, basename(app), prefix, repository) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
 }
 // Clean tracked bytes are identified by Git blobs. Dirty/ignored app inputs and
 // products reuse their digest only while their full stat tuple is unchanged.
-const statKey = path => { const s=statSync(path); return [s.dev,s.ino,s.size,s.mtimeMs,s.ctimeMs].join(':'); };
+// Nanosecond timestamps and inode identity catch edits restored before the next scan.
+const statKey = path => { const s=statSync(path, {bigint:true}); return [s.dev,s.ino,s.size,s.mtimeNs,s.ctimeNs].join(':'); };
 export function proofInputs(root, app, cachePath) {
   const git = args => spawnSync('git',args,{cwd:root,encoding:'utf8',maxBuffer:32*1024*1024});
   const listed=git(['ls-files','-s','-z','--cached','--others','--exclude-standard']);
@@ -383,8 +398,26 @@ export function proofInputs(root, app, cachePath) {
   }
   const dirty=new Set((status.stdout??'').split('\0').filter(row=>row && row[1]!==' ').map(row=>row.slice(3)));
   let cache={}; try {cache=JSON.parse(readFileSync(cachePath,'utf8'));} catch { /* First proof. */ }
-  const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[]}; let reads=0;
+  const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[],authored:[]}, authoredState=[], assetState=[]; let reads=0;
+  const manifest = resolve(app, '.baked-assets.json');
+  const generated = new Set(existsSync(manifest)
+    ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : []);
   const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined);
+  // File stats miss sources created, consumed and removed between scans. Walk
+  // shared and app source directories, including empty ones, to retain edits.
+  const directories = new Set();
+  const sourceDirectories = dir => {
+    if (!existsSync(dir) || directories.has(dir)) return;
+    const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
+    if (proofInputExcluded(file + 'input.rs', basename(app), prefix, root)) return;
+    directories.add(dir);
+    // The app root also contains the generated manifest. All its entry changes
+    // require a rerun, as do entry changes inside the generated asset tree.
+    const state = file === prefix || file.startsWith(prefix + 'assets/') ? assetState : authoredState;
+    state.push([file, statKey(dir)]);
+    for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name.localeCompare(b.name)))
+      if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) sourceDirectories(resolve(dir, entry.name));
+  };
   for(const file of files) {
     const path=resolve(root,file), key=statKey(path); let digest=blobs.get(file);
     if(!digest || status.status!==0 || dirty.has(file)) {
@@ -392,26 +425,52 @@ export function proofInputs(root, app, cachePath) {
       if(!digest) {const bytes=readFileSync(path); reads++; digest=createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');}
       next[file]={key,digest};
     }
-    rows.push([file,digest]);
+    rows.push([file,digest,key]);
   }
   for(const row of rows) {
-    const [file]=row; groups.all.push(row);
+    const [file,digest,key]=row, input=[file,digest]; groups.all.push(input);
+    if (file !== prefix + '.baked-assets.json' && !generated.has(file)) {
+      // Source provenance survives moving the app relative to the SDK. Keep
+      // execution paths and the in-flight file/directory checks unchanged.
+      groups.authored.push([file.startsWith(prefix) ? 'app/' + file.slice(prefix.length) : 'sdk/' + file, digest]);
+      authoredState.push([file,key]);
+    }
     // Host bake depends on the declaration, not the game's implementation.
     // Shared compiler crates remain conservative inputs of both graphs.
     const own=file.startsWith(prefix) ? file.slice(prefix.length) : null;
     const gpuOnly=own!==null ? /^(logic|gpu|render|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
     const hostOnly=own!==null ? /\.contract$/.test(own) : /^host\//.test(file);
-    if(!hostOnly) groups.gpu.push(row);
-    if(!gpuOnly) groups.host.push(row);
+    if(!hostOnly) groups.gpu.push(input);
+    if(!gpuOnly) groups.host.push(input);
   }
   if(cachePath) {mkdirSync(resolve(cachePath,'..'),{recursive:true});writeFileSync(cachePath,JSON.stringify(next));}
-  return {...Object.fromEntries(Object.entries(groups).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
+  // Snapshot after writing our cache so its first creation is not a build edit.
+  sourceDirectories(resolve(root));
+  // The repository walk excludes other apps at their shared parent, and an
+  // external app may be outside root. Always scan this app's whole input tree.
+  sourceDirectories(resolve(app));
+  groups.authored.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
+}
+// One reader per proof. Directory changes require a rerun, even for baked assets.
+export function proofInputReader(root, app, cachePath) {
+  let previous;
+  return () => {
+    const inputs = proofInputs(root, app, cachePath);
+    // Content identity alone misses an edit that is reverted while the build reads it.
+    if (previous && previous.authoredState !== inputs.authoredState)
+      throw new Error('authored proof inputs changed during build; rerun the proof');
+    if (previous && previous.assetState !== inputs.assetState)
+      throw new Error('app or asset directories changed during build; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)');
+    previous = inputs;
+    return inputs;
+  };
 }
 export async function ensureLinuxReceipts({directory,gpuInputs,hostInputs,gpuArtifact,hostArtifact,build,completeGpu = () => {}}) {
   const gpu=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-gpu.sha256'),inputs:gpuInputs,artifact:gpuArtifact,build:()=>build('gpu')});
   completeGpu();
   // The GPU build may have changed surfaces.json; observe it only afterwards.
-  const host=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-host.sha256'),inputs:hostInputs(),artifact:hostArtifact,build:()=>build('host')});
+  const host=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-host.sha256'),inputs:hostInputs,artifact:hostArtifact,build:()=>build('host')});
   return gpu || host;
 }
 export function productDigest(path, cachePath) {
@@ -459,7 +518,9 @@ export async function proof(meta, script) {
   const out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts', destination));
   const buildOut = resolve(app, 'artifacts');
   mkdirSync(buildOut, {recursive:true});
-  const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(app, 'dist'));
+  // Web builds replace dist atomically on every invocation. Keep that churn
+  // inside the excluded artifact tree, away from monitored source directories.
+  const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(buildOut, 'web-dist'));
   mkdirSync(out, {recursive:true});
   // Re-execute the actual proof, comparing every session's final simulation state.
   if (process.argv.includes('--paranoid')) {
@@ -581,14 +642,15 @@ export async function proof(meta, script) {
       };
     }});
   };
-  let inputDigest;
+  let inputDigest, sourceInputDigest;
   try {
     if (!['web','macos','ios','linux','windows'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const appInfo = resolveApp(name);
-    const inputs = proofInputs(root, app, resolve(buildOut, 'input-digests.json'));
-    inputDigest = inputs.all;
+    let inputs;
+    const scanInputs = proofInputReader(root, app, resolve(buildOut, 'input-digests.json'));
+    const readInputs = () => inputs = scanInputs();
     const inputHash = value => buildInputHash(destination, appInfo.target, process.env.EXACT_GAME_PARANOID ?? '0').update(value).digest('hex');
-    const digest = inputHash(inputs.all), receipt = resolve(buildOut, `build-${destination}.sha256`);
+    const receipt = resolve(buildOut, `build-${destination}.sha256`);
     const linuxTarget = host === 'linux' ? spawnSync('rustc', ['-vV'], {encoding:'utf8'}).stdout.match(/^host: (.+)$/m)?.[1] : null;
     const profile = process.env.EXACT_GAME_PROOF_PROFILE ?? 'gpu-dev';
     if (!['gpu-dev', 'release'].includes(profile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
@@ -597,16 +659,16 @@ export async function proof(meta, script) {
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
     if (host === 'windows') process.env.EXACT_WINDOWS_BIN = artifacts.binary;
     const built = host === 'linux' && profile === 'gpu-dev' ? await ensureLinuxReceipts({
-      directory:buildOut, gpuInputs:inputHash(inputs.gpu),
+      directory:buildOut, gpuInputs:() => inputHash(readInputs().gpu),
       completeGpu:() => writeFileSync(artifacts.module + '.proof.json',readFileSync(resolve(buildOut,'build-linux-gpu.sha256'))),
-      hostInputs:() => inputHash(inputs.host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8')),
+      hostInputs:() => inputHash(readInputs().host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8')),
       gpuArtifact:() => productDigest(artifacts.module,resolve(buildOut,'product-linux-gpu.json')),
       hostArtifact:() => productDigest(artifacts.binary,resolve(buildOut,'product-linux-host.json')),
       build:async part => {
         say(`BUILD ${part} stale or missing receipt`);
         buildBake(appInfo,'linux',linuxTarget,{profile,part,env:{EXACT_GAME_PARANOID:'0'}});
       },
-    }) : await ensureBuildReceipt({receipt, inputs:digest,
+    }) : await ensureBuildReceipt({receipt, inputs:() => inputHash(readInputs().all),
       artifact:() => artifactDigest(host, dist, artifacts), build:async () => {
       say(`BUILD stale or missing receipt ${receipt}; rebuilding: bun ${fileURLToPath(meta.url)} ${host}${device ? ' --device' : ''} --build-only`);
       if (host === 'linux') {
@@ -622,6 +684,9 @@ export async function proof(meta, script) {
         if (code !== 0) throw new Error(`app build exited ${code}`);
       }
     }});
+    // The proof reports the same post-build input tree that its receipts bind.
+    inputDigest = inputs.all;
+    sourceInputDigest = inputs.authored;
     if (!built) say(`BUILD cached ${name} ${destination}`);
     if (!process.argv.includes('--build-only')) {
       await script({open, check, equal, out, host, say, pin, pinSave});
@@ -673,7 +738,7 @@ export async function proof(meta, script) {
     const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg));
     const status = proofStatus({failures, expected:previousPins, pins, collecting, partial});
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
-    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
     say(`PROOF ${status} ${name} ${destination}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
     if (status === 'PASS' && host === 'linux') say(`Capture the PNG: ${proofCommand(fileURLToPath(meta.url), 'web')}`);

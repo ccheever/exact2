@@ -148,7 +148,7 @@ fn arg_types(
 ) -> Result<(), TypeError> {
     for (arg, pt) in args.iter().zip(params) {
         let t = infer(arg, scope, shapes)?;
-        if !checks::can_unify(&t, pt) {
+        if !checks::accepts_expr(pt, arg, &t, scope, shapes) {
             return err(
                 "type-argument",
                 format!("`{callee}` expects `{pt}`, given `{t}`"),
@@ -371,6 +371,9 @@ pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
                     break;
                 }
                 if let Ok(t) = infer(arg, &scope, shapes) {
+                    if ct.actions[ci][at].contains_enum() {
+                        continue;
+                    }
                     if let Some(u) = ct.actions[ci][at].unify(&t) {
                         ct.actions[ci][at] = u;
                     }
@@ -416,10 +419,17 @@ pub(super) fn unknown_function(
         "`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"
     );
     // The runner's own sources (the `SOURCE` of runner/src/time.rs, viewport.rs, page.rs,
-    // delivery.rs, surface_record.rs), called like functions (r34 t7: `exactTime().epochAtZero`).
+    // delivery.rs, surface_record.rs, transport.rs, midi.rs), called like functions (r34 t7:
+    // `exactTime().epochAtZero`).
     if matches!(
         name,
-        "exactTime" | "exactViewport" | "exactPage" | "exactDelivery" | "exactSurface"
+        "exactTime"
+            | "exactViewport"
+            | "exactPage"
+            | "exactDelivery"
+            | "exactSurface"
+            | "exactTransport"
+            | "exactMIDI"
     ) {
         let call = if name == "exactSurface" {
             "exactSurface(\"world\")".to_string()

@@ -5,6 +5,7 @@
 #include <hermes/BCGen/HBC/BytecodeFileFormat.h>
 #define IBEX2_HAS_HERMES_BYTECODE_FILE_FORMAT 1
 #endif
+#include <jsi/instrumentation.h>
 #include <cstring>
 #include <cmath>
 #include <limits>
@@ -270,12 +271,18 @@ struct Integrity {
   std::vector<std::pair<std::string, jsi::Value>> globals;
   std::vector<Intrinsic> intrinsics;
   jsi::Function descriptor, names, symbols, prototype, frozen, same;
+  // Made once: a PropNameID made from text is a heap allocation, and every
+  // descriptor read takes three.
+  jsi::PropNameID value_name, get_name, set_name;
   bool validated = false;
 
   explicit Integrity(jsi::Runtime& rt)
       : descriptor(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "getOwnPropertyDescriptor")),
         names(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "getOwnPropertyNames")),
         symbols(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "getOwnPropertySymbols")),
+        value_name(jsi::PropNameID::forAscii(rt, "value")),
+        get_name(jsi::PropNameID::forAscii(rt, "get")),
+        set_name(jsi::PropNameID::forAscii(rt, "set")),
         prototype(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "getPrototypeOf")),
         frozen(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "isFrozen")),
         same(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "is")) {
@@ -310,8 +317,8 @@ struct Integrity {
     Intrinsic item{std::move(object), jsi::Value(rt, parent), {}};
     for (auto& key : keys(rt, item.object)) {
       auto d = descriptor.call(rt, item.object, key).getObject(rt);
-      item.properties.push_back(Property{std::move(key), d.getProperty(rt, "value"),
-          d.getProperty(rt, "get"), d.getProperty(rt, "set")});
+      item.properties.push_back(Property{std::move(key), d.getProperty(rt, value_name),
+          d.getProperty(rt, get_name), d.getProperty(rt, set_name)});
     }
     intrinsics.push_back(std::move(item));
     if (parent.isObject()) capture(rt, parent.getObject(rt));
@@ -343,9 +350,9 @@ struct Integrity {
         auto raw = descriptor.call(rt, item.object, property.key);
         if (!raw.isObject()) refuse();
         auto d = raw.getObject(rt);
-        for (const auto& pair : {std::pair<const char*, const jsi::Value*>{"value", &property.value},
-                                 {"get", &property.get}, {"set", &property.set}}) {
-          if (!equal(rt, d.getProperty(rt, pair.first), *pair.second)) refuse();
+        for (const auto& pair : {std::pair<const jsi::PropNameID*, const jsi::Value*>{&value_name, &property.value},
+                                 {&get_name, &property.get}, {&set_name, &property.set}}) {
+          if (!equal(rt, d.getProperty(rt, *pair.first), *pair.second)) refuse();
           if (pair.second->isObject() && !frozen.call(rt, *pair.second).getBool()) refuse();
         }
       }
@@ -366,9 +373,9 @@ struct Integrity {
         if (!raw.isObject())
           throw jsi::JSError(rt, "trusted intrinsic replacement is absent");
         auto current = raw.getObject(rt);
-        property.value = current.getProperty(rt, "value");
-        property.get = current.getProperty(rt, "get");
-        property.set = current.getProperty(rt, "set");
+        property.value = current.getProperty(rt, value_name);
+        property.get = current.getProperty(rt, get_name);
+        property.set = current.getProperty(rt, set_name);
         return;
       }
       throw jsi::JSError(rt, "trusted intrinsic property was not captured");
@@ -382,11 +389,14 @@ struct Integrity {
 // bootstrap runs between install and harden -- so that bootstrap cannot change
 // what the walk sees by replacing Object.getOwnPropertyNames or Set.prototype.
 struct Reachability {
-  jsi::Function names, symbols, descriptor, prototype, set, has, add;
+  jsi::Function names, symbols, descriptor, has_own, prototype, set, has, add;
   explicit Reachability(jsi::Runtime& rt)
       : names(object_function(rt, "getOwnPropertyNames")),
         symbols(object_function(rt, "getOwnPropertySymbols")),
         descriptor(object_function(rt, "getOwnPropertyDescriptor")),
+        has_own(rt.global().getPropertyAsObject(rt, "Object")
+                    .getPropertyAsObject(rt, "prototype")
+                    .getPropertyAsFunction(rt, "hasOwnProperty")),
         prototype(object_function(rt, "getPrototypeOf")),
         set(rt.global().getPropertyAsFunction(rt, "Set")),
         has(set_method(rt, "has")),
@@ -1242,6 +1252,12 @@ void require_unreachable(
     auto seen = walk.set.callAsConstructor(rt).getObject(rt);
     std::vector<jsi::Value> pending;
     size_t edges = 0;
+    // Made once: a jsi::String or PropNameID made from text is a heap
+    // allocation, and the walk reads a field of every property.
+    const auto value_key = jsi::String::createFromAscii(rt, "value");
+    const auto value_name = jsi::PropNameID::forAscii(rt, "value");
+    const auto get_name = jsi::PropNameID::forAscii(rt, "get");
+    const auto set_name = jsi::PropNameID::forAscii(rt, "set");
     auto expand = [&](const jsi::Object& object) {
       for (const auto* list : {&walk.names, &walk.symbols}) {
         auto keys = list->call(rt, object).getObject(rt).getArray(rt);
@@ -1255,23 +1271,18 @@ void require_unreachable(
           auto raw = walk.descriptor.call(rt, object, keys.getValueAtIndex(rt, i));
           if (!raw.isObject()) continue;
           auto descriptor = raw.getObject(rt);
-          // Classify by the descriptor record's OWN fields, read with the
-          // captured getOwnPropertyDescriptor. `hasProperty`/`getProperty`
-          // would consult Object.prototype, where bootstrap can plant a
-          // `value` that hides an accessor's getter (or runs a getter).
-          auto own = [&](const char* field) {
-            return walk.descriptor.call(
-                rt, descriptor, jsi::String::createFromAscii(rt, field));
-          };
-          auto value = own("value");
-          if (value.isObject()) {
-            pending.push_back(value.getObject(rt).getProperty(rt, "value"));
+          // Classify by the descriptor record's OWN fields, tested with the
+          // captured hasOwnProperty. `hasProperty` would consult
+          // Object.prototype, where bootstrap can plant a `value` that hides an
+          // accessor's getter. The record is the ordinary object
+          // FromPropertyDescriptor made, whose fields are own data properties
+          // (a data record's `value`, an accessor record's `get` and `set`), so
+          // reading a field the test found runs nothing.
+          if (walk.has_own.callWithThis(rt, descriptor, value_key).getBool()) {
+            pending.push_back(descriptor.getProperty(rt, value_name));
           } else {
-            for (const char* field : {"get", "set"}) {
-              auto accessor = own(field);
-              if (accessor.isObject())
-                pending.push_back(accessor.getObject(rt).getProperty(rt, "value"));
-            }
+            pending.push_back(descriptor.getProperty(rt, get_name));
+            pending.push_back(descriptor.getProperty(rt, set_name));
           }
         }
       }
@@ -1935,6 +1946,12 @@ void Adapter::harden(const CompiledScript& script) {
     throw std::invalid_argument("Ibex2 harden requires its compiled bytecode");
   validate_bytecode(script, state_->bytecode_version);
   verify_harden_preconditions();
+  // The guard's walk and harden.js each allocate about 0.45 MB, nearly all of
+  // it garbage. Hermes' young generation keeps every page it has touched, so
+  // collecting between them lets harden.js reuse the guard's pages rather
+  // than touch as many again. 0.15 ms (iPhone simulator).
+  if (!state_->bootstrap_outputs.empty())
+    rt.instrumentation().collectGarbage("ibex2 harden guard");
   state_->hardened = true;
   rt.evaluateJavaScript(std::make_shared<CompiledBytes>(script.bytes, script.len),
                         "harden.js");

@@ -1,18 +1,32 @@
 // Tooling-only bridge to directory-owned operations. @ref LLP 1030.002.
-// And the one removal the tooling does itself: a private directory its own run made (`removePrivateTree`).
+// And the one removal the tooling does itself: a private directory its own run made (`removePrivateTree`);
+// and the checkout's node_modules, installed from its lock when it has none or one did not finish (`installedModules`).
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 let binary;
+const HELPER = 'EXACT_FILESYSTEM_HELPER';
+/** The helper this process runs, checked current: the bake names it to the Bun processes it spawns. */
+export const filesystemHelper = () => executable();
 function executable() {
   if (binary) return binary;
   const directory = resolve(root, 'target/exact-filesystem-tool');
   const suffix = process.platform === 'win32' ? '.exe' : '';
+  // A caller that checked the helper itself may name its captured copy in `EXACT_FILESYSTEM_HELPER`
+  // for the processes it spawns (the bake does, once per process, for its many Bun calls). The copy
+  // is taken after confirming it is this checkout's and still has the digest its name gives;
+  // anything else is checked here as usual
+  const inherited = process.env[HELPER];
+  if (inherited && dirname(inherited) === directory) {
+    const digest = new RegExp(`^exact-filesystem-([0-9a-f]{64})${suffix.replace('.', '\\.')}$`).exec(basename(inherited))?.[1];
+    if (digest && existsSync(inherited) && createHash('sha256').update(readFileSync(inherited)).digest('hex') === digest) return binary = inherited;
+  }
   const target = resolve(directory, `debug/exact-filesystem${suffix}`);
   // A separate tooling target also permits calls from an active app Cargo
   // build script: the helper has no compiler/app dependency and never waits
@@ -133,7 +147,9 @@ export async function filesystemLock(root, path, fn) {
   const rejectAll = (error) => { failure = error; for (const item of pending.splice(0)) item.reject(error); };
   child.on('error', rejectAll);
   child.stdin.on('error', rejectAll);
-  child.on('exit', (code, signal) => { rejectAll(new Error(`filesystem lock holder exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)); });
+  // Fail what is pending only once its output is read: a reply written just before exiting (a held lock's refusal)
+  // answers its request, as the reader's does
+  child.on('close', (code, signal) => { rejectAll(new Error(`filesystem lock holder exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)); });
   lines.on('line', (line) => {
     const item = pending.shift();
     if (!item) return;
@@ -225,5 +241,49 @@ export function removePrivateTree(path) {
   const result = spawnSync('/bin/rm', ['-rf', '--', path], { encoding: 'utf8' });
   if (result.status !== 0 || existsSync(path)) {
     throw new Error(`could not remove private directory ${path}: ${result.error?.message || result.stderr || result.signal || 'directory remains'}`);
+  }
+}
+
+if (import.meta.main && process.argv[2] === '--helper') process.stdout.write(filesystemHelper());
+
+/** This checkout's node_modules, installed from its lock when it has none (a new worktree's) or when an
+ * install of ours did not finish. The install is complete when node_modules has no `.exact-install` in it:
+ * the directory appears with that marker already inside (made aside, then renamed into place), and only a
+ * successful `bun install` removes it, so one killed partway leaves it and is installed again, while one made
+ * by hand (`bun install`, deploy's capture) has none. One process installs at a time, holding a lock file of
+ * its pid and a token; the others wait. A lock whose process is gone, or older than any install, is taken
+ * over by renaming exactly what was read aside, never by deleting a path read earlier. */
+export function installedModules(modules = resolve(root, 'node_modules'), lock = resolve(tmpdir(), `exact-install-${createHash('sha256').update(root).digest('hex').slice(0, 16)}.lock`)) {
+  const marker = resolve(modules, '.exact-install'), mine = `${process.pid} ${randomBytes(8).toString('hex')}`;
+  const read = (path) => { try { return readFileSync(path, 'utf8'); } catch { return null; } };
+  // Removes `path` only while it still holds `seen`: renamed aside, compared, and put back when another's.
+  const drop = (path, seen) => {
+    const aside = `${path}.${process.pid}`;
+    try { renameSync(path, aside); } catch { return; }
+    if (read(aside) !== seen) try { linkSync(aside, path); } catch { /* a newer lock stands */ }
+    rmSync(aside, { force: true });
+  };
+  const stale = (seen) => {
+    try { if (Date.now() - statSync(lock).mtimeMs > 600_000) return true; process.kill(Number(seen.split(' ')[0]), 0); return false; }
+    catch (e) { return e.code === 'ESRCH'; }
+  };
+  while (!existsSync(modules) || existsSync(marker)) {
+    try { writeFileSync(lock, mine, { flag: 'wx' }); } catch {
+      const seen = read(lock);
+      if (seen !== null && stale(seen)) drop(lock, seen); else Bun.sleepSync(200);
+      continue;
+    }
+    try {
+      if (existsSync(modules) && !existsSync(marker)) break;
+      if (!existsSync(modules)) {
+        const made = `${modules}.${process.pid}`;
+        rmSync(made, { recursive: true, force: true });
+        mkdirSync(made); writeFileSync(resolve(made, '.exact-install'), '');
+        renameSync(made, modules);
+      }
+      console.error(`${resolve(root)}: ${existsSync(resolve(modules, '.bin')) ? 'an install of node_modules did not finish' : 'no node_modules'}; bun install --frozen-lockfile there`);
+      if (spawnSync(process.execPath, ['install', '--frozen-lockfile'], { cwd: root, stdio: ['ignore', 2, 2] }).status !== 0) throw new Error(`${resolve(root)}: bun install --frozen-lockfile failed (above); run it there, then this again`);
+      rmSync(marker, { force: true });
+    } finally { drop(lock, mine); }
   }
 }

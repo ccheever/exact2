@@ -1,9 +1,12 @@
 //! Host measurements enter layout without changing authored rows.
 
 use super::Kernel;
+use crate::arena::NodeArena;
 use crate::error::{KernelError, LayoutError};
 use crate::generated::PropId;
 use crate::id::ViewId;
+use crate::NodeType;
+use taffy::prelude::length;
 
 impl Kernel {
     /// Host intrinsic size (`None` to forget it). Replaced elements keep
@@ -123,5 +126,46 @@ impl Kernel {
                 layout.mark_dirty(node);
             }
         }
+    }
+}
+
+/// A projected tablist's or radio group's box. A native tab bar fills the
+/// tablist's box, a segmented control its content box. Its measured height
+/// supplies the automatic minimum, so even a short authored row reserves the
+/// control. Its width is the narrowest the control can be, the automatic
+/// minimum width in place of the hidden tabs' own (LLP 1116.004 D2): UIKit's
+/// fits its segments to any box, so a grouped row's tablist shrinks to the
+/// row; AppKit's keeps its natural width. An explicit CSS min-height or
+/// min-width still owns that constraint; no natural ratio or preferred width
+/// is inferred from this container measurement. A radio group is never a
+/// tab bar but always the segmented control (LLP 1116.004 D5.2), whose height
+/// is its own: its automatic height is the measured one, so the hidden
+/// radios, whose text follows Dynamic Type where the control's does not, no
+/// longer make it taller (LLP 1116.019 D1).
+pub(crate) fn apply_projection(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    if arena.node_type(slot).is_replaced()
+        || matches!(
+            arena.node_type(slot),
+            NodeType::Control | NodeType::NativeView
+        )
+    {
+        return;
+    }
+    let Some((width, height)) = arena.intrinsic(slot) else {
+        return;
+    };
+    if s.min_size.height.is_auto() {
+        s.min_size.height = length(height);
+    }
+    let radios = arena
+        .props(slot)
+        .get(PropId::AccessibilityRole)
+        .and_then(|v| v.as_str())
+        == Some("radiogroup");
+    if radios && s.size.height.is_auto() {
+        s.size.height = length(height);
+    }
+    if s.min_size.width.is_auto() {
+        s.min_size.width = length(width);
     }
 }

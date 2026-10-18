@@ -1,13 +1,13 @@
 //! Text and keyboard input, sharing the presenter's focus owner.
 use super::*;
-use exact_runner::ControlValue;
+use exact_runner::{ControlValue, FieldSelection, InputDetails, SelectionDirection};
 use std::collections::BTreeSet;
 
 impl<D: DataSource> Presenter<D> {
     /// Type into a focused field. `input` edits it now; `change` waits
     /// for Enter or blur, as for hardware typing (LLP 1069.001 D4).
     pub fn type_text(&mut self, id: ViewId, text: &str) -> Result<String, String> {
-        if self.host.route_visibility(id).1 {
+        if !self.alert_allows(id) || self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
         }
         let kernel = self.host.kernel();
@@ -52,51 +52,138 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::EmojiPicker) == Some(true) {
             return Err("emoji selection is not supported on the Linux host".into());
         }
-        let text = exact_kernel::control::limit_text(node.props, text).to_string();
         let now = self.host.now();
         if let Some(e) = self.set_focus(Some(id), now) {
             return Err(e);
         }
-        // The whole value replaces any selection and leaves the caret at its
-        // end, which `input` reports (x2apps codeedit #2). `change` waits for
-        // Enter or blur (`commit_text`), as hardware typing does.
-        let caret = exact_runner::FieldSelection::at_end(&text);
-        self.mark_field(id, &text, caret, false);
-        self.edited = Some(id);
-        // What earlier commits replaced goes first, and the watch is the
-        // bound value from before this edit's dispatch (LLP 1069.001 D4).
+        // The web's `focus()` runs its handler's commands before it returns.
+        self.run_commands_now();
         self.forget_replaced_choices();
-        let bound = self.bound_text(id);
-        self.host.values.watch(id, Some(bound.clone()));
-        let error = if self
-            .host
-            .runner()
-            .handlers_of(id)
-            .contains(&EventKind::Input)
-        {
-            self.host.dispatch_at(
-                id,
-                Event::Input(ControlValue::Field(text.clone(), caret)),
-                now,
-            )
-        } else {
-            None
-        };
-        let e = self.after_commit();
-        self.keep_typed(id, text, bound);
-        if let Some(e) = error.or(e) {
-            return Err(e);
-        }
         let value = self.field_text(id);
-        let mut s = format!("{{\"typed\":{id},\"value\":");
+        let selection = FieldSelection {
+            start: 0,
+            end: field::utf16_len(&value),
+            direction: SelectionDirection::None,
+        };
+        let moved = self.field_selection(id) != selection;
+        self.mark_field(id, &value, selection, true);
+        // `select()` then focuses the field it selected (Chromium's
+        // `TextControlElement::select`): one a focus handler sent the focus
+        // away from takes it back, its handler hearing `focus` again, unless
+        // that handler left it unable to take the focus.
+        if self.focus() != Some(id) && self.focusable(id) && !self.host.route_visibility(id).1 {
+            if let Some(e) = self.set_focus(Some(id), now) {
+                return Err(e);
+            }
+            self.run_commands_now();
+        }
+        let (value, selection) = (self.field_text(id), self.field_selection(id));
+        // Select all, then insert, as a person's select-all and typing: a
+        // changed selection's `select` is heard before the insertion (the
+        // web driver waits for it), and its handler and the commands it
+        // runs may rewrite the field or move its selection.
+        let (value, selection) = if moved {
+            self.field_select(id, &value, selection, now);
+            self.run_commands_now();
+            (self.field_text(id), self.field_selection(id))
+        } else {
+            (value, selection)
+        };
+        // The insertion goes where the handlers left the focus, as the
+        // browser's does: into an enabled, editable text field (cut to the
+        // room its maxlength leaves), the one typed into or another, else
+        // nowhere.
+        let target = self.focus().filter(|&f| {
+            self.host.kernel().node(f).is_some_and(|n| {
+                n.node_type == NodeType::TextInput
+                    && n.props.bool(PropId::Disabled) != Some(true)
+                    && n.props.bool(PropId::Editable) != Some(false)
+            })
+        });
+        let Some(target) = target else {
+            return Ok(format!("{{\"typed\":{id}}}"));
+        };
+        let (value, selection) = if target == id {
+            (value, selection)
+        } else {
+            (self.field_text(target), self.field_selection(target))
+        };
+        let limit = self
+            .host
+            .kernel()
+            .node(target)
+            .and_then(|n| exact_kernel::control::text_maxlength(n.props));
+        // `beforeinput` carries the whole text; what is inserted, and what
+        // `input` carries, is cut to the room left. An empty insertion still
+        // deletes a selected range (Chrome's insertText).
+        let bound = self.bound_text(target);
+        let mut edit = InputDetails {
+            input_type: "insertText".into(),
+            data: Some(text.to_owned()),
+            cancelable: true,
+            is_composing: false,
+        };
+        if self.before_input(target, &edit, now)? {
+            // Chromium advances an endpoint inside a surrogate pair past
+            // the character before fitting or replacing the selection.
+            let boundary = |offset| {
+                let mut at = 0;
+                for ch in value.chars() {
+                    if at >= offset {
+                        break;
+                    }
+                    at += ch.len_utf16() as u32;
+                }
+                at
+            };
+            let selection = FieldSelection {
+                start: boundary(selection.start),
+                end: boundary(selection.end),
+                ..selection
+            };
+            let fitted = field::fit(text, &value, selection, limit);
+            let removes =
+                field::byte_at(&value, selection.start) != field::byte_at(&value, selection.end);
+            let (next, _) = field::replace(&value, selection, fitted);
+            // Even a rejected insertion advances by the original text's
+            // UTF-16 length, clamped to the remaining value.
+            let caret = FieldSelection::caret(
+                selection
+                    .start
+                    .saturating_add(field::utf16_len(text))
+                    .min(field::utf16_len(&next)),
+            );
+            if !fitted.is_empty() || text.is_empty() || removes {
+                edit.data = Some(fitted.to_owned());
+                edit.cancelable = false;
+                if let Some(e) = self.apply_field_edit(target, next, caret, bound, now, edit) {
+                    return Err(e);
+                }
+            } else if caret != self.field_selection(target) {
+                self.mark_field(target, &value, caret, false);
+            }
+        }
+        let value = self.field_text(target);
+        let mut s = format!("{{\"typed\":{target},\"value\":");
         // A password's value is never agent output (#134).
-        let props = self.host.kernel().node(id).map(|n| n.props);
+        let props = self.host.kernel().node(target).map(|n| n.props);
         quote(
             props.map_or(&value[..], |p| exact_runner::agent::shown_value(p, &value)),
             &mut s,
         );
         s.push('}');
         Ok(s)
+    }
+
+    /// The commands a handler's commits issue, run as the web runs them,
+    /// at once, and theirs in turn; 16 rounds bound a handler that loops.
+    fn run_commands_now(&mut self) {
+        for _ in 0..16 {
+            self.run_queued_commands();
+            if self.commands.is_empty() {
+                break;
+            }
+        }
     }
 
     /// `type <id> copy|cut|paste [text]` (spreadsheet F6): the clipboard's
@@ -124,7 +211,7 @@ impl<D: DataSource> Presenter<D> {
             "paste" => EventKind::Paste,
             _ => return Err(format!("type: {edit} is not copy, cut or paste")),
         };
-        if self.host.route_visibility(id).1 {
+        if !self.alert_allows(id) || self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
         }
         // A field's own paste inserts with no handler to hear it.
@@ -214,6 +301,9 @@ impl<D: DataSource> Presenter<D> {
         down: bool,
         repeat: bool,
     ) -> Result<String, String> {
+        if down && !self.alert_allows(id) {
+            return Err(format!("view {id} is inert under the alert"));
+        }
         self.restore_controls();
         // A release's `keyup` handlers at the focus first (#140), whatever
         // took its down; then the release goes where its press went.
@@ -386,10 +476,10 @@ impl<D: DataSource> Presenter<D> {
             .kernel()
             .node(id)
             .and_then(|n| n.props.get(PropId::TabIndex).and_then(|v| v.as_int()));
-        explicit.is_none_or(|i| i >= 0)
+        self.focus_refusal(id).is_none()
+            && explicit.is_none_or(|i| i >= 0)
             && self.focusable(id)
             && self.radio_tab_stop(id)
-            && self.host.route_visibility(id) == (false, false)
             && boxed.contains(&id)
     }
 
@@ -537,7 +627,7 @@ impl<D: DataSource> Presenter<D> {
             || role == Some("link") && name == "Enter"
         {
             self.note_press(id, true);
-            self.dispatch_press(id, now_ms, false);
+            self.activate_with(id, now_ms, false);
             return;
         }
         // A radio's arrows and Space (x2apps survey #2).
@@ -566,7 +656,7 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let value = self.field_text(id);
-        let selection = self.field_selection(id);
+        let selection = self.reported_selection(id, &value, self.field_selection(id));
         Some(self.host.dispatch_at(
             id,
             Event::Change(ControlValue::Field(value, selection)),

@@ -21,6 +21,7 @@ contract = { path = "../../contract/cli" }
 contract-lower = { path = "../../contract/lower" }
 contract-syntax = { path = "../../contract/syntax" }
 contract-types = { path = "../../contract/types" }
+exact-motion = { path = "../../motion" }
 exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }

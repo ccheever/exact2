@@ -61,7 +61,7 @@ extension NodeView {
         return isSurfaceControl ? window?.makeFirstResponder(self) == true : focusCanvas()
         #else
         if presenter?.editing != nil { return true }
-        if isSurfaceControl { return isFirstResponder || takeTouchFocus() }
+        if isSurfaceControl { return isFirstResponder || takeSurfaceTouchFocus() }
         return focusCanvas()
         #endif
     }

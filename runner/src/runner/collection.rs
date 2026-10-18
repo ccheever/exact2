@@ -219,7 +219,7 @@ impl<D: DataSource> Runner<D> {
                     break;
                 }
                 let first_ticket = self.next_ticket;
-                match self.dispatch_edge(view, event) {
+                match self.arrived(|r| r.dispatch_edge(view, event)) {
                     Ok((receipt, changed)) => {
                         result.receipts.push(Timed {
                             at_ms: self.now_ms,
@@ -252,6 +252,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        result.now_ms = self.now_ms;
         Ok(result)
     }
     /// List `view`'s port is at `offset` (from its first row, as a report's):

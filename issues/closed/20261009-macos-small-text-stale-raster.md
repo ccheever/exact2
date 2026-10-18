@@ -75,10 +75,8 @@ component X64app
 
 | Scenario | Setup / reset / exact commands | Platform / OS / device | Framework revision | Actual result | Expected result | Evidence |
 |---|---|---|---|---|---|---|
-| Shrink, macOS window | `bun exact.mjs mac`; `bun exact.mjs agent macos --size 480x420 "screenshot before.png window" "tap t" "clock settle" "screenshot after.png window" "screenshot after-capture.png" tree "layout clamped-2" "tap t" "clock settle" "screenshot back.png window"` | macOS 26.6.2, Apple Silicon, scale 2 | main `b896050d7` | window: `clamped-2` "Not authenticated · Sign in", `plain` both old lines; tree, `layout` and capture: "Disabled"; `back.png` correct | "Disabled" in every row of the window | [record](https://raw.githubusercontent.com/ccheever/exact2/7281d50a9829dd6af92c7d376d97b6f3218cf9df/file-x48-x68/x64-record.txt), [window, capture and web side by side](https://raw.githubusercontent.com/ccheever/exact2/dfef5b5e99f7158a118e18f00a2280c4a7cd78ea/file-x48-x68/x64-macos-vs-web.png), [second toggle](https://raw.githubusercontent.com/ccheever/exact2/2c23290feda795ac018ace20a37fb8fb6a3e9920/file-x48-x68/x64-back.png) |
+| Shrink, macOS window | `bun exact.mjs mac`; `bun exact.mjs agent macos --size 480x420 "screenshot before.png window" "tap t" "clock settle" "screenshot after.png window" "screenshot after-capture.png" tree "layout clamped-2" "tap t" "clock settle" "screenshot back.png window"` | macOS 26.6.2, Apple Silicon, scale 2 | main `b896050d7` | window: `clamped-2` "Not authenticated · Sign in", `plain` both old lines; tree, `layout` and capture: "Disabled"; `back.png` correct | "Disabled" in every row of the window | record, window, capture and web side by side, second toggle |
 | Same, web | `bun exact.mjs agent web --size 480x420 "tap t" "clock settle" "screenshot web.png" tree` | Chrome 154 (the agent's) | same | every row "Disabled" | (the reference) | same images and record |
-
-![After one toggle: the macOS window keeps old lines in rows 1 and 3; the capture path and the web show Disabled](https://raw.githubusercontent.com/ccheever/exact2/dfef5b5e99f7158a118e18f00a2280c4a7cd78ea/file-x48-x68/x64-macos-vs-web.png)
 
 `TextRasterMac.swift` was last changed in `477804f9b`. The same repro was also seen on main `475043d20`, which already contains #305.
 

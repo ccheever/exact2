@@ -11,7 +11,7 @@ import { mobileComposerTarget, mobileComposerTargetRequire, mobileComposerTarget
 import { mobileQueuedEditCurrent } from './queued-edit-state';
 import { mobileQueuedEditAttachmentAction, mobileQueuedEditAttachmentPicking } from './queued-edit-attachments';
 // Photo Library / Choose Files at upstream365aa87982, over shared draft/file/upload ownership.
-// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileClient, mobileCommand, mobileNative } from './client';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';

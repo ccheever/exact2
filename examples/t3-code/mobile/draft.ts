@@ -1,6 +1,6 @@
 import { mobileEditorOwnerWritten } from './composer-editor-owner';
 import { mobileComposerContextObserve } from './composer-command-context';
-// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileNewTaskDraftIsKey } from './mobile-new-task-drafts';
 import { mobileNewTaskContextGuard, mobileNewTaskContextWrite } from './mobile-new-task-context';
 import { mobileComposerTargetRequire, mobileComposerTargetWriteText, mobileComposerTargetPersist } from './composer-target';

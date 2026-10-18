@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.008-mobile-voice.decision.md#native-lifetime
+// @ref examples/t3-code/mobile/docs/1130.008-mobile-voice.decision.md#native-lifetime
 import UIKit
 import AVFoundation
 import Speech

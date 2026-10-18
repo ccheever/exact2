@@ -1,4 +1,4 @@
-// @ref llp/1109.010-mobile-browser-devices.decision.md#native-lifetime
+// @ref examples/t3-code/mobile/docs/1130.010-mobile-browser-devices.decision.md#native-lifetime
 #if os(iOS)
 import UIKit
 import CoreMotion

@@ -3,7 +3,7 @@
 //! parser makes, one whose own text (§10.13) parses back to it, so the wire,
 //! the text and the parser hold one form of every value.
 
-use super::super::env::{Edge, SegmentVar};
+use super::super::env::{Edge, Region, SegmentVar};
 use super::super::ViewportUnit;
 use super::{Comparison, Entry, EnvTerm, Node, Unit};
 use crate::error::DecodeError;
@@ -57,6 +57,8 @@ fn node_out(n: &Node, w: &mut Writer) {
                     w.u8(*x);
                     w.u8(*y);
                 }
+                // A layout region's inset (LLP 1123 D10): 16 + region × 4 + edge
+                EnvTerm::Region(region, edge) => w.u8(16 + *region as u8 * 4 + *edge as u8),
             }
         }
         Node::Sum(c) | Node::Product(c) | Node::Min(c) | Node::Max(c) => {
@@ -175,6 +177,10 @@ fn node(r: &mut Reader<'_>, level: usize, nodes: &mut usize) -> Option<Node> {
                     let var = SegmentVar::from_index(tag - 8)?;
                     EnvTerm::Segment(var, r.u8().ok()?, r.u8().ok()?)
                 }
+                tag @ 16..=35 => EnvTerm::Region(
+                    Region::from_index((tag - 16) / 4)?,
+                    Edge::from_index((tag - 16) % 4)?,
+                ),
                 _ => return None,
             };
             Node::Env(term)

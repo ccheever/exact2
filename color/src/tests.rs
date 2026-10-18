@@ -220,6 +220,38 @@ fn srgb(r: f64, g: f64, b: f64, alpha: f64) -> Wide {
 }
 
 #[test]
+fn folding_keeps_the_same_bits_on_every_host() {
+    // glibc's pow gives 0x3f76_f5ad_db50_c915 for this sRGB channel.
+    assert_eq!(
+        srgb_to_linear(17.0 / 255.0).to_bits(),
+        0x3f76_f5ad_db50_c914
+    );
+
+    // Tamber's mix.tamber: color-mix(in oklab, #1083fe 88%, #0b0f14).
+    // Its a component differed by one ulp between the Linux run and the golden.
+    let lab = |rgb: [f64; 3]| {
+        MixSpace::Oklab.from_linear_srgb(
+            Wide {
+                space: Space::Srgb,
+                c: rgb.map(|v| v / 255.0),
+                alpha: 1.0,
+            }
+            .linear_srgb(),
+        )
+    };
+    let (a, b) = (lab([16.0, 131.0, 254.0]), lab([11.0, 15.0, 20.0]));
+    let mixed = [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * 0.12);
+    assert_eq!(
+        mixed.map(f64::to_bits),
+        [
+            0x3fe2_2732_0e61_2567,
+            0xbfa6_c513_a3d4_fb4c,
+            0xbfc6_92aa_2fe5_3c8c
+        ]
+    );
+}
+
+#[test]
 fn every_interpolation_space_round_trips() {
     use crate::mix::MixSpace::*;
     let samples = [
@@ -389,4 +421,30 @@ fn equal_hues_take_a_full_turn_for_longer() {
     };
     let (mid, _) = mix(&c, &c, 0.5, how);
     assert!(close(mid, wide("oklch(0.7 0.1 210)").linear_srgb(), 1e-6));
+}
+
+#[test]
+fn rec2100_components_round_trip_through_linear_srgb() {
+    for space in [Space::Rec2100Linear, Space::Rec2100Pq, Space::Rec2100Hlg] {
+        for c in [
+            [0.2, 0.5, 0.7],
+            [0.9, 0.1, 0.4],
+            [0.58, 0.58, 0.58],
+            [-0.05, 0.3, 0.3],
+        ] {
+            if space == Space::Rec2100Pq && c[0] < 0.0 {
+                continue; // PQ's decode has no negative signal
+            }
+            let w = Wide {
+                space,
+                c,
+                alpha: 1.0,
+            };
+            let back = crate::rec2100_from_linear_srgb(space, w.linear_srgb()).unwrap();
+            for i in 0..3 {
+                assert!((back[i] - c[i]).abs() < 1e-9, "{space:?} {c:?} -> {back:?}");
+            }
+        }
+    }
+    assert_eq!(crate::rec2100_from_linear_srgb(Space::Srgb, [0.0; 3]), None);
 }

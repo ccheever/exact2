@@ -1,5 +1,5 @@
 // Pinned365aa87982 use-thread-outbox-drain.ts. Root scheduling is separate.
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 import { mobileOutboxConnection, type MobileOutboxConnection } from './mobile-outbox-connection';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';

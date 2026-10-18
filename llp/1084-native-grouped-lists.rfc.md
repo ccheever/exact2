@@ -138,6 +138,7 @@ Colours are `light-dark()` pairs of §2's values.
 - A wheel on the list, on a row it draws or on a carried view scrolls the collection view, wherever the hidden node lies.
 - A row whose node or ancestor (its section included) is `inert` takes no tap: its cell takes no touch and is no accessibility element. The agent's tap is refused under the software keyboard, as `Agent.obscured` refuses one.
 - A custom row is its own views: the agent's ordinary tap path finds them, a nested control included.
+- Before `tap` or `type`, reveal locates a row by its model identity, scrolls the collection and lays it out, even when the cell has not been realized. A custom row's views are carried into the cell before the ordinary hit test.
 - `layout <list>` reports `groupedList: {view: UICollectionView, listStyle, sections, rows, offset, content, insets}`, and a row reports its cell and accessory.
 - The inspection walk (LLP 1080.001 D3) accounts for the collection view (`grouped-list`), names this host as the hider of the authored rows, and skips a carried row as projected.
 
@@ -154,7 +155,7 @@ Colours are `light-dark()` pairs of §2's values.
 - **The sheet is fixed at 17 pt.** Dynamic type is UIKit's, on iOS.
 - **The sheet has no pressed highlight.** A web row is a `button` and keeps the button's own focus ring.
 - **Symbols on the web are role paths in a 24-unit box** (LLP 1035.004.000), so a sheet-sized chevron draws a little smaller there than UIKit's glyph. An `sf/` name draws nothing on the web or Linux, as everywhere.
-- **A custom row's width is the kernel's.** In a wider UIKit layout margin (an iPad, landscape), its views keep the sheet's 16-pt inset, while UIKit's own cells follow the margin.
+- ~~**A custom row's width is the kernel's.** In a wider UIKit layout margin (an iPad, landscape), its views keep the sheet's 16-pt inset, while UIKit's own cells follow the margin.~~ Closed 2026-10-17: after each batch the iOS host reads where UIKit put the list's cards and its cells' layout margins and tells the kernel (`Kernel::set_grouped_margins`), and the sheet's card inset, row inset and trailing padding (a `delete=` row's content's paddings) move to them wherever the author wrote neither. A custom row then starts and ends where a standard row's text and accessory do. Measured on the simulators: 20-point margins on the iPhone Duo (open, at 130 degrees and closed; the card ends at the side strip) and in an iPhone 17 Pro's landscape, where custom rows sat at 16; 16 on the iPhone upright, unchanged.
 - ~~**Swipe actions (`swipeContent`) on a grouped list's rows are not projected into its cells.**~~ Closed 2026-10-11 (LLP 1116.001 D1): a row that names them takes its list cell's own swipe, UIKit's actions from `trailingSwipeActionsConfigurationProvider` and its leading twin, a full swipe performing the first. The swipe host keeps the row's controls hidden while the list carries it and makes no table (`SwipeActionsIOS.swift`, `GroupedListIOS.swift`).
 - **A part hidden by a class's `display: none` is counted by the sheet.** The sheet sees only a literal `display="none"` written on the part. A class is applied when that part is lowered, after the row's parts are counted, so the kernel and the sheet can disagree about which text is the title. Write the attribute, or use `when`.
 - **The 35.33-pt first gap goes only to a section written first.** A first section under `when`, `match` or `each` may share its body with others or follow nothing, so it gets the 17.33-pt gap.
@@ -189,6 +190,7 @@ This adds to `rules/DEFERRED.md` as Charlie approved, without a take: one tag me
   - the wheel;
   - a list that goes.
 - **Fixture.** `scripts/fixtures/grouped-list.contract` is a settings screen with a profile card (custom), symbol rows, a value, a subtitle, a detail button, a switch, a checkmark choice, a destructive row, and a segmented control for the three styles.
+- **Sheet insertion.** `GroupedRevealTests` drives `scripts/fixtures/grouped-list-reveal.contract`: a sheet inserts an offscreen custom row, then reveal and tap reach its nested button and set `removed`. UIKit also checks that the collection scrolled and carried the button into a visible cell; AppKit exercises its ordinary scroll hierarchy.
 - **Seen.** The fixture was driven beside §2's scratch UIKit app, in light and dark, on the iOS 27 simulator, the web (Chrome) and Linux.
   - On iOS the agent tapped rows, the detail button, the switch and the choice, and wheeled the list to tap a row below the fold.
   - Plain footers stay under their rows.

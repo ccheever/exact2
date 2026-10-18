@@ -1,4 +1,4 @@
-// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref examples/t3-code/mobile/docs/1130.011-responsive-workspace.decision.md#navigation-and-data-ownership
 #if os(iOS)
 // Pinned365aa87982 T3KeyboardCommandsModule / HardwareKeyboardCommandProvider.
 // App-owned commands on the exclusive window's public host controller;

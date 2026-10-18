@@ -175,9 +175,26 @@ impl Lowerer<'_> {
             return Ok(Vec::new());
         };
         let mut names = Vec::new();
-        let mut folded = family.value.clone();
-        fold_constant_families(&mut folded);
-        self.family_arms(&folded, &mut |name, _| names.push(name.to_string()))?;
+        // A family token's name is no family (stage 6 C): the families of
+        // its stack, each tuple's, are what the node uses.
+        let mut leaves = Vec::new();
+        crate::theme::leaves(&family.value, &mut Vec::new(), &mut leaves);
+        let tokens: Vec<Vec<String>> = leaves
+            .iter()
+            .filter_map(|e| match e {
+                Expr::Str(text, _) => crate::theme::measure_values(text).map(|(_, v)| v),
+                _ => None,
+            })
+            .collect();
+        if tokens.is_empty() {
+            let mut folded = family.value.clone();
+            fold_constant_families(&mut folded);
+            self.family_arms(&folded, &mut |name, _| names.push(name.to_string()))?;
+        }
+        for stack in tokens.iter().flatten() {
+            let members = exact_kernel::style::theme::typeface::family_members(stack);
+            names.extend(members.into_iter().filter(|(f, _)| *f).map(|(_, m)| m));
+        }
         let italic = match attrs.iter().find(|a| a.name == "font-style") {
             None => Some(false),
             Some(a) => match &a.value {
@@ -232,6 +249,10 @@ impl Lowerer<'_> {
         }
         let mut out = folded;
         self.replace_arms(&mut out)?;
+        // Beside an empty family's `none`, each stack is `some`, one type.
+        if has_none(&out) && !matches!(out, Expr::None(_)) {
+            some_arms(&mut out);
+        }
         Ok(out)
     }
 
@@ -251,8 +272,18 @@ impl Lowerer<'_> {
         Self::literal_arms(&folded)
     }
 
+    /// A literal family's stack, declared as `font-family`'s are: `e`, a
+    /// string, becomes the stack's number (stage 6 C's type and family
+    /// tokens).
+    pub(super) fn replace_family(&mut self, e: &mut Expr) -> Result<(), LowerError> {
+        self.replace_arms(e)
+    }
+
     fn replace_arms(&mut self, e: &mut Expr) -> Result<(), LowerError> {
         match e {
+            // An empty family declares nothing: the row is unset (the
+            // kernel's `StyleValue::text_unsets`), as `none` clears it.
+            Expr::Str(name, span) if name.trim().is_empty() => *e = Expr::None(*span),
             Expr::Str(name, span) => {
                 // A quoted comma belongs to one family, not a cached list.
                 let cache_key = format!("\0{name}");
@@ -311,6 +342,7 @@ impl Lowerer<'_> {
     /// runtime arms; the remaining string is resolved when it changes.
     fn family_arms(&self, e: &Expr, visit: &mut dyn FnMut(&str, Span)) -> Result<(), LowerError> {
         match e {
+            Expr::Str(name, _) if name.trim().is_empty() => Ok(()),
             Expr::Str(name, span) => {
                 for member in family_names(name, *span)? {
                     visit(&member, *span);
@@ -328,6 +360,37 @@ impl Lowerer<'_> {
             Expr::Let { body, .. } => self.family_arms(body, visit),
             _ => Ok(()),
         }
+    }
+}
+
+/// Whether a replaced literal choice has an empty family's `none` arm.
+fn has_none(e: &Expr) -> bool {
+    match e {
+        Expr::None(_) => true,
+        Expr::Ternary(_, yes, no, _) => has_none(yes) || has_none(no),
+        Expr::Match { some, none, .. } => has_none(some) || has_none(none),
+        Expr::Let { body, .. } => has_none(body),
+        _ => false,
+    }
+}
+
+/// Each stack number of a replaced literal choice as `some(n)`.
+fn some_arms(e: &mut Expr) {
+    match e {
+        Expr::Number(_, span) => {
+            let span = *span;
+            *e = Expr::Some(Box::new(e.clone()), span);
+        }
+        Expr::Ternary(_, yes, no, _) => {
+            some_arms(yes);
+            some_arms(no);
+        }
+        Expr::Match { some, none, .. } => {
+            some_arms(some);
+            some_arms(none);
+        }
+        Expr::Let { body, .. } => some_arms(body),
+        _ => {}
     }
 }
 

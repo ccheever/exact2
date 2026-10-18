@@ -1,0 +1,138 @@
+// Keyboard dispatch for the reference commands that have a counterpart here
+// (keyboard-dispatch.ts). Each is a zero-size button whose aria-keyshortcuts
+// the host binds, so a chord, its menu item and an agent press run one action.
+// None is a Tab stop (`tabindex=-1`): a 1pt button is one on the web and so on
+// every host, and Tab from a dialog's last control reached them (the reference
+// binds its chords on the window, with no element to focus). The chords, menu
+// items and presses do not depend on the Tab order.
+shape KeyDispatch
+  id: string
+  command: string
+  chord: string
+  kind: string
+  target: string
+  extra: string
+  label: string
+
+component ShortcutDispatch
+  props
+    items: KeyDispatch[]
+    selectThread: action
+    newThread: action
+    chatNew: action
+    deviceSetting: action
+    toggleDiff: action
+    details: action // threadPanel.toggle: the header's "Toggle thread details panel" (detailsAct("toggle"))
+    openDiff: action
+    closeDiff: action
+    panel: action // ⌘W closes the active surface tab (panelUi("tab-close", id))
+    prClose: action
+    stop: action
+    openOptions: action
+    selectProvider: action
+    selectModel: action
+    back: action
+    copyThread: action
+    palette: action
+    run: action
+    command: action
+    settings: action
+    copy: action
+    confirm: action
+  // A terminal's close asks first; the confirm takes the focus, as Base UI's AlertDialog does (its Cancel
+  // gives it back to the terminal: app.contract confirmUi).
+  action closeTerminal(target: string, extra: string, label: string)
+    confirm("ui:confirm", extra, target, label, "This stops the running process and clears its history.", true)
+    focus("app-confirm-cancel")
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="keyboard-dispatch"
+      for item in items key=item.id
+        if item.kind == "thread"
+          ShortcutButton(item=item, press=selectThread(item.target))
+        if item.kind == "chat-new"
+          ShortcutButton(item=item, press=chatNew)
+        if item.kind == "new-thread"
+          ShortcutButton(item=item, press=newThread)
+        if item.kind == "appearance"
+          ShortcutButton(item=item, press=deviceSetting("appearanceMode", item.target))
+        if item.kind == "diff"
+          ShortcutButton(item=item, press=toggleDiff)
+        if item.kind == "details"
+          ShortcutButton(item=item, press=details("toggle", "", ""))
+        if item.kind == "diff-open"
+          ShortcutButton(item=item, press=openDiff)
+        if item.kind == "close-diff"
+          ShortcutButton(item=item, press=closeDiff)
+        if item.kind == "close-surface"
+          ShortcutButton(item=item, press=panel("tab-close", item.target))
+        if item.kind == "panel-close" // ⇧⌘J closes a shown Browser panel
+          ShortcutButton(item=item, press=panel("close", ""))
+        if item.kind == "pr-close"
+          ShortcutButton(item=item, press=prClose)
+        if item.kind == "stop"
+          ShortcutButton(item=item, press=stop)
+        if item.kind == "options"
+          ShortcutButton(item=item, press=openOptions(item.target))
+        if item.kind == "provider"
+          ShortcutButton(item=item, press=selectProvider(item.target))
+        if item.kind == "model"
+          ShortcutButton(item=item, press=selectModel(item.target, item.extra, false))
+        if item.kind == "back"
+          ShortcutButton(item=item, press=back)
+        if item.kind == "copy-thread"
+          ShortcutButton(item=item, press=copyThread("copy-thread", ""))
+        if item.kind == "palette"
+          ShortcutButton(item=item, press=palette(item.target, item.extra))
+        if item.kind == "palette-run"
+          ShortcutButton(item=item, press=run(item.target, item.extra, ""))
+        if item.kind == "new-thread-in"
+          ShortcutButton(item=item, press=run("new-thread", item.target, ""))
+        if item.kind == "flow"
+          ShortcutButton(item=item, press=run("flow", item.target, item.extra))
+        if item.kind == "terminal-close"
+          ShortcutButton(item=item, press=closeTerminal(item.target, item.extra, item.label))
+        // While a terminal close confirm is open its chord runs nothing ("ui:refuse" is no
+        // window op), and holding the chord keeps it from the window's Close (keyboard-dispatch.ts refuseTerminalClose).
+        if item.kind == "refuse"
+          ShortcutButton(item=item, press=confirm("ui:refuse", "", "", "", "", false))
+        if item.kind == "command"
+          ShortcutButton(item=item, press=command(item.target, item.extra, "", 0))
+        if item.kind == "settings"
+          ShortcutButton(item=item, press=settings)
+        if item.kind == "pr-copy"
+          ShortcutButton(item=item, press=copy(item.target, item.extra))
+        // A command whose argument is its value (composer.cycleHost → environment-run-on).
+        if item.kind == "command-value"
+          ShortcutButton(item=item, press=command(item.target, "", item.extra, 0))
+        // ⌥↑ (thread.editQueuedMessage) is no menu chord; the native composer presses this
+        // button only with the caret at the very start (T3ComposerQueueKey.swift), so elsewhere the key moves the caret.
+        if item.kind == "composer-key"
+          button hatch="t3-composer-key" data-anchor=`queued-edit|${item.chord}` press=command(item.target, item.extra, "", 0) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true
+            text item.label font-size=1
+
+component ShortcutButton
+  props
+    item: KeyDispatch
+    press: action
+  view
+    button hatch="t3-terminal-key" data-anchor=item.command press=press aria-keyshortcuts=item.chord tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+      text item.label font-size=1
+
+// View › Reload and Force Reload (DesktopApplicationMenu.ts:233-234, Electron's `reload` and `forceReload` roles): the
+// window's own reload, `reload()`, in every build. The host files the two buttons at the top of View, before its own
+// items (`-exact-menu="view"`, LLP 1021 §5.3), and enables them while the window is key with no sheet, as AppKit
+// validates an item that acts on the key window. The reference renderer sees a key before Electron's menu, so a
+// keybinding the person gave ⌘R or ⇧⌘R (`items`, the dispatch buttons) keeps the chord and the item shows none.
+// Hidden from assistive technology: the menu item is how they are reached.
+component ViewReload
+  props
+    items: KeyDispatch[]
+  derive taken = items.map((item) => item.chord.toLowerCase())
+  action reloadWindow
+    reload()
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="view-reload-commands"
+      button -exact-menu="view" press=reloadWindow aria-keyshortcuts=(taken.includes("meta+r") ? "" : "Meta+R") tabindex=-1 aria-hidden=true aria-label="Reload" testId="view-reload" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Reload" font-size=1
+      button -exact-menu="view" press=reloadWindow aria-keyshortcuts=(taken.includes("meta+shift+r") ? "" : "Meta+Shift+R") tabindex=-1 aria-hidden=true aria-label="Force Reload" testId="view-force-reload" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Force Reload" font-size=1

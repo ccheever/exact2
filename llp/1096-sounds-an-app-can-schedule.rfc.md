@@ -10,7 +10,7 @@
 **Systems:** Contract compiler (a `sound` declaration; three host commands; `contract/lower/src/sounds.rs`; the test step `expect sound`), Plan (`sounds` table), bake receipt (`loads`), Runner (new `runner/src/sound.rs`, `take_sounds`, `state.sounds`), JS target (new `host/web-js/sounds.js`), web output shared by both targets (new `host/web/sound-glue.js`), Apple (new `host/apple/soundarm/`, `SoundModule.swift`, `AudioSession.swift`), Linux and Windows (record only), conformance, Lean and difftest (commands only), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2, r3, r4)
+**Revised:** 2026-10-04 (r2, r3, r4); 2026-10-16 (r5: when the Apple output opens, and when it cannot)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-06, stage 2 on 2026-10-07, stage 3 on 2026-10-08–09, stage 4 on 2026-10-09 (§6)
 **Amends:** LLP 1042 §8 (a sound effect is no longer an `audio` element's job); LLP 1046.003 AU3 (`CanvasAudio` stops choosing the session category, D8); `docs/contract-for-agents.md`'s "Ding" recipe and its named-argument sentence (`:222`); `rules/DEFERRED.md` (D12)
 **Related:** LLP 1005 §3 (host commands); LLP 1012 (the agent); LLP 1019 (a declared asset: fonts); LLP 1051 §5.3 (`start(when)` noted); LLP 1070.000 (a command the runner keeps for itself); LLP 1077 D14 (`haptic`, the command this follows); LLP 1089 D1 (where `HOST_COMMANDS` lives after its stage 1); LLP 1092 D7, D8 (gated tasks, which the lookahead clock uses). Diaries: `~/projects/x2apps/drums/DIARY.md` (R1–R3, Top 5 #1, `repros/R1-retrigger`), `snake/DIARY.md` (F1), `trivia/DIARY.md` (F5). External, read 2026-10-04: Web Audio API 1.1 (`AudioBufferSourceNode`, `AudioScheduledSourceNode.start(when)`/`stop(when)`, `GainNode`, `AudioContext.getOutputTimestamp()`); the W3C Audio Session draft (`navigator.audioSession.type`); AVFAudio's `AVAudioEngine`, `AVAudioSourceNode`, `AVAudioPlayerNode`, `AVAudioNode.outputPresentationLatency`.
@@ -541,8 +541,8 @@ target.
 
 **The arm.** `host/apple/soundarm/` holds `SoundArm.swift` and
 `sound_render.c`, built together as `libexact_sound.dylib`.
-- `SoundModule.swift` `dlopen`s it after first pixel, split as the video
-  arm's loader is:
+- `SoundModule.swift` `dlopen`s it when the output opens (below), never on
+  the boot path, split as the video arm's loader is:
   - **On macOS** (`#if os(macOS)`), the path is the executable's directory
     plus `/libexact_sound.dylib`, as `VideoModule.swift:26–27` loads the video
     arm (and `WebModule.swift:150–151` the web arm).
@@ -555,7 +555,71 @@ target.
   as `CanvasAudio`'s already is.
 - `sound_render.c` exports `exact_sound_render` and `exact_sound_push`,
   declared to Swift through `sound_render.h`, passed to the arm compile with
-  `-import-objc-header`.
+  `-import-objc-header`. `sound_engine.m` beside it (`-fobjc-arc
+  -fobjc-arc-exceptions`, so a caught exception releases its locals) makes
+  every AVAudioEngine call that can raise (making the engine and reading its
+  output, the source node, attach, connect, prepare, start, pause, stop, the
+  check's tap) directly inside its own `@try`, so no exception unwinds
+  through a Swift frame, and returns a failure as text; on the 27 SDKs it
+  uses `connect:to:format:error:` and the tap's `error:` form.
+
+**When the output opens** (amended 2026-10-16, r5). A boot only names the
+files; nothing loads, activates or opens. The first `Play` opens it, on the
+main thread in that voice's commit, as a hand-built app calls
+`engine.start()` on first use: the session is activated (iOS and tvOS), then
+the engine made, every sound read, and the engine started. That voice starts
+as late as the open took, from its first frame (D6), and the main thread
+spends the open's time: measured on an M-series Mac, 45–110 ms for the cold
+output and graph and 28–65 ms for the start. An app that never plays never
+touches `AVAudioSession` or AURemoteIO.
+
+**When it cannot open.** An open is a reason or an arm, never a crash:
+- no sound module, a session that does not activate (the engine is then not
+  touched), an output with no channels, an engine whose `start` throws, or
+  one that raises are each journaled `sound: the output did not open:
+  <why>; …` (and printed: a run outside the driver has no journal reader),
+  and `state.sounds.output` is `{state: "failed", error, skipped}`;
+- its voices are skipped and counted; the first `Play` one second or more
+  after the failure tries again, so a failing output costs at most one
+  attempt a second;
+- a failure gives back the output's own hold on the audio session
+  (`AudioSession.release`), so a `playback` app's failed output does not
+  keep other apps' audio paused; a running output keeps it. A boot naming
+  other files, and a destroyed session, stop and let go of the output and
+  give the hold back; the next `Play` takes both again;
+- an interruption pauses the engine. One that ends with `shouldResume`
+  activates the session and starts the engine again, a failure failing the
+  output the same way; one without it (the person started other audio) is
+  left to the next `Play`. One whose end never came (the app was suspended)
+  is taken as over at `didBecomeActive` only when no other app's primary
+  audio plays (`secondaryAudioShouldBeSilencedHint` false), so a call still
+  under way keeps it. `AudioSession`'s own reactivation at an interruption's
+  end also waits for `shouldResume`. The arm's sounds are effects, so
+  `silenceSecondaryAudioHint` (for a game's soundtrack, Apple's example)
+  does not silence them;
+- an engine found stopped at a `Play` (a route or format change; nothing
+  observes `AVAudioEngineConfigurationChange`, whose observer the engine's
+  queue waits on, a deadlock when the main thread is tearing the engine
+  down) is let go and opened again, and one that stops again within a
+  second of any opening (a retry after the cooldown included) is a failure,
+  so a route that keeps stopping it costs one rebuild a second;
+- an arm is released only once its engine is let go safely: a live engine
+  whose stop raised may still render from the mixer, and its deallocation
+  would be outside any `@try`, so that arm is kept for good, engine and
+  mixer included;
+- a media services reset invalidates the engine: following Apple QA1749 it
+  is disposed of, `sound_engine.m` stopping and releasing the engine and its
+  source node inside one `@try` and ignoring a raise, the mixer and sounds
+  freed after, and the next `Play` opens a new one;
+- `state.sounds.output.state` is otherwise `closed` (nothing opened),
+  `running` or `stopped` (an interruption holds it, or the system stopped it).
+
+One failure is beyond the arm: CoreAudio aborts the process when its RPC to
+the audio server times out (`_ReportRPCTimeout` from `AURemoteIO::Cleanup`,
+reached from `-[AVAudioEngine outputNode]`). On 2026-10-16 a fresh iOS 27
+simulator on one busy Mac did so at the first `outputNode`, about 12 s after
+it was asked, as hand-built SwiftUI and UIKit apps did on that Mac's others. Opening at
+the first voice keeps it off launch and away from an app that plays nothing.
 
 **The production gate.**
 - `bake/src/receipt.rs:536–548` adds `"sound"` to `loads` when the plan's
@@ -609,8 +673,8 @@ no arm, because a `sound` declaration is not a node.
     `scripts/app.mjs:575` refuses a manifest that does not conform.
   - `bake/src/compat.rs:333–337`'s `capabilities` object gains it beside
     `backgroundModes`, so changing it moves the compatibility id.
-- It is activated by the sound arm's load, the video arm's first sound-bearing
-  item, and `CanvasAudio.activate` (`CanvasSeams.swift:668–684`). That last
+- It is activated by the sound arm's open (at the first voice), the video
+  arm's first sound-bearing item, and `CanvasAudio.activate` (`CanvasSeams.swift:668–684`). That last
   one stops calling `setCategory(.ambient)` and asks the owner instead.
 - The default is `.ambient`; `audio_session: "playback"` is `.playback`. This
   holds for an app with no `sound` too, since the owner is ExactKit's. That
@@ -1032,8 +1096,9 @@ Each commit passes the five checks.
 - **`stopSounds(at=)`, fades, gain automation.** Both outputs could do them
   at the sample (Web Audio's `stop(when)` and `setValueAtTime`; the mixer's
   end frame). Needs a consumer, such as a stop at the bar's end or a fade.
-- **Pitch and rate, pan, loops.** Needs a consumer that a WAV per variant
-  cannot serve.
+- **Loops.** Needs a consumer that a WAV per variant cannot serve. (Pitch
+  and rate, and pan, were deferred here too; LLP 1125 D10 adds them as
+  `playbackRate=` and `pan=`.)
 - **Synthesis** (snake F1's `playTone(frequency, ms)`, an `OscillatorNode`).
   A declared WAV beep serves F1. Needs a tone whose parameters come from
   state.
@@ -1085,6 +1150,17 @@ No question is open in r3.
 
 ## 10. Revisions
 
+- **r5** (2026-10-16, amendment). D8 said the arm loads after first pixel;
+  as built, `ExactSession.finishBoot` opened the output while applying the
+  boot batch, so an app whose output could not open (the euxy port's
+  simulator, AURemoteIO's RPC timeout) died at every launch, sound or not.
+  D8 now says the output opens at the first voice, synchronously, and what a
+  failure does (journaled, `failed` in `state`, voices skipped, tried again
+  a second later, the session claim given back; a raise caught in
+  Objective-C). A queue that opened off the main thread with voices held
+  meanwhile was built and reviewed, and dropped: held and later commands
+  ran on different timelines, and interruptions, reloads and a destroyed
+  session each raced a pending open.
 - **r4** (2026-10-04, accepted). Grok 4.7 xhigh's final review of r3
   (`llp/reviews/1096-r3.grok.md`, NOT READY: two MATERIAL, three MINOR,
   four NIT). Three rounds are done, so its fixes are folded as given,

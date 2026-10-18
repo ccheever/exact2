@@ -1,23 +1,51 @@
-//! The render host under the neutral look (LLP 1115.000 D4 part B). A binary
-//! of its own: the look is the process's (the role table's column), and the
-//! other tests of this host render Apple's pairs beside it.
+//! Server renders choose neutral roles before projecting either document form.
 use exact_kernel::style::roles::{self, Column};
+use exact_render::{Ids, Projection};
+use exact_runner::{DataError, DataSource, Value};
+use exact_web::document::Site;
+use std::time::Duration;
 
-/// A document is rendered over the shell of the build it belongs to, and a
-/// shell built in the neutral look says so in its stylesheet's first rule
-/// (`--exact-look: neutral`, host/web/neutral.css; a build's minifier drops
-/// the space). The renderer then resolves a role in the neutral column, as
-/// the page that takes the document over will. Any other shell leaves the
-/// column where every process starts: Apple's.
+struct NoData;
+impl DataSource for NoData {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+}
+
 #[test]
-fn a_shell_in_the_neutral_look_renders_the_neutral_column() {
-    exact_render::shell_look(
-        "<!doctype html><style>html{color-scheme:light dark}</style><div id=\"exact-root\"></div>",
-    );
-    assert_eq!(roles::column(), Column::Apple);
-    exact_render::shell_look("<style>html{color-scheme:light dark}:root{--exact-look:neutral;--exact-label:light-dark(#000000ff,#ffffffff)}</style>");
-    assert_eq!(roles::column(), Column::Neutral);
-    roles::set_column(Column::Apple);
-    exact_render::shell_look("<style>\n  :root { --exact-look: neutral; }\n</style>");
-    assert_eq!(roles::column(), Column::Neutral, "as the source writes it");
+fn render_without_a_shell_uses_neutral_roles_in_both_projections() {
+    exact_web::link(exact_web_capabilities::ALL);
+    let plan = contract::compile(
+        "component App\n  view\n    column border-color=\"-exact-separator\"\n      input type=\"checkbox\"\n",
+    )
+    .unwrap();
+    for projection in [Projection::Kernel, Projection::Direct] {
+        roles::set_column(Column::Apple);
+        let rendered = exact_render::render_with_at(
+            &plan,
+            &|| NoData,
+            Default::default(),
+            "/",
+            &Site {
+                name: "Neutral",
+                origin: None,
+            },
+            Duration::from_secs(5),
+            Ids::Any,
+            projection,
+            0.0,
+        )
+        .unwrap();
+        assert_eq!(roles::column(), Column::Neutral);
+        assert!(
+            rendered
+                .document
+                .root
+                .contains("light-dark(#0000001f, #ffffff29)"),
+            "{:?}: {}",
+            projection,
+            rendered.document.root
+        );
+        assert!(rendered.document.root.contains("data-exact-control"));
+    }
 }

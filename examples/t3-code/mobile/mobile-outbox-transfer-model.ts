@@ -1,5 +1,5 @@
 // App-owned durable capture, separate from the provider's queued command payload.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import { mobileContextRecordValid } from './mobile-context-record';
 import { contextReferences, contextId, contextLabel } from './shared/composer-editor-menu';
 import type { Obj } from './shared/domain';

@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import {expect,test} from 'bun:test';
 import {mobilePickerIntakeRequest as request,mobilePickerIntakeInvoke as invoke,type PickerIntakePick,type PickerIntakeFinish} from './composer-picker-intake-io';
 import {mobileFileHoldsCreate as create,mobileFileHoldReserve as reserve,mobileFileHoldAcquire as acquire,mobileFileHoldHeld as held,

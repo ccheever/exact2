@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 import { expect, test } from 'bun:test';
 import { obj, type Obj } from './shared/domain';
 import type { MobileOutboxRecord } from './mobile-outbox-model';

@@ -388,7 +388,7 @@ function glyph(code: number, day: boolean): string {
   if (code >= 95) return 'ϟ';
   return '☂';
 }
-async function weather(revision: number, utcOffset: number): Promise<Weather> {
+async function weather(revision: number): Promise<Weather> {
   if (revision === 0) return EMPTY_WEATHER;
   try {
     const url = 'https://api.open-meteo.com/v1/forecast?latitude=37.4419&longitude=-122.143&timezone=auto&forecast_days=2&temperature_unit=fahrenheit&current=temperature_2m,weather_code,is_day&hourly=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min';
@@ -412,7 +412,6 @@ async function weather(revision: number, utcOffset: number): Promise<Weather> {
       place: 'Palo Alto',
       hours,
     };
-    void utcOffset;
     return lastWeather;
   } catch {
     return lastWeather.ready ? lastWeather : { ...EMPTY_WEATHER, condition: 'No forecast right now' };
@@ -426,7 +425,7 @@ const sources: Sources = {
   ask: ([thread, text, article, epochMs], store) => ask(thread, text, article, epochMs, store),
   clearThread: ([thread]) => clearThread(thread),
   library: () => library(),
-  weather: ([revision, utcOffset]) => weather(revision, utcOffset),
+  weather: ([revision]) => weather(revision),
   intelligence: (_args, store) => intelligence(store),
   saveKey: ([value], store) => saveKey(value, store),
   saveModel: ([value], store) => saveModel(value, store),

@@ -1,5 +1,5 @@
 // Mounted ordinary Photos/Files admission. Native and storage handles live only in invocations.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type {T3Client} from './shared/client';
 import {ClientError,bridgeReply,type Native,type Files} from './shared/protocol';
 import {letGo} from './shared/let-go';

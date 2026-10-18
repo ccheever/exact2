@@ -4,6 +4,7 @@ arguments as locals, `map` and `filter` with their callback body run by the
 VM once per item, `pending`/`failed`, and any other roster entry.
 -/
 import Contract.LowerLists
+import Contract.SortFacts
 
 namespace Contract.Lower
 
@@ -365,7 +366,10 @@ theorem evalR_call_inv {name args v} (h : EvalR env inFn ls (.call name args) v)
        (∃ x, name = "failure" ∧ args = [.var x] ∧ v = .none ∧
           ((env.prog.resources.any (·.name == x) = true ∧ (lookup x env.resources).isSome = true) ∨
             env.prog.resources.any (·.name == x) = false)) ∨
-       (∃ vs, ListR env inFn ls args vs ∧ stdlib env name vs = .ok v))) := by
+       (∃ vs, ListR env inFn ls args vs ∧ stdlib env name vs = .ok v) ∨
+       (∃ l ps body dir xs ks d, name = "sortBy" ∧ args = l :: .arrow ps body :: dir ∧
+          EvalR env inFn ls l (.list xs) ∧ MapR env inFn ls ps body xs 0 ks ∧ sortDir dir = .ok d ∧
+          sortByKeys xs ks d = .ok v))) := by
   cases h
   case fn hfd hargs hbody => exact .inl ⟨_, _, hfd, hargs, hbody⟩
   case map hfd hl hm => exact .inr ⟨hfd, .inl ⟨_, _, _, _, _, rfl, rfl, hl, hm, rfl⟩⟩
@@ -377,7 +381,9 @@ theorem evalR_call_inv {name args v} (h : EvalR env inFn ls (.call name args) v)
   case failureSettled hfd h1 h2 =>
     exact .inr ⟨hfd, .inr (.inr (.inr (.inl ⟨_, rfl, rfl, rfl, .inl ⟨h1, h2⟩⟩)))⟩
   case failureOther hfd h1 => exact .inr ⟨hfd, .inr (.inr (.inr (.inl ⟨_, rfl, rfl, rfl, .inr h1⟩)))⟩
-  case stdlib hfd hargs hs => exact .inr ⟨hfd, .inr (.inr (.inr (.inr ⟨_, hargs, hs⟩)))⟩
+  case stdlib hfd hargs hs => exact .inr ⟨hfd, .inr (.inr (.inr (.inr (.inl ⟨_, hargs, hs⟩))))⟩
+  case sortBy hfd hd hl hm hs =>
+    exact .inr ⟨hfd, .inr (.inr (.inr (.inr (.inr ⟨_, _, _, _, _, _, _, rfl, rfl, hl, hm, hd, hs⟩))))⟩
 
 /-- `pending(r)`/`failed(r)` of a resource: the flag, once it settled. -/
 theorem spec_flag {e : Expr} {x : String} {j : Nat} {i : Instr} {flags : List Bool}
@@ -423,13 +429,14 @@ theorem case_pending (hfd : p.fns.find? (·.name == "pending") = none)
     constructor
     · intro h
       rcases evalR_call_inv h with ⟨_, _, h1, _⟩ | ⟨_, ⟨_, _, _, _, _, h1, _⟩ | ⟨_, _, _, _, _, h1, _⟩ |
-        ⟨y, _, h2, h3, h4⟩ | ⟨y, h2, _⟩ | ⟨_, _, h1⟩⟩
+        ⟨y, _, h2, h3, h4⟩ | ⟨y, h2, _⟩ | ⟨_, _, h1⟩ | ⟨_, _, _, _, _, _, _, h1, _⟩⟩
       · rw [hfd'] at h1; cases h1
       · simp at h1
       · simp at h1
       · simp at h2; subst h2; exact ⟨h3, h4⟩
       · simp at h2
       · exact absurd h1 stdlib_pending
+      · simp at h1
     · rintro ⟨rfl, ⟨h1, h2⟩ | h1⟩
       · exact .pendingSettled hfd' h1 h2
       · exact .pendingOther hfd' h1
@@ -460,13 +467,14 @@ theorem case_failed (hfd : p.fns.find? (·.name == "failed") = none)
     constructor
     · intro h
       rcases evalR_call_inv h with ⟨_, _, h1, _⟩ | ⟨_, ⟨_, _, _, _, _, h1, _⟩ | ⟨_, _, _, _, _, h1, _⟩ |
-        ⟨y, _, h2, h3, h4⟩ | ⟨y, h2, _⟩ | ⟨_, _, h1⟩⟩
+        ⟨y, _, h2, h3, h4⟩ | ⟨y, h2, _⟩ | ⟨_, _, h1⟩ | ⟨_, _, _, _, _, _, _, h1, _⟩⟩
       · rw [hfd'] at h1; cases h1
       · simp at h1
       · simp at h1
       · simp at h2; subst h2; exact ⟨h3, h4⟩
       · simp at h2
       · exact absurd h1 stdlib_failed
+      · simp at h1
     · rintro ⟨rfl, ⟨h1, h2⟩ | h1⟩
       · exact .failedSettled hfd' h1 h2
       · exact .failedOther hfd' h1
@@ -502,13 +510,14 @@ theorem case_failure (hfd : p.fns.find? (·.name == "failure") = none)
     constructor
     · intro h
       rcases evalR_call_inv h with ⟨_, _, h1, _⟩ | ⟨_, ⟨_, _, _, _, _, h1, _⟩ | ⟨_, _, _, _, _, h1, _⟩ |
-        ⟨y, h2, _⟩ | ⟨y, _, h2, h3, h4⟩ | ⟨_, _, h1⟩⟩
+        ⟨y, h2, _⟩ | ⟨y, _, h2, h3, h4⟩ | ⟨_, _, h1⟩ | ⟨_, _, _, _, _, _, _, h1, _⟩⟩
       · rw [hfd'] at h1; cases h1
       · simp at h1
       · simp at h1
       · simp at h2
       · simp at h2; subst h2; exact ⟨h3, h4⟩
       · exact absurd h1 stdlib_failure
+      · simp at h1
     · rintro ⟨rfl, ⟨h1, h2⟩ | h1⟩
       · exact .failureSettled hfd' h1 h2
       · exact .failureOther hfd' h1
@@ -534,7 +543,8 @@ theorem case_failure (hfd : p.fns.find? (·.name == "failure") = none)
 
 /-- Any other roster entry, on its arguments. -/
 theorem case_stdlib (ih : AllOk fuel) {name args ca ts} (hfd : p.fns.find? (·.name == name) = none)
-    (hname : ¬ (name = "map" ∨ name = "filter" ∨ name = "pending" ∨ name = "failed" ∨ name = "failure"))
+    (hname : ¬ (name = "map" ∨ name = "filter" ∨ name = "pending" ∨ name = "failed" ∨ name = "failure" ∨
+      name = "sortBy"))
     (ha : compileArgs fuel p depth sc n args = .ok (ca, ts))
     (hx : Ctx env inFn ls venv L p sc n) :
     ExprSpec env inFn ls venv P L (.call name args) (ca ++ [.call name args.length]) (rosterTy name ts) := by
@@ -545,15 +555,16 @@ theorem case_stdlib (ih : AllOk fuel) {name args ca ts} (hfd : p.fns.find? (·.n
     constructor
     · intro h
       rcases evalR_call_inv h with ⟨_, _, h1, _⟩ | ⟨_, ⟨_, _, _, _, _, h1, _⟩ | ⟨_, _, _, _, _, h1, _⟩ |
-        ⟨y, h2, _⟩ | ⟨y, h2, _⟩ | h1⟩
+        ⟨y, h2, _⟩ | ⟨y, h2, _⟩ | h1 | ⟨_, _, _, _, _, _, _, h1, _⟩⟩
       · rw [hfd'] at h1; cases h1
       · exact absurd (.inl h1) hname
       · exact absurd (.inr (.inl h1)) hname
       · rcases h2 with h2 | h2
         · exact absurd (.inr (.inr (.inl h2))) hname
         · exact absurd (.inr (.inr (.inr (.inl h2)))) hname
-      · exact absurd (.inr (.inr (.inr (.inr h2)))) hname
+      · exact absurd (.inr (.inr (.inr (.inr (.inl h2))))) hname
       · exact h1
+      · exact absurd (.inr (.inr (.inr (.inr (.inr h1))))) hname
     · rintro ⟨vs, h1, h2⟩; exact .stdlib hfd' h1 h2
   intro pc S cbs fx hr
   have iha := ih.2.1 _ _ _ _ _ _ _ ha _ _ _ _ _ P hx pc S cbs fx hr.left
@@ -610,3 +621,172 @@ theorem case_list (ih : AllOk fuel) {items} (hc : compile (fuel + 1) p depth sc 
     exact ⟨.list vs, (hinv _).mpr ⟨vs, h1, rfl⟩⟩
 
 end Contract.Lower
+
+/-! ## `sortBy` -/
+
+namespace Contract.Lower
+
+open Vm
+
+variable {fuel : Nat} {p : Program} {depth : Nat} {sc : Scope} {n : Nat} {c : Code} {t : STy}
+  {env : Contract.Env} {inFn : Bool} {ls : Locals} {venv : Vm.Env} {L : List Value} {P : Code}
+
+theorem vtyAll_iff {sh u} : ∀ {zs : List Value}, VTyAll sh zs u ↔ ∀ z ∈ zs, VTy sh z u
+  | [] => by simp [VTyAll]
+  | z :: zs => by simp [VTyAll, vtyAll_iff]
+
+/-- A permutation of a list is of the list's static type. -/
+theorem vty_perm {sh t} {xs ys : List Value} (h : VTy sh (.list xs) t) (hp : ys.Perm xs) :
+    VTy sh (.list ys) t := by
+  cases t with
+  | top => exact VTy.top'
+  | list u =>
+    simp only [VTy] at h ⊢
+    rw [vtyAll_iff] at h ⊢
+    exact fun y hy => h y (hp.mem_iff.mp hy)
+  | _ => simp [VTy] at h
+
+theorem stdlib_sortBy {e : Contract.Env} {xs ks : List Value} {d : Bool} :
+    stdlib e "sortBy" [.list xs, .list ks, .bool d] = sortByKeys xs ks d := by
+  simp [stdlib]
+
+/-- What `sortBy` evaluates by. -/
+theorem sortBy_sem {l ps body dir d} (hfd : env.prog.fns.find? (·.name == "sortBy") = none)
+    (hd : sortDir dir = .ok d) :
+    ∀ v, EvalR env inFn ls (.call "sortBy" (l :: .arrow ps body :: dir)) v ↔
+      ∃ xs ks, EvalR env inFn ls l (.list xs) ∧ MapR env inFn ls ps body xs 0 ks ∧
+        sortByKeys xs ks d = .ok v := by
+  intro v
+  constructor
+  · intro h
+    rcases evalR_call_inv h with ⟨_, _, h1, _⟩ | ⟨_, ⟨_, _, _, _, _, h1, _⟩ | ⟨_, _, _, _, _, h1, _⟩ |
+      ⟨y, h2, h3, _⟩ | ⟨y, h2, h3, _⟩ | ⟨_, h1, _⟩ | ⟨l', ps', body', dir', xs, ks, d', -, h2, h3, h4, h5, h6⟩⟩
+    · rw [hfd] at h1; cases h1
+    · simp at h1
+    · simp at h1
+    · simp at h3
+    · simp at h3
+    · cases h1 with | cons _ h1 => cases h1 with | cons h1 _ => cases h1
+    · simp only [List.cons.injEq, Expr.arrow.injEq] at h2
+      obtain ⟨rfl, ⟨rfl, rfl⟩, rfl⟩ := h2
+      rw [hd] at h5; cases h5
+      exact ⟨xs, ks, h3, h4, h6⟩
+  · rintro ⟨xs, ks, h1, h2, h3⟩
+    exact .sortBy hfd h1 h2 hd h3
+
+theorem case_sortBy (ih : AllOk fuel) {l ps body dir d cl tl cb tb}
+    (hfd : p.fns.find? (·.name == "sortBy") = none) (hd : sortDir dir = .ok d)
+    (hl0 : compile fuel p depth sc n l = .ok (cl, tl))
+    (hb0 : compile fuel p depth (bindScope ps (n + 1) tl.item sc) (n + 3) body = .ok (cb, tb))
+    (hx : Ctx env inFn ls venv L p sc n) :
+    ExprSpec env inFn ls venv P L (.call "sortBy" (l :: .arrow ps body :: dir))
+      (cl ++ [.bindLocal, .loadLocal n, .loadLocal n, .map cb.length] ++ cb ++
+        [.bool d, .call "sortBy" 3, .dropLocal]) tl := by
+  have hfd' : env.prog.fns.find? (·.name == "sortBy") = none := by rw [hx.prog]; exact hfd
+  have hsem := sortBy_sem (inFn := inFn) (ls := ls) (l := l) (ps := ps) (body := body) hfd' hd
+  obtain rfl := hx.len
+  intro pc S cbs fx hr
+  have hl := hr.locals
+  have hfits := hr.fits
+  have htop := hr.top
+  simp only [List.length_append, List.length_cons, List.length_nil] at hfits htop
+  have ihl := ih_expr (P := P) ih hl0 hx pc S cbs fx hr.left.left.left
+  have rA := hr.left.left.right
+  -- The list bound, then loaded twice.
+  have pre : ∀ w : Value, Star P venv (M (pc + cl.length) (w :: S) L cbs fx)
+      (M (pc + cl.length + 3) (w :: w :: S) (L ++ [w]) cbs fx) := by
+    intro w
+    have hget : (L ++ [w])[L.length]? = some w := by simp
+    have s1 := rA.step (venv := venv) (S := w :: S) (fx := fx) exec_bindLocal
+    have s2 := (rA.tail.locals_append [w]).step (venv := venv) (S := S) (fx := fx)
+      (exec_loadLocal hget)
+    have s3 := (rA.tail.tail.locals_append [w]).step (venv := venv) (S := w :: S) (fx := fx)
+      (exec_loadLocal hget)
+    exact s1.trans (s2.trans (s3.pc (by omega)))
+  -- The callback over the list, its body after the `Map`.
+  have rmap := fun w : Value => (rA.tail.tail.tail.locals_append [w])
+  have hbase : ∀ xs : List Value, Room P ((cl ++ [.bindLocal, .loadLocal L.length, .loadLocal L.length]) ++
+      [.map cb.length] ++ cb) pc cbs (L ++ [Value.list xs]) := fun xs => by
+    have := hr.left.locals_append [Value.list xs]
+    simpa using this
+  have hroom : ∀ (xs : List Value) x i rest out, Room P cb (pc + cl.length + 3 + 1)
+      (mkCb false (pc + cl.length + 3 + 1) (pc + cl.length + 3 + 1 + cb.length) x i rest out
+        (L ++ [Value.list xs]).length (Value.list xs :: S) :: cbs)
+      ((L ++ [Value.list xs]) ++ [x, .num (F64.ofNat i)]) := fun xs x i rest out => by
+    have := body_room (fl := false) (x := x) (i := i) (rest := rest) (out := out) (S := .list xs :: S)
+      (hbase xs)
+    simpa [Nat.add_assoc] using this
+  have hbody : ∀ (xs : List Value) x i, VTy env.prog.shapes x tl.item →
+      ExprSpec env inFn (bindParams ps x i ls) venv P ((L ++ [Value.list xs]) ++ [x, .num (F64.ofNat i)]) body cb tb :=
+    fun xs x i hx' => ih_expr ih hb0 ⟨hx.prog, by simpa using (hx.agree.append [Value.list xs]).bind (ps := ps) (i := i) hx',
+      by simp, hx.quiet⟩
+  have hnil := fun xs : List Value => (rmap (.list xs)).step (venv := venv) (S := .list [] :: .list xs :: S) (fx := fx)
+    (exec_each_nil (fl := false) (off := cb.length) (htop.mono (by omega)) (by omega))
+  have hcons := fun (xs : List Value) x rest => (rmap (.list xs)).step (venv := venv)
+    (S := .list (x :: rest) :: .list xs :: S) (fx := fx)
+    (exec_each_cons (fl := false) (x := x) (rest := rest) (off := cb.length) (by omega))
+  -- The map: from the loaded list to its keys, or a run that returns has keys.
+  have keys : ∀ xs : List Value, VTyAll env.prog.shapes xs tl.item →
+      (∀ ks, MapR env inFn ls ps body xs 0 ks →
+        Star P venv (M (pc + cl.length + 3) (.list xs :: .list xs :: S) (L ++ [Value.list xs]) cbs fx)
+          (M (pc + cl.length + 3 + 1 + cb.length) (.list ks :: .list xs :: S) (L ++ [Value.list xs]) cbs fx)) ∧
+      (Halts P venv (M (pc + cl.length + 3) (.list xs :: .list xs :: S) (L ++ [Value.list xs]) cbs fx) →
+        ∃ ks, MapR env inFn ls ps body xs 0 ks) := by
+    intro xs hitems
+    cases xs with
+    | nil =>
+      refine ⟨fun ks hm => ?_, fun _ => ⟨[], .nil⟩⟩
+      cases hm
+      exact (hnil []).pc (by simp <;> omega)
+    | cons x rest =>
+      have ml := map_loop (fx := fx) (hbody (x :: rest)) (hroom (x :: rest)) rfl rest x 0 [] hitems
+      refine ⟨fun ks hm => ?_, fun hh => ?_⟩
+      · exact (hcons (x :: rest) x rest).trans (by simpa using (ml.1 ks hm).2)
+      · exact ml.2 (hh.star (hcons (x :: rest) x rest))
+  -- After the keys: the direction, the sort, the local dropped.
+  have rB := hr.right
+  have hcall : ∀ xs ks : List Value, Vm.exec P.length venv (.call "sortBy" 3)
+      (M (pc + cl.length + 3 + 1 + cb.length + 1) (.bool d :: .list ks :: .list xs :: S) (L ++ [Value.list xs]) cbs fx) =
+        match sortByKeys xs ks d with
+        | .ok v => .ok (.run (M (pc + cl.length + 3 + 1 + cb.length + 2) (v :: S) (L ++ [Value.list xs]) cbs fx))
+        | .error e => .error (.call e) := by
+    intro xs ks
+    have hp := popN_ok [.list xs, .list ks, .bool d] S
+    simp only [List.reverse_cons, List.reverse_nil, List.nil_append, List.cons_append,
+      List.length_cons, List.length_nil] at hp
+    simp only [Vm.exec, hp, stdlib_sortBy]
+    cases sortByKeys xs ks d <;> rfl
+  have post : ∀ xs ks v, sortByKeys xs ks d = .ok v →
+      Star P venv (M (pc + cl.length + 3 + 1 + cb.length) (.list ks :: .list xs :: S) (L ++ [Value.list xs]) cbs fx)
+        (M (pc + (cl.length + 4 + cb.length + 3)) (v :: S) L cbs fx) := by
+    intro xs ks v hv
+    have r0 := rB.locals_append [Value.list xs]
+    have b1 := r0.step (venv := venv) (S := .list ks :: .list xs :: S) (fx := fx) (by simp [Vm.exec]; rfl)
+    have b2 := r0.tail.step (venv := venv) (S := .bool d :: .list ks :: .list xs :: S) (fx := fx)
+      (by rw [show pc + (cl ++ [Instr.bindLocal, .loadLocal L.length, .loadLocal L.length, .map cb.length] ++ cb).length + 1 =
+        pc + cl.length + 3 + 1 + cb.length + 1 by simp; omega, hcall, hv])
+    have b3 := r0.tail.tail.step (venv := venv) (S := v :: S) (fx := fx) (exec_drop hl)
+    refine Star.join .refl (b1.join (b2.join (b3.pc ?_) ?_) ?_) ?_ <;> simp <;> omega
+  refine ⟨fun v hv => ?_, fun hh => ?_⟩
+  · obtain ⟨xs, ks, h1, h2, h3⟩ := (hsem v).mp hv
+    obtain ⟨htl, hs1⟩ := ihl.1 _ h1
+    have hk := (keys xs (vty_item htl)).1 ks h2
+    obtain ⟨_, _, -, -, rfl, -⟩ := sortByKeys_spec h3
+    refine ⟨vty_perm htl (sortByKeys_perm h3), ?_⟩
+    exact hs1.trans ((pre _).trans (hk.trans ((post xs ks _ h3).pc (by simp <;> omega))))
+  · obtain ⟨w, h1⟩ := ihl.2 hh
+    obtain ⟨htl, hs1⟩ := ihl.1 w h1
+    have hh2 := (hh.star hs1).star (pre w)
+    obtain ⟨st, hst⟩ := (rmap w).halts (hh2.pc (by simp <;> omega))
+    obtain ⟨xs, rfl⟩ := exec_each_list (fl := false) hst
+    obtain ⟨ks, hm⟩ := (keys xs (vty_item htl)).2 hh2
+    have hh3 := hh2.star ((keys xs (vty_item htl)).1 ks hm)
+    have r0 := rB.locals_append [Value.list xs]
+    have b1 := r0.step (venv := venv) (S := .list ks :: .list xs :: S) (fx := fx) (by simp [Vm.exec]; rfl)
+    have hh4 := (hh3.pc (by simp <;> omega)).star b1
+    obtain ⟨st, hst⟩ := r0.tail.halts (hh4.pc (by simp <;> omega))
+    rw [show pc + (cl ++ [Instr.bindLocal, .loadLocal L.length, .loadLocal L.length, .map cb.length] ++ cb).length +
+      1 = pc + cl.length + 3 + 1 + cb.length + 1 by simp; omega, hcall] at hst
+    cases h3 : sortByKeys xs ks d with
+    | error e => rw [h3] at hst; cases hst
+    | ok v => exact ⟨v, (hsem v).mpr ⟨xs, ks, h1, hm, h3⟩⟩

@@ -31,6 +31,51 @@ final class AgentMouseFormsMacTests: XCTestCase {
         override func scrollWheel(with e: NSEvent) { note(e) }
     }
 
+    func testHeldContactUsesTheNodesWindowInAPopoverAndSheet() throws {
+        let f = try SheetFixture()
+        defer { f.close() }
+        f.window.setFrameOrigin(NSPoint(x: 240, y: 160))
+        f.window.orderFrontRegardless()
+        let agent = Agent(session: f.session)
+        for (open, target) in [("", "page-field"), ("tags", "tag"), ("open", "title")] {
+            if !open.isEmpty { try f.press(open) }
+            let node = try f.node(target)
+            let window = try XCTUnwrap(node.window)
+            XCTAssertEqual(window === f.window, open.isEmpty)
+            if open == "tags" { XCTAssertTrue(f.presenter.menus.hosts(window)) }
+            if open == "open" { XCTAssertTrue(window.isSheet) }
+            let recorder = Recorder(frame: node.bounds)
+            node.addSubview(recorder)
+            defer { recorder.removeFromSuperview() }
+            func tap(_ request: [String: Any]) {
+                let wire = try! JSONSerialization.data(withJSONObject: request)
+                let reply = agent.tap(try! JSONSerialization.jsonObject(with: wire) as! [String: Any])
+                XCTAssertNil(reply["error"], "\(target): \(reply)")
+            }
+            // Plain tap and held contact must reach the same local point.
+            tap(["id": Int(node.id), "mouse": true, "at": [10.0, 8.0]])
+            XCTAssertEqual(recorder.log, [
+                "type=1 button=0 clicks=1 mods=none at=(10,8)",
+                "type=2 button=0 clicks=1 mods=none at=(10,8)",
+            ], target)
+            for release in ["up", "cancel"] {
+                recorder.log.removeAll()
+                let box = agent.box(node)
+                tap(["id": Int(node.id), "phase": "down", "x": box.minX + 10, "y": box.minY + 8])
+                tap(["phase": "hold", "ms": 600, "virtual": true])
+                tap(["phase": "move", "dx": 0, "dy": 2])
+                tap(["phase": release])
+                XCTAssertEqual(recorder.log, [
+                    "type=1 button=0 clicks=1 mods=none at=(10,8)",
+                    "type=6 button=0 clicks=1 mods=none at=(10,10)",
+                    "type=2 button=0 clicks=1 mods=none at=(10,10)",
+                ], "\(target), \(release)")
+                XCTAssertNil(agent.contact)
+            }
+            if open == "tags" { f.presenter.menus.reset() }
+        }
+    }
+
     func testHeldNativeButtonContactAcknowledgesDownThenMovesReleasesAndCancels() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "agent-native-contact")

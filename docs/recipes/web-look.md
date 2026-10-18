@@ -11,7 +11,7 @@ box (emphasis is a part: [content-design](content-design.md)).
 | `buttonStyle="bordered-prominent"` (`"filled"`) | the accent as its fill: once a screen, the action people came for |
 | `buttonStyle="plain"`, `"tinted"` | the accent as text; as a light tint |
 | `destructive=true` | red, in the button's style |
-| a card with a `press`, a custom `button`, a `link` | a wash on hover; dims while pressed and from Space (`-exact-press-scale` replaces the dim); dimmed when disabled |
+| a card with a `press`, a custom `button`, a `link` | a wash on hover; dims while pressed and from Space (an authored press replaces the dim); dimmed when disabled |
 | `row role="radiogroup"` of `button role="radio"` (a value from two to five); a root `tablist` (`aria-controls`) | a segmented control, arrows move the choice; a tab bar |
 | a route's `header` | an app bar, sticky on a page that scrolls |
 | `dialog role="alertdialog"` | an alert: its `aria-label` the title |

@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// thread-commands-and-keys: ⌥↑ (thread.editQueuedMessage) reaches the queued
+// ⌥↑ (thread.editQueuedMessage) reaches the queued
 // edit only with the caret collapsed at the very start (T3ComposerQueueKey.swift).
 
 final class ComposerQueueKeyTests: XCTestCase {

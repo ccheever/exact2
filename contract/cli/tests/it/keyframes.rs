@@ -562,3 +562,80 @@ fn translate_takes_percentages_of_the_box_everywhere_it_takes_lengths() {
         assert_eq!(error.id, "lower-attr-value", "{refused}: {error:?}");
     }
 }
+
+/// A design token in a colour keyframe is the colour it stands for, a
+/// `light-dark()` pair whole (euxy's chip relight, `c.chipDim`), as a row's
+/// colour is; one that varies by an app axis, and a two-value `scale`, are
+/// refused by name.
+#[test]
+fn a_colour_keyframe_takes_the_designs_tokens() {
+    let source = "theme\n  chipDim=\"light-dark(#cfced4, #45454b)\"\n  glow=\"#ff000080\"\nkeyframes relight\n  from background-color=\"chipDim\" box-shadow=\"0 0 6px glow\"\n  to background-color=\"transparent\" box-shadow=\"none\"\ncomponent App\n  view\n    text \"a\" testId=\"a\" animation=\"relight 1s\"\n";
+    let r = booted(source);
+    let (_, row) = animation(&r, "a");
+    let from = &row.0[0].keyframes.0[0];
+    let get = |list: &[(Property, Value)], p: Property| {
+        list.iter()
+            .find(|(q, _)| *q == p)
+            .map(|(_, v)| v.to_rgba8())
+    };
+    assert_eq!(
+        get(&from.values, Property::BackgroundColor),
+        Some([0xcf, 0xce, 0xd4, 255])
+    );
+    assert_eq!(
+        get(&from.dark, Property::BackgroundColor),
+        Some([0x45, 0x45, 0x4b, 255])
+    );
+    assert_eq!(
+        get(&from.values, Property::ShadowColor),
+        Some([255, 0, 0, 0x80])
+    );
+    // An expression over a token folds as a row's does, the inner pair's
+    // halves taken; a word inside a function is no token.
+    let folded = "theme\n  chipDim=\"light-dark(#cfced4, #45454b)\"\n  rgb=\"#ff0000\"\nkeyframes k\n  from background-color=\"light-dark(chipDim, #ffffff)\" color=\"rgb(0, 0, 0)\"\n  to border-color=\"color-mix(in srgb, chipDim 50%, white)\"\ncomponent App\n  view\n    text \"a\" testId=\"a\" animation=\"k 1s\"\n";
+    let r = booted(folded);
+    let (_, row) = animation(&r, "a");
+    let from = &row.0[0].keyframes.0[0];
+    assert_eq!(
+        get(&from.values, Property::BackgroundColor),
+        Some([0xcf, 0xce, 0xd4, 255])
+    );
+    assert_eq!(
+        get(&from.dark, Property::BackgroundColor),
+        Some([255, 255, 255, 255])
+    );
+    assert_eq!(get(&from.values, Property::Color), Some([0, 0, 0, 255]));
+    // A palette function's template over a token folds too, as compiled.
+    let shaded = "theme\n  chip=\"#ff0000\"\nfn shade(c: string): string = `light-dark(${c}, #ffffff)`\nkeyframes k\n  from color=shade(\"chip\")\ncomponent App\n  view\n    text \"a\" testId=\"a\" animation=\"k 1s\"\n";
+    let r = booted(shaded);
+    let (_, row) = animation(&r, "a");
+    let from = &row.0[0].keyframes.0[0];
+    assert_eq!(get(&from.values, Property::Color), Some([255, 0, 0, 255]));
+    assert_eq!(get(&from.dark, Property::Color), Some([255, 255, 255, 255]));
+    let dir = std::env::temp_dir().join(format!("keyframe-token-axis-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\naxes\n  tone = calm | loud\n\ntheme\n  c.chip = #cfced4\n    when tone=loud: #ff0000\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "keyframes k\n  from color=\"c.chip\"\ncomponent App\n  view\n    text \"a\" animation=\"k 1s\" color=\"c.chip\"\n",
+    )
+    .unwrap();
+    let error = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert!(
+        error.message.contains("`c.chip` varies by an app axis"),
+        "{error}"
+    );
+    let scale = contract::compile(
+        "keyframes fill\n  from scale=\"0 1\"\ncomponent App\n  view\n    text \"a\" animation=\"fill 1s\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(scale.id, "lower-keyframes");
+    assert!(
+        scale.message.contains("one factor for both axes"),
+        "{scale}"
+    );
+}

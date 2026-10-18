@@ -1,7 +1,7 @@
 # Recipe: after a write
 
-The field clears, or the form closes, only when the reply is ok; a refusal keeps what was
-typed and says why, under the field.
+Clear fields and close forms only on `ok: true`. On refusal, keep the draft and
+show its reason.
 
 ```contract
 shape Tag
@@ -16,13 +16,14 @@ component TagList
   resource tags = loadTags() as shape Tag[] else empty()
   mutation added as shape Reply refreshes tags then afterAdd
   derive addError = match added { case some(r) => r.error, case none => "" }
+  derive shownError = pending(added) ? "" : failed(added) ? "Couldn't save the tag. Try again." : addError
   action edit(v: string)
     draft = v
   action add
     if draft.trim() != "" and not pending(added)
       send added = addTag(draft.trim())
   action afterAdd
-    if addError == ""
+    if match added { case some(r) => r.ok, case none => false }
       draft = ""
   view
     list appearance="auto" listStyle="inset-grouped" height="100%" testId="app"
@@ -31,8 +32,8 @@ component TagList
           column flex=1 min-width=0 gap=4
             input value=draft input=edit submit=add placeholder="New tag"
               aria-label="New tag" testId="draft"
-            if addError != "" and not pending(added)
-              text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
+            if shownError != ""
+              text shownError font="-exact-footnote" color="-exact-system-red" testId="add-error"
           button press=add disabled=(draft.trim() == "" or pending(added)) buttonStyle="filled" testId="add"
             text "Add"
       section
@@ -44,7 +45,7 @@ component TagList
 ```ts
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.tags'; // exact new writes this line
+export const appId = 'com.example.tags';
 export const grants = '';
 
 const tags: Result<'loadTags'> = [];
@@ -65,6 +66,7 @@ test "a refused add keeps its text and says why; the next one clears it"
   type "draft" "Work"
   tap "add"
   clock data
+  expect text "draft" == ""
   type "draft" "work"
   tap "add"
   clock data
@@ -76,12 +78,12 @@ test "a refused add keeps its text and says why; the next one clears it"
   expect tree missing "add-error"
 ```
 
-- **Clear in `then`**, which runs as its own commit when each reply lands and reads it; clearing
-  where you send loses the text on a refusal. Give the write its own mutation: a `then` runs for
-  every reply of its mutation. `not pending(added)` stops a second Enter: a newer send replaces
-  the reply, not the work.
-- **A refusal is a reply** (`{ ok: false, error }` in words) for every failure the data module
-  can name: a rule, a 4xx, a lost connection ([rest-backend](rest-backend.md)). A throw brings no
-  answer: `then` doesn't run and nothing is said.
-- Closing a form is the same `then`: `if saveError == "" and top(nav).name == "add"`, then
-  `nav = back(nav)` ([navigation-stack](navigation-stack.md)).
+Do not also set an unqueued mutation's slot to `none` when sending it: assignments
+commit after sends and may drop the reply. Hide old errors with `pending(added)`.
+`none` means no reply; `failed(added)` marks request failure. A request failure
+runs no `then`; an `{ ok: false, error }` reply does.
+
+`afterAdd` clears the draft only when its reply has `ok: true`. The pending guard
+prevents a second Enter from replacing the first reply. A continuation that closes
+a form should also check the current route before setting `nav = back(nav)`
+([navigation-stack](navigation-stack.md)).

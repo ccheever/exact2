@@ -30,6 +30,13 @@ pub(crate) fn resolve(
             let rows = StyleMask::of(StyleId::FontSize);
             let slots: Vec<u32> = arena.iter_live().collect();
             for slot in slots {
+                // Tab metrics use rem even when an authored local font stops
+                // inheritance. Refresh their minimum and cached host offers.
+                if arena.neutral_tab_root(slot).is_some() || arena.neutral_alert(slot) {
+                    control_env_changed(arena, layout, slot);
+                    receipt.layout_invalidated = true;
+                    touched.push(arena.key(slot));
+                }
                 if arena.inherited_source(slot, StyleId::FontSize).is_none()
                     && !arena
                         .control_text_start(slot)
@@ -43,6 +50,21 @@ pub(crate) fn resolve(
     }
     if let Some(scale) = arena.display_scale_next.take() {
         arena.display_scale = Some(scale);
+    }
+    // Bold Text (LLP 1115.000 D12.3): every text is measured and drawn again
+    // at the weight it now means.
+    if let Some(on) = arena
+        .bold_text_next
+        .take()
+        .filter(|on| *on != arena.bold_text)
+    {
+        arena.bold_text = on;
+        let rows = StyleMask::of(StyleId::FontWeight);
+        let slots: Vec<u32> = arena.iter_live().collect();
+        for slot in slots {
+            inherited_changed(arena, layout, slot, rows, receipt);
+            touched.push(arena.key(slot));
+        }
     }
     if arena.relative_slots.is_empty() {
         return;

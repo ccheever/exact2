@@ -1,0 +1,20 @@
+// Synthetic conformance plan (LLP 1123 D10): the layout regions'
+// `env(-exact-<region>-inset-<edge>)` lengths, which a browser does not
+// have. The wasm page writes each as `env(safe-area-inset-<edge>)` through
+// css.rs; the JS target writes a bound one through rt.js the same way, a
+// fallback included, which would otherwise make the browser drop the
+// declaration or take the fallback. The Linux host's kernel resolves them
+// against its safe area too. A tap swaps the bound padding between two
+// expressions, one with its function and region names escaped, which the
+// browser keeps as written. The label has a set width and line height, so
+// the button's box depends on its padding and on no font's metrics.
+// linux: layout
+component LayoutRegions
+  state wide = false
+  action flip
+    wide = !wide
+  view
+    main testId="root" viewport-fit="cover" width="100%" height="100%" position="relative" background-color="#12081f"
+      button press=flip testId="flip" padding-left=(wide ? "calc(e\\6e v(-exact-\\6c ayout-margins-inset-left) + 7px)" : "max(16px, env(-exact-readable-content-corners-inset-left, 30px))") background-color="#7c4dff"
+        text "flip" width=24 line-height="18px" color="#ffffff"
+      box testId="literal" position="absolute" left=0 top=60 width=40 height=10 padding-left="calc(env(-exact-safe-area-corners-inset-left, 30px) + 5px)" padding-top="env(-exact-layout-margins-corners-inset-top)" background-color="#ffd60a"

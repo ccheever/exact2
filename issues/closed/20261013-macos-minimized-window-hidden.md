@@ -42,8 +42,6 @@ the drive's): minimize the window, then read `exactPage().visibilityState` (or t
 | The same on the reference | Electron (Chromium), real input | `hidden` within ~0.8 s of ⌘M; `visible` after the restore | (the oracle) | G2-08 record, "ref" |
 | ⌘H, unhide, restore, occlusion | macOS, the clone | match the reference | — | G2-08 record |
 
-Record: https://raw.githubusercontent.com/ccheever/exact2/ce58c483fa3c5994a24469f0da7a8444bc19b15a/realinput-1011c/b3-window-activity/G2-08-states.txt
-
 ## Constraints
 
 - A window behind another app's stays visible, as now; a fully occluded window stays hidden, as now (LLP 1069.000 D2).

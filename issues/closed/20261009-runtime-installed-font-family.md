@@ -94,7 +94,7 @@ component X48app
 
 | Scenario | Setup / reset / exact commands | Platform / OS / device | Framework revision | Actual result | Expected result | Evidence |
 |---|---|---|---|---|---|---|
-| State-bound family, compiler | `contract build state.contract -o state.plan` (the three-line form: `state family = "Arial"` / `text "…" font-family=family`) | macOS 26.6.2, Apple Silicon (any host) | main `b896050d7` | exit 1, `state.contract:4:50 [lower-font-family-literal]` | exit 0 | [record](https://raw.githubusercontent.com/ccheever/exact2/f9d5d3e7be6a803d35a207726ac4a28408bbdf58/file-x48-x68/x48-record.txt) |
+| State-bound family, compiler | `contract build state.contract -o state.plan` (the three-line form: `state family = "Arial"` / `text "…" font-family=family`) | macOS 26.6.2, Apple Silicon (any host) | main `b896050d7` | exit 1, `state.contract:4:50 [lower-font-family-literal]` | exit 0 | record |
 | The app above, both hosts | `bun exact.mjs mac`; `bun exact.mjs web-build` | macOS; web (JS target) | same | both fail: `app.contract:13:57 [lower-font-family-literal]` | both build; tapping Menlo draws the sample in Menlo | same |
 | Literal choice (control) | `font-family=(family == "Menlo" ? "Menlo" : "Arial")`; `bun exact.mjs mac`; `bun exact.mjs agent macos --size 520x240 "layout sample" "tap menlo" "clock settle" "layout sample"` | macOS | same | builds; `font_family = 9` → `8 (dynamic, own)`; box 472×23 → 472×24 | (works today) | same |
 | Literal list and literal choice, compiler | `font-family="Arial, sans-serif"`; `font-family=(useArial ? "Arial" : "Menlo")` | any | same | exit 0 for both | (works today) | same |

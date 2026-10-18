@@ -11,6 +11,8 @@ build = "build.rs"
 [[bin]]
 name = "duo-lab-linux"
 path = "src/main.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

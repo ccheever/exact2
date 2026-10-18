@@ -31,6 +31,24 @@
 #if os(macOS)
 import AppKit
 
+/// AppKit keeps selection, emphasis and separator insets; the shared row
+/// policy decides whether its stock separator belongs at this boundary.
+private final class TableSeparatorRowView: NSTableRowView {
+    var separates = true { didSet { if separates != oldValue { needsDisplay = true } } }
+    weak var appearanceSource: NodeView? { didSet { if appearanceSource !== oldValue { needsDisplay = true } } }
+    private func drawSystemSeparator(in dirtyRect: NSRect) { super.drawSeparator(in: dirtyRect) }
+    override func drawSeparator(in dirtyRect: NSRect) {
+        guard separates else { return }
+        if let appearanceSource {
+            appearanceSource.effectiveAppearance.performAsCurrentDrawingAppearance {
+                drawSystemSeparator(in: dirtyRect)
+            }
+        } else {
+            drawSystemSeparator(in: dirtyRect)
+        }
+    }
+}
+
 /// The table's own view for one row: around the runner's row while that row
 /// is mounted, empty otherwise.
 final class TableRowCell: NSTableCellView {
@@ -112,6 +130,13 @@ final class TableRowCell: NSTableCellView {
         feed.moved()
         row.rowDisclosure(hidden: false)
         if backgroundStyle == .emphasized { row.rowEmphasisChanged(false) }
+    }
+
+    func separatorAppearanceChanged(_ node: NodeView) {
+        guard let row, (node === row || node.isDescendant(of: row)),
+              let rowView = superview as? TableSeparatorRowView,
+              rowView.appearanceSource === node else { return }
+        rowView.needsDisplay = true
     }
 
     /// Hit tests that ask what is under a point, not who takes a click
@@ -351,11 +376,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     /// The row's first paragraph, in the order it is written.
     fileprivate func textStart(of node: NodeView) -> NodeView? {
-        if node.kind == "text" { return node }
-        for case let child as NodeView in node.container.subviews where !child.isHidden {
-            if let found = textStart(of: child) { return found }
-        }
-        return nil
+        TableHost.textStart(of: node)
     }
 
     /// Whether a click that hit `hit` in a row's cell is that view's own:
@@ -458,6 +479,9 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// has the rows, and each mounted row in the cell the table has for it.
     func sync() {
         guard let presenter, let list, presenter.views[id] === list, home != nil else { return }
+        // Provenance may change without a new row count, frame or collection
+        // revision. Refresh the row and its predecessor even on that path.
+        defer { syncSeparators() }
         let pixel = 1 / (table.window?.backingScaleFactor ?? 1)
         let port = self.port
         // A batch that changed no row, no frame of one and nothing of the port's width leaves the table as it is.
@@ -508,9 +532,24 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         if recount { told.removeAll(keepingCapacity: true); (agreed, differed) = (0, 0) }
         // A row selected before it was made is its item's from now on.
         if selectedKey == nil, selectedNode == nil, let row = row(at: table.selectedRow) { remember(row) }
-        // The selected item, wherever its row is now.
-        let selected = selectedKey.flatMap { key in next.first { $0.node.props["listItemKey"] == key }?.index }
-            ?? selectedNode.flatMap { node in next.first { $0.node.id == node }?.index }
+        // The selected item, by its mounted row or the runner's logical key index.
+        var disappeared = false
+        let selected: Int?
+        if let key = selectedKey {
+            if let mounted = next.first(where: { $0.node.props["listItemKey"] == key })?.index {
+                selected = mounted
+            } else if let lookup = presenter.onListIndex {
+                selected = lookup(id, key)
+                if selected == nil {
+                    selectedKey = nil
+                    disappeared = true
+                }
+            } else {
+                selected = nil
+            }
+        } else {
+            selected = selectedNode.flatMap { node in next.first { $0.node.id == node }?.index }
+        }
 
         syncing = true
         defer { syncing = false }
@@ -532,7 +571,11 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             still { table.noteHeightOfRows(withIndexesChanged: changed) }
             noted += changed.count
         }
-        if let selected, table.selectedRow != selected { table.selectRowIndexes([selected], byExtendingSelection: false) }
+        if let selected, table.selectedRow != selected {
+            table.selectRowIndexes([selected], byExtendingSelection: false)
+        } else if disappeared, table.selectedRow >= 0 {
+            table.deselectAll(nil)
+        }
         // The run of mounted rows the port is in: the table keeps a view
         // for each of them. A list the runner does not window has every
         // row mounted, so the table keeps what AppKit keeps: what shows.
@@ -682,6 +725,31 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int { count }
+    private func separates(at index: Int) -> Bool {
+        guard index >= 0, index < count else { return false }
+        // An estimated, unmounted row has no authored intent to read yet.
+        guard let row = row(at: index) else { return index + 1 < count }
+        return presenter?.tables.separates(row.node, in: id) ?? false
+    }
+    private func separatorAppearanceSource(at index: Int) -> NodeView? {
+        guard let row = row(at: index), let presenter else { return nil }
+        return presenter.views[row.root] ?? presenter.tables.authoredRow(of: row.node) ?? row.node
+    }
+    private func syncSeparators() {
+        table.enumerateAvailableRowViews { view, index in
+            guard let view = view as? TableSeparatorRowView else { return }
+            view.appearanceSource = self.separatorAppearanceSource(at: index)
+            view.separates = self.separates(at: index)
+        }
+    }
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let identifier = NSUserInterfaceItemIdentifier("exact.row.separator")
+        let view = tableView.makeView(withIdentifier: identifier, owner: self) as? TableSeparatorRowView ?? TableSeparatorRowView()
+        view.identifier = identifier
+        view.appearanceSource = separatorAppearanceSource(at: row)
+        view.separates = separates(at: row)
+        return view
+    }
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { self.row(at: row)?.height ?? estimate }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = tableView.makeView(withIdentifier: Self.column, owner: nil) as? TableRowCell ?? TableRowCell(feed: self)
@@ -695,6 +763,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// The table let a row's view go: the runner's row, if it is still
     /// mounted, stays in the document.
     func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
+        (rowView as? TableSeparatorRowView)?.appearanceSource = nil
         (rowView.view(atColumn: 0) as? TableRowCell)?.sendHome()
     }
 
@@ -808,9 +877,9 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let point = event.locationInWindow
         var view = under(event)
         while let current = view, !(current is TableRowCell), !(current is NSTableView) {
-            if let node = current as? NodeView, presenter.views[node.id] === node, node.answersContextMenu, !node.disabled, !node.inert {
+            if let node = current as? NodeView, presenter.views[node.id] === node, node.answersContextMenu, !node.formDisabled, !node.inert {
                 contextEvent = event.eventNumber
-                return presenter.contextMenu(node, at: point)
+                return presenter.contextMenu(node, at: point, click: event)
             }
             view = current.superview
         }

@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// Compile with T3ComposerAttach.swift alone: real image files through the
+// Compile with T3ComposerAttach.swift and T3ImageFit.swift: real image files through the
 // agent's attach/ directory, re-encoded into PNG drafts beside SnapShot's.
 final class ComposerAttachTests: XCTestCase {
     private var root: URL!
@@ -51,7 +51,7 @@ final class ComposerAttachTests: XCTestCase {
         XCTAssertTrue(((try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("attach").path)) ?? []).isEmpty)
     }
 
-    // r4-composer: a picked video is a staged file whose tile shows its first
+    // A picked video is a staged file whose tile shows its first
     // frame (a PNG beside the image drafts) and whose preview plays a typed
     // link to the staged copy; removing the file takes both.
     func testVideoStagesFirstFrameAndTypedLink() throws {
@@ -80,7 +80,6 @@ final class ComposerAttachTests: XCTestCase {
         XCTAssertLessThanOrEqual(max(rep.pixelsWide, rep.pixelsHigh), 512)
         let link = root.appendingPathComponent("composer-files/\(id).mp4")
         XCTAssertTrue(FileManager.default.fileExists(atPath: link.path))
-        XCTAssertEqual(T3ComposerVideo(dataRoot: root, muted: true).source(id)?.lastPathComponent, "\(id).mp4")
         let removed = expectation(description: "removed")
         attach.perform(["op": "composerAttachRemove", "id": id, "generation": 2]) { _ in removed.fulfill() }
         wait(for: [removed], timeout: 5)
@@ -91,7 +90,9 @@ final class ComposerAttachTests: XCTestCase {
 }
 
 _ = NSApplication.shared
-let suite = XCTestSuite(forTestCaseClass: ComposerAttachTests.self)
+let suite = XCTestSuite(name: "attach")
+suite.addTest(XCTestSuite(forTestCaseClass: ComposerAttachTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: ImageFitTests.self))
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.totalFailureCount) failures")

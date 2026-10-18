@@ -10,6 +10,14 @@ build = "build.rs"
 [lib]
 name = "svg_gallery_web"
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "svg-gallery-dev"
+path = "src/bin/svg-gallery-dev.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

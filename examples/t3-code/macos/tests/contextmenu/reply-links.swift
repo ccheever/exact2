@@ -1,14 +1,14 @@
 import AppKit
 import XCTest
 
-// reply-links RL-1, RL-2: a reply's mailto, irc, xmpp or fragment link is a link node with its own `contextmenu` (the one
+// A reply's mailto, irc, xmpp or fragment link is a link node with its own `contextmenu` (the one
 // FlowRuns gives every link), whose handler leaves the click to the shell for a link with no web host, as ChatMarkdown's
 // anchor returns before `preventDefault` and Electron's `context-menu` fires (external-link-menu.ts → `shellMenu`). The
 // reference's menu there (CDP, its main process's Menu.popup read back, 2026-10-11): Cut, Copy, Paste, Select All, with
 // no Copy Link (parseSafeExternalUrl refuses the URL).
 
 /// A link node that wrote its own `contextmenu` (NodeViewMac's `dispatchContextMenu` answers it), exposed as ExactKit
-/// exposes a `link` node: an AXLink whose URL is its `href` (X78, fixed on main by #455).
+/// exposes a `link` node: an AXLink whose URL is its `href` (issues/closed/20261010-macos-link-url-accessibility.md, fixed on main by #455).
 private final class LinkNode: NSView {
     private(set) var menus = 0
     var url = "mailto:team@example.test"
@@ -18,7 +18,7 @@ private final class LinkNode: NSView {
 }
 
 /// A node that holds the focus, as ExactKit's focused `link` (a Tab stop) does; `url` is its `AXURL`, a `link` node's
-/// `href` (X78, fixed on main by #455), or none (a fragment link's later-word box, a node with no `href`).
+/// `href` (issues/closed/20261010-macos-link-url-accessibility.md, fixed on main by #455), or none (a fragment link's later-word box, a node with no `href`).
 private final class FocusedLinkNode: NSView {
     var url: String?
     override var acceptsFirstResponder: Bool { true }
@@ -43,7 +43,7 @@ final class ShellMenuForLinkTests: ShellMenuCase {
         return link
     }
 
-    // reply-links-reference-behavior RL-6: the ContextMenu key on a focused mailto, irc, xmpp or fragment link. ExactKit
+    // The ContextMenu key on a focused mailto, irc, xmpp or fragment link. ExactKit
     // raises the link node's `contextmenu` at the focus with no click (MouseEventsMac `contextMenuKey`); the reference
     // (CDP's ContextMenu key on the focused anchor, its main process read back, 2026-10-12) gets Chromium's keyboard
     // `context-menu` at the anchor's middle and pops the shell's Cut, Copy, Paste, Select All, no Copy Link.
@@ -201,8 +201,8 @@ final class ShellMenuForLinkTests: ShellMenuCase {
     }
 
     func testAMenuThatAnsweredItOrALaterKeyOrClickEndsTheClick() {
-        // A `contextmenu` the last page click did not raise gets no shell menu at that old click's place (reply-links
-        // review), nor at the focused link unless a ContextMenu key raised it (reply-links-reference-behavior review).
+        // A `contextmenu` the last page click did not raise gets no shell menu at that old click's place,
+        // nor at the focused link unless a ContextMenu key raised it.
         _ = focusedLink(NSRect(x: 200, y: 120, width: 80, height: 22))
         rightClick(at: NSPoint(x: 400, y: 200))
         XCTAssertEqual(popped.count, 1, "the tail answered a click no node took")

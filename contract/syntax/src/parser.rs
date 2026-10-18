@@ -5,7 +5,7 @@
 //! in the first column, so one run reports each declaration's first error.
 
 use crate::ast::*;
-use crate::lexer::{escaped, template_expr_end, LexError, Lexer, Token, TokenKind};
+use crate::lexer::{escape, template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
 mod color_profile;
@@ -13,12 +13,17 @@ mod decls;
 mod expr;
 mod keyframes;
 mod media_session;
+mod midi;
 mod names;
+mod params;
 mod parts;
 #[path = "routes.rs"]
 mod routes;
+mod sequence;
 mod sounds;
+mod states;
 mod steps;
+mod theme;
 mod view;
 pub use steps::{is_launch, same_launch};
 use steps::{launch_word, LAUNCH};
@@ -83,6 +88,7 @@ pub fn parse_source_all(src: &str, source_id: u32) -> Result<File, Vec<SyntaxErr
         view_depth: 0,
         last: 0,
         free: Vec::new(),
+        methods: Vec::new(),
     };
     let parsed = p.file_all();
     if lexed.is_empty() {
@@ -113,6 +119,7 @@ pub(crate) fn parse_tokens(tokens: Vec<Token>) -> Result<(File, Vec<Token>), Syn
         view_depth: 0,
         last: 0,
         free: Vec::new(),
+        methods: Vec::new(),
     };
     let file = p.file()?;
     Ok((file, p.tokens))
@@ -131,6 +138,11 @@ struct Parser {
     /// at the end of the file unless the file declares a `fn`, shape or action
     /// of that name (LLP 1116.015 D2).
     free: Vec<(String, SyntaxError)>,
+    /// Method calls (`s.trim()`, `xs.length`): refused at the end of the file
+    /// when it declares a `fn`, shape or action of that name, which the
+    /// rewritten call would reach where TypeScript's method never would
+    /// (LLP 1116.016 D2).
+    methods: Vec<(String, Span)>,
 }
 
 type R<T> = Result<T, SyntaxError>;
@@ -231,11 +243,18 @@ impl Parser {
             }
             TokenKind::Eof => Ok(()),
             other => {
-                // `if filter = "all"`: a comparison was meant.
-                let hint = if matches!(other, TokenKind::Punct("=")) {
-                    "; `==` compares, and only a statement assigns"
-                } else {
-                    ""
+                // `if filter = "all"`: a comparison was meant. `x = a if c else b`:
+                // Python's conditional. `save: action(string)`: a typed action prop.
+                let before = self.pos.checked_sub(1).map(|i| &self.tokens[i].kind);
+                let hint = match other {
+                    TokenKind::Punct("=") => "; `==` compares, and only a statement assigns",
+                    TokenKind::Ident(w) if w == "if" => {
+                        "; a value chosen by a condition is `cond ? a : b`"
+                    }
+                    TokenKind::Punct("(") if matches!(before, Some(TokenKind::Ident(w)) if w == "action") => {
+                        "; an action prop is declared `action`, and what it is called with is inferred"
+                    }
+                    _ => "",
                 };
                 self.err(
                     "syntax-expected-newline",
@@ -323,6 +342,17 @@ impl Parser {
                             .filter(|(n, _)| !declared(n))
                             .map(|(_, e)| e),
                     );
+                    let methods = std::mem::take(&mut self.methods);
+                    errors.extend(methods.into_iter().filter(|(n, _)| declared(n)).map(|(n, span)| {
+                        let call = if n == "length" { ".length".to_string() } else { format!(".{n}(…)") };
+                        SyntaxError {
+                            id: "syntax-method-shadowed",
+                            message: format!(
+                                "rename this file's `{n}`: `{call}` is the built-in method, as in TypeScript, where a function named `{n}` never replaces it"
+                            ),
+                            span,
+                        }
+                    }));
                     if errors.is_empty() {
                         file.names = std::mem::take(&mut self.names);
                         return Ok(file);
@@ -404,6 +434,7 @@ impl Parser {
                     file.timelines.push(TimelineDecl { name, span });
                 }
                 TokenKind::Ident(w) if w == "color-profile" => self.color_profile(file)?,
+                TokenKind::Ident(w) if w == "theme" => self.theme(file)?,
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
                 TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
@@ -437,7 +468,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `sound`, `shape`, `style`, `keyframes`, `timeline`, `color-profile`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `sound`, `shape`, `style`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
                     );
@@ -531,9 +562,29 @@ impl Parser {
         self.expect_punct(":")?;
         let ret = self.type_expr()?;
         self.expect_punct("=")?;
-        self.on_its_line("fn")?;
-        let body = self.expr()?;
-        self.newline()?;
+        // LLP 1116.017 D2: the body may start on the next line, indented: one
+        // expression, as after `= (`.
+        let body = if matches!(self.peek_kind(), TokenKind::Newline)
+            && matches!(self.peek2(), TokenKind::Indent)
+        {
+            self.next();
+            self.next();
+            let body = self.expr()?;
+            self.newline()?;
+            if !matches!(self.peek_kind(), TokenKind::Dedent) {
+                return self.err(
+                    "syntax-expected-expression",
+                    "a `fn`'s body is one expression: wrap a long one in parentheses, `(…`, with the rest of it on the lines under it",
+                );
+            }
+            self.next();
+            body
+        } else {
+            self.on_its_line("fn")?;
+            let body = self.expr()?;
+            self.newline()?;
+            body
+        };
         Ok(FnDecl {
             name,
             params,
@@ -554,6 +605,8 @@ impl Parser {
         self.block(|p| {
             if p.at_part() {
                 p.part(&format!("`{owner}`"), true, &mut attrs)
+            } else if p.at_state() {
+                p.state_part(&format!("`{owner}`"), true, &mut attrs)
             } else {
                 attrs.extend(p.literal_line(&owner)?);
                 Ok(())
@@ -597,11 +650,23 @@ impl Parser {
             let value = match self.expr()? {
                 // `-0.2` is a literal to anyone writing a style: fold it, so
                 // `letter-spacing=-0.2` is a constant like `0.2`.
+                // Its span the `-` through the number, as an attribute's
+                // (the `-` alone where the number is on another line).
                 Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
-                    let Expr::Number(n, _) = *inner else {
+                    let Expr::Number(n, at) = *inner else {
                         unreachable!()
                     };
-                    Expr::Number(-n, span)
+                    Expr::Number(
+                        -n,
+                        Span {
+                            end_col: if at.line == span.line {
+                                at.end_col
+                            } else {
+                                span.end_col
+                            },
+                            ..span
+                        },
+                    )
                 }
                 other => other,
             };
@@ -632,13 +697,6 @@ impl Parser {
         self.newline()?;
         let fields = self.block(|p| {
             let (name, span) = p.field_name()?;
-            // @ref LLP 1116.015 D2 — `x.length` is the length of a list or text.
-            if name == "length" {
-                return p.err(
-                    "syntax-length-field",
-                    "a field cannot be named `length`: `.length` is a list's or text's length; choose another name (`count`, `size`)",
-                );
-            }
             p.expect_punct(":")?;
             let ty = p.type_expr()?;
             p.newline()?;
@@ -664,6 +722,26 @@ impl Parser {
         }
         let (name, span) = self.ident()?;
         let mut ty = match name.as_str() {
+            "enum" => {
+                self.expect_punct("<")?;
+                let mut values = Vec::new();
+                loop {
+                    let token = self.next();
+                    let TokenKind::Str(value) = token.kind else {
+                        return self.err("syntax-enum", "enum members are quoted strings");
+                    };
+                    if values.contains(&value) {
+                        return self.err("syntax-enum", "enum members must be distinct");
+                    }
+                    values.push(value);
+                    if self.at_punct(">") {
+                        break;
+                    }
+                    self.expect_punct(",")?;
+                }
+                self.expect_punct(">")?;
+                TypeExpr::Enum(values, span)
+            }
             "option" => {
                 self.expect_punct("<")?;
                 let inner = self.type_expr()?;
@@ -707,7 +785,9 @@ impl Parser {
             mutations: Vec::new(),
             actions: Vec::new(),
             tasks: Vec::new(),
+            sequences: Vec::new(),
             view: Vec::new(),
+            params: Default::default(),
             span,
         };
         if !matches!(self.peek_kind(), TokenKind::Indent) {
@@ -726,7 +806,10 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) => {
-                    if matches!(w.as_str(), "props" | "inject" | "provide" | "slot" | "view") {
+                    if matches!(
+                        w.as_str(),
+                        "props" | "inject" | "provide" | "slot" | "view" | "params"
+                    ) {
                         let section_span = self.peek().span;
                         if let Some((_, first)) = sections.iter().find(|(name, _)| name == &w) {
                             return duplicate("component section", &w, section_span, *first);
@@ -819,10 +902,12 @@ impl Parser {
                                 c.derives.push(b)
                             }
                         }
+                        "params" => c.params.list = self.params_section()?,
                         "resource" => c.resources.push(self.resource()?),
                         "mutation" => c.mutations.push(self.mutation()?),
                         "action" => c.actions.push(self.action()?),
                         "task" => c.tasks.push(self.task()?),
+                        "sequence" => c.sequences.push(self.sequence()?),
                         "view" => {
                             self.next();
                             self.newline()?;
@@ -837,6 +922,16 @@ impl Parser {
                                  write the assertions as `test` blocks in `app.test.contract` \
                                  (LLP 1017 P7)",
                             )
+                        }
+                        "timer" | "interval" => {
+                            let end = self.tokens[self.pos..]
+                                .iter()
+                                .position(|t| t.kind == TokenKind::Newline)
+                                .map_or(self.tokens.len(), |n| self.pos + n);
+                            return self.err(
+                                "syntax-unknown-section",
+                                names::timer_hint(&w, &self.tokens[self.pos + 1..end]),
+                            );
                         }
                         other => {
                             return self.err(
@@ -1130,6 +1225,12 @@ impl Parser {
     }
 
     fn node_inner(&mut self) -> R<Node> {
+        if self.at_state() {
+            return self.err(
+                "syntax-state",
+                "a state part (`:disabled`) goes under its node, before the node's children",
+            );
+        }
         let (word, span) = match self.peek_kind().clone() {
             TokenKind::Ident(w) => (w, self.peek().span),
             other => {

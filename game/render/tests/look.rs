@@ -482,6 +482,42 @@ fn every_pass_reports_gpu_time() {
     s.agent(r#"{"op":"state","perf":true}"#);
     // The agent's virtual clock (seekable frames) times passes too.
     let mut f = frame();
+    // How many samples `pass` has once the GPU has run every frame: a
+    // sampled frame is resolved after its completion, then mapped.
+    let count = |s: &mut WorldSurface<Timed>, pass: &str| {
+        let mut state = String::new();
+        for _ in 0..2 {
+            gpu.device
+                .poll(exact_gpu::wgpu::PollType::wait_indefinitely())
+                .unwrap();
+            state = s.agent(r#"{"op":"state"}"#).unwrap();
+        }
+        let at = state.find(&format!("\"{pass}\":{{")).expect(pass);
+        let ring = &state[at..at + state[at..].find('}').unwrap()];
+        let n = &ring[ring.find("\"count\":").unwrap() + 8..];
+        n[..n.find(|c: char| !c.is_ascii_digit()).unwrap()]
+            .parse::<u64>()
+            .unwrap()
+    };
+    // One frame publishes its own passes; the gap needs the next one.
+    f.now_ms += 16.;
+    fixture::render(&gpu, &mut s, &f).unwrap();
+    assert_eq!(count(&mut s, "forward + sky"), 1);
+    assert_eq!(count(&mut s, "frame envelope"), 1);
+    assert_eq!(count(&mut s, "between frames"), 0);
+    f.now_ms += 16.;
+    fixture::render(&gpu, &mut s, &f).unwrap();
+    assert_eq!(count(&mut s, "forward + sky"), 2, "both frames of a pair");
+    assert_eq!(count(&mut s, "between frames"), 1);
+    // A reset forgets the frame in flight, and the gap across it.
+    f.now_ms += 16.;
+    fixture::render(&gpu, &mut s, &f).unwrap();
+    s.agent(r#"{"op":"state","perf_reset":true}"#);
+    assert_eq!(count(&mut s, "forward + sky"), 0);
+    f.now_ms += 16.;
+    fixture::render(&gpu, &mut s, &f).unwrap();
+    assert_eq!(count(&mut s, "forward + sky"), 1);
+    assert_eq!(count(&mut s, "between frames"), 0);
     for _ in 0..12 {
         f.now_ms += 16.;
         fixture::render(&gpu, &mut s, &f).unwrap();
@@ -498,6 +534,8 @@ fn every_pass_reports_gpu_time() {
         "bloom",
         "tonemap",
         "cull",
+        "frame envelope",
+        "between frames",
     ] {
         let at = gpu_ms
             .find(&format!("\"{pass}\":{{"))
@@ -716,8 +754,13 @@ struct SoftArgs {
     soft: f32,
     gap: f32,
 }
-struct Soft;
-impl Game for Soft {
+struct Soft<const SINGLE: bool = false>;
+impl<const SINGLE: bool> Game for Soft<SINGLE> {
+    const SAMPLES: SceneSamples = if SINGLE {
+        SceneSamples::One
+    } else {
+        SceneSamples::Four
+    };
     const ID: &'static str = "look-soft";
     type Args = SoftArgs;
     fn setup(w: &mut World, args: &SoftArgs) {
@@ -764,9 +807,13 @@ impl Game for Soft {
 
 #[test]
 fn soft_particles_fade_where_they_meet_the_scene() {
+    soft_particle_pixels::<false>();
+    soft_particle_pixels::<true>();
+}
+fn soft_particle_pixels<const SINGLE: bool>() {
     let Some(gpu) = gpu() else { return };
     let centre = |soft: f64, gap: f64| {
-        let mut s = WorldSurface::<Soft, ModelExecutor, true>::default();
+        let mut s = WorldSurface::<Soft<SINGLE>, ModelExecutor, true>::default();
         s.bind(&[Value::Number(soft), Value::Number(gap)], None)
             .unwrap();
         s.device_ready(exact_gpu::wgpu::Features::empty());
@@ -857,4 +904,120 @@ fn primitive_shadows_dither_with_opacity_and_vanish_at_zero() {
     assert!(solid > 100, "{solid}");
     assert!(gone == 0, "Opacity 0 casts nothing: {gone}");
     assert!(half > 0 && half < solid, "{half} between 0 and {solid}");
+}
+
+#[derive(Default, Args)]
+struct FogArgs {
+    mode: u32,
+}
+struct FogQuads;
+impl Game for FogQuads {
+    const ID: &'static str = "fog-quads";
+    const ASSETS: &'static [&'static str] = &["white.tex"];
+    const SAMPLES: SceneSamples = SceneSamples::One;
+    type Args = FogArgs;
+    fn setup(w: &mut World, args: &FogArgs) {
+        w.insert_resource(Environment {
+            background: Some([0.; 3]),
+            fog: (args.mode != 0).then(|| Fog {
+                color: Some([0., 1., 0.]),
+                ..if args.mode == 1 {
+                    Fog::linear(0., 10.)
+                } else {
+                    Fog::new(2f32.ln() / 5., 0.)
+                }
+            }),
+            bloom: None,
+            tone_mapping: ToneMapping::None,
+            ..Default::default()
+        });
+        w.spawn((Transform::at(0., 0., 5.), Camera::orthographic(4.)));
+        w.spawn((
+            Transform::at(-1., 0., 0.),
+            Sprite {
+                color: [1., 0., 0., 0.5],
+                ..Sprite::new("white.tex", [0.6, 0.6])
+            },
+        ));
+        for (x, textured) in [(0., false), (1., true)] {
+            let e = w.spawn((
+                Transform::at(x, 0., 0.),
+                Emitter {
+                    rate: 0.,
+                    lifetime: 10.,
+                    speed: 0.,
+                    spread: 0.,
+                    gravity: Vec3::ZERO,
+                    size: [0.6, 0.6],
+                    color: [[1., 0., 0., 0.5]; 2],
+                    additive: false,
+                    ..Default::default()
+                }
+                .burst(1),
+            ));
+            if textured {
+                w.insert(
+                    e,
+                    ParticleLook {
+                        texture: "white.tex".into(),
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+    }
+    fn tick(w: &mut World, _: &Input, _: &FogArgs) {
+        emitter::step(w);
+    }
+}
+
+#[test]
+fn sprites_and_textured_and_procedural_particles_take_both_fogs() {
+    let Some(gpu) = gpu() else { return };
+    for mode in [0, 1, 2] {
+        let mut s = WorldSurface::<FogQuads, ModelExecutor, true>::default();
+        s.bind(&[Value::Number(f64::from(mode))], None).unwrap();
+        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.asset(
+            "white.tex",
+            Ok(&bin::to_vec(&asset::TextureData {
+                width: 1,
+                height: 1,
+                mips: vec![vec![255; 4]],
+                ..Default::default()
+            })),
+        );
+        s.prepare_assets(
+            &gpu.device,
+            &gpu.queue,
+            exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+        );
+        fixture::render(&gpu, &mut s, &frame()).unwrap();
+        let (pixels, _) = fixture::render(
+            &gpu,
+            &mut s,
+            &Frame {
+                now_ms: 100.,
+                ..frame()
+            },
+        )
+        .unwrap();
+        assert!(s.error().is_none(), "{:?}", s.error());
+        for x in [32, 64, 96] {
+            let p = pixels.at(x, 64);
+            // Half alpha over black: no fog gives linear (0.5,0,0); halfway
+            // through either fog gives (0.25,0.25,0), preserving alpha.
+            let expected = if mode == 0 {
+                [188, 0, 0, 255]
+            } else {
+                [137, 137, 0, 255]
+            };
+            for (a, b) in p.into_iter().zip(expected) {
+                assert!(
+                    a.abs_diff(b) <= 3,
+                    "mode {mode}, x {x}: {p:?}, expected {expected:?}"
+                );
+            }
+        }
+    }
 }

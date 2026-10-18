@@ -12,6 +12,7 @@
 // instance registers with that router rather than taking `exact.gpu`.
 import { pacer } from "./pace.js";
 import { assetDelivery } from "./gpu-assets.js";
+import { inertAncestor } from "./navigation.js";
 const artifact = new URL(import.meta.url).searchParams.get("artifact");
 const stem = artifact ?? "gpu";
 let gpu;
@@ -525,7 +526,7 @@ function listen(entry) {
   const controls = entry.controls ??= new Map(), controlKeys = entry.controlKeys ??= new Map();
   const control = target => {
     const node = target instanceof Element ? target.closest('button[data-action]') : null;
-    return node && node.closest('[data-gpu-input]') === el && node.getAttribute('data-action') && !node.disabled && !node.hidden && !node.closest('[hidden], [inert]') && !node.closest('[inert]') ? node : null;
+    return node && node.closest('[data-gpu-input]') === el && node.getAttribute('data-action') && !node.disabled && !node.hidden && !node.closest('[hidden]') && !inertAncestor(node) ? node : null;
   };
   const binding = node => { const r = node.getBoundingClientRect(); return {node, name:node.getAttribute("data-action"), left:r.left, top:r.top}; };
   const sendControl = (event, owner, phase, id, x = 0, y = 0) => send(event, {t:"control", name:owner.name, phase, id, x, y});
@@ -617,6 +618,7 @@ function listen(entry) {
   };
   // A pointer-owned control may coexist with a focused editor outside this canvas.
   const pressedKey = (event, down) => {
+    if (event.exactFlowCapture) return;
     if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || !["Space", "Enter", "NumpadEnter"].includes(event.code)) return;
     cancelRemoved(); entry.resampleHeld();
     const owner = controlKeys.get(event.code) ?? (down ? controls.values().next().value : null);

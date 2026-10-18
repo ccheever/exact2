@@ -1,4 +1,4 @@
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 // Plain surface identity. The root favicon resource owns all reads and requests.
 import { obj, str, type Obj } from './shared/domain';
 import { mobileFaviconResourceKey } from './mobile-favicon-cache';

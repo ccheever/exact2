@@ -1,6 +1,6 @@
 use ProjectFavicon, ProjectFaviconTarget from "./project-favicon.contract"
 use SettingsTextRoles from "./settings.contract"
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // T3 Code 365aa87982 ArchivedThreadsScreen and thread-swipe-actions.
 // The root owns the native header, search/filter menus and destructive confirmation.
 shape ArchiveColors

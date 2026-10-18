@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-message-copy-feedback
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-message-copy-feedback
 import UIKit
 
 private struct T3MessageCopyOwner: Decodable, Equatable {

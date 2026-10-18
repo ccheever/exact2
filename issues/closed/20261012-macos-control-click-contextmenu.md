@@ -86,11 +86,6 @@ through the platform: on macOS `NSApp.sendEvent` with the control flag held, on 
 | Control: a right-click (`tap … contextmenu`) on each | macOS and web | main `85a116a9c` | `contextmenu` runs on both hosts (macOS `menus=1` → `2`, presses unchanged) | — | record |
 | AppKit oracle: a view with `acceptsFirstMouse` true (as `NodeView`) overriding `mouseDown`, `rightMouseDown` and `menu(for:)`; a Control-click through `NSApp.sendEvent` | macOS 26.6.2, `swiftc`, in-process | — | `menu(for:)` nil: the view gets `menu(for:)`, then `mouseDown` with the control flag, and no `rightMouseDown`. `menu(for:)` returning a menu: AppKit pops that menu and calls no `mouseDown` | (the platform's routing) | record |
 
-![X85: a Control-click on nodes with press and contextmenu, Exact web in Chrome and macOS](https://raw.githubusercontent.com/ccheever/exact2/1acf9de468f9f429508694d28104647d397cc07b/fw-issues-20261012-x85/x85-ctrl-click-web-macos.png)
-
-Record (the contract, the commands and both hosts' output, the oracle's source and output, the code read):
-https://raw.githubusercontent.com/ccheever/exact2/60ae554222a9ad462600ffe84be0285849bcbcd6/fw-issues-20261012-x85/x85-inline-link-focus-record.txt
-
 Not run: real hardware input (the agent's events were used); Safari; a Control-click on an inline run (its
 `contextmenu` is X77's, and the agent's tap on a run activates it); a Control-click on a `contextPopover` node (the
 same `menu(for:)` path, read from code); a Control-click inside a text field or text area (AppKit's own editing menu;

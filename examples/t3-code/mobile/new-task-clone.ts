@@ -1,5 +1,5 @@
 // Pinned T3 Code 365aa87982 NewTaskDraftScreen, state/projectClones and ProjectCloneBanner.
-// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileClient, mobileNative } from './client';
 import type { T3Client } from './shared/client';
 import { obj, str, applyShell, initialShell, type Obj } from './shared/domain';

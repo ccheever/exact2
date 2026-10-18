@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#native-thread-header
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#native-thread-header
 // T3 Code365aa87982 useThreadHeaderOptions.tsx and ThreadGitControls.tsx.
 #if os(iOS)
 import UIKit

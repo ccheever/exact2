@@ -1087,7 +1087,7 @@ component A
       text "a"
 ---
 == type-share-argument
-# Neither text nor url.
+# Neither text, url nor files.
 component A
   action go
     share(title="Journal")
@@ -1100,6 +1100,42 @@ component A
 component A
   action go
     share(text=3)
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# `files=` is a list of strings (LLP 1125 D12).
+component A
+  action go
+    share(files="app:/data/a.png")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# A literal file is an `app:/` path or an element's `#id`.
+component A
+  action go
+    share(files=["/tmp/a.png"])
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# An empty list shares nothing.
+component A
+  action go
+    share(files=[])
+  view
+    button press=go
+      text "a"
+---
+== lower-share-picture
+# A picture of an element no view carries.
+component A
+  action go
+    share(files=["#card"])
   view
     button press=go
       text "a"
@@ -1225,6 +1261,19 @@ component A
 == lower-attr-value
 component A
   view
+    button -exact-press-opacity=1.2
+      text "a"
+---
+== lower-keyframe-property
+keyframes wash
+  to -exact-press-background-color="#eee"
+component A
+  view
+    text "a"
+---
+== lower-attr-value
+component A
+  view
     view transform-origin="10px left"
       text "a"
 ---
@@ -1261,18 +1310,18 @@ component A
   view
     text toString(length(xs))
 ---
+== syntax-method-shadowed
+# LLP 1116.016 D2: a method call is the built-in, which a `fn` of its name would capture.
+fn trim(s: string): string = "x"
+component A
+  state s = " a "
+  view
+    text s.trim()
+---
 == syntax-list-type
 # LLP 1116.015 D2: a list type is `T[]`.
 shape S
   xs: list<number>
-component A
-  view
-    text "a"
----
-== syntax-length-field
-# LLP 1116.015 D2: `.length` is a list's or text's length, so no field takes the name.
-shape S
-  length: number
 component A
   view
     text "a"
@@ -1531,6 +1580,31 @@ component A
     button "go" press=go
 ---
 == type-play-sound
+# LLP 1125 D10: a literal playback rate outside 0.25–4.
+component A
+  state src = "assets/kick.wav"
+  action go
+    playSound(src, playbackRate=5)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A hit's pan without its rate: the fields are read by position.
+shape Hit
+  src: string
+  at: number
+  gain: number
+  group: string
+  pan: number
+fn noHits(): Hit[] = []
+component A
+  state hits = noHits()
+  action go
+    playSounds(hits)
+  view
+    button "go" press=go
+---
+== type-play-sound
 # A hit without `at`: `playSounds` reads a hit's fields by position.
 shape Hit
   src: string
@@ -1574,3 +1648,175 @@ component A
     seek = seek + 30
   view
     audio "assets/a.mp3" seekforward=skip
+---
+== contract-sequence-body
+# LLP 1125 D2: a sequence holds one `play(...)`, not a task's schedule.
+component A
+  state on = false
+  action go
+    on = true
+  sequence s when on
+    every(100, go)
+  view
+    text "a"
+---
+== syntax-task-start
+# A sequence starts at `mount` or while a condition holds.
+component A
+  sequence s
+    play([], bpm=120)
+  view
+    text "a"
+---
+== type-sequence-play
+# `play` needs `bpm=`.
+component A
+  state on = false
+  sequence s when on
+    play([])
+  view
+    text "a"
+---
+== type-sequence-play
+# A literal tempo of 0 is no tempo.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=0)
+  view
+    text "a"
+---
+== type-sequence-play
+# An option `play` does not take.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=120, swing=0.5)
+  view
+    text "a"
+---
+== type-sequence-play
+# A track is read by position: `loops` cannot be left out.
+shape Track
+  beats: number
+  offset: number
+  output: string
+fn noTracks(): Track[] = []
+component A
+  state on = false
+  state ts = noTracks()
+  sequence s when on
+    play(ts, bpm=120)
+  view
+    text "a"
+---
+== type-sequence-play
+# A step carries `playbackRate` and `pan` both or neither.
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+  playbackRate: number
+fn noSteps(): Step[] = []
+component A
+  state on = false
+  state steps = noSteps()
+  sequence s when on
+    play([], bpm=120, from=-4, countIn=steps)
+  view
+    text "a"
+---
+== analyze-sequence-clock
+# `play`'s arguments are read at commits, not as the clock moves.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=60 + performanceNow())
+  view
+    text "a"
+---
+== analyze-task-gate-clock
+# A sequence's gate is a task's: it reads no clock.
+component A
+  sequence s when performanceNow() > 1000
+    play([], bpm=120)
+  view
+    text "a"
+---
+== type-send-midi
+# A literal message is held to MIDI 1.0: no running status.
+component A
+  action go
+    sendMIDI("out", [144, 60, 100, 62, 100])
+  view
+    button "go" press=go
+---
+== type-request-midi-access
+# `requestMIDIAccess()` takes no arguments.
+component A
+  action go
+    requestMIDIAccess(true)
+  view
+    button "go" press=go
+---
+== analyze-unknown-action
+# `ended=` names an action.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=120, ended=finished)
+  view
+    text "a"
+---
+== analyze-handler-arity
+# `ended=` runs as a timer does: with no arguments.
+component A
+  state on = false
+  action finished(n: number)
+    on = false
+  sequence s when on
+    play([], bpm=120, ended=finished)
+  view
+    text "a"
+---
+== type-child-resource
+# Only the root has a clock, so only the root declares a sequence.
+component A
+  view
+    B()
+component B
+  state on = false
+  sequence s when on
+    play([], bpm=120)
+  view
+    text "b"
+---
+== bake-transport-field
+# `exactTransport` answers its own fields only.
+shape T
+  state: string
+  beat: number
+component A
+  resource t = exactTransport() as shape T
+  view
+    text t.state
+---
+== bake-midi-field
+# A MIDI port answers its id, name, manufacturer and state only.
+shape Port
+  id: string
+  channel: number
+shape M
+  state: string
+  outputs: Port[]
+component A
+  resource m = exactMIDI() as shape M
+  view
+    text m.state
+---

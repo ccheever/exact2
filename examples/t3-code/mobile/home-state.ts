@@ -1,6 +1,6 @@
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // Upstream 365aa87982 use-thread-list-v2-shelf-preferences; mobile-owned persistence.
-// @ref llp/1109.000-mobile-app-layout.decision.md#shared-typescript
+// @ref examples/t3-code/mobile/docs/1130.000-mobile-app-layout.decision.md#shared-typescript
 import { bridgeReply, type Native } from './shared/protocol';
 import { obj } from './shared/domain';
 import { mobileHome, mobileHomeSources } from './home';

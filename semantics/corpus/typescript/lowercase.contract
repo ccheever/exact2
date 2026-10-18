@@ -1,0 +1,24 @@
+// LLP 1116.016 D3. `toLowerCase`: each expected value is what the same TypeScript evaluates to under Bun (Unicode default case conversion).
+component App
+  derive c149 = "ABC".toLowerCase()
+  derive c150 = "İ".toLowerCase()
+  derive c151 = "ẞ".toLowerCase()
+  derive c152 = "ΑΣ".toLowerCase()
+  derive c153 = "Ǆ".toLowerCase()
+  view
+    text "audit"
+
+test "'ABC'.toLowerCase()"
+  expect state c149 == "abc"
+
+test "'İ'.toLowerCase()"
+  expect state c150 == "i̇"
+
+test "'ẞ'.toLowerCase()"
+  expect state c151 == "ß"
+
+test "'ΑΣ'.toLowerCase()"
+  expect state c152 == "ας"
+
+test "'Ǆ'.toLowerCase()"
+  expect state c153 == "ǆ"

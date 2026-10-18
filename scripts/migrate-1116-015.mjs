@@ -334,6 +334,8 @@ function rewriteLiterals(src, swift = false) {
     if (c === '"') {
       let j = i + 1;
       while (j < n && src[j] !== '"') { if (src[j] === "\\") j++; j++; }
+      // A quote this reader cannot close (Swift's #"…"#, a quote inside an interpolation) ends it: the rest stays as is.
+      if (j >= n) { out += src.slice(i); break; }
       out += '"' + rewrite(src.slice(i + 1, j), true) + '"';
       i = j + 1; continue;
     }

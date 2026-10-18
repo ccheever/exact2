@@ -23,7 +23,7 @@ fn main() {
     let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
         // Its crop handles and pinch need a touchscreen, which an Apple TV lacks.
         Ok("tvos") => panic!("Photo Editor has no tvOS build: its editing needs a touchscreen"),
-        Ok("ios") => "ios",
+        Ok("ios" | "watchos") => "ios",
         _ => "macos",
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));

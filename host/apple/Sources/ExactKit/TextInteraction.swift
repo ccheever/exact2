@@ -70,6 +70,16 @@ extension NodeView {
     /// title: an `aria-level` with no `role="heading"` is not one there (LLP
     /// 1115.000 D12.5), as it has no heading style on any host.
     var isHeading: Bool { isParagraph && props["accessibilityRole"] == "heading" }
+    /// @ref LLP 1116.019 — what a labelled text shows, as its value: an
+    /// `aria-label` names the text, and the words it shows are still spoken
+    /// after the name, as a hand-built readout's `accessibilityLabel` and
+    /// `accessibilityValue` are ("Elapsed time, 1:05.32"). Nil without a
+    /// label, or where the label is the same words.
+    var spokenValue: String? {
+        guard let label = props["accessibilityLabel"], !label.isEmpty else { return nil }
+        let shown = visibleParagraphText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return shown.isEmpty || shown == label ? nil : shown
+    }
     func updateTextAccessibility() {
         guard isParagraph else { return }
         let label = props["accessibilityLabel"] ?? visibleParagraphText
@@ -85,7 +95,7 @@ extension NodeView {
             setAccessibilityValue(level)
         } else {
             setAccessibilityRole(.staticText)
-            setAccessibilityValue(label)
+            setAccessibilityValue(spokenValue ?? label)
         }
         setAccessibilityLabel(label)
         #else
@@ -96,6 +106,7 @@ extension NodeView {
         // A heading says so, as on the web and macOS (found by `tree --ax` parity, LLP 1080.002).
         if headingLevel != nil { accessibilityTraits.insert(.header) } else { accessibilityTraits.remove(.header) }
         accessibilityLabel = label
+        accessibilityValue = spokenValue
         #endif
     }
     func textAccessibilityChildren() -> [Any]? {
@@ -117,6 +128,7 @@ extension NodeView {
         guard !children.isEmpty else { return nil }
         let paragraph = UIAccessibilityElement(accessibilityContainer: self)
         paragraph.accessibilityLabel = props["accessibilityLabel"] ?? visibleParagraphText
+        paragraph.accessibilityValue = spokenValue
         paragraph.accessibilityLanguage = presenter?.documentLanguage
         paragraph.accessibilityTraits = .staticText
         paragraph.accessibilityFrameInContainerSpace = contentBox()

@@ -81,6 +81,7 @@ struct FaceLayout {
     symbol: f32,
     gap: f32,
     column: bool,
+    leading: bool,
     width: f32,
     height: f32,
 }
@@ -92,6 +93,17 @@ fn face_layout(
     width: AxisOffer,
 ) -> FaceLayout {
     let neutral = look::neutral();
+    let tab_root = rows.neutral_tab_root;
+    let tab_length = |id, em| {
+        exact_kernel::style::metrics::length_in(
+            id,
+            exact_kernel::style::metrics::Column::Neutral,
+            em,
+            tab_root.expect("admitted neutral tab"),
+        )
+        .expect("neutral tab metric")
+    };
+    let declared = |s: &StyleProps, id| s.mask.union(s.written).has(id);
     let scale = match rows.button.control_size {
         ControlSize::Mini => 0.75,
         ControlSize::Small => 0.875,
@@ -110,7 +122,15 @@ fn face_layout(
             });
     let type_of = |s: &StyleProps| {
         if neutral {
-            neutral_typography(s, said_size)
+            let mut style =
+                neutral_typography(s, if tab_root.is_some() { None } else { said_size });
+            if tab_root.is_some()
+                && !declared(s, StyleId::FontSize)
+                && !rows.button.written.has(StyleId::FontSize)
+            {
+                style.font_size = tab_length(metric::TABBAR_FONT, style.font_size);
+            }
+            style
         } else {
             typography(s, scale)
         }
@@ -118,50 +138,68 @@ fn face_layout(
     let title_style = type_of(&rows.title);
     let subtitle_style = rows.subtitle.as_ref().map(|s| {
         let mut s = type_of(s);
-        if !s.mask.has(StyleId::FontSize) {
+        if !s.mask.has(StyleId::FontSize)
+            && !(tab_root.is_some() && s.written.has(StyleId::FontSize))
+        {
             s.font_size = title_style.font_size * 0.8;
         }
         s
     });
     let mut symbol_style = rows.symbol.clone();
-    if !symbol_style.mask.has(StyleId::FontSize) {
+    if !symbol_style.mask.has(StyleId::FontSize)
+        && !(tab_root.is_some() && symbol_style.written.has(StyleId::FontSize))
+    {
         symbol_style.font_size = title_style.font_size;
+    }
+    if tab_root.is_some() && !declared(&rows.symbol, StyleId::FontSize) {
+        symbol_style.font_size = tab_length(metric::TABBAR_SYMBOL, title_style.font_size);
     }
     if !symbol_style.mask.has(StyleId::FontWeight) {
         symbol_style.font_weight = title_style.font_weight;
     }
-    let column = matches!(
+    let mut column = matches!(
         face.placement,
         ButtonImagePlacement::Top | ButtonImagePlacement::Bottom
     );
+    let leading = matches!(
+        face.placement,
+        ButtonImagePlacement::Leading | ButtonImagePlacement::Top
+    );
+    if tab_root.is_some() && !declared(&rows.button, StyleId::FlexDirection) {
+        column = leading;
+    }
     let offer = match width {
         AxisOffer::Definite(w) => Some(w),
         AxisOffer::MinContent => Some(0.0),
         AxisOffer::MaxContent => None,
     };
-    // The neutral look's box (LLP 1115.000 D17), the page's: a 1 px line
-    // every style keeps, the look's padding inside it (less beside a lone
-    // symbol), and a floor each way. A size the author wrote is theirs, so
-    // on that axis the padding and the floor step aside, as the sheet does
-    // for a button the web host marks `data-exact-said`.
+    // The ordinary neutral control's size removes its default padding/floor
+    // on that axis. The more specific narrow-tab rule keeps its rem padding
+    // and minimum until those properties themselves are authored.
     let em = title_style.font_size;
     let said = |id| neutral && rows.button.written.has(id);
     let (said_width, said_height) = (said(StyleId::Width), said(StyleId::Height));
     let lone_symbol =
         (face.symbol.is_some() || face.raster) && face.title.is_none() && face.subtitle.is_none();
-    let inline = if said_width {
+    let inline = if tab_root.is_some() {
+        tab_length(metric::TABBAR_PADDING_INLINE, em)
+    } else if said_width {
         0.0
     } else if lone_symbol {
         look::px(metric::BUTTON_PADDING_INLINE_SYMBOL, em)
     } else {
         look::px(metric::BUTTON_PADDING_INLINE, em)
     };
-    let block = if said_height {
+    let block = if tab_root.is_some() {
+        tab_length(metric::TABBAR_PADDING_BLOCK, em)
+    } else if said_height {
         0.0
     } else {
         look::px(metric::BUTTON_PADDING_BLOCK, em)
     };
-    let edge = if neutral {
+    let edge = if tab_root.is_some() {
+        0.0
+    } else if neutral {
         look::px(metric::CONTROL_LINE, em)
     } else {
         0.0
@@ -183,7 +221,7 @@ fn face_layout(
         (StyleId::PaddingLeft, rows.button.padding_left, 9.0, inline),
     ]
     .map(|(id, d, default, look)| {
-        edge + if rows.button.mask.has(id) {
+        edge + if rows.button.mask.has(id) || (tab_root.is_some() && rows.button.written.has(id)) {
             points(d)
         } else if neutral {
             look
@@ -197,19 +235,34 @@ fn face_layout(
         0.0
     };
     let gap = if symbol > 0.0 && (face.title.is_some() || face.subtitle.is_some()) {
-        rows.image_gap.unwrap_or_else(|| {
-            if neutral {
-                // The page's gap is a space in the button's type.
-                let mut wide = |text| {
-                    engine
-                        .paragraph(&super::text_spec(&title_style, text), None)
-                        .width
-                };
-                (wide("a a") - wide("aa")).max(0.0)
+        if tab_root.is_some() {
+            let (id, own_gap) = if column {
+                (StyleId::RowGap, rows.button.row_gap)
             } else {
-                title_style.font_size * 0.5
+                (StyleId::ColumnGap, rows.button.column_gap)
+            };
+            if declared(&rows.button, id) {
+                own_gap
+            } else if column {
+                tab_length(metric::TABBAR_GAP, em)
+            } else {
+                0.0
             }
-        })
+        } else {
+            rows.image_gap.unwrap_or_else(|| {
+                if neutral {
+                    // The page's gap is a space in the button's type.
+                    let mut wide = |text| {
+                        engine
+                            .paragraph(&super::text_spec(&title_style, text), None)
+                            .width
+                    };
+                    (wide("a a") - wide("aa")).max(0.0)
+                } else {
+                    title_style.font_size * 0.5
+                }
+            })
+        }
     } else {
         0.0
     };
@@ -220,7 +273,16 @@ fn face_layout(
             0.0
         }
     };
-    let (min_width, min_height) = (floor(said_width), floor(said_height));
+    let min_width = floor(said_width);
+    let min_height = if tab_root.is_some() {
+        if declared(&rows.button, StyleId::MinHeight) {
+            0.0
+        } else {
+            tab_length(metric::TABBAR_HEIGHT, em)
+        }
+    } else {
+        floor(said_height)
+    };
     let natural = [
         (face.title.as_deref(), Some(&title_style)),
         (face.subtitle.as_deref(), subtitle_style.as_ref()),
@@ -268,6 +330,7 @@ fn face_layout(
         symbol,
         gap,
         column,
+        leading,
         width: offer
             .filter(|_| width != AxisOffer::MinContent)
             .map_or((w + padding[1] + padding[3]).max(min_width), |off| {
@@ -317,6 +380,22 @@ impl Painter {
             !disabled && self.feedback.1 == Some(node.id),
         );
         let label = role("-exact-label", dark);
+        if node.is_neutral_tab()
+            && matches!(
+                node.props.str(PropId::ButtonStyle).unwrap_or("bordered"),
+                "bordered" | "gray"
+            )
+        {
+            return if disabled {
+                role("GrayText", dark)
+            } else if node.props.bool(PropId::AccessibilitySelected) == Some(true) {
+                look::accents(authored, dark).0
+            } else if hover {
+                label
+            } else {
+                role("-exact-secondary-label", dark)
+            };
+        }
         // A wash of a role where the fill is neutral, of the ink where it is
         // the accent's.
         let neutral_wash = || match (pressed, hover) {
@@ -368,7 +447,13 @@ impl Painter {
         for color in [fill, wash].into_iter().flatten() {
             self.backend.fill(shape, color, ts);
         }
-        if let Some(color) = edge {
+        let bar_button = node.props.str(PropId::ButtonStyle).unwrap_or("bordered") == "bordered"
+            && !matches!(
+                node.props.str(PropId::AccessibilityRole),
+                Some("tab" | "radio")
+            )
+            && node.inside_neutral_header();
+        if let Some(color) = edge.filter(|_| !bar_button) {
             super::neutral::edge(self.backend.as_mut(), shape, line, color, ts);
         }
         if disabled {
@@ -444,6 +529,22 @@ impl Painter {
         });
         let shape = Shape::new(rect, radii);
         let ink = match look {
+            "glass" | "glass-fill" if neutral && disabled => {
+                // The look merges clear and ordinary glass; the authored name
+                // retains which material replaces a disabled prominent fill.
+                let material = exact_kernel::generated::material(if name.contains("clear") {
+                    "glass-clear"
+                } else {
+                    "glass"
+                })
+                .unwrap();
+                self.backend.fill(
+                    &shape,
+                    if dark { material.dark } else { material.light },
+                    ts,
+                );
+                look::role("GrayText", dark)
+            }
             _ if neutral && !look.contains("glass") => {
                 self.neutral_face(node, &shape, look, name == "gray", ts)
             }
@@ -521,25 +622,38 @@ impl Painter {
                 TextAlign::Right | TextAlign::End => free,
                 _ => free / 2.0,
             };
-        let by = y + pt + ((h - pt - pb - ch) / 2.0).max(0.0);
-        let leading = matches!(
-            face.placement,
-            ButtonImagePlacement::Leading | ButtonImagePlacement::Top
-        );
+        let tab = rows.neutral_tab_root.is_some();
+        let vertical_free = (h - pt - pb - ch) / 2.0;
+        let by = y
+            + pt
+            + if tab && !layout.column {
+                vertical_free
+            } else {
+                vertical_free.max(0.0)
+            };
+        let leading = layout.leading;
+        // In an overconstrained tab grid the text track can shrink below its
+        // line. The image keeps its size; the centered title is clipped by the
+        // authored button box, as on the page.
+        let text_room = if tab && layout.column {
+            (h - pt - pb - layout.symbol - layout.gap)
+                .max(0.0)
+                .min(layout.text.1)
+        } else {
+            layout.text.1
+        };
+        let text_shift = (text_room - layout.text.1) / 2.0;
         let (tx, ty, sx, sy) = if layout.column {
             (
                 bx + (cw - layout.text.0) / 2.0,
-                by + if leading {
-                    layout.symbol + layout.gap
-                } else {
-                    0.0
-                },
+                by + text_shift
+                    + if leading {
+                        layout.symbol + layout.gap
+                    } else {
+                        0.0
+                    },
                 bx + (cw - layout.symbol) / 2.0,
-                by + if leading {
-                    0.0
-                } else {
-                    layout.text.1 + layout.gap
-                },
+                by + if leading { 0.0 } else { text_room + layout.gap },
             )
         } else {
             (
@@ -624,6 +738,7 @@ mod tests {
                 ..Default::default()
             },
             style: ButtonFaceStyle {
+                neutral_tab_root: None,
                 title: StyleProps::default(),
                 subtitle: None,
                 symbol: StyleProps::default(),

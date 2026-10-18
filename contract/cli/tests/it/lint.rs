@@ -25,6 +25,74 @@ fn an_old_spelling_is_refused_with_the_css_name() {
     assert!(e.message.contains("`aria-label`"), "{e}");
 }
 
+/// What a React Native port writes first is refused with what to write
+/// (the euxy port, 2026-10-17: 19 of 50 compiles refused).
+#[test]
+fn a_react_native_habit_is_refused_with_what_to_write() {
+    for (line, id, needle) in [
+        (
+            "text \"a\" numberOfLines=2",
+            "lower-unknown-attr",
+            "`line-clamp`",
+        ),
+        (
+            "text \"a\" ellipsizeMode=\"tail\"",
+            "lower-unknown-attr",
+            "`text-overflow`",
+        ),
+        (
+            "image \"a.png\" resizeMode=\"cover\"",
+            "lower-unknown-attr",
+            "`object-fit`",
+        ),
+        (
+            "text \"a\" textTransform=\"uppercase\"",
+            "lower-unknown-attr",
+            "`text-transform`",
+        ),
+        (
+            "view paddingHorizontal=16",
+            "lower-unknown-attr",
+            "`padding-left` and `padding-right`",
+        ),
+        (
+            "view marginVertical=8",
+            "lower-unknown-attr",
+            "`margin-top` and `margin-bottom`",
+        ),
+        ("view shadowRadius=4", "lower-unknown-attr", "`box-shadow="),
+        ("view elevation=4", "lower-attr-tag", "`box-shadow="),
+        (
+            "text \"a\" selectable=true",
+            "lower-unknown-attr",
+            "`user-select=\"text\"`",
+        ),
+        (
+            "text \"a\" font-weight=\"bold\"",
+            "lower-attr-value",
+            "write `font-weight=700`",
+        ),
+        (
+            "text \"a\" font-weight=\"normal\"",
+            "lower-attr-value",
+            "write `font-weight=400`",
+        ),
+    ] {
+        let src = format!("component A\n  view\n    column\n      {line}\n");
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!(e.id, id, "{line}: {e}");
+        assert!(e.message.contains(needle), "{line}: {e}");
+    }
+    // A keyframe's unit needs quotes, as an element's does; and a keyframe is one line.
+    let src = "keyframes W\n  from rotate=-2deg\n  to rotate=2deg\ncomponent A\n  view\n    text \"a\" animation=\"W 1s\"\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "syntax-unquoted-length", "{e}");
+    assert!(e.message.contains("`rotate=\"-2deg\"`"), "{e}");
+    let src = "keyframes W\n  from\n    opacity=0\ncomponent A\n  view\n    text \"a\" animation=\"W 1s\"\n";
+    let e = contract::compile(src).unwrap_err();
+    assert!(e.message.contains("a keyframe is one line"), "{e}");
+}
+
 #[test]
 fn a_literal_value_is_checked_against_its_row_at_compile_time() {
     for (src, id, needle) in [
@@ -144,17 +212,16 @@ fn an_inset_sized_button_has_area() {
 
 /// The web's JS target bakes nothing; `contract::check` refuses there what
 /// every native bake would, before the page's module answers (files diary
-/// F13: a hidden shortcut button passed the web build and 21 web tests).
+/// F13). Hidden controls and descendants have no pressable layout until shown.
 #[test]
 fn check_refuses_without_data_what_no_answer_could_change() {
     let hidden = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button \"Down\" press=go display=\"none\" aria-keyshortcuts=\"Shift+ArrowDown\" testId=\"down\"\n";
-    match contract::check(&contract::compile(hidden).unwrap()).unwrap_err() {
-        BakeError::Lint { id, message, .. } => {
-            assert_eq!(id, "bake-zero-size");
-            assert!(message.contains("testId=\"down\""), "{message}");
-        }
-        other => panic!("{other:?}"),
-    }
+    contract::check(&contract::compile(hidden).unwrap()).unwrap();
+    let nested = hidden
+        .replace("    column\n", "    column display=\"none\"\n")
+        .replace(" display=\"none\" aria-keyshortcuts", " aria-keyshortcuts");
+    contract::check(&contract::compile(&nested).unwrap()).unwrap();
+    contract::bake(contract::compile(&nested).unwrap(), NoData).unwrap();
     // A label the module answers is empty until it does: not this check's
     // to judge, nor a `scroll` that only its answered rows reach the bound
     // of (unanswered, it is exactly as tall as its header).
@@ -484,7 +551,7 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
             "expected an expression, found `{`; Contract has no `{…}`: a handler names an action (`press=add`, `press=add(item)`) and a value is written directly (`width=10`)",
         ),
         // The app farm's guesses (round 1): a tag, a count, a placeholder.
-        (app("", "heading \"T\""), "lower-unknown-tag", "unknown tag `heading`; a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"),
+        (app("", "heading \"T\""), "lower-unknown-tag", "unknown tag `heading`; a heading is `h1` (to `h6` for the level)"),
         (app("", "table"), "lower-unknown-tag", "unknown tag `table`; a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"),
         (app("  state xs = [1]\n", "text count(xs).toString()"), "type-refused-idiom", "write `x.length`, of text or of a list"),
         (app("  state xs = [1]\n", "text xs.size.toString()"), "type-not-a-record", "`number[]` has no fields: write `x.length`, of text or of a list"),
@@ -513,7 +580,19 @@ fn the_element_lint_finds_nothing_in_any_app() {
         let Ok(src) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let file = contract_syntax::parse(&src).unwrap();
+        let mut file = contract_syntax::parse(&src).unwrap();
+        // The app's design is the driver's to read (LLP 1121 D2), as `contract build` does.
+        let design = path.with_file_name("app.tamber");
+        file.design =
+            std::fs::read_to_string(&design)
+                .ok()
+                .map(|text| contract_syntax::DesignSource {
+                    path: design.display().to_string(),
+                    home: "app.tamber".into(),
+                    text,
+                    source_id: 1,
+                    bindable: false,
+                });
         let found = contract_lower::lint(&file);
         assert!(found.is_empty(), "{}: {found:?}", path.display());
         checked += 1;

@@ -18,13 +18,17 @@
 // the host journaled during the run (`logs`: 'swipeContent … is refused: …') is shown first in the report (LLP 1116.010 D5). One capture of each screen is kept in
 // .exact/verify/ for milestones (four of the first screen: each width and scheme). It prints one short report
 // ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
-// or the relaunch fails; check's findings, the relaunch's and the compiler's warnings (`contract build`'s,
-// whether or not this run built) are counted in the last line but never fail it, since check reads the screen
+// or the relaunch fails; check's findings, the relaunch's, those at the largest text size and the compiler's warnings
+// (`contract build`'s, whether or not this run built) are counted in the last line but never fail it, since check reads the screen
 // by heuristics and some of either only advise. The web's tests and its two launches run at once; a simulator
 // takes one drive at a time, and runs the tests with UIKit's bars (`--chrome platform`) so their end screens
 // are what a person sees. An app with a server of its own (the `rest` pattern's) has it run by verify, where the
 // app calls it, on an empty scratch database kept through the run and removed after (LLP 1116.006 D3, `appServer`); a server
 // entry that does not read DB is refused before the build, in one line naming it and the fix (LLP 1116.008 D1).
+// Each of those screens is read again at the largest text size (iOS: the simulator's; the web: iOS's body as the root font
+// size, at the phone's width), and what spills there (past the screen's edge, squeezed to no width, overlapping) is reported
+// with a remedy that keeps the text's size, counted in the last line and never failing the run (LLP 1116.019 D2, LLP
+// 1116.020 D4, `largestText`).
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
@@ -32,6 +36,7 @@ import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync,
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { guardFlags } from './help.mjs';
+import { holderOf, takePort } from './port-lock.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** The web's two widths: a phone's, and a desktop window's. */
@@ -39,6 +44,11 @@ export const WEB_SIZES = [[390, 844], [1280, 900]];
 const SHOWN = 6, WARNINGS = 4; // the findings and build warnings shown; the count says the rest
 const REAL_MS = 4000, REAL_STEP = 250; // the relaunch's bound on real time for its first loads, in steps
 const FIRST = 'first screen', RELAUNCH = 'relaunch';
+// How long a run takes, said when it starts so a builder waits once rather than polling (LLP 1116.021 D3): the app's
+// last run on that host, else these (a run that must build first takes that build's time too).
+const ESTIMATE = { web: 30_000, ios: 60_000 };
+const lastRuns = (app) => { try { return JSON.parse(readFileSync(resolve(app.dir, '.exact', 'verify', 'last.json'), 'utf8')); } catch { return {}; } };
+let ACCEPT = []; // app.json `verify.accept`: findings the app's design accepts, set by main
 const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
 const firstLine = (text) => String(text ?? '').split('\n').find((l) => l.trim())?.trim() ?? '';
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -132,6 +142,13 @@ const lastError = (said) => { const lines = said.split('\n').map((l) => l.trim()
  * answers; refused (`heldLine`) when its URL already does. `{ stop(), exited(), tail() }`: `stop` ends it and removes
  * the database; `exited` is its exit code once it has ended on its own, else null. `forward` passes its stderr on. */
 export async function startServer(dir, server, name, { forward = false } = {}) {
+  // Its port in turn with other runs (scripts/port-lock.mjs), then refused
+  // if something that took no turn (a server run by hand) answers there.
+  const give = await takePort(server.port, { label: `${name}: ${server.entry} in ${dir}` });
+  try { return await started(dir, server, name, forward, give); } catch (e) { give(); throw e; }
+}
+
+async function started(dir, server, name, forward, give) {
   if (await answering(server.url)) throw new Error(heldLine(server));
   // `owner` names this process, for a `bun exact.mjs test` it runs (an api-test's test.mjs) to find the server already here.
   const db = resolve(dir, '.exact', name, 'db.sqlite'), owner = resolve(dirname(db), 'owner');
@@ -149,7 +166,7 @@ export async function startServer(dir, server, name, { forward = false } = {}) {
     off();
     if (child.exitCode == null) { child.kill('SIGTERM'); await Promise.race([child.exited, Bun.sleep(3000)]); }
     if (child.exitCode == null) { child.kill('SIGKILL'); await child.exited; }
-    clear();
+    try { clear(); } finally { give(); }
     try { rmdirSync(dirname(db)); } catch {} // when nothing else is in it (verify's keeps its screenshots)
   };
   const why = await untilAnswers(server, child, tail);
@@ -256,11 +273,11 @@ async function webBuild(app) {
 }
 
 /** The iOS build a drive needs, or its plan alone (agent-build.mjs): null when fresh, else what it said. */
-async function iosBuild(app, sim) {
+async function iosBuild(app) {
   const { buildFirst } = await import('./agent-build.mjs');
   const said = [], started = Date.now();
   // A native build (or the wait for one) is said as it starts too: it is minutes, and the report comes after it.
-  const code = await buildFirst('ios', app, { sim, say: (line) => { said.push(line); if (/^(building|waiting) for/.test(line)) console.error(line); } });
+  const code = await buildFirst('ios', app, { say: (line) => { said.push(line); if (/^(building|waiting) for/.test(line)) console.error(line); } });
   return said.length || code ? { ms: Date.now() - started, code, said, warnings: [] } : null;
 }
 
@@ -459,11 +476,119 @@ async function checkHere(s, { screen, sizes = [null], shot, state }) {
   const runs = [];
   for (const size of sizes) {
     if (size) { await s.resize(...size); await s.clock('settle'); }
-    const r = await checkOp(s, ['both'], { shots: shot });
+    const r = await checkOp(s, ['both'], { shots: shot, accept: ACCEPT });
     runs.push(...groups(r.text).map((g, i) => {
       const run = r.check[i] ?? {}, vp = run.viewport ?? { w: size?.[0], h: size?.[1] }, kept = shot?.(vp, run.asked ?? run.scheme);
-      return { screen, size: [vp.w, vp.h], scheme: run.scheme, asked: run.asked, ...(kept ? { shot: kept } : {}), findings: run.findings ?? [], lines: [...failed, ...g.lines], hidden: g.hidden, advice: g.advice };
+      return { screen, size: [vp.w, vp.h], scheme: run.scheme, asked: run.asked, ...(kept ? { shot: kept } : {}), findings: run.findings ?? [], accepted: run.accepted ?? [], lines: [...failed, ...g.lines], hidden: g.hidden, advice: g.advice };
     }));
+  }
+  return runs;
+}
+
+// LLP 1116.019 D2: each screen verify visits is read again at the largest text size, and what spills is reported, counted
+// and never failing the run (LLP 1116.020 D4: uncounted, half of the builders who saw them stopped at "verify: clean"): the
+// layout is the builder's (LLP 1115.000 D12.1), and a failure would invite `overflow: hidden`. iOS sets the
+// simulator's own size, which UIKit's controls and Exact's text both follow; the web, where a builder iterates, sets the root
+// font size to iOS's body at that size on the phone's width. Only the kinds of finding a larger text makes are kept, each with
+// a remedy that keeps the text's size: a smaller font is the platform tell this pass exists to prevent.
+export const LARGEST = 'accessibility-extra-extra-extra-large', LARGEST_PX = 53;
+const LARGE_KINDS = new Set(['overflow', 'clipped', 'overlap', 'squeezed']), PAGES = 6;
+const WRAP = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
+/** The remedy for a finding at the largest size: never a smaller or fixed font. A text in a list's row (`inRow`) is cut by
+ * the row, which wrapping does not change: UIKit's cells truncate a label or grow taller with it. */
+export function largeRemedy(f, { inRow = false } = {}) {
+  if (f.kind === 'clipped' && inRow && !f.detail?.edge) return 'ask for an ellipsis (`line-clamp="1"`, or more lines), as a cell truncates its label, or let the row grow taller with its text (no px height on the row or what it holds)';
+  if (f.kind === 'clipped') return f.detail?.edge ? 'let the page scroll there (a scroll with flex=1 min-height=0)'
+    : f.detail?.need ? 'let its box grow with its text: no px width or height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
+  if (f.kind === 'squeezed') return `let it keep its words (no min-width: 0 or px width beside it), or ${WRAP}`;
+  return WRAP;
+}
+/** LLP 1116.020 D4: each font size the app's own Contract fixes (no-tells.mjs `fixedSizesIn`), which no spill shows (a fixed
+ * size never grows to spill), and LLP 1116.021 D6's two like it: a symbol sized in points beside text that grows
+ * (`fixedSymbolsIn`), and text that breaks inside words (`brokenWordsIn`), the remedy builders reached for when a large
+ * text spilled. `{ lines, accepted, fonts }`, a line each, those app.json's `verify.accept` takes (`fixed-type`,
+ * `fixed-symbol` or `broken-words`, the node's testId) apart, and how many lines are font sizes. Exact's parts that are
+ * fixed on purpose are the library's, not here. */
+export async function fixedType(dir, host, accept = ACCEPT) {
+  const { contractFiles, fixedSizesIn, fixedSymbolsIn, brokenWordsIn } = await import('./no-tells.mjs'), unit = host === 'ios' ? 'pt' : 'px', lines = [], accepted = [];
+  let fonts = 0;
+  const add = (finding, testId, said) => {
+    const takes = testId != null && accept.find((e) => e.finding === finding && (/^[^*]+\*$/.test(e.node) ? testId.startsWith(e.node.slice(0, -1)) : e.node === testId));
+    if (takes) accepted.push({ line: said, accept: takes }); else { lines.push(said); if (finding === 'fixed-type') fonts++; }
+  };
+  for (const file of contractFiles(dir).filter((f) => !f.endsWith('.test.contract'))) {
+    const source = readFileSync(file, 'utf8'), at = (f) => `${relative(dir, file)}:${f.line}`;
+    for (const f of fixedSizesIn(source)) {
+      const rem = Math.round(f.size / 16 * 4) / 4;
+      add('fixed-type', f.testId, `  fixed    ${at(f)} ${f.tag} font-size=${f.value}: stays ${f.size} ${unit} as Dynamic Type grows; a role (\`font="-exact-title1"\`) or a \`rem\` size ("${rem}rem") scales`);
+    }
+    for (const f of fixedSymbolsIn(source)) {
+      const rem = Math.round(f.size / 16 * 4) / 4;
+      add('fixed-symbol', f.testId, `  fixed    ${at(f)} image ${f.property}=${f.value}: a symbol sized in points stays small as Dynamic Type grows: leave it unsized (it follows its text), or size it with a text style (\`font="-exact-title1"\`) or a font-size in rem ("${rem}rem")`);
+    }
+    for (const f of brokenWordsIn(source)) add('broken-words', f.testId, `  breaks   ${at(f)} ${f.tag} overflow-wrap=${f.value}: breaks inside words (Octo/ber); wrap between words (the default) or give the row room`);
+  }
+  return { lines, accepted, fonts };
+}
+const contentSize = (udid, size) => spawnSync('xcrun', ['simctl', 'ui', udid, 'content_size', ...(size ? [size] : [])], { encoding: 'utf8' });
+
+/** The screen `s` shows, again at the largest text size: its findings of LARGE_KINDS as check words them with their remedy,
+ * the app's `verify.accept` taken out, `{ screen, size, rootFontSize, lines, ms }`; or `{ screen, error }`. The simulator's
+ * own size is put back after, and when the process ends first. Null on iOS with no simulator to set. */
+async function largestText(s, screen) {
+  const web = s.host === 'web', udid = s.carrier?.udid, was = web ? null : udid && contentSize(udid).stdout?.trim();
+  if (!web && !was) return null;
+  const started = Date.now(), body = async () => (await s.prefer({})).page?.['root-font-size'];
+  const before = web ? null : await body();
+  const restore = () => { if (!web && was !== LARGEST) contentSize(udid, was); }, forget = web ? () => {} : whenEnded(restore);
+  try {
+    if (web) {
+      // Each session it reads closes after it, so the page's own size is not put back.
+      await s.resize(...WEB_SIZES[0]);
+      await s.prefer({ 'root-font-size': LARGEST_PX });
+    } else if (was !== LARGEST) {
+      const set = contentSize(udid, LARGEST);
+      if (set.status !== 0) return { screen, error: `simctl ui content_size: ${firstLine(set.stderr)}` };
+      // The app hears the change as a notification of its own: until then its body size is the one it had.
+      for (const end = Date.now() + 3000; (await body()) === before && Date.now() < end;) await new Promise((r) => setTimeout(r, 50));
+    }
+    await s.clock('settle');
+    const [{ judge, line, accepts }, tree] = await Promise.all([import('./agent-check.mjs'), s.op({ op: 'tree' })]);
+    const nodes = new Map((tree.nodes ?? []).map((n) => [n.id, n])), looked = new Set(), found = new Map();
+    let obs;
+    // A screen at a time, as check reads one: the page is scrolled to the first node with a testId that no reading has
+    // held yet, at most PAGES times (a list's rows off the screen have no cells to read).
+    for (let page = 0; page < PAGES; page++) {
+      obs = await s.op({ op: 'check' });
+      for (const it of obs.items ?? []) looked.add(it.id).add(it.of);
+      for (const f of judge(obs, null, { host: web ? 'web' : 'ios' })) if (LARGE_KINDS.has(f.kind) && !accepts(ACCEPT, f, nodes) && !found.has(`${f.kind} ${f.id}`)) found.set(`${f.kind} ${f.id}`, f);
+      let moved = false;
+      for (const n of tree.nodes ?? []) {
+        if (n.inactive || n.props?.testId == null || looked.has(n.id)) continue;
+        looked.add(n.id);
+        if ((await s.carrier.reveal(n.id).catch(() => null))?.scrolled) { moved = true; break; }
+      }
+      if (!moved) break;
+    }
+    const parents = new Map((tree.nodes ?? []).flatMap((n) => (n.children ?? []).map((c) => [c, n.id])));
+    const inRow = (id) => { for (let at = parents.get(id); at != null; at = parents.get(at)) if (nodes.get(at)?.type === 'List') return true; return false; };
+    return { screen, size: [obs.viewport.w, obs.viewport.h], rootFontSize: web ? LARGEST_PX : await body(), lines: [...found.values()].map((f) => line({ ...f, hint: largeRemedy(f, { inRow: inRow(f.id) || (f.of != null && inRow(f.of)) }) }, nodes)), ms: Date.now() - started };
+  } catch (e) { return { screen, error: e.message }; }
+  finally { restore(); forget(); }
+}
+
+/** An iOS test end whose window the test sized (`size 1100x800`) is that window scaled to fit the phone (ExactViewIOS.swift):
+ * its text is drawn smaller than its points, so neither the pixels behind a label nor a control's size is what a person
+ * sees there. Its contrast and target findings are left out of `runs`, and one advice line says so. */
+export function scaledEnd(runs, size) {
+  const measured = (k) => k === 'contrast' || k === 'target';
+  for (const r of runs) {
+    if (!size || Math.abs(r.size[0] - size[0]) < 0.5) continue;
+    const lines = r.lines.filter((l) => !measured(l.trim().split(/\s/)[0]));
+    if (lines.length === r.lines.length) continue;
+    r.lines = lines;
+    r.findings = r.findings.filter((f) => !measured(f.kind));
+    r.advice = [...(r.advice ?? []), `  advice   the test's ${size.join('x')} window is shown scaled to fit the phone (${r.size.map(Math.round).join('x')}): contrast and target sizes are not measured there (verify web measures them at that size)`];
   }
   return runs;
 }
@@ -479,9 +604,13 @@ const testEnd = (host, shots, persisted) => async (s, t) => {
   const shot = (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === near[0]) ? path : undefined);
   const facts = await seen(s, state);
   const runs = await checkHere(s, { screen: t.name, sizes: host === 'web' ? WEB_SIZES : [null], shot, state });
+  if (host === 'ios') scaledEnd(runs, t.size);
   const refusals = await refusalsIn(s);
   const reloaded = await reloadEnd(s, t, persisted);
-  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached, refusals, reloaded };
+  const large = await largestText(s, t.name);
+  // A web test runs on a page origin of its own (agent-test.mjs `launch`), and what it stored is that origin's: the relaunch opens it.
+  const port = host === 'web' ? s.carrier?.port : undefined;
+  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached, refusals, reloaded, large, ...(port ? { port } : {}) };
 };
 
 /** The authored tests: `{ passed, failed, results }` (each with its end screen's `end`, and the store it left), `{ none }`
@@ -513,6 +642,7 @@ async function checkAt(host, app, size, store, shots) {
     const runs = await checkHere(s, { screen: FIRST, shot: (vp, scheme) => resolve(shots, `${host}-${vp.w}x${vp.h}-${scheme}.png`), state });
     if (facts) Object.defineProperty(runs, 'seen', { value: facts });
     Object.defineProperty(runs, 'refusals', { value: await refusalsIn(s) });
+    if (host === 'ios' || size === WEB_SIZES[0]) Object.defineProperty(runs, 'large', { value: await largestText(s, FIRST) });
     return runs;
   } finally {
     await s.close();
@@ -593,7 +723,7 @@ async function freshUnder(host, app, launch, store) {
  * end; then `check both` (the web: at both widths, one capture kept). */
 async function relaunch(host, app, test, fresh, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
-  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
+  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0], ...(test.end.port ? { port: test.end.port } : {}) } : { chrome: 'platform' }) });
   try {
     const started = performance.now(), b = (st) => (st.background?.queued ?? 0) + (st.background?.inFlight ?? 0);
     const waiting = (st) => [...(st.pending ?? []).filter((p) => !p.device).map((p) => p.name), ...(b(st) ? ['storage'] : [])];
@@ -604,7 +734,8 @@ async function relaunch(host, app, test, fresh, shots) {
     const after = await seen(s, state);
     const path = resolve(shots, `${host}-relaunch.png`);
     const runs = await checkHere(s, { screen: RELAUNCH, sizes: host === 'web' ? [null, WEB_SIZES[1]] : [null], shot: (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === WEB_SIZES[0][0]) ? path : undefined) });
-    return { test: test.name, ms, shot: path, runs, refusals: await refusalsIn(s), ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed }) };
+    const refusals = await refusalsIn(s), large = await largestText(s, RELAUNCH);
+    return { test: test.name, ms, shot: path, runs, refusals, large, ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed }) };
   } finally {
     await s.close();
     if (host === 'web') await removeBrowserProfile(driveStore(app, test.store).profile).catch(() => {});
@@ -650,7 +781,7 @@ export function distinctFindings(runs) {
 }
 
 /** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], shots, copied, own = [], ms, cwd = process.cwd() }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, shots, copied, own = [], accept = [], ms, cwd = process.cwd() }) {
   const out = [];
   let failedTests = 0, findings = 0, broken = 0;
   // What the host refused while the app ran (LLP 1116.010 D5): first, since each is a call or a wiring the app got wrong.
@@ -700,6 +831,24 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     out.push(...new Set(runs.flatMap((r) => r.advice ?? [])));
     findings += count;
   }
+  // Font and symbol sizes the app's Contract fixes and words it breaks (LLP 1116.020 D4, LLP 1116.021 D6): findings, as
+  // check's are.
+  if (fixed.lines.length) {
+    const said = (fixed.fonts ?? fixed.lines.length) === fixed.lines.length ? `${plural(fixed.lines.length, 'font size')} the reader's text size does not move`
+      : `${plural(fixed.lines.length, 'finding')}: a size the reader's text size does not move, or a word broken inside`;
+    out.push(`fixed type: ${said}`, ...fixed.lines.slice(0, SHOWN));
+    if (fixed.lines.length > SHOWN) out.push(`  … and ${fixed.lines.length - SHOWN} more (verify --json lists them all)`);
+    findings += fixed.lines.length;
+  }
+  // What app.json's `verify.accept` names as the app's design: said once each, not counted; an entry that took nothing is named.
+  const accepted = [...distinctFindings(runs.map((r) => ({ ...r, lines: (r.accepted ?? []).map((f) => f.line) }))), ...fixed.accepted.map((f) => f.line)];
+  const took = (e, f) => f.accept?.finding === e.finding && f.accept?.node === e.node;
+  const idle = accept.filter((e) => !runs.some((r) => (r.accepted ?? []).some((f) => took(e, f))) && !fixed.accepted.some((f) => took(e, f)));
+  if (accepted.length || idle.length) {
+    out.push(`accepted (app.json verify.accept, not counted): ${plural(accepted.length, 'finding')}`, ...accepted.slice(0, SHOWN));
+    if (accepted.length > SHOWN) out.push(`  … and ${accepted.length - SHOWN} more (verify --json lists them all)`);
+    for (const e of idle) out.push(`  accepts nothing: ${e.finding} ${e.node} (no such finding in this run)`);
+  }
   // Each test's end screen reloaded where it stands (LLP 1116.010 D6): a saved value that came back different is a finding, one a
   // route and change, the first test that ended there named; any other change is a note under its own heading, which counts
   // for nothing (LLP 1116.011 D5: a game or a draft in progress lives in memory).
@@ -721,6 +870,18 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
       out.push(NOTE_ADVICE);
     }
   }
+  // The same screens at the largest text size (LLP 1116.019 D2): each finding once, said where unless everywhere; counted
+  // apart from check's, so the last line says where they came from (LLP 1116.020 D4).
+  let largeCount = 0;
+  if (large.length) {
+    const read = large.filter((l) => !l.error), shown = distinctFindings(read.map((l) => ({ ...l, scheme: 'light' })));
+    const root = [...new Set(read.map((l) => l.rootFontSize).filter(Boolean))].join(', ');
+    const size = host === 'ios' ? `${LARGEST}${root ? `, body ${root} pt` : ''}` : `root font size ${root || LARGEST_PX} px at ${WEB_SIZES[0].join('x')}, iOS's body at its largest`;
+    out.push(`largest text size (${size}), ${plural(read.length, 'screen')}: ${shown.length ? `${plural(shown.length, 'finding')} (give the text room; a smaller or fixed font is the tell)` : 'nothing spills'}`, ...shown.slice(0, SHOWN));
+    largeCount = shown.length;
+    if (shown.length > SHOWN) out.push(`  … and ${shown.length - SHOWN} more (verify --json lists them all)`);
+    for (const l of large.filter((l) => l.error)) out.push(`  could not read ${screenName(l.screen)}: ${firstLine(l.error)}`);
+  }
   // The relaunch on a test's store (LLP 1116.005 D7): what came back, or each problem, counted as findings.
   if (relaunched?.error) { broken++; out.push(`relaunch: could not drive: ${firstLine(relaunched.error)}`); }
   else if (relaunched) {
@@ -736,8 +897,8 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   }
   // How a person opens what ran (LLP 1116.008 D2): the dev loop serves the web app, the simulator build launches on iOS.
   if (!failedTests && !broken) out.push(host === 'ios' ? 'open it: bun exact.mjs ios --run (launches what verify checked)' : 'open it: bun exact.mjs web (serves what verify checked)');
-  const problems = failedTests + findings + broken;
-  const why = [failedTests && plural(failedTests, 'failed test'), broken && plural(broken, 'failure', 'failures') + ' to compile or drive', findings && plural(findings, 'finding')].filter(Boolean);
+  const problems = failedTests + findings + largeCount + broken;
+  const why = [failedTests && plural(failedTests, 'failed test'), broken && plural(broken, 'failure', 'failures') + ' to compile or drive', findings && plural(findings, 'finding'), largeCount && `${largeCount} at the largest text size`].filter(Boolean);
   out.push(problems ? `verify: ${plural(problems, 'problem')} (${why.join(', ')}${failedTests || broken ? '' : '; the tests passed'}) in ${secs(ms)}` : `verify: clean in ${secs(ms)}`);
   return { lines: out, problems, exit: failedTests || broken ? 1 : 0 };
 }
@@ -754,6 +915,7 @@ async function main(argv) {
   const started = Date.now();
   const { resolveApp } = await import('./app.mjs');
   const app = resolveApp(value('--app'));
+  ACCEPT = app.manifest.verify?.accept ?? [];
   const say = (lines) => console.log(lines.join('\n'));
   // An app with a server of its own: verify runs it where the app calls it, on an empty database. One already
   // answering there (the builder's dev server) is refused before the build: never stopped, never written to; so is
@@ -761,9 +923,12 @@ async function main(argv) {
   const server = appServer(app.dir), owned = server && !server.why;
   const refuse = (line) => { if (json) console.log(JSON.stringify({ host, server: { error: line }, problems: 1, exit: 1 })); else console.error(`verify: ${line}`); return 1; };
   if (server?.refusal) return refuse(server.refusal);
-  if (owned && await answering(server.url)) return refuse(heldLine(server));
+  // (A test run that holds the port's turn is waited for when the server starts.)
+  if (owned && await answering(server.url) && !(await holderOf(server.port))) return refuse(heldLine(server));
 
-  const built = host === 'web' ? await webBuild(app) : await iosBuild(app, sim);
+  const last = lastRuns(app)[host];
+  console.error(`verify ${host}: about ${Math.round((last ?? ESTIMATE[host]) / 1000)} s${last ? ', as its last run took' : ''}; one report when it ends`);
+  const built = host === 'web' ? await webBuild(app) : await iosBuild(app);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
   if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length); }
   if (built?.code) {
@@ -845,11 +1010,14 @@ async function main(argv) {
   refusedAt(RELAUNCH, relaunched?.refusals);
   const refusedList = [...refused].map(([line, where]) => ({ line, where }));
   const reloads = results.filter((t) => t.end?.reloaded).map((t) => ({ test: t.name, ...t.end.reloaded }));
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, shots: kept, copied: copyTo && resolve(copyTo), own, ms: Date.now() - started });
+  const large = [...firsts.map((runs) => runs.large), ...results.map((t) => t.end?.large), relaunched?.large].filter(Boolean);
+  const fixed = await fixedType(app.dir, host);
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started });
+  writeFileSync(resolve(shots, 'last.json'), JSON.stringify({ ...lastRuns(app), [host]: Date.now() - started }) + '\n');
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
-    const relaunchOut = relaunched && (({ runs, ...rest }) => rest)(relaunched);
-    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
+    const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
+    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
   } else say(r.lines);
   return r.exit;
 }

@@ -862,6 +862,8 @@ impl World {
     }
 }
 
+mod globals;
+pub use globals::Globals;
 mod hierarchy;
 mod visibility;
 pub(crate) use hierarchy::Hierarchy;
@@ -951,6 +953,7 @@ mod tests {
                             if let Some(mut t) = w.get_mut::<Transform>(pick(&live, r)) {
                                 t.position.x += 1.0;
                                 t.rotation = Quat::from_rotation_y((r % 11) as f32 * 0.1);
+                                t.scale = Vec3::new((r % 5) as f32 * 0.5, -1.0, 2.0);
                             }
                         }
                         7 => {
@@ -959,6 +962,9 @@ mod tests {
                         }
                         8 if r % 5 == 0 => {
                             w.remove::<Transform>(pick(&live, r));
+                        }
+                        8 => {
+                            w.insert(pick(&live, r), Transform::at(2.0, 3.0, 4.0));
                         }
                         _ => {}
                     }

@@ -251,7 +251,7 @@ fn a_template_with_an_inline_match_runs_through_the_compiler() {
 
 #[test]
 fn template_escapes_run_as_the_text_they_spell() {
-    let src = "component App\n  state x = 7\n  view\n    column\n      text `a\\${x}` testId=\"literal\"\n      text `a\\tb \\` \\\\${x}` testId=\"decoded\"\n";
+    let src = "component App\n  state x = 7\n  view\n    column\n      text `a\\${x}` testId=\"literal\"\n      text `a\\tb \\` \\\\${x}` testId=\"decoded\"\n      text `${x}\\u{2011}${x}` testId=\"code\"\n";
     let plan = contract::compile(src).unwrap();
     let r = Runner::boot(
         plan,
@@ -263,6 +263,7 @@ fn template_escapes_run_as_the_text_they_spell() {
     .unwrap();
     assert_eq!(text_of(&r, "literal").as_deref(), Some("a${x}"));
     assert_eq!(text_of(&r, "decoded").as_deref(), Some("a\tb ` \\7"));
+    assert_eq!(text_of(&r, "code").as_deref(), Some("7\u{2011}7"));
 }
 
 #[test]
@@ -598,6 +599,45 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
 
     r.act("setDark", vec![Value::str("dark")]).unwrap();
     assert_eq!(r.take_commands()[0].name, "setScheme");
+}
+
+/// LLP 1024 D1: a module tag's prop named like an SVG element's own
+/// attribute (`fx`) is the module's, and a name refused for what it means
+/// elsewhere (a renamed spelling, another element's attribute, an event)
+/// says to give the module prop another name.
+#[test]
+fn a_module_tag_keeps_svg_names_and_names_the_fix_for_known_ones() {
+    let src = "component A\n  view\n    step-strip testId=\"strip\" width=320 fx=\"bloom\" offset=\"2\"\n";
+    let r = Runner::boot(
+        contract::compile(src).unwrap_or_else(|e| panic!("{e}")),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let node = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("strip")[0])
+        .unwrap();
+    assert_eq!(
+        node.props.str(PropId::NativeViewProps),
+        Some(r#"{"fx":"bloom","offset":"2"}"#)
+    );
+    for attr in [
+        "size=\"3\"",
+        "label=\"x\"",
+        "name=\"x\"",
+        "rows=2",
+        "playing=true",
+    ] {
+        let src = format!("component A\n  view\n    step-strip width=320 {attr}\n");
+        let e = contract::compile(&src).unwrap_err();
+        assert!(
+            e.message.contains("give the module prop another name"),
+            "{attr}: {e}"
+        );
+    }
 }
 
 /// LLP 1024 D1: a module tag's leftover attributes are its props, one

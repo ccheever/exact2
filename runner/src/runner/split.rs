@@ -34,7 +34,24 @@
 
 use super::{DataSource, Runner};
 use exact_kernel::{Display, FlexDirection, NodeType, PropId, PropValue, ViewId};
-use exact_plan::EventKind;
+use exact_plan::{EventKind, NodesId, Plan};
+
+/// The press handler's router write-set fact, shared with web projection.
+/// A handler that writes the router may push, go back or open a sheet.
+pub fn press_writes_router(plan: &Plan, site: NodesId) -> Option<bool> {
+    let handler = plan
+        .node(site)
+        .handlers
+        .iter()
+        .map(|h| plan.handler(h))
+        .find(|h| h.event == EventKind::Press)?;
+    Some(plan.router.is_some_and(|slot| {
+        plan.action(handler.action)
+            .writes
+            .iter()
+            .any(|w| plan.write(w).slot == slot)
+    }))
+}
 
 /// A stack that splits, read from its root route.
 #[derive(Debug, Clone, PartialEq)]
@@ -166,23 +183,8 @@ impl<D: DataSource> Runner<D> {
 
     /// For a view that hears `press`, whether the action it runs writes the
     /// router; `None` for a view that hears none.
-    fn press_writes_router(&self, view: ViewId) -> Option<bool> {
-        let site = self.ids.site(view)?;
-        let handler = self
-            .plan
-            .node(site)
-            .handlers
-            .iter()
-            .map(|h| self.plan.handler(h))
-            .find(|h| h.event == EventKind::Press)?;
-        let router = self.plan.router;
-        Some(router.is_some_and(|slot| {
-            self.plan
-                .action(handler.action)
-                .writes
-                .iter()
-                .any(|w| self.plan.write(w).slot == slot)
-        }))
+    pub fn press_writes_router(&self, view: ViewId) -> Option<bool> {
+        press_writes_router(&self.plan, self.ids.site(view)?)
     }
 
     /// The routes after `root` among its parent's children whose visit's

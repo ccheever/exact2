@@ -176,7 +176,10 @@ reading (LLP 1045), Interview first. Unblocks rich posts that stay plain text
 in storage and scan cheaply. Take (Charlie, 2026-09-21): the reader's open
 follow-ups other than code-block highlighting (heading anchors, file
 watching, the compact folder layout) wait behind it; no rich value type,
-collaboration or HTML paste import. **Refined (Charlie, 2026-09-21:
+collaboration or HTML paste import. **Lifted (Charlie, 2026-10-15, LLP
+1069.010.000 stage 1):** file watching comes off that wait, the editor being
+built: a `doc:` watch re-asks the answer that reads the path, with no new
+take. **Refined (Charlie, 2026-09-21:
 "move forward with your plan"):** Native editing stays on TextKit 2;
 dependable source editing precedes further marker hiding, with Interview as
 the first consumer. **Refined again (Charlie, 2026-09-22: "let's remove
@@ -277,6 +280,23 @@ Charlie's approval. No new attribute, no title menu, no bar added by a route.
 bar; a header button with it remains authored too (LLP 1075.003 §9.10).
 This uses the existing CSS row, admits no new attribute or apparatus, and
 implements the approved feature ruling rather than inferring from styling.
+**Expanded (Charlie, 2026-10-15: "keep making improvements to exact2 until
+porting euxy … is higher fidelity than the others"):** the chrome euxy's
+original customised. A route's `navigationGrabber` (`visible`, `hidden`,
+`auto`) says a sheet's grabber; an alertdialog with one `input` is the
+platform's text prompt (UIAlertController, NSAlert); a header button whose
+face says more than a symbol or a title (a status dot, an authored font) is
+drawn as written in its bar item; swipe actions whose controls all say
+`appearance="none"` keep their paint. Take: none offered; waived by that
+instruction. Still out: an arbitrary subtree as a bar item, a prompt with
+several fields.
+**Expanded (Charlie, 2026-10-17: "Exact should allow the developer to
+configure this on platforms that support it"):** a sheet route's
+`navigationInitialDetent` names the `navigationDetent` word it opens at
+(UIKit's `selectedDetentIdentifier`). Lexy's Last Parked sheet, which opens
+tall over a half-height stop, is the consumer. Take: none offered; waived by
+Charlie's approval. Still out: reading or binding the detent a person drags
+the sheet to.
 **Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
 UICollectionView list layout"):** `list appearance="auto"` is a grouped list
 (LLP 1084): sections with a header and footer, rows read by shape, UIKit's
@@ -346,10 +366,22 @@ platforms UIKit covers are in-tree surfaces: tvOS (Doug Lowder's port,
 visionOS when someone ports it. Each is a variant of the iOS presenter, not a
 new one: shared Swift admits it beside `os(iOS)`, Rust cfgs beside
 `target_os = "ios"`, and its own code compiles into its own binary alone.
-Unblocks Caltrain on an Apple TV. watchOS, which has no UIKit, stays out. A
+Unblocks Caltrain on an Apple TV. watchOS, which has no UIKit, stays out (reversed
+2026-10-17, below). A
 platform with its own UI stack (Amazon's Vega OS) is a host outside this
 repository, on the plan, runner and agent seams; its RFC is owed. The take is
 waived.
+
+**Expanded (Charlie, 2026-10-17, LLP 1126 §7: "reopen yes"; "admit watchos
+now. let's try to hit full apple platform support for launch"):** system
+surfaces and watchOS are in-tree. An app's widgets, Live Activities and
+complications are entries of the one app, drawn on Apple by a SwiftUI
+renderer whose snapshot driver WidgetKit archives (LLP 1126). watchOS is an
+Apple platform like the others; it has no UIKit presenter, so its app is
+drawn by that renderer's live driver. Unblocks an app's content outside its
+window (the Home Screen, the Lock Screen, StandBy, CarPlay, HomeView, the
+Mac) and Exact apps on the watch. Templates (CarPlay apps, controls) await
+their own RFC. The take is waived.
 
 **Admitted (Charlie, 2026-10-06: "this is pretty great. commit and push this
 and document that TUI is now an officially supported platform for Exact2";
@@ -433,8 +465,10 @@ WebSocket sending: the stream mapper receives a socket handle and a mutation
 sends ordered, never-coalesced protocol frames (LLP 1016.000 D7). T3 Code's
 subscribe/Ack/Ping protocol and queued Supabase/Convex consumers justify the
 expansion. No take named; the approved feature ruling admits it. Ambient
-WebSocket globals remain refused. The first slice is the web JS target's
-TypeScript adapter; D7 lists the remaining host deviations.
+WebSocket globals remain refused. TypeScript on the web JS target and the
+native hosts has it; D7 lists the host deviations and what remains. D7's
+amendments let the mapper answer its own frames (2026-10-16) and an answer
+in flight send its own requests (2026-10-18).
 
 
 **Expanded (Charlie, 2026-10-08, issue #283; focus lane, 2026-10-12):**
@@ -456,6 +490,18 @@ names no take; `:focus-within` remains out.
   hydration, route payloads and cache policies are on the doing-list (the
   entry above). Still refused: progressive forms and server-driven UI.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
+  **Moved, one form (Charlie, 2026-10-15, waiver; LLP 1069.010.000 stage 2):**
+  a document the person chose, the object itself, kept in the platform's
+  bounded recents the person can clear from outside the app, under the
+  `doc.keep` grant, on macOS, Linux in a desktop session and the web (not
+  iOS). Unblocks document apps reopening their documents after a relaunch.
+  Every other durable grant stays refused, and so does keeping what a route
+  or the app reached rather than what the person chose.
+- A hardened-runtime exception on the app's own executable (Charlie, 2026-10-15):
+  `runtime.*` grants name helper executables only (LLP 1069.008 D9), until the
+  main executable has a consumer. The likely first, an in-process wasmtime loader
+  (LLP 1028), would need only `allow-jit` or `allow-unsigned-executable-memory`,
+  never `disable-library-validation`.
 - ~~Snapback / update economy.~~ Moved 2026-09-03 (Charlie: "you can pull out snapback
   for now"), in LLP 1026 D11's minimal form only: an installed app fetches a signed
   bundle of static files from a baked-in origin, after first pixel, into an on-disk
@@ -471,6 +517,11 @@ names no take; `:focus-within` remains out.
   state* — slots by name where their types still fit, settled resources where
   their arguments still match, the clock — and is otherwise a restart: no patch
   format, no generations, no identity matching. LLP 1007 §6; Charlie, 2026-08-28.)
+  **Admitted (Charlie, 2026-10-14; LLP 1121 §9 Q3), development builds only:** Tamber's
+  live table, which replaces design token values in a running development session without
+  a reload (LLP 1121 D13). It patches values only: no code, no slots, no tree. A scrub
+  session previews values for the length of a gesture. Release builds change their
+  design only by an update. Charlie's waiver; no take is named.
 - Islands and inline islands.
 - Cross-runtime shared data in production. **Measured exception (Charlie,
   2026-09-18, LLP 1027.003 §9):** all four isolated transfer/storage directions
@@ -500,6 +551,16 @@ names no take; `:focus-within` remains out.
   This admits the body click only; action buttons and replies, badges, push,
   repeats, and permission facts remain refused. Take: none named; Charlie's
   scoped ruling admits this expansion.
+  **Expanded (Charlie, 2026-10-17, "approve", on LLP 1126 §7 question 5):**
+  ActivityKit update tokens for an app's own Live Activities. The app reads an
+  activity's push token and gives it to its own backend, which sends to APNs;
+  exact2 sends nothing and relays nothing (LLP 1030.000 D6), and no app code
+  runs when an update arrives (the system replaces the activity's state and
+  the extension redraws it). Consumer: Interview's AI answer being written,
+  which only its server can advance. Unblocks a Live Activity that stays true
+  while its app is suspended. Still refused: push-to-start, remote
+  notifications, and everything the click ruling left refused. Take: none
+  named; the ruling stands as its own waiver.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
@@ -538,10 +599,26 @@ reading. Nothing that isn't HTML is added by it.
   §8's sound-effect paragraph are deleted. Round-1 review A held that neither
   is doing-list work; to the extent it is not, the admission stands on the
   orchestrator's waiver under the same delegation. Still out: synthesis,
-  pitch and rate, pan, loops, fades and gain automation, effects, a handle to
-  one voice, a stop at a future time, compressed formats, sound produced by a
-  data module, microphone input, and output on Linux and Windows (LLP 1096
-  §7). No tag is added.
+  loops, fades and gain automation, effects, a handle to one voice, a stop
+  at a future time, compressed formats, sound produced by a data module,
+  microphone input, and output on Linux and Windows (LLP 1096 §7; rate and
+  pan came in with LLP 1125 D10). No tag is added.
+- **Expanded (LLP 1125; Charlie, 2026-10-16: "once happy with it, go ahead
+  and implement"):** a sequence (`sequence NAME when COND`, `play(tracks,
+  bpm=, from=, countIn=, clock=, clockOut=, ended=)`) that the runner expands
+  a second ahead into the voice table, a MIDI queue and timed haptics, with
+  `exactTransport()`; MIDI by Web MIDI's names (`exactMIDI()`,
+  `requestMIDIAccess()`, `sendMIDI(output, data, at=)`, `midimessage=` with
+  `midiinputs=`, clock out and in); `playbackRate=` and `pan=` on a hit;
+  `wakelock="screen"`; `share(files=)` with `app:/` paths and, on Apple and
+  Android, an element's picture (`"#id"`). Consumers: euxy's port (its
+  scheduler, sampler, CoreMIDI and share card), a metronome and drum
+  machine. Unblocks timed sound and MIDI with no app commit per step and no
+  app-owned audio thread. Take: none offered; waived by that instruction.
+  Still out: on-demand decoding, web pictures of an element, QR in exact2,
+  SysEx, Bluetooth MIDI pairing, MIDI 2.0, Continue and Song Position out,
+  clock thru (sending clock while following one), Ableton Link, swing, Linux, Windows and Android output, synthesis (LLP 1125
+  §8).
 - **Expanded (LLP 1098; admitted by the orchestrator under Charlie's
   2026-10-04 delegation, "make decisions without me"):** the media session,
   by the Media Session API's names, on HTML's media element:
@@ -686,6 +763,14 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   §Events). The Signal Clone's hold-to-record mic is the consumer: recording
   starts the moment the finger lands. Unblocks hold-to-act controls. Take:
   none offered; waived by Charlie's approval. Still no multi-touch.
+  **Amended (Charlie, 2026-10-15, option 1 of
+  `issues/closed/20261010-pointer-events-reach-ancestors.md`):** both bubble
+  to every ancestor that hears them, as `key` and `wheel` do; the innermost
+  node hearing any pointer event still holds the moves; `stopPropagation()`
+  stops either, and `wheel`, at its handler (decided under Charlie's
+  delegation, 2026-10-15, after Astra's review). Unblocks a window's
+  outside-press dismiss beside a popup that hears `pointermove`. Take: none;
+  Charlie's ruling.
   **Built (2026-10-04, LLP 1056 §8.6; the widening confirmed by Charlie the
   same day):** stage 3's pointer coordinates, which Canvas 2D's acceptance
   admitted for a canvas's handlers, as a `PointerEvent` record (DOM's
@@ -821,6 +906,16 @@ highlight is (a shrink is feedback, not motion).
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no blog/CMS. (The
 TUI host came off on 2026-10-06: §Surfaces.)
 
+**Admitted (Charlie, 2026-10-14; LLP 1122 §9 Q2 and LLP 1121 §9 Q3), development
+builds only:** the Tamber protocol server (`tamber/1`, LLP 1121 D13) and the design tool
+(LLP 1122). The tool is a web JS-target app, and every client edits through the protocol.
+Each host's development build gains an **inspect mode** and a build channel: four commands
+down (inspect, outline, hold, pin) and three reports up (status, a selection,
+unsupported); the tool never drives an app. Release builds carry none of it: no endpoint,
+no inspect mode, no build channel. Charlie's waiver; no take is named. Still refused:
+editing in release builds, a production inspect tier, layout and structure editing,
+captures of running apps, and a hosted relay.
+
 **Agent API** — 10 operations, not 90:
 
 `tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock` · `prefer` · `perf`
@@ -870,6 +965,11 @@ node to its source. The take: no new Contract syntax until formatting and naviga
 have landed (1035.005 §1's order), and `contract` blocks as executable assertions
 (LLP 1006 §8) stay off the doing-list. The witness, dataflow and any general
 provenance explorer stay refused.
+**Widened (Charlie, 2026-10-14; LLP 1122 §9 Q2), development builds only:** the Tamber
+server may also read the map, to join a build's inspect report with its source for the
+design tool (LLP 1122 D5). It records each file's source digest and each winning row's
+attribute span. A host still never reads a map, and no map is in a bake. The tool shows
+one selected node's provenance; a general provenance explorer stays refused.
 
 `clock` replaces a `wait` operation on purpose. If the motion graph is closed-form under
 a virtual clock, an agent advances time and reads the result; it never sleeps waiting for
@@ -929,6 +1029,17 @@ identity or profile for a consumer that re-signs it (AppDrop). Unblocks handing
 an app to AppDrop without a stub profile; refused for apps with GPU modules,
 whose baked digests a re-signer would break. No AppDrop adapter is added; the
 distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.
+
+**AppDrop lane, 2026-10-14 (Eliot; Charlie's waiver or a take still owed):**
+`deploy.appdrop` makes an iOS binary row of `exact deploy --yes` build the
+`--archive --unsigned` `.ipa` against the stream's release record and publish it
+to AppDrop (creating the link the first time, writing it to app.json), and the
+install page offers the link.
+Unblocks sending one install link whose app stays current: bundles over the
+air, binaries through AppDrop. It lifts the `--unsigned` waiver's GPU refusal:
+a GPU card's digest leaves out a Mach-O's code signature (`code_digest`), so a
+re-signer keeps it and a code change still breaks it. The EAS adapter, signed
+distribution IPAs and automatic provisioning stay deferred.
 
 **Admitted (Charlie, 2026-10-12, issue-fix ruling 5; take waived):**
 "intersect=: admit now — intersect=action {isIntersecting, intersectionRatio},

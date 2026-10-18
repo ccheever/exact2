@@ -87,7 +87,7 @@ Ops: `"tap a hover"`, `"tap a-card hover"`, `"tap b hover"`, `"tap b-card hover"
 
 | Scenario | Setup / reset / exact commands | Platform / OS / device | Framework revision | Actual result | Expected result | Evidence |
 |---|---|---|---|---|---|---|
-| Hover through the four cases, macOS (agent) | `bun exact.mjs mac`; `bun exact.mjs agent macos --size 780x340 <ops>` | macOS 26.6.2, Apple Silicon | main `b896050d7` | final log `16O+ 15P- 14P+ 13C- 12C+ 11P- 10P+ 9Bcard- 8Bcard+ 7Bbtn- 6Bbtn+ 5Bcard- 4Bcard+ 3B- 2B+ 1A- 0A+` | the web's | [record](https://raw.githubusercontent.com/ccheever/exact2/71ecbd240077e8f1974fd171a824afdf96c909c9/file-x48-x68/x62-record.txt) (the log after every step, both hosts) |
+| Hover through the four cases, macOS (agent) | `bun exact.mjs mac`; `bun exact.mjs agent macos --size 780x340 <ops>` | macOS 26.6.2, Apple Silicon | main `b896050d7` | final log `16O+ 15P- 14P+ 13C- 12C+ 11P- 10P+ 9Bcard- 8Bcard+ 7Bbtn- 6Bbtn+ 5Bcard- 4Bcard+ 3B- 2B+ 1A- 0A+` | the web's | record (the log after every step, both hosts) |
 | Same, web | `bun exact.mjs agent web --size 780x340 <ops>` (CDP pointer moves) | Chrome 154 (the agent's) | same | final log `12O+ 11P- 10C- 9C+ 8P+ 7B- 6Bcard- 5Bbtn- 4Bbtn+ 3Bcard+ 2B+ 1A- 0A+` | (the reference) | same |
 | Real pointer, macOS | the draft's probe (cases 1–3), launched normally, cliclick moves of 2–8 pt, read from full-screen captures | macOS 26.6.2 | feature branch `c0475fbaa` (hover code identical to main but for access modifiers) | case 1 `0A+ … 3A-`; case 2 `0B+ 1B- 2Bcard+` and nothing more; case 3: twenty alternating events over five moves | the web's | same, last section |
 

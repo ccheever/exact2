@@ -108,7 +108,10 @@ struct NodeData {
 
     /// The final results of the layout computation.
     /// These may be rounded or unrounded depending on what the `use_rounding` config setting is set to.
-    pub(crate) final_layout: Layout,
+    ///
+    /// EXACT PATCH 35: written only by rounding, so allocated on its first
+    /// write; `None` reads as `Layout::new()`.
+    pub(crate) final_layout: Option<Box<Layout>>,
 
     /// Whether the node has context data associated with it or not
     pub(crate) has_context: bool,
@@ -137,13 +140,20 @@ impl NodeData {
             style,
             cache: super::cache::LazyCache::new(),
             unrounded_layout: Layout::new(),
-            final_layout: Layout::new(),
+            final_layout: None,
             has_context: false,
             replay_tracked: false,
             memo_root: false,
             #[cfg(feature = "detailed_layout_info")]
             detailed_layout_info: DetailedLayoutInfo::None,
         }
+    }
+
+    /// EXACT PATCH 35: the final layout, `Layout::new()` before rounding wrote one.
+    #[inline]
+    fn final_layout(&self) -> &Layout {
+        static UNWRITTEN: Layout = Layout::new();
+        self.final_layout.as_deref().unwrap_or(&UNWRITTEN)
     }
 
     /// Marks a node and all of its ancestors as requiring relayout
@@ -328,7 +338,7 @@ impl<NodeContext> PrintTree for TaffyTree<NodeContext> {
     #[inline(always)]
     fn get_final_layout(&self, node_id: NodeId) -> Layout {
         if self.config.use_rounding {
-            self.nodes[node_id.into()].final_layout
+            *self.nodes[node_id.into()].final_layout()
         } else {
             self.nodes[node_id.into()].unrounded_layout
         }
@@ -1064,7 +1074,11 @@ where
 
     #[inline(always)]
     fn set_final_layout(&mut self, node_id: NodeId, layout: &Layout) {
-        self.taffy.nodes[node_id.into()].final_layout = *layout;
+        let final_layout = &mut self.taffy.nodes[node_id.into()].final_layout;
+        match final_layout {
+            Some(held) => **held = *layout,
+            None => *final_layout = Some(Box::new(*layout)),
+        }
     }
 }
 
@@ -1462,7 +1476,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
     #[inline]
     pub fn layout(&self, node: NodeId) -> TaffyResult<&Layout> {
         if self.config.use_rounding {
-            Ok(&self.nodes[node.into()].final_layout)
+            Ok(self.nodes[node.into()].final_layout())
         } else {
             Ok(&self.nodes[node.into()].unrounded_layout)
         }

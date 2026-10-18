@@ -338,3 +338,290 @@ fn a_button_that_styles_its_own_disabled_state_carries_the_mark() {
     let js = crate::emit::emit(&plan, false, false).unwrap().js;
     assert_eq!(js.matches("disabledstyled").count(), 1, "{js}");
 }
+
+#[test]
+fn static_authored_clears_keep_inline_css_over_platform_rules() {
+    let plan = contract::compile(
+        r##"component App
+  view
+    main navigationKey="/" color="#123456"
+      header color="inherit" testId="bar"
+        text "Title" role="heading" aria-level=1
+        button "Action" color="unset" testId="action"
+      input placeholder="Hint" testId="placeholder"
+        ::placeholder
+          color="unset"
+"##,
+    )
+    .unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    for name in ["bar", "action"] {
+        let part = parts
+            .iter()
+            .flatten()
+            .find(|part| part.props.get("data-testid").is_some_and(|id| id == name))
+            .unwrap();
+        assert!(part.css.contains("color:unset;"), "{}", part.css);
+    }
+    let placeholder = parts
+        .iter()
+        .flatten()
+        .find(|part| {
+            part.props
+                .get("data-testid")
+                .is_some_and(|id| id == "placeholder")
+        })
+        .unwrap();
+    assert!(
+        placeholder
+            .css
+            .contains("--exact-placeholder-color:initial;"),
+        "{}",
+        placeholder.css
+    );
+}
+
+#[test]
+fn finite_strings_keep_member_bytes_when_a_hidden_capture_allows_nonfinite_numbers() {
+    let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+    let number = b.primitive(exact_plan::TypeKind::Number);
+    let words = b.string_enum(&["pending".into(), "done".into(), "n🥳".into()]);
+    let shape = b.record("Capture", &[("n", number), ("state", words)]);
+    let plan = b.finish().unwrap();
+    let normal = crate::emit::type_code_numeric(&plan, shape, false);
+    let hidden = crate::emit::type_code_numeric(&plan, shape, true);
+    assert!(normal.starts_with("{n"), "{normal}");
+    assert!(hidden.starts_with("{N"), "{hidden}");
+    assert_eq!(&normal[2..], &hidden[2..]);
+    assert!(hidden.contains("pending"));
+    assert!(hidden.contains("n🥳"));
+}
+
+#[test]
+fn wire_types_erase_finite_strings_but_surface_defaults_preserve_members() {
+    let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+    let words = b.string_enum(&["a|b".into(), "n🥳".into()]);
+    let maybe = b.option(words);
+    let list = b.list(words);
+    let nested = b.record(
+        "Nested",
+        &[("one", words), ("maybe", maybe), ("many", list)],
+    );
+    let record = b.record("State", &[("state", words), ("nested", nested)]);
+    let plan = b.finish().unwrap();
+    assert_eq!(crate::emit::type_code_wire(&plan, record), "{s{s?s[s}}");
+    let ordinary = crate::emit::type_code_numeric(&plan, record, false);
+    assert!(ordinary.contains("a|b"));
+    assert!(ordinary.contains('e'));
+    let defaults: serde_json::Value =
+        serde_json::from_str(&crate::emit::surface_type_json(&plan, record)).unwrap();
+    assert_eq!(defaults["state"], serde_json::json!(["e", ["a|b", "n🥳"]]));
+    assert_eq!(defaults["nested"]["one"], defaults["state"]);
+}
+
+#[test]
+fn virtual_surface_finite_defaults_run_unpublished_omitted_and_nested() {
+    let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+    let words = b.string_enum(&["a|b".into(), "n🥳".into()]);
+    let maybe = b.option(words);
+    let list = b.list(words);
+    let nested = b.record(
+        "Nested",
+        &[("one", words), ("maybe", maybe), ("many", list)],
+    );
+    let record = b.record("State", &[("state", words), ("nested", nested)]);
+    let plan = b.finish().unwrap();
+    let descriptor = crate::emit::surface_type_json(&plan, record);
+    let script = format!(
+        r#"
+const src = await Bun.file(process.argv[1]).text();
+const data = {{}}, Resources = [], commit = f => {{ f(); return true; }}, R = () => {{}}, Refusal = Error;
+const surfaces = new Function('data','Resources','commit','R','Refusal',src.replace(/^import .*;$/gm,'').replace(/^export /gm,'') + ';return surfaces;')(data,Resources,commit,R,Refusal);
+surfaces({{hud:['world',{descriptor}]}});
+const read = () => data.reserved.exactSurface(null, [], 'hud');
+const expected = ['a|b', ['a|b', null, []]];
+function equal(a,b) {{ if(JSON.stringify(a)!==JSON.stringify(b)) throw Error(JSON.stringify(a)); }}
+equal(read(), expected);
+for (const json of ['{{}}','{{"nested":{{}}}}']) {{ exact.surfaceRecord('world',json); equal(read(),expected); }}
+exact.surfaceRecord('world','{{"state":"n🥳"}}'); equal(read(),['n🥳',expected[1]]);
+exact.surfaceRecord('world',null); equal(read(),expected);
+"#
+    );
+    let out = std::process::Command::new("bun")
+        .args(["--eval", &script])
+        .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("facts.js"))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn split_metadata_keeps_lists_and_handler_write_sets_distinct() {
+    let plan = contract::compile(r#"routes nav
+  home "/"
+    item "/item/:id"
+
+component App
+  state wide = false
+  action toggle
+    wide = !wide
+  action open
+    nav = push(nav, path("item", "a"))
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          list testId="strip" virtualized=true display="flex" height=120 overflow-x="scroll" overflow-y="hidden" estimated-item-width=180
+            for n in ["a", "b"] key=n
+              text n width=180
+          list testId="rows" role=(wide ? "presentation" : "list")
+            link href="/item/a" testId="href"
+              text "A"
+            link href="/item/a" press=toggle testId="local"
+              text "Pick"
+            button "Open" press=open testId="push"
+          button "Toggle" press=toggle testId="toggle"
+"#).unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    let part = |name: &str| {
+        parts
+            .iter()
+            .flatten()
+            .find(|part| part.props.get("data-testid").is_some_and(|id| id == name))
+            .unwrap()
+    };
+    assert_eq!(
+        part("rows")
+            .props
+            .get("data-exact-list")
+            .map(String::as_str),
+        Some("")
+    );
+    assert!(!part("rows")
+        .props
+        .contains_key("data-exact-estimated-item-width"));
+    assert_eq!(
+        part("strip")
+            .props
+            .get("data-exact-list")
+            .map(String::as_str),
+        Some("")
+    );
+    assert_eq!(
+        part("strip")
+            .props
+            .get("data-exact-estimated-item-width")
+            .map(String::as_str),
+        Some("180")
+    );
+    for (name, fact) in [
+        ("href", None),
+        ("local", Some("false")),
+        ("push", Some("true")),
+    ] {
+        assert_eq!(
+            part(name)
+                .props
+                .get("data-exact-router-press")
+                .map(String::as_str),
+            fact,
+            "{name}"
+        );
+    }
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("data-exact-estimated-item-width"), "{js}");
+    assert!(js.contains("data-exact-router-press"), "{js}");
+    assert!(js.contains("data-exact-list"), "{js}");
+}
+
+/// LLP 1075.003 §9.14: a tab panel's contents are built when it is first
+/// selected (`tp`), a virtualized list's rows too; the dev loop carries a
+/// panel component's state by the panel's `id`.
+#[test]
+fn a_tab_panel_waits_and_its_state_is_carried_by_its_id() {
+    let source = r#"routes nav
+  tab a "/"
+  tab b "/b"
+
+component App
+  state items = [1, 2]
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      for t in nav.tabs key=t.name
+        if t.name == "a"
+          column role="tabpanel" id="panel-a"
+            Editor()
+            for e in t.stack key=e.id
+              column navigationKey=`${e.id}`
+                text e.name
+        else
+          list role="tabpanel" id="panel-b" virtualized=true height=200
+            for item in items key=item
+              text `${item}`
+      row role="tablist"
+        button press=pick("a") role="tab" aria-controls="panel-a"
+          text "A"
+        button press=pick("b") role="tab" aria-controls="panel-b"
+          text "B"
+
+component Editor
+  state draft = ""
+  view
+    text draft
+"#;
+    let plan = contract::compile(source).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert_eq!(js.matches("tp(").count(), 2, "{js}");
+    let dev = crate::emit::emit(&plan, false, true).unwrap().js;
+    assert!(dev.contains(r#"$devSig("draft#1"+"@"+e"#), "{dev}");
+}
+
+/// The boot's settlement asks `exactMIDI` and `exactTransport`, so their
+/// readers are installed before the first resource; a sequence is armed
+/// after mount, as the runner's boot arms it.
+#[test]
+fn transport_and_midi_readers_precede_the_resources_and_sequences_follow_mount() {
+    let plan = contract::compile(
+        r#"shape Transport
+  state: string
+shape MIDI
+  state: string
+component App
+  state on = false
+  resource transport = exactTransport() as shape Transport
+  resource midi = exactMIDI() as shape MIDI
+  sequence groove when on
+    play([], bpm=120)
+  view
+    text `${transport.state} ${midi.state}`
+"#,
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let at = |s: &str| js.find(s).unwrap_or_else(|| panic!("no {s} in {js}"));
+    assert!(at("$midi(") < at("const r_0="), "{js}");
+    assert!(at("$transport(") < at("const r_0="), "{js}");
+    assert!(at("mount(") < at("$sequence("), "{js}");
+}
+
+#[test]
+fn inline_time_does_not_reserve_a_css_box() {
+    for (body, reserve) in [
+        ("    time datetime=0 format=\"relative\"\n", true),
+        ("    text\n      text \"Updated \"\n      time datetime=0 format=\"relative\"\n      text \" here\"\n", false),
+    ] {
+        let plan = contract::compile(&format!("component App\n  view\n{body}")).unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        let call = js.split("()=>[").nth(1).expect("live time arguments").split(';').next().unwrap();
+        assert!(call.ends_with(&format!("],{reserve})")), "{js}");
+        assert!(!js.contains("white-space:nowrap"), "{js}");
+    }
+}

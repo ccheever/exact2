@@ -2,7 +2,7 @@
 //! opened is drawn onto the layer below through the gradient's alpha, as a
 //! frame-sized mask that is empty outside the border box.
 
-use super::Raster;
+use super::{Raster, Target};
 use crate::paint::{Backend, GradientPaint, Shape};
 use tiny_skia::{Mask, MaskType, Pixmap, PixmapPaint, Transform};
 
@@ -17,13 +17,13 @@ impl Raster {
             return;
         };
         let Some(layer) = self.target.take() else {
-            self.target = Some(below);
+            self.target = Target::painted(below);
             return;
         };
         // The mask's pixels: the gradient (or its one colour) over the
         // border box, drawn as any fill is, then read as alpha.
         let alpha_mask = Pixmap::new(layer.width(), layer.height()).and_then(|blank| {
-            self.target = Some(blank);
+            self.target = Target::painted(blank);
             let clips = std::mem::take(&mut self.clips);
             match mask {
                 Ok(gradient) => self.fill_gradient(shape, gradient, ts),
@@ -46,6 +46,6 @@ impl Raster {
             Transform::identity(),
             alpha_mask.as_ref(),
         );
-        self.target = Some(below);
+        self.target = Target::painted(below);
     }
 }

@@ -2,15 +2,18 @@
 // turns a file's `test` blocks into steps, and this drives them through the
 // session the operations use (`agent.mjs`'s `open`). `agent.mjs` re-exports it.
 import { spawnSync } from 'node:child_process';
-import { readdirSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { connect } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { faultRequest as rawFaultRequest } from './agent-prefer.mjs';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
-import { resolveApp } from './app.mjs';
+import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 import { serverUrl } from './verify.mjs';
+import { devicePreflight, mountsSnapback } from '../snapback4/web/device-build.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
  * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
@@ -26,6 +29,18 @@ export function textOf(nodes, node, live = false) {
   return runs.length ? runs.join('') : node.props.value;
 }
 
+/** For a target no view carries: the tab panels never opened, whose contents do not exist until their tab is first
+ * selected (LLP 1075.003 §3.7), each with the step that selects it. Nothing is opened for the drive. */
+export function unopenedHint(nodes) {
+  const panels = nodes.filter((n) => n.unopened);
+  if (!panels.length) return '';
+  const named = panels.map((p) => {
+    const tab = nodes.find((n) => n.props.accessibilityRole === 'tab' && p.props.id != null && n.props.accessibilityControls === p.props.id);
+    return `${p.props.testId ?? p.props.id ?? `#${p.id}`}${tab ? ` (\`tap ${tab.props.testId ?? tab.id}\`)` : ''}`;
+  });
+  return `; not yet opened: ${named.join(', ')}, a tab whose views exist once it is first selected`;
+}
+
 /** The node a test's target names in a tree: a covered screen's copy only when no active one carries it (shop F16). */
 const targetNode = (nodes, target) => { const matches = nodes.filter((n) => n.props.testId === target); return matches.find((m) => !m.inactive) ?? matches[0]; };
 
@@ -34,14 +49,17 @@ const targetNode = (nodes, target) => { const matches = nodes.filter((n) => n.pr
  * navigation bar leaves out, which the agent's own chrome still paints (LLP 1116 D2). No clock can change that. */
 export function textExpectation(nodes, target, value) {
   const n = targetNode(nodes, target), got = n ? textOf(nodes, n) : undefined;
-  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(value)}` };
+  const runs = [];
+  if (n && n.props.text == null && got !== n.props.value) for (let i = nodes.indexOf(n) + 1; i < nodes.length && nodes[i].depth > n.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
+  const parts = runs.length > 1 ? ` (joined from its descendants: ${runs.map((r) => JSON.stringify(r)).join(' + ')}; to assert one, give that text its own testId)` : '';
+  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : `absent (no view carries that testId${unopenedHint(nodes)})`}, expected ${JSON.stringify(value)}${parts}` };
   return n.unshown ? { message: `text of "${target}" is ${JSON.stringify(got)}, but ${n.unshown}`, unshown: true } : null;
 }
 
 /** `expect tree <present|missing> <target>`, as `textExpectation`: a node present in the tree that the shipped app does not show is not present. */
 export function treeExpectation(nodes, target, present) {
   const n = targetNode(nodes, target);
-  if (!!n !== present) return { message: `expected testId "${target}" ${present ? 'present' : 'absent'}, it was ${n ? 'present' : 'absent'}` };
+  if (!!n !== present) return { message: `expected testId "${target}" ${present ? 'present' : 'absent'}, it was ${n ? 'present' : `absent${unopenedHint(nodes)}`}` };
   return present && n.unshown ? { message: `testId "${target}" is in the tree, but ${n.unshown}`, unshown: true } : null;
 }
 
@@ -61,11 +79,14 @@ export function disabledExpectation(nodes, target, disabled) {
 
 /** A press on a disabled control does nothing, and each host said so its own way (the web's silently, a native one in the words of the view
  * that took the touch), so a step that presses one fails the same on every host (LLP 1116.010 D3): the test of a refusal is `expect disabled`.
- * Not a hover, a wheel, a pinch, a drag, a drop or a scroll to a row: those a disabled control does not take as a press. */
+ * Context requests ignore disabled on containers and links, as HTML does; other non-press forms below bypass this guard. */
 export async function refuseDisabled(s, node, target, opts = {}) {
   if (node.entity !== undefined || ['hover', 'wheel', 'pinch', 'drag', 'drop', 'into', 'history', 'mediaSession', 'gesture'].some((k) => opts[k] !== undefined && opts[k] !== false)) return;
   const read = await s.op({ op: 'tree', target: node.id, shallow: true }).catch(() => null);
-  if (isDisabled(read?.nodes?.find((n) => n.id === node.id))) throw new Error(`${target} is disabled: a press does nothing (\`expect disabled ${JSON.stringify(String(target))}\` asserts it)`);
+  const current = read?.nodes?.find((n) => n.id === node.id);
+  const control = ['Pressable', 'TextInput', 'Control'].includes(current?.type) && !(current.type === 'Pressable' && typeof current.props?.href === 'string' && current.props.href.length > 0);
+  if (opts.contextmenu === true && current?.type && !control) return;
+  if (isDisabled(current)) throw new Error(`${target} is disabled: a press does nothing (\`expect disabled ${JSON.stringify(String(target))}\` asserts it)`);
 }
 
 // What a person activates, most direct first: a control, or a view a press or an edit acts on (2); one taking a gesture
@@ -130,6 +151,99 @@ export function storeBase(appId, host, env = process.env, home = homedir()) {
   if (host === 'linux') return resolve(env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache'), 'exact', appId, 'agent');
   return null;
 }
+/** The origins a web build's data module may fetch: its `net.fetch` grants, as host/web-js/build.mjs writes them
+ * into the page's admission data (none for a wasm build). */
+export function fetchOrigins(dist) {
+  let text = ''; try { text = readFileSync(resolve(dist, '.gen/admission-data.js'), 'utf8'); } catch { return []; }
+  return [...new Set([...text.matchAll(/"net\.fetch (https?:\/\/[^/"\s]+)[/"]/g)].map((m) => m[1]))];
+}
+/** The loopback ones: a backend on this machine the tests talk to. */
+export const loopbackOrigins = (dist) => fetchOrigins(dist).filter((o) => /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(o));
+const listening = (origin, ms = 1000) => new Promise((done) => {
+  const { hostname, port, protocol } = new URL(origin), socket = connect({ host: hostname.replace(/^\[|\]$/g, ''), port: Number(port || (protocol === 'https:' ? 443 : 80)) });
+  const end = (ok) => { socket.destroy(); done(ok); };
+  socket.setTimeout(ms, () => end(false)).once('connect', () => end(true)).once('error', () => end(false));
+});
+/** Before a web run, every loopback origin the app fetches is asked whether anything listens (app farm wave 1: four
+ * builds' tests failed as data mismatches with no `snapback4 dev` running). An app whose data is a Snapback client
+ * (it mounts snapback4/ts) cannot open a partition that never synced, so every test would fail: the run is refused,
+ * naming the origin. Any other app is told, and runs (its tests may be of the error path). */
+export async function backendPreflight(app, dist, say = console.error) {
+  const down = [];
+  for (const origin of loopbackOrigins(dist)) if (!(await listening(origin))) down.push(origin);
+  if (!down.length) return devicePreflight(app, fetchOrigins(dist));
+  const what = `no backend at ${down.join(', ')}: nothing listens there, and app.ts fetches it (a net.fetch grant)`;
+  if (!mountsSnapback(app)) return say(`note: ${what}; a test that loads from it fails`);
+  throw new Error(`${what}. The app's Snapback client cannot open data that has never synced, so every test would fail. Start the server first, from the backend's directory (\`npx snapback4 dev --port ${new URL(down[0]).port || 80}\`, seeded if the tests read seeded rows), then run the tests again.`);
+}
+/** A `snapback4 dev` server's commit head (`seq` of `GET /changes`), asked as its first declared persona; null for
+ * any other backend (no `/dev/status`: `serve`, a server of another kind), one not reached, or a refused ask. The
+ * tests of a run share that server and every write before the run (sb4 farm wave 7, E1: six builds read a rerun's
+ * or an earlier test's rows as an app bug), so a failed test says how many commits it began with. Advice only. */
+export async function backendHead(origin, ms = 1000) {
+  const get = async (path, headers) => { const r = await fetch(origin + path, { headers, signal: AbortSignal.timeout(ms) }); return r.ok ? r.json() : null; };
+  try {
+    const status = await get('/dev/status');
+    if (typeof status?.storeId !== 'string') return null;
+    const changes = await get('/changes?since=0', { 'x-snapback-persona': status.personas?.[0] ?? 'exact' });
+    return Number.isInteger(changes?.seq) ? changes.seq : null;
+  } catch { return null; }
+}
+export async function backendClock(origin, ms = 1000) {
+  try {
+    const response = await fetch(`${origin}/dev/status`, {signal: AbortSignal.timeout(ms)});
+    const status = response.ok ? await response.json() : null;
+    return typeof status?.storeId === 'string' && Number.isFinite(status.now) ? status.now : null;
+  } catch { return null; }
+}
+export function backendClockNote(epoch, now, origin) {
+  if (!Number.isFinite(epoch) || !Number.isFinite(now) || Math.abs(epoch - now) <= 86_400_000) return null;
+  return `drive epoch ${new Date(epoch).toISOString()} differs from the backend clock at ${origin} (${new Date(now).toISOString()}) by more than a day; deadlines, ages and windows use different clocks. Write \`epoch now\` to follow real time, or set both clocks deliberately.`;
+}
+
+export function rosterRefusalNote(reset, schema, refusals) {
+  if (!reset || reset.seed != null || !refusals?.size || !/^[ \t]+insert[ \t]*<-[ \t]*deny[ \t]*(?:--[^\n]*)?\r?$/m.test(schema)) return null;
+  const authorization = /\b(?:E_RULE|E_AUTH|E_PERMISSION|E_FORBIDDEN|FORBIDDEN|DENIED|NOT_(?:OWNER|ADMIN|MANAGER|MEMBER|STAFF|AUTHORIZED|ALLOWED))\b/;
+  if (![...refusals.values()].every(why => authorization.test(why))) return null;
+  return `possible cause: every privileged operation refused after \`fresh\`: seed roster tables. Authorization refusals: ${[...refusals.values()].map(why => authorization.exec(why)[0]).join(', ')}. Bare \`fresh\` removed the insert <- deny rows; use \`fresh "seed.json"\` with [{"table":"…","row":{…}}], resolved from the test file’s directory.`;
+}
+// @ref LLP 1086 D13 — `fresh` (the author's ruling of 2026-10-12, via the sb4 app farm): a test file's per-test reset.
+/** Before a test opens, each snapback4 dev server the app fetches is emptied through its development door, `POST
+ * /dev/reset` (dev only: the app's tables and derived data emptied; a body of `[{table, row}]` seeds it after; it answers
+ * `{reset: true, seeded, generation}`). An origin that is no snapback4 dev server (no `/dev/status` with a `storeId`) is
+ * left alone. Nothing to reset, an origin that does not answer, or a server older than the door (404) refuses the test
+ * with what to do. Returns a line for each server reset. */
+export async function resetBackends(origins, rows = null, ms = 10000) {
+  const said = [];
+  for (const origin of origins) {
+    let status;
+    try { const r = await fetch(`${origin}/dev/status`, { signal: AbortSignal.timeout(ms) }); status = r.ok ? await r.json().catch(() => null) : null; }
+    catch (e) { throw new Error(`fresh: nothing answered at ${origin} (${e.cause?.code ?? e.message}): start \`snapback4 dev --port ${new URL(origin).port || 80}\` there first`); }
+    if (typeof status?.storeId !== 'string') continue;
+    const r = await fetch(`${origin}/dev/reset`, { method: 'POST', signal: AbortSignal.timeout(ms), ...(rows ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) } : {}) });
+    const text = await r.text();
+    if (r.status === 404) throw new Error(`fresh: the snapback4 dev server at ${origin} has no reset door (POST /dev/reset answered 404: ${text.slice(0, 160)}); it is older than the snapback4 that adds it. Install snapback4@0.4.23 in the backend's directory`);
+    let reply = null; try { reply = JSON.parse(text); } catch { /* said below */ }
+    if (!r.ok || reply?.reset !== true) throw new Error(`fresh: POST ${origin}/dev/reset answered ${r.status}: ${text.slice(0, 300)}`);
+    said.push(`${origin} reset to generation ${reply.generation}${rows ? `, ${reply.seeded} row${reply.seeded === 1 ? '' : 's'} seeded` : ''}`);
+  }
+  if (!said.length) throw new Error(`fresh: no snapback4 dev server at ${origins.length ? origins.join(', ') : 'any loopback origin the app fetches (its web build\'s net.fetch grants: none)'}; \`fresh\` empties one before each test`);
+  return said;
+}
+/** A `fresh` line's seed file, a path from the test file: a JSON list of `{table, row}`. */
+export function freshRows(file, seed) {
+  if (seed == null) return null;
+  const path = resolve(dirname(resolve(file)), seed);
+  let rows; try { rows = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`fresh ${JSON.stringify(seed)}: ${path}: ${e.code === 'ENOENT' ? 'no such file' : e.message}`); }
+  if (!Array.isArray(rows) || rows.some((r) => typeof r?.table !== 'string' || r.row === null || Array.isArray(r.row) || typeof r.row !== 'object')) throw new Error(`fresh ${JSON.stringify(seed)}: ${path} is not a list of {"table": "…", "row": {…}}`);
+  return rows;
+}
+/** The note a failed test gets when the backend held commits as it began: from before the run, from earlier tests. */
+export function sharedBackendNote(origin, before, earlier) {
+  const n = (k) => `${k} commit${k === 1 ? '' : 's'}`;
+  const from = [before ? `${n(before)} from before this run (a seed, or an earlier run on this server)` : '', earlier ? `${n(earlier)} from earlier tests in this run` : ''].filter(Boolean).join(' and ');
+  return `the backend at ${origin} held ${from} when this test began: every test and every run on that server sees those rows, so a count, a position or a "taken" refusal can be theirs. Give each test its own rows (a code or name only it uses, asserted newest first or through its own reply), or each test file its own empty server (snapback4/README.md, "Tests share the server")`;
+}
 const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 /** The stores of authored-test runs that are gone (`<storage>.r<pid>-<tag>.t<n>`, the pid no longer running):
  * a run killed before it removed its own. A live run's are left alone, so concurrent runs never share or
@@ -140,31 +254,87 @@ export function sweepTestStores(base, storage) {
   const ours = new RegExp(`^${storage.replace(/[.]/g, '\\.')}\\.r(\\d+)-[0-9a-z]+\\.t\\d+$`);
   for (const name of names) { const m = name.match(ours); if (m && !alive(Number(m[1]))) rmSync(resolve(base, name), { recursive: true, force: true }); }
 }
+/** `"backend"` follows the app's single net.fetch origin at test runtime. Literal prefixes stay literal. */
+export function backendFetchPrefixes(tests, origins) {
+  const unique = [...new Set(origins.map(o => o.replace(/\/+$/, '')))];
+  for (const t of tests) for (const step of t.steps) {
+    if (!['fail-fetch', 'pass-fetch'].includes(step.op)) continue;
+    step.prefix = resolveFaultPrefix(step.prefix, unique);
+  }
+  return tests;
+}
+
+/** Each mutation whose reply was refused, and why, from the journal line both runners write when they let its request
+ * go (`request N (name) failed and is no longer pending: <it ends unsent | it is not retried>: <why>`). A mutation has no
+ * `state.failed`: its slot keeps what it had and its `then` never runs, so this is the only place the reason is said
+ * (sb4 farm wave 6, E3: an answer's undeclared field voided a reply, 25 minutes with nothing naming the field). */
+export function refusedReplies(lines) {
+  const refused = new Map();
+  for (const l of Array.isArray(lines) ? lines : []) {
+    const m = (typeof l === 'string' ? l : JSON.stringify(l)).match(/request \d+ \(([^)]+)\) failed and is no longer pending: (?:it ends unsent|it is not retried): (.*)$/);
+    if (m) refused.set(m[1], m[2]);
+  }
+  return refused;
+}
+const replyNote = (name, why) => `mutation ${name}'s reply was refused: ${why}; its slot keeps what it had and its \`then\` does not run`;
 /** The notes a CLI drive writes on stderr beside its replies, each once (LLP 1102 §3.17; app farm round 1, where a
  * shape refusal lived only in `logs` and an early `tree` showed an empty list): a drive with no scratch store whose
  * source was refused storage; a resource that failed, and why; a read taken while the app's data is in flight. Call it
  * after each op with the op's name, and with `end` when the drive ends. The web reads after each input; a native
  * carrier, whose reads could be slow, at the end; both at a read before the clock first moved. Advice only: bounded,
  * and never fails a drive. */
-export function driveNotes(s, { host, storage }) {
+/** The journal line every host writes at a drive's first refused read or write of app storage, when the drive names no store. */
+export const STORAGE_REFUSED = /storage refused \(agent\)/;
+export const STORAGE_NOTE = 'this drive names no --storage, so the app\'s storage was refused: a data source that reads its files finds none and keeps nothing, so a screen may show an empty store, not the app\'s data; pass --storage <name> (docs/agent-pitfalls.md)';
+/** The held device requests a person would see as a system sheet, by capability; and those iOS presents for real
+ *  beside the hold under `--touch platform` (Share.swift, DocumentPickers.swift). */
+const HELD_SHEETS = { share: 'share sheet', pick: 'photo or file picker', 'open-file': 'document picker', 'open-directory': 'document picker', 'save-file': 'document picker', export: 'export sheet', auth: 'sign-in sheet' };
+const SHOWN_SHEETS = ['share', 'open-file', 'open-directory', 'save-file'];
+export function driveNotes(s, { host, storage, origins = [] }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
   const bounded = (p, ms) => Promise.race([p.catch(() => null), new Promise((done) => setTimeout(() => done(null), ms))]);
-  let peek = 0, probes = 0, clocked = false;
+  let peek = 0, probes = 0, clocked = false, replies = 0, checkedClock = false;
   return async (op) => {
+    if (s.carrier?.installNote) note('install', s.carrier.installNote); // a Release build replaced for the drive (devices.mjs `keepInstalledRelease`)
+    // A system sheet held for the agent is drawn by no host: a screenshot of it shows the app alone (euxy port).
+    if (op === 'screenshot') {
+      const ios = ['ios', 'host-ios'].includes(host), real = ios && s.carrier?.touch === 'platform';
+      for (const p of (await bounded(s.state(), 3000))?.pending ?? []) {
+        const capability = p.device?.capability, kind = HELD_SHEETS[capability], shown = SHOWN_SHEETS.includes(capability);
+        if (kind && !(real && shown)) note(`sheet ${p.ticket}`, `the screenshot shows no ${kind}: under the agent it is held (@${p.ticket}), answered by tap @${p.ticket} or type @${p.ticket}${ios && shown ? '; under --touch platform the real one is presented beside the hold, and a screenshot draws it' : ''}`);
+      }
+    }
+    if (!checkedClock) {
+      checkedClock = true;
+      const clocks = await Promise.all(origins.map(origin => backendClock(origin)));
+      for (const [i, origin] of origins.entries()) {
+        const warning = backendClockNote(s.launchFacts?.epoch, clocks[i], origin);
+        if (warning) note(`clock ${origin}`, warning);
+      }
+    }
     const end = op === 'end', early = READS.includes(op) && !clocked && !said.has('early');
     if (op === 'clock') clocked = true;
-    if (!(end || early || (host === 'web' && INPUTS.includes(op)))) return;
-    try {
-      if (storage === undefined && !said.has('storage') && (end || INPUTS.includes(op)) && ++probes <= 20) {
+    // Said once a drive, after the first op that met it, whatever that op was: a first screenshot of an app whose
+    // sources were refused their storage reads as an app bug (the euxy port). Not here when an input's reply said it.
+    if (storage === undefined && !said.has('storage') && !s.storageSaid && ++probes <= 20) {
+      try {
         const j = await bounded(s.op({ op: 'logs', since: peek }), 3000);
         if (Array.isArray(j?.lines)) {
           peek = j.next;
-          if (j.lines.some((l) => /unavailable in agent mode/.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', 'a data source was refused storage: this drive names no scratch store, so writes do nothing; pass --storage <name> (docs/agent-pitfalls.md)');
+          if (j.lines.some((l) => STORAGE_REFUSED.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', STORAGE_NOTE);
         }
-      }
+      } catch { /* advice only */ }
+    }
+    if (!(end || early || (host === 'web' && INPUTS.includes(op)))) return;
+    try {
+      const j = await bounded(s.op({ op: 'logs', since: replies }), 3000);
+      if (Array.isArray(j?.lines)) replies = j.next;
+      for (const [name, why] of refusedReplies(j?.lines)) note(`reply ${name} ${why}`, replyNote(name, why));
       const state = await bounded(s.state(), 3000);
-      for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}; it shows its placeholder or last value, and \`failed(${name})\` is true (\`state\` lists it under \`failed\`)`);
+      // Resource failures are normal authored states (failed/failure gates). Keep them in state/logs;
+      // request-shape refusals above and failing assertions below still get actionable notes.
+      if (process.env.EXACT_AGENT_DEBUG) for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}`);
       const pending = (state?.pending ?? []).filter((p) => !p.device).map((p) => p.name);
       if (early && pending.length) note('early', `${op} read the app with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply lands at a clock step, so a drive that reads the app's data starts with "clock data"`);
     } catch { /* advice only */ }
@@ -207,12 +377,28 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * again on its route and storage at that date, LLP 1116.010 D6; `typed`: the ids the test typed since its last other input, a draft; `touched`: every id it typed) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
  * `end.keep` keeps the test's store for a later launch (the result's `store`), which the caller then removes.
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, port } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+  if (host === 'web' && !url) await backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
+  // A fetch prefix outside every grant fails nothing (sb4 farm wave 4, lane 070: an origin moved in app.ts only).
+  const granted = host === 'web' && !url ? fetchOrigins(resolve(webDist ?? defaultWebDist())) : [];
+  // The Snapback dev servers the tests share, and each one's head before the first test (`backendHead`).
+  const snapback = Object.values(resolveApp(app).manifest?.typescript?.sources ?? {}).some(p => /(?:^|\/)snapback4\/(?:ts|online)\/?$/.test(p));
+  const shared = host === 'web' && !url && snapback ? loopbackOrigins(resolve(webDist ?? defaultWebDist())) : [];
+  const atStart = await Promise.all(shared.map((o) => backendHead(o)));
+  const clocks = await Promise.all(shared.map(o => backendClock(o)));
+  let schema = '';
+  try { schema = readFileSync(resolve(resolveApp(app).dir, '../snapback/schema.q'), 'utf8'); } catch { /* No schema beside this app. */ }
+  // What `fresh` resets: every loopback origin the app's web build fetches (its net.fetch grants).
+  const backends = url ? [] : loopbackOrigins(resolve(webDist ?? defaultWebDist()));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
-  const tests = JSON.parse(c.stdout);
+  // Native runs use the scaffold's same declared origin when no web admission file exists.
+  const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
+  const tests = backendFetchPrefixes(JSON.parse(c.stdout), granted.length ? granted : appOrigin ? [appOrigin] : []);
+  const reseeded = tests.filter(t => t.steps.some(s => s.op === 'fresh')).length;
+  if (reseeded) console.error(`fresh: reseeding before each of ${reseeded} tests`);
   const results = [];
   // Where the host keeps its stores, as it will see its environment (a drive's env overrides the driver's).
   const launched = { ...process.env, ...(env ?? {}) };
@@ -232,15 +418,17 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
     const facts = { size, seed, locale, timeZone, epoch, failFetch };
     const lines = [];
-    let beforeData = false, leading = 0;
+    let beforeData = false, leading = 0, reset = null;
     // `fail fetch` lines that lead the steps are armed before the app's first data load (LLP 1103 D3).
     const armed = new Map(); // prefix -> the line that armed it with a count
     // Advice beside the verdict, never a failure: a `fail fetch` armed before the app's data first loaded (app farm
     // round 2: six builds read the failed first load as a broken app; a client that must sync once cannot open offline).
     const notes = [], shots = []; // `shots`: the paths of the test's own `screenshot` steps (verify --shots copies them)
+    for (const st of granted.length ? t.steps : []) if ((st.op === 'fail-fetch' || st.op === 'pass-fetch') && !granted.some((o) => o.startsWith(st.prefix) || st.prefix.startsWith(o))) notes.push(`line ${st.line}: \`${st.op.replace('-', ' ')} ${JSON.stringify(st.prefix)}\` names no origin app.ts fetches (its net.fetch grants: ${granted.join(', ')}), so it changes nothing`);
     const early = (st) => notes.push(`line ${st.line}: \`fail fetch ${JSON.stringify(st.prefix)}\` is armed before the app has loaded its data, so every first load to it fails; a client that must sync once before it works offline (Snapback4's) cannot open its data at all. To test going offline after a load, put \`clock data\` before it; a launch with no network is what it tests as written`);
     for (const st of t.steps) {
       if (st.op === 'before-data') beforeData = true;
+      else if (st.op === 'fresh') reset = st;
       else if (st.op === 'fail-fetch') { early(st); facts.failFetch = [facts.failFetch, st.times == null ? st.prefix : `${st.prefix}\t${st.times}`].filter(Boolean).join('\n'); if (st.times != null) armed.set(st.prefix, st.line); }
       else if (st.op === 'size') facts.size = [st.width, st.height];
       else if (LAUNCH[st.op]) facts[LAUNCH[st.op]] = st.value;
@@ -255,6 +443,16 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
     }
+    for (const [i, origin] of shared.entries()) {
+      const warning = backendClockNote(facts.epoch, clocks[i], origin);
+      if (warning) notes.push(warning);
+    }
+    // `fresh`: the backend emptied (and seeded) before the app opens; a refusal fails this test at its line.
+    if (reset) try { await resetBackends(backends, freshRows(file, reset.seed)); } catch (e) {
+      results.push({ name: t.name, failures: [`${t.name}: line ${reset.line}: ${e.message}`], notes });
+      continue;
+    }
+    const heads = await Promise.all(shared.map((o) => backendHead(o)));
     // A drag on an iOS simulator is the touch runner's real gesture (LLP 1080.000 §11; chat2 diary: an authored
     // test could not drag there); every other step stays the agent's. A phone has no runner yet: its drag says so.
     // `--touch platform` makes every tap a real touch too (splitter rough 12: a test of what a finger reaches).
@@ -264,8 +462,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // (every `clock +N`, settle and timer), as the runner reports it; whole milliseconds, which every host takes.
     const first = facts.epoch; // the test's launch date, which a `reload` moves `facts.epoch` on from
     const reached = async () => { const { clock } = await s.op({ op: 'tags' }).catch(() => ({})); return facts.epoch + Math.floor(Number.isFinite(clock) ? clock : s.now); };
-    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale });
+    const launch = (environment) => open({ host, browser, plan, ...facts, env: { ...environment, EXACT_AGENT_EPHEMERAL_PORT: '1' }, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port });
     let s = await launch(fresh);
+    const mutationClock = testMutationClock();
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
     // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
     // `before data` does not wait (what has landed then is the host's: a native app ran on real time before the
@@ -277,6 +476,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // It asks what persists, so storage the app started and did not await finishes first, as `clock data` lands it
     // (LLP 1097 D9): a write lost at `reload` is what a crash does. The next `logs` begins with what it waited for.
     const reload = async () => {
+      mutationClock.reset();
       const b = (await s.state().catch(() => ({}))).background, waiting = b ? b.queued + b.inFlight : 0;
       if (waiting) {
         const r = await s.clock('data');
@@ -289,7 +489,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
       facts.epoch = await reached();
       if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
-      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale }); s.notes = notes;
+      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
@@ -309,10 +509,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.landError) throw new Error(`the input was delivered; landing what it started failed: ${r.landError}`); if (r?.closed) closedAt = current; };
     // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
     // left on real time) is named: the expect read the value before its reply (workout F1).
-    // A resource that failed is named first, with why (app farm round 1: a shape refusal read as a timing problem).
+    // A resource that failed is named first, with why (app farm round 1: a shape refusal read as a timing problem), then a
+    // mutation whose reply was refused (sb4 farm wave 6, E3: the same refusal, with no `state.failed` to show it).
     const fail = async (message) => {
       const state = await s.state().catch(() => ({}));
-      const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('');
+      const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('')
+        + [...refusedReplies((await s.op({ op: 'logs', since: 0 }).catch(() => null))?.lines)].map(([name, why]) => ` (${replyNote(name, why)})`).join('');
       if (unpolled != null) return failures.push(`${message}${failed} (line ${unpolled} wrote to the server, and the clock has not moved past the app's next read since: \`clock +<its poll's ms>\`, then \`clock data\`)`);
       if (input != null) return failures.push(`${message}${failed} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
       const pending = (state.pending ?? []).filter((p) => !p.device).map((p) => p.name);
@@ -347,7 +549,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           if (INPUTS.has(st.op)) await settleFired();
           if (st.op === 'type') { typed.add(st.target); touched.add(st.target); } else if (INPUTS.has(st.op) || st.op === 'reload') typed.clear();
           switch (st.op) {
-            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
+            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': case 'fresh': break; // the session opened with it
             // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
             case 'fail-fetch': {
               if (n < leading) break;
@@ -369,6 +571,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
                 : st.modifiers ? { modifiers: st.modifiers } : undefined;
               delivered(await s.tap(st.target, opts)); input = st.line; break;
             }
+            // MIDI (LLP 1125 §4): the ports a request finds, and a message from an input now.
+            case 'prefer-midi': { const r = await s.op({ op: 'prefer', midi: { ...(st.state ? { state: st.state } : {}), ...(st.inputs ? { inputs: st.inputs } : {}), ...(st.outputs ? { outputs: st.outputs } : {}) } }); if (r?.error) throw new Error(r.error); await s.clock('settle'); break; }
+            case 'tap-midi': delivered(await s.tap(null, { midi: st.clock ? { input: st.input, clock: st.clock } : { input: st.input, data: st.data } })); input = st.line; break;
             case 'drag': {
               const drag = { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
               if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));
@@ -388,7 +593,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'reload': await reload(); await data(); input = null; loaded = true; break;
             case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
-            case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
+            case 'pick': {
+              try { delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); }
+              catch (error) { if (error.message.includes('held: none')) error.message += '; first tap a button whose action calls showPicker("<input id>"); the file input needs id as well as testId'; throw error; }
+              input = st.line; break;
+            }
             case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
             case 'clock': await s.clock(st.arg); input = null; loaded = true; if (/^\+?\d/.test(st.arg)) unpolled = null; break;
             // The driver writes through the app's server as another person (LLP 1116.006 D8), not the app: nothing it
@@ -442,15 +651,29 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             // source matching every clause given, or none; a dropped call is not a voice.
             case 'expect-sound': {
               const sounds = (await s.state(undefined, undefined, false, false, { sounds: 'all' })).sounds;
-              const clauses = ['at', 'gain', 'ends', 'by'].filter((k) => st[k] != null), said = clauses.map((k) => ` ${k} ${st[k]}`).join('');
+              const clauses = ['at', 'gain', 'ends', 'playbackRate', 'pan', 'by'].filter((k) => st[k] != null), said = clauses.map((k) => ` ${k} ${st[k]}`).join('');
+              // `state.sounds` names a voice's rate and pan only when not 1 and 0 (LLP 1125 D10).
+              const field = (v, k) => v[k] ?? { playbackRate: 1, pan: 0 }[k];
               if (!sounds) { failures.push(`${at}: the app declares no sound, so the runner keeps no voice table`); break; }
               const first = sounds.voices[0]?.at ?? Infinity;
               if (sounds.evicted > 0 && (st.at != null ? st.at < first : !st.present)) { failures.push(`${at}: voices before t=${first} are no longer recorded (the record keeps the last ${sounds.recorded})`); break; }
-              const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => v[k] === st[k]));
+              const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => field(v, k) === st[k]));
               if (found !== st.present) {
-                const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain} ends ${v.ends} by ${v.by}`);
+                const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain}${v.playbackRate != null ? ` playbackRate ${v.playbackRate}` : ''}${v.pan != null ? ` pan ${v.pan}` : ''} ends ${v.ends} by ${v.by}`);
                 // A voice is recorded by the commit that issued it: no clock hint applies.
                 failures.push(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
+              }
+              break;
+            }
+            // The MIDI queue's record (LLP 1125 D5): a message to that output, not taken back, at `at` when given.
+            case 'expect-midi': {
+              const midi = (await s.state(undefined, undefined, false, false, { midi: 'all' })).midi;
+              if (!midi) { failures.push(`${at}: the app keeps no MIDI queue (no sequence, no sendMIDI, exactMIDI or midimessage)`); break; }
+              const hex = st.data.map((b) => b.toString(16).padStart(2, '0')).join(' '), said = `"${st.output}" ${hex}${st.at != null ? ` at ${st.at}` : ''}`;
+              const found = midi.sent.some((m) => m.output === st.output && m.data === hex && m.state !== 'retracted' && (st.at == null || m.at === st.at));
+              if (found !== st.present) {
+                const of = midi.sent.filter((m) => m.output === st.output).slice(-8).map((m) => `#${m.id} ${m.data} at ${m.at} ${m.state}${m.by ? ` by ${m.by}` : ''}`);
+                failures.push(`${at}: expected ${st.present ? 'a' : 'no'} message to ${said}; ${of.length ? `its messages: ${of.join('; ')}` : `nothing was queued for it (access ${midi.state}, outputs ${midi.outputs.map((o) => o.id).join(', ') || 'none'})`}`);
               }
               break;
             }
@@ -468,6 +691,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             }
             default: failures.push(`${at}: unknown step ${st.op}`);
           }
+          if (closedAt == null) await mutationClock.advance(s);
         } catch (e) {
           failures.push(`${at}: ${e.message}`);
           break;
@@ -476,13 +700,82 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
       if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, epoch: first, env: env ?? {} }), reached: await reached(), typed: [...typed], touched: [...touched], ...(s.host === 'web' ? { restart: async () => { await reload(); await data(); } } : {}) }).catch((e) => ({ error: e.message }));
+      // A failed test shows what the data module logged, the last lines of it (sb4 farm wave 7, E1: 093 rendered
+      // values into the view to see them; `logs` had them all along). Advice only.
+      if (failures.length && closedAt == null) try {
+        const state = await s.state();
+        const mutations = new Map(Object.entries(state.mutationFailures ?? {}).map(([name, failure]) => [name, `${failure.code}: ${failure.message}`]));
+        const refusal = rosterRefusalNote(reset, schema, mutations.size ? mutations : refusedReplies((await s.op({op: 'logs', since: 0}))?.lines));
+        if (refusal) notes.push(refusal);
+        const logs = await Promise.race([s.logs(), new Promise((done) => setTimeout(() => done(null), 3000))]);
+        const said = (logs?.host ?? []).filter((l) => /^console\.\w+: /.test(l));
+        if (said.length) notes.push(`the data module logged${said.length > 8 ? ` (the last 8 of ${said.length})` : ''}: ${said.slice(-8).join(' | ')}`);
+      } catch { /* advice only */ }
     } finally {
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
+    if (failures.length && !reset) shared.forEach((o, i) => { if (heads[i] > 0 && atStart[i] != null) notes.push(sharedBackendNote(o, atStart[i], heads[i] - atStart[i])); });
     results.push({ name: t.name, failures, notes, ...(shots.length ? { shots } : {}), ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }
   const failed = results.filter((r) => r.failures.length).length;
   return { passed: results.length - failed, failed, results };
+}
+
+/** Resolve the built grant alias and diagnose a fault that cannot meet a granted URL. */
+export function resolveFaultPrefix(prefix, origins, say=console.warn) {
+  const unique=[...new Set(origins.map(o=>o.replace(/\/+$/,'')))];
+  if (prefix==='backend') {
+    const loopback=unique.filter(origin=>/^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(origin));
+    const candidates=loopback.length ? loopback : unique;
+    if (candidates.length!==1) throw new Error(`fetch "backend" needs exactly one net.fetch origin; found ${candidates.length}. Use a literal URL for a multi-backend app.`);
+    return candidates[0];
+  }
+  if (!unique.some(origin => origin.startsWith(prefix) || prefix.startsWith(origin+'/') || prefix===origin))
+    say(`warning: fetch fault prefix ${JSON.stringify(prefix)} matches no granted origin (${unique.join(', ') || 'none'}); it will not intercept the backend`);
+  return prefix;
+}
+
+export function faultRequest(op, args, origins = [], say = console.warn) {
+  if (args[0] !== 'fetch' || !args[1]) return rawFaultRequest(op, args);
+  return rawFaultRequest(op, [args[0], resolveFaultPrefix(args[1], origins, say), ...args.slice(2)]);
+}
+
+/** The same persistence/fault behavior as an authored test's web reload. */
+export async function reloadWeb(s) {
+  if (s.host!=='web') throw new Error('reload in an interactive drive supports web; native authored tests relaunch their host');
+  const state=await s.state(), background=state.background;
+  if (background && background.queued+background.inFlight) {
+    const result=await s.clock('data');
+    if (result.settled===false) throw new Error('reload: pending storage did not settle');
+  }
+  const now=await s.state();
+  await s.carrier.reset({keep:true, failFetch: now.faults ? faultSpecOf(now.faults) : undefined});
+  s.now=0; s.logCursor=0;
+  return {reloaded:true};
+}
+
+export { driverCapabilities } from './help.mjs';
+
+/** One millisecond per source mutation request, counted once across data continuations.
+ * Action arguments retain their atomic snapshot; the next action sees the advanced clock. */
+export function testMutationClock() {
+  let cursor=0;
+  return {
+    reset() { cursor=0; },
+    async advance(s) {
+      let total=0;
+      for(let round=0;round<16;round++) {
+        const requests=(await s.state()).mutationRequests;
+        if (!Number.isSafeInteger(requests) || requests<cursor) throw new Error('test clock: driver did not return a monotonic mutation request count');
+        const mutations=requests-cursor;
+        cursor=requests;
+        if (!mutations) return total;
+        total+=mutations;
+        await s.clock('+'+mutations);
+      }
+      throw new Error('test clock: mutations kept issuing requests across 16 automatic clock steps');
+    },
+  };
 }

@@ -1,4 +1,4 @@
-// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref examples/t3-code/mobile/docs/1130.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Pinned365aa87982 HardwareKeyboardCommandProvider and threadReference.ts.
 // App-only route ownership; clipboard/haptic need no server operation grant.
 import type { T3Client } from './shared/client';

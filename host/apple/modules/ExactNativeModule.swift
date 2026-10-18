@@ -89,8 +89,8 @@ public final class ExactModuleContext: @unchecked Sendable {
     /// scoped `module`. It records once the hatches have connected, in a
     /// development build; before that, and in production, each call returns.
     public let diagnostics: ExactDiagnostics
-    // The frame clock (§2.4): the host's entries, there once the hatches
-    // connect, and what each token calls.
+    // The frame clock (§2.4): the host's entries, there once the module
+    // has the hatch table (before its hatches are called), and what each token calls.
     typealias FramesFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Int32) -> Void
     typealias AfterFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Double) -> Void
     var framesFn: FramesFn?, afterFn: AfterFn?
@@ -216,6 +216,17 @@ open class ExactModule {
     }
     /// The session is ending; its views are already gone.
     open func destroy() {}
+    /// The Mac app is quitting (⌘Q, the app menu, an Apple Event, SIGTERM,
+    /// the last window closing) and no `beforeunload` kept it: start the
+    /// work the quit must wait for (stop a child process, flush a socket),
+    /// off the main thread, and call `done` when it has finished, from any
+    /// thread. The quit waits for every session's module and the storage
+    /// in flight, five seconds at most in all (LLP 1097 D10, LLP 1069.010
+    /// Q4); `destroy()` follows whether or not the work finished, and
+    /// force-ends what is still running (SIGKILL a child) without waiting.
+    /// Called once, on the main thread, never on iOS or tvOS. Dropping
+    /// `done` uncalled counts as calling it. By default, done at once.
+    open func willQuit(done: @escaping () -> Void) { done() }
     /// The host's side of the hatches, once it has connected (LLP 1075.003).
     var hatches: ExactHatches?
     /// A node the Contract marks `hatch="word"` (LLP 1075.003.000), on every
@@ -487,6 +498,9 @@ final class ExactHatches {
     typealias OwnsFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32, UInt32, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Int32
     typealias PartsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> Int32
     let ownsFn: OwnsFn?, partsFn: PartsFn?
+    /// One of 104 or more: the bindings' answer (LLP 1121 D12; ExactTamber.swift).
+    typealias TamberFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UInt32
+    let tamberFn: TamberFn?
     #if os(iOS) || os(tvOS)
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
@@ -520,6 +534,8 @@ final class ExactHatches {
         let regions = table.load(as: UInt32.self) >= 96
         ownsFn = regions ? table.load(fromByteOffset: 80, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: OwnsFn.self) } : nil
         partsFn = regions ? table.load(fromByteOffset: 88, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: PartsFn.self) } : nil
+        tamberFn = table.load(as: UInt32.self) >= 104
+            ? table.load(fromByteOffset: 96, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: TamberFn.self) } : nil
     }
 
     func log(_ line: String) {
@@ -925,26 +941,36 @@ open class ExactNativeScreen: ExactNativeInstance {
 #endif
 
 /// A roster entry: how to make an instance from the session's module,
-/// whether it answers snapshots, and whether a list may reuse it (LLP 1068
-/// §4.8).
+/// whether it answers snapshots, whether a list may reuse it (LLP 1068
+/// §4.8), and whether it joins the first frame its node shows in.
+///
+/// Every other tag's view attaches after the first frame has painted (LLP
+/// 1024 D3), so a slow view (a map) never delays it. `firstFrame` is for a
+/// cheap view that must be there from the first frame, such as a boot
+/// splash: the artifact loads, and its view and the session's module are
+/// made, before that frame commits, so their time is first pixel's. Its
+/// `context.frames` and `after` work from then; the module's hatches are
+/// called from first pixel on. The build reads the flag from this roster.
 public struct ExactNativeFactory {
     public let snapshot: Bool
     public let reuse: Bool
+    public let firstFrame: Bool
     public let make: (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance
-    public init(snapshot: Bool = false, reuse: Bool = false, make: @escaping (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+    public init(snapshot: Bool = false, reuse: Bool = false, firstFrame: Bool = false, make: @escaping (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
         self.snapshot = snapshot
         self.reuse = reuse
+        self.firstFrame = firstFrame
         self.make = make
     }
     /// A view that needs nothing from the module.
-    public init(snapshot: Bool = false, reuse: Bool = false, make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
-        self.init(snapshot: snapshot, reuse: reuse) { _, props, events in try make(props, events) }
+    public init(snapshot: Bool = false, reuse: Bool = false, firstFrame: Bool = false, make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+        self.init(snapshot: snapshot, reuse: reuse, firstFrame: firstFrame) { _, props, events in try make(props, events) }
     }
     /// A view of the app's module, typed: `ExactNativeFactory(for: Recorder.self)
     /// { recorder, props, events in … }`. The session's module is always the
     /// app's `exactModule`; another type is refused by name.
-    public init<M: ExactModule>(for module: M.Type, snapshot: Bool = false, reuse: Bool = false, make: @escaping (M, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
-        self.init(snapshot: snapshot, reuse: reuse) { owner, props, events in
+    public init<M: ExactModule>(for module: M.Type, snapshot: Bool = false, reuse: Bool = false, firstFrame: Bool = false, make: @escaping (M, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+        self.init(snapshot: snapshot, reuse: reuse, firstFrame: firstFrame) { owner, props, events in
             guard let typed = owner as? M else { throw ExactNativeRefusal("the session's module is \(type(of: owner)), not \(M.self)") }
             return try make(typed, props, events)
         }
@@ -994,6 +1020,7 @@ private let create: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt
     guard let event else { write("no event callback", out, capacity); return nil }
     do {
         let instance = try factory.make(owner, try props(json, jsonLength), ExactNativeEvents(fn: event, ctx: ctx, nonce: nonce))
+        Tambers.made(instance.view, by: owner)
         return Unmanaged.passRetained(Handle(instance, reply: reply, ctx: ctx, nonce: nonce)).toOpaque()
     } catch {
         write(String(describing: error), out, capacity)
@@ -1098,6 +1125,32 @@ private let moduleCall: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<
     }
 }
 
+/// `done(ctx)` exactly once: when the module calls it, or when it lets the
+/// closure go without calling it.
+private final class QuitDone: @unchecked Sendable {
+    private let lock = NSLock()
+    private var called = false
+    private let ctx: UnsafeMutableRawPointer?
+    private let fn: @convention(c) (UnsafeMutableRawPointer?) -> Void
+    init(ctx: UnsafeMutableRawPointer?, fn: @escaping @convention(c) (UnsafeMutableRawPointer?) -> Void) { self.ctx = ctx; self.fn = fn }
+    func call() {
+        let first = lock.withLock { () -> Bool in
+            defer { called = true }
+            return !called
+        }
+        if first { fn(ctx) }
+    }
+    deinit { call() }
+}
+
+/// `will_quit(module, ctx, done)`: the quit's work (macOS); `done(ctx)` once, any thread.
+private let moduleWillQuit: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, (@convention(c) (UnsafeMutableRawPointer?) -> Void)?) -> Void = { raw, ctx, fn in
+    guard let fn else { return }
+    let done = QuitDone(ctx: ctx, fn: fn)
+    guard let m = module(raw) else { return done.call() }
+    m.willQuit { done.call() }
+}
+
 private let prepareForReuse: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { raw in
     guard let h = handle(raw) else { return 1 }
     do { try h.instance.prepareForReuse(); return 0 } catch { return 1 }
@@ -1111,6 +1164,13 @@ private let moduleConnect: @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPo
     m.context.diagnostics.recordFn = m.hatches?.recordFn
     m.context.framesFn = m.hatches?.framesFn
     m.context.afterFn = m.hatches?.afterFn
+}
+
+/// `tamber(module)`: a batch moved what a binding reads (LLP 1121 D12); each
+/// place is asked again, and each that moved redrawn (ExactTamber.swift).
+private let moduleTamber: @convention(c) (UnsafeMutableRawPointer?) -> Void = { raw in
+    guard module(raw) != nil else { return }
+    Tambers.moved()
 }
 
 /// `tick(module, kind, token, now, seq)`: a frame ticket's tick (0) or an
@@ -1253,6 +1313,8 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
     }
     element.data = ExactData(object["data"] as? [String: String] ?? [:])
     element.view = view.map { Unmanaged<ExactNativeView>.fromOpaque($0).takeUnretainedValue() }
+    // A hatched node's view is a place a binding finds, as a module view is (LLP 1121 D12).
+    if let view = element.view { Tambers.made(view, by: m) }
     element.platform = platform.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
     m.element(element)
     return element.reusable ? 1 : 0
@@ -1342,9 +1404,9 @@ private let table: UnsafeMutableRawPointer = {
     // §4.3), so the host calls it with no word its code never compiled.
     let words = "\"hatches\":{\"words\":[" + ExactHatchKey._words.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
     let text = "{" + (roster.keys.sorted().map { tag in
-        "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
+        "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse),\"firstFrame\":\(roster[tag]!.firstFrame)}"
     } + [words]).joined(separator: ",") + "}"
-    let size = 208
+    let size = 224
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -1373,6 +1435,8 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleApp, to: UnsafeRawPointer.self), toByteOffset: 184, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleWindow, to: UnsafeRawPointer.self), toByteOffset: 192, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleTick, to: UnsafeRawPointer.self), toByteOffset: 200, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleWillQuit, to: UnsafeRawPointer.self), toByteOffset: 208, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleTamber, to: UnsafeRawPointer.self), toByteOffset: 216, as: UnsafeRawPointer.self)
     return t
 }()
 

@@ -3,10 +3,11 @@ use exact_gpu::wgpu;
 use glam::camera::rh::proj::directx;
 use glam::{Mat4, Vec3};
 
-pub(crate) const RESOLUTION: u32 = 2048;
 pub(crate) const MAX_CASCADES: usize = 3;
 
 pub(crate) struct Cascades {
+    pub cache_enabled: bool,
+    pub resolution: u32,
     pub matrices: [Mat4; 3],
     pub splits: [f32; 3],
     pub texels: [f32; 3],
@@ -23,7 +24,10 @@ impl Cascades {
             "shadow distance must exceed camera near"
         );
         let count = settings.cascades.clamp(1, 3);
+        let resolution = settings.resolution.clamp(128, 4096);
         let mut result = Self {
+            cache_enabled: settings.cache_static,
+            resolution,
             matrices: [Mat4::IDENTITY; 3],
             splits: [far; 3],
             texels: [0.0; 3],
@@ -46,6 +50,21 @@ impl Cascades {
             glam::Vec4::W,
         )
         .transpose();
+        if let Some(fixed) = settings.fixed_box {
+            let w = fixed.half_width;
+            let d = fixed.half_depth;
+            assert!(
+                fixed.center.is_finite() && w.is_finite() && w > 0. && d.is_finite() && d > 0.,
+                "sun box must be finite with positive extents"
+            );
+            let c = light_view.transform_point3(fixed.center);
+            result.count = 1;
+            result.texels[0] = 2. * w / resolution as f32;
+            result.matrices[0] =
+                directx::orthographic(c.x - w, c.x + w, c.y - w, c.y + w, -c.z - d, -c.z + d)
+                    * light_view;
+            return result;
+        }
         let camera_world = frame.view.inverse();
         let mut start = near;
         let mut prev_start = near;
@@ -75,7 +94,7 @@ impl Cascades {
                 .map(|p| p.distance(center))
                 .fold(0.0, f32::max);
             let radius = (radius * 1.005 * 16.0).ceil() / 16.0;
-            let texel = 2.0 * radius / RESOLUTION as f32;
+            let texel = 2.0 * radius / resolution as f32;
             result.texels[i] = texel;
             let mut c = light_view.transform_point3(camera_world.transform_point3(center));
             c.x = (c.x / texel).round() * texel;
@@ -98,6 +117,11 @@ impl Cascades {
 }
 
 pub(crate) struct ShadowMaps {
+    pub cached: Option<crate::renderer::shadow_cache::StaticShadowCache>,
+    pub cache_enabled: bool,
+    /// How cached casters enter each frame's map (`shadow_cache::seeds`).
+    pub seed: bool,
+    pub resolution: u32,
     pub count: u32,
     pub layers: Vec<wgpu::TextureView>,
     pub cameras: Vec<wgpu::BindGroup>,
@@ -107,19 +131,38 @@ pub(crate) struct ShadowMaps {
 }
 
 impl ShadowMaps {
-    pub fn new(device: &wgpu::Device, count: u32, camera_layout: &wgpu::BindGroupLayout) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        count: u32,
+        resolution: u32,
+        cache_enabled: bool,
+        camera_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
+        let seed = crate::renderer::shadow_cache::seeds(device);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("game sun cascades"),
             size: wgpu::Extent3d {
-                width: RESOLUTION,
-                height: RESOLUTION,
+                width: resolution,
+                height: resolution,
                 depth_or_array_layers: count,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | if cache_enabled && !seed {
+                    wgpu::TextureUsages::COPY_DST
+                } else {
+                    wgpu::TextureUsages::empty()
+                }
+                // Tests read the depth, and copy where this device would seed.
+                | if cfg!(test) {
+                    wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST
+                } else {
+                    wgpu::TextureUsages::empty()
+                },
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
@@ -159,6 +202,10 @@ impl ShadowMaps {
             })
             .collect();
         Self {
+            cached: None,
+            cache_enabled,
+            seed,
+            resolution,
             count,
             layers,
             cameras,

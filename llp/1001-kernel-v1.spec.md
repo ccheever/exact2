@@ -68,6 +68,12 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 >   `Kernel::set_root_font_size`; the table's 16 is what a host that sets none shows;
 > - `font-size` takes a text style (`-exact-title1`, …) that the kernel resolves
 >   against that root, and a `role="heading"` is lowered to one by its level;
+> - a text style carries its weight and its leading per platform (LLP 1115.000
+>   D12.2), where CSS's `font: -apple-system-*` keywords set one weight and a
+>   `normal` line height: the Mac's `headline` is bold and its styles carry the
+>   leading NSFont gives them (body 13/16), iOS's and the web's are the face's own.
+>   Named through `font` the style resets both, as the shorthand does; named by a
+>   bare `font-size` it fills only what nothing above says, where CSS fills nothing;
 > - `hr` is one solid edge in the separator role, not Chrome's two shades, and it is
 >   one hairline with no margin of its own (LLP 1115.000 D10.3): lowering writes it a
 >   top edge `-exact-hairline` thick and no margin, where Chrome's UA sheet gives it
@@ -105,7 +111,11 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 >   D10.2);
 > - an unset root background is the platform's, never a fixed white;
 > - a pushed route has the platform's Back whether or not one is authored;
-> - a custom pressable that declares no press feedback dims while held on iOS.
+> - a custom pressable that declares no press feedback dims while held on iOS;
+> - a state part's `:checked` (LLP 1121 D8) holds when the node's `checked`,
+>   `aria-checked` or `aria-selected` is true, or its `aria-pressed` is `"true"` (or
+>   true): one name for a toggle, a selected row and a pressed button, where CSS's
+>   `:checked` is an input's.
 >
 > And one layout deviation, recorded here because it holds on every host and not only
 > the terminal it was made for (LLP 1101 D3): `ch` and `lh` are a fixed 8 × 16 cell
@@ -375,6 +385,14 @@ button does not yet carry ARIA disabled (issue `20261011-aria-disabled-is-lost-i
 That issue also tracks UIKit popovers lifted out of an unavailable ancestor:
 their accessibility inheritance still follows the presented parent.
 
+**ARIA atomic (LLP 1116.018 D3).** `accessibilityAtomic` (prop 267, boolean)
+is WAI-ARIA's `aria-atomic`: whether a live region is announced whole when part
+of it changes. The web writes the attribute and the browser announces by it.
+Declared deviation: the Apple hosts announce a live region's whole text on every
+change (`UIAccessibility`'s and `NSAccessibility`'s announcement takes one
+string), so `true` holds there and `false` is announced whole as well; Linux
+has no native accessibility tree to serve.
+
 `retainFocus` (prop 55, boolean, absent/false by default) lets a button
 retain the existing editing session on a tap, including a button with gesture
 handlers and no press action. Messages uses it on bubbles and reaction badges
@@ -546,6 +564,13 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   or app-owned pressed state. Ruled 2026-09-27: it composes through CSS's
   `scale` property and never writes `transform`, and it is kept under reduced
   motion, as a native button's highlight is.
+- **`-exact-press-opacity`, `-exact-press-background-color`, `-exact-press-color`**,
+  bits 212 to 214 ([LLP 1061 D7](1061-press-feel-and-reduced-motion.rfc.md)), are
+  not CSS (Charlie, 2026-10-17). They are the author's pressed paint, which CSS
+  writes as an `:active` rule; Contract has no selectors, and `:active` also
+  matches the pressed node's ancestors where the press is the innermost
+  pressable's. The host shows them from the press state it tracks for
+  `-exact-press-scale`, on its timing, with no runner round trip.
 - **`-exact-layout-transition`**, bit 143 ([LLP 1063 D1, D6](1063-presence-and-layout-motion.rfc.md)),
   is not CSS. It moves the presentation after committed layout, sizing only
   the box's surface while content keeps its final geometry. The separate row
@@ -953,7 +978,12 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   reads an inset (`uses_env`) and says whether any did, so a host lays out only
   when something can move. Zero until the host says otherwise, as a browser
   reports the insets for a page without `viewport-fit=cover` (LLP 1008 §9).
-  `tests/env.rs`.
+  `tests/env.rs`. The layout regions (LLP 1123 D10) are a fifth family of the
+  same kind, Exact's own: `env(-exact-<region>-inset-<edge>)` for the platform's
+  margins, readable width and corner-adapted safe area (wire kind 25, the `Env`'s
+  `regions`). A deviation, declared: a host that reports none (the web, Linux,
+  Windows, Android, the terminal) resolves each to its safe-area inset, where a
+  platform with margins would give more. `tests/regions.rs`.
 - **Comparisons** (2026-10-07; approved by Charlie 2026-10-06).
   Dimension rows accept `calc()`, `min()`, `max()` and `clamp()` over absolute
   lengths, `ch`/`lh`, percentages, viewport units, safe-area insets and viewport
@@ -1033,10 +1063,13 @@ class by comparing the EXNODE export before and after.
 
 The closed op list (revision 1): `CreateView`, `DestroyView` (**subtree** — the
 WS-I correction, from day one), `SetProp`, `ClearProp`, `SetStyle` (a **masked
-patch**: the mask of the rows it sets, the mask of those its author wrote, then
-each set row's value; the second mask since 2026-10-11, LLP 1115.000 D2, and a
-row marked written and not set is a typed rejection), `ClearStyle` (a mask),
-`SetChildren`, `AttachRoot`. There is no
+patch**: the mask of own values, the mask of authored declarations, then each
+present value; LLP 1115.000 D2). The patch affects the union of both masks. A
+written row without an own value is an explicit CSS clear: it removes the stored
+value and retains authored intent while resolving to inherited or initial value.
+`ClearStyle` takes a mask and a `written` boolean: true retains that intent;
+false removes both the own value and its authored declaration. `SetChildren`
+and `AttachRoot` complete the op list. There is no
 `ComputeLayout` op: layout is a host call (`Kernel::compute_layout`), because the
 host owns the frame clock. A root with `width: auto` fills the width it is
 offered — CSS's block rule, which Taffy does not apply to a root — and stays
@@ -1047,7 +1080,10 @@ style is re-derived on `AttachRoot`).
 **A containing block from the host** (LLP 1115.002 D8.2, 2026-10-12). A host
 that shows a subtree in a view of its own (a split's pane, a sheet) gives its
 root a containing block, `Kernel::set_host_block(view, Some(HostBlock { width,
-height }))`, each axis `Is` the size or `AtMost` a maximum. While it has one
+height }))`, each axis `Is` the size, `AtMost` a maximum, or `Fit` a limit for
+automatic sizing that an authored size or minimum may exceed. `Fit` keeps that
+length as the percentage basis and reports the resulting extent without clamping;
+it is the modal route's policy (LLP 1115.002 D7.4). While it has one
 the node is out of its parent's layout and is laid out by the same
 `compute_layout` call as a root is, in that block: the engine's root for its
 subtree, so a block that changes lays out that subtree alone. Its frames are
@@ -1506,6 +1542,25 @@ there is auto. all and contain are diagnosed at compile time
 press or keeps a selection inside its element. Border shorthands reset and
 lower to existing side rows, including `inset`, `dotted` and `dashed` under
 §1's border semantics and raster deviation; other line styles are diagnosed.
+The one-to-four-value box shorthands (`padding`, `margin`, `inset`,
+`border-width`, `border-style`, `border-color`, `scroll-padding`,
+`scroll-margin`, `border-radius`), and the two-value `gap` (row, column),
+`overflow` and `overscroll-behavior` (x, y), lower a literal, or each literal arm of a
+choice, to its side rows, split at CSS white space (space, tab, LF, CR, FF)
+outside parentheses as CSS expands the shorthand
+(`exact_kernel::style::sides`); a literal `/` radius is refused by name. A
+computed value is bound whole to the four rows, and no host splits it: an
+overriding longhand, an `env()` substituted later and each row's grammar
+would make a run-time split differ from the browser's. So a computed value
+the compiler sees build a list (`` padding=`${pad}px 0` ``, a concatenation,
+a `fn` returning one) is refused (`lower-css-shorthand`), naming the
+longhands, each of which may be computed. A computed single value
+(`padding=pad`) is every side's. A list that reaches a row anyway (state
+holding `"10px 5px"`) is refused by the row with a journal line on every
+host; the web's JS target refuses a list on a corner (two lengths, or a
+`/`) itself, as the browser would draw the elliptical radius no row holds.
+A bare `0` on a length row other than `line-height` is the length 0 (CSS
+Values 4 §6.1), and a keyword is ASCII case-insensitive (`margin="0 Auto"`).
 Text-decoration lowers solid currentcolor
 underline/line-through to the existing line row; other color/style/thickness
 components are diagnosed. Linux draws its UA lines from font size and glyph

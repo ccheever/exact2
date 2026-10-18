@@ -6,14 +6,6 @@ use exact_runner::{DataError, Value};
 // The clipboard, keys, modifiers and mouse contacts.
 mod input;
 
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(source.into()))
-    }
-}
-
 /// A source whose one request is handed to work that never replies: the
 /// reply is leaked, so neither an outcome nor the drop's abort arrives.
 #[derive(Default)]
@@ -112,17 +104,17 @@ fn tree_answers_its_target() {
         "component App\n  view\n    column testId=\"outer\"\n      column testId=\"inner\"\n        text \"a\" testId=\"a\"\n      text \"b\" testId=\"b\"\n",
     )
     .unwrap();
-    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
     let (mut p, _) = Presenter::boot_with(
         &bytes,
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
         PainterChoice::Cpu,
     )
     .unwrap();
-    let ids = |p: &mut Presenter<NoData>, request: &str| -> Vec<String> {
+    let ids = |p: &mut Presenter<()>, request: &str| -> Vec<String> {
         let reply: serde_json::Value = serde_json::from_str(&handle(p, request)).unwrap();
         reply["nodes"]
             .as_array()
@@ -161,10 +153,10 @@ fn a_password_value_is_masked_in_every_reply() {
         "component App\n  state secret = \"\"\n  action onInput(v: string)\n    secret = v\n  view\n    column width=300\n      input type=\"password\" value=secret input=onInput testId=\"bound\" height=24\n      input type=\"password\" testId=\"loose\" height=24\n      input type=\"password\" testId=\"empty\" height=24\n",
     )
     .unwrap();
-    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
     let (mut p, _) = Presenter::boot_with(
         &bytes,
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -225,17 +217,17 @@ fn prefer_sets_the_display_preferences_by_their_media_names() {
         "shape M\n  prefersReducedMotion: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  view\n    text (m.prefersReducedMotion ? \"still\" : \"moving\") testId=\"t\"\n",
     )
     .unwrap();
-    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
     let (mut p, _) = Presenter::boot_with(
         &bytes,
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
         PainterChoice::Cpu,
     )
     .unwrap();
-    let text = |p: &mut Presenter<NoData>| handle(p, r#"{"op":"tree"}"#);
+    let text = |p: &mut Presenter<()>| handle(p, r#"{"op":"tree"}"#);
     assert!(text(&mut p).contains("moving"));
     let refused = handle(
         &mut p,
@@ -269,17 +261,17 @@ fn prefer_sets_contrast_scheme_and_the_page_facts() {
         "shape M\n  prefersContrast: string\n  prefersColorScheme: string\nshape P\n  visibilityState: string\n  onLine: bool\n  canShare: bool\n  canOpenFiles: bool\n  hasFocus: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  resource g = exactPage() as shape P\n  view\n    text `${m.prefersContrast} ${m.prefersColorScheme} ${g.visibilityState} ${g.onLine ? \"online\" : \"offline\"} ${g.canShare ? \"share\" : \"no-share\"} ${g.canOpenFiles ? \"pickers\" : \"no-pickers\"} ${g.hasFocus ? \"focus\" : \"no-focus\"}` testId=\"t\"\n",
     )
     .unwrap();
-    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
     let (mut p, _) = Presenter::boot_with(
         &bytes,
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
         PainterChoice::Cpu,
     )
     .unwrap();
-    let text = |p: &mut Presenter<NoData>| handle(p, r#"{"op":"tree"}"#);
+    let text = |p: &mut Presenter<()>| handle(p, r#"{"op":"tree"}"#);
     assert!(
         text(&mut p).contains("no-preference light visible online no-share no-pickers focus"),
         "{}",
@@ -529,7 +521,7 @@ fn a_clock_move_across_a_dst_change_recomputes_the_offset() {
     let plan = contract::compile("component App\n  view\n    text \"x\" height=20\n").unwrap();
     let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -543,7 +535,7 @@ fn a_clock_move_across_a_dst_change_recomputes_the_offset() {
     };
     assert!(p.set_place(&place).is_none());
     assert!(p.set_time(1_772_960_400_000.0, -480.0).is_none());
-    let offset = |p: &mut Presenter<NoData>| {
+    let offset = |p: &mut Presenter<()>| {
         let state: serde_json::Value =
             serde_json::from_str(&handle(p, r#"{"op":"state"}"#)).unwrap();
         state["time"]["utcOffset"].clone()
@@ -567,7 +559,7 @@ fn a_picker_is_held_and_answered_by_ticket() {
     .unwrap();
     let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -649,7 +641,7 @@ fn an_unrestricted_picker_copies_an_unknown_file_under_the_agent() {
     .unwrap();
     let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -727,7 +719,7 @@ fn resize_input_uses_presenter_and_paints_before_ack() {
     let plan = contract::compile("component App\n  view\n    view width=\"100%\" height=\"100%\" background-color=\"#f00\"\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (390.0, 844.0),
         1.0,
         std::path::PathBuf::new(),
@@ -761,6 +753,10 @@ fn resize_input_uses_presenter_and_paints_before_ack() {
         let reply = handle(&mut p, request);
         assert!(reply.starts_with("{\"error\""), "{request}: {reply}");
         assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["malformed"],
+            true
+        );
+        assert_eq!(
             p.viewport(),
             (640.0, 480.0),
             "invalid input mutated size: {request}"
@@ -775,7 +771,7 @@ fn close_is_refused_by_name() {
     let plan = contract::compile("component App\n  view\n    text \"a\"\n").unwrap();
     let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (390.0, 844.0),
         1.0,
         std::path::PathBuf::new(),
@@ -787,6 +783,7 @@ fn close_is_refused_by_name() {
         reply.contains("unsupported: the Linux presenter closes no window"),
         "{reply}"
     );
+    assert!(serde_json::from_str::<serde_json::Value>(&reply).unwrap()["malformed"].is_null());
 }
 
 #[test]
@@ -794,7 +791,7 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
     let plan = contract::compile("component App\n  state hot = false\n  state presses = 0\n  state text = \"kept\"\n  state lastKey = \"\"\n  action hovered(value)\n    hot = value\n  action pressed\n    presses = presses + 1\n  action edit(value)\n    text = value\n  action keyed(value)\n    lastKey = value\n  view\n    column width=300 height=300\n      box hover=hovered press=pressed testId=\"hot\" width=200 height=60\n      box testId=\"away\" width=200 height=60\n      input value=text input=edit key=keyed testId=\"field\" height=32\n      text `${hot} ${presses} ${text} ${lastKey}` testId=\"log\" height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -802,11 +799,11 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
-    let log = |p: &Presenter<NoData>| {
+    let log = |p: &Presenter<()>| {
         let k = p.host().kernel();
         let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
         node.props
@@ -845,7 +842,7 @@ fn a_resting_pointer_hovers_what_the_layout_moves_under_it() {
     let plan = contract::compile("component App\n  state rows = [\"a\", \"b\", \"c\"]\n  state hovered = \"\"\n  state armed = false\n  task drop when armed\n    after(3000, removeFirst)\n  action hov(id: string, on: bool)\n    hovered = on ? id : (hovered == id ? \"\" : hovered)\n  action arm\n    armed = true\n  action removeFirst\n    rows = rows.slice(1)\n    armed = false\n  view\n    column width=300 height=300\n      text `${hovered}` testId=\"log\" height=20\n      for r in rows key=r\n        box hover=hov(r) press=arm testId=`row-${r}` width=200 height=60\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -853,11 +850,11 @@ fn a_resting_pointer_hovers_what_the_layout_moves_under_it() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
-    let log = |p: &Presenter<NoData>| {
+    let log = |p: &Presenter<()>| {
         let k = p.host().kernel();
         let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
         node.props
@@ -881,7 +878,7 @@ fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
     let plan = contract::compile("component App\n  state on = false\n  state pick = \"a\"\n  state due = \"\"\n  state noted = \"\"\n  action set(value: bool)\n    on = value\n  action choose(value: string)\n    pick = value\n  action note(value: string)\n    noted = value\n  action level(value: number)\n    noted = `${value}`\n  view\n    column width=300\n      input type=\"date\" value=due change=note testId=\"due\"\n      input type=\"range\" value=10 change=level testId=\"level\"\n      input type=\"checkbox\" checked=on change=set testId=\"agree\"\n      select value=pick change=choose testId=\"pick\"\n        option \"Alpha\" value=\"a\"\n        option \"Beta\" value=\"b\"\n      text `${on} ${pick}` testId=\"log\" height=20\n      scroll testId=\"inner\" height=100\n        box height=400\n        box testId=\"deep\" width=50 height=20\n      box testId=\"auto\" height=100 overflow-y=\"auto\"\n        box height=400\n        box testId=\"autodeep\" width=50 height=20\n      box height=900\n      box testId=\"far\" width=50 height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -889,11 +886,11 @@ fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
-    let log = |p: &Presenter<NoData>| {
+    let log = |p: &Presenter<()>| {
         let k = p.host().kernel();
         let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
         node.props
@@ -974,7 +971,7 @@ fn media_is_reported_unavailable() {
     .unwrap();
     let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -1151,4 +1148,183 @@ fn an_orderly_exit_finishes_background_storage() {
     crate::teardown::finish(&mut p, crate::teardown::EXIT_BOUND);
     assert_eq!(p.host().runner().background_operations(), 0);
     assert!(!p.host().runner().has_pending());
+}
+
+/// `prefer mode` (LLP 1121 D13): the app's `setMode` for each pin, the
+/// scheme left as it is; an axis or value the design lacks is refused.
+#[test]
+fn prefer_mode_sets_the_apps_modes() {
+    let dir = std::env::temp_dir().join(format!("exact-linux-prefer-mode-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\naxes\n  dark-style = black | dim\n\ntheme\n  page = #000000\n    when dark-style=dim: #161e27\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column background-color=\"page\" testId=\"page\"\n      text \"a\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
+    let (mut p, _) = Presenter::boot_with(
+        &bytes,
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let refused = handle(&mut p, r#"{"op":"prefer","mode":{"dark-style":"grey"}}"#);
+    assert!(refused.contains("\"error\""), "{refused}");
+    // A refused fact beside a good pin applies nothing.
+    let refused = handle(
+        &mut p,
+        r#"{"op":"prefer","mode":{"dark-style":"dim"},"media":{"color-gamut":"p3"}}"#,
+    );
+    assert!(refused.contains("\"error\""), "{refused}");
+    assert_eq!(p.host().runner().modes()[0].1, "black");
+    let reply: serde_json::Value = serde_json::from_str(&handle(
+        &mut p,
+        r#"{"op":"prefer","mode":{"dark-style":"dim"}}"#,
+    ))
+    .unwrap();
+    assert_eq!(reply["mode"]["dark-style"], "dim", "{reply}");
+    assert_eq!(
+        reply["media"]["prefers-color-scheme"], "light",
+        "the scheme stays"
+    );
+    let kernel = p.host().runner().kernel();
+    let page = kernel
+        .node_by_key(kernel.find_by_test_id("page")[0])
+        .unwrap();
+    assert_eq!(
+        format!(
+            "{:?}",
+            page.computed(exact_kernel::StyleId::BackgroundColor)
+        ),
+        format!(
+            "{:?}",
+            exact_kernel::RowValue::ColorValue(exact_kernel::ColorValue::Fixed(
+                exact_kernel::Color::parse("#161e27").unwrap()
+            ))
+        ),
+    );
+}
+
+/// LLP 1125 D3: a sequence's fill is a wake of the runner's own, which
+/// `clock settle` does not wait for; a jump passes through each fill, and
+/// `state.transport` says how far the hits are issued.
+#[test]
+fn clock_settle_does_not_wait_for_a_sequence_s_fill() {
+    let plan = contract::compile(
+        "shape Step\n  beat: number\n  src: string\n  gain: number\n  group: string\n  note: number\n  velocity: number\n  channel: number\n  duration: number\n  haptic: string\nshape Track\n  beats: number\n  loops: number\n  offset: number\n  output: string\n  steps: Step[]\ncomponent App\n  sequence beat mount\n    play([Track(beats=1, loops=0, offset=0, output=\"\", steps=[Step(beat=0, src=\"\", gain=1, group=\"\", note=-1, velocity=100, channel=0, duration=0.5, haptic=\"selection\")])], bpm=120)\n  view\n    text \"x\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let reply = json(handle(&mut p, r#"{"op":"clock","settle":true}"#));
+    assert_eq!(reply["settled"], serde_json::json!(true), "{reply}");
+    assert_eq!(reply["clock"], serde_json::json!(0), "{reply}");
+    let s = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(s["transport"]["issuedTo"], serde_json::json!(1000), "{s}");
+    handle(&mut p, r#"{"op":"clock","to":2000}"#);
+    let s = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(s["transport"]["issuedTo"], serde_json::json!(3000), "{s}");
+    assert_eq!(s["transport"]["state"], serde_json::json!("playing"));
+    let haptics = s["transport"]["haptics"].as_array().unwrap();
+    assert_eq!(haptics.len(), 6, "a beat every 500 ms to 3000: {s}");
+    assert_eq!(haptics[4]["state"], serde_json::json!("played"));
+}
+
+/// A date or time control's picker is held for the agent on every host
+/// (LLP 1115.001.000 D1): `type @date <value>` chooses, `tap @date clear`
+/// empties it, `tap @date cancel` leaves it, and a value not of its kind
+/// is refused before the hold is spent.
+#[test]
+fn a_date_picker_is_held_for_the_agent_and_answered_by_kind() {
+    let plan = contract::compile(
+        "component App\n  state day = \"2026-10-16\"\n  action setDay(value)\n    day = value\n  view\n    column width=300 height=300\n      input type=\"date\" value=day change=setDay testId=\"day\"\n      text day testId=\"shown\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let day = {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id("day")[0]).unwrap().id
+    };
+    let value = |p: &Presenter<()>| {
+        let k = p.host().kernel();
+        let n = k.node(day).unwrap();
+        n.props
+            .str(exact_kernel::PropId::Value)
+            .unwrap_or("")
+            .to_owned()
+    };
+    let hold = |p: &mut Presenter<()>| {
+        handle(p, &format!(r#"{{"op":"tap","id":{day}}}"#));
+        let state = json(handle(p, r#"{"op":"state"}"#));
+        let held = state["pending"][0].clone();
+        assert_eq!(held["device"]["capability"], "date", "{state}");
+        held
+    };
+    let held = hold(&mut p);
+    assert_eq!(held["device"]["args"]["value"], "2026-10-16");
+    let t = held["ticket"].as_u64().unwrap();
+    // A second press while it is held holds no second.
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{day}}}"#));
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(state["pending"].as_array().unwrap().len(), 1, "{state}");
+    let wrong = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","ticket":{t},"text":"23/10/2026"}}"#),
+    );
+    assert!(wrong.contains("such as 2026-10-23"), "{wrong}");
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"type","ticket":{t},"text":"2026-10-23"}}"#),
+    );
+    p.run_commands(|| ());
+    assert_eq!(value(&p), "2026-10-23");
+    let t = hold(&mut p)["ticket"].as_u64().unwrap();
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","ticket":{t},"choice":"cancel"}}"#),
+    );
+    assert_eq!(value(&p), "2026-10-23");
+    let t = hold(&mut p)["ticket"].as_u64().unwrap();
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","ticket":{t},"choice":"clear"}}"#),
+    );
+    p.run_commands(|| ());
+    assert_eq!(value(&p), "");
+    // A row given another item while its picker is held retires the hold.
+    hold(&mut p);
+    p.picks_renewed(&[day]);
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert!(
+        state["pending"].as_array().is_none_or(|a| a.is_empty()),
+        "{state}"
+    );
 }

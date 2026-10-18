@@ -1,0 +1,17 @@
+[package]
+name = "metronome-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Metronome's data source: none"
+publish = false
+
+[lib]
+name = "metronome_data"
+crate-type = ["rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

@@ -2,15 +2,6 @@
 //! `navigate`, the runner's own `back`, and who takes nothing; and a
 //! desktop's Back keys, whose default action it is (LLP 1115.000 D5.4).
 use super::*;
-use exact_runner::{DataError, Value};
-
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 /// A two-route app. `ROOT` is the navigation root's own attributes, `BACK`
 /// what the pushed route holds beside its text.
@@ -47,11 +38,11 @@ component App
             BACK
 "#;
 
-fn boot(root: &str, back: &str) -> Presenter<Nothing> {
+fn boot(root: &str, back: &str) -> Presenter<()> {
     let source = APP.replace("ROOT", root).replace("BACK", back);
     let (p, error) = Presenter::boot_with(
-        &contract::compile(&source).unwrap().encode(),
-        Nothing,
+        &crate::test_plan(&source),
+        (),
         (400., 800.),
         1.,
         PathBuf::new(),
@@ -62,24 +53,26 @@ fn boot(root: &str, back: &str) -> Presenter<Nothing> {
     p
 }
 
-fn id(p: &Presenter<Nothing>, name: &str) -> Option<ViewId> {
+fn id(p: &Presenter<()>, name: &str) -> Option<ViewId> {
     let kernel = p.host().kernel();
     let key = kernel.find_by_test_id(name).first().copied()?;
     Some(kernel.node_by_key(key)?.id)
 }
 
 /// Whether the pushed route is the one that shows.
-fn on_detail(p: &Presenter<Nothing>) -> bool {
+fn on_detail(p: &Presenter<()>) -> bool {
     id(p, "detail").is_some_and(|id| !p.host().route_visibility(id).0)
 }
 
-fn slot(p: &mut Presenter<Nothing>, name: &str) -> serde_json::Value {
-    let state: serde_json::Value =
-        serde_json::from_str(&crate::agent::handle(p, r#"{"op":"state"}"#)).unwrap();
-    state["slots"][name].clone()
+/// A number slot's value, read from the runner.
+fn slot(p: &Presenter<()>, name: &str) -> f64 {
+    match p.host().runner().slot(name) {
+        Some(exact_runner::Value::Number(n)) => *n,
+        other => panic!("slot {name}: {other:?}"),
+    }
 }
 
-fn open(p: &mut Presenter<Nothing>) {
+fn open(p: &mut Presenter<()>) {
     let button = id(p, "open").unwrap();
     p.dispatch_press(button, 0., false);
     assert!(on_detail(p), "the button pushed the route");
@@ -97,35 +90,24 @@ fn back_presses_the_roots_authored_control() {
     assert!(p.system_back(2.));
     assert!(!on_detail(&p), "back on the first screen");
     // The author's control took it, not the root's `navigate`.
-    assert_eq!(slot(&mut p, "pressed"), 1);
-    assert_eq!(slot(&mut p, "followed"), 0);
+    assert_eq!(slot(&p, "pressed"), 1.0);
+    assert_eq!(slot(&p, "followed"), 0.0);
     assert!(!p.system_back(3.), "and from there Back leaves the app");
 }
 
+/// A route with no control: Back goes to the location beneath through the root's `navigate`,
+/// or, with no handler on the root, by the runner's own back (the router pops, nothing pressed).
 #[test]
-fn a_route_with_no_control_goes_back_through_the_roots_navigate() {
-    let mut p = boot("navigate=follow", "text \"no control here\"");
-    assert!(!p.system_back(1.));
-    open(&mut p);
-    assert!(p.system_back(2.));
-    assert!(!on_detail(&p));
-    assert_eq!(
-        slot(&mut p, "followed"),
-        1,
-        "the location beneath, to navigate"
-    );
-    assert!(!p.system_back(3.));
-}
-
-#[test]
-fn a_root_with_no_handler_goes_back_by_the_runners_own_back() {
-    let mut p = boot("", "text \"no control here\"");
-    assert!(!p.system_back(1.));
-    open(&mut p);
-    assert!(p.system_back(2.));
-    assert!(!on_detail(&p), "the router popped");
-    assert_eq!(slot(&mut p, "pressed"), 0);
-    assert!(!p.system_back(3.));
+fn a_route_with_no_control_goes_back_by_the_roots_navigate_or_the_runners_own_back() {
+    for (root, read, expected) in [("navigate=follow", "followed", 1.0), ("", "pressed", 0.0)] {
+        let mut p = boot(root, "text \"no control here\"");
+        assert!(!p.system_back(1.), "{root:?}");
+        open(&mut p);
+        assert!(p.system_back(2.), "{root:?}");
+        assert!(!on_detail(&p), "{root:?}: back on the first screen");
+        assert_eq!(slot(&p, read), expected, "{root:?}: {read}");
+        assert!(!p.system_back(3.), "{root:?}");
+    }
 }
 
 #[test]
@@ -137,7 +119,7 @@ fn a_control_that_does_not_resolve_refuses_back_and_keeps_the_app() {
     open(&mut p);
     assert!(p.system_back(2.));
     assert!(on_detail(&p), "still on the pushed screen");
-    assert_eq!(slot(&mut p, "followed"), 0);
+    assert_eq!(slot(&p, "followed"), 0.0);
     let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
     assert!(journal.contains("system Back refused"), "{journal}");
 }
@@ -151,7 +133,7 @@ fn a_node_that_only_has_the_id_back_is_no_back_control() {
         )
         .unwrap()
         .encode(),
-        Nothing,
+        (),
         (400., 800.),
         1.,
         PathBuf::new(),
@@ -160,7 +142,7 @@ fn a_node_that_only_has_the_id_back_is_no_back_control() {
     .unwrap();
     assert!(error.is_none(), "{error:?}");
     assert!(!p.back_goes() && !p.system_back(1.));
-    assert_eq!(slot(&mut p, "pressed"), 0);
+    assert_eq!(slot(&p, "pressed"), 0.0);
     // Nor is one outside the selected route, under a root that names it.
     let mut q = boot("navigationBack=\"back\"", "text \"no control here\"");
     open(&mut q);
@@ -170,7 +152,7 @@ fn a_node_that_only_has_the_id_back_is_no_back_control() {
 
 /// A key at the device, down and up, inside the modifiers `held` (each its
 /// code and its name), as the display loop and VNC deliver them.
-fn device_key(p: &mut Presenter<Nothing>, held: &[(&str, &str)], key: &str) {
+fn device_key(p: &mut Presenter<()>, held: &[(&str, &str)], key: &str) {
     for (code, name) in held {
         p.hardware_key(code, name, true, false);
     }
@@ -184,7 +166,7 @@ const ALT: &[(&str, &str)] = &[("AltLeft", "Alt")];
 
 #[test]
 fn a_desktops_back_keys_go_back_in_the_same_order() {
-    // Nothing focused, no control, no `navigate`: the runner's own back.
+    // () focused, no control, no `navigate`: the runner's own back.
     let mut p = boot("", "text \"no control here\"");
     device_key(&mut p, ALT, "ArrowLeft"); // nowhere to go: the app stays as it is
     open(&mut p);
@@ -203,8 +185,8 @@ fn a_desktops_back_keys_go_back_in_the_same_order() {
     open(&mut p);
     device_key(&mut p, &[], "BrowserBack");
     assert!(!on_detail(&p));
-    assert_eq!(slot(&mut p, "pressed"), 1);
-    assert_eq!(slot(&mut p, "followed"), 0);
+    assert_eq!(slot(&p, "pressed"), 1.0);
+    assert_eq!(slot(&p, "followed"), 0.0);
     // A held key goes back once: its repeats pop nothing more.
     let again = "button press=open testId=\"again\"\n              text \"Again\"";
     let mut p = boot("navigate=follow", again);
@@ -216,7 +198,7 @@ fn a_desktops_back_keys_go_back_in_the_same_order() {
     p.hardware_key("ArrowLeft", "ArrowLeft", true, true);
     p.hardware_key("ArrowLeft", "ArrowLeft", false, false);
     p.hardware_key("AltLeft", "Alt", false, false);
-    assert_eq!(slot(&mut p, "followed"), 1, "one visit back, of two");
+    assert_eq!(slot(&p, "followed"), 1.0, "one visit back, of two");
 }
 
 #[test]
@@ -230,7 +212,7 @@ fn back_is_its_keys_default_action_after_the_authors() {
     assert!(on_detail(&p));
     device_key(&mut p, ALT, "ArrowLeft");
     assert!(!on_detail(&p));
-    assert_eq!(slot(&mut p, "followed"), 1);
+    assert_eq!(slot(&p, "followed"), 1.0);
     // A `key` handler at the focus that prevents the default keeps the key.
     let editor = "box key=keep tabindex=0 testId=\"editor\" width=100 height=40";
     let mut p = boot("navigate=follow", editor);
@@ -239,15 +221,15 @@ fn back_is_its_keys_default_action_after_the_authors() {
     assert_eq!(p.set_focus(Some(editor), 1.), None);
     device_key(&mut p, ALT, "ArrowLeft");
     assert!(on_detail(&p), "the editor's own Alt+Left");
-    assert_eq!(slot(&mut p, "kept"), 1);
-    assert_eq!(slot(&mut p, "followed"), 0);
+    assert_eq!(slot(&p, "kept"), 1.0);
+    assert_eq!(slot(&p, "followed"), 0.0);
     // A button that declares the chord takes it before Back, focus or none.
     let claimed = "button aria-keyshortcuts=\"Alt+ArrowLeft\" press=claim testId=\"claim\"\n              text \"Older\"";
     let mut p = boot("navigate=follow", claimed);
     open(&mut p);
     device_key(&mut p, ALT, "ArrowLeft");
     assert!(on_detail(&p), "the page's shortcut, not Back");
-    assert_eq!(slot(&mut p, "kept"), 10);
+    assert_eq!(slot(&p, "kept"), 10.0);
     // The agent's key is the same key: a drive asks for Back as a person does.
     let mut p = boot("", "text \"no control here\"");
     open(&mut p);
@@ -276,7 +258,7 @@ fn the_agents_back_is_system_back() {
         "{reply}"
     );
     assert!(!on_detail(&p), "the drive's back popped the route");
-    assert_eq!(slot(&mut p, "pressed"), 1, "by the author's control");
+    assert_eq!(slot(&p, "pressed"), 1.0, "by the author's control");
     let disabled = BUTTON.replace("press=back", "press=back disabled=true");
     let mut p = boot("navigationBack=\"back\" navigate=follow", &disabled);
     open(&mut p);

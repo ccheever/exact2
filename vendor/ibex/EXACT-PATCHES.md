@@ -3,7 +3,7 @@
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `e60b3e0570315f31710744c1187f3cec5574fedf` (2026-10-13).
+  `e742c7284a767edbfb711db3333f7610c24f99f8` (2026-10-14).
 - Source trees: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Data inputs: `scripts/icu74-filter-{root-en,en-intl}.json` and
   `third_party/wpt/urltestdata.json`.
@@ -28,6 +28,10 @@ storage declaration were unchanged. The subsequent `e60b3e0` refresh adopts
 the authenticated v5 trust table: eleven target mappings for ten assets,
 including Android aarch64. Its manifests, locks and integration seams are
 unchanged. The published bundle was consumed by the qualification below.
+The `e742c72` refresh adopts expo/ibex#1: off Apple, the portable WebSocket
+transport tunnels through the environment's proxy as fetch does
+(`transport/websocket.rs` and its tests, the only vendored inputs that changed
+since `e60b3e0`). Manifests, locks and integration seams are unchanged.
 
 For another refresh, export the four named crate trees and all three data inputs
 from the selected commit into a temporary directory. Recover the current local
@@ -187,6 +191,103 @@ queues, reconnect and account retirement. There is no Snapback asset-upload API
 in this checkout: the deterministic losing-cancellation output witness is Exact's
 native storage adapter. No new Snapback media feature or qualification is claimed.
 
+## Local patch 14, Exact's app interface: document watches and expected writes
+
+`bindings/storage.d.ts` declares `fs.watch(path, {recursive})` and the
+`options` argument of `writeFile`, `atomicWriteFile` and `appendFile`
+(`{expect: {modifiedMs, size}}`), as exact2 LLP 1069.010.000 D1 and D2a give
+them. Declarations only: no Ibex source runs either. Exact's prelude
+(`js/src/prelude.js`) records a watch as an LLP 1016.002 topic and does an
+expected write as a `stat`, a comparison and the write, queued together; the
+web glue and Exact's Rust storage do the same. Replay the declarations on a
+refresh.
+
+## Local patch, upstream-bound: a socket's buffered message count
+
+Exact's runner-owned sockets (LLP 1016.000 D7) refuse a mutation's batch
+whole when the transport could not queue it. Both transports bound their
+outbound queue at 256 messages as well as 16 MiB and, past either, close the
+connection while `send_*` returns `Ok` (WHATWG's "full"), so a caller cannot
+refuse first without the count. The patch adds
+`MessageSender::buffered_messages()` (default 0) in
+`crates/ibex2/src/stdlib/websocket.rs`, implemented by the portable
+`TcpSender` (`queued_messages`) and by `DarwinSender` through a new
+`ibex2_darwin_ws_buffered_messages` in `transport/darwin_websocket.mm`
+(`pendingMessages`, read under the socket's lock). It is additive; no
+existing behaviour changes. To go upstream to expo/ibex; replay it on a
+refresh until it is there. Consumer: `host/apple/src/executor_socket.rs`
+(`Core::socket`) and its scripted test.
+
+## Local patch, Exact's grammar: scheme-wide network grants
+
+A `net.fetch` or `net.websocket` line may name a whole scheme as a CSP scheme
+source writes it (`net.fetch http:`, `net.fetch https:`, `net.websocket ws:`,
+`net.websocket wss:`), admitting every host and port of that scheme; any other
+scheme in that form is refused. `crates/ibex2/src/grant.rs` gains
+`Grant::FetchScheme` and `Grant::WebSocketScheme`, their parse
+(`is_scheme_source`) and their admission, with a test; `stdlib/websocket.rs`'s
+admission test opens a socket under one and is refused under the other scheme.
+Exact's own grammar (`grants/src/lib.rs`) has the same change, and the shared
+corpus (`host/web/tests/fixtures/grants.json`, `grants/tests/parity.rs`) holds
+the two grammars and the web matcher to the same answers. Replay it on a
+refresh until upstream has it. Consumers: every native executor's
+`GrantSet::parse` (Apple, Linux, Windows, the render server) and the bake's
+check of a TypeScript module's grants (`js/src/lib.rs`, `Module::inspect`).
+
+## Local patch, upstream-bound: fewer allocations per descriptor read
+
+Hermes keeps every young-generation page a runtime has touched, so what
+hardening allocates between two collections stays in the app's footprint.
+The reachability guard and the intrinsic snapshot read a descriptor for
+every property of the objects they reach. Besides each record, the guard
+made a string and a second record per field it read
+(`getOwnPropertyDescriptor` on the record), and the snapshot a property name
+per field. In Exact's runtime (898 objects, 2,604 properties) the guard
+allocated 795 KB and each of the two snapshots 66 KB, nearly all of it
+garbage.
+
+`bindings/install.cc` changes only how a record's fields are read. Every
+walk still enumerates with its captured `getOwnPropertyNames` and
+`getOwnPropertySymbols` and reads every property through its captured
+`getOwnPropertyDescriptor`, so a Proxy is read through its traps as before
+and no getter or `get` trap runs (JSI and the pinned Hermes have no native
+descriptor read). The guard tests a record's own `value` with
+`Object.prototype.hasOwnProperty`, captured with its other readers when
+`install_with` builds `Reachability`, instead of making a second record,
+then reads that field, or `get` and `set`, from the record: an ordinary
+object whose fields are own data properties (FromPropertyDescriptor), so the
+read runs nothing. The guard makes its `value` key and the guard's and
+snapshot's `value`, `get` and `set` property names once, not per read.
+`bindings/harden.js` is upstream's.
+
+The guard still visits 898 objects over 3,503 edges, and `harden.js` 898
+objects, 2,488 properties past the global object, 89 of them accessors. The
+guard now allocates 449 KB and a snapshot about 40 KB. `js/src/lib.rs`
+`bootstrap_tests` holds what a bootstrap could hide: abort hooks behind a
+Proxy whose `get` trap answers undefined still refuse hardening; a payload
+behind such a Proxy, and one published under a symbol after
+`Reflect.ownKeys` was made to list only names, end frozen with everything
+else descriptors reach, by readers the fixture took before bootstrap
+(`js/tests/fixtures/harden-probe.js`). To go upstream to expo/ibex; replay it
+on a refresh until it is there.
+
+## Local patch, upstream-bound: a collection between the guard and `harden.js`
+
+`Adapter::harden` (`bindings/install.cc`) collects garbage after
+`verify_harden_preconditions()` and before it evaluates `harden.js`, when
+`install_with` published a trusted-bootstrap output (otherwise the guard is
+a no-op). The guard allocates about 447 KB and `harden.js` 444 KB, nearly all
+of it garbage, and Hermes' young generation keeps every page touched between
+two collections, so the two together set the data module's young-generation
+footprint. With the collection each reuses the other's pages: in Exact's
+template and in euxy (Release, iPhone 17 simulator, 10 s after launch) the
+young generation keeps 528 KB rather than 944, for 0.15 ms of boot. A
+collection runs no JavaScript (finalization callbacks wait for the next
+microtask drain), and the guard's temporaries are dead by then while the
+bootstrap identities it checked stay rooted in the adapter's state, so the
+graph `harden.js` freezes is the same. To go upstream to expo/ibex; replay
+it on a refresh until it is there.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.
@@ -290,13 +391,66 @@ cleared Q's code and pin adoption. Later evidence-only commits preserve Q's
 runtime and native proof attribution; their required gate receipts name their
 own clean revisions.
 
-### Remaining rollout and device boundaries
+### Windows render-host HTTP follow-up — 2026-10-14
 
-The physical iPhone fixture built and installed from Exact `32b88bbed4` with
-async enabled, but launch was refused because the device was locked. At the
-v5 check the phone could not supply trusted connectivity/power assertions.
-No Q/v5 physical-device interaction is claimed. Charlie assigned the historical
-bsky4 rollout campaign to the agent on Tuft; LLP 1120 §5 records the original
-baseline and remaining measured gate. Async remains off by default. Independent
-code review is complete, but the controlled TLS setup-stall diagnostic and Mac
-smoke do not substitute for that campaign.
+The completed follow-up at Exact
+`b195e96dc953733589e54167286da92f59725389`, with current main
+`0d2d2e28e972ae5bf603105c794b45fecc6a2b08` merged and the vendored Ibex pin
+`e60b3e0570315f31710744c1187f3cec5574fedf`, closes the current Windows
+render-host boundary without changing Q's historical receipts. Windows now
+uses a private loopback TCP wake pair with WinSock `WSAPoll`; Unix keeps its
+existing `UnixStream` and `poll` path. Pending wake state clears only after a
+byte is consumed, and wake-channel failure releases queued and held sockets.
+Both platforms retain LLP 1048.000 D10's 2-second per-socket hold, 64 KiB read
+cap, 256 held-connection cap, bounded inbox, and immediate half-close. The
+server's separate `Stopper` waits up to twice the render deadline plus
+10 seconds for render workers, then drains the closing thread's remaining
+2-second socket holds.
+
+On native Windows, the focused real loopback executor test passed, followed by
+118 unit tests, 37 integration tests, and one look test, with nine ignored and
+no failures. All six focused linger tests, all-target clippy, and caps passed.
+With `EXACT_HTTP_ASYNC` unset, the directly built Hermes-backed Weatherlight
+renderer served its generated plan over loopback: health and `/` returned 200,
+and `/` carried 100,584 bytes of rendered Weatherlight HTML. The standard web
+build's existing colour-warning gate failure remains a retained failed attempt,
+not a whole-app build pass. This run reused the authenticated v5 receipt and
+archive hashes recorded above.
+
+An independent native Linux run of the same corrected source passed 120 unit
+tests, 37 integration tests, and one look test, with nine ignored and no
+failures; all six linger tests and all-target, all-feature clippy passed. The
+source-attributed commands, hashes, superseded first implementation, retained
+failures, and app drive are recorded in the
+[closed Windows HTTP issue](../../issues/closed/20261013-exact-render-windows-http.md).
+
+### Physical-device evidence and remaining rollout boundaries
+
+Six bounded ImageIO/ImageJob cases passed on a physical iPhone 17 Pro Max running
+iOS 27.0.1 (24A446), using production codec and vendored job code from Exact
+`a01c62241440300f3644ecde83592606262c58e7`. They cover four concurrent image
+transforms, RGBA16 input, predecode refusal, cancellation, owner close, and
+cancellation after commit starts. The largest observed process resident peak
+was 195,837,952 bytes; sampled physical footprint peaked at 118,916,840 bytes.
+[LLP 1069.002](../../llp/1069.002-media-picker.rfc.md) records the fixtures,
+source hashes, retained receipts and limits. This finite workload does not prove
+a whole-app memory limit or behavior under memory pressure.
+
+The async-enabled iPhone app launched, but its control connection could not be
+established. Rebuilding the scratch fixture with the documented local-network
+permission setting reached a connection timeout. Network navigation and
+same-store restart interaction remain unqualified pending device connectivity
+and consent; the image results above do not substitute for them.
+
+The isolated arm64 Android Shelf APK also built with the authenticated v5
+bundle from Exact `a01c62241440300f3644ecde83592606262c58e7`. Its SHA-256 is
+`2dc2aa1ed32f146d77e79962ec5b6b04611e30ad7affa68c4fe4a676c66f5588`;
+it requires Android API 31 or newer. No physical Android device was
+reachable for installation and interaction in this follow-up, so this remains
+build evidence only.
+
+Charlie assigned the historical bsky4 rollout campaign to the agent on Tuft;
+LLP 1120 §5 records the original baseline and remaining measured gate. Async
+remains off by default. Independent stage-1 code review, controlled TLS
+setup-stall diagnostics, Mac smoke, and the bounded image tests do not replace
+that campaign.

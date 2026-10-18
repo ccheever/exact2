@@ -3,8 +3,8 @@ import { mobileHtmlRenderSnapshot, type HtmlRenderSnapshot, type HtmlRenderTheme
 import { mobileQueuedEditDismissKey } from './queued-edit-memory';
 import { mobileThreadForkObserveProjection, mobileThreadForkPresentation } from './thread-fork';
 // Mobile ThreadFeed/ThreadComposer at upstream365aa87982; shared transport and V2 reducers stay authoritative.
-// @ref llp/1109.000-mobile-app-layout.decision.md#shared-typescript
-// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref examples/t3-code/mobile/docs/1130.000-mobile-app-layout.decision.md#shared-typescript
+// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#mobile-adaptations
 import { mobileComposerTarget, mobileComposerTargetText } from './composer-target';
 import { mobileAnswerFilesOwner, mobileAnswerFilesRequest, mobilePrepareAnswerFiles } from './thread-answer-files';
 import { mobileClient, mobileCommand, mobileNative } from './client';

@@ -1,7 +1,69 @@
 //! World advancement and GPU frame ownership.
 use super::*;
 
+pub(super) fn retain_primes<const ASSETS: bool>(
+    render: &mut Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
+    placed: &mut crate::placed::Placements,
+    retain: bool,
+) {
+    placed.attachments.retain_primes(retain);
+    if let Some((renderer, feed)) = render {
+        feed.retain_primes(retain);
+        if let Some(skin) = &mut renderer.models.skinning {
+            skin.retain_primes(retain);
+        }
+    }
+}
+
+impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
+    for WorldSurface<G, P, ASSETS, H>
+{
+    fn default() -> Self {
+        Self {
+            sim: None,
+            pending_restore: None,
+            placed: Default::default(),
+            refusal: None,
+            presentation: P::default(),
+            hooks: H::default(),
+            hook_clock: Default::default(),
+            hook_poses: Default::default(),
+            gpu_timing: None,
+            encoded: None,
+            render: None,
+            format: None,
+            payloads: Default::default(),
+            device: false,
+            device_assets_invalidated: false,
+            storage_limit: 0,
+            perf: Perf::default(),
+            ready_work: None,
+            trace: None,
+            error: None,
+            dirty: true,
+            output_opaque: false,
+            frame_ready: false,
+            assets_dirty: false,
+            asset_check: None,
+            reported: false,
+            generation: 0,
+            seekable: true,
+            audio_requested: false,
+            hidden: false,
+            interrupted: false,
+        }
+    }
+}
+
 impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+    /// Read the simulation after a successful bind.
+    pub fn sim(&self) -> Option<&Sim<G>> {
+        self.sim.as_ref()
+    }
+    /// Read presentation diagnostics owned by this canvas's render hooks.
+    pub fn render_hooks(&self) -> &H {
+        &self.hooks
+    }
     pub(super) fn render_frame(
         &mut self,
         frame: &Frame,
@@ -11,6 +73,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
+        self.frame_ready = false;
         if !self.storage_fits(device) {
             return false;
         }
@@ -85,7 +148,14 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             self.hooks.device_lost();
             self.ready_work = None;
             self.render = Some((
-                crate::renderer::RendererWithAssets::<ASSETS>::new(device, queue, format),
+                crate::renderer::RendererWithAssets::<ASSETS>::configured(
+                    device,
+                    queue,
+                    format,
+                    G::SAMPLES,
+                    G::DEPTH_PREPASS,
+                )
+                .with_matte_models(G::MATTE_MODELS),
                 {
                     let mut feed = Feed::default();
                     feed.share_attachment_diagnostics(self.placed.attachments.diagnostics.clone());
@@ -126,6 +196,8 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                 return false;
             }
         }
+        // The dirty feed seeds histories; the final observer feed may replace it.
+        retain_primes(&mut self.render, &mut self.placed, true);
         self.perf.pixels = frame.pixels();
         self.perf.frame(frame.now_ms, frame.seekable);
         let due = sim.ticks_due(frame.now_ms, Clock::Live);
@@ -177,6 +249,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             feed.unshown_motion(sim.unshown_motion());
         }
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), (frame.width, frame.height));
+        // Every pixel the renderer stores has alpha one: each clear of the
+        // output stores one, opaque draws write one, and every blend composes
+        // alpha OVER, which keeps a destination alpha of one at one (tests
+        // `every_output_pixel_stores_alpha_one`). Hooks can write any alpha.
+        self.output_opaque = !H::ENABLED;
         self.perf.lights(input.lights.len(), input.lights_dropped);
         input.headroom = frame.headroom;
         // Armed perf adds asynchronous pass timings and per-view culling counts.
@@ -189,7 +266,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                         .hook_metrics
                         .get_or_insert_with(Default::default)
                         .engine
-                        .buffers += 2;
+                        .buffers += crate::hooks::gpu_timing::GpuTiming::BUFFERS;
                 }
             }
             if H::ENABLED {
@@ -209,6 +286,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         renderer
             .quads
             .children(&renderer.device, &renderer.queue, &self.placed);
+        let direct_frames = renderer.direct_frames;
         self.perf.stats = match renderer.encode_hooked(
             encoder,
             target,
@@ -226,10 +304,22 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             }
         };
         self.hook_poses.track(self.hooks.entities(), sim.world());
-        if !self.hooks.needs().contains(crate::Needs::PENDING) && self.hooks.error().is_none() {
-            self.ready_work
-                .get_or_insert_with(|| renderer.residency_work());
+        if !self.hooks.needs().contains(crate::Needs::PENDING)
+            && self.hooks.error().is_none()
+            && self.ready_work.is_none()
+        {
+            eprintln!(
+                "game renderer first frame encoded: {}x{} pipelines={} direct={} f16={}",
+                frame.pixels().0,
+                frame.pixels().1,
+                renderer.residency_work().pipeline_creations,
+                self.perf.stats.direct_frames > direct_frames,
+                renderer.pipelines.half
+            );
+            self.ready_work = Some(renderer.residency_work());
         }
+        self.frame_ready =
+            !self.hooks.needs().contains(crate::Needs::PENDING) && self.hooks.error().is_none();
         if let Some(start) = start {
             let ms = start.elapsed();
             self.perf.encode.push(ms);
@@ -259,10 +349,59 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             self.perf.culled_triangles = renderer.culled_triangles();
         }
         let wants = !G::paused(sim.args()) || ticks != 0;
+        retain_primes(&mut self.render, &mut self.placed, false);
         self.dirty = false;
         wants
             || self.hooks.needs().contains(crate::Needs::ANIMATE)
             || self.hooks.needs().contains(crate::Needs::PENDING)
+    }
+
+    /// A display frame the module does not render: run the ticks due by
+    /// `frame` and feed them, as the next `render_frame` would. At 256,000
+    /// moving cubes on a Pixel 5 a tick and its upload take 8 ms, so a frame
+    /// that waited for the GPU and then ran two missed its display frame too.
+    /// Only for a plain live frame with nothing pending first: a frame to
+    /// seed, assets, hooks.
+    pub(super) fn advance_frame(&mut self, frame: &Frame) {
+        if H::ENABLED
+            || self.dirty
+            || self.error.is_some()
+            || frame.seekable
+            || self.render.is_none()
+        {
+            return;
+        }
+        let Some(sim) = &mut self.sim else {
+            return;
+        };
+        if !frame.now_ms.is_finite()
+            || sim.is_loading()
+            || (ASSETS && !sim.device_assets_ready())
+            || self.generation != sim.world().presentation_generation()
+        {
+            return;
+        }
+        let due = sim.ticks_due(frame.now_ms, Clock::Live);
+        if due == 0 {
+            return;
+        }
+        sim.frame_period(frame.period_ms);
+        sim.advance_with(
+            frame.now_ms,
+            Clock::Live,
+            observer(
+                &mut self.render,
+                &mut self.placed,
+                &mut self.perf,
+                &mut self.trace,
+                &mut self.error,
+                &mut self.hook_poses,
+                true,
+                due,
+            ),
+        );
+        self.presentation
+            .sync(sim.world(), sim.generation(), !G::paused(sim.args()), false);
     }
 
     /// The module submitted the frame `render_frame` encoded: map its

@@ -64,7 +64,8 @@ extension Presenter {
     /// The buttons that declare a chord and can be pressed now.
     private var shortcutButtons: [NodeView] {
         chrome.ids("accessibilityKeyShortcuts").sorted().compactMap { views[$0] }
-            .filter { $0.isButton && $0.handlers.contains("press") && !$0.disabled && $0.accessibilityVisible }
+            .filter { $0.isButton && ($0.handlers.contains("press") || $0.isNativeButton && invocation(of: $0) != nil)
+                && !$0.disabled && $0.accessibilityVisible }
     }
     /// Whether the focus is a text field or area, whose typing a plain key is.
     private var editingText: Bool { focusedNode.map { $0.field != nil || $0.textArea != nil } ?? false }
@@ -103,6 +104,7 @@ extension Presenter {
     /// A key command's chord, pressing its button (once; a repeat is not a press).
     func performShortcut(_ command: UIKeyCommand) {
         guard let input = command.input else { return }
+        supersedePress() // a key ends a live press's handoff, as `keyDown` does
         let held = KeyCodes.held(command.modifierFlags)
         // Every input is named back to ARIA's key first, a one-character one
         // too (`"\r"` is Enter, review B2); UIKit gives Backspace and Delete

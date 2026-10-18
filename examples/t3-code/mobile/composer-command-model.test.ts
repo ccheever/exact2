@@ -1,5 +1,5 @@
 // Source365aa87982 mobile menu behavior; executable upstream comparison receipt in .context.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import { expect, test } from 'bun:test';
 import * as model from './composer-command-model';
 

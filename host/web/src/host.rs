@@ -19,12 +19,14 @@ use exact_runner::{
     Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
     RunnerError, SurfaceOutcome, Timed, Work,
 };
+use mode::mirror::Mirror;
 
 #[path = "auth.rs"]
 mod auth;
 #[path = "canvas2d.rs"]
 mod canvas2d;
 pub mod fonts;
+mod mode;
 mod scale;
 pub(crate) use fonts::{decode_plan, plan_font_catalog};
 use fonts::{font_catalog, font_faces, font_names, font_names_for_runner};
@@ -34,7 +36,7 @@ pub mod document;
 mod element;
 #[path = "template.rs"]
 pub mod template;
-use element::{css_style, host_css, in_button, props_for, svg_props, tag_for};
+use element::{css_style, css_style_named, host_css, in_button, props_for, svg_props, tag_for};
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
@@ -66,6 +68,7 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
                 id: field("id"),
                 coalesced: field("coalesced").parse().unwrap_or(0),
                 data: String::from_utf8_lossy(&body).into_owned(),
+                binary: None,
             })
         }
         5 => Outcome::Storage(body),
@@ -111,8 +114,7 @@ pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
     RuntimeIdExhausted,
-    /// The plan uses these capabilities, which this artifact doesn't link
-    /// (LLP 1047 D6).
+    /// The plan uses these capabilities, which this artifact doesn't link (LLP 1047 D6).
     Unlinked(String),
 }
 
@@ -120,17 +122,6 @@ impl std::fmt::Display for HostError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-struct Mirror {
-    props: SortedMap<String, String>,
-    css: String,
-    children: Vec<ViewId>,
-    /// Created inside a `<button>`, where a container is a `<span>`.
-    in_button: bool,
-    /// Created with handlers (a text that has some is never folded).
-    handled: bool,
 }
 
 /// What a host links that is generic over its data source (LLP 1047 D3):
@@ -279,6 +270,7 @@ impl exact_kernel::TextMeasurer for BrowserMeasures {
 /// engine's tree only if a layout is ever asked for, and links no text
 /// measurer of its own (LLP 1047 §6).
 pub(crate) fn browser_kernel() -> Kernel {
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     exact_kernel::style::wide::set_available(|wide| !wide.space.is_hdr());
     Kernel::on_demand(Box::new(BrowserMeasures))
 }
@@ -442,6 +434,7 @@ impl<D: DataSource> Host<D> {
         )
         .map_err(HostError::Runner)?;
         runner.measure_unless_production(compat, false); // LLP 1079 D1: the browser lays out
+        runner.admit_live(compat);
         Host::open(links, runner, launch, Batch::new(), Default::default())
     }
 
@@ -455,7 +448,11 @@ impl<D: DataSource> Host<D> {
         computed: document::Computed,
     ) -> Result<(Host<D>, String), HostError> {
         let mut runner = runner;
+        let _roles = runner.bind_roles(); // Its own while it opens (LLP 1121 stage 5).
         runner.set_device_links(links.device);
+        // @ref LLP 1095 D4 — the theme's reach into the host's own sheet (a
+        // new runner's page drops the last one's, glue.js).
+        batch.theme(&exact_kernel::style::roles::theme_css());
         let font_names = font_names_for_runner(&runner);
         let font_catalog = font_catalog(&font_faces(runner.plan()));
         let mut host = Host {
@@ -536,7 +533,7 @@ impl<D: DataSource> Host<D> {
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
-        batch.sound(host.runner.take_sounds(), Some(host.runner.plan()));
+        batch.timed(&mut host.runner, true);
         for w in host.runner.take_store_writes() {
             batch.store(&w);
         }
@@ -891,6 +888,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn batch_from(&mut self, mut batch: Batch, receipts: &[Timed], error: Option<&str>) -> String {
+        let _roles = self.runner.bind_roles(); // Its own, crossing (LLP 1121 stage 5).
         self.sync_runtime_font_names();
         self.emit_receipts(receipts, &mut batch);
         self.complete(batch, error.map(str::to_string))
@@ -925,7 +923,9 @@ impl<D: DataSource> Host<D> {
                         self.head_dirty = true;
                         continue;
                     }
-                    self.mirror.remove(&id);
+                    if self.mirror.remove(&id).is_some_and(|m| !m.looks.is_empty()) {
+                        batch.looks(id, "");
+                    }
                     self.layers.forget(id);
                     self.exclusions.remove(&id);
                     if let Some(drag) = self.drag {
@@ -957,16 +957,17 @@ impl<D: DataSource> Host<D> {
             // is in the page before the frames that approach it start playing.
             // Adopt this receipt's time/targets/transitions while the hold is
             // live, then cancel invalid bindings and lower dirty frames once.
-            let synced = self.springs.synchronize(
-                self.runner.kernel(),
-                std::slice::from_ref(r),
-                t.at_ms / 1000.0,
-            );
+            // Never past the host's clock: a live runner observes an input's
+            // commit at a sample after the input's time, whose gesture runs on
+            let at = t.at_ms.min(self.now_ms) / 1000.0;
+            let synced =
+                self.springs
+                    .synchronize(self.runner.kernel(), std::slice::from_ref(r), at);
             Self::emit_lowered(batch, synced);
             if let Some(drag) = self.drag {
                 (drag.receipt)(self, batch);
             }
-            self.emit_springs(batch, &[], t.at_ms / 1000.0);
+            self.emit_springs(batch, &[], at);
         }
         // Earlier receipts also read the final tree, whose children can be
         // created by a later receipt in this seek. Attach only after all creates.
@@ -1007,7 +1008,7 @@ impl<D: DataSource> Host<D> {
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
-        batch.sound(self.runner.take_sounds(), None);
+        batch.timed(&mut self.runner, false);
         // What the commit kept or forgot (LLP 1018 D1), for the page to persist.
         for w in self.runner.take_store_writes() {
             batch.store(&w);
@@ -1200,8 +1201,7 @@ impl<D: DataSource> Host<D> {
         self.springs.track_hold(serial, now_ms / 1000.0, shown)
     }
 
-    /// Release at the velocity the engine measured over the hold's values,
-    /// for input the platform gives no velocity (LLP 1057.001 §3).
+    /// Release at the engine-measured velocity when the platform supplies none (LLP 1057.001 §3).
     pub fn end_hold_measured(
         &mut self,
         serial: u64,
@@ -1359,7 +1359,7 @@ impl<D: DataSource> Host<D> {
             Some((view, ..)) if *view == id => self.computed.pop(),
             _ => None,
         };
-        let (props, css) = match kept {
+        let (mut props, css) = match kept {
             // The projection's, for this view of this tree: the same values.
             Some((_, kept, props, css)) if kept == tag => (props, self.paint_css(&node, css)),
             _ => {
@@ -1374,6 +1374,7 @@ impl<D: DataSource> Host<D> {
                 (props, self.paint_css(&node, css))
             }
         };
+        element::router_press(&mut props, self.runner.press_writes_router(id));
         let handlers: Vec<&str> = kinds
             .iter()
             .filter(|e| !matches!(e, EventKind::Reachstart | EventKind::Reachend))
@@ -1390,8 +1391,10 @@ impl<D: DataSource> Host<D> {
                 children: Vec::new(),
                 in_button,
                 handled: !kinds.is_empty(),
+                looks: String::new(),
             },
         );
+        self.emit_looks(id, batch);
         self.keys.insert(key, id);
     }
 
@@ -1417,14 +1420,14 @@ impl<D: DataSource> Host<D> {
         let node = self.runner.kernel().node(id).expect("live");
         // An exit's rules too, while its node lives (LLP 1063 D7).
         crate::css::send_keyframes(&mut self.keyframes, node.style, batch);
-        // @ref LLP 1053.000 D4 — a computed name the table lacks draws
-        // ultra-thin, and says so once.
+        // @ref LLP 1053.000 D4 — a computed name absent from the table draws ultra-thin and logs once.
         let note = node
             .props
             .str(PropId::BackgroundMaterial)
             .zip(crate::link::linked().materials)
             .and_then(|(name, material)| (material.1)(name));
         let mut props = props_for(&node);
+        element::router_press(&mut props, self.runner.press_writes_router(id));
         svg_props(self.runner.kernel(), &node, &mut props);
         let css = self.view_css(&node);
         let m = self.mirror.entry(id).or_default();
@@ -1447,6 +1450,7 @@ impl<D: DataSource> Host<D> {
             batch.style(id, &css);
             m.css = css;
         }
+        self.emit_looks(id, batch);
         if let Some(note) = note {
             self.runner.log(note);
         }
@@ -1474,8 +1478,7 @@ impl<D: DataSource> Host<D> {
         roots
     }
 
-    /// The page's `<head>`, when a commit may have moved it (LLP 1048.003
-    /// D1): the runner's active head, sent only when it changed.
+    /// Sends the runner's active `<head>` only when it changes (LLP 1048.003 D1).
     fn emit_head(&mut self, batch: &mut Batch) {
         if !std::mem::take(&mut self.head_dirty) {
             return;

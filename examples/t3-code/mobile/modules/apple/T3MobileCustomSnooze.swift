@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.004-home-projection.decision.md#custom-snooze-input
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#custom-snooze-input
 // Pinned CustomSnoozeSheet.ios: transient picker state, one native reply, no transport owner.
 import UIKit
 import SwiftUI

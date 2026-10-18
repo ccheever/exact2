@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 use ComposerCommandPopoverData, ComposerCommandColors from "./composer-command-popover.contract"
 shape ComposerRootInput
   active: bool

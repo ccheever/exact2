@@ -175,7 +175,7 @@ pub fn encode(arena: &NodeArena, root: Option<u32>, epoch: u64) -> Result<Vec<u8
         nodes.f32(row.frame.height);
         let style = arena.style(*slot);
         style.validate_domain().map_err(DecodeError::from)?;
-        style.encode_masked(style.mask, &mut styles);
+        style.encode_patch(&mut styles);
         write_props(&mut props, arena.props(*slot));
     }
     nodes.pad8();
@@ -229,6 +229,9 @@ pub struct Snapshot {
     pub styles: Vec<StyleProps>,
     /// Per-row props.
     pub props: Vec<PropList>,
+    /// The styles' wide colours, kept while it lives: it is no kernel's
+    /// (LLP 1121 stage 4).
+    kept: crate::style::wide::Keep,
 }
 
 /// The directory entry for `kind`, its bytes bounds-checked and its checksum verified.
@@ -283,6 +286,8 @@ fn finish_section(
 
 /// Decode an envelope, validating every length and checksum first.
 pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
+    // What it parses is kept from the sweep until its keep is made.
+    let _batch = crate::style::wide::Batch::open();
     let mut r = Reader::new(bytes);
     if r.bytes(4)? != MAGIC {
         return Err(DecodeError::BadMagic);
@@ -491,12 +496,18 @@ pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
     }
     finish_section(&mut pr, SECTION_PROPS, section_offset(&dir, SECTION_PROPS))?;
 
+    let kept = crate::style::wide::Keep::of(|m| {
+        for style in &styles {
+            crate::style::wide::Colors::colors(style, m);
+        }
+    });
     Ok(Snapshot {
         root_id,
         epoch,
         rows,
         styles,
         props,
+        kept,
     })
 }
 

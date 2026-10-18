@@ -1,0 +1,23 @@
+// A view-free session's frame, inline text, and width-dependent line breaks.
+component Headless
+  state suffix = "beta gamma"
+  action change
+    suffix = "delta epsilon zeta"
+  view
+    column width="100%" padding=10 gap=6 box-sizing="border-box" testId="root"
+      box width=40 height=20 press=change testId="box"
+      text font-size=16 line-height="20px" testId="label"
+        text "alpha "
+        text suffix
+      text "padded" padding=8 font-size=16 line-height="20px" testId="padded"
+      text "platform body text wraps at rem widths" width="10rem" testId="body"
+      box width="2rem" height="-exact-hairline" testId="hairline"
+      text "Hello world" width=60 font-size=16 line-clamp=1 testId="clamped"
+      text "👨‍👩‍👧‍👦 hello world" width=40 font-size=16 line-clamp=1 testId="clamped-emoji"
+      text "fox jumps over the lazy dog" width=90 font-size=16 line-clamp=1 testId="clamped-tight"
+      text "efficiency efficiency" width=60 font-size=16 line-clamp=1 testId="clamped-ligature"
+      text "The staff arrived late" width=84 font-size=16 line-clamp=1 testId="clamped-ff"
+      text "ab­cdef" width=30 font-size=16 font-family="monospace" testId="hyphen"
+      text font-size=16 testId="styled"
+        text "plain "
+        text "bold" font-weight=700 color="red"

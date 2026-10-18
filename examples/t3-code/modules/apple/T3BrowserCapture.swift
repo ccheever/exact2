@@ -2,8 +2,8 @@
 import AppKit
 import WebKit
 
-/// browser-surface part 3 (capture): a tab's artifacts, held pages, the separate preview window and downloads (X1
-/// path B). MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/desktop/src/preview/Manager.ts (`artifactSiteSlug`,
+/// Capture: a tab's artifacts, held pages, the separate preview window and downloads (#100: the clone's own
+/// WKWebView). MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/desktop/src/preview/Manager.ts (`artifactSiteSlug`,
 /// `captureScreenshot`, `saveRecording`, `resolveArtifactPath`, `revealArtifact`, `copyArtifactToClipboard`,
 /// `installDownloadHandler`, `openPictureInPicture`, `fitPictureInPictureContentSize`, the PICTURE_IN_PICTURE_* and
 /// RECORDING_ARM_GRACE_MS constants), apps/desktop/src/app/DesktopEnvironment.ts (`browserArtifactsDir`) and
@@ -12,7 +12,7 @@ import WebKit
 /// - Artifacts live where the reference keeps them, `<T3 home>/userdata/browser-artifacts`, the embedded server's own
 ///   state directory, so its Storage cleanup ("Browser artifacts", `browserArtifactsAfterDays`) prunes them. A build that
 ///   runs no local server keeps them in its data root.
-/// - Frames come from `WKWebView.takeSnapshot` (the frame-source decision of 2026-10-09: no Screen Recording permission,
+/// - Frames come from `WKWebView.takeSnapshot` (no Screen Recording permission,
 ///   the page's own pixels). A page in no window is throttled to about one frame a second, so a page a recording or the
 ///   separate window needs while no view shows it is held in an offscreen host window (T3BrowserParking), as the
 ///   reference keeps a hidden surface painting while its activity is held.
@@ -23,8 +23,8 @@ enum T3BrowserArtifacts {
     static let maxSlugLength = 80
 
     /// DesktopEnvironment `browserArtifactsDir`: the local server's `<T3 home>/userdata/browser-artifacts`, else the data root's.
-    static func directory(dataRoot: URL?, environment: [String: String] = ProcessInfo.processInfo.environment, resources: URL? = Bundle.main.resourceURL) -> URL {
-        let policy = T3LocalPolicy.resolve(env: environment, packaged: T3LocalPolicy.packaged(resources: resources), home: NSHomeDirectory(),
+    static func directory(dataRoot: URL?, environment: [String: String] = ProcessInfo.processInfo.environment, bundleInfo: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> URL {
+        let policy = T3LocalPolicy.resolve(env: environment, packaged: T3LocalPolicy.packaged(info: bundleInfo), home: NSHomeDirectory(),
                                            accountHome: String(cString: getpwuid(getuid()).pointee.pw_dir))
         if case let .allowed(home, _, _, _) = policy { return home.appendingPathComponent("userdata", isDirectory: true).appendingPathComponent("browser-artifacts", isDirectory: true) }
         return (dataRoot ?? FileManager.default.temporaryDirectory).appendingPathComponent("browser-artifacts", isDirectory: true)
@@ -440,7 +440,8 @@ extension T3BrowserSessions {
         answer(["id": id, "tabId": session.id, "path": target.path, "mimeType": mimeType, "sizeBytes": size, "createdAt": T3BrowserArtifacts.iso(now)])
     }
 
-    /// Manager.ts captureScreenshot: `browser-screenshot-<site>-<millis36>.png`, the snapshot's own pixels (capturePage's size).
+    /// Manager.ts captureScreenshot: `browser-screenshot-<site>-<millis36>-<8 hex>.png` (the first eight characters of a v4 UUID,
+    /// so two captures in one millisecond never share a file), the snapshot's own pixels (capturePage's size).
     private func screenshot(_ session: T3BrowserSession, answer: @escaping ([String: Any]) -> Void, refuse: @escaping (String, String) -> Void) {
         let url = session.web.url?.absoluteString
         var attempts = 0
@@ -453,7 +454,7 @@ extension T3BrowserSessions {
                     if attempts < 3 { return DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) { attempt() } }
                     return refuse("Screenshot", error?.localizedDescription ?? "The page could not be captured.")
                 }
-                let now = Date(), id = "browser-screenshot-\(T3BrowserArtifacts.slug(url))-\(T3BrowserArtifacts.millis36(now))"
+                let now = Date(), id = "browser-screenshot-\(T3BrowserArtifacts.slug(url))-\(T3BrowserArtifacts.millis36(now))-\(UUID().uuidString.lowercased().prefix(8))"
                 let folder = self.artifactDirectory, target = folder.appendingPathComponent("\(id).png")
                 do {
                     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

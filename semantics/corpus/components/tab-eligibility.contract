@@ -1,0 +1,54 @@
+component App
+  state dynamicRole = "tabpanel"
+  state selected = "outer-a"
+  action pick
+    selected = "outer-b"
+  view
+    column
+      column role="tabpanel"
+        text "outside" testId="outside"
+      main navigationKey=selected navigationBack="back"
+        row role="tablist"
+          button "A" role="tab" aria-controls="outer-a" aria-selected=(selected == "outer-a")
+          button "B" role="tab" aria-controls="outer-b" aria-selected=(selected == "outer-b") press=pick testId="pick"
+          button "dynamic" role="tab" aria-controls="dynamic"
+        column role="tabpanel" id="outer-a"
+          column navigationKey="outer-a"
+            column role="tabpanel"
+              text "inside a route" testId="route-panel"
+        Panel(kind="tabpanel", name="outer-b")
+          main navigationKey="inner-b" navigationBack="back"
+            row role="tablist"
+              button "inner A" role="tab" aria-controls="inner-a"
+              button "inner B" role="tab" aria-controls="inner-b" aria-selected=true
+            column role="tabpanel" id="inner-a"
+              column navigationKey="inner-a"
+                text "inner A" testId="inner-a"
+            column role="tabpanel" id="inner-b"
+              column navigationKey="inner-b"
+                text "inner B" testId="inner-b"
+          column navigationKey="outer-b"
+            text "outer B" testId="outer-b"
+        column role=dynamicRole id="dynamic"
+          text "dynamic role" testId="dynamic"
+
+component Panel
+  slot
+  props
+    kind: string
+    name: string
+  derive role = kind
+  view
+    column role=role id=name
+      children
+
+test "literal panels defer across components and fills, with the nearest navigation ancestor"
+  expect tree has "outside"
+  expect tree has "route-panel"
+  expect tree has "dynamic"
+  expect tree missing "outer-b"
+  expect tree missing "inner-b"
+  tap "pick"
+  expect tree has "outer-b"
+  expect tree has "inner-b"
+  expect tree missing "inner-a"

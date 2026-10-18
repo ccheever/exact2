@@ -344,8 +344,8 @@ paragraph; both raster and GPU painters use those same baseline positions
 `Some(0)` is explicit zero. Cosmic-text requires positive shaping pitches
 for its scrolling loop, so glyph metadata maps those internal pitches back
 to the original CSS lengths before measurement or painting. `line_clamp` is `Ellipsize::End(Lines(n))`. Alignment
-is per line. An empty text has no line box (the web; the Apple presenter
-gives one). Glyphs are rasterized by swash once per (glyph, subpixel bin,
+is per line. An empty text has no line box, as on the web and Apple.
+Glyphs are rasterized by swash once per (glyph, subpixel bin,
 color) into small premultiplied pixmaps, cached; painting is one blit per
 glyph at cosmic-text's pixel-snapped position, through the node's
 transform when it has one (a scaled node resamples its glyphs, as a

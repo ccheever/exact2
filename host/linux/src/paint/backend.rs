@@ -1,6 +1,52 @@
 //! What the paint walk draws through.
 use super::*;
 
+/// UI below a split window canvas, with storage retained for its next repaint.
+pub enum WindowLayer {
+    /// Pixels contain the complete painted layer.
+    Pixels(Pixmap),
+    /// Every pixel has this premultiplied RGBA value; storage need not contain it.
+    Solid {
+        /// Premultiplied RGBA bytes.
+        color: [u8; 4],
+        /// Allocation available for the next frame.
+        storage: Pixmap,
+    },
+}
+
+impl WindowLayer {
+    /// Materialize the layer for a CPU reader.
+    pub fn into_pixels(self) -> Pixmap {
+        match self {
+            Self::Pixels(pixels) => pixels,
+            Self::Solid { color, mut storage } => {
+                let color = tiny_skia::PremultipliedColorU8::from_rgba(
+                    color[0], color[1], color[2], color[3],
+                )
+                .expect("a window clear is premultiplied");
+                storage.pixels_mut().fill(color);
+                storage
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn storage(self) -> Pixmap {
+        match self {
+            Self::Pixels(pixels) => pixels,
+            Self::Solid { storage, .. } => storage,
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Pixels(pixels) => pixels.data(),
+            Self::Solid { color, .. } => color,
+        }
+    }
+}
+
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
@@ -52,6 +98,10 @@ pub trait Backend {
     ) -> bool {
         false
     }
+    /// Draw the glyphs `text` draws from here on through a Gaussian blur of
+    /// `sigma` points, 0 none, where the backend blurs glyphs as it draws
+    /// them (a numeric roll's, LLP 1077 D15); the rest draw them sharp.
+    fn text_blur(&mut self, _sigma: f32) {}
     /// Fill one colour's share of a border (LLP 1053 G2): region even-odd,
     /// clipped by its side (non-zero) and optional ring (even-odd).
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
@@ -71,6 +121,28 @@ pub trait Backend {
     fn surface_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4) {}
     /// Composite a 2D canvas's bitmap into `dst`, clipped (LLP 1056 D7).
     fn canvas(&mut self, _pixels: &Arc<Pixmap>, _dst: Rect4, _clips: &[Shape], _ts: Transform) {}
+    /// Split an untransformed full-window canvas from the UI, if supported.
+    /// A refusal leaves the painter unchanged.
+    fn split_window_canvas(&mut self, _dst: Rect4, _clips: &[Shape], _ts: Transform) -> bool {
+        false
+    }
+    /// Reuse storage released by the previous window picture.
+    fn recycle_window_layers(
+        &mut self,
+        _below: Pixmap,
+        _above: Option<Pixmap>,
+        _rows: Option<(u32, u32)>,
+    ) {
+    }
+    /// UI painted below the last successfully split window canvas.
+    fn take_window_underlay(&mut self) -> Option<WindowLayer> {
+        None
+    }
+    /// Device rows that may contain nontransparent overlay pixels after finish.
+    /// `None` means unknown; an empty interval means a transparent overlay.
+    fn window_overlay_rows(&self) -> Option<(u32, u32)> {
+        None
+    }
     /// A platform element (`paint/native.rs`) in `shape`; `props` is JSON.
     fn native(
         &mut self,
@@ -79,6 +151,7 @@ pub trait Backend {
         _shape: &Shape,
         _ts: Transform,
         _props: &str,
+        _direct: bool,
     ) {
     }
     /// Paint a paragraph with its top-left at `origin`.

@@ -269,6 +269,21 @@ to what the author writes.
    does.
    - A footer below the scroll keeps its padding (native-fixture's Detail route).
    - A route without `navigationScroll` gets the same rule when its last child is a scroller.
+   - **Amended 2026-10-16:** the scroller may sit deeper: the route's last in-flow child,
+     or that child's last, down through boxes that alone span their parent's bottom edge:
+     every other in-flow sibling ends above its top, as children stacked down a block or
+     a column do (the laid-out frames say so: the host is not sent the flex direction),
+     and nothing (a padding, border or margin) is under it. In a row or a grid a sibling
+     beside the scroller (a column with Save at its foot) reaches the edge too, so the
+     cover stays (Astra's review). The route's own child must reach the foot of the
+     content box its cover shortens: one sized to its content, 200 points into a
+     600-point route, keeps the cover, where UIKit's bottom inset would land far above
+     the home indicator (Grok's review). A sheet whose component's root `column` holds
+     its header and then its `scroll` reached the edge in no app, where a hand-built
+     sheet's scroll view pinned to its view's bottom does at any depth (the euxy port's
+     sheets stopped their content a home indicator's height above the sheet's foot).
+     `NavigationHost.bottomScroller`; test
+     `NavigationBasicsIOSTests.testANestedLastScrollerReachesTheBottomEdge`.
    - Test: `NavigationBasicsIOSTests.testAnInlineTitlesScrollerGoesUnderTheBar`. The list's
      `maxY` equals the view's `maxY`, and the inset equals the safe area.
 2. **A header's second text is the bar's subtitle.** `HeaderTitle.init`
@@ -460,6 +475,10 @@ Then the warning channel:
   - `type-performance-now-persisted`: a value computed from `performanceNow()` without
     `epochAtZero`, sent to a source or stored in a persisted state.
 - Each warning names its repair, as the refusals do.
+- **Later:** `lower-line-height-multiplier` (2026-10-16, the euxy port's 616-point header): a
+  literal unitless `line-height` of 4 or more, which CSS reads as that many times the font size
+  and a React Native author means as points. No app in the repository writes a multiplier above
+  2. The repair is `"28px"`.
 
 **D7. Headings take the emphasized weight of their text style.** `heading_style`
 (`contract/lower/src/tags.rs:1278`) writes weight 700 for `title1`–`title3`, and keeps 600 for

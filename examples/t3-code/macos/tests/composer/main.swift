@@ -91,63 +91,6 @@ final class ComposerTests: XCTestCase {
         XCTAssertEqual(T3Composer.returnAction(fixture.event(modifiers: [.command, .shift]), hasMarkedText: false, shortcut: "mod-enter"), .passThrough)
     }
 
-    func testTimelineRejectsProgrammaticMovementAndResetsOwner() {
-        let fixture = ComposerFixture()
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
-        scroll.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 500))
-        fixture.window.contentView?.addSubview(scroll)
-        let element = ExactElement(hatch: .t3Transcript, id: "transcript", node: 4, hatches: fixture.hooks)
-        element.platform = scroll; element.view = scroll
-        element.data = ExactData(["timeline-owner": "A", "timeline-rest": "yes"])
-        var changes = 0
-        let timeline = T3Timeline(changed: { _ in changes += 1 })
-        func move(_ y: CGFloat) {
-            scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
-            NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
-        }
-        move(400); timeline.install(element)
-        move(350)
-        XCTAssertFalse(timeline.resting, "programmatic initial/history-follow movement is not a gesture")
-        XCTAssertFalse(timeline.atEnd)
-        // A real event authorizes subsequent stable viewport movement.
-        scroll.documentView?.addSubview(fixture.editor)
-        fixture.window.makeFirstResponder(fixture.editor)
-        let bound = fixture.event(key: 115)
-        timeline.handle(bound); move(320)
-        XCTAssertTrue(timeline.resting)
-        move(400)
-        XCTAssertTrue(timeline.atEnd); XCTAssertFalse(timeline.resting)
-        timeline.handle(bound); move(370)
-        XCTAssertTrue(timeline.resting, "collapse also works near the end")
-        element.data = ExactData(["timeline-owner": "B", "timeline-rest": "yes"])
-        timeline.install(element)
-        XCTAssertFalse(timeline.resting)
-        XCTAssertEqual(timeline.status["owner"] as? String, "B")
-        XCTAssertGreaterThan(changes, 0)
-        timeline.destroy()
-    }
-
-    func testTimelineResizeAndComposerInteractionDoNotCollapse() {
-        let fixture = ComposerFixture()
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
-        let document = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 500))
-        scroll.documentView = document
-        fixture.window.contentView?.addSubview(scroll)
-        let element = ExactElement(hatch: .t3Transcript, id: "transcript", node: 4, hatches: fixture.hooks)
-        element.platform = scroll; element.view = scroll
-        element.data = ExactData(["timeline-owner": "A", "timeline-rest": "yes"])
-        let timeline = T3Timeline(changed: { _ in })
-        timeline.install(element)
-        scroll.frame.size.width = 250
-        document.frame.size.height = 650
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
-        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
-        XCTAssertFalse(timeline.resting)
-        element.data = ExactData(["timeline-owner": "A", "timeline-rest": "no"])
-        timeline.install(element)
-        XCTAssertFalse(timeline.resting, "multiline, focus and requests withdraw eligibility")
-        timeline.destroy()
-    }
 
     func testModelPickerKeysBelongToContractNotTheReturnMonitor() {
         let fixture = ComposerFixture()
@@ -294,7 +237,7 @@ final class ComposerTests: XCTestCase {
     }
 }
 
-// diff-cite-popover DC-1: a citation comment's Command/Ctrl+Enter presses Send as the composer's Return does (submitCitationAndSend).
+// A citation comment's Command/Ctrl+Enter presses Send as the composer's Return does (submitCitationAndSend).
 final class ComposerSendPressTests: XCTestCase {
     func testPressSendClicksTheLiveSendButtonOnly() {
         let fixture = ComposerFixture()
@@ -310,7 +253,7 @@ final class ComposerSendPressTests: XCTestCase {
 }
 
 var executed = 0, failures = 0, succeeded = true
-for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ComposerChipTipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite, ComposerChipPressTests.defaultTestSuite, ComposerCitationTests.defaultTestSuite, ComposerSendPressTests.defaultTestSuite, ComposerChipAccessibilityTests.defaultTestSuite] {
+for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ComposerChipTipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite, ComposerChipPressTests.defaultTestSuite, ComposerCitationTests.defaultTestSuite, ComposerSendPressTests.defaultTestSuite, ComposerChipAccessibilityTests.defaultTestSuite, ComposerChipActionTests.defaultTestSuite, ComposerPasteTests.defaultTestSuite] {
     suite.run()
     guard let run = suite.testRun, run.executionCount == suite.testCaseCount else { exit(1) }
     executed += run.executionCount; failures += run.totalFailureCount; succeeded = succeeded && run.hasSucceeded

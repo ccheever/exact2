@@ -88,7 +88,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if std::env::var("EXACT_AGENT").as_deref() != Ok("1") {
             return error("this launch is not a driver's: EXACT_AGENT is not 1");
         }
-        DRIVEN.store(true, Ordering::Relaxed);
+        // The driver's clock owns time from its first request (the timers RFC, D1)
+        if !DRIVEN.swap(true, Ordering::Relaxed) {
+            self.p.set_live_clock(None);
+        }
         match field_str(line, "op").as_deref() {
             Some("ready") => {
                 return format!(

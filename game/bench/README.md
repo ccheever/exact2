@@ -9,6 +9,11 @@ A run records the machine's load; this machine is shared, so compare runs taken 
 Each twin is given its best idiomatic effort and its best optimized one — a strawman
 twin measures nothing. Here there is one mode: you spawn entities.
 
+On an Android phone, `bun game/bench/phone.mjs <exact|webview|chrome> <n>…` runs `cubes`
+full screen at the device's pixels: Exact's native game on the Canvas reader, and the
+three.js twin (`fit=screen`) in the system WebView (`game/twins/three/android`) and in
+Chrome. Its header says how each is measured; results go to `results/phone.jsonl`.
+
 ## Current method and limits
 
 Steady frame rings exclude seekable proofs. Asset preparation, first-emitter
@@ -198,6 +203,148 @@ all times share one monotonic origin. Include `engine_version`, `interpolation`,
 
 
 ## Dated receipts
+
+### Phone — cubes on a Pixel 5, 2026-10-16
+
+`phone.mjs` on a Pixel 5 (Snapdragon 765G, Adreno 620, Android 14), charging over USB,
+60 Hz held, full screen at device pixels (Exact 1080×2340; WebView 1078×2340; Chrome
+1078×1982 under its URL bar), 4× MSAA everywhere, thermal status 0 and battery 31–34 °C
+throughout. System WebView 136 (not updated), Chrome 155. Rows in `results/phone.jsonl`.
+
+| N | Exact native | three.js instanced, WebView | instanced, Chrome | Mesh each, WebView |
+|---|---|---|---|---|
+| 1 | 59.7 | | | |
+| 500 | 22.6 | | | 59.3 |
+| 2,000 | 14.8 | 59.9 | 59.9 | 59.7 |
+| 8,000 | 8.6 | 59.9 | 59.9 | 26.0 |
+| 32,000 | 3.9 | 59.7 | 59.9 | |
+| 64,000 | | 51.8 | 52.1 | |
+
+Frames per second: gfxinfo's for Exact and the WebView (it agreed with the page's own
+rAF count to within 3 fps on every WebView run), the page's for Chrome. Old WebView and
+current Chrome are alike here. Exact's frames are bound by the GPU, not the CPU: a
+Perfetto trace at 32,000 has the `exact` thread blocked in `QueueSubmit` (~118 ms a
+frame) and the RenderThread waiting in `queueBuffer`, while simpleperf counts ~0.75 s
+of the app's CPU in 4 s (the game's `tick` and storage `Lease::drop` lead). The cost
+follows the pixels the cubes cover: one cube holds 60, a quarter-size canvas holds 60
+at 2,000, and the reader's window path (`gpubuf=0`) is no faster than its buffers
+(21 against 16 fps at 2,000). Exact's forward shading cost roughly ten times three.js's
+`MeshStandardMaterial` per covered pixel on this GPU.
+
+**Later the same day**, with the renderer's forward variants and culling order
+(`render/README.md`, "Forward variants for tiling GPUs"), the hardware-buffer
+ring's ordering (exact-gpu `buffers.rs`) and the queue's low priority (wgpu-hal
+patch 9), and Exact's canvas full screen (`viewport-fit="cover"`), its pixels
+those of the WebView's (1080 by 2340): three full orbits a size (`SECONDS=20`),
+three.js then Exact, back to back. Frames per second by gfxinfo:
+
+| N | Exact | three.js instanced, WebView (page) |
+|---|---|---|
+| 32,000 | 59.9 | 59.8 (60.0) |
+| 40,000 | 60.0 | 59.1 (59.7) |
+| 48,000 | 59.9 | 57.7 (58.8) |
+| 56,000 | 60.0 | 55.2 (56.5) |
+| 64,000 | 59.9 | 53.0 (54.7) |
+| 80,000 | 54.3 | 46.5 (48.6) |
+
+Exact holds the refresh rate to 64,000; three.js to 48,000 by its own clock. What
+mattered, in the order found: depth tested before shading (Adreno's Vulkan driver
+tested it after, shading every hidden fragment), the variants' registers, the
+direct path's bytes a sample, the camera's chunk order, and frames published in
+the order they finish with three on the GPU at most. Rendering the cull's pose
+once a frame for the vertex shader, culling on the CPU, a `SurfaceView` and
+mailbox presentation were each measured and cost more than they saved.
+
+**Memory and CPU at 60 Hz**, the same day: ten seconds of Perfetto (scheduling and
+CPU frequency) and `dumpsys meminfo` after it, each engine at each size, both at the
+refresh rate throughout. The WebView's page runs in a sandboxed renderer process of
+its own; Exact's game is one process. CPU is milliseconds of running a second
+summed over cores, and gigacycles a second (time × the core's clock: closer to
+energy). SurfaceFlinger is reported apart because each engine's frames cost it.
+
+| | WebView 2k | 32k | 64k | Exact 2k | 32k | 64k |
+|---|---|---|---|---|---|---|
+| PSS, MB (app + renderer) | 115 + 80 | 126 + 101 | 133 + 109 | 205 | 222 | 239 |
+| of it EGL (graphics) memory, MB | 40 | 40 | 40 | 160 | 160 | 160 |
+| CPU ms/s (app + renderer) | 829 | 1,035 | 1,194 | 423 | 553 | 664 |
+| Gcycles/s (app + renderer) | 0.81 | 1.36 | 1.93 | 0.33 | 0.45 | 0.61 |
+| SurfaceFlinger ms/s | 213 | 171 | 173 | 313 | 294 | 287 |
+
+Total memory is about equal; Exact's is graphics memory where the WebView's is
+JavaScript and renderer heap: the six-buffer ring at device pixels (6 × 10 MB) and
+the direct path's 4× MSAA colour and depth (about 80 MB, allocated as ordinary
+memory, QUEUE.md). Exact spends half the CPU time and a third of the cycles; its
+SurfaceFlinger time is about 100 ms/s higher, on little cores at the same cycles.
+The battery was full on USB power and the Pixel 5 has no power rails, so power was
+not measured; the GPU's clock was not readable without root.
+
+Then, at 64,000 cubes, Exact's CPU fell to 567 ms/s and 0.52 Gcycles/s (from 664 and
+0.61): a query's row guards release their lease inline (`exact_game::storage`), a
+transform page that changed at its last hash is written unhashed for its next seven
+checks (`render/src/world/upload.rs`), and changed pages are written straight into
+the queue's staging memory instead of a scratch vector first (`Feed::feed_to`).
+80,000 cubes went from 54.3 to 56.1 frames a second. GPU timestamps at 80,000 put
+the forward pass at 16.6 ms and the cull at 2.35 ms (its `test` dispatch 1.74, `scan`
+0.45, `scatter` 0.16). Of the forward pass, shading is about 5 ms (a shader returning
+the albedo takes 11.5) and the rest is vertices, rasterization and the per-tile MSAA
+clear and resolve; the sRGB encode, the radiance cube's sample, the material
+varyings and the pose's interpolation each measured at 0.5 to 1 ms. The driver
+offers no lazily allocated memory and no `VK_EXT_multisampled_render_to_single_sampled`,
+so the 4× MSAA targets take memory whatever they are flagged; a ring of five buffers
+saves 10 MB and collapses 80,000 cubes to 26 frames a second.
+
+**256,000 cubes**, the same evening: three.js in the WebView 16.9 frames a second by
+gfxinfo (14.1 by its page's own clock), Exact 26.8 before this work and 30.6
+after it (2.2 times the page's own rate, 1.8 times gfxinfo's); at 64,000, 59.8,
+and at 80,000, 57.0. GPU timestamps at 256,000 had put two thirds of the forward
+pass (27.4 ms) on cubes nothing showed, and a frame's CPU work (two 60 Hz ticks
+of 256,000 moving entities and their uploads, 20 ms) past one display frame, so
+frames never came closer than two apart. What changed:
+
+- Occlusion culling (`render/README.md`, "Occlusion"): the camera draws 42,000
+  cubes of the 140,000 in view; forward 17.2 ms, occluder pass 4.7, cull 9.1.
+  Drawn without shrinking its occluders it draws 18,000 and reaches 35.0 frames
+  a second, but drops far cubes seen through cracks narrower than its texels
+  (269 of 632,000 pixels in `effects::occlusion_leaves_a_turned_grid_as_it_was`).
+- A transform upload is written in runs of 2 MiB (`world.rs` `RUN_PAGES`): a
+  10 MB staging buffer was allocated alone each tick, its pages faulted in and
+  zeroed by the kernel (15% of the render thread) and freed after the frame (11%).
+- A turn that overran its display frame is followed at once, not at the next
+  vsync (`Owner.kt`), and a display frame the GPU holds no room for runs its
+  ticks (`Surface::advance`): 30 to 33.4 frames a second.
+- The bench's tick iterates `query().iter()`, the engine's borrowed form.
+
+Tried and left: posing each instance once in the cull for the vertex shader (the
+forward pass stayed 27 ms: its vertex work overlaps its pixels on this GPU, and
+the cull grew 3.5 ms), a compact dimensions buffer for the cull (no measurable
+change), dropping the chunk sort on occluding frames (31 to 29 frames a second),
+and reading the pyramid at 4 × 4 texels (34,000 cubes drawn, the cull 2.2 ms
+slower).
+
+### Tablet — cubes on an iPad Pro 12.9" (M1), 2026-10-16
+
+Exact's native game (`bun host/apple/build.mjs --device`, a development build:
+optimized, no LTO) against three.js in a full-screen `WKWebView`
+(`game/twins/three/ios`), both at the panel's 2732×2048 with 4× MSAA, iPadOS 27.2,
+on USB power. Frames per second are the surfaces the display showed, counted from
+Instruments' Display instrument over 6 s after 6 s of warm-up. Core Animation FPS
+undercounts Exact: its canvas's layer goes to the display directly, which that
+instrument does not see, and it reports 60 where the display showed 120.
+
+| N | Exact | three.js instanced, WKWebView |
+|---|---|---|
+| 2,000 | 118.8 | 59.8 |
+| 64,000 | 119.6 | 59.9 |
+| 128,000 | 114.1 | 48.8 |
+| 256,000 | 79.0 | 31.3 |
+| 384,000 | 60.0 | 23.1 |
+| 512,000 | 44.5 | 18.3 |
+
+Exact draws at the panel's 120 Hz; WebKit holds a page's `requestAnimationFrame` near
+60 (its private preference for full rate had no effect on iPadOS 27). At every size
+Exact shows about 2.4 times as many frames, and it holds 60 to six times the cubes.
+three.js's own page clock agreed with the display's count to within 1 fps; its
+instance matrices take 12.5 ms of JavaScript a frame at 256,000.
 
 #### Sitting #2 — landmark re-score, 2026-09-18T20-36-09-882Z
 

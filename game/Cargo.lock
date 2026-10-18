@@ -215,6 +215,8 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-runner",
+ "exact-tamber",
+ "libc",
  "serde_json",
  "sha2",
 ]
@@ -239,6 +241,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "exact-plan",
+ "exact-tamber",
  "icu_locale",
  "serde_json",
  "sha2",
@@ -253,6 +256,7 @@ name = "contract-types"
 version = "0.1.0"
 dependencies = [
  "contract-syntax",
+ "exact-num",
  "exact-plan",
  "exact-route",
 ]
@@ -493,6 +497,7 @@ name = "exact-color"
 version = "0.1.0"
 dependencies = [
  "exact-num",
+ "libm",
 ]
 
 [[package]]
@@ -584,6 +589,7 @@ dependencies = [
  "exact-gpu-reflect",
  "flate2",
  "glam 0.33.7",
+ "naga",
  "serde_json",
  "sha2",
  "wasm-bindgen",
@@ -682,12 +688,23 @@ dependencies = [
  "exact-num",
  "exact-plan",
  "exact-route",
+ "serde_json",
  "sha2",
 ]
 
 [[package]]
 name = "exact-svg-filter"
 version = "0.1.0"
+
+[[package]]
+name = "exact-tamber"
+version = "0.1.0"
+dependencies = [
+ "exact-color",
+ "exact-motion",
+ "exact-num",
+ "serde_json",
+]
 
 [[package]]
 name = "exact-textflow"

@@ -1,0 +1,20 @@
+// A ref list's scroller (BranchPicker.tsx maybeFetchNextBranchPage, paginatedBranches.ts
+// shouldLoadNextBranchPageAfterScroll; T3 Code 1e2ecbd975, MIT, see LICENSE-T3): a scroll toward
+// its end that lands within 96px of it asks for the next page (ref-paging.ts). One ask per content
+// height, as the reference's `isFetchingNextPage` holds further asks until the page has grown the list.
+component RefPageScroll
+  inject
+    refScrollEnd: action
+  props
+    name: string
+  slot
+  state previousTop = -1
+  state askedHeight = -1
+  action scrolled(left: number, top: number, e: ScrollEvent)
+    if previousTop >= 0 and e.scrollTop > previousTop and e.scrollHeight - e.scrollTop - e.clientHeight <= 96 and e.scrollHeight != askedHeight
+      askedHeight = e.scrollHeight
+      refScrollEnd(name)
+    previousTop = e.scrollTop
+  view
+    scroll max-height="14rem" width="100%" scroll=scrolled
+      children

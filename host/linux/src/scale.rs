@@ -8,6 +8,45 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
+    /// A live design batch or snapshot frame from the dev server (LLP 1121
+    /// D13, stage 4), set in place in one commit: `None` when applied or
+    /// already this build's design, else why not (`stale`: fetch the
+    /// snapshot); whether the wide colour table refused a colour, which
+    /// the presenter reports `unsupported` (LLP 1122 D4); and whether the
+    /// session's role overrides moved (LLP 1121 stage 5): what was painted
+    /// from them re-targets and is painted again.
+    pub fn apply_live(&mut self, frame: &str) -> (Option<String>, bool, bool) {
+        let Some(edit) = exact_runner::design::Edit::parse(frame) else {
+            return (
+                Some("live: not a tamber batch or snapshot".into()),
+                false,
+                false,
+            );
+        };
+        match self.runner.apply_live(&edit) {
+            Ok(applied) => {
+                // A scrub's frame shows with no transition (LLP 1121 D13).
+                let _still = edit.scrub.is_some().then(exact_kernel::motion::still);
+                let error = self.commit(
+                    &[Timed {
+                        at_ms: self.now_ms,
+                        receipt: applied.receipt,
+                    }],
+                    None,
+                );
+                if applied.roles {
+                    self.colors_changed(false);
+                }
+                (error, applied.full, applied.roles)
+            }
+            Err(exact_runner::LiveRefusal::Stale) => (Some("stale".into()), false, false),
+            Err(exact_runner::LiveRefusal::Structure) => (Some("structure".into()), false, false),
+            Err(exact_runner::LiveRefusal::Refused(why)) => {
+                (Some(format!("refused: {why}")), false, false)
+            }
+        }
+    }
+
     /// The root font size `rem` follows (LLP 1069.000 D3): a relayout in one
     /// commit, no resource asked again.
     pub fn set_root_font_size(&mut self, px: f64) -> Option<String> {
@@ -37,6 +76,22 @@ impl<D: DataSource> Host<D> {
             ),
             Ok(None) => None,
             Err(e) => Some(format!("display scale: {e:?}")),
+        }
+    }
+
+    /// App modes (LLP 1121 D5, the agent's `prefer mode`): the window's
+    /// slice set again in one commit, which paints.
+    pub fn set_modes(&mut self, pins: &[(&str, &str)]) -> Option<String> {
+        match self.runner.set_modes(pins) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => None,
+            Err(e) => Some(format!("mode: {e:?}")),
         }
     }
 }

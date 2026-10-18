@@ -79,9 +79,6 @@ component X69app
 | A list read | `showUses` set to `` `${length(querySelectorAll("[data-paint~=accent]"))} uses` ``; `bun exact.mjs contract build` | any (compiler) | main `abc1eadff`; #327 the same | `` [type-unknown-function] `querySelectorAll` is not in the stdlib roster `` | a list read that answers `["save", "row-0", "row-2"]`, so the count is 3, and `frame()` of each gives the outline | record |
 | #321's read | the same with `elementsFromPoint(0, 0)` | any | same | `` [type-unknown-function] `elementsFromPoint` … did you mean `elementFromPoint`? `` (not built; it would answer one point only) | — | record |
 
-Record (contract, app.json, commands, trees, compiler output):
-https://raw.githubusercontent.com/ccheever/exact2/d4109d63e545054c04bda13fea11338245556553/fw-issues-20261010/x69-record.txt
-
 ## Constraints
 
 - The structural reads are action-only and one-shot (`docs/contract-grammar.md:546-548`; `frame` LLP

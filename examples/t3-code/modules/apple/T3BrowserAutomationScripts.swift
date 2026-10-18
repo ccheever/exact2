@@ -2,14 +2,14 @@
 import Foundation
 import WebKit
 
-/// The page scripts of the previewAutomation host (browser-surface part 5; MIT reference, see LICENSE-T3, T3 Code
+/// The page scripts of the previewAutomation host (MIT reference, see LICENSE-T3, T3 Code
 /// 1e2ecbd975: apps/desktop/src/preview/Manager.ts `captureAutomationSnapshot`, `resolveClickPoint`,
 /// `typeIntoAutomationTarget`, `performAutomationScroll`, `performAutomationWaitFor`, the diagnostics listeners;
 /// PlaywrightInjectedRuntime.ts `playwrightInjectedRuntimeInstallExpression`). The reference runs them over CDP
 /// (`Runtime.evaluate`); WebKit runs them with `callAsyncJavaScript` in the host's own content world, which shares
 /// the page's DOM and not its globals, so a page cannot see or replace them. `preview_evaluate` alone runs in the
 /// page's world, as `Runtime.evaluate` does. Console and network diagnostics come from a page-world user script
-/// in place of CDP's Runtime, Log and Network domains (X1 path B): console calls, uncaught errors, and failed
+/// in place of CDP's Runtime, Log and Network domains: console calls, uncaught errors, and failed
 /// `fetch`, XHR and element loads; a failed subresource that is none of those has no entry, and an element's
 /// failed load has no status.
 enum T3BrowserAutomationScripts {
@@ -125,7 +125,7 @@ enum T3BrowserAutomationScripts {
     }
 
     /// A click as DOM events at a viewport point, for a page that is in no window (no native event reaches it):
-    /// the pointer and mouse sequence a press makes, the focus it moves, then `click` (untrusted, X1 path B).
+    /// the pointer and mouse sequence a press makes, the focus it moves, then `click` (untrusted).
     static func syntheticClick(x: Double, y: Double) -> String {
         """
         const x = \(x), y = \(y);
@@ -327,7 +327,7 @@ enum T3BrowserAutomationScripts {
     // MARK: Media (the host's world, at document start): Mute and the audible indicator
 
     /// WebKit has no public page mute (`_setPageMuted:` is SPI) and no audible signal (`_isPlayingAudio` is SPI):
-    /// this mutes and listens to the document's media elements (Web Audio is not covered: X1 path B). Audible as
+    /// this mutes and listens to the document's media elements (Web Audio is not covered). Audible as
     /// Chromium's tab audio state: a media element playing with sound the page asked for, muted by us or not.
     /// WebKit pauses a muted element while its page is out of the window (it cannot be heard) and plays it again
     /// when the page is shown; such an element still counts, as a muted background tab still plays in Chromium.

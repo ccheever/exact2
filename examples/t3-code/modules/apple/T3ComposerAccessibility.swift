@@ -1,18 +1,17 @@
 #if os(macOS)
 import AppKit
 
-/// composer-chips-accessibility (G1-8, G5-D4, DCP-Gv): the prompt as assistive technology reads it.
+/// The prompt as assistive technology reads it.
 ///
 /// In T3 Code (1e2ecbd975, MIT, see LICENSE-T3) the composer is a contenteditable whose chips are elements
 /// (ComposerPromptEditorTiptap.tsx's node views): Chromium serves it as an `AXTextArea` whose value holds each chip's label
-/// ("Terminal 2 lines 1-738 ", `realinput-1011c` G1-8), and whose children are the chips, each named as its node view names
+/// ("Terminal 2 lines 1-738 "), and whose children are the chips, each named as its node view names
 /// it (a PopoverTrigger is an `AXPopUpButton`). Here the chip is its hidden Markdown source in Exact's text view
 /// (T3ComposerStyler), so AppKit served the source: VoiceOver read `$frontend-design` and `[Assistant quote](t3-citation://…)`,
 /// and the chips' buttons were not elements a navigation-order reader keeps.
 ///
-/// Two parts. The chips' elements (`T3ComposerChipElement`), the text view's accessibility children in text order, each
-/// with the reference's role and name, pressable where the clone builds the press (a skill's and a terminal excerpt's
-/// details, a citation's comment). And the text (`T3ComposerAccessibleText`): the text view's accessibility text, value
+/// Two parts. The chips' elements (`T3ComposerChipElement`), in text order right after the text area, each
+/// with the reference's role and name, each pressable as its node view is. And the text (`T3ComposerAccessibleText`): the text view's accessibility text, value
 /// and ranges answered over a projection of the source where each chip reads as its label and the hidden Markdown
 /// markers are left out, every range mapped back to the source for the selection, frames and lines. The text view is
 /// Exact's (`TextArea`); the hatch cannot subclass it, so the answers are added to its class at run time, each one passing
@@ -25,8 +24,11 @@ class T3ComposerChipElement: NSAccessibilityElement {
 
     enum Part { case chip, citationLink, citationComment }
     private(set) weak var styler: T3ComposerStyler?
-    let chip: T3ComposerChip
+    /// The chip as the last refresh found it (an edit before it moves its offsets; `T3ComposerChipNames.elements`).
+    fileprivate(set) var chip: T3ComposerChip
     let part: Part
+    /// The view whose accessibility children list this element beside the text area (`T3ComposerChipOrder`).
+    weak var container: NSView?
 
     init(styler: T3ComposerStyler, view: NSTextView, chip: T3ComposerChip, part: Part, role: NSAccessibility.Role, label: String) {
         _ = T3ComposerChipElement.adopted
@@ -35,12 +37,34 @@ class T3ComposerChipElement: NSAccessibilityElement {
         self.part = part
         super.init()
         setAccessibilityRole(role)
-        // realinput-1010c-fixes RC-4: an NSAccessibilityElement reports itself disabled unless told otherwise.
+        // An NSAccessibilityElement reports itself disabled unless told otherwise.
         setAccessibilityEnabled(true)
         // Not ignored: AppKit's navigation order and the agent's walk keep only elements (`isAccessibilityElement`).
         setAccessibilityElement(true)
         setAccessibilityParent(view)
         setAccessibilityLabel(label)
+    }
+
+    /// The element that lists it: the text area's scroll view stands aside (ignored), so its parent's.
+    override func accessibilityParent() -> Any? {
+        guard let container else { return super.accessibilityParent() }
+        return NSAccessibility.unignoredAncestor(of: container) ?? super.accessibilityParent()
+    }
+
+    /// VoiceOver follows a link it pressed (VO-Space) to the link's linked elements; with none, it took the element that
+    /// appeared within about half a second of the press, the 'Scroll to end' pill as a citation's press scrolled the
+    /// timeline off its end, and the keyboard focus followed (measured; a button's press, another client's AXPress, or the
+    /// pill appearing later kept it). A citation's source link leads to itself: the reference keeps VoiceOver on it.
+    /// A thread chip (ThreadContextChip.tsx's Link) leads to the prompt. Its press opens the thread: the new thread's draft
+    /// replaces the old one in the same text view, which keeps the focus, and the chip goes with the old draft. Leading to
+    /// itself, it took VoiceOver's cursor with it to the window's first element, and nothing read the prompt. T3 Code
+    /// focuses the composer when the thread changes (ChatView.tsx:6569-6577), and its VoiceOver reads the new thread's
+    /// empty Message (measured). A focus change posted for the prompt after the switch, even a resign and refocus, is not
+    /// followed, as the focus never left it (measured).
+    override func accessibilityLinkedUIElements() -> [Any]? {
+        guard accessibilityRole() == .link else { return super.accessibilityLinkedUIElements() }
+        if part == .chip, let prompt = styler?.view { return [prompt] }
+        return [self]
     }
 
     override func accessibilityFrame() -> NSRect {
@@ -60,12 +84,45 @@ class T3ComposerChipElement: NSAccessibilityElement {
     }
 }
 
-/// A chip whose press the clone builds: ContextChipPopover's trigger (a skill, a terminal excerpt) and a citation's
-/// comment button (VO-Space, the agent's AX press).
+/// Where the text area and the chips' elements stand. The reference's prompt is a contenteditable, which Chromium serves
+/// as an `AXTextArea` with nothing around it. Exact's text area sits in its scroll view (`TextAreaScroll`), an
+/// `AXScrollArea` of its own, which VoiceOver read as "empty, scroll area" and stepped into only by interacting; so it
+/// stands aside (not an element), and the text area, then its chips, are children of the composer's enclosing element:
+/// VO-Right reads "Message, edit text", then each chip, as it reads Chromium's contenteditable chips one by one.
+/// It stands aside with no chip too, so the text area's parent never changes under VoiceOver's cursor, which lost the
+/// focused text area and went to the window's first element when the last chip went. The scroll view's children are
+/// always written whole: AppKit keeps an explicit nil as no children, which hid the text area once the last chip had gone.
+enum T3ComposerChipOrder {
+    static func expose(_ elements: [T3ComposerChipElement], beside view: NSTextView) {
+        guard let scroll = view.enclosingScrollView, scroll.documentView === view else {
+            view.setAccessibilityChildren(elements.isEmpty ? nil : elements)
+            return
+        }
+        view.setAccessibilityChildren(nil)
+        for element in elements { element.container = scroll }
+        scroll.setAccessibilityElement(false)
+        scroll.setAccessibilityChildren([view] + elements)
+    }
+
+    /// The scroll view as AppKit made it: an element holding the text area.
+    static func withdraw(beside view: NSTextView) {
+        view.setAccessibilityChildren(nil)
+        guard let scroll = view.enclosingScrollView, scroll.documentView === view else { return }
+        scroll.setAccessibilityChildren([view])
+        scroll.setAccessibilityElement(true)
+    }
+}
+
+/// A pressable chip (VO-Space, the agent's AX press): ContextChipPopover's trigger and a citation's comment button open
+/// their details as a pointer press does; a mention, a thread, a citation's source link, a pull request and an attachment
+/// do what their press does.
 final class T3ComposerChipPopupElement: T3ComposerChipElement {
+    /// The press runs after AppKit's request returns, as an `NSMenuItem`'s AXPress does: run inside it, the focus and
+    /// selection it moves made AppKit answer the request with an error (-25205) though the press landed.
     override func accessibilityPerformPress() -> Bool {
-        guard let press = styler?.press else { return false }
-        press.press(chip)
+        guard let styler else { return false }
+        let action = part == .citationLink || (part == .chip && !styler.isPopoverTrigger(chip))
+        DispatchQueue.main.async { [weak styler, chip] in styler?.press.accessibilityPress(chip, action: action) }
         return true
     }
 }
@@ -79,9 +136,9 @@ enum T3ComposerChipNames {
         let label = styler.displayLabel(chip)
         switch chip.kind {
         case "skill": return [(.chip, .popUpButton, "Skill \(label). Show details", true)]
-        case "mention": return [(.chip, .button, "Preview \(chip.detail)", false)]
+        case "mention": return [(.chip, .button, "Preview \(chip.detail)", true)]
         case "citation":
-            return [(.citationLink, .link, "View cited assistant text: \(label)", false),
+            return [(.citationLink, .link, "View cited assistant text: \(label)", true),
                     (.citationComment, .popUpButton, chip.detail == "comment" ? "Edit citation comment" : "Add comment to citation", true)]
         default: break
         }
@@ -96,27 +153,54 @@ enum T3ComposerChipNames {
         let size = styler.chipSuffix(chip)
         let sized = size.isEmpty ? label : "\(label), \(size)"
         switch kind {
-        case "thread": return [(.chip, .link, "Thread, \(label)", false)]
-        case "file": return [(.chip, .button, "File attachment, \(sized)", false)]
-        case "video": return [(.chip, .button, "Preview video attachment, \(sized)", false)]
-        case "image": return [(.chip, .button, "Image attachment, \(sized)", false)]
-        case "review-comment": return [(.chip, .popUpButton, "Review comment, \(label). Show details", false)]
-        case "preview-annotation": return [(.chip, .popUpButton, "Preview annotation, \(label). Show details", false)]
+        case "thread": return [(.chip, .link, "Thread, \(label)", true)]
+        case "file": return [(.chip, .button, "File attachment, \(sized)", true)]
+        case "video": return [(.chip, .button, "Preview video attachment, \(sized)", true)]
+        case "image": return [(.chip, .button, "Image attachment, \(sized)", true)]
+        case "review-comment": return [(.chip, .popUpButton, "Review comment, \(label). Show details", true)]
+        case "preview-annotation": return [(.chip, .popUpButton, "Preview annotation, \(label). Show details", true)]
         case "pull-request", "pr-open", "pr-draft", "pr-merged", "pr-closed":
             let state = ["pr-open": "Open", "pr-draft": "Draft", "pr-merged": "Merged", "pr-closed": "Closed"][kind]
             let kindLabel = state.map { "\($0) pull request" } ?? "Pull request"
-            return [(.chip, .button, "Open \(kindLabel) \(label): \(styler.pullRequestTitle(chip))", false)]
+            return [(.chip, .button, "Open \(kindLabel) \(label): \(styler.pullRequestTitle(chip))", true)]
         default: return [(.chip, .group, label, false)]
         }
     }
 
-    static func elements(_ styler: T3ComposerStyler, view: NSTextView) -> [T3ComposerChipElement] {
+    /// The chips' elements, reusing `previous`'s: a chip's element stays the same object while the chip stays, as an
+    /// AppKit view does, its chip, role and label updated in place. A refresh follows every edit and selection, so a
+    /// press that selects its chip refreshes, and a replaced element would leave VoiceOver's cursor on one that is gone.
+    /// An element matches its chip first exactly, then by kind, label, detail and part in text order (an edit before it
+    /// moved it).
+    static func elements(_ styler: T3ComposerStyler, view: NSTextView, reusing previous: [T3ComposerChipElement] = []) -> [T3ComposerChipElement] {
         let length = (view.string as NSString).length
-        return styler.chips.filter { $0.end <= length }.flatMap { chip in
-            parts(chip, styler: styler).map { entry -> T3ComposerChipElement in
-                entry.press ? T3ComposerChipPopupElement(styler: styler, view: view, chip: chip, part: entry.part, role: entry.role, label: entry.label)
+        let wanted = styler.chips.filter { $0.end <= length }.flatMap { chip in parts(chip, styler: styler).map { (chip: chip, entry: $0) } }
+        var pool = previous.filter { $0.styler === styler }
+        func take(_ chip: T3ComposerChip, _ part: T3ComposerChipElement.Part, press: Bool, exact: Bool) -> T3ComposerChipElement? {
+            guard let index = pool.firstIndex(where: { old in
+                old.part == part && (old is T3ComposerChipPopupElement) == press
+                    && (exact ? old.chip == chip : old.chip.kind == chip.kind && old.chip.label == chip.label && old.chip.detail == chip.detail)
+            }) else { return nil }
+            return pool.remove(at: index)
+        }
+        var found: [T3ComposerChipElement?] = wanted.map { take($0.chip, $0.entry.part, press: $0.entry.press, exact: true) }
+        for (index, want) in wanted.enumerated() where found[index] == nil {
+            found[index] = take(want.chip, want.entry.part, press: want.entry.press, exact: false)
+        }
+        return zip(wanted, found).map { want, reused in
+            let (chip, entry) = want
+            guard let element = reused else {
+                return entry.press ? T3ComposerChipPopupElement(styler: styler, view: view, chip: chip, part: entry.part, role: entry.role, label: entry.label)
                     : T3ComposerChipElement(styler: styler, view: view, chip: chip, part: entry.part, role: entry.role, label: entry.label)
             }
+            element.chip = chip
+            if element.accessibilityRole() != entry.role { element.setAccessibilityRole(entry.role) }
+            if element.accessibilityLabel() != entry.label {
+                element.setAccessibilityLabel(entry.label)
+                NSAccessibility.post(element: element, notification: .titleChanged)
+            }
+            element.setAccessibilityParent(view)
+            return element
         }
     }
 }
@@ -292,7 +376,7 @@ final class T3ComposerAccessibleText: NSObject {
     /// element as AXLink, as Chromium marks a link in an editable's text).
     func attributed(_ range: NSRange, view: NSTextView, _ p: T3ComposerAXProjection) -> NSAttributedString {
         let out = NSMutableAttributedString()
-        let links = (view.accessibilityChildren() ?? []).compactMap { $0 as? T3ComposerChipElement }.filter { $0.accessibilityRole() == .link }
+        let links = (styler?.press.accessibilityElements ?? []).filter { $0.accessibilityRole() == .link }
         for run in p.runs where run.display.length > 0 {
             let part = NSIntersectionRange(run.display, range)
             guard part.length > 0 else { continue }
@@ -384,7 +468,7 @@ enum T3ComposerAccessibleTextHooks {
         }
 
         // The typed accessors (NSAccessibility protocol), answered from the same names: what AppKit serves a client's
-        // standard attributes from (realinput-1011c's out-of-process read listed the chip buttons set as children, which
+        // standard attributes from (an out-of-process read listed the chip buttons set as children, which
         // the attribute-name path of NSTextView does not return).
         func answer(_ object: AnyObject, _ name: NSAccessibility.Attribute) -> Any?? {
             guard let (view, text, p) = projected(object) else { return .none }

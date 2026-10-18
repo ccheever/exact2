@@ -158,7 +158,7 @@ const WINDOW: Window = Window {
 
 fn boot(source: &str) -> Presenter<Nothing> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Nothing,
         (412., 840.),
         1.,
@@ -495,6 +495,7 @@ fn the_largest_font_scale_clips_neither_bar() {
         high_contrast: false,
         touch: true,
         touch_slop: 8.0,
+        dates: String::new(),
     };
     assert_eq!(p.set_device(&device), None);
     assert_eq!(p.fit_window(), None);

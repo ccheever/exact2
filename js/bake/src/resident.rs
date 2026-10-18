@@ -132,6 +132,7 @@ impl Drop for Compiler {
 
 const WORKER: &str = r#"
 import { rolldown } from 'rolldown';
+import { parseSync } from 'rolldown/utils';
 import { realpathSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -146,15 +147,13 @@ async function compile() {
   // Generated output is not a captured input. Remove it before resolution,
   // so an app's ./app.js import follows the same TS substitution as one-shot.
   rmSync(resolve(stage,'app.js'),{force:true});
-  const { configure, check, assertCapturedModule, ambientRefusals, packageImports } = await import(resolve(stage,'__exact_config.mjs'));
-  configure(stage, true);
+  const { configure, check, bundleOptions, capturedSources } = await import(resolve(stage,'__exact_config.mjs'));
+  configure(stage, true, parseSync);
   const checking=check(stage,tsc,libraries).then(()=>null,error=>error);
   let failed;
   try {
-  const bundle=await rolldown({cwd:stage,input:resolve(stage,'__exact_entry.ts'),platform:'neutral',
-    tsconfig:config,
-    plugins:[{name:'captured-sources',resolveId:packageImports(stage),load(id){assertCapturedModule(stage,id);return null;},
-      transform(code,id){const why=ambientRefusals(stage,id,code,(c,o)=>this.parse(c,o));if(why.length)throw new Error(why.join('\n'));return null;}}]});
+  const bundle=await rolldown({...bundleOptions,cwd:stage,input:resolve(stage,'__exact_entry.ts'),
+    tsconfig:config,plugins:[capturedSources(stage)]});
   try { await bundle.write({file:resolve(stage,'app.js'),format:'iife',name:'exact'}); }
   finally { await bundle.close(); }
   process.stdout.write('{"phase":"bundled"}\n');
@@ -261,5 +260,30 @@ mod tests {
         write("__exact_entry.ts", "export { word } from 'word';");
         compile_once(&stage.0, &tools).unwrap();
         assert!(resident().unwrap().contains("mapped"));
+        // Both producers inject from the immutable capture, even after a reused
+        // stage's app.ts was injected during an earlier build.
+        let source = "export const origin='http://127.0.0.1:4400'; export const grants=`net.fetch ${origin}`;";
+        write("app.ts", source);
+        write(
+            "__exact_backend_source.json",
+            &serde_json::to_string(source).unwrap(),
+        );
+        write(
+            "__exact_entry.ts",
+            "export { origin, grants } from './app';",
+        );
+        std::fs::create_dir(stage.0.join(".exact")).unwrap();
+        write(".exact/backend-origin", "http://127.0.0.1:4412");
+        assert!(resident().unwrap().contains("4412"));
+        compile_once(&stage.0, &tools).unwrap();
+        assert!(std::fs::read_to_string(stage.0.join("app.js"))
+            .unwrap()
+            .contains("4412"));
+        std::fs::remove_file(stage.0.join(".exact/backend-origin")).unwrap();
+        assert!(resident().unwrap().contains("4400"));
+        compile_once(&stage.0, &tools).unwrap();
+        assert!(std::fs::read_to_string(stage.0.join("app.js"))
+            .unwrap()
+            .contains("4400"));
     }
 }

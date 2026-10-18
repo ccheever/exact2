@@ -1,4 +1,4 @@
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // Native header search on wide/olderOS; compact iOS26 toolbar occupies only its band.
 shape ArchiveChromeSnapshot
   routeKey: string

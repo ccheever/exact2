@@ -1,20 +1,11 @@
 //! The window a shell shows the page in (LLP 1115.001 D3.3, D3.6): what the
 //! presenter makes of the raw insets, and the colour behind the page.
 use super::*;
-use exact_runner::{DataError, Value};
 
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
-
-fn boot(source: &str) -> Presenter<Nothing> {
+fn boot(source: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
-        Nothing,
+        &crate::test_plan(source),
+        (),
         (400., 800.),
         1.,
         PathBuf::new(),
@@ -36,7 +27,7 @@ fn phone() -> Window {
     }
 }
 
-fn frame_of(p: &Presenter<Nothing>, name: &str) -> (f32, f32, f32, f32) {
+fn frame_of(p: &Presenter<()>, name: &str) -> (f32, f32, f32, f32) {
     let kernel = p.host().kernel();
     let f = kernel
         .node_by_key(kernel.find_by_test_id(name)[0])
@@ -45,7 +36,7 @@ fn frame_of(p: &Presenter<Nothing>, name: &str) -> (f32, f32, f32, f32) {
     (f.x, f.y, f.width, f.height)
 }
 
-fn env(p: &mut Presenter<Nothing>) -> serde_json::Value {
+fn env(p: &mut Presenter<()>) -> serde_json::Value {
     let layout: serde_json::Value = serde_json::from_str(&p.layout_json(None, false)).unwrap();
     layout["env"].clone()
 }
@@ -64,7 +55,7 @@ fn a_page_that_does_not_ask_for_the_edges_is_laid_out_inside_them() {
     // The bars and the cutout, whichever reaches further: 30 above, 16 below.
     assert_eq!(p.chrome().frame, [0., 30., 400., 754.]);
     assert_eq!(frame_of(&p, "root"), (0., 0., 400., 754.));
-    // Nothing is applied twice: the page's own `env()` padding is zero here.
+    // () is applied twice: the page's own `env()` padding is zero here.
     assert_eq!(frame_of(&p, "fill"), (0., 0., 400., 754.));
     let env = env(&mut p);
     assert_eq!(env["safe-area-inset-top"], 0);
@@ -152,7 +143,7 @@ fn the_field_being_edited_stays_above_the_keyboard() {
         "component App\n  view\n    main testId=\"root\" width=\"100%\" height=\"100%\" viewport-fit=\"cover\" display=\"flex\" flex-direction=\"column\"\n      scroll testId=\"port\" flex=1 width=\"100%\"\n        column\n{rows}        input testId=\"note\" width=200 height=40\n"
     ));
     assert!(p.set_window(phone()).is_none());
-    let id = |p: &Presenter<Nothing>, name: &str| {
+    let id = |p: &Presenter<()>, name: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
     };
@@ -192,7 +183,7 @@ fn under_a_shown_picture_the_field_rises_with_the_paint_after_the_keyboard() {
         "component App\n  view\n    main testId=\"root\" width=\"100%\" height=\"100%\" viewport-fit=\"cover\" display=\"flex\" flex-direction=\"column\"\n      scroll testId=\"port\" flex=1 width=\"100%\"\n        column\n{rows}        input testId=\"note\" width=200 height=40\n"
     ));
     assert!(p.set_window(phone()).is_none());
-    let shown = |p: &mut Presenter<Nothing>| {
+    let shown = |p: &mut Presenter<()>| {
         let frame = p.display_frame().expect("a frame");
         assert!(p.display_complete(&frame));
     };
@@ -232,7 +223,12 @@ fn the_colour_behind_the_page_is_the_roots_or_the_platforms_surface() {
     let mut q = boot(&page(""));
     assert_eq!(q.chrome().background, [255; 4]);
     q.set_system_scheme(true);
-    assert_eq!(q.chrome().background, crate::paint::page_color(true));
+    // The platform's, read under no session's roles (two live here).
+    let platform = {
+        let _none = exact_kernel::style::roles::bind(&Default::default());
+        crate::paint::page_color(true)
+    };
+    assert_eq!(q.chrome().background, platform);
     assert_ne!(q.chrome().background, [255; 4]);
     assert!(q.chrome().dark);
     // The app's own scheme decides what the bars' icons are drawn over.
@@ -245,7 +241,7 @@ fn the_colour_behind_the_page_is_the_roots_or_the_platforms_surface() {
 fn an_unset_background_is_painted_in_the_schemes_surface() {
     let mut p =
         boot("component App\n  view\n    column width=100 height=100\n      text \"hello\"\n");
-    let corner = |p: &mut Presenter<Nothing>| {
+    let corner = |p: &mut Presenter<()>| {
         let c = p.frame().pixel(399, 799).unwrap().demultiply();
         [c.red(), c.green(), c.blue(), c.alpha()]
     };
@@ -282,7 +278,7 @@ const SWIPE_ROW: &str = r#"component App
 
 /// A swipe of 100 points to the right along the row, from `x`: how many
 /// times its `swiperight` has fired after it.
-fn swiped(p: &mut Presenter<Nothing>, x: f32, at: f64) -> String {
+fn swiped(p: &mut Presenter<()>, x: f32, at: f64) -> String {
     let _ = p.pointer_down(x, 40., at).unwrap();
     for step in 1..=10 {
         let _ = p.pointer_move(x + 10. * step as f32, 40., at + step as f64 * 10.);

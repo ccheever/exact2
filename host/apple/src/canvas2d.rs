@@ -26,13 +26,17 @@ fn scale() -> f64 {
 }
 
 impl<D: DataSource> Host<D> {
-    /// The limits for this device: WebKit's iOS area on iOS, a quarter of
+    /// The limits for this device: WebKit's iOS area on iOS, tvOS and watchOS, a quarter of
     /// physical memory everywhere (LLP 1056 D4, r3).
     pub(crate) fn canvas_limits(&mut self) {
         let memory = MEMORY.load(Ordering::Relaxed);
         self.runner.set_canvas_limits(exact_runner::Limits::native(
             memory,
-            cfg!(any(target_os = "ios", target_os = "tvos")),
+            cfg!(any(
+                target_os = "ios",
+                target_os = "tvos",
+                target_os = "watchos"
+            )),
         ));
     }
 
@@ -48,8 +52,18 @@ impl<D: DataSource> Host<D> {
             return;
         }
         self.runner.layout_canvases(scale());
-        let held = &self.canvas_held;
-        batch.canvas_owed(self.runner.canvas_owed(&|v| !held.contains(&v)));
+        self.canvas_owed_onto(batch);
+    }
+
+    /// Where draws are deferred, whether one is owed now, on every batch:
+    /// the presenter takes the last batch's word for it, and a turn that
+    /// ran no canvas work (a list's report inside its window, a draw's own
+    /// turn, a tick) must not say "none" while a new canvas waits.
+    pub(crate) fn canvas_owed_onto(&self, batch: &mut Batch) {
+        if self.canvas_deferred {
+            let held = &self.canvas_held;
+            batch.canvas_owed(self.runner.canvas_owed(&|v| !held.contains(&v)));
+        }
     }
 
     /// Where draws are deferred, a turn of canvas work alone: geometry, due

@@ -1,4 +1,4 @@
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 import { applyShell, initialShell, obj, threadSnapshot, type Obj, type Shell, type ThreadState } from './shared/domain';
 import { applyConfig } from './shared/protocol';
 

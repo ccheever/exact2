@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#failure-work-row-copy-and-selection
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#failure-work-row-copy-and-selection
 // Pinned365aa87982 ThreadWorkLogRow's prominent provider/usage failure branch.
 #if os(iOS)
 import UIKit

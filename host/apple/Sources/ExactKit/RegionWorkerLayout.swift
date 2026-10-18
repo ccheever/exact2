@@ -227,13 +227,6 @@ final class RegionWorkerLayout {
             lineCount += 1
             start += count
         }
-        if lineCount == 0 {
-            // Empty editors retain the paragraph's own line box.
-            baselines.append(minimum.0)
-            lastBaseline = minimum.0
-            y = minimum.0 + minimum.1
-            explicit = source.strutExplicit
-        }
         // An authored line height keeps its fractions; `normal` rounds up once
         // (CSSLineBox); a width rounds up to the 1/64 layout unit.
         // Check before metadata and at its coarse line boundaries. No partial
@@ -241,7 +234,7 @@ final class RegionWorkerLayout {
         try beforeMetadata()
         maxWidth = max(maxWidth, greedyWidest)
         var height = explicit ? y : ceil(y)
-        // CSS `text-box`, cut as `TextEngine.trimTextBox` cuts any paragraph, which an empty editor's line box is not
+        // CSS `text-box`, cut as `TextEngine.trimTextBox` cuts a paragraph with lines.
         if source.textBox.trim != 0, lineCount > 0, let root = source.strut?.value, let first = baselines.first {
             let cut = TextEngine.textBoxTrim(source.textBox, root: root, first: first, last: lastBaseline, height: height)
             TextEngine.trimLines(cut, baselines: &baselines, lineBottoms: &lineBottoms, height: &height)

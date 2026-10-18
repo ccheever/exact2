@@ -126,6 +126,10 @@ pub struct FieldChromeRequest {
     /// iOS the cell is the field, so it has no border of its own; a host
     /// whose field is the same anywhere answers as for any other.
     pub cell: bool,
+    /// The field has a `placeholder`. Where a platform floats it above the
+    /// text as the field's label (Android's filled field, LLP 1115.001.000
+    /// D6), the text sits lower; a host that does not answers as for any other.
+    pub labelled: bool,
 }
 
 /// Chrome in logical pixels, outside authored content, padding and borders.
@@ -180,6 +184,9 @@ pub enum ButtonImagePlacement {
 /// own answer on Apple, not an instruction to write the computed initial.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ButtonFaceStyle {
+    /// Root font size for an admitted Neutral narrow tab. Host-only geometry
+    /// context shared by measurement and paint, not an authored style row.
+    pub neutral_tab_root: Option<f32>,
     /// Title typography; its own rows win over the button's.
     pub title: crate::StyleProps,
     /// Subtitle typography, resolved independently in the same way.

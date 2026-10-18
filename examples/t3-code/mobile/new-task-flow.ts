@@ -10,7 +10,7 @@ import { mobileNewTaskPendingContext } from './new-task-pending-context';
 import type { MobilePendingTaskEditorResult } from './mobile-pending-task-editor';
 import type { MobileDraftClient } from './mobile-draft-recovery';
 // Mobile365aa87982 NewTaskFlowProvider, NewTaskDraftRouteScreen and DraftScreen.
-// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileNewTaskSubmit } from './new-task-submit';
 import { mobileNewTaskTransferRecoveryRead, mobileNewTaskTransferRecoveryAction, mobileNewTaskTransferRecoveryPresentation,
   type MobileNewTaskTransferRecoveryView } from './mobile-new-task-transfer-recovery';

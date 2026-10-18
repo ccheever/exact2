@@ -179,15 +179,16 @@ describe('mobile thread selection error ownership', () => {
 describe('pinned shared sources', () => {
   test('every TS copy matches its immutable pin apart from explicit mobile adaptations', () => {
     const directory = new URL('./shared/', import.meta.url).pathname;
+    const generated = new Set(['r12-render-grammar.ts', 'r12-render-grammar-more.ts', 'r7-polish-css-words.ts', 'settings-b-lucide.ts']);
     const names: string[] = [];
     function visit(dir: string) {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (entry.isDirectory()) visit(join(dir, entry.name));
-        else if (entry.name.endsWith('.ts')) names.push(relative(directory, join(dir, entry.name)));
+        else if (entry.name.endsWith('.ts') && !generated.has(relative(directory, join(dir, entry.name)))) names.push(relative(directory, join(dir, entry.name)));
       }
     }
     visit(directory);
-    expect(names.length).toBe(298);
+    expect(names.length).toBe(294);
     const copies = names.map(name => {
       const local = readFileSync(join(directory, name), 'utf8').split('\n');
       expect(local[0]).toContain('GAP 001');
@@ -234,7 +235,7 @@ describe('pinned shared sources', () => {
         .replace('  latestLocalTurnOrdinal: number | null;\n}', '  latestLocalTurnOrdinal: number | null;\n  /** Absent on a fresh snapshot. Live events preserve successful load-earlier growth. */\n  historyExpanded?: true;\n}')
         .replace('    ...state, historyCursor, hasMore,', '    ...state, historyCursor, hasMore, historyExpanded: true,');
       if (name === 'protocol.ts') expected = '// Mobile: release the fully assembled native value and fragment references before JSON decoding.\n'
-        + '// @ref llp/1109.003-pairing-and-transport.decision.md#complete-transfer-decoding-2026-10-10\n' + expected
+        + '// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#complete-transfer-decoding-2026-10-10\n' + expected
           .replace('  const fragments: string[] = [];', "  const fragments: string[] = [];\n  let text = '';")
           .replace("    return { ...response, value: JSON.parse(fragments.join('')) as unknown };", "    text = fragments.join('');")
           .replace("  } finally {\n    await native.later({ op: 'releaseChunk', id, generation }).catch(() => {});\n  }",
@@ -320,7 +321,7 @@ describe('pinned shared sources', () => {
         const method = /^  private ownedNative\([^\n]*\n[\s\S]*?^  }\n/m;
         const pinnedGuard = expected.match(method)?.[0]; expect(pinnedGuard).toBeDefined();
         actual = actual.replace('// Mobile history ownership: invocation-local tokens and captured transfer cleanup.\n', '')
-          .replace('// @ref llp/1109.003-pairing-and-transport.decision.md#stable-history-reader-and-thread-ownership\n', '')
+          .replace('// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#stable-history-reader-and-thread-ownership\n', '')
           .replace(/^  \/\/ Mobile history ownership begin:[^\n]*\n[\s\S]*?^  \/\/ Mobile history ownership end\.\n/gm, '')
           .replace(method, pinnedGuard!)
           .replace('  private async readThread(', '  async openThread(')

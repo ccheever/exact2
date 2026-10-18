@@ -9,8 +9,47 @@
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Whether a runner booted now counts its plan sites' work for `perf` from
+/// boot (LLP 1079 D1): until a release build says it counts from the first
+/// ask instead, and again once something has asked.
+static WORK_FROM_BOOT: AtomicBool = AtomicBool::new(true);
+
+/// A release build's choice (`exact_measure_work_later`): runners booted
+/// from now count their work from the first ask (`Bridge::measure_work`).
+pub fn measure_work_later() {
+    WORK_FROM_BOOT.store(false, Ordering::Relaxed);
+}
+
+/// A runner just booted counts its work from now, or from the first ask.
+pub fn measure_at_boot<D: DataSource>(runner: &mut exact_runner::Runner<D>, compat: Option<&str>) {
+    if WORK_FROM_BOOT.load(Ordering::Relaxed) {
+        runner.measure_unless_production(compat, true);
+    } else {
+        runner.measure_later(compat);
+    }
+}
+
+/// The alert shape (LLP 1115 D6), the kernel's rule
+/// (`exact_kernel::confirmation`), for the presenter's Swift
+/// (`ConfirmationShape.isAlert`): lowering, this host and the Linux one read one rule.
+pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
+    exact_kernel::confirmation::is_alert(texts as usize, actions as usize, cancels as usize)
+}
 
 impl<D: DataSource> Bridge<D> {
+    /// The first ask for `perf` (`exact_measure_work`): this runtime counts
+    /// its plan sites' work from now, where its bake counts any, and every
+    /// runtime booted after counts from boot.
+    pub fn measure_work(&mut self) -> u32 {
+        WORK_FROM_BOOT.store(true, Ordering::Relaxed);
+        if let Some(host) = self.host.as_mut() {
+            host.runner_mut().measure_from_now(self.compat, true);
+        }
+        0
+    }
+
     /// Register the presenter's inline geometry, kept across plan replacements.
     pub fn set_inline_geometry(
         &mut self,
@@ -67,10 +106,11 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// `exact_top_layer`: the presenter's currently open popovers and dialogs.
-    pub fn top_layer(&mut self, frames: &[(u32, [f64; 4])]) {
+    /// `exact_top_layer`: the presenter's open top-layer boxes, and where
+    /// the frontmost modal presentation begins among them.
+    pub fn top_layer(&mut self, frames: &[(u32, [f64; 4])], modal: Option<usize>) {
         if let Some(h) = self.host.as_mut() {
-            h.runner_mut().top_layer_frames(frames);
+            h.runner_mut().top_layer_frames(frames, modal);
         }
     }
 
@@ -90,6 +130,8 @@ impl<D: DataSource> Bridge<D> {
             host.set_canvas_text(f, hooks.ctx);
         }
         host.set_canvas_deferred(self.canvas_deferred);
+        host.runner_mut()
+            .set_live_clock(self.live_clock.map(super::preferences::sampler));
     }
 
     /// Canvas draws in a turn of their own from now on, or in every turn
@@ -346,7 +388,7 @@ impl<D: DataSource> Bridge<D> {
     /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
     /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol","title",
-    /// "secondary","subtitle","accessory","target","pressable",
+    /// "secondary","subtitle","accessory","target","pressable","action",
     /// "checked","destructive","disabled","titleLook","secondaryLook"}]}],"spaceBelow"}`,
     /// `null` for a node that is not one. A look is `{"lines","ellipsis",
     /// "color","font"}`: a colour row's wire form and `{"size","weight",
@@ -428,10 +470,11 @@ impl<D: DataSource> Bridge<D> {
                             Accessory::Radio(id, on) => ("radio", Some(id), on),
                         };
                         json.push_str(&format!(
-                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"checked\":{checked},\"pressable\":{},\"destructive\":{},\"disabled\":{}",
+                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"checked\":{checked},\"pressable\":{},\"action\":{},\"destructive\":{},\"disabled\":{}",
                             r.subtitle,
                             target.map_or("null".into(), |t| t.to_string()),
                             r.pressable,
+                            r.action,
                             r.destructive,
                             r.disabled
                         ));

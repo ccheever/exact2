@@ -224,9 +224,30 @@ impl SourceMap {
                 quote(&mut out, row.name());
                 out.extend_from_slice(b",\"origin\":");
                 quote(&mut out, &origin.label());
+                // A state part's row: its state and where it is written (LLP 1121 D8).
+                if let contract_lower::Origin::State { state, span, .. } = origin {
+                    out.extend_from_slice(b",\"state\":");
+                    quote(&mut out, state);
+                    out.extend_from_slice(b",\"at\":{");
+                    self.at(&mut out, *span);
+                    out.push(b'}');
+                }
                 out.push(b'}');
             }
             out.extend_from_slice(b"]}");
+        }
+        // Each source as compiled (LLP 1122 D5): a reader checks a file it
+        // joins against its digest, and fails closed on one that moved.
+        out.extend_from_slice(b"],\"sources\":[");
+        for (i, (path, digest)) in self.sources.digested().enumerate() {
+            if i != 0 {
+                out.push(b',');
+            }
+            out.extend_from_slice(b"{\"file\":");
+            quote(&mut out, &path.to_string_lossy());
+            out.extend_from_slice(b",\"sha256\":");
+            quote(&mut out, digest);
+            out.push(b'}');
         }
         out.extend_from_slice(b"],\"slots\":");
         self.declarations(&mut out, &self.sites.slots);

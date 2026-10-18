@@ -1,8 +1,8 @@
 use ProviderIcon from "./provider-icon.contract"
 use ProjectFavicon, ProjectFaviconTarget from "./project-favicon.contract"
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // Upstream 365aa87982 HomeScreen, thread-list-v2-items, EmptyState (screen pane).
-// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
 use HomeMenu, HomeMenuItem from "./home-menu.contract"
 use HomeSwipeControls, HomeSwipeMenu, homeSwipeField, homeSwipeNumber, homeSwipeFinite, homeSwipeInteger from "./home-swipe.contract"
 

@@ -44,7 +44,7 @@ func runPermissionHelperChecks() {
     expect(seen == [.absent, .window(main, frontmost: true)], "a new Settings window is reported within a second")
     reading = .window(main.offsetBy(dx: 40, dy: 0), frontmost: true); spin(0.6)
     expect(seen.count == 3, "a frontmost Settings window is polled every 0.5 s")
-    // realinput-1010e-followups RE-2: the reference polls in its own process, so a drag from the helper (AppKit's
+    // The reference polls in its own process, so a drag from the helper (AppKit's
     // event-tracking loop) or an open menu never holds a reading back; the watcher's timer runs in the common modes.
     reading = .window(main, frontmost: false)
     RunLoop.main.run(mode: .eventTracking, before: Date().addingTimeInterval(0.6))
@@ -77,10 +77,10 @@ func runPermissionHelperChecks() {
     guard let panel = helper.panel else { fatalError("helper panel opens") }
     expect(!panel.isVisible, "the panel waits for the Settings window before it shows")
     expect(panel.title == "Set up Screen Recording" && panel.level == .floating && !panel.hidesOnDeactivate && !panel.hasShadow && !panel.isOpaque, "a frameless, always-on-top panel titled for its permission")
-    // realinput-1010c RC-1: the panel is an activating window, as the reference's ordinary BrowserWindow is, so a click
+    // The panel is an activating window, as the reference's ordinary BrowserWindow is, so a click
     // in it activates T3 Code; the non-activating panel left T3 Code inactive and its reveal behind System Settings.
     expect(!panel.styleMask.contains(.nonactivatingPanel), "a click in the panel activates T3 Code (no .nonactivatingPanel), as the reference's window is activating")
-    // realinput-1010e-followups RE-1: the click that activates T3 Code also reaches the row and the close button, as in the
+    // The click that activates T3 Code also reaches the row and the close button, as in the
     // reference: its always-on-top page view accepts the first mouse (Chromium's kAlways above the normal window level;
     // asked inside the reference's Electron 44.4.2: true, and false for the same window at the normal level).
     expect(panel.canBecomeKey && !panel.canBecomeMain && panel.level == .floating && panel.content.appRow.acceptsFirstMouse(for: nil) && panel.content.closeButton.acceptsFirstMouse(for: nil),
@@ -130,7 +130,7 @@ func runPermissionHelperChecks() {
     expect(revealed == [bundle] && !row.grabbing, "a click on the T3 Code row reveals the running app bundle in Finder")
     expect(content.appRow.accessibilityPerformPress() && revealed == [bundle, bundle], "VoiceOver's press on the row reveals it too")
     expect(helper.panel === panel, "revealing in Finder keeps the helper open")
-    // The reveal (RI-2, RC-1): asked by the active app, as the reference's shell.showItemInFolder after its window's
+    // The reveal: asked by the active app, as the reference's shell.showItemInFolder after its window's
     // click. T3 Code yields activation to Finder, asks for the reveal, then asks Finder to activate; it asks to activate
     // itself only when no click activated it (a VoiceOver press). Finder coming front is a real-input batch row.
     for active in [true, false] {

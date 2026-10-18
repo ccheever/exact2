@@ -1,4 +1,4 @@
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { EnvironmentFleet } from './shared/settings-b-fleet';

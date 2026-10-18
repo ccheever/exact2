@@ -1,5 +1,5 @@
 // Pinned365aa87982 commands.ts persistAttachments/startThreadTurn and ws.ts362.
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 import { arr, obj, str, type Obj } from './shared/domain';
 import type { MobileOutboxWireOwner, MobileOutboxWireRequest, MobileOutboxWireResult } from './mobile-outbox-wire';
 

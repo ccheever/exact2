@@ -17,6 +17,9 @@ mod visual;
 /// the driver sets, so every number in these tests is the same on a Mac and
 /// on a builder. Set once, before the first engine is made; the environment
 /// is process-wide and every test in this binary wants the same values.
+/// Every test that makes an engine calls it first: the process reads its
+/// installed fonts once, at its first engine, so one test that boots
+/// unpinned leaves the tests that start after it without the font.
 fn pin_font() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
@@ -29,4 +32,11 @@ fn pin_font() {
         );
         std::env::set_var("EXACT_FONT", "DejaVu Sans");
     });
+}
+
+/// Caltrain's plan, compiled and baked once for the binary: its boots each make their own
+/// presenter, data source and images from the same bytes.
+fn caltrain_plan() -> &'static [u8] {
+    static PLAN: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    PLAN.get_or_init(|| caltrain::build().unwrap().encode())
 }

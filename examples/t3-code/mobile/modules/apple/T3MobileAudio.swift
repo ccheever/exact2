@@ -1,6 +1,6 @@
 #if os(iOS)
 // AudioFilePreview365aa87982. AVPlayer replaces expo-audio; Contract owns controls.
-// @ref llp/1109.005-composer-and-transcript.decision.md#media-presentation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#media-presentation
 import AVFoundation
 import UIKit
 

@@ -15,6 +15,8 @@ game/.shells/
 
 # Declarations the dev producer writes beside each app.ts for an editor.
 apps/*/app.contract.d.ts
+# The design server's lock and journal (contract tamber serve, LLP 1121 D13).
+apps/*/.exact/
 
 # What the Messages app's bake wrote before its rewrite (87997f0d), and the
 # removed Snapback-backed Messages Legacy app's generated files: a checkout
@@ -41,3 +43,15 @@ game/bench/results/*.json.gz
 
 # Expose: the OpenRouter key a developer bakes into their own build (build.rs writes it).
 apps/expose/local.ts
+# SwiftPM's scratch directory, which a `swift build` with an empty
+# `--scratch-path` writes into the repository root (c2457b87d removed one).
+/out/
+/.buildSystem_debug
+/.lock
+/CACHEDIR.TAG
+/debug
+/manifest.pif
+/workspace-state.json
+
+# Lead agent notes dropped into worktrees; never commit them
+/LEAD-URGENT.md

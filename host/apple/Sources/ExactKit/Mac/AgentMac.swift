@@ -66,11 +66,15 @@ extension Agent {
     /// not return before), so there is nothing to wait for (the iOS host's
     /// `awaitModalTransitions`).
     @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool { true }
+    @discardableResult func awaitChosenPress(bound: TimeInterval = 2) -> Bool { true }
 
-    /// AppKit animates nothing here that a seek does not move, but for a
-    /// list's smooth correction under platform timing, the clip view's
-    /// animator (LLP 1070.000 §11): the fixed point is where it lands.
-    func nativeInFlight() -> Bool { !presenter.collections.animating.isEmpty || presenter.views.values.contains(where: { $0.scrollEnd?.elementAnimation != nil }) || session.natives.activationQueued || presenter.launchAutofocusPending }
+    /// AppKit's list corrections and element reveals finish on its clock,
+    /// including a reveal in the page viewport (LLP 1070.000 §11).
+    func nativeInFlight() -> Bool {
+        !presenter.collections.animating.isEmpty || presenter.pageElementAnimation != nil
+            || presenter.views.values.contains(where: { $0.scrollEnd?.elementAnimation != nil })
+            || session.natives.activationQueued || presenter.launchAutofocusPending
+    }
 
     /// `tap {close:true}`: the window's close button, pressed as ⌘W, File ▸
     /// Close Window and the red button press it (`performClose`), so its
@@ -148,7 +152,7 @@ extension Agent {
                                          "transition": ["interactive": false, "phase": "idle"]]
         if let container = presenter.views.values.filter({ $0.props["navigationBack"] != nil }).min(by: { $0.id < $1.id }) {
             let key = container.props["navigationKey"] ?? ""
-            let routes = presenter.blocks.authored(NavigationTabs.routes(in: container), in: container.container) // one in its sheet too
+            let routes = presenter.navigation.routes(in: container) // one in its sheet too
             let keys = routes.map { $0.props["navigationKey"] ?? "" }
             navigation["route"] = key
             if let range = NavigationRules.stack(routeKeys: keys, selected: key) {
@@ -255,6 +259,7 @@ extension Agent {
         // the titlebar is the top inset; a software keyboard is never here.
         let i = presenter.insets
         let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0].merging(presenter.fold.env) { a, _ in a }
+            .merging(LayoutRegions.env(presenter.regions, safe: (i.top, i.right, i.bottom, i.left), round: Agent.r2)) { a, _ in a }
         // The page scrolls too, and it is the one whose overscroll drags the
         // app's own chrome (LLP 1033 D4).
         let (px, py) = Agent.overscroll(of: presenter.viewport)
@@ -416,11 +421,12 @@ extension Agent {
     /// `down`'s `modifiers` are held in every event of the contact, and a
     /// `move` or `up` that names others holds those from it on (#107).
     func contact(_ phase: String, _ req: [String: Any]) -> [String: Any] {
-        guard let win = presenter.viewport.window else { return ["error": "no window"] }
-        guard let named = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
-        if req["modifiers"] != nil, phase == "hold" || phase == "cancel" { return ["error": "tap \(phase): modifiers ride on down, move and up"] }
-        let clip = presenter.viewport.contentView
-        let toWindow = { (p: CGPoint) -> NSPoint in clip.convert(NSPoint(x: p.x + clip.bounds.origin.x, y: p.y + clip.bounds.origin.y), to: nil) }
+        guard let win = phase == "down" ? view(req)?.window : contactWindow else {
+            return ["error": phase == "down" ? "no view \(req["id"] ?? "?") on screen" : "no contact is down"]
+        }
+        guard let named = Agent.heldModifiers(req) else { return ["malformed": true, "error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+        if req["modifiers"] != nil, phase == "hold" || phase == "cancel" { return ["malformed": true, "error": "tap \(phase): modifiers ride on down, move and up"] }
+        let toWindow = { [self] (p: CGPoint) -> NSPoint in pointerPoint(p, in: win) }
         // The contact's own timeline (LLP 1057 §10.6): a timed move's events
         // are stamped at its declared pace and the lift one frame after the
         // last move, so the engine's tracker measures the driven flick, not
@@ -467,13 +473,14 @@ extension Agent {
             contactFlags = named
             let hit = win.contentView?.hitTest(toWindow(p))
             contactTracksNative = sequence(first: hit, next: { $0?.superview }).contains { $0 is NativeButtonMac }
+            contactWindow = win
             contact = p
             send(.leftMouseDown, p)
             return ["contact": Int(v.id), "phase": "down", "at": at(p), "delivery": "platform"]
         case "move":
             guard let from = contact else { return ["error": "no contact is down"] }
             let to = CGPoint(x: req["x"] as? Double ?? from.x + (req["dx"] as? Double ?? 0), y: req["y"] as? Double ?? from.y + (req["dy"] as? Double ?? 0))
-            guard to.x.isFinite, to.y.isFinite else { return ["error": "move needs finite coordinates"] }
+            guard to.x.isFinite, to.y.isFinite else { return ["malformed": true, "error": "move needs finite coordinates"] }
             let ms = max(0, req["ms"] as? Double ?? 0)
             if req["modifiers"] != nil { contactFlags = named }
             let steps = max(1, Int(ms / 16))
@@ -499,6 +506,7 @@ extension Agent {
             if req["modifiers"] != nil { contactFlags = named }
             send(.leftMouseUp, p)
             contact = nil
+            contactWindow = nil
             contactFlags = []
             contactTracksNative = false
             return ["phase": "up", "at": at(p), "delivery": "platform"]
@@ -511,11 +519,12 @@ extension Agent {
             if contactTracksNative { send(.leftMouseDragged, release) }
             send(.leftMouseUp, release)
             contact = nil
+            contactWindow = nil
             contactFlags = []
             contactTracksNative = false
             return ["phase": "cancel", "at": at(p), "delivery": "platform"]
         default:
-            return ["error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
+            return ["malformed": true, "error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
         }
     }
 
@@ -543,7 +552,7 @@ extension Agent {
         let secondary = req["contextmenu"] as? Bool == true || Agent.heldModifiers(req)?.contains(.control) == true
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["at"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
-            guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
+            guard node.window != nil, !node.inert, !(secondary ? node.formDisabled : node.disabled), !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool != true, !secondary, node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
         }
 
@@ -605,18 +614,17 @@ extension Agent {
             guard let raw = req["at"] as? [Double], raw.count == 2, raw.allSatisfy(\.isFinite) else { return nil }
             return CGPoint(x: raw[0], y: raw[1])
         }()
-        if req["at"] != nil, localAt == nil { return ["error": "at needs two finite numbers"] }
+        if req["at"] != nil, localAt == nil { return ["malformed": true, "error": "at needs two finite numbers"] }
         // An inline run's `at` is from its first visible fragment's top left, as
         // `tapPoint` reads it (the run has no view; its paragraph's origin is another run's).
         let inlineAt = localAt != nil && (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true ? tapPoint(req, node: v) : nil
-        var p = inlineAt.map { clip.convert(NSPoint(x: $0.x + clip.bounds.origin.x, y: $0.y + clip.bounds.origin.y), to: nil) } ?? localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
+        var p = inlineAt.map { pointerPoint($0, in: win) } ?? localAt.map { v.convert($0, to: nil) }
+            ?? pointerPoint(CGPoint(x: req["x"] as? Double ?? center.x, y: req["y"] as? Double ?? center.y), in: win)
         var at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
         // A node in a window of its own (a dialog's sheet, AppKit's popover;
         // LLP 1115.002 D7): the point is that window's, and it may stand
         // outside the viewport, as a popover does.
         let page = clip.window, apart = page != nil && win !== page
-        let inWindow = { (q: NSPoint) -> NSPoint in apart ? win.convertPoint(fromScreen: page!.convertPoint(toScreen: q)) : q }
-        if apart, inlineAt != nil || localAt == nil { p = inWindow(p) }
         // A node in the detail's pane of a split (LLP 1115.002 D4) stands
         // beside the viewport, in its window: what shows of it is in its pane.
         let port: NSView = presenter.navigation.split.pane(holding: v) ?? clip
@@ -657,9 +665,9 @@ extension Agent {
             // What AppKit then animates (a rubber band settling) is its own
             // and outside the session clock; `layout` reports the overscroll
             // it leaves behind.
-            guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
+            guard wheel.allSatisfy(\.isFinite) else { return ["malformed": true, "error": "wheel deltas must be finite"] }
             // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
-            guard let flags = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+            guard let flags = Agent.heldModifiers(req) else { return ["malformed": true, "error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
             // A wheel is the mouse's, where it then rests (CDP's `mouseWheel` moves it there too):
             // the target's middle, or `at` in it.
             presenter.agentPointer = p
@@ -678,7 +686,7 @@ extension Agent {
             // product is `scale`, to the view under the point, as the window
             // routes a trackpad's (LLP 1057.001 §5). AppKit has no public
             // constructor for them; a gesture CGEvent carries the zoom fields.
-            guard scale.isFinite, scale > 0 else { return ["error": "pinch: expected a positive finite scale"] }
+            guard scale.isFinite, scale > 0 else { return ["malformed": true, "error": "pinch: expected a positive finite scale"] }
             let point = (req["at"] as? [Double]).map { v.convert(CGPoint(x: $0[0], y: $0[1]), to: nil) } ?? p
             let screen = win.convertPoint(toScreen: point)
             let target = win.contentView?.hitTest(point) ?? v
@@ -713,7 +721,7 @@ extension Agent {
         var avoided: PressReach?
         if localAt == nil, ["x", "y", "clicks", "dblclick", "contextmenu", "auxclick", "mouse"].allSatisfy({ req[$0] == nil }),
            (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
-            let window = { (q: CGPoint) in inWindow(clip.convert(NSPoint(x: q.x + clip.bounds.origin.x, y: q.y + clip.bounds.origin.y), to: nil)) }
+            let window = { [self] (q: CGPoint) in pointerPoint(q, in: win) }
             switch Agent.addressedAim(v, middle: center, area: apart ? b : b.intersection(CGRect(origin: .zero, size: clip.bounds.size)), reach: { q in pressReach(v, at: window(q), in: win) }) {
             case .refused(let refusal): return refusal.reply
             case .at(let q, let middle):
@@ -721,7 +729,7 @@ extension Agent {
             }
         }
         // The modifiers held through the click (gallery F20: shift-click).
-        guard let held = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+        guard let held = Agent.heldModifiers(req) else { return ["malformed": true, "error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
         // A right click (minesweeper F8), or the middle button's (`auxclick`,
         // #107): the button down and up at the point through the application,
         // as a mouse's are routed; `rightMouseUp` answers it on the node with
@@ -734,7 +742,7 @@ extension Agent {
         // A double click is two real clicks, the second with clickCount 2;
         // `clicks n` is n, each with the count so far (a triple click selects a line).
         let count = req["clicks"] == nil ? (req["dblclick"] as? Bool == true ? 2 : 1) : req["clicks"] as? Int ?? 0
-        guard (1...3).contains(count) else { return ["error": "tap: clicks is 1, 2 or 3"] }
+        guard (1...3).contains(count) else { return ["malformed": true, "error": "tap: clicks is 1, 2 or 3"] }
         // What the click will reach, by the window's own hit test: a part's landing reads it (AgentParts.swift).
         PartLanding.view = win.contentView?.superview?.hitTest(p) ?? win.contentView?.hitTest(p)
         PartLanding.delivered = true
@@ -796,7 +804,11 @@ extension Agent {
         // An alert's sheet holds the keys while it is up (LLP 1115.000 D7.6):
         // Return is its default button's, Escape its cancel's, whatever is named.
         if presenter.alerts.presented != nil {
-            guard let key = req["key"] as? String else { return ["error": "an alert is up: only a key reaches it"] }
+            // A prompt's field is the alert's own (`AlertHost.prompt`), typed as a person types it.
+            if req["key"] == nil, let v = view(req), let value = presenter.alerts.type(v, req["text"] as? String ?? "") {
+                return ["typed": Int(v.id), "value": value, "delivery": "host-activation", "native": "NSAlert"]
+            }
+            guard let key = req["key"] as? String else { return ["error": "an alert is up: only a key or its prompt's field reaches it"] }
             let typed = req["id"] ?? NSNull()
             if req["phase"] as? String == "up" { return ["typed": typed, "key": key, "phase": "up", "delivery": "unhandled", "native": "NSAlert"] }
             return ["typed": typed, "key": key, "delivery": presenter.alerts.key(key) ? "host-activation" : "unhandled", "native": "NSAlert"]
@@ -823,15 +835,14 @@ extension Agent {
             let parts = normalized.split(separator: "+").map(String.init)
             let rawKey = parts.last ?? chord
             let device = KeyCodes.device(rawKey)
-            // An unknown name is a refusal, not text: typing "End" inserted
-            // the letters e-n-d (notes repro mac-agent-named-keys).
-            if device == nil, rawKey != "Plus" { return ["error": "key: unsupported key \(rawKey)"] }
+            // An unknown name is malformed input; it is never inserted as text.
+            if device == nil, rawKey != "Plus" { return ["malformed": true, "error": "key: unsupported key \(rawKey)"] }
             let key = device?.key ?? rawKey
             var modifiers: NSEvent.ModifierFlags = []
             for modifier in parts.dropLast() {
                 switch modifier { case "Meta": modifiers.insert(.command); case "Shift": modifiers.insert(.shift)
                 case "Control": modifiers.insert(.control); case "Alt": modifiers.insert(.option)
-                default: return ["error": "unknown key modifier \(modifier)"] }
+                default: return ["malformed": true, "error": "unknown key modifier \(modifier)"] }
             }
             // A modifier alone is held as it goes down, as the web's keydown
             // for Shift says `shiftKey`; AppKit has it as a flags change, not
@@ -845,7 +856,7 @@ extension Agent {
             // NSWindow delivery bypasses the local event monitor. Share its
             // pressed-control route before making any responder change.
             let phase = req["phase"] as? String
-            guard phase == nil || phase == "down" || phase == "up" else { return ["error": "invalid key phase"] }
+            guard phase == nil || phase == "down" || phase == "up" else { return ["malformed": true, "error": "invalid key phase"] }
             if modifiers.intersection([.command,.control]).isEmpty, let code=device?.code,
                session.canvases.pressedControlKey(code,down:phase != "up") {
                 if phase == nil {_ = session.canvases.pressedControlKey(code,down:false)}
@@ -907,7 +918,7 @@ extension Agent {
                 // AppKit function characters with no virtual key.
                 (chars, code) = (function, UInt16.max)
             } else {
-                return ["error": "key: unsupported key \(rawKey)"]
+                return ["malformed": true, "error": "key: unsupported key \(rawKey)"]
             }
             let t = ProcessInfo.processInfo.systemUptime
             // Both character fields preserve Shift. AppKit interprets a
@@ -1117,7 +1128,7 @@ extension Agent {
         // at the agent's clock first, as `clock` leaves it.
         if let now = session.clock, session.canvases.waitUntilReady() { session.canvases.settle(now: now) }
         presenter.canvas2d.waitForReplays()
-        guard let path = req["path"] as? String else { return ["error": "screenshot needs a path"] }
+        guard let path = req["path"] as? String else { return ["malformed": true, "error": "screenshot needs a path"] }
         let v = presenter.viewport
         if req["window"] as? Bool == true {
             // The window server's picture of this window — Metal layers

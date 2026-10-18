@@ -1,5 +1,5 @@
 // Local enqueue completion is separate from server launch and its shared Pending owner.
-// @ref llp/1109.005-composer-and-transcript.decision.md#durable-draft-capture-transfer
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#durable-draft-capture-transfer
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import { mobilePrepareNewTaskOutbox, type MobileOutboxCaptureFacts } from './mobile-outbox-capture';
 import { mobileOutboxEncode } from './mobile-outbox-model';

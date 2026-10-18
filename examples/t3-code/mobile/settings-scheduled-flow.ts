@@ -1,5 +1,5 @@
-// @ref llp/1109.009-mobile-settings.decision.md#root-and-native-lifetime
-// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#root-and-native-lifetime
+// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#mobile-adaptations
 // Compact root integration: one async lifecycle resource, one pure projection, one command.
 import { ClientError, type Native } from './shared/protocol';
 import { obj } from './shared/domain';

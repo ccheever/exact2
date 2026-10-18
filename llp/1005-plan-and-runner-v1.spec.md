@@ -5,7 +5,7 @@
 **Systems:** Plan, Runner, Kernel (seam), Data seam
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-28
-**Amended:** 2026-10-13, Astra: scroll completion measurements, time ownership, shell-wake and agent-call limits, and regression reconciliation (§Scroll completion); implementation remains parked.
+**Amended:** 2026-10-13, Astra: scroll completion measurements, time ownership, shell-wake and agent-call limits, and regression reconciliation (§Scroll completion); full timing implementation remains parked; the Linux first step below preserves main’s time advancement.
 **Implementer:** Claude (Fable 5), landing 2026-08-28 (this document transcribes the landing)
 **Related:** LLP 1004 (the decisions this executes), LLP 1006 (the compiler that emits this format), LLP 1001 (the kernel the runner drives), LLP 1002 (the clock discipline the runner shares), LLP 0485 (the flat plan; research)
 
@@ -407,7 +407,12 @@ so a value its prop or style row refuses (a colour that is not one,
 §3.1): the row is unset — `ClearProp`/`ClearStyle`, so inherited or initial
 — and one journal line names it. It is not CSSOM's `setProperty`, which
 keeps the earlier declaration: the view would then depend on history rather
-than state. A repeated key in an `each` or a virtualized list is the
+than state. An empty string declares nothing, as CSSOM's
+`setProperty(p, "")` removes the declaration: on any style row it unsets
+the row with no journal line, bound or literal (`font-family=""` too; the
+web's JS target reads it as no value before a row's map does), so a component's prop of
+`""` is a colour its `if dot != ""` need not replace with `"transparent"`
+(`StyleValue::text_unsets`; 2026-10-16, the euxy port). A repeated key in an `each` or a virtualized list is the
 data's error too (Charlie, 2026-09-22, a separate decision): the later
 rows take the identities `d1:<key>`, `d2:<key>` in order — no canonical key
 text starts with `d` — and each such row's creation writes one journal
@@ -550,30 +555,52 @@ free pointer's over the node), and neither is recognized: the down fires before
 any gesture has decided, and both sit beside `press`, `pan` and
 `contextmenu` without taking anything from them. On the web a cancel is
 DOM's `pointercancel`. DOM's order holds: down, up, then the click's
-`press`. The innermost enabled node that hears either one takes the pointer, on
-every host (a disabled one, a control or any node with `disabled`, passes it to an enabled ancestor), and only the
-primary pointer counts, and its
-up arrives wherever the pointer lifts: heard on the document on the web (a
+`press`, and only the primary pointer counts.
+
+Both bubble, as `key` and `wheel` do (Charlie, 2026-10-15, option 1 of
+[the issue](../issues/closed/20261010-pointer-events-reach-ancestors.md)).
+The down goes to every enabled node from the one pressed up that hears
+`pointerdown`, innermost first, through authored parents: a press in an
+open popover reaches the popover's ancestors, as in the DOM, and never a
+page node that is only under it (#281). A node disabled when the pointer
+goes down, a control or any node with `disabled`, hears neither event; its
+enabled ancestors still do. A recognizer that takes the contact (a `pan`)
+takes neither from anyone. Each node the down passed that hears `pointerup`
+hears the up, innermost first, wherever the pointer lifts, one disabled
+since included: the nodes are fixed at the down, as a DOM pointer capture
+fixes its target, so what a down began ends and an app's outside-press
+dismiss pairs every down with its up. The innermost enabled node that hears any of
+the three also holds the pointer for its `pointermove`s until it lifts (LLP
+1056 §8.6); a `pointermove` takes nothing from an ancestor's down or up.
+A handler's `stopPropagation()` stops the down or the up there (the one
+rule, below). The up is heard on the document on the web (a
 pointer capture would also retarget the click and press on a lift
 elsewhere), where the pointer leaving the document (out of the window, into
 a frame) or the window losing focus also ends it, and a node the tree has
 removed is never called, through AppKit's own mouse-up routing, and with the touch on
 UIKit.
 - **Web** (`glue.js` with `input-glue.js` `pointer`; the JS target's
-  `pointer.js`): the element's own events. The innermost claims the event
-  as it bubbles, so its ancestors' handlers leave it.
+  `pointer.js`): DOM's own events. One listener at the root's capture walks
+  the down's path, innermost first, before any element's own listener, so
+  a recognizer that stops the event (a pan, a swipe) takes nothing from
+  them. It fixes every holder before any down runs, as the native hosts
+  fix the path. The innermost marks the event, so its ancestors hold only
+  their up, not the moves.
 - **iOS** (`IOS/PointerIOS.swift`): a gesture recognizer that only observes.
   It never recognizes and can neither prevent nor be prevented, so a press,
   a pan, a long press and the scroll view keep their touches. Each node's
-  recognizer skips a touch that a nearer enabled pointer node takes. An idle
-  one does not keep a row out of the node pool.
-- **macOS** (`MouseChainMac`): `mouseDown`/`mouseUp`, on the innermost
-  enabled node from the hit view up, held on the presenter until the button
-  comes up. A native button's own tracking loop reports both (its up
-  before the action it sends). A held node's release, or a reset, clears
-  the hold.
-- **Linux** (`presenter/pointer.rs`, 2026-10-04): beside the contact, on the
-  innermost enabled node under the press; a cancel is an up.
+  recognizer skips a touch that a nearer enabled pointer node takes; the
+  nearest sends the down and up for every node from it up through authored
+  parents. An idle one does not keep a row out of the node pool.
+- **macOS** (`MouseChainMac`): `mouseDown`/`mouseUp`, from the hit view up
+  through authored parents, held on the presenter until the button comes
+  up. A native button's own tracking loop reports both (its up before the
+  action it sends). A held node's release drops it from the hold, and a
+  reset clears the hold.
+- **Linux** (`presenter/pointer.rs`, 2026-10-04): beside the contact, from
+  the node under the press up; a cancel is an up. A contact that a handler
+  retires (the pressed node removed or disabled) is cancelled when the walk
+  ends, never inside it.
 - **ABI:** dispatch kinds 29, 30 and 31 (`pointermove`), each with the
   record's line.
 - **Agent:** `tap` remains an activation (`press`). The pointer events are
@@ -581,10 +608,37 @@ UIKit.
   tests.
 
 Tests: `contract/cli/tests/it/pointer.rs` (the runner and DOM's order),
-`testAPointerNodeObservesItsTouchWithoutPreventingAnything` (iOS), and
-`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress` (macOS), and
-`host/web/tests/pointer.test.mjs` (Chrome: order, a lift elsewhere, the
-secondary button, a disabled node).
+`testAPointerNodeObservesItsTouchWithoutPreventingAnything` (iOS),
+`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress` and
+`PopoverMacTests` (macOS), the Linux presenter's `touch_tests.rs`, and
+`host/web/tests/pointer.test.mjs` (Chrome: order, bubbling, a lift elsewhere,
+the secondary button, a disabled node).
+
+**`stopPropagation()`, one rule** (decided under Charlie's delegation,
+2026-10-15, after Astra's review). Every bubbling event (`key`, `keyup`,
+`keycapture`'s capture, `focusin`, `focusout`, `pointerdown`, `pointerup`
+and `wheel`) ends its walk at the handler whose action calls
+`stopPropagation()`, as DOM's
+[`Event.stopPropagation()`](https://dom.spec.whatwg.org/#dom-event-stoppropagation)
+ends a dispatch: no handler after it hears that event. The stop is that
+event's alone. It does not stop the other event of a focus transition or an
+enclosing event, and a stopped `pointerdown` still sends its `pointerup` to
+every node it passed, while the node holding the moves keeps them (LLP 1056
+§8.6). Default actions are separate: only `preventDefault()` cancels a key's
+typing or a wheel's scroll, and no stop cancels the click's `press`.
+- **Web:** the running event is marked (`$stopped` in `rt.js`, `exactStopped`
+  in `glue.js`). The pointer's walk from the root's capture, the up's
+  listeners and the wheel's skip a marked event. The browser's own
+  propagation is left alone.
+- **Apple:** each walk runs under `Presenter.propagating`
+  (`KeyEvents.swift`), which scopes `propagationStopped` to it.
+- **Linux:** the walk reads the command from the commit (`stopped`,
+  `presenter/pointer.rs`).
+- **Tests:** the `stop-bubble` conformance plan (both web runtimes),
+  `GesturePrecedenceMacTests.testAStopEndsOneDispatchAndNothingElse`,
+  `GesturePrecedenceIOSTests.testAStoppedDownStillSendsItsUpAndKeepsTheTouch`
+  and the Linux presenter's
+  `a_stop_ends_one_dispatch_and_neither_the_up_nor_the_scroll`.
 
 **`keyup`, and `KeyboardEvent.code` and `.repeat`** (2026-10-07, #140: a
 coding-agent desktop app's ⌘-held hints, a held ⌘W that closes one panel,
@@ -592,7 +646,7 @@ shortcuts by physical key under a non-Latin layout; admitting `keyup` to
 `rules/DEFERRED.md` is the owner's call, as `pointerdown`/`pointerup` were).
 `keyup` is DOM's: a key's release at the focus, bubbling to every `keyup`
 handler from the focus out, as `key` (keydown) does, `stopPropagation()`
-included, with the same payload (the key's name) and record. A modifier's
+included (the one rule, above), with the same payload (the key's name) and record. A modifier's
 release is one (`"Meta"`), and DOM's flags hold: a modifier's own keydown
 holds it, its keyup no longer does, so an app knows ⌘ was released. A keyup
 reaches the focus whatever took the keydown (a shortcut, a
@@ -946,6 +1000,41 @@ and [`scrollViewDidEndScrollingAnimation`](https://developer.apple.com/documenta
 Native scrolling's curve, duration and gesture recognition remain the
 platform's (LLP 1115). Existing Apple and web follow-up work is tracked in
 QUEUE's **scrollend gaps on the hosts that have it**, not in this Linux design.
+
+### Linux, first step
+
+**2026-10-15; owner: Charlie, implementation: Astra (`q1013/scrollend-lite`).**
+The Linux Presenter tracks only live scrollers with a `scrollend` handler.
+A moving wheel notch, keyboard scroll or instant API jump owes completion at
+the next delivery point. When collection turns are deferred, notches before that
+frame share one completion after main's single `scroll` at the final offset.
+Reader samples owe it 100 ms after their last actual move; owned edge scrolling
+waits for its owner to stop. Main's smooth requests still apply at once.
+Layout clamps, resize and inset adjustments start no scroll.
+A collection's end-follow or `scrollIntoView` owes one completion through its
+estimate corrections, after refinement and display acknowledgement finish.
+Removal, row renewal, bundle replacement, hidden routes or loss of a layout box
+retire the debt; inertness alone keeps it.
+
+Delivery follows pending `scroll` events at the existing advance, tick, pump,
+animation-frame and agent-clock service points. The Host's catch-up, timer budgets,
+frame mode and reply order are unchanged. **A completion is delivered at the next
+service point at or after its deadline, after runner work main already ran in that
+call.** A timer between the deadline and that wake may run first;
+`performanceNow()` reads the delivery time, not the deadline. The existing loop
+deadline includes eligible pending completion; a frame-blocked scroll waits for
+its frame. Agent settle includes completion-generated commands and their motion
+and request consequences with a bounded drain; it reports unsettled while a
+completion awaits display acknowledgement or a deferred scroll turn.
+Apps without a live handler create no completion tracking, events or wakes.
+On Linux, the agent's
+`tap <scroller> wheel <dx> <dy> gesture` supplies a reader sample for a scroller
+with this handler, so its quiet deadline can be driven on the seekable clock.
+
+The full timing rule below remains future work: known deadlines preceding later
+timers, complete snapshot/reentry ordering and the single per-call budget across
+all delivery paths. Android device qualification remains open. This first step
+does not adopt the time-owner design below or change Windows.
 
 ### Linux: one owner of time
 

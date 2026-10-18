@@ -267,6 +267,17 @@ fn an_arrow_is_only_a_callback_and_the_types_hold() {
     // An app's `fn map` shadows the roster's, callback and all.
     contract::compile("fn map(n: number): number = n\ncomponent A\n  view\n    text `${map(2)}`\n")
         .unwrap();
+    // A method call is the built-in, so a `fn`, shape or action of its name is
+    // refused rather than called (LLP 1116.016 D2), in a template too.
+    for src in [
+        "fn trim(s: string): string = s\ncomponent A\n  state s = \" a \"\n  view\n    text s.trim()\n",
+        "fn length(s: string): number = 0\ncomponent A\n  state s = \"a\"\n  view\n    text `${s.length}`\n",
+        "component A\n  state xs = [1]\n  state n = 0\n  action filter(k: number)\n    n = k\n  view\n    text xs.filter(x => x > 0).length.toString()\n",
+    ] {
+        let e = contract::compile(src).unwrap_err();
+        assert_eq!(e.id, "syntax-method-shadowed", "{src}: {e}");
+        assert!(e.message.contains("is the built-in method"), "{e}");
+    }
 }
 
 #[test]
@@ -301,6 +312,398 @@ fn callback_runs_are_bounded_per_evaluation_and_the_trap_is_named() {
         Err(e) => panic!("{e:?}"),
         Ok(_) => panic!("booted past the bound"),
     }
+}
+
+/// `sum` (the euxy port's sheet height over its lanes) is
+/// `xs.reduce((a, x) => a + x, 0)`: left to right from +0, a list step an
+/// item on the evaluation's budget. `sin` and `cos` are `Math`'s (its ring of
+/// LEDs), through the pinned `libm`.
+#[test]
+fn sum_totals_a_list_on_the_budget_and_sin_and_cos_are_maths() {
+    let src = r#"shape Lane
+  rows: number
+component A
+  resource xs = xs() as shape number[]
+  state lanes = [Lane(rows=2), Lane(rows=3)]
+  view
+    column
+      text sum([1, 2, 3]).toString() testId="lit"
+      text sum([1].filter(x => x > 5)).toString() testId="empty"
+      text sum(lanes.map(l => l.rows * 44 + 8)).toString() testId="field"
+      text sum([0.1, 0.2, 0.3]).toString() testId="order"
+      text sum([-0]).toString() testId="zero"
+      text sum(xs).toString() testId="big"
+      text `${sin(0)} ${cos(0)} ${round(sin(3.141592653589793 / 2) * 1000)} ${round(cos(3.141592653589793) * 1000)} ${sin(1)} ${cos(1)}` testId="trig"
+"#;
+    struct Xs(usize);
+    impl DataSource for Xs {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(numbers(&vec![1.0; self.0]))
+        }
+    }
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        contract::bake(plan.clone(), Xs(65_536)).unwrap(),
+        Xs(65_536),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(text("lit"), "6");
+    assert_eq!(text("empty"), "0");
+    assert_eq!(text("field"), "236");
+    // ((0 + 0.1) + 0.2) + 0.3, as `reduce` adds; not `Math.sumPrecise`'s 0.6.
+    assert_eq!(text("order"), "0.6000000000000001");
+    assert_eq!(text("zero"), "0");
+    assert_eq!(text("big"), "65536");
+    // `Math.sin(1)` and `Math.cos(1)` as JavaScriptCore and V8 print them.
+    assert_eq!(
+        text("trig"),
+        "0 1 1000 -1000 0.8414709848078965 0.5403023058681398"
+    );
+    // One more item than the bound is refused whole, as `map` is.
+    let error = contract::bake(plan, Xs(65_537)).unwrap_err();
+    assert!(format!("{error:?}").contains("IterationLimit"), "{error:?}");
+    // `sum` takes numbers only.
+    let e = contract::compile(
+        "component A\n  state xs = [\"a\"]\n  view\n    text sum(xs).toString()\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-argument", "{e}");
+}
+
+/// `sortBy` (LLP 1116.016 §5): a stable sort by one number or string key,
+/// equal keys in input order in both directions; NaN, -0 and +0 tie;
+/// strings by UTF-16 code unit. Its list steps are its `Map`'s, one an
+/// item, so 5,000 rows filtered then sorted take 10,000 of the 65,536.
+#[test]
+fn sort_by_is_stable_by_one_key_and_steps_once_an_item() {
+    let src = r#"shape Row
+  name: string
+  n: number
+component A
+  resource xs = xs() as shape number[]
+  state rows = [Row(name="b", n=2), Row(name="a", n=1), Row(name="c", n=2), Row(name="d", n=1)]
+  view
+    column
+      text sortBy(rows, r => r.n).map(r => r.name).join("") testId="asc"
+      text sortBy(rows, r => r.n, "desc").map(r => r.name).join("") testId="desc"
+      text sortBy(sortBy(rows, r => r.name, "desc"), r => r.n).map(r => r.name).join("") testId="two"
+      text sortBy(rows, (r, i) => 0 - i).map(r => r.name).join("") testId="index"
+      text sortBy([3, 0 / 0, -0, 1, 0, -1], x => x).map(x => `${x}`).join(" ") testId="nan"
+      text sortBy(["～", "😀", "a", "ab", "", "a"], s => s).join(",") testId="units"
+      text sortBy(xs.filter(x => x > 0), x => 0 - x).length.toString() testId="big"
+      text sortBy(rows.filter(r => r.n > 5), r => r.name).length.toString() testId="empty"
+"#;
+    struct Xs(usize);
+    impl DataSource for Xs {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(numbers(&vec![1.0; self.0]))
+        }
+    }
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        contract::bake(plan.clone(), Xs(5_000)).unwrap(),
+        Xs(5_000),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    // Expected values from Bun: a stable `toSorted` comparing the keys.
+    assert_eq!(text("asc"), "adbc");
+    assert_eq!(text("desc"), "bcad");
+    // A second key is an earlier sort: by n, ties by name descending.
+    assert_eq!(text("two"), "dacb");
+    assert_eq!(text("index"), "dcab");
+    assert_eq!(text("nan"), "-1 NaN 0 0 1 3");
+    assert_eq!(text("units"), ",a,a,ab,😀,～");
+    assert_eq!(text("big"), "5000");
+    assert_eq!(text("empty"), "0");
+    // 32,768 filtered and sorted is 65,536 steps; one more is refused.
+    contract::bake(plan.clone(), Xs(32_768)).unwrap();
+    let error = contract::bake(plan, Xs(32_769)).unwrap_err();
+    assert!(format!("{error:?}").contains("IterationLimit"), "{error:?}");
+    for (body, id) in [
+        ("sortBy(rows, r => r)", "type-argument"),
+        ("sortBy(rows, r => r.n > 1)", "type-argument"),
+        ("sortBy(rows, r => r.n, \"up\")", "type-argument"),
+        ("sortBy(rows, r => r.n, dir)", "type-argument"),
+        ("sortBy(rows)", "type-arity"),
+        ("sortBy(rows, rows)", "type-argument"),
+        ("rows.sortBy(r => r.n)", "syntax-method-call"),
+    ] {
+        let src = format!(
+            "shape Row\n  n: number\ncomponent A\n  state rows = [Row(n=1)]\n  state dir = \"asc\"\n  view\n    text {body}.length.toString()\n"
+        );
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!(e.id, id, "{body}: {e}");
+    }
+}
+
+/// `range(n)` (the euxy port's `range64().slice(0, n)`) is 0 to n - 1, a list
+/// step an item before it is built; a count that is not a whole number at
+/// least 0 does not fit: refused where it is a literal, a trap where it is
+/// computed, which refuses the commit that would make it.
+#[test]
+fn range_counts_from_zero_on_the_budget_and_refuses_what_is_no_count() {
+    let src = r#"component A
+  state n = 3
+  derive xs = range(n)
+  action set(v: number)
+    n = v
+  view
+    column
+      text xs.join(",") testId="xs"
+      text `${range(0).length} ${range(-0).length} ${sum(range(4))}` testId="edges"
+      for i in range(2) key=i
+        text `row ${i}` testId=`row-${i}`
+"#;
+    struct Nothing;
+    impl DataSource for Nothing {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::list(Vec::new()))
+        }
+    }
+    let plan = contract::compile(src).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Nothing,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |r: &Runner<Nothing>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(text(&r, "xs"), "0,1,2");
+    assert_eq!(text(&r, "edges"), "0 0 6");
+    assert_eq!(text(&r, "row-1"), "row 1");
+    for bad in [2.5, -1.0] {
+        let e = r.act("set", vec![Value::Number(bad)]).unwrap_err();
+        assert!(format!("{e:?}").contains("TypeMismatch"), "{bad}: {e:?}");
+        assert_eq!(text(&r, "xs"), "0,1,2", "{bad} refused whole");
+    }
+    // NaN and the infinities live only inside an evaluation.
+    for bad in ["0 / 0", "1 / 0", "-1 / 0"] {
+        let plan = contract::compile(&format!(
+            "component A\n  state z = 0\n  derive xs = range({bad} + z)\n  view\n    text xs.join(\",\")\n"
+        ))
+        .unwrap();
+        let e = Runner::boot(
+            plan,
+            Nothing,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .err()
+        .unwrap_or_else(|| panic!("{bad} booted"));
+        assert!(format!("{e:?}").contains("TypeMismatch"), "{bad}: {e:?}");
+    }
+    r.act("set", vec![Value::Number(65_536.0)]).unwrap();
+    let e = r.act("set", vec![Value::Number(65_537.0)]).unwrap_err();
+    assert!(format!("{e:?}").contains("IterationLimit"), "{e:?}");
+    let e = r.act("set", vec![Value::Number(1e300)]).unwrap_err();
+    assert!(format!("{e:?}").contains("IterationLimit"), "{e:?}");
+    // Literals are refused where they are written; `range(a, b)` names the slice.
+    for (call, id, says) in [
+        (
+            "range(2.5)",
+            "type-argument",
+            "a whole number at least 0; given `2.5`",
+        ),
+        ("range(-1)", "type-argument", "given `-1`"),
+        ("range(\"3\")", "type-argument", "expects `number`"),
+        ("range(1, 4)", "type-arity", "`range(n).slice(a, b)`"),
+    ] {
+        let e = contract::compile(&format!(
+            "component A\n  view\n    text {call}.join(\",\")\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, id, "{call}: {e}");
+        assert!(e.message.contains(says), "{call}: {e}");
+    }
+}
+
+/// `xs.flat()` (the euxy port joined lists of lines into a string and split
+/// it again) is `Array.prototype.flat()` at depth 1: a step an outer item and
+/// one an item it keeps, taken before the list is built; no depth is taken.
+#[test]
+fn flat_joins_one_level_on_the_budget_and_takes_no_depth() {
+    let src = r#"shape Lane
+  hits: number[]
+component A
+  resource xss = xss() as shape number[][]
+  state lanes = [Lane(hits=[0, 4]), Lane(hits=[]), Lane(hits=[2])]
+  view
+    column
+      text lanes.map(l => l.hits).flat().join(",") testId="hits"
+      text [["a"], ["b", "c"]].flat().join("") testId="lit"
+      text `${[[[1]], [[2, 3]]].flat().flat().length}` testId="deep"
+      text `${xss.flat().length}` testId="big"
+"#;
+    // `n` lists of one item: `2n` steps.
+    struct Xss(usize);
+    impl DataSource for Xss {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::list(vec![numbers(&[1.0]); self.0]))
+        }
+    }
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        contract::bake(plan.clone(), Xss(32_768)).unwrap(),
+        Xss(32_768),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(text("hits"), "0,4,2");
+    assert_eq!(text("lit"), "abc");
+    assert_eq!(text("deep"), "3");
+    assert_eq!(text("big"), "32768");
+    let error = contract::bake(plan, Xss(32_769)).unwrap_err();
+    assert!(format!("{error:?}").contains("IterationLimit"), "{error:?}");
+    for (call, id, says) in [
+        (
+            "[[1]].flat(2)",
+            "type-arity",
+            "two levels are `xs.flat().flat()`",
+        ),
+        (
+            "[1, 2].flat()",
+            "type-argument",
+            "flattens a list of lists, given `number[]`",
+        ),
+        ("flat([[1]])", "syntax-method-form", "write `x.flat()`"),
+    ] {
+        let e = contract::compile(&format!(
+            "component A\n  view\n    text {call}.join(\",\")\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, id, "{call}: {e}");
+        assert!(e.message.contains(says), "{call}: {e}");
+    }
+}
+
+/// A shape may declare a field named `length` (LLP 1116.015 D2, amended
+/// 2026-10-17): `x.length` reads it on such a record, built and copied with
+/// it as any field, and still counts a list or text; on a record without one
+/// it is refused, saying what `.length` counts.
+#[test]
+fn a_field_named_length_is_read_and_written_and_lists_still_count() {
+    let src = r#"shape Lane
+  name: string
+  length: number
+fn steps(l: Lane): number = l.length
+component A
+  state lane = Lane(name="kick", length=16)
+  state lanes = [Lane(name="a", length=8), Lane(name="bb", length=12)]
+  action grow
+    lane = Lane(lane, length=lane.length + 1)
+  view
+    column
+      text `${lane.length} ${steps(lane)} ${lane.name.length}` testId="lane"
+      text `${lanes.length} ${lanes.filter(l => l.length > 10).length} ${sum(lanes.map(l => l.length))}` testId="lanes"
+"#;
+    struct Nothing;
+    impl DataSource for Nothing {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::list(Vec::new()))
+        }
+    }
+    let plan = contract::compile(src).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Nothing,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |r: &Runner<Nothing>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(text(&r, "lane"), "16 16 4");
+    assert_eq!(text(&r, "lanes"), "2 1 20");
+    r.act("grow", vec![]).unwrap();
+    assert_eq!(text(&r, "lane"), "17 17 4");
+    // The Lean embedding reads the field as a field, and a list's count as a call.
+    let lean = contract::lean::lean(src, "lengths").unwrap();
+    assert!(
+        lean.contains("(.member (.var \"lane\") \"length\")"),
+        "{lean}"
+    );
+    assert!(
+        lean.contains("(.call \"length\" [(.var \"lanes\")])"),
+        "{lean}"
+    );
+    let e = contract::compile(
+        "shape Item\n  name: string\ncomponent A\n  state it = Item(name=\"a\")\n  view\n    text `${it.length}`\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-unknown-field", "{e}");
+    assert!(
+        e.message.contains("`.length` counts a list or text, and `Item` is a record: `Item` has no field `length`; available fields: `name`"),
+        "{e}"
+    );
 }
 
 /// A callback's parameters are binders: a prop passed in that mentions the
@@ -448,18 +851,25 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
     );
     for f in [
         // `push` names `concat` (`diagnostics.rs`).
-        "reduce", "find", "every", "sort", "flatMap",
+        "reduce", "find", "every", "sort",
     ] {
         refused(
             &format!("text ({f}(xs, x => x.n)).toString()"),
             "type-refused-idiom",
-            "compute it in the data source",
+            "in the data source",
         );
         refused(
             &format!("text (xs.{f}(x => x.n)).toString()"),
             "syntax-method-call",
-            "compute it in the data source",
+            "in the data source",
         );
+    }
+    // A comparator sort names the key sort (LLP 1116.016 §5).
+    for line in [
+        "text xs.sort((a, b) => a.n - b.n).length.toString()",
+        "text xs.toSorted((a, b) => a.n - b.n).length.toString()",
+    ] {
+        refused(line, "syntax-method-call", "`sortBy(xs, x => x.name)`");
     }
     // The four with a composition in the roster name it.
     // (`some(…)` is the parser's: `some(x)` also makes an option.)
@@ -480,8 +890,29 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
             "type-refused-idiom",
             "not xs.map(x => …).includes(false)",
         ),
+        ("flatMap", "type-refused-idiom", "xs.map(x => …).flat()"),
     ] {
         refused(&format!("text ({f}(xs, x => x.n)).toString()"), id, instead);
+    }
+    refused(
+        "text (xs.flatMap(x => x.n)).toString()",
+        "syntax-method-call",
+        "xs.map(x => …).flat()",
+    );
+    // Each repair it names compiles for its callback: a list, or one value.
+    refused(
+        "text [1, 2].flatMap(x => x * 2).join(\",\")",
+        "syntax-method-call",
+        "when it returns one value, `xs.map(x => …)` is the same list",
+    );
+    for repair in [
+        "[1, 2].map(x => [x, x * 2]).flat()",
+        "[1, 2].map(x => x * 2)",
+    ] {
+        contract::compile(&format!(
+            "component A\n  view\n    text {repair}.join(\",\")\n"
+        ))
+        .unwrap_or_else(|e| panic!("{repair}: {e}"));
     }
     refused(
         "text Math.min(1, 2).toString()",

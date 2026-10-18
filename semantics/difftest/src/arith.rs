@@ -6,10 +6,12 @@
 //! overflow and underflow) and natural number `n`, both sides compute
 //! `a + b`, `a - b`, `a * b`, `a / b`, `a % b`, `floor(a)`, `max(a, b)`,
 //! `min(a, b)`, `trunc(a)`, `-a`, `n` as a double, `ceil(a)`, `round(a)`
-//! (JavaScript's `Math.round`), and `a < b`, `a <= b`, `a == b`, as the
-//! runner does (`f64` operators, `f64::floor`, `f64::max`, `f64::min`,
-//! `f64::trunc`, `f64::ceil`, `stdlib::js_round`). Results are compared by
-//! bits, every NaN one. Each case also carries a numeral and two dates:
+//! (JavaScript's `Math.round`), `sin(a)`, `cos(a)`, `sum([a, b, -a])`, and
+//! `a < b`, `a <= b`, `a == b`, as the runner does (`f64` operators, `f64::floor`, `stdlib::js_max`,
+//! `stdlib::js_min`, `f64::trunc`, `f64::ceil`, `stdlib::js_round`). Results are compared by
+//! bits, every NaN one. Trigonometry uses exact_motion::math (libm 0.2.16),
+//! with tiny inputs, reduction boundaries and large inputs through 1e300.
+//! Each case also carries a numeral and two dates:
 //! `parseNumber` of the numeral and `calendarDiff` of the dates in years and
 //! in months (LLP 1102 §3.1, §3.4), as `exact_runner::stdlib` reads them;
 //! and two digit counts: `toFixed(a, d)`, `formatDecimal(a, g)` and
@@ -22,7 +24,7 @@ use exact_runner::{formatting, stdlib};
 use std::path::Path;
 use std::process::Command;
 
-const OPS: [&str; 22] = [
+const OPS: [&str; 25] = [
     "+",
     "-",
     "*",
@@ -36,6 +38,9 @@ const OPS: [&str; 22] = [
     "ofNat",
     "ceil",
     "round",
+    "sin",
+    "cos",
+    "sum",
     "<",
     "<=",
     "==",
@@ -48,7 +53,7 @@ const OPS: [&str; 22] = [
 ];
 /// The fields printed in hex, then one of three comparison bits, then the
 /// text reads.
-const HEX: usize = 13;
+const HEX: usize = 16;
 const BITS: usize = HEX + 3;
 
 fn canon(x: f64) -> u64 {
@@ -84,20 +89,23 @@ fn expected(c: &Case) -> String {
             None => "refused".into(),
         };
     format!(
-        "{:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {}{}{} {} {} {} {} {} {}",
+        "{:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {:016x} {}{}{} {} {} {} {} {} {}",
         canon(a + b),
         canon(a - b),
         canon(a * b),
         canon(a / b),
         canon(a % b),
         canon(a.floor()),
-        canon(a.max(b)),
-        canon(a.min(b)),
+        canon(stdlib::js_max(a, b)),
+        canon(stdlib::js_min(a, b)),
         canon(a.trunc()),
         canon(-a),
         canon(n as f64),
         canon(a.ceil()),
         canon(stdlib::js_round(a)),
+        canon(exact_motion::math::sin(a)),
+        canon(exact_motion::math::cos(a)),
+        canon(exact_runner::lists::sum(&[Value::Number(a), Value::Number(b), Value::Number(-a)]).unwrap()),
         bit(a < b),
         bit(a <= b),
         bit(a == b),
@@ -135,9 +143,42 @@ const EDGES: [f64; 22] = [
     1e21,
 ];
 
+/// Each boundary, its two neighbours on either side, and both signs are
+/// checked before random pairs. High-word cutoffs are libm's branch tests.
+const TRIG_EDGES: &[f64] = &[
+    0.0,
+    f64::from_bits(1),
+    f64::MIN_POSITIVE,
+    f64::from_bits(0x3e46_a09e_0000_0000),
+    f64::from_bits(0x3e50_0000_0000_0000),
+    f64::from_bits(0x3fe9_21fb_0000_0000),
+    f64::from_bits(0x4002_d97c_0000_0000),
+    f64::from_bits(0x400f_6a7a_0000_0000),
+    f64::from_bits(0x4015_fdbc_0000_0000),
+    f64::from_bits(0x401c_463b_0000_0000),
+    // Where libm tests `ix <= cutoff`, the branch changes at the next high word.
+    f64::from_bits(0x3fe9_21fc_0000_0000),
+    f64::from_bits(0x4002_d97d_0000_0000),
+    f64::from_bits(0x400f_6a7b_0000_0000),
+    f64::from_bits(0x4015_fdbd_0000_0000),
+    f64::from_bits(0x401c_463c_0000_0000),
+    f64::from_bits(0x4139_21fb_0000_0000),
+    std::f64::consts::FRAC_PI_2,
+    std::f64::consts::PI,
+    3.0 * std::f64::consts::FRAC_PI_2,
+    std::f64::consts::TAU,
+    1048576.0 * std::f64::consts::FRAC_PI_2,
+    1e20,
+    1e100,
+    1e300,
+    f64::MAX,
+    f64::INFINITY,
+    f64::NAN,
+];
+
 /// One operand.
 fn operand(rng: &mut Rng) -> f64 {
-    match rng.below(8) {
+    match rng.below(10) {
         0 | 1 => f64::from_bits(rng.next_u64()),
         2 => {
             let e = EDGES[rng.below(EDGES.len() as u64) as usize];
@@ -167,6 +208,19 @@ fn operand(rng: &mut Rng) -> f64 {
         }
         5 => (rng.below(2_000_000) as f64 - 1_000_000.0) / 10f64.powi(rng.below(8) as i32),
         6 => (rng.below(1000) as f64) * 10f64.powi(rng.below(60) as i32 - 30),
+        8 => {
+            let x = (rng.below(2_000_001) as f64 - 1_000_000.0) * std::f64::consts::FRAC_PI_2;
+            f64::from_bits(x.to_bits().wrapping_add(rng.below(5)).wrapping_sub(2))
+        }
+        9 => {
+            let x = TRIG_EDGES[rng.below(TRIG_EDGES.len() as u64) as usize];
+            let x = f64::from_bits(x.to_bits().wrapping_add(rng.below(5)).wrapping_sub(2));
+            if rng.chance(1, 2) {
+                -x
+            } else {
+                x
+            }
+        }
         _ => rng.below(1 << 20) as f64,
     }
 }
@@ -343,7 +397,7 @@ fn date(rng: &mut Rng) -> String {
 
 fn module(data: &Path) -> String {
     format!(
-        "import Contract.Number\nimport Contract.Value\nimport Contract.Format\nimport Contract.OracleText\nopen Contract\n\n\
+        "import Contract.Number\nimport Contract.Value\nimport Contract.Format\nimport Contract.OracleText\nimport Contract.Trig\nopen Contract\n\n\
 def hex16 (x : UInt64) : String :=\n  String.ofList ((List.range 16).reverse.map fun i => Nat.digitChar ((x.toNat >>> (4 * i)) % 16))\n\
 def cb (x : F64) : String := hex16 (Number.canonicalBits x)\n\
 def bit (p : Bool) : String := if p then \"1\" else \"0\"\n\
@@ -354,7 +408,7 @@ match line.splitOn \" \" with\n    \
 match OracleText.hexN 16 0 sa.toList, OracleText.hexN 16 0 sb.toList, sn.toNat?, sd.toNat?, sg.toNat? with\n      \
 | some (x, _), some (y, _), some n, some fd, some fg =>\n        \
 let a := F64.ofBits (UInt64.ofNat x)\n        let b := F64.ofBits (UInt64.ofNat y)\n        \
-out.putStrLn s!\"{{cb (a + b)}} {{cb (a - b)}} {{cb (a * b)}} {{cb (a / b)}} {{cb (Number.fmod a b)}} {{cb a.floor}} {{cb (Number.fmax a b)}} {{cb (Number.fmin a b)}} {{cb (Number.trunc a)}} {{cb (-a)}} {{cb (F64.ofNat n)}} {{cb a.ceil}} {{cb a.jsRound}} {{bit (decide (a < b))}}{{bit (decide (a ≤ b))}}{{bit (a == b)}} {{opt cb (Str.parseNumber num)}} {{opt toString (Str.calendarDiff d1 d2 false)}} {{opt toString (Str.calendarDiff d1 d2 true)}} [{{Format.toFixed a fd}}] [{{Format.formatDecimal a fg}}] [{{Format.formatDecimal (Number.trunc a) fg}}]\"\n      \
+out.putStrLn s!\"{{cb (a + b)}} {{cb (a - b)}} {{cb (a * b)}} {{cb (a / b)}} {{cb (Number.fmod a b)}} {{cb a.floor}} {{cb (Number.jsMax a b)}} {{cb (Number.jsMin a b)}} {{cb (Number.trunc a)}} {{cb (-a)}} {{cb (F64.ofNat n)}} {{cb a.ceil}} {{cb a.jsRound}} {{cb a.sin}} {{cb a.cos}} {{cb ((Value.sum [.num a, .num b, .num (-a)]).getD F64.nan)}} {{bit (decide (a < b))}}{{bit (decide (a ≤ b))}}{{bit (a == b)}} {{opt cb (Str.parseNumber num)}} {{opt toString (Str.calendarDiff d1 d2 false)}} {{opt toString (Str.calendarDiff d1 d2 true)}} [{{Format.toFixed a fd}}] [{{Format.formatDecimal a fg}}] [{{Format.formatDecimal (Number.trunc a) fg}}]\"\n      \
 | _, _, _, _, _ => out.putStrLn \"?\"\n    \
 | _ => out.putStrLn \"?\"\n",
         data = data.display().to_string()
@@ -395,8 +449,14 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut rng = Rng::new(seed);
     let cases: Vec<Case> = (0..count)
-        .map(|_| {
-            let (a, b) = pair(&mut rng);
+        .map(|i| {
+            let (a, b) = if i < TRIG_EDGES.len() * 10 {
+                let x = TRIG_EDGES[i / 10];
+                let a = f64::from_bits(x.to_bits().wrapping_add((i % 5) as u64).wrapping_sub(2));
+                (if i % 10 < 5 { a } else { -a }, operand(&mut rng))
+            } else {
+                pair(&mut rng)
+            };
             let n = natural(&mut rng);
             let numeral = numeral(&mut rng, b);
             let (from, to) = (date(&mut rng), date(&mut rng));

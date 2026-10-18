@@ -1,0 +1,27 @@
+// The oracle keys all NaNs alike, including inside containers, but keeps
+// signed zeros distinct. Negation can change a NaN's bits on either VM.
+shape Query
+  values: option<number>[]
+
+component App
+  state flipped = false
+  resource scalar = loadNumber(flipped ? -(0 / 0) : ((0 / 0) / (-2.5))) as shape number
+  resource nested = loadNested(Query(values=[some(flipped ? -(0 / 0) : (0 / 0)), none])) as shape number
+  resource positive = loadZero(0) as shape string
+  resource negative = loadZero(-0) as shape string
+  action flip
+    flipped = not flipped
+  view
+    column
+      text `${scalar} ${nested}` testId="nan"
+      text `${positive} ${negative}` testId="zeros"
+      button "flip" press=flip testId="flip"
+
+test "NaN oracle arguments and signed zeros"
+  expect state flipped == false
+  tap "flip"
+  expect state flipped == true
+  tap "missing"
+  expect state flipped == true
+  tap "flip"
+  expect state flipped == false

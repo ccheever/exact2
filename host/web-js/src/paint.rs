@@ -177,7 +177,7 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
                 "(String(v??\"bordered\").endsWith(\"glass\")?{GLASS}:0)|(![\"bordered\",\"gray\"].includes(String(v??\"bordered\"))?{DIM}:0)")),
             PropId::Disabled if kind == NodeType::Control => flag(DISABLED, "v===true"),
             PropId::ImageSource if kind == NodeType::Image => flag(POLICY, "v!=null&&String(v).startsWith(\"symbol:\")"),
-            PropId::BackgroundMaterial => flag(POLICY, "v!=null"),
+            PropId::BackgroundMaterial => flag(POLICY, "v!=null&&v!==\"none\""),
             PropId::NavigationPresentation => flag(POLICY, "v===\"modal\""),
             PropId::SemanticTag => flag(OUTSIDE, "v===\"dialog\""),
             PropId::Popover => flag(OUTSIDE, "v!=null"),
@@ -245,7 +245,28 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
                 ),
             );
         }
-        StyleId::Opacity => "v!=null&&Number(v)<1",
+        // A number token's name (LLP 1121 D7) stands for its value: one that
+        // varies may be below 1; a name no token has is unset, 1.
+        StyleId::Opacity => {
+            let tokens: Vec<String> = plan
+                .theme
+                .iter()
+                .filter(|r| r.kind == 2)
+                .map(|r| {
+                    let value = if r.slices.len > 0 { "0" } else { plan.str(r.value).trim() };
+                    format!("{}:{value}", serde_json::to_string(plan.str(r.name)).unwrap())
+                })
+                .collect();
+            let test = if tokens.is_empty() {
+                "v!=null&&Number(v)<1".to_string()
+            } else {
+                format!(
+                    "v!=null&&(typeof v===\"string\"&&isNaN(v)?({{{}}}[v.trim()]??1)<1:Number(v)<1)",
+                    tokens.join(",")
+                )
+            };
+            return flag(STACK, &test);
+        }
         StyleId::PressScale => "v!=null&&Number(v)!==1",
         StyleId::Perspective => "v!=null&&parseFloat(v)>0",
         StyleId::Translate

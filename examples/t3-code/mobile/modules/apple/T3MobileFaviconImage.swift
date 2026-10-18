@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// Pinned favicon image policy, using the already bounded response instead of a second download.
 /// Small served bytes are preserved, including SVG/animation; only oversized bitmaps are decoded.
-/// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+/// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 enum T3MobileFaviconImage {
     static let maxSourceBytes = 4 * 1024 * 1024
     static let maxDataURLLength = 32 * 1024

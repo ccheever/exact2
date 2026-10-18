@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#fork-work-row-copy-and-selection
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#fork-work-row-copy-and-selection
 // T3 Code365aa87982 ThreadWorkLogRow, WorkLogPressable and onCopyWorkRow.
 #if os(iOS)
 import UIKit

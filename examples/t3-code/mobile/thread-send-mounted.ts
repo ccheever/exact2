@@ -1,5 +1,5 @@
 // Mounted ordinary Send; the existing outbox remains the only queue/delivery owner.
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 import type {T3Client} from './shared/client';
 import type {MobileDraftClient} from './mobile-draft-recovery';
 import type {MobileComposerTarget} from './composer-target';

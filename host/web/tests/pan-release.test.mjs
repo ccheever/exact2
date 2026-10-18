@@ -13,6 +13,7 @@ import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -43,6 +44,9 @@ const page = `<!doctype html>
     dispatch: (id, payload) => window.log.push(['pan', id, payload]),
     release: (id, payload) => window.log.push(['panrelease', id, payload]), velocity, log: (line) => window.log.push(['journal', line]) });
   views.get(1).exactHandlers = ['pan', 'panrelease'];
+  // Each press and release's own timestamp, as the page sees it
+  window.stamps = [];
+  for (const type of ['pointerdown', 'pointerup']) views.get(1).addEventListener(type, e => window.stamps.push(e.timeStamp));
   views.get(2).exactHandlers = ['pan'];
   for (const [id, el] of views) { const on = (type, handle) => el.addEventListener(type, handle); el.addEventListener('pointerdown', handlers.pan(el, id, on)); }
   window.ready = true;
@@ -67,17 +71,19 @@ check('a pan that began releases once with its velocity; a tap none; a cancel at
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
       return reply.result.value;
     };
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const frame = () => evaluate('new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)))');
-    const mouse = (type, x, y) => call('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
+    // Input at given milliseconds after the epoch below, so the velocity reads the same however fast this machine runs
+    const epoch = Date.now();
+    const at = ms => ms == null ? {} : { timestamp: (epoch + ms) / 1000 };
+    const mouse = (type, x, y, ms) => call('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1, ...at(ms) });
     const take = () => evaluate('window.log.splice(0)');
     const kinds = (log) => log.map(([kind]) => kind);
 
-    // A rightward flick: 200 px in six moves.
-    await mouse('mousePressed', 100, 150);
-    for (let i = 1; i <= 6; i++) { await mouse('mouseMoved', 100 + i * 33, 150); await Bun.sleep(16); }
-    await mouse('mouseReleased', 300, 150);
+    // A rightward flick: 200 px in six moves 16 ms apart.
+    await mouse('mousePressed', 100, 150, 0);
+    for (let i = 1; i <= 6; i++) await mouse('mouseMoved', 100 + i * 33, 150, i * 16);
+    await mouse('mouseReleased', 300, 150, 7 * 16);
     await frame();
     let log = await take();
     expect(log[0]).toEqual(['sample', 1, true]);
@@ -88,7 +94,8 @@ check('a pan that began releases once with its velocity; a tap none; a cancel at
     expect(releases.length).toBe(1);
     expect(kinds(log).lastIndexOf('pan')).toBeLessThan(kinds(log).indexOf('panrelease')); // the last delta, then the release
     const [vx, vy] = releases[0][2].split(',').map(Number);
-    expect(vx).toBeGreaterThan(100); // 200 px over the CDP round trips' real time
+    const [down, up] = await evaluate('window.stamps');
+    expect(vx).toBeCloseTo(200 / ((up - down) / 1000), 6); // over the events' own timestamps, not when they were handled
     expect(Math.abs(vy)).toBeLessThan(1);
 
     // A tap that never leaves the slop: no pan, no release.
@@ -98,7 +105,7 @@ check('a pan that began releases once with its velocity; a tap none; a cancel at
     expect(kinds(log).filter(k => k !== 'sample')).toEqual([]);
 
     // A node without a panrelease handler pans and releases nothing.
-    await mouse('mousePressed', 100, 390); await mouse('mouseMoved', 180, 390); await Bun.sleep(20); await mouse('mouseReleased', 180, 390);
+    await mouse('mousePressed', 100, 390, 200); await mouse('mouseMoved', 180, 390, 216); await mouse('mouseReleased', 180, 390, 232);
     await frame();
     log = await take();
     expect(kinds(log)).toContain('pan');
@@ -107,7 +114,7 @@ check('a pan that began releases once with its velocity; a tap none; a cancel at
     // A touch contact the platform cancels after the pan began releases at rest.
     await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 });
     await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 100, y: 150 }] });
-    for (let i = 1; i <= 4; i++) { await call('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 100 + i * 20, y: 150 }] }); await Bun.sleep(16); }
+    for (let i = 1; i <= 4; i++) await call('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 100 + i * 20, y: 150 }] });
     await frame();
     await call('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
     await frame();

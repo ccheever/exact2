@@ -8,16 +8,7 @@
 //! Linux) is as it was.
 use super::*;
 use crate::fields::{FieldFace, FieldMetrics};
-use exact_runner::{DataError, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 /// The reader's field, stood in for, and how often layout asked it.
 #[derive(Default)]
@@ -89,10 +80,10 @@ const LONG: &str = r#"component Long
         input testId=`f${n}` height=20
 "#;
 
-fn boot(source: &str) -> Presenter<Nothing> {
+fn boot(source: &str) -> Presenter<()> {
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
-        Nothing,
+        &crate::test_plan(source),
+        (),
         (320., 480.),
         1.,
         PathBuf::new(),
@@ -104,7 +95,7 @@ fn boot(source: &str) -> Presenter<Nothing> {
     p
 }
 
-fn settle(p: &mut Presenter<Nothing>) {
+fn settle(p: &mut Presenter<()>) {
     for _ in 0..8 {
         assert!(p.pump(p.host.now()).is_none());
         if p.dirty() {
@@ -113,18 +104,18 @@ fn settle(p: &mut Presenter<Nothing>) {
     }
 }
 
-fn id(p: &Presenter<Nothing>, name: &str) -> ViewId {
+fn id(p: &Presenter<()>, name: &str) -> ViewId {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
 
-fn log(p: &Presenter<Nothing>) -> String {
+fn log(p: &Presenter<()>) -> String {
     let k = p.host().kernel();
     let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
     node.props.str(PropId::Text).unwrap().to_string()
 }
 
-fn tap(p: &mut Presenter<Nothing>, name: &str) {
+fn tap(p: &mut Presenter<()>, name: &str) {
     let (x, y, w, h) = p.rect_of(id(p, name)).unwrap();
     p.press_at(x + w / 2.0, y + h / 2.0, p.host.now());
     settle(p);
@@ -181,13 +172,13 @@ fn read(words: &[i32]) -> Vec<Told> {
 }
 
 /// The statement as it now stands, whether or not it was told before.
-fn told(p: &mut Presenter<Nothing>) -> Vec<Told> {
+fn told(p: &mut Presenter<()>) -> Vec<Told> {
     p.hosted.last.clear();
     read(&p.reader_fields(1.0).expect("a statement"))
 }
 
 /// The keyboard the shell was last asked for: its state and its field.
-fn keyboard(p: &mut Presenter<Nothing>) -> Option<(i32, i32)> {
+fn keyboard(p: &mut Presenter<()>) -> Option<(i32, i32)> {
     p.tell_shell();
     let words = p.take_requests()?;
     let (mut at, mut last) = (0, None);
@@ -200,15 +191,22 @@ fn keyboard(p: &mut Presenter<Nothing>) -> Option<(i32, i32)> {
     last
 }
 
-/// Whether anything but the field's fill shows inside `name`'s content box.
-fn inked(p: &mut Presenter<Nothing>, name: &str) -> bool {
-    let (x, y, w, h) = p.rect_of(id(p, name)).unwrap();
+/// Whether anything but the field's fill shows inside `name`'s content box:
+/// the fill is the container's at its start, beside the text.
+fn inked(p: &mut Presenter<()>, name: &str) -> bool {
+    let (x, y, _, h) = p.rect_of(id(p, name)).unwrap();
+    let c = {
+        let k = p.host().kernel();
+        k.node(id(p, name)).unwrap().field_content_rect().unwrap()
+    };
     let pixmap = p.frame();
+    let fill = pixmap
+        .pixel((x + 8.0) as u32, (y + h / 2.0) as u32)
+        .unwrap();
     let mut inked = false;
-    for row in (y + 8.0) as u32..(y + h - 8.0) as u32 {
-        for col in (x + 10.0) as u32..(x + w - 10.0) as u32 {
-            let c = pixmap.pixel(col, row).unwrap();
-            inked |= (c.red(), c.green(), c.blue()) != (255, 255, 255);
+    for row in (y + c.y) as u32..(y + c.y + c.height) as u32 {
+        for col in (x + c.x) as u32..(x + c.x + c.width) as u32 {
+            inked |= pixmap.pixel(col, row).unwrap() != fill;
         }
     }
     inked
@@ -222,12 +220,12 @@ fn a_hosted_field_is_measured_by_the_shell_during_layout() {
         shell.asked.load(Ordering::Relaxed) > 0,
         "the boot layout asked the shell's field"
     );
-    // Twenty characters of 8 px and a line of 20, in the container's own
-    // insets (7 above and below, 9 each side); a textarea's three rows.
+    // Twenty characters of 8 px and a line of 20, in Material's filled
+    // field (16 in on every side, 56 tall at least); a textarea's three rows.
     let (_, _, w, h) = p.rect_of(id(&p, "name")).unwrap();
-    assert_eq!((w, h), (160.0 + 18.0, 20.0 + 14.0));
+    assert_eq!((w, h), (160.0 + 32.0, 56.0));
     let (_, _, w, h) = p.rect_of(id(&p, "notes")).unwrap();
-    assert_eq!((w, h), (160.0 + 18.0, 60.0 + 14.0));
+    assert_eq!((w, h), (160.0 + 32.0, 60.0 + 32.0));
     // The device's font scale is the field's own font's too: 16 by 1.5.
     let device = Device {
         night: false,
@@ -240,11 +238,12 @@ fn a_hosted_field_is_measured_by_the_shell_during_layout() {
         high_contrast: false,
         touch: true,
         touch_slop: 8.0,
+        dates: String::new(),
     };
     assert_eq!(p.set_device(&device), None);
     settle(&mut p);
     let (_, _, w, h) = p.rect_of(id(&p, "name")).unwrap();
-    assert_eq!((w, h), (240.0 + 18.0, 30.0 + 14.0));
+    assert_eq!((w, h), (240.0 + 32.0, 30.0 + 32.0));
     assert_eq!(told(&mut p)[0].look[11], 24f32.to_bits() as i32);
 }
 
@@ -266,7 +265,8 @@ fn the_reader_is_told_each_field_its_box_and_its_keyboard() {
     let (x, y, _, _) = p.rect_of(ids[0]).unwrap();
     let name = &fields[0];
     assert_eq!((name.generation, name.flags, name.seq), (0, 1, 0));
-    assert_eq!(name.rect, [x + 9.0, y + 7.0, 160.0, 20.0]);
+    // Under its label (its placeholder): 24 down, 8 above the foot.
+    assert_eq!(name.rect, [x + 16.0, y + 24.0, 160.0, 24.0]);
     assert!(name.clip[2] < 0.0, "no clip: {:?}", name.clip);
     assert_eq!(name.value, "");
     // Enter submits and another field follows; the key says Next.
@@ -293,9 +293,13 @@ fn a_hosted_fields_text_is_the_shells_to_draw() {
     let name = id(&p, "name");
     p.reader_field_edited(name, (0, 1), "hello", (5, 5), 1.0);
     assert_eq!(p.field_text(name), "hello");
+    // The label floats as the field fills, in 150 ms.
+    let _ = p.frame();
+    let now = p.host().now();
+    p.clock(now + 200.);
     assert!(
         !inked(&mut p, "name"),
-        "nothing of the text is painted here"
+        "nothing of the text is painted here, and its label floats above it"
     );
     assert!(!inked(&mut p, "email"), "nor a placeholder's");
 }
@@ -343,7 +347,7 @@ fn an_edit_is_the_fields_text_and_the_app_answers_it_by_its_number() {
     // A command's selection is told by its revision, once.
     assert_eq!(&after[0].look[15..], &[0, 0, 0]);
     tap(&mut p, "jump");
-    p.run_commands(Nothing::default);
+    p.run_commands(<()>::default);
     assert_eq!(&told(&mut p)[0].look[15..], &[1, 1, 2]);
     // What a reader says of a generation the presenter moved on from is
     // dropped, and the field starts over.
@@ -519,4 +523,76 @@ fn desktop_linux_hosts_nothing_and_paints_its_fields() {
     p.key(Some('i'), false, 3.0);
     assert_eq!(log(&p), "hi|||[h 1-1][hi 2-2]");
     assert!(inked(&mut p, "name"), "the painter draws the field's text");
+}
+
+#[test]
+#[cfg(not(windows))]
+fn scroll_end_distinguishes_field_navigation_from_keyboard_insets() {
+    let (_shell, _hosting) = shell();
+    for displayed in [false, true] {
+        let mut p = boot(
+            r#"component App
+  state order = ""
+  action moved(x: number, y: number)
+    order = `${order}s`
+  action ended
+    order = `${order}e`
+  view
+    main viewport-fit="cover" width="100%" height="100%" display="flex" flex-direction="column"
+      scroll testId="port" flex=1 width="100%" scroll=moved scrollend=ended
+        input testId="first" height=40
+        box height=600
+        input testId="last" height=40
+"#,
+        );
+        let window = Window {
+            size: (320., 480.),
+            ..Window::default()
+        };
+        assert_eq!(p.set_window(window), None);
+        let acknowledge = |p: &mut Presenter<()>| {
+            if displayed {
+                let frame = p.display_frame().unwrap();
+                assert!(p.display_complete(&frame));
+            }
+        };
+        acknowledge(&mut p);
+        p.reader_fields(1.);
+        let (port, first, last) = (id(&p, "port"), id(&p, "first"), id(&p, "last"));
+        p.reader_field_focused(first, 0, true, 0.);
+        p.reader_field_action(first, 0, field_action::NEXT, 0.);
+        assert_eq!(p.focus(), Some(last));
+        assert!(p.scroll_of(port).1 > 0.);
+        acknowledge(&mut p);
+        p.pump(0.);
+        assert_eq!(
+            p.host.runner().slot("order"),
+            Some(&exact_runner::Value::str("se"))
+        );
+        let before = p.scroll_of(port);
+        let typing = Window {
+            keyboard: [0., 0., 200., 0.],
+            ..window
+        };
+        assert_eq!(p.set_window(typing), None);
+        acknowledge(&mut p);
+        acknowledge(&mut p);
+        assert!(p.scroll_of(port).1 > before.1);
+        p.pump(0.);
+        assert_eq!(
+            p.host.runner().slot("order"),
+            Some(&exact_runner::Value::str("ses"))
+        );
+        assert_eq!(p.timer_due_ms(), None);
+        p.reader_field_action(last, 0, field_action::PREVIOUS, 0.);
+        assert_eq!(p.focus(), Some(first));
+        assert_eq!(p.scroll_of(port).1, 0.);
+        acknowledge(&mut p);
+        p.pump(0.);
+        assert_eq!(
+            p.host.runner().slot("order"),
+            Some(&exact_runner::Value::str("sesse"))
+        );
+        assert_eq!(p.window(), Some(&typing));
+    }
 }

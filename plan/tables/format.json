@@ -14,6 +14,16 @@
       "name": "locale",
       "codec": "opt:slots",
       "_comment": "@ref LLP 1060 D4: the root string slot holding the resolved locale every `t(...)` reads; set only when the app calls `t`. The runner writes it from set_place."
+    },
+    {
+      "name": "snapshot_entry",
+      "codec": "string",
+      "_comment": "LLP 1126 D2: empty for a running app, otherwise the snapshot entry kind; checked before decoding tables."
+    },
+    {
+      "name": "snapshot_refresh",
+      "codec": "opt:sources",
+      "_comment": "LLP 1126.000 WP2: the snapshot refresh signature, number -> {date: number, props: Props}[]. Absent on a running app."
     }
   ],
   "_about": "The single declaration authority for the plan: its tables, the expression VM's opcodes, the stdlib roster, and the enum vocabularies. plan/build.rs generates the row structs, the canonical encoder, the validating decoder, the opcode and stdlib enums, and FORMAT_DIGEST from this file. Nothing here is hand-mirrored anywhere else. Kernel node types, props, and style rows are NOT declared here: plan rows carry the kernel's ordinals as numbers, and the crates that give them meaning take the vocabulary from exact-kernel (LLP 1004 D2).",
@@ -369,6 +379,60 @@
       ]
     },
     {
+      "name": "sequences",
+      "_comment": "@ref LLP 1125 D2, D3: each `sequence NAME when gate key=key` and its `play(tracks, bpm=, from=, countIn=, clock=, clockOut=, ended=)`. The gate and key are a task's (LLP 1092 D9); the arguments are plan code the runner evaluates after each commit's settlement and compares by value. An omitted argument is a constant: `from` 0, `countIn` [], `clock` and `clockOut` \"\".",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "gated",
+          "codec": "bool"
+        },
+        {
+          "name": "gate",
+          "codec": "code"
+        },
+        {
+          "name": "keyed",
+          "codec": "bool"
+        },
+        {
+          "name": "key",
+          "codec": "code"
+        },
+        {
+          "name": "tracks",
+          "codec": "code"
+        },
+        {
+          "name": "bpm",
+          "codec": "code"
+        },
+        {
+          "name": "from",
+          "codec": "code"
+        },
+        {
+          "name": "count_in",
+          "codec": "code"
+        },
+        {
+          "name": "clock",
+          "codec": "code"
+        },
+        {
+          "name": "clock_out",
+          "codec": "code"
+        },
+        {
+          "name": "ended",
+          "codec": "opt:actions"
+        }
+      ]
+    },
+    {
       "name": "regions",
       "fields": [
         {
@@ -426,7 +490,10 @@
     {
       "name": "surfaces",
       "fields": [
-        { "name": "mode", "codec": "enum:SurfaceArgsMode" },
+        {
+          "name": "mode",
+          "codec": "enum:SurfaceArgsMode"
+        },
         {
           "name": "name",
           "codec": "str"
@@ -489,6 +556,24 @@
           "name": "written",
           "codec": "bool",
           "_comment": "@ref LLP 1115.000 D2: whether the author wrote this row on this node: an attribute of the node, or a row of a `style` its `class` names. False for a row the compiler implies (a tag's fixed row, a heading's size and weight, a link run's colour, a sheet's rows, a row derived from another). Set where lowering emits the row; where two rows set one property, the winner's. The runner hands a style row's to the kernel, which keeps it beside the row (`StyleProps::written`); a prop row's is carried and read by nothing yet."
+        }
+      ]
+    },
+    {
+      "name": "looks",
+      "_comment": "@ref LLP 1121 D8 (stage 8 A; amended 2026-10-18): a `:hover` or `:focus-visible` look on a node `node` (rows in node order, at most one a state a node; a node with none has no row, so a plan without state parts pays nothing), which the host applies on its own tracking with no round trip (LLP 1061 D1's reason): `state` 1 `:hover`, 2 `:focus-visible` (0, once `:active`, is retired and refused: `:active` lowers to the press paint, LLP 1061 D7); `bindings` its style rows, each a literal (a token's name is one, as a static row's): `background-color`, a side's `border-*-color`, `opacity`, `box-shadow`. A host composes them over the base, `:hover` then `:focus-visible`, under the press paint; a disabled node takes none.",
+      "fields": [
+        {
+          "name": "node",
+          "codec": "idx:nodes"
+        },
+        {
+          "name": "state",
+          "codec": "u8"
+        },
+        {
+          "name": "bindings",
+          "codec": "range:bindings"
         }
       ]
     },
@@ -618,28 +703,127 @@
       ]
     },
     {
+      "name": "theme",
+      "_comment": "@ref LLP 1095 D4: the app's `theme`, one row an entry: its name, the role it overrides as a row writes it (`-exact-secondary-label`, `Canvas`; empty for none), the text it stands for, which names no entry, and its kind. A string row naming an entry of its kind or an overridden role reads that text, in the compiler and when the runner sets a row.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "role",
+          "codec": "str"
+        },
+        {
+          "name": "value",
+          "codec": "str"
+        },
+        {
+          "name": "kind",
+          "codec": "u8",
+          "_comment": "@ref LLP 1121 D3, D7: the token's kind, which rows may name it: 0 a colour, 1 a length (px text, one `rem` or `em`, or a named length), 2 a number, 3 a `box-shadow`, 4 a `text-shadow` (the row's own text, its colours folded). A string row reads an entry of its row's kind; `value` and the slices are its text in that kind."
+        },
+        {
+          "name": "slices",
+          "codec": "range:theme_slices",
+          "_comment": "@ref LLP 1121 D5, D7: a token that varies by an app axis has one slice per full app tuple, in tuple order (mixed radix over `axes`, the first axis most significant); `value` is the default tuple's. Empty for a token that does not vary."
+        }
+      ]
+    },
+    {
+      "name": "theme_slices",
+      "_comment": "@ref LLP 1121 D5: one token's text for one full app tuple; a `theme` row's `slices` range names its own.",
+      "fields": [
+        {
+          "name": "value",
+          "codec": "str"
+        }
+      ]
+    },
+    {
+      "name": "axes",
+      "_comment": "@ref LLP 1121 D5: the app's axes in declaration order, each with its values joined by `|`, the first the default. `-exact-mode` pins a node's value per axis; the window's are `setMode`'s.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "values",
+          "codec": "str"
+        }
+      ]
+    },
+    {
+      "name": "icons",
+      "_comment": "@ref LLP 1121 D10 (stage 6 F): each icon token the plan keeps, which a computed `symbol:` source may name (`symbol:icon.reply`, or `symbol:sf/<name>` for the icon whose `sf` it is): its SF Symbol (empty for none), the SVG's viewBox and its paths' `d` joined by `;`, drawn as a template as a role's path is (empty for a file the web draws as written), and the SVG's path under `assets/` (empty for none). A literal source is written at build as `symbol:icon|<sf>|<view_box>|<path>|<svg>`, the image source form hosts read (`exact_kernel::Icon`): `<path>` is each SVG path's `d` joined by `;`, each filled nonzero; no part holds a `|`, which the build refuses.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "sf",
+          "codec": "str"
+        },
+        {
+          "name": "view_box",
+          "codec": "str"
+        },
+        {
+          "name": "path",
+          "codec": "str"
+        },
+        {
+          "name": "svg",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "hatches",
       "_comment": "@ref LLP 1075.003.000.001 §4.3: each hatch word app.json declares, with the platforms whose module handles it as a mask (bit 0 ios, 1 tvos, 2 macos, 3 web, 4 linux, 5 windows, 6 android; a plain list is every bit). A host calls a word only where its bit is set, so a platform taken off a word stops being called with the next bundle.",
       "fields": [
-        { "name": "word", "codec": "str" },
-        { "name": "platforms", "codec": "u16" }
+        {
+          "name": "word",
+          "codec": "str"
+        },
+        {
+          "name": "platforms",
+          "codec": "u16"
+        }
       ]
     },
     {
       "name": "texts",
       "_comment": "@ref LLP 1060 D3: one localized text, `{name}` placeholders unfilled. Within a locale, sorted by key.",
       "fields": [
-        { "name": "key", "codec": "str" },
-        { "name": "text", "codec": "str" }
+        {
+          "name": "key",
+          "codec": "str"
+        },
+        {
+          "name": "text",
+          "codec": "str"
+        }
       ]
     },
     {
       "name": "locales",
       "_comment": "@ref LLP 1060 D3: one strings table per locale (BCP 47 name). Row 0 is the base; the rest are in name order. rtl is the CLDR script direction, compiled once. Table names remain for data-only strings. Only the keys the app's `t` calls name.",
       "fields": [
-        { "name": "name", "codec": "str" },
-        { "name": "rtl", "codec": "bool" },
-        { "name": "texts", "codec": "range:texts" }
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "rtl",
+          "codec": "bool"
+        },
+        {
+          "name": "texts",
+          "codec": "range:texts"
+        }
       ]
     }
   ],
@@ -758,7 +942,8 @@
       "close",
       "toggle",
       "scrollend",
-      "beforeinput"
+      "beforeinput",
+      "midimessage"
     ]
   },
   "_opcodes": "The expression VM: a stack machine over values with a small locals stack (`BindLocal` pops into it, `LoadLocal` copies from it, `DropLocal` pops it) for names an inline `match` binds and the item and index a `Map`/`Filter` callback binds. Each opcode names its operand layout; the decoder validates framing and every index operand. `depth` operands count enclosing instance scopes (0 = innermost). Type inference guarantees stack discipline; the VM still traps, never UB.",
@@ -1031,7 +1216,9 @@
         "idx:resources"
       ],
       "_comment": "@ref LLP 1109 D3: `failure(x)`: once the resource settled, `none` while its latest request for its current arguments has not failed, else `some` of the compiler's `Failure` record, `{ code, message }` by position."
-    }
+    },
+    { "name": "FailedMutation", "operands": ["idx:mutations"] },
+    { "name": "FailureMutation", "operands": ["idx:mutations"] }
   ],
   "_stdlib": "The enumerated roster (LLP 1004 D2/D4): every callable an expression may name, with its parameter types and return type (`any` = one of number, string, bool, list). The compiler checks calls against this table; the runner's VM implements each entry once; entries are added by fixture, never by speculation. LLP 1038 D3: Router and Entry name reserved record shapes; list<Router>, list<Entry>, and list<string> are typed lists.",
   "stdlib": [
@@ -1364,6 +1551,54 @@
       "params": ["number", "0..=20"],
       "returns": "string",
       "_comment": "@ref LLP 1102 §0, §3.2 (decided (c)): an integer count of a smallest unit as a decimal with `digits` places, exactly (`formatDecimal(1234, 2)` is `\"12.34\"`, `formatDecimal(-5, 2)` is `\"-0.05\"`, `formatDecimal(7, 0)` is `\"7\"`); `-0` prints as `0`. A count that is not an integer, or not finite, prints `\"\"`: money is a count of cents, or `formatDecimal(round(price * 100), 2)` for a price of at most two decimals under a trillion. `digits` is a whole-number literal from 0 to 20. A linked `format` entry."
+    },
+    {
+      "name": "formatDay",
+      "params": ["number", "number", "number", "\"day\" | \"day-time\" | \"list\""],
+      "returns": "string",
+      "_comment": "@ref LLP 1116.020 D8: a day's label for (thenMs, nowMs, utcOffset), en-US. The days are the offset's calendar days, as `formatDate`'s are (one fixed offset for both instants: a DST change between them is not applied). `day` is `Today`, `Yesterday` or `Tomorrow`, else `formatDate`'s `medium`; `day-time` adds ` at ` and `formatTime`'s `short` (`Today at 4:42 PM`, `Oct 11, 2026 at 4:42 PM`); `list` is Mail's and Notes' list label: `formatTime`'s `short` today, `Yesterday`, the weekday's name two to six days back, else the numeric short date of Intl.DateTimeFormat(\"en-US\", { dateStyle: \"short\" }) (`10/11/26`), a later day's included. `\"\"` when either instant is invalid as `formatDate` judges one (LLP 1054.000.003 D7). Pure: the app passes its own `now`. The linked capability `format`."
+    },
+    {
+      "name": "sin",
+      "params": ["number"],
+      "returns": "number",
+      "_comment": "@ref LLP 1017.003 §Refused (2026-10-17): JavaScript's `Math.sin` and CSS's `sin()`, of radians. The native runners compute it with `libm` (`exact_motion::math`), the same bits on every target; the web's JS target is `Math.sin`, which ECMA-262 lets differ in the last bits. NaN and the infinities are NaN."
+    },
+    {
+      "name": "cos",
+      "params": ["number"],
+      "returns": "number",
+      "_comment": "@ref LLP 1017.003 §Refused (2026-10-17): JavaScript's `Math.cos` and CSS's `cos()`, of radians, computed as `sin` is."
+    },
+    {
+      "name": "sum",
+      "params": ["list<number>"],
+      "returns": "number",
+      "_comment": "@ref LLP 1017.003 §Refused (2026-10-17): a list of numbers added left to right from +0, exactly `xs.reduce((a, x) => a + x, 0)`: `[]` is 0, `[-0]` is +0, a NaN or opposite infinities make NaN. A step an item on the evaluation's list budget, as `includes` takes (LLP 1088 §9.1). Not `Math.sumPrecise`, which rounds once."
+    },
+    {
+      "name": "sortBy",
+      "params": ["any", "any", "bool"],
+      "returns": "any",
+      "_comment": "@ref LLP 1116.016 §5 (Charlie, 2026-10-17): `sortBy(list<T>, (T, number) => K, \"asc\" | \"desc\"?) -> list<T>` with `K` a number or a string (the type checker's). Lowered as the list bound once as a local, a `Map` of the key callback over it (one list step an item, the key evaluated once an item), then this call on (the list, its keys, descending): the items in a stable order of their keys, a bottom-up merge sort written out alike in the runner and the JS target. Numbers by `<` with NaN as +0 (so -0, +0 and NaN tie); strings by UTF-16 code units, as `<`; equal keys keep their input order in both directions. The call takes no list step: its n·⌈log₂ n⌉ comparisons are the stated cost (LLP 1116.016 D0); the list it builds is measured as `List` measures one."
+    },
+    {
+      "name": "toUpperCase",
+      "params": ["string"],
+      "returns": "string",
+      "_comment": "@ref LLP 1088 D2 (admitted 2026-10-17): JavaScript's `String.prototype.toUpperCase()`: Unicode's default, locale-independent full mapping, expansions included (`ß` is `SS`). Linked by use through the same case tables as `toLowerCase` (capability `text_transform`), bounded by `MAX_STRING`. Displayed text is uppercased by `text-transform`, not by this."
+    },
+    {
+      "name": "range",
+      "params": ["number"],
+      "returns": "list<number>",
+      "_comment": "@ref LLP 1017.003 §Refused (admitted 2026-10-17): Exact's own, not the web's: the whole numbers 0 to n - 1 in order, `[]` for 0. `n` is a whole number at least 0 (`-0` is 0); any other, NaN and the infinities included, is a `TypeMismatch` trap, as the arguments do not fit (the compiler refuses such a literal). One list step an item, taken before the list is built (as `concat`), so an `n` past the bound traps `IterationLimit`; the list's extent is checked as a `List` is."
+    },
+    {
+      "name": "flat",
+      "params": ["any"],
+      "returns": "any",
+      "_comment": "@ref LLP 1017.003 §Refused (admitted 2026-10-17): JavaScript's `Array.prototype.flat()` at its default depth, 1: a list of lists' items in order, `list<list<T>> -> list<T>` (the type checker's; no depth is taken). One list step an outer item and one an item it emits, taken before the list is built, as `concat` takes them; the result's extent is checked as a `List` is."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

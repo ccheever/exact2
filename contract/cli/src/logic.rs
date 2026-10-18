@@ -4,6 +4,19 @@
 /// Generate `AppData` and `app_data()` for a host's source type and constructor.
 /// `mode` is the validated `compat.inputs.rustMode` from the actual target bake.
 pub fn rust_entry(data: &str, constructor: &str, mode: &str) -> Result<String, String> {
+    // The digest of the source this binary compiles `constructor`'s crate
+    // from (`scripts/app.mjs` `nativeSource`): a Rust update built from the
+    // same source then runs this native code, not the module.
+    println!("cargo:rerun-if-env-changed=EXACT_NATIVE_SOURCE");
+    let native = match std::env::var("EXACT_NATIVE_SOURCE") {
+        Ok(source) if !source.is_empty() => {
+            if !source.bytes().all(|b| b.is_ascii_hexdigit()) || source.len() != 64 {
+                return Err("EXACT_NATIVE_SOURCE must be a sha256 in hex".into());
+            }
+            format!(".with_native({source:?}, || {constructor})")
+        }
+        _ => String::new(),
+    };
     let supplemental = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
         let receipt: serde_json::Value = serde_json::from_slice(
             &std::fs::read(std::path::Path::new(&directory).join("app.module.json"))
@@ -23,9 +36,9 @@ pub fn rust_entry(data: &str, constructor: &str, mode: &str) -> Result<String, S
         ) {
             return Err("invalid supplemental Rust module filename".into());
         }
-        format!("{{ use exact_logic::exact_runner::DataSource; exact_logic::Swappable::{mode}({constructor}).replacement(include_bytes!(concat!(env!(\"OUT_DIR\"), \"/app.plan\")), include_str!(concat!(env!(\"OUT_DIR\"), \"/rust/app.module.json\")), include_bytes!(concat!(env!(\"OUT_DIR\"), \"/rust/{file}\")).to_vec()).expect(\"validated baked Rust pair\") }}")
+        format!("{{ use exact_logic::exact_runner::DataSource; exact_logic::Swappable::{mode}({constructor}){native}.replacement(include_bytes!(concat!(env!(\"OUT_DIR\"), \"/app.plan\")), include_str!(concat!(env!(\"OUT_DIR\"), \"/rust/app.module.json\")), include_bytes!(concat!(env!(\"OUT_DIR\"), \"/rust/{file}\")).to_vec()).expect(\"validated baked Rust pair\") }}")
     } else {
-        format!("exact_logic::Swappable::{mode}({constructor})")
+        format!("exact_logic::Swappable::{mode}({constructor}){native}")
     };
     match mode {
         "off" => Ok(format!("type AppData = {data};\n#[allow(dead_code)]\nfn app_data() -> AppData {{ {constructor} }}\n")),
@@ -131,13 +144,22 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
     // Inspection is linked by policy, not by use: in production too, so the
     // smoked artifact is the shipped one (LLP 1047 §10, Q3).
     // A grouped list is its authored nodes on the web, and the browser does
-    // its own I/O and plays CSS's transitions (LLP 1047.001 D2).
+    // its own I/O and plays CSS's transitions (LLP 1047.001 D2); its file
+    // input is the media picker, `auth` below is the sign-in sheet, and its
+    // numerals roll in the runtime's text (LLP 1077 D15), and its date and
+    // time controls are the browser's own (LLP 1115.001.000 D2).
     let names: Vec<&str> = uses
         .iter()
         .filter(|c| {
             !matches!(
                 c,
-                Capability::GroupedLists | Capability::Io | Capability::Transitions
+                Capability::GroupedLists
+                    | Capability::Io
+                    | Capability::Transitions
+                    | Capability::MediaPicker
+                    | Capability::AuthSession
+                    | Capability::Numerals
+                    | Capability::Dates
             )
         })
         .map(|c| c.name())
@@ -185,7 +207,11 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Notifications
             | Capability::GroupedLists
             | Capability::Io
-            | Capability::Transitions => {}
+            | Capability::Transitions
+            | Capability::MediaPicker
+            | Capability::AuthSession
+            | Capability::Numerals
+            | Capability::Dates => {}
         }
     }
     entry

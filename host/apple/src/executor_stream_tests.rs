@@ -403,7 +403,8 @@ fn the_parser_reads_lines_fields_and_cursors_as_html_does() {
                 event: "progress".into(),
                 id: "7".into(),
                 data: "{\"a\":\n1}".into(),
-                coalesced: 0
+                coalesced: 0,
+                binary: None,
             },
             Message {
                 id: "7".into(),

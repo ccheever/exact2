@@ -2,17 +2,6 @@ use super::*;
 use exact_motion::{HoldEnd, Property, Value};
 use exact_runner::DataError;
 
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 fn source() -> String {
     r#"component App
   state count = 0
@@ -38,10 +27,10 @@ fn source() -> String {
       text `${count}` testId="count"
 "#.into()
 }
-fn boot(src: &str) -> Presenter<NoData> {
+fn boot(src: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(src).unwrap().encode(),
-        NoData,
+        &crate::test_plan(src),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -51,11 +40,11 @@ fn boot(src: &str) -> Presenter<NoData> {
     assert!(error.is_none(), "{error:?}");
     p
 }
-fn id(p: &Presenter<NoData>, name: &str) -> ViewId {
+fn id(p: &Presenter<()>, name: &str) -> ViewId {
     let k = p.host.kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
-fn count(p: &Presenter<NoData>) -> &str {
+fn count(p: &Presenter<()>) -> &str {
     p.host
         .kernel()
         .node(id(p, "count"))
@@ -64,7 +53,7 @@ fn count(p: &Presenter<NoData>) -> &str {
         .str(PropId::Text)
         .unwrap()
 }
-fn recognize(p: &mut Presenter<NoData>) {
+fn recognize(p: &mut Presenter<()>) {
     assert!(p.pointer_down(20., 40., 0.).unwrap());
     assert!(p.pointer_move(30., 40., 10.).unwrap());
 }
@@ -192,8 +181,7 @@ fn deletion_remount_and_runtime_replacement_cannot_receive_old_release() {
         .unwrap()
         .primary
         .token;
-    p.reload(&contract::compile(&src).unwrap().encode(), NoData)
-        .unwrap();
+    p.reload(&crate::test_plan(&src), ()).unwrap();
     assert!(!p.host.hold_update(token, Value::ZERO, f64::NAN).unwrap());
     assert!(!p.pointer_up(150., 40., 200.).unwrap());
     assert_eq!(count(&p), "0");
@@ -930,9 +918,7 @@ component MessageBubble
         let before = clocks(&p);
         // Existing region sessions explicitly refuse in-place reload; do not
         // invent a carrier policy or weaken that refusal for this adapter.
-        assert!(p
-            .reload(&contract::compile(&src).unwrap().encode(), Rows::default())
-            .is_err());
+        assert!(p.reload(&crate::test_plan(&src), Rows::default()).is_err());
         assert_eq!(clocks(&p), before);
         p.pointer_cancel(20.).unwrap();
         assert!(!p.host.has_hold(token));

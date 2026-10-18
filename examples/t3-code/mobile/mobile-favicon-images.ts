@@ -1,5 +1,5 @@
 // Pinned365aa87982 ProjectFavicon.tsx/projectFaviconRequests.ts (MIT).
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 import { mobileCacheReadRevision } from './mobile-client-cache';
 import { mobileFaviconMissing, mobileFaviconResourceKey, mobileFaviconRevision,
   type MobileFaviconTarget } from './mobile-favicon-cache';

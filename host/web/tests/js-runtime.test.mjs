@@ -12,6 +12,7 @@ import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
 import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { standIns } from './stand-ins.mjs';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
@@ -171,12 +172,10 @@ test('collection normal fast path retains noise, revives zeros and discards old-
     expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
   }
 });
-for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
+const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js'];
+for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
-for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'contextAt', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
-  'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
-  'svg-transform.js': ['svgTransform', 'svgGeometry'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds', 'x_querySelectorAll'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
-  writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n') + (file === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : ''));
+for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
 writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
 writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () => ({ before() {}, after() {}, exit() {} });');
@@ -185,9 +184,9 @@ writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () 
 const stub = (file, text) => writeFileSync(resolve(dir, file), text);
 stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const setAppGrantSet = g => g; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);');
 stub('admission-data.js', 'export const tsGrantSet = {};');
-stub('ts-fetch.js', 'export const answering = { call: null }; export const files = { appId: null };');
+stub('ts-fetch.js', "export const answering = { call: null }; export const files = { appId: null }; export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';");
 stub('names.js', 'export const sourceTypes = {};');
-stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store';");
+stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => [];");
 // A write lands a task later; a read answers at once: unqueued, it would overtake.
 stub('storage-fs.js', `const files = new Map(); export const createFileSystem = () => ({
   atomicWriteFile: (p, v) => new Promise((ok, no) => setTimeout(() => p.includes('absent/') ? no(Object.assign(new Error('filesystem: No such file'), { code: 'ENOENT' })) : ok(files.set(p, v)), 5)),
@@ -248,6 +247,24 @@ test('a stand-in whose ask is refused at ready fails its resource', async () => 
     data.answer = () => { throw Object.assign(new Error('the module refused'), { refuse: true }); };
     for (const f of data.q.splice(0)) f();
     expect([stamp(), stamp.f(), stamp.p(), stamp.e()?.[1]]).toEqual([0, true, false, 'the module refused']); // its own failure, in that commit
+  } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
+});
+
+// `failure(x).reason` (LLP 1109 D3, amended by the author's ruling of 2026-10-12): a thrown error's string `reason` (the
+// snapback4 driver's refusal code), synchronous or after a request. A domain reason is also the failure code.
+test('a failure keeps the reason its error named', async () => {
+  const page = globalThis.document;
+  globalThis.document = { querySelector: () => null, getElementById: () => ({}) };
+  try {
+    const { res, data, commit } = await import(resolve(dir, 'rt.js'));
+    const refusal = () => Object.assign(new Error('SLOT_FULL: the slot is taken'), { code: 'SLOT_FULL', reason: 'SLOT_FULL' });
+    data.answer = source => { if (source === 'now') throw refusal(); if (source === 'plain') throw new Error('plain'); return Promise.reject(refusal()); };
+    let now, plain, later;
+    commit(() => { now = res('nowSlot', 'now', () => [], 0, undefined, 'n', 0); plain = res('plainSlot', 'plain', () => [], 0, undefined, 'n', 0); later = res('laterSlot', 'later', () => [1], 0, undefined, 'n', 0); now(); plain(); later(); });
+    expect(now.e()).toEqual(['SLOT_FULL', 'SLOT_FULL: the slot is taken', 'SLOT_FULL']);
+    expect(plain.e()).toEqual(['error', 'plain', '']);
+    for (let i = 0; i < 5 && !later.f(); i++) await new Promise(ok => setTimeout(ok, 1));
+    expect(later.e()).toEqual(['SLOT_FULL', 'SLOT_FULL: the slot is taken', 'SLOT_FULL']);
   } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
 });
 
@@ -332,6 +349,47 @@ test('a mutation answered at once forces the async read it refreshes', async () 
   commit(() => M(op, 'inc', []));
   await new Promise(r => setTimeout(r, 0));
   expect([doc(), doc.p()]).toEqual([1, false]);
+});
+
+// `sin` and `cos` are `Math`'s; `sum` is `reduce((a, x) => a + x, 0)`, `range(n)` 0 to n - 1 and `flat()` depth 1, each a
+// list step an item (`flat` an outer item too) on the caller's budget, as the runner's `list_call` counts it.
+test('sin, cos, sum, range and flat compute as the runner does, and the lists step on the budget', async () => {
+  const { x_sin, x_cos } = await import(resolve(dir, 'roster.js'));
+  const budget = await import(resolve(dir, 'budget.js'));
+  expect([x_sin(0), x_cos(0), x_sin(1), x_cos(1)]).toEqual([0, 1, 0.8414709848078965, 0.5403023058681398]);
+  expect([budget.x_sum([1, 2, 3], 0, 7), budget.ST]).toEqual([6, 3]);
+  expect(budget.x_sum([0.1, 0.2, 0.3], 0, 7)).toBe(0.6000000000000001);
+  expect(Object.is(budget.x_sum([-0], 0, 7), 0)).toBe(true);
+  expect(budget.x_sum([], 0, 7)).toBe(0);
+  expect(() => budget.x_sum([1, 2], 65535, 7)).toThrow('IterationLimit');
+  expect([budget.x_range(3, 0, 7), budget.ST]).toEqual([[0, 1, 2], 3]);
+  expect([budget.x_range(0, 0, 7), budget.x_range(-0, 0, 7)]).toEqual([[], []]);
+  for (const n of [2.5, -1, NaN, Infinity]) expect(() => budget.x_range(n, 0, 7)).toThrow('Trap(TypeMismatch { pc: 7 })');
+  expect(() => budget.x_range(2, 65535, 7)).toThrow('IterationLimit');
+  expect(() => budget.x_range(1e300, 0, 7)).toThrow('IterationLimit');
+  expect([budget.x_flat([[1, 2], [], [3]], 0, 7), budget.ST]).toEqual([[1, 2, 3], 6]);
+  expect(budget.x_flat([[[1]], [[2]]], 0, 7)).toEqual([[1], [2]]);
+  expect(() => budget.x_flat([[1], [2]], 65533, 7)).toThrow('IterationLimit');
+});
+
+// `sortBy` (LLP 1116.016 §5): the runner's stable merge sort on precomputed keys, taking no step of its own; against a
+// stable `toSorted` on the decorated key with NaN read as 0, at every length to 40 and both directions.
+test('sortBy orders by key, stably both ways, as a reference stable sort does', async () => {
+  const { x_sortBy } = await import(resolve(dir, 'budget.js'));
+  const ids = (xs, keys, desc) => x_sortBy(xs, keys, desc, 7);
+  expect(ids([0, 1, 2, 3, 4, 5, 6], [3, NaN, -0, 1, 0, -1, 3], false)).toEqual([5, 1, 2, 4, 3, 0, 6]);
+  expect(ids([0, 1, 2, 3, 4, 5, 6], [3, NaN, -0, 1, 0, -1, 3], true)).toEqual([0, 6, 3, 1, 2, 4, 5]);
+  const words = ['～', '😀', 'a', 'ab', '', 'a'];
+  expect(ids(words, words, false)).toEqual(['', 'a', 'a', 'ab', '😀', '～']);
+  expect(ids([], [], true)).toEqual([]);
+  for (let n = 0; n < 40; n++) {
+    const xs = Array.from({ length: n }, (_, i) => i), keys = xs.map(i => [NaN, 2, -0, 1, 0][(i * 7) % 5]);
+    for (const desc of [false, true]) {
+      const k = i => (keys[i] !== keys[i] ? 0 : keys[i]);
+      const want = xs.toSorted((a, b) => (desc ? (k(b) < k(a) ? -1 : k(a) < k(b) ? 1 : 0) : k(a) < k(b) ? -1 : k(b) < k(a) ? 1 : 0));
+      expect(ids(xs, keys, desc)).toEqual(want);
+    }
+  }
 });
 
 
@@ -517,7 +575,7 @@ for (const queued of [false, true]) test(`a refused ${queued ? 'queued' : 'synch
   const replies = [], asked = [];
   data.answer = (source, [value]) => {
     asked.push(value);
-    if (value === 'refuse') throw new Error('setTimeout() is unavailable in data sources');
+    if (value === 'refuse') throw Object.assign(new Error('no seats left'), { reason: 'FULL' });
     if (value === 'later') return { promise: new Promise(resolve => replies.push(resolve)) };
     return { v: value };
   };
@@ -530,15 +588,21 @@ for (const queued of [false, true]) test(`a refused ${queued ? 'queued' : 'synch
     send('later'); send('refuse');
     expect(edits()).toBe(2);
     if (queued) {
-      send('ok'); replies[0]('first');
+      replies[0]('first');
       for (let i = 0; i < 50 && m.ticket; i++) await new Promise(r => setTimeout(r, 10));
       advance(clock.now + 1);
+      expect([m.f(), m.e()]).toEqual([true, ['FULL', 'no seats left', 'FULL']]);
+      send('ok');
+      expect([m.f(), m.e()]).toEqual([false, null]);
       expect([asked, slot(), m.wait.length]).toEqual([['later', 'refuse', 'ok'], 'ok', 0]);
     } else {
       expect(slot()).toBe(null);
       replies[0]('stale');
       await new Promise(r => setTimeout(r, 0));
       expect(slot()).toBe(null);
+      expect([m.f(), m.e()]).toEqual([true, ['FULL', 'no seats left', 'FULL']]);
+      send('ok');
+      expect([m.f(), m.e(), slot()]).toEqual([false, null, 'ok']);
     }
     expect(m.p()).toBe(false);
     expect(journal.some(line => line.includes('send refused-send failed:') && line.endsWith('it ends unsent'))).toBe(true);
@@ -721,8 +785,8 @@ test('capture stop ends Exact key handlers but leaves Enter submission and the b
 
 // LLP 1088 D2: the roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
 // runner's MAX_STRING as it builds (a quadratic `$\`` stops there), throwing the runner's trap at the call's pc (budget.js).
-test('slice, replaceAll and toLowerCase are the web methods, well formed and bounded', async () => {
-  const { x_slice: slice, x_replaceAll: replaceAll, x_toLowerCase: toLowerCase } = await import(resolve(dir, 'budget.js'));
+test('slice, replaceAll, toLowerCase and toUpperCase are the web methods, well formed and bounded', async () => {
+  const { x_slice: slice, x_replaceAll: replaceAll, x_toLowerCase: toLowerCase, x_toUpperCase: toUpperCase } = await import(resolve(dir, 'budget.js'));
   const x_slice = (s, a, b) => slice(s, a, b, 0, 4);
   const x_replaceAll = (s, f, w) => replaceAll(s, f, w, 4), x_toLowerCase = s => toLowerCase(s, 4);
   expect([x_slice('calc', 0, -1), x_slice('hello', -3, Infinity), x_slice('a😀b', 1, 2), x_slice('hello', NaN, 2.9)]).toEqual(['cal', 'llo', '�', 'he']);
@@ -730,6 +794,7 @@ test('slice, replaceAll and toLowerCase are the web methods, well formed and bou
     expect(x_replaceAll(s, f, w)).toBe(s.replaceAll(f, w).toWellFormed());
   expect(x_replaceAll('😀', '', '-')).toBe('-�-�-');
   expect([x_toLowerCase('ΟΣ'), x_toLowerCase('İ'), x_toLowerCase('ABC')]).toEqual(['ος', 'i̇', 'abc']);
+  expect([toUpperCase('straße', 4), toUpperCase('ﬃ', 4), toUpperCase('\ud800a', 4)]).toEqual(['STRASSE', 'FFI', '\ufffdA']);
   expect(() => x_replaceAll('x'.repeat(10000), '', "$`$'")).toThrow('Trap(StringTooLong { pc: 4 })');
   // The bound at a smaller limit, as the runner's own tests take it (strings.rs `replace_all(…, max)`): a result
   // that ends on a completed surrogate pair past it traps too (review b5-a 1: "xxx" → three emoji is 12 bytes).
@@ -805,6 +870,39 @@ test('decimal, currency and percent numbers are Intl\'s', async () => {
     .toEqual(['$1,481.47', '-$5.00', '26%', '1,234,567.891', 'CHF 5.00', '1.2K']);
   expect([NaN, Infinity, -Infinity].flatMap(x => styles.slice(0, 3).map(([style, code]) => x_formatNumber(x, style, code))))
     .toEqual(Array(9).fill(''));
+});
+
+// LLP 1116.020 D8: format.js's `formatDay` against Bun's own Intl at a fixed-offset `timeZone`: the medium and short
+// dates, the short time and the long weekday are Intl's; the day count is the offset's calendar days.
+test('formatDay\'s dates, times and weekdays are Intl\'s', async () => {
+  const { x_formatDay } = await import(webJs('format.js'));
+  const pad = n => String(n).padStart(2, '0');
+  const dtf = (off, options) => new Intl.DateTimeFormat('en-US',
+    { timeZone: `${off < 0 ? '-' : '+'}${pad(Math.abs(off) / 60 | 0)}:${pad(Math.abs(off) % 60)}`, ...options });
+  const expected = (then, now, off, mode) => {
+    const day = ms => Math.floor((Math.trunc(ms) + off * 6e4) / 864e5), apart = day(then) - day(now);
+    const at = options => dtf(off, options).format(new Date(then)), time = at({ timeStyle: 'short' });
+    if (mode === 'list') return apart === 0 ? time : apart === -1 ? 'Yesterday'
+      : apart >= -6 && apart <= -2 ? at({ weekday: 'long' }) : at({ dateStyle: 'short' });
+    const label = ({ 0: 'Today', '-1': 'Yesterday', 1: 'Tomorrow' })[apart] ?? at({ dateStyle: 'medium' });
+    return mode === 'day-time' ? `${label} at ${time}` : label;
+  };
+  let seed = 7;
+  const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const wrong = [];
+  for (let i = 0; i < 3000; i++) {
+    const now = 1e12 + next() * 1.5e12, then = now + Math.round((next() - 0.75) * 12 * 864e5);
+    const off = [0, 60, -60, 330, 345, -420, -480, 840, -720, 1080, -1080][Math.floor(next() * 11)];
+    for (const mode of ['day', 'day-time', 'list'])
+      if (x_formatDay(then, now, off, mode) !== expected(then, now, off, mode)) wrong.push([then, now, off, mode]);
+  }
+  expect(wrong.slice(0, 10)).toEqual([]);
+  // 2026-12-31T23:59 and 2027-01-01T00:01 in UTC; a Thursday a week back; invalid instants and offsets.
+  const eve = Date.UTC(2026, 11, 31, 23, 59), dawn = eve + 2 * 6e4;
+  expect([x_formatDay(eve, dawn, 0, 'day'), x_formatDay(eve, dawn, 0, 'day-time'), x_formatDay(eve, dawn, 0, 'list'),
+    x_formatDay(dawn, eve, 0, 'day'), x_formatDay(eve, dawn, 60, 'day'), x_formatDay(eve - 7 * 864e5, dawn, 0, 'list'),
+    x_formatDay(eve - 2 * 864e5, dawn, 0, 'list'), x_formatDay(NaN, dawn, 0, 'day'), x_formatDay(eve, dawn, 1081, 'list')])
+    .toEqual(['Yesterday', 'Yesterday at 11:59 PM', 'Yesterday', 'Tomorrow', 'Today', '12/24/26', 'Tuesday', '', '']);
 });
 
 // LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by
@@ -956,9 +1054,9 @@ test('storage keeps the order issued, a bound, a count, and a journal', async ()
   expect(await read.promise).toBe('two');
   expect(await ask('flood').promise).toBe('full');
   expect(journal.some(l => l.endsWith('storage refused: full (writeFile app:/data/flood)'))).toBe(true);
+  // Wait until the queue is empty and its operations stop counting in flight, a task after each lands (ts-data.js)
   const drained = async () => {
-    for (let i = 0; i < 500 && (data.background().queued || data.background().inFlight); i++) await new Promise(r => setTimeout(r, 2));
-    await new Promise(r => setTimeout(r, 10));
+    while (data.background().queued || data.background().inFlight || inflight.n > before) await new Promise(r => setTimeout(r, 50));
   };
   await drained(); // the flood's 257 run in order first
   ask('bad', 'x');
@@ -966,7 +1064,7 @@ test('storage keeps the order issued, a bound, a count, and a journal', async ()
   expect(inflight.n).toBe(before);
   expect(data.background()).toMatchObject({ queued: 0, inFlight: 0, failed: 1, last: 'storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file' });
   expect(journal.some(l => l.endsWith('storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file'))).toBe(true);
-});
+}, 30_000); // hang bound
 
 // `fs.compressImage` on the JS target (LLP 1069.002 A1.1): its options are
 // checked and copied before it is queued; a bad one is a TypeError that
@@ -1058,6 +1156,11 @@ test('string builders check expanded size before calling their builders', async 
   String.prototype.toLowerCase = function () { if (this.length > 65536) throw new Error('lowercase built before its bound'); return lower.call(this); };
   try { expect(() => B.x_toLowerCase('İ'.repeat(22369622), 56)).toThrow('Trap(StringTooLong { pc: 56 })'); }
   finally { String.prototype.toLowerCase = lower; }
+  // `ŉ` is 2 bytes and `ʼN` 3: 22,369,622 of them pass the bound only once uppercased.
+  const upper = String.prototype.toUpperCase;
+  String.prototype.toUpperCase = function () { if (this.length > 65536) throw new Error('uppercase built before its bound'); return upper.call(this); };
+  try { expect(() => B.x_toUpperCase('ŉ'.repeat(22369622), 57)).toThrow('Trap(StringTooLong { pc: 57 })'); }
+  finally { String.prototype.toUpperCase = upper; }
 });
 
 test('translation expansion stops when its output exceeds the byte budget', async () => {

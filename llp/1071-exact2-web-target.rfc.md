@@ -1784,6 +1784,64 @@ equal on the wasm page, the JS page and the Linux reference.
   wasm page does (the navroot plan 19,639 → 24,778 / 6,971 → 8,545; no app
   here has one).
 
+### Generated code at scale (2026-10-16, measured)
+
+The Bluesky clone (a 3.87 MB plan, 327 KB brotli-11) is the first app whose
+generated code is large: `.gen/app.js` 22.7 MB, the served `app.js` 21.0 MB
+(369 KB brotli-11, 1.13× the plan's, inside §7's 3× gate). The wire is not
+what costs; the raw size is, twice: Rolldown's bundle and minify (~1.0 s of
+a 2.5 s dev build) and V8's parse at load. A page's mount calls most of the
+generated functions, and V8 compiled each lazily on the main thread at its
+first call: of a 2.05 s module evaluation, 1.86 s was `ParseFunction` /
+`CompileCode` (Chrome trace, the dev build), the code's own running small.
+
+What the 22.7 MB is: `style::color_map` (9,237 B) inlined at each of 1,286
+bound colour sites, 11.88 MB (52%), and rebuilt at every call; repeated
+string literals of 64 B or more (icon paths the plan holds once), 1.66 MB;
+per-site radius validators 430 KB, metric maps 321 KB, iteration-budget
+loops 192 KB; the rest is per-element code (19,949 elements).
+
+Two levers, in order:
+1. *Compile hint.* The entry chunk leads with `//# allFunctionsCalledOnLoad`
+   (build.mjs, a `postBanner`: after the minifier, which drops comments), so
+   Chrome compiles the module eagerly, a fetched one on its streaming thread
+   (an `--inline` page's module is compiled eagerly on the main thread, with
+   no streaming to hide it behind). Release page,
+   runtime up (no DevTools attached, five runs): 1.67–1.94 s → 0.48–0.53 s,
+   ~23 MB more JS heap (44 → 67 MB). Caltrain and RealWorld: no difference
+   past noise (60–110 ms either way). Other browsers ignore the comment.
+   The heap it costs, after `gc()` with the runtime up: Caltrain 2.93 →
+   3.20 MB, RealWorld 2.43 → 2.81 MB; the clone 27.9 → 54.5 MB before the
+   constants below, 14.9 → 33.7 MB (+18.8) with them: the price of its
+   1.8 s → 0.5 s.
+2. *Per-plan constants hoisted* to module scope (emit.rs, after `wait`):
+   the colour map once (`$cm`), its inner maps built once; each distinct
+   metric map, corner validator and string literal of 64+ JSON bytes once
+   (`Uses::share`, `$$<kind><n>`). `.gen/app.js` 22.7 → 10.9 MB (the colour
+   map) → 9.3 MB; the release `app.js` 20.6 → 9.1 → 7.5 MB.
+
+The dev loop on the clone, a Contract text edit to its first frame in the
+DOM (the loop's own log, Chrome without DevTools, five edits, a loaded
+machine): ~15–18 s with the debug compiler (a 12–15 s build, a ~3 s
+reload); 5.7 s with the design reader's optimised one (host-dev, dev.mjs);
+~3.1 s with the hint; 2.4–2.6 s with the constants (plan ready ~2.1 s,
+runtime up ~0.35 s).
+
+The dev loop's compiler is a copy of the design reader's host-dev binary
+(dev.mjs `copyCompiler`), taken only from the loop's own finished build and
+used while `freshCompiler` holds (its dep-info, the lockfile and every
+manifest). A copy is published only while the binary keeps the date that
+build gave it and its dep-info keeps its own and ends whole; any failure
+keeps the previous copy. Left: an in-place dep-info rewrite inside one
+millisecond passes the date check, and the newline check is then the only
+guard.
+
+Measuring note: a CDP client that enables the Network domain (Playwright
+does) captures each request's initiator stack, which makes V8 collect source
+positions by reparsing the giant generated functions: 0.4–1.4 s of
+`CollectSourcePositions` that a page without DevTools never pays. Time
+loads without it (Chrome's own log, or a raw CDP `Runtime.evaluate`).
+
 ## 8. Rulings and open questions for Charlie
 
 **Rulings.**

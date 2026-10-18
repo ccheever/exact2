@@ -1,5 +1,6 @@
-//! `playSound(src, at=, gain=, group=)`, `playSounds(hits)` and
-//! `stopSounds(group=)` (LLP 1096 D2). Each is checked here, before the
+//! `playSound(src, at=, gain=, group=, playbackRate=, pan=)`,
+//! `playSounds(hits)` and `stopSounds(group=)` (LLP 1096 D2; the rate and
+//! pan, LLP 1125 D10). Each is checked here, before the
 //! generic loop, whose `infer` would refuse a named argument as a canvas
 //! binding (`type-named-argument`).
 
@@ -7,8 +8,8 @@ use super::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span, UnOp};
 use std::collections::BTreeSet;
 
-const PLAY: &str = "`playSound(\"assets/kit/hat.wav\", at=performanceNow() + 100, gain=0.8, group=\"hat\")`: a declared sound, then `at=` (runner milliseconds, now if left out), `gain=` (0–1, 1 if left out) and `group=` by name";
-const HITS: &str = "`playSounds(hits)` takes a list of a shape whose fields are, in order, `src: string`, `at: number`, `gain: number` and `group: string` (`shape Hit` with those four)";
+const PLAY: &str = "`playSound(\"assets/kit/hat.wav\", at=performanceNow() + 100, gain=0.8, group=\"hat\", playbackRate=1.5, pan=-0.5)`: a declared sound, then `at=` (runner milliseconds, now if left out), `gain=` (0–1, 1 if left out), `group=`, `playbackRate=` (0.25–4, 1 if left out) and `pan=` (−1 left to 1 right, 0 if left out) by name";
+const HITS: &str = "`playSounds(hits)` takes a list of a shape whose fields are, in order, `src: string`, `at: number`, `gain: number` and `group: string` (`shape Hit` with those four), then optionally `playbackRate: number` and then `pan: number`";
 const STOP: &str = "`stopSounds()` ends every voice still sounding or waiting; `stopSounds(group=\"hat\")` ends that group's";
 
 /// The three commands' arguments.
@@ -31,7 +32,7 @@ fn play(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Result<(),
         [src, named @ ..] if !matches!(src, Expr::NamedArg(..)) => (src, named),
         _ => return err("type-play-sound", PLAY, span),
     };
-    if !matches!(infer(src, scope, shapes)?, Ty::String) {
+    if !infer(src, scope, shapes)?.is_string() {
         return err(
             "type-play-sound",
             format!("the sound is a string, its path: {PLAY}"),
@@ -59,7 +60,7 @@ fn play(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Result<(),
             );
         };
         let want = match option.as_str() {
-            "at" | "gain" => Ty::Number,
+            "at" | "gain" | "playbackRate" | "pan" => Ty::Number,
             "group" => Ty::String,
             other => {
                 return err(
@@ -84,17 +85,34 @@ fn play(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Result<(),
                 value.span(),
             );
         }
-        // A literal gain is refused outside 0–1, as a literal `volume` is; a
-        // computed one is clamped by the runner (D2).
-        if option == "gain" {
-            if let Some(g) = literal(value) {
-                if !(0.0..=1.0).contains(&g) {
-                    return err(
-                        "type-play-sound",
-                        format!("`gain={g}` is outside 0–1: a gain is a linear multiplier, 1 the file's own level"),
-                        value.span(),
-                    );
-                }
+        // A literal gain, playback rate or pan is refused outside its range,
+        // as a literal `volume` is; a computed one is clamped by the runner
+        // (D2; LLP 1125 D10).
+        let range = match option.as_str() {
+            "gain" => Some((
+                0.0,
+                1.0,
+                "0–1: a gain is a linear multiplier, 1 the file's own level",
+            )),
+            "playbackRate" => Some((
+                0.25,
+                4.0,
+                "0.25–4: 1 is the file's own speed, 2 an octave up and half as long",
+            )),
+            "pan" => Some((
+                -1.0,
+                1.0,
+                "−1–1: −1 is the left speaker, 0 the centre, 1 the right",
+            )),
+            _ => None,
+        };
+        if let (Some((low, high, why)), Some(n)) = (range, literal(value)) {
+            if !(low..=high).contains(&n) {
+                return err(
+                    "type-play-sound",
+                    format!("`{option}={n}` is outside {why}"),
+                    value.span(),
+                );
             }
         }
     }
@@ -129,19 +147,22 @@ fn hits(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Result<(),
         }
     };
     // The runner reads a hit's fields by position, so the shape is checked
-    // whole, in order: the record carries no names at runtime.
+    // whole, in order: the record carries no names at runtime. The first
+    // four are required; the rate and then the pan may follow (LLP 1125 D10).
     let want = [
         ("src", Ty::String),
         ("at", Ty::Number),
         ("gain", Ty::Number),
         ("group", Ty::String),
+        ("playbackRate", Ty::Number),
+        ("pan", Ty::Number),
     ];
     let fields = shapes
         .map
         .get(&shape)
         .map(Vec::as_slice)
         .unwrap_or_default();
-    let fits = fields.len() == want.len()
+    let fits = (4..=want.len()).contains(&fields.len())
         && fields
             .iter()
             .zip(&want)

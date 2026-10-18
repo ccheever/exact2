@@ -2,8 +2,7 @@
 import AppKit
 import WebKit
 
-/// One Browser tab's page (browser-surface part 1; X1 path B, a `WKWebView` in the clone's module, user
-/// decision 2026-10-08). MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+/// One Browser tab's page (#100: a `WKWebView` in the clone's module). MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 /// apps/desktop/src/preview/Manager.ts (`computeNavStatus`, `failed`, `navigate`, `refresh`, `hardReload`,
 /// `setWindowOpenHandler`, `previewWindowOpenAction`), BrowserSession.ts (the permission set, the native user
 /// agent), apps/web/src/browser/webviewCrashRecovery.ts and HostedBrowserWebview.tsx (`recoverGuest`).
@@ -19,10 +18,11 @@ import WebKit
 ///   notifications, geolocation; the rest denied). WebKit asks the delegate only for the camera and the
 ///   microphone, which are denied. Clipboard writes need a user gesture and clipboard reads show WebKit's own
 ///   paste confirmation; WKWebView has no Notification API and asks no delegate for geolocation (this app
-///   declares no location use), so those two are unavailable: declared in EXACT2-GAPS.md X1.
+///   declares no location use), so those two are unavailable, a declared difference (exact2 #100).
 /// - Pop-ups (`createWebViewWith`): a scripted window (`window.open` with window features) to an http(s) URL
 ///   opens a real window that keeps its opener (OAuth sign-ins post back to it), whose own pop-ups are refused;
-///   a `target=_blank` link, and any other window request, loads in the tab (`previewWindowOpenAction`).
+///   a `target=_blank` link opens another tab of the thread, a blank window is denied, and a custom scheme asks
+///   before its app opens (T3 Code 9c161462c9, T3BrowserSession+Links.swift).
 /// - The page keeps WebKit's native user agent: nothing sets `customUserAgent` or `applicationNameForUserAgent`.
 /// - A development build marks the view `isInspectable` (T3WebInspection.swift, #101); a release build never does.
 /// - Part 3 (capture): the annotation overlay (T3BrowserAnnotate.swift) and the recording overlay and encoder
@@ -53,6 +53,11 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// Every refused navigation and permission request (the agent's status reads them).
     private(set) var refused: [String] = []
     private(set) var closed = false
+    /// Links the page asked to open as tabs, and the custom-scheme prompt (T3BrowserSession+Links.swift).
+    let links = T3BrowserLinks()
+    /// The custom-scheme prompt and the handoff to its app; the tests answer them.
+    var askExternal: (String, String, NSWindow, @escaping (Bool) -> Void) -> Void = T3BrowserSession.askExternalInSheet
+    var openExternal: (URL) -> Void = { NSWorkspace.shared.open($0) }
     /// Part 3: Annotate's overlay, the recording's overlay and encoder, downloads and the separate window.
     let annotation: T3BrowserAnnotation
     let recording: T3BrowserRecording
@@ -75,6 +80,7 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         // Both register their script message handlers on the configuration, so before the web view takes it.
         annotation = T3BrowserAnnotation(configuration: configuration, imageDirectory: imageDirectory)
         recording = T3BrowserRecording(configuration: configuration)
+        Self.installFullscreen(on: configuration)
         self.agent = agent
         web = T3BrowserWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480), configuration: configuration)
         super.init()
@@ -128,6 +134,7 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         value["recording"] = recording.report
         value["pip"] = pip != nil
         value["downloads"] = downloads.entries
+        value["openLinks"] = links.report
         value["size"] = [Double(web.frame.width), Double(web.frame.height)] // the floating player sizes itself from the page
         if let failure { value["code"] = failure.code; value["description"] = failure.description }
         if let icon = favicon.current { value["favicon"] = ["dataUrl": icon.dataUrl, "pageUrl": icon.pageUrl, "capturedAt": icon.capturedAt] }
@@ -216,20 +223,32 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     // MARK: WKNavigationDelegate
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        let scheme = navigationAction.request.url?.scheme?.lowercased() ?? ""
-        // The tab browses the web. A subframe may hold what a page embeds; the main frame refuses other schemes
-        // (mailto:, an app's custom scheme) instead of handing them to another app.
-        if navigationAction.targetFrame?.isMainFrame != false, !Self.mainFrameSchemes.contains(scheme) {
-            refused.append(navigationAction.request.url?.absoluteString ?? "")
+        let scheme = navigationAction.request.url?.scheme?.lowercased() ?? "", raw = navigationAction.request.url?.absoluteString ?? ""
+        let mainFrame = navigationAction.targetFrame?.isMainFrame != false
+        // The tab browses the web. A custom scheme (mailto:, an app's own) asks before its app opens, from the main frame
+        // or a link in a subframe; a subframe may otherwise hold what a page embeds; the main frame refuses the rest.
+        if !Self.mainFrameSchemes.contains(scheme), mainFrame || navigationAction.navigationType == .linkActivated, Self.externalPromptURL(raw) != nil {
+            confirmOpenExternal(raw)
             return decisionHandler(.cancel)
         }
-        if navigationAction.shouldPerformDownload { return decisionHandler(.download) } // an `<a download>` (part 3)
+        if mainFrame, !Self.mainFrameSchemes.contains(scheme) {
+            refused.append(raw)
+            return decisionHandler(.cancel)
+        }
+        // A ⌘- or middle-click on a link is a tab disposition, as Chromium hands it to the window-open handler.
+        if mainFrame, let disposition = Self.linkTabDisposition(navigationAction),
+           Self.windowOpenAction(url: raw, disposition: disposition, postBody: navigationAction.request.httpMethod == "POST") == "new-tab" {
+            openBeside(raw, background: disposition == "background-tab")
+            return decisionHandler(.cancel)
+        }
+        if navigationAction.shouldPerformDownload { return decisionHandler(.download) } // an `<a download>`
         decisionHandler(.allow)
     }
     static let mainFrameSchemes: Set<String> = ["http", "https", "about", "data", "blob"]
+    func refuse(navigation url: String) { refused.append(url) }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        // A response the page cannot show, or one sent as an attachment, downloads (Chromium's will-download; part 3).
+        // A response the page cannot show, or one sent as an attachment, downloads (Chromium's will-download).
         let disposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
         if !navigationResponse.canShowMIMEType || disposition.hasPrefix("attachment") { return decisionHandler(.download) }
         decisionHandler(.allow)
@@ -339,28 +358,35 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     // MARK: WKUIDelegate
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        let url = navigationAction.request.url
+        let url = navigationAction.request.url, raw = url?.absoluteString ?? ""
         let scripted = navigationAction.navigationType != .linkActivated
         let features = windowFeatures.width != nil || windowFeatures.height != nil || windowFeatures.x != nil || windowFeatures.y != nil
             || windowFeatures.toolbarsVisibility?.boolValue == false || windowFeatures.menuBarVisibility?.boolValue == false
-        if Self.windowOpenAction(url: url?.absoluteString ?? "", newWindow: scripted && features) == "popup" {
+        let disposition = Self.disposition(scripted: scripted, features: features, modifiers: navigationAction.modifierFlags, button: navigationAction.buttonNumber)
+        switch Self.windowOpenAction(url: raw, disposition: disposition, postBody: navigationAction.request.httpMethod == "POST") {
+        case "popup":
             let popup = T3BrowserPopup(configuration: configuration, features: windowFeatures, parent: webView.window)
             popup.closed = { [weak self, weak popup] in self?.popups.removeAll { $0 === popup }; self?.changed?() }
             popups.append(popup)
             changed?()
             return popup.web
+        case "deny":
+            refused.append("window:" + raw)
+            changed?()
+        case "new-tab":
+            openBeside(raw, background: disposition == "background-tab")
+        default:
+            // A form POST and a scheme without a hardened window load in this tab; a custom scheme asks first.
+            if let url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                // Preserve a form POST, including its body, when the request stays in this tab.
+                webView.load(navigationAction.request)
+            }
+            else if Self.externalPromptURL(raw) != nil { confirmOpenExternal(raw) }
+            else { refused.append("window:" + raw); changed?() }
         }
-        // A tab disposition (a target=_blank link, a featureless window.open) loads in this tab.
-        if let url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") { navigate(url) } else { refused.append("window:" + (url?.absoluteString ?? "")) }
         return nil
     }
 
-    /// previewWindowOpenAction: a real window only for a scripted pop-up (Chromium's `new-window` disposition) to
-    /// a scheme whose window can be hardened; everything else navigates the tab.
-    static func windowOpenAction(url: String, newWindow: Bool) -> String {
-        guard newWindow, let parsed = URL(string: url), ["http", "https"].contains(parsed.scheme?.lowercased() ?? "") else { return "navigate" }
-        return "popup"
-    }
 
     @available(macOS 12.0, *)
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType, decisionHandler: @escaping (WKPermissionDecision) -> Void) {

@@ -152,7 +152,6 @@ impl Server {
             .iter()
             .find_map(|name| std::fs::read_to_string(serve.dist.join(name)).ok())
             .ok_or_else(|| std::io::Error::other("the dist has no shell"))?;
-        crate::shell_look(&shell);
         let listener = TcpListener::bind(("127.0.0.1", serve.port))?;
         let csp = csp(grants, &serve.dist);
         let permissions = exact_runner::device::permissions_policy(grants);
@@ -262,6 +261,8 @@ impl Server {
                             // executors with it (their workers count against
                             // the process's native-worker cap).
                             if stop.load(Ordering::SeqCst) {
+                                drop(state);
+                                crate::shutdown_render_thread();
                                 return;
                             }
                             state = ready.wait(state).unwrap();
@@ -1454,9 +1455,13 @@ fn csp(grants: &str, dist: &Path) -> String {
         }
         if let Some(target) = words.next() {
             // An origin is scheme://host[:port]: the target up to its path.
-            let origin = target.split_once("://").map(|(scheme, rest)| {
-                format!("{scheme}://{}", rest.split('/').next().unwrap_or(""))
-            });
+            // A scheme-wide line (`ws:`) is already a CSP scheme source.
+            let origin = match target.strip_suffix(':').map(str::to_ascii_lowercase) {
+                Some(s) if matches!(&*s, "http" | "https" | "ws" | "wss") => Some(s + ":"),
+                _ => target.split_once("://").map(|(scheme, rest)| {
+                    format!("{scheme}://{}", rest.split('/').next().unwrap_or(""))
+                }),
+            };
             if let Some(origin) = origin {
                 connect.push(' ');
                 connect.push_str(&origin);

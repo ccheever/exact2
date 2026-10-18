@@ -129,16 +129,17 @@ def roster : List String :=
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
    "endsWith", "slice", "replaceAll", "toLowerCase", "concat", "indexOf", "split",
    "elementFromPoint", "parseNumber", "ceil", "round", "calendarDiff",
-   "toFixed", "formatDecimal"]
+   "toFixed", "formatDecimal", "formatDay", "sin", "cos", "sum", "sortBy", "toUpperCase", "range",
+   "flat"]
 
 /-- A roster entry's result type. -/
 def rosterTy (f : String) (args : List STy) : STy :=
   if f = "performanceNow" ∨ f = "length" ∨ f = "floor" ∨ f = "ceil" ∨ f = "round" ∨ f = "max" ∨ f = "min"
-    ∨ f = "indexOf" then .number
+    ∨ f = "indexOf" ∨ f = "sin" ∨ f = "cos" ∨ f = "sum" then .number
   else if f = "isEmpty" ∨ f = "includes" ∨ f = "startsWith" ∨ f = "endsWith" then .bool
   else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join"
-    ∨ f = "replaceAll" ∨ f = "toLowerCase" ∨ f = "formatTime" ∨ f = "formatDate" ∨ f = "formatNumber"
-    ∨ f = "t" ∨ f = "toFixed" ∨ f = "formatDecimal" then .string
+    ∨ f = "replaceAll" ∨ f = "toLowerCase" ∨ f = "toUpperCase" ∨ f = "formatTime" ∨ f = "formatDate" ∨ f = "formatNumber"
+    ∨ f = "t" ∨ f = "toFixed" ∨ f = "formatDecimal" ∨ f = "formatDay" then .string
   -- Text's, or a list's own type (LLP 1088 §9.1).
   else if f = "slice" then
     match args with
@@ -146,6 +147,12 @@ def rosterTy (f : String) (args : List STy) : STy :=
     | .list t :: _ => .list t
     | _ => .top
   else if f = "split" then .list .string
+  else if f = "range" then .list .number
+  else if f = "flat" then
+    match args with
+    | .list (.list t) :: _ => .list t
+    | .list .bot :: _ => .list .bot
+    | _ => .top
   else if f = "concat" then
     match args with
     | .list a :: .list b :: _ => .list (STy.join a b)
@@ -273,6 +280,18 @@ def compile : Nat → Program → Nat → Scope → Nat → Expr → Except Stri
         let item := tl.item
         let (cb, _) ← compile fuel p depth (bindScope ps n item sc) (n + 2) body
         .ok (cl ++ [.filter cb.length] ++ cb, .list item)
+      -- LLP 1116.016 §5, as `contract/lower`'s `sort_by`: the list bound as
+      -- local `n`, a `Map` of the key over it, then the roster's sort of the
+      -- list by its keys.
+      | "sortBy", l :: .arrow ps body :: dir =>
+        if ps.length > 2 then .error "a callback takes the item and its index" else
+        match sortDir dir with
+        | .error _ => .error "the direction of `sortBy` is \"asc\" or \"desc\""
+        | .ok d => do
+          let (cl, tl) ← compile fuel p depth sc n l
+          let (cb, _) ← compile fuel p depth (bindScope ps (n + 1) tl.item sc) (n + 3) body
+          .ok (cl ++ [.bindLocal, .loadLocal n, .loadLocal n, .map cb.length] ++ cb ++
+            [.bool d, .call "sortBy" 3, .dropLocal], tl)
       | "pending", [.var x] =>
         match scopeLookup x sc with
         | .some (.resource i, _) => .ok ([.pendingResource i], .bool)
@@ -288,7 +307,7 @@ def compile : Nat → Program → Nat → Scope → Nat → Expr → Except Stri
         | _ => .error s!"`{x}` is not a resource"
       | _, _ =>
         if name = "map" ∨ name = "filter" ∨ name = "pending" ∨ name = "failed" ∨ name = "failure"
-          ∨ name = "t" ∨ name = "path" then .error s!"`{name}` as written"
+          ∨ name = "sortBy" ∨ name = "t" ∨ name = "path" then .error s!"`{name}` as written"
         else if !roster.contains name then .error s!"`{name}` is not in the roster"
         else do
           let (c, ts) ← compileArgs fuel p depth sc n args
@@ -342,7 +361,7 @@ def compile : Nat → Program → Nat → Scope → Nat → Expr → Except Stri
     let (cb, tb) ← compile fuel p depth sc n b
     .ok (cs ++ [.jumpIfNone (ca.length + 4), .unwrap, .bindLocal] ++ ca ++
          [.dropLocal, .jump (cb.length + 1), .pop] ++ cb, STy.join ta tb)
-  | .arrow _ _ => .error "an arrow outside `map` or `filter`"
+  | .arrow _ _ => .error "an arrow outside `map`, `filter` or `sortBy`"
   | .letE x v body => do
     let (cv, tv) ← compile fuel p depth sc n v
     let (cb, tb) ← compile fuel p depth ((x, .local n, tv) :: sc) (n + 1) body

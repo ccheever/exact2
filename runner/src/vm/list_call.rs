@@ -1,0 +1,117 @@
+//! The roster's list calls that step on an evaluation's budget, split from
+//! `vm.rs`, whose private `step` and `Extents` they use.
+
+use super::{step, Extents, Trap};
+use exact_plan::{Opcode, Stdlib, Value};
+
+/// `concat`, `split`, `sum`, `range`, `flat`, and `slice`, `includes` and `indexOf` over a list
+/// (LLP 1088 §9.1), on this evaluation's budget as `join` is: the list steps
+/// first — one per item `concat`, `slice`, `split` and `range` keep or `sum` adds, one
+/// per outer item `flat` reads and one per item it keeps, one
+/// per item `includes` and `indexOf` scan up to the match — then a list they
+/// build measured as `Opcode::List` measures one (LLP 1090 D3). `None` for
+/// `slice`, `includes` and `indexOf` over text. `sortBy`'s items were each
+/// stepped by the `Map` that computed their keys, so it takes no step here
+/// (LLP 1116.016 §5).
+pub(super) fn list_call(
+    f: Stdlib,
+    args: &[Value],
+    steps: &mut u32,
+    extents: &mut Extents,
+    pc: usize,
+) -> Result<Option<Value>, Trap> {
+    let mismatch = Trap::TypeMismatch {
+        pc,
+        op: Opcode::Call,
+    };
+    if f == Stdlib::SortBy {
+        let (Some(Value::List(items)), Some(Value::List(keys)), Some(Value::Bool(desc))) =
+            (args.first(), args.get(1), args.get(2))
+        else {
+            return Err(mismatch);
+        };
+        let built = crate::lists::sort_by(items, keys, *desc).ok_or(mismatch)?;
+        let e = extents.built(&built, pc)?;
+        let v = Value::list(built);
+        extents.remember(&v, e);
+        return Ok(Some(v));
+    }
+    // @ref LLP 1017.003 §Refused (2026-10-17) — `range(n)`: `n` a whole
+    // number at least 0, or the arguments do not fit.
+    if f == Stdlib::Range {
+        let n = match args.first() {
+            Some(Value::Number(n)) if n.is_finite() && n.fract() == 0.0 && *n >= 0.0 => *n,
+            _ => return Err(mismatch),
+        };
+        // A count past `usize` saturates, and past the bound traps here.
+        step(steps, n as usize, pc)?;
+        let built: Vec<Value> = (0..n as usize).map(|i| Value::Number(i as f64)).collect();
+        let e = extents.built(&built, pc)?;
+        let v = Value::list(built);
+        extents.remember(&v, e);
+        return Ok(Some(v));
+    }
+    if f == Stdlib::Split {
+        let (Some(s), Some(sep)) = (args[0].as_str(), args[1].as_str()) else {
+            return Err(mismatch);
+        };
+        step(steps, crate::strings::pieces(s, sep), pc)?;
+        let built: Vec<Value> = (crate::strings::split(s, sep).iter())
+            .map(|p| Value::str(p))
+            .collect();
+        let e = extents.built(&built, pc)?;
+        let v = Value::list(built);
+        extents.remember(&v, e);
+        return Ok(Some(v));
+    }
+    let items = match (f, args.first()) {
+        (
+            Stdlib::Concat
+            | Stdlib::Slice
+            | Stdlib::Includes
+            | Stdlib::IndexOf
+            | Stdlib::Sum
+            | Stdlib::Flat,
+            Some(Value::List(items)),
+        ) => items,
+        (Stdlib::Concat | Stdlib::Sum | Stdlib::Flat, _) => return Err(mismatch),
+        _ => return Ok(None),
+    };
+    let built = match (f, args.get(1), args.get(2)) {
+        (Stdlib::Concat, Some(Value::List(more)), _) => {
+            step(steps, items.len() + more.len(), pc)?;
+            crate::lists::concat(items, more)
+        }
+        (Stdlib::Flat, _, _) => {
+            let inner = crate::lists::flat_len(items).ok_or(mismatch)?;
+            step(steps, items.len().saturating_add(inner), pc)?;
+            crate::lists::flat(items)
+        }
+        (Stdlib::Slice, Some(Value::Number(a)), Some(Value::Number(b))) => {
+            let kept = crate::lists::slice(items, *a, *b);
+            step(steps, kept.len(), pc)?;
+            kept.to_vec()
+        }
+        (Stdlib::Includes, Some(x), _) => {
+            let at = crate::lists::position(items, x);
+            step(steps, at.map_or(items.len(), |i| i + 1), pc)?;
+            return Ok(Some(Value::Bool(at.is_some())));
+        }
+        (Stdlib::Sum, _, _) => {
+            step(steps, items.len(), pc)?;
+            return crate::lists::sum(items)
+                .map(|n| Some(Value::Number(n)))
+                .ok_or(mismatch);
+        }
+        (Stdlib::IndexOf, Some(x), _) => {
+            let at = crate::lists::index_of(items, x);
+            step(steps, at.map_or(items.len(), |i| i + 1), pc)?;
+            return Ok(Some(Value::Number(at.map_or(-1.0, |i| i as f64))));
+        }
+        _ => return Err(mismatch),
+    };
+    let e = extents.built(&built, pc)?;
+    let v = Value::list(built);
+    extents.remember(&v, e);
+    Ok(Some(v))
+}

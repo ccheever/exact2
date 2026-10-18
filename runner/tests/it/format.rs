@@ -941,6 +941,74 @@ fn to_fixed_is_javascript_s_and_format_decimal_is_exact() {
     }
 }
 
+/// (thenMs, nowMs, utcOffset, "day", "day-time", "list") of `formatDay`
+/// (LLP 1116.020 D8): the dates, times and weekdays from Bun 1.4.2's
+/// `Intl.DateTimeFormat("en-US", { timeZone: "±HH:MM", ... })` with
+/// `dateStyle: "medium"`, `timeStyle: "short"`, `weekday: "long"` and
+/// `dateStyle: "short"`, the words chosen by the offset's calendar days
+/// (host/web/tests/js-runtime.test.mjs sweeps the JS target against Intl the
+/// same way). Sunday 2026-10-11 16:42 at -07:00 back a week and on two days;
+/// a midnight; the year's turn either way and at +01:00; the last wall time.
+#[rustfmt::skip]
+const DAYS: &[(f64, f64, f64, &str, &str, &str)] = &[
+    (1791762120000.0, 1791762120000.0, -420.0, "Today", "Today at 4:42 PM", "4:42 PM"),
+    (1791754920000.0, 1791762120000.0, -420.0, "Today", "Today at 2:42 PM", "2:42 PM"),
+    (1791700920000.0, 1791762120000.0, -420.0, "Yesterday", "Yesterday at 11:42 PM", "Yesterday"),
+    (1791701940000.0, 1791762120000.0, -420.0, "Yesterday", "Yesterday at 11:59 PM", "Yesterday"),
+    (1791675720000.0, 1791762120000.0, -420.0, "Yesterday", "Yesterday at 4:42 PM", "Yesterday"),
+    (1791589320000.0, 1791762120000.0, -420.0, "Oct 9, 2026", "Oct 9, 2026 at 4:42 PM", "Friday"),
+    (1791243720000.0, 1791762120000.0, -420.0, "Oct 5, 2026", "Oct 5, 2026 at 4:42 PM", "Monday"),
+    (1791157320000.0, 1791762120000.0, -420.0, "Oct 4, 2026", "Oct 4, 2026 at 4:42 PM", "10/4/26"),
+    (1791790920000.0, 1791762120000.0, -420.0, "Tomorrow", "Tomorrow at 12:42 AM", "10/12/26"),
+    (1791934920000.0, 1791762120000.0, -420.0, "Oct 13, 2026", "Oct 13, 2026 at 4:42 PM", "10/13/26"),
+    (1791762120000.0, 1791762120000.0, 0.0, "Today", "Today at 11:42 PM", "11:42 PM"),
+    (1791763920000.0, 1791762120000.0, 0.0, "Tomorrow", "Tomorrow at 12:12 AM", "10/12/26"),
+    (1798761540000.0, 1798761660000.0, 0.0, "Yesterday", "Yesterday at 11:59 PM", "Yesterday"),
+    (1798761660000.0, 1798761540000.0, 0.0, "Tomorrow", "Tomorrow at 12:01 AM", "1/1/27"),
+    (1798761540000.0, 1798761660000.0, 60.0, "Today", "Today at 12:59 AM", "12:59 AM"),
+    (1798243140000.0, 1798761660000.0, 0.0, "Dec 25, 2026", "Dec 25, 2026 at 11:59 PM", "12/25/26"),
+    (1798156740000.0, 1798761660000.0, 0.0, "Dec 24, 2026", "Dec 24, 2026 at 11:59 PM", "12/24/26"),
+    (1767225540000.0, 1798761540000.0, 330.0, "Jan 1, 2026", "Jan 1, 2026 at 5:29 AM", "1/1/26"),
+    (253402300799999.0, 253402300799999.0, 0.0, "Today", "Today at 11:59 PM", "11:59 PM"),
+];
+
+fn day(then: f64, now: f64, offset: f64, mode: &str) -> Option<Value> {
+    formatting(
+        Stdlib::FormatDay,
+        &[
+            Value::Number(then),
+            Value::Number(now),
+            Value::Number(offset),
+            Value::str(mode),
+        ],
+    )
+}
+
+#[test]
+fn a_day_s_label_is_relative_to_now_at_the_offset() {
+    let mut wrong = Vec::new();
+    for &(then, now, offset, d, dt, list) in DAYS {
+        for (mode, want) in [("day", d), ("day-time", dt), ("list", list)] {
+            if day(then, now, offset, mode) != Some(Value::str(want)) {
+                wrong.push(format!("{then} {now} {offset} {mode}: {want}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+    // Either instant invalid, as `formatDate` judges one, is "" (D7); a mode
+    // the compiler refuses is refused.
+    for (then, now, offset) in [
+        (f64::NAN, 0.0, 0.0),
+        (0.0, f64::INFINITY, 0.0),
+        (0.0, 0.0, 1081.0),
+        (253402300800000.0, 0.0, 0.0),
+        (0.0, -62135596800001.0, 0.0),
+    ] {
+        assert_eq!(day(then, now, offset, "list"), Some(Value::str("")));
+    }
+    assert_eq!(day(0.0, 0.0, 0.0, "relative"), None);
+}
+
 #[test]
 fn a_style_outside_the_table_is_refused_not_guessed() {
     let args = [Value::Number(0.0), Value::Number(0.0), Value::str("long")];

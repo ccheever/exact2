@@ -57,7 +57,7 @@ func runPermissionRequestChecks() {
     expect(setup("allow-accessibility", screen: false, accessibility: true) && opened.isEmpty && helpers.count == 1 && helpers[0].isGranted(), "Allow with Accessibility present opens no pane; the helper sees the grant and opens nothing")
     expect(setup("allow-screen-recording", screen: true, accessibility: false) && calls.isEmpty && opened.isEmpty && helpers.count == 1 && helpers[0].isGranted(), "Allow with Screen Recording present neither prompts nor opens a pane; the helper sees the grant and opens nothing")
 
-    // realinput-1010-fixes RI-3: the setup rows (snapshotState) and the helper's grant poll read the same check (reference
+    // The setup rows (snapshotState) and the helper's grant poll read the same check (reference
     // currentMacPermissions and permissionGranted: getMediaAccessStatus("screen") and isTrustedAccessibilityClient(false)
     // on both sides), so the helper cannot close on a grant the Screen Recording row does not show.
     func rows() -> (screen: Bool, accessibility: Bool) {

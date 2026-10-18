@@ -1,11 +1,15 @@
 use crate::{pipeline::Pipelines, timing};
 use exact_gpu::wgpu;
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests;
+
 pub(crate) struct BloomTargets {
     pub levels: Vec<wgpu::TextureView>,
     pub binds: Vec<wgpu::BindGroup>,
     source: wgpu::BindGroup,
     sampling: wgpu::Buffer,
+    bright_target: wgpu::BindGroup,
 }
 
 impl BloomTargets {
@@ -76,7 +80,12 @@ impl BloomTargets {
                     dimension: wgpu::TextureDimension::D2,
                     format: wgpu::TextureFormat::Rgba16Float,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | if levels.is_empty() {
+                            wgpu::TextureUsages::STORAGE_BINDING
+                        } else {
+                            wgpu::TextureUsages::empty()
+                        },
                     view_formats: &[],
                 })
                 .create_view(&Default::default());
@@ -88,7 +97,16 @@ impl BloomTargets {
             width = (width / 2).max(1);
             height = (height / 2).max(1);
         }
+        let bright_target = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("game bloom bright target"),
+            layout: &pipelines.bright_target_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&levels[0]),
+            }],
+        });
         Self {
+            bright_target,
             levels,
             binds,
             source,
@@ -123,15 +141,25 @@ impl BloomTargets {
             data[(6 + i) * 64 + 1] = sizes[i + 1].1 as f32;
         }
         queue.write_buffer(&self.sampling, 0, crate::buffers::bytes(&data));
-        for (i, &size) in sizes.iter().enumerate().take(count) {
-            let bind = if i == 0 {
-                &self.source
-            } else {
-                &self.binds[i - 1]
-            };
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("game bloom bright"),
+                timestamp_writes: timestamps.map(|query_set| wgpu::ComputePassTimestampWrites {
+                    query_set,
+                    beginning_of_pass_write_index: Some(8),
+                    end_of_pass_write_index: Some(9),
+                }),
+            });
+            pass.set_pipeline(&pipelines.bright);
+            pass.set_bind_group(0, &self.source, &[0]);
+            pass.set_bind_group(1, &self.bright_target, &[]);
+            pass.dispatch_workgroups(sizes[0].0.div_ceil(8), sizes[0].1.div_ceil(8), 1);
+        }
+        for (i, &size) in sizes.iter().enumerate().take(count).skip(1) {
+            let bind = &self.binds[i - 1];
             self.pass(
                 encoder,
-                &pipelines.bloom[usize::from(i != 0)],
+                &pipelines.bloom[0],
                 i,
                 bind,
                 false,
@@ -144,7 +172,7 @@ impl BloomTargets {
         for i in (0..count - 1).rev() {
             self.pass(
                 encoder,
-                &pipelines.bloom[2],
+                &pipelines.bloom[1],
                 i,
                 &self.binds[i + 1],
                 true,

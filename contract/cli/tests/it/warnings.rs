@@ -4,7 +4,7 @@
 
 /// The ids and lines of the warnings `src` earns, after checking that it
 /// still compiles: a warning never fails a build.
-fn warned(src: &str) -> Vec<(String, u32)> {
+pub(crate) fn warned(src: &str) -> Vec<(String, u32)> {
     let (result, warnings) = contract::compile_warned(src);
     if let Err(e) = result {
         panic!("a warning never fails a build: {e}\n{src}");
@@ -78,6 +78,9 @@ fn what_the_bar_places_or_the_compiler_cannot_see_is_not_warned() {
         "  row\n    box background-color=\"-exact-system-blue\"\n      text \"AL\"\n    text \"Ada\" role=\"heading\" aria-level=1\n    row\n      image \"symbol:sf/bell.slash\"\n      text \"Muted\"",
         // A pressable group around the heading is the title, tapped.
         "  button press=go\n    text \"Ada\" role=\"heading\" aria-level=1\n    text \"online\"",
+        // Readouts (LLP 1075.003 §9.15): a status of a dot and a text after
+        // the buttons, a status text before the heading.
+        "  text \"Saved\" role=\"status\"\n  text \"Log\" role=\"heading\"\n  button press=go\n    text \"Add\"\n  row role=\"status\" gap=6\n    view width=7 height=7 border-radius=3.5 background-color=\"-exact-system-blue\"\n    text \"Clock\" font-family=\"Menlo\" font-size=12",
         // `if`, `for` and a computed role are given the benefit.
         "  text \"List\" role=\"heading\" aria-level=1\n  text \"sub\"\n  if q != \"\"\n    text q\n  for x in [\"a\"] key=x\n    text x\n  text \"c\" role=(q == \"\" ? \"note\" : \"status\")",
         // Shown on no host, or over the page when opened.
@@ -303,10 +306,10 @@ fn a_tab_bar_of_one_tab_is_named_and_two_are_not() {
     assert_eq!(warned(&segments), []);
 }
 
-/// A stopwatch's actions over a mutation, each `send` on line 16.
+/// A stopwatch's actions over a mutation, each `send` on line 18.
 fn stopwatch(state: &str, send: &str) -> String {
     format!(
-        "shape Time\n  epochAtZero: number\nshape Ack\n  ok: bool\nfn later(t: number): number = t + 10\nfn mark(): number = performanceNow()\ncomponent App\n  resource time = exactTime() as shape Time\n  mutation wrote as shape Ack\n  state start = 0\n  state other = 0\n{state}  action begin\n    start = performanceNow()\n  action save\n    send wrote = keep({send})\n  view\n    button \"save\" press=save\n"
+        "shape Time\n  epochAtZero: number\n  anchorAt: number\n  anchorBeat: number\nshape Ack\n  ok: bool\nfn later(t: number): number = t + 10\nfn mark(): number = performanceNow()\ncomponent App\n  resource time = exactTime() as shape Time\n  mutation wrote as shape Ack\n  state start = 0\n  state other = 0\n{state}  action begin\n    start = performanceNow()\n  action save\n    send wrote = keep({send})\n  view\n    button \"save\" press=save\n"
     )
 }
 
@@ -324,10 +327,20 @@ fn a_launch_relative_time_sent_to_a_source_is_named_with_its_repair() {
         "`${start}`",
         "(other > 0 ? start : 0)",
         "max(start, 5)",
+        // Less a constant, a time is still a time.
+        "start - 1000",
+        "performanceNow() - 2 * 1000",
+        "start - max(500, 1000)",
+        // A reading less a span, the origin, or a never-set 0 is still a time.
+        "performanceNow() - (performanceNow() - start)",
+        "performanceNow() - time.epochAtZero",
+        "performanceNow() - other",
+        // The origin added on one branch only: the other is a launch's time.
+        "performanceNow() + (other > 0 ? time.epochAtZero : 0)",
     ] {
         assert_eq!(
             warned(&stopwatch("", send)),
-            [(PERSISTED.to_string(), 15)],
+            [(PERSISTED.to_string(), 17)],
             "{send}"
         );
     }
@@ -346,7 +359,7 @@ fn a_launch_relative_time_sent_to_a_source_is_named_with_its_repair() {
         "    send wrote = keep(t)",
         "    let t = performanceNow()\n    send wrote = keep(t)",
     );
-    assert_eq!(warned(&local), [(PERSISTED.to_string(), 16)]);
+    assert_eq!(warned(&local), [(PERSISTED.to_string(), 18)]);
 }
 
 #[test]
@@ -360,6 +373,10 @@ fn the_wall_clock_time_and_a_duration_are_not_named() {
         "other",
         "`${start}`.length",
         "(start > 5).toString()",
+        // A musical position from an anchor a source holds (euxy's beat):
+        // the time since the anchor, scaled and offset.
+        "time.anchorBeat + (performanceNow() - time.anchorAt) * 120 / 60000",
+        "max(0, time.anchorBeat + (performanceNow() - time.anchorAt) * 2 / 60000)",
     ] {
         assert_eq!(warned(&stopwatch("", send)), [], "{send}");
     }
@@ -373,6 +390,18 @@ fn a_launch_relative_time_in_a_persisted_state_is_named() {
     // stopwatch's start mark, kept by `persist` instead of a source.
     let src = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state start = 0 persist\n  state wall = 0 persist\n  state lap = 0 persist\n  action begin\n    lap = performanceNow() - start\n    start = performanceNow()\n    wall = time.epochAtZero + performanceNow()\n  view\n    button \"go\" press=begin\n";
     assert_eq!(warned(src), [(PERSISTED.to_string(), 5)]);
+    // A state kept as a reading less itself: from its initial 0 the first
+    // is a time, the next a span, and so on (a timestamp kept every other run).
+    let toggled = "component App\n  state mark = 0 persist\n  action tick\n    mark = performanceNow() - mark\n  view\n    button \"go\" press=tick\n";
+    assert_eq!(warned(toggled), [(PERSISTED.to_string(), 2)]);
+    // A state that is a launch's time in one action and the origin in
+    // another is sometimes a time: so is a number added to it.
+    let either = "shape Time\n  epochAtZero: number\nshape Ack\n  ok: bool\ncomponent App\n  resource time = exactTime() as shape Time\n  mutation wrote as shape Ack\n  state mark = 0\n  action a\n    mark = performanceNow()\n  action b\n    mark = time.epochAtZero\n  action save\n    send wrote = keep(mark + 1000)\n  view\n    button \"save\" press=save\n";
+    assert_eq!(warned(either), [(PERSISTED.to_string(), 14)]);
+    // A derive of the origin, read before the fixed point resolves it, is
+    // the origin: added to a reading it is the wall-clock time, kept as is.
+    let origin = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state at = 0 persist\n  derive origin = time.epochAtZero\n  action go\n    at = origin + performanceNow()\n  view\n    button \"go\" press=go\n";
+    assert_eq!(warned(origin), []);
 }
 
 const ONE_SCHEME: &str = "lower-colour-one-scheme";
@@ -629,7 +658,10 @@ fn a_button_with_words_a_name_or_a_doubt_is_not_named() {
         // Filled through a slot.
         "Pill()\n  text \"Add\"",
     ] {
-        assert_eq!(warned(&buttons(view)), [], "{view}");
+        let expected = if view.starts_with("Pill()") {
+            vec![("lower-text-px-width".into(), 12)]
+        } else { vec![] };
+        assert_eq!(warned(&buttons(view)), expected, "{view}");
     }
 }
 
@@ -772,14 +804,11 @@ fn symbols_answer_to_apple_names_and_aliases_and_the_plan_carries_the_role() {
         .unwrap_err();
         assert!(error.to_string().contains("not a role"), "{name}: {error}");
     }
-    // `sf/` stays distinct: Apple's name, opaque, and no warning.
+    // `sf/` stays distinct: Apple's name, opaque, no warning (a role's own: tamber_icons).
     let (plan, warnings) =
-        contract::compile_warned("component App\n  view\n    image \"symbol:sf/gearshape\"\n");
-    assert!(plan
-        .unwrap()
-        .strings
-        .iter()
-        .any(|s| s == "symbol:sf/gearshape"));
+        contract::compile_warned("component App\n  view\n    image \"symbol:sf/gearshape.2\"\n");
+    let strings = plan.unwrap().strings;
+    assert!(strings.iter().any(|s| s == "symbol:sf/gearshape.2"));
     assert!(warnings.is_empty(), "{warnings:?}");
 }
 
@@ -793,6 +822,7 @@ fn a_symbol_by_another_spelling_than_its_role_is_named_with_the_role() {
         [
             (SYMBOL_ALIAS.to_string(), 13),
             (SYMBOL_ALIAS.to_string(), 7),
+            (SYMBOL_ALIAS.to_string(), 8), // `sf/trash`: delete's Apple name (LLP 1121 D10)
             (SYMBOL_ALIAS.to_string(), 10)
         ]
     );
@@ -802,7 +832,7 @@ fn a_symbol_by_another_spelling_than_its_role_is_named_with_the_role() {
         "symbol `trash` is the role `delete`: write `symbol:delete`"
     );
     assert_eq!(
-        warnings[2].message,
+        warnings[3].message,
         "symbol `checkmark.circle.fill` is the role `select-fill`: write `symbol:select-fill`"
     );
 }
@@ -1028,7 +1058,7 @@ fn another_name_no_bar_or_a_sections_own_name_is_not_named() {
         // A section's own name: inside a `section`, or after a heading
         // always shown before it (expense-tracker's "Expenses" list under
         // "By category").
-        "list\n  section\n    header\n      text \"Notes\" role=\"heading\" aria-level=3\n    text \"a\"",
+        "list appearance=\"auto\"\n  section\n    header\n      text \"Notes\" role=\"heading\" aria-level=3\n    text \"a\"",
         "column\n  text \"By folder\" role=\"heading\" aria-level=2\ncolumn\n  text \"Notes\" role=\"heading\" aria-level=2",
         // Not shown with the bar: hidden, in a popover or another route.
         "text \"Notes\" role=\"heading\" display=\"none\"\ncolumn id=\"m\" popover=\"auto\"\n  text \"Notes\" role=\"heading\"",
@@ -1156,7 +1186,12 @@ fn routes_tabs_loading_empty_disclosure_and_overlays_are_not_named() {
         ("popover", format!("column id=\"p\" popover=\"auto\"\n  {}", swap.replace('\n', "\n  "))),
     ] {
         let src = finder(&choice);
-        assert_eq!(warned(&src), [], "{case}\n{src}");
+        // The row case walks `chosen` in each meal's row: `lower-row-lookup`'s, not this one's.
+        let named: Vec<_> = warned(&src)
+            .into_iter()
+            .filter(|(id, _)| id != "lower-row-lookup")
+            .collect();
+        assert_eq!(named, [], "{case}\n{src}");
     }
     // A kept setting: a `persist` state.
     let kept = finder(
@@ -1269,7 +1304,12 @@ fn what_fits_or_the_compiler_cannot_see_is_not_named_for_width_and_padding() {
         ),
     ] {
         let src = buttons(view);
-        assert_eq!(warned(&src), [], "{case}\n{src}");
+        let expected = match case {
+            "a fixed width" => vec![("lower-text-px-width".into(), 7)],
+            "a slot's children" => vec![("lower-text-px-width".into(), 13)],
+            _ => vec![],
+        };
+        assert_eq!(warned(&src), expected, "{case}\n{src}");
     }
     // A flex column and an explicit block both stretch their items.
     for parent in [
@@ -1385,4 +1425,75 @@ fn an_authors_own_round_button_is_not_the_circle() {
     // A component of the name that takes other props is not `exact:content`'s part.
     let src = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      RoundButton(label=\"Start the quiz now\", press=go)\ncomponent RoundButton\n  props\n    label: string\n    press: action\n  view\n    button press=press\n      text label\n";
     assert_eq!(warned(src), []);
+}
+
+const NESTED: &str = "lower-header-nested";
+
+/// The euxy port's tabs: a screen component whose root `column` holds the
+/// `header`, used inside the route column, so the header is a box below the
+/// route and iOS leaves it in the page. The message names the repair.
+#[test]
+fn a_header_a_box_below_its_route_is_named_with_the_repair() {
+    let src = |root: &str, route: &str| {
+        // The root's `min-height=0` keeps its scroller scrolling (`lower-scroll-grows`).
+        let root = root.replacen("column flex=1", "column flex=1 min-height=0", 1);
+        format!("routes nav\n  home \"/\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` width=\"100%\" height=\"100%\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}` position=\"absolute\" inset=0{route}\n          Home()\ncomponent Home\n  view\n    {root}\n      header\n        text \"Home\" role=\"heading\" aria-level=1\n      scroll flex=1\n        text \"body\"\n")
+    };
+    let nested = src("column flex=1", "");
+    assert_eq!(warned(&nested), [(NESTED.to_string(), 12)]);
+    let (_, warnings) = contract::compile_warned(&nested);
+    assert!(
+        warnings[0].message.contains("inside the `column` that is")
+            && warnings[0]
+                .message
+                .contains("move the route's `navigationKey`")
+            && warnings[0].message.contains("`navigationBar=\"none\"`"),
+        "{warnings:?}"
+    );
+    // Two boxes down is the same.
+    let deeper = nested.replace(
+        "      header\n        text \"Home\" role=\"heading\" aria-level=1\n",
+        "      row\n        header\n          text \"Home\" role=\"heading\" aria-level=1\n",
+    );
+    assert_eq!(warned(&deeper), [(NESTED.to_string(), 13)]);
+    // A route that draws its own chrome, a section (a grouped list's own
+    // header), a scroller, and a header hidden or not first: no bar is
+    // missed, so nothing is warned.
+    for (root, route) in [
+        ("column flex=1", " navigationBar=\"none\""),
+        ("section", ""),
+        ("scroll flex=1", ""),
+        ("column flex=1\n      text \"first\"", ""),
+    ] {
+        assert_eq!(warned(&src(root, route)), [], "{root}{route}");
+    }
+    // Hidden, or drawing itself (`appearance="none"`: no bar wherever it
+    // sits), said or computed: moving it would project nothing.
+    for attr in [
+        "display=\"none\"",
+        "appearance=\"none\"",
+        "appearance=(1 > 0 ? \"none\" : \"auto\")",
+    ] {
+        let kept = nested.replace("      header\n", &format!("      header {attr}\n"));
+        assert_eq!(warned(&kept), [], "{attr}");
+    }
+}
+
+#[test]
+fn a_line_height_in_points_written_bare_is_named() {
+    // The euxy port's header, 22 points tall at `line-height=28`, was 616:
+    // a bare number is CSS's multiplier. A style's row and a choice's arm
+    // count; a ratio, a length and a computed value do not.
+    let src = "style Title\n  line-height=20\n\ncomponent App\n  state big = false\n  state lh = 30\n  view\n    column\n      text \"a\" font-size=22 line-height=28\n      text \"b\" line-height=(big ? 1.5 : 24)\n      text \"c\" line-height=1.4\n      text \"d\" line-height=\"28px\"\n      text \"e\" line-height=2\n      text \"f\" class=Title\n      text \"g\" line-height=lh\n";
+    let id = "lower-line-height-multiplier".to_string();
+    let mut got = warned(src);
+    got.sort_by_key(|w| w.1);
+    assert_eq!(got, [(id.clone(), 2), (id.clone(), 9), (id, 10)]);
+    let (_, warnings) = contract::compile_warned(src);
+    let m = &warnings.iter().find(|w| w.span.line == 9).unwrap().message;
+    assert!(
+        m.starts_with("`line-height=28` is 28 times the font size")
+            && m.contains("write `line-height=\"28px\"`"),
+        "{m}"
+    );
 }

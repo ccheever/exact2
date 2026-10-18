@@ -6,8 +6,10 @@
 // `-fill` symbol when selected — and takes no room while the bar shows; a
 // tab the bar selects presses its authored tab, so selection, history and
 // reselect-pops-to-root stay the router's (LLP 1038 D4, D12). Under the
-// agent the authored tablist paints and the bar stays hidden. Which tabs a
-// root has is NavigationTabs.swift's; what a tab shows, TabFace.swift's.
+// agent the authored tablist paints and the bar stays hidden. A tab not yet
+// selected has no routes: the runner builds a tab when it is first selected,
+// as UIKit loads a tab's view (LLP 1075.003 §3.7). Which tabs a root has is
+// NavigationTabs.swift's; what a tab shows, TabFace.swift's.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -195,14 +197,30 @@ extension NavigationHost {
         }
         let navs = tabs.panels.compactMap { tabNavigations[$0.id] }
         guard navs.count == tabs.panels.count else { return }
+        // A tab's stack is empty until the runner builds the tab, when it is
+        // first selected (LLP 1075.003 §3.7): its first routes arrive here,
+        // unanimated, and its bar shows as its first route says, as a stack
+        // built with them would (`makeNavigation`).
+        let fill = { (nav: UINavigationController, stack: [RouteController]) in
+            guard nav.viewControllers.isEmpty, let first = stack.first else { return }
+            nav.setNavigationBarHidden(!(self.barShows(nav) && self.bar(of: first.node, pushed: false) != .hidden), animated: false)
+            self.prepareRoutes(stack, in: nav)
+            nav.setViewControllers(stack, animated: false)
+            self.recordOwned(nav)
+        }
         for (index, nav) in navs.enumerated() where index != p.at {
             let stack = base(p.wanted[index])
+            fill(nav, stack)
             prepareRoutes(stack, in: nav)
             if nav.viewControllers.count != stack.count || !zip(nav.viewControllers, stack).allSatisfy({ $0 === $1 }) {
                 nav.setViewControllers(stack, animated: false)
                 recordOwned(nav)
             }
         }
+        // A tab selected for the first time brings its routes: its bar is
+        // projected before it is shown, where nothing animates in.
+        fill(navs[p.at], base(p.wanted[p.at]))
+        if routerTab != p.at { prepareRoutes(base(p.wanted[p.at]), in: navs[p.at]) }
         // @ref LLP 1038 D6 — a tab change swaps immediately.
         if let container = tabController, container.selectedIndex != p.at { container.selectedIndex = p.at }
         if routerTab != p.at {
@@ -251,6 +269,17 @@ extension NavigationHost {
         var view: UIView? = list
         while let at = view, (at as? NodeView)?.channels("accent_color", dark: false) == nil { view = at.superview }
         let source = view as? NodeView
+        // An accent that is the app's tint (`AccentColor`), where the bar
+        // inherits the same tint, is left for the bar to inherit, as a
+        // hand-built app leaves its bar's. Read from a view, the tint behind
+        // an alert or a menu is already dimmed (`tintAdjustmentMode`), and
+        // the bar would dim it a second time.
+        if case .object(let o)? = source?.style["accent_color"], o["sys"]?.string == "@tint", let source, inheritsSameTint(bar, as: source) {
+            guard tabTint != [] else { return }
+            tabTint = []
+            bar.tintColor = nil
+            return
+        }
         let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
         guard wanted != tabTint else { return }
         tabTint = wanted
@@ -264,6 +293,20 @@ extension NavigationHost {
                     ?? bar?.superview?.tintColor ?? .systemBlue
             }
         }
+    }
+
+    /// Whether the bar inherits the tint `node` does: no ancestor of the
+    /// node sets a colour of its own (`applyAccentTint`), or the bar is
+    /// inside the nearest that does.
+    private func inheritsSameTint(_ bar: UIView, as node: NodeView) -> Bool {
+        var view: UIView? = node
+        while let at = view {
+            if let n = at as? NodeView, n.style["accent_color"]?.namesTint != true, n.channels("accent_color", dark: false) != nil {
+                return bar.isDescendant(of: n)
+            }
+            view = at.superview
+        }
+        return true
     }
 
     /// The bar would select `controller`: press its authored tab.
@@ -291,16 +334,45 @@ extension NavigationHost {
     }
 
     /// A route's content scroller (`contentScroller`, the status bar's) to
-    /// its top, as the status bar's tap takes it: animated, and to where a
-    /// large title is expanded, which UIKit opens as the offset arrives.
-    /// Unanimated (the agent's frozen clock), it lands at its top with the
-    /// title expanded, as a new screen opens (`rest`).
+    /// its top, as the status bar's tap takes it: UIKit's animation, to where
+    /// a large title is open, which UIKit opens as the offset arrives.
+    /// UIKit's tab bar does not do this itself: a selected tab tapped again
+    /// scrolls nothing in UIKit alone (iOS 27, a real touch).
     func scrollToTop(_ c: RouteController) {
         guard let node = contentScroller(of: c), let sv = shownScroll(node) else { return }
         guard sv.contentOffset.y > 0.5 - sv.adjustedContentInset.top else { return }
-        guard scrollsToTopAnimated else { return rest(sv, in: c) }
+        guard scrollsToTopAnimated else { return restAtTop(sv, in: c) }
         let inset = max(sv.adjustedContentInset.top, node === c.collapseScroll ? node.scrollOrigin : 0)
         sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: -inset), animated: true)
+    }
+
+    /// Where `scrollToTop` ends, in one turn, under the agent's frozen clock,
+    /// where Exact starts no UIKit animation: the content at its top and a
+    /// large title expanded. Measured in UIKit alone on iOS 27, an offset written
+    /// at the top under a collapsed title leaves it collapsed, and one written
+    /// above the top opens the title and leaves the content that far below
+    /// the bar. So the scroller is pulled past its top and put at rest there,
+    /// unanimated: no frame shows the pull. This is the one place Exact moves
+    /// a large title itself.
+    private func restAtTop(_ sv: UIScrollView, in c: RouteController) {
+        sv.contentOffset.y = -sv.adjustedContentInset.top
+        // tvOS has no large titles.
+        #if !os(tvOS)
+        guard c.navigationItem.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil,
+              let nav = c.navigationController, nav.topViewController === c, nav.transitionCoordinator == nil,
+              !nav.isNavigationBarHidden else { return }
+        UIView.performWithoutAnimation {
+            // By the bar's height at a time, while the title still opens:
+            // UIKit grows the inset by what the pull opened of it.
+            for _ in 0..<4 {
+                let top = sv.adjustedContentInset.top
+                sv.contentOffset.y = -top - nav.navigationBar.frame.height
+                nav.view.layoutIfNeeded()
+                if sv.adjustedContentInset.top <= top + 0.5 { break }
+            }
+            sv.contentOffset.y = -sv.adjustedContentInset.top
+        }
+        #endif
     }
 
     /// What holds the tabs goes: its stacks are retired, the authored
@@ -338,9 +410,11 @@ extension NavigationHost {
     }
 
     /// After a batch: the projection, unless the batch only moved a list's
-    /// rows and nothing is owed; then the authored tablist's covers.
+    /// rows and nothing is owed; then what presentations inherit and the
+    /// authored tablist's covers.
     func batchApplied(_ batch: Batch, rowsOnly: Bool) {
         if !rowsOnly || syncOwed { sync(batch) }
+        presenter.modals.inheritFromAncestors()
         followAuthoredTablist()
     }
 

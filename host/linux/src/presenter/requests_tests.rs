@@ -80,7 +80,7 @@ component App
 
 fn boot() -> Presenter<Nothing> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         Nothing,
         (400., 800.),
         1.,
@@ -351,4 +351,103 @@ fn the_shell_is_told_when_back_has_somewhere_to_go_and_a_field_holds_the_focus()
     assert_eq!(says(&p, "share: dismissed"), 1);
     assert!(!p.answer_request(share, Some("shared")));
     assert_eq!(told(&mut p), [(5, 0), (6, 1)]);
+}
+
+/// A date control and a time control, bound.
+const DATES: &str = r##"component App
+  state day = "2026-10-16"
+  state at = ""
+  action setDay(value)
+    day = value
+  action setAt(value)
+    at = value
+  view
+    column
+      input type="date" value=day change=setDay min="2026-01-01" max="2026-12-31" testId="day" height=30
+      input type="time" value=at change=setAt step="60" accent-color="#ff0000" testId="at" height=30
+      input type="date" value=day change=setDay readonly=true testId="fixed" height=30
+"##;
+
+#[test]
+fn a_date_or_time_controls_press_asks_the_shell_for_its_picker_and_its_answer_is_the_value() {
+    let boot = || {
+        Presenter::boot_with(
+            &crate::test_plan(DATES),
+            Nothing,
+            (400., 800.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap()
+        .0
+    };
+    let value = |p: &Presenter<Nothing>, name: &str| {
+        let node = id(p, name);
+        p.host()
+            .kernel()
+            .node(node)
+            .unwrap()
+            .props
+            .str(PropId::Value)
+            .unwrap_or("")
+            .to_owned()
+    };
+    // With no shell nothing is asked.
+    let mut p = boot();
+    tap(&mut p, "day");
+    assert_eq!(p.take_requests(), None);
+    let mut p = boot();
+    p.serve_requests();
+    tap(&mut p, "day");
+    let asked = decode(p.take_requests());
+    assert_eq!(asked.len(), 1);
+    let (kind, request, body) = &asked[0];
+    assert_eq!((*kind, body[0] as u32), (9, id(&p, "day")));
+    // Five strings, then the accent: none set.
+    assert_eq!(
+        strings(&body[..body.len() - 1], 1),
+        ["date", "2026-10-16", "2026-01-01", "2026-12-31", ""]
+    );
+    assert_eq!(body.last(), Some(&0));
+    // The answer is the person's choice: `change` runs, and the bound value moves.
+    assert!(p.answer_request(*request, Some("2026-11-02")));
+    p.run_commands(|| Nothing);
+    assert_eq!(value(&p, "day"), "2026-11-02");
+    tap(&mut p, "at");
+    let asked = decode(p.take_requests());
+    let body = &asked[0].2;
+    assert_eq!(
+        strings(&body[..body.len() - 1], 1),
+        ["time", "", "", "", "60"]
+    );
+    assert_eq!(
+        *body.last().unwrap() as u32,
+        0xffff_0000,
+        "its accent-color"
+    );
+    // A dismissal changes nothing, and is journaled.
+    assert!(p.answer_request(asked[0].1, None));
+    assert_eq!(value(&p, "at"), "");
+    assert_eq!(says(&p, "picker: dismissed"), 1);
+    // A read-only control opens none.
+    tap(&mut p, "fixed");
+    assert_eq!(p.take_requests(), None);
+    // While a control's picker is up, a press opens no second; a reader
+    // made again over the same activity leaves it up, and it still answers.
+    tap(&mut p, "day");
+    let asked = decode(p.take_requests());
+    tap(&mut p, "day");
+    assert_eq!(p.take_requests(), None);
+    p.reader_replaced(Box::new(crate::raster::Raster::new()));
+    let _ = p.take_requests();
+    assert!(p.answer_request(asked[0].1, Some("2026-12-24")));
+    p.run_commands(|| Nothing);
+    assert_eq!(value(&p, "day"), "2026-12-24");
+    // A view made again while its picker is up drops the answer.
+    tap(&mut p, "day");
+    let asked = decode(p.take_requests());
+    p.picks_renewed(&[id(&p, "day")]);
+    assert!(!p.answer_request(asked[0].1, Some("2026-12-25")));
+    assert_eq!(value(&p, "day"), "2026-12-24");
 }

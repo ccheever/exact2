@@ -1,5 +1,5 @@
 // Source365aa87982 composerContext.ts; payloads freeze at insertion, never at Send.
-// @ref llp/1109.005-composer-and-transcript.decision.md#foreground-capture-facts
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#foreground-capture-facts
 import { contextLabel } from './shared/composer-editor-menu';
 import type { Obj } from './shared/domain';
 

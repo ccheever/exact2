@@ -128,7 +128,7 @@ func agentReady() {
 /// The build's launch colour (the manifest's `launch`); unset, the
 /// platform's background, as the system's own launch screen then is and
 /// the view under it (`ExactView`): never a fixed white (LLP 1115 D2).
-let launchColor = UIColor(named: "ExactLaunch") ?? .platformBackground
+let launchColor = UIColor(named: "ExactLaunch") ?? .platformBackground(in: nil)
 
 final class Controller: UIViewController {
     #if os(tvOS)

@@ -436,6 +436,12 @@ Each line is a test today. The semantic assertions are kept and run against the 
 - **The executor's suite** runs again on the machine (`the_suite_passes_on_the_asynchronous_core`), and `executor_async_tests.rs` adds the cap, the per-origin pass-over and its h2 lift, the ordered slot at a timeout, the later-of release, a forgotten write, and question 8's park and refusal.
 
 
+Real-file upload tests in the worker and async suites share one test guard,
+matching the process-wide four-reader limit. Otherwise unrelated tests can
+consume that capacity and turn an expected timeout into an admission refusal.
+Each test keeps its own concurrent-reader assertions; other tests run in parallel.
+
+
 There are no shims; each step deletes what it replaces in the executor.
 
 1. **ibex2.**
@@ -554,7 +560,7 @@ This decides the adapter, not HTTP/2 on Linux; that would need D4's spike first.
   5. **Fails for C.** Windows 1 and 3 have no failed run (one window-1 C launch logged 27 exchanges, one pagination read fewer, with all 19 feed reads). But window 2's C failed two launches, and by the rule above a treatment failure fails that arm's gate; contamination doesn't excuse it. One painted nothing (the null in its block); the other painted at 16.5 s with 14 of its 19 feed reads, five author feeds never connecting and not retried (it is in the table's median, IQR and worst; without it, C's window 2 is 1513, IQR 186, worst 3050).
 - **In sum:** in the clean windows' gated pairs async was not slower (C7 against A7, C against A6 and C7), and in window 3 its spread was the narrowest (C's IQR 78, C7's 110, against 284 and 128); but the primary outcome, gate 1, is a tie well inside the noise, and C failed two launches in window 2.
 - **Finding: connection setup did not complete before the deadline (window 2).** The failed launch waited 15 s, the request deadline (`data/atproto.ts`), then logged clustered `NSURLErrorCancelled` (-999) completions. Those twelve records carry no endpoint or protocol. They establish a setup stall and shared cancellation timing, but do not establish how many physical connections existed or its cause. The earlier “one connection, one point of failure” description was an inference, not a measurement. The 16.5 s launch (`connect_to_post` 16263 ms) may share the cause; its five unconnected feed reads do not prove that. No retry or speculative duplicate request is introduced on that evidence.
-- **Remaining qualification:** independent review of the October 13 stage-1b repairs (§4), stage 2 (Linux), the preconnect experiment, the non-gating recordings other than `connect_to_post` and the connection log (the feed reads' span, active exchanges and byte-budget stalls, peak threads and memory, CPU, `fling-discover`, LAN runs, the idle-executor cost), and a physical device. Results: `~/x2p2/gate/lte-{1,2,3}` on the measuring machine.
+- **Remaining qualification:** stage 2 (Linux), the preconnect experiment, the non-gating recordings other than `connect_to_post` and the connection log (the feed reads' span, active exchanges and byte-budget stalls, peak threads and memory, CPU, `fling-discover`, LAN runs, the idle-executor cost), and the physical-device network/UI gate. The October 13 stage-1b repairs have completed independent code review (§4). Results: `~/x2p2/gate/lte-{1,2,3}` on the measuring machine.
 
 ## 6. Questions for the ruling
 
@@ -649,3 +655,115 @@ portable reservation immediately. Already-started base threads keep their own
 slots until exit. The lifecycle witness injects failure at each of the six
 base positions while retaining the failed cores, then checks lazy startup,
 physical pool retirement and refusal to retry failed pool construction.
+
+
+## Physical iPhone follow-up, 2026-10-14
+
+The isolated Conduit fixture was built from Exact `a01c62241` with
+`EXACT_HTTP_ASYNC=1` and the published V5 Hermes bundle, then signed and installed
+on a physical iPhone 17 Pro Max (`iPhone18,2`), iOS 27.0.1 (24A446). Its first
+launch was refused while the phone was locked. After a normal unlock it
+launched, but the test-control socket could not reach the Mac's selected IPv4
+endpoint (`No route to host`). The fixture was then rebuilt normally with the
+documented `host.ios.localNetworking=true` option. Its next launch did not
+establish the agent connection before the readiness timeout. That is a control
+channel failure, not evidence of an HTTP transport failure or a successful
+anonymous-network UI drive. No rerouting or device security setting was changed.
+
+The prepared storage fixture has the same documented local-network option;
+its UI write/read and same-store restart remain unqualified while the control
+connection is unavailable. The separate signed ImageIO harness needs no LAN
+control channel and passed all six bounded physical cases recorded in
+LLP 1069.002's October 14 qualification. Those native image-service results
+neither stand in for the missing network/storage UI proof nor pass the LTE
+gate. Tuft still owns the measured rollout campaign, and the async default
+remains off. The broader stages and Draft status are unchanged.
+
+## Physical iPad follow-up, 2026-10-15
+
+The prepared signed Conduit and storage fixtures from Exact `a01c62241` were
+exercised on a physical iPad Pro 12.9-inch (5th generation, `iPad13,11`),
+iPadOS 27.2 (24B5089g), after normal Trust and Developer Mode setup. Their
+binary hashes match the retained October 14 build receipts; Conduit uses
+`EXACT_HTTP_ASYNC=1` and published V5 Hermes. These are source-attributed
+results for those prepared binaries, not a qualification of newer main.
+
+Both fixtures' first normal agent launches failed with `No route to host`.
+A subsequent bounded launch of each established the authenticated agent
+connection on the Mac's normal Wi-Fi IPv4 address. No permission sheet was
+observed in the captured screens. First-operation privacy/readiness timing
+remains a hypothesis; the cause was not established. The successful drives
+used the existing carrier without a host override, proxy, network change or
+source fix.
+
+Conduit loaded four articles and fifteen tags from its anonymous live API.
+A real hit-tested article tap opened the expected route and loaded its body
+and two comments, with no pending work at either checkpoint. The original
+15-operation drive then stopped at operation 8: `tap nav-home` was refused
+because a `UIView` covered the control's center at `(1080.93, 28.0)`. Return
+through that control and the later login route are unqualified. The refusal
+was preserved; hit testing was not bypassed. Those prepared-binary runs did not
+test newer main.
+
+The storage fixture passed its normal UI drive: two hit-tested button taps
+advanced both displayed and resource values from `0` to `1` to `2` through
+`fs.readFile` and `fs.atomicWriteFile` at `app:/data/count.json`. A separate
+launch with the same named isolated store read back `2`; every checkpoint
+had no pending work. This closes the prepared storage fixture's physical UI
+write/read and same-store restart gap. Compact assertions, original failures,
+raw trees/states, screenshots, device identity and binary hashes are retained
+in the `20261015-device-and-maintenance` run receipts. The storage witness covers atomic-file persistence, not SQLite.
+
+These results do not pass Tuft's measured LTE rollout gate or enable async
+by default. The broader stages and this RFC's Draft status remain unchanged;
+physical Android qualification remains pending an available device.
+
+## Current-source iPad qualification, 2026-10-15
+
+Fresh signed fixtures were built from the current-source follow-up on the same
+physical iPad (`iPad13,11`, iPadOS 27.2/24B5089g). Conduit's baseline at
+`06d9155a4` reproduced the Home obstruction. The app now puts its shared header
+and footer inside each route owner, with retained routes as independently
+scrolling layers (LLP 1123 D2). At `da134cd38`, returning Home worked, but a
+settled repeat visit exposed a separate owner-lifetime defect: an offscreen
+retained route rejoined the native stack without its host block and appeared
+active to inspection. `781c6b00f` restores that loaded controller's real block
+without inventing an offscreen placement.
+
+Conduit's signed binary at `781c6b00f` (SHA-256
+`ac34de52c88b529556305ed61c1b266e87cfbdb1fb05148a8af3263ac4b809bb`) passed all
+28 operations on the physical iPad: anonymous feed, article, Home, the same
+article again, Sign in, then Home. Native activation used the normal testIds
+and hit testing. The retained article's controls were inactive on the repeated
+visit; the visible route's Sign in control was selected normally. Home was at
+`y=9` in both the article and Sign in layouts, and the inspected screenshots
+showed the header above the content. Every state checkpoint had no pending
+work. This is an anonymous network/navigation witness, not a signed-in write
+or a latency measurement.
+
+The fresh storage binary at `da134cd38` (SHA-256
+`dbe67864f8ba97b8747ead283c43d278265d9598658f190c6d679b30730e75f1`) first
+reached the native 15-second startup deadline with `No route to host`, before
+Charlie confirmed tapping **Allow** on its Local Network prompt. Its next
+normal launch, with the same binary and network settings, passed two UI writes:
+the displayed and resource counter advanced `0` → `1` → `2`, each save returned
+`ok`, and a separate process launch using the same isolated store read `2`
+without pending work or a read error. This qualifies atomic-file persistence
+at that source, not SQLite or a newly rebuilt `781c6b00f` storage binary.
+
+The isolated bundle identities were
+`com.ccheever.ibexasyncqualification.current20261015` and
+`com.ccheever.ibexstoragequalification.current20261015`; earlier fixture
+identities and stores were preserved. Conduit used `EXACT_HTTP_ASYNC=1` and
+published V5 Hermes. Its first launch at `da134cd38` connected normally. The
+carrier uses the bounded pre-handshake startup in LLP 1012: it waits for
+foreground readiness and retries transient connection errors within one
+monotonic deadline, without reconnecting an authenticated session or replaying
+commands. It does not grant Local Network permission. These runs used the
+normal Wi-Fi carrier without a host override, proxy or network-configuration change.
+
+Source and binary receipts, the first failures, successful trees/states and
+screenshots are retained in `20261015-current-device-followup`. Physical Android
+qualification still needs an available device. Tuft's measured LTE gate remains
+unpassed, async remains off by default, and the broader stages and Draft status
+are unchanged.

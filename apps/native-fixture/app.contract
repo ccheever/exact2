@@ -40,7 +40,11 @@ shape Provider
 shape Providers
   items: Provider[]
 
+shape SurfaceClock
+  epochAtZero: number
+
 component NativeFixture
+  resource surfaceClock = exactTime() as shape SurfaceClock
   state popoverValue = ""
   state popoverSearch = ""
   action popoverChange(v: string)
@@ -133,6 +137,18 @@ component NativeFixture
     cardOpens = cardOpens + 1
   action like
     likes = likes + 1
+  // A date and a time with a hatch, and a date and time without one: on
+  // Android each opens its picker, and the `due` hatch's Kotlin sets what the
+  // picker offers (LLP 1115.001.000 D3; `modules/android`).
+  state due = "2026-10-16"
+  state dueAt = "09:30"
+  state remind = ""
+  action setDue(v: string)
+    due = v
+  action setDueAt(v: string)
+    dueAt = v
+  action setRemind(v: string)
+    remind = v
   action setFed(v: string)
     fed = v
   action feed
@@ -238,6 +254,20 @@ component NativeFixture
     nav = push(nav, "/plain")
   action openNote
     nav = push(nav, "/note")
+  // A composer: an opener that asked for focus (a tabindex) presents a
+  // sheet whose textarea a later answer mounts, after the sheet is up, and
+  // which autofocuses.
+  state focusNote = false
+  state noteLoading = false
+  action openFocusedNote
+    focusNote = false
+    noteLoading = true
+    nav = push(nav, "/note")
+  action noteLoaded
+    noteLoading = false
+    focusNote = true
+  task loadNote when noteLoading
+    after(1000, noteLoaded)
   action follow(url: string)
     nav = go(nav, url)
   action breakOwnership
@@ -400,10 +430,23 @@ component NativeFixture
                       text "Draft" testId="aside-plain" font-size=12 color="#6b7280"
                     button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                       image "symbol:compose" width=20 height=20
+                    // A readout after the buttons: an item nothing presses,
+                    // its dot and monospaced count drawn as written, which
+                    // follows the count in place (LLP 1075.003 §9.15).
+                    if e.name == "plain"
+                      row role="status" testId="readout-plain" aria-label=`${composed} composed` display="flex" align-items="center" gap=6
+                        column width=7 height=7 border-radius=3.5 background-color=(composed > 0 ? "#16a34a" : "#9ca3af")
+                        text `${composed} sent` testId="readout-text" font-family="Menlo" font-size=12 color="#6b7280"
                 if e.name == "home"
-                  column id="bar-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
+                  column id="bar-menu" popover="auto" position="absolute" role="menu" aria-label="Actions" width=200 padding=8 background-color="#ffffff"
                     button appearance="none" press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44 text-align="start"
                       text "Bump from the bar"
+                    // Rows that open a confirmation, with no handler or after one: it presents
+                    // once the menu has gone, from the bar item.
+                    button appearance="none" commandfor="clear-confirm" command="show-modal" role="menuitem" testId="bar-menu-clear" height=44 text-align="start"
+                      text "Clear count…"
+                    button appearance="none" press=refreshProviders popovertarget="open-in-sheet" popovertargetaction="show" role="menuitem" testId="bar-menu-open-in" height=44 text-align="start"
+                      text "Open in…"
                 if e.name == "home"
                   column testId="fixture" gap=8 padding=12
                     row gap=6 flex-wrap="wrap"
@@ -433,9 +476,16 @@ component NativeFixture
                         text "Focus fields"
                       button press=openNote testId="open-note" padding=6 background-color="#e5e7eb"
                         text "Note"
+                      button press=openFocusedNote tabindex=0 testId="open-focused-note" padding=6 background-color="#e5e7eb"
+                        text "Compose"
                       column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
                         head description="Badge"
-                    text ("composed " + composed.toString()) testId="composed"
+                    row gap=4 align-items="center"
+                      text ("composed " + composed.toString()) testId="composed"
+                      time datetime=(surfaceClock.epochAtZero - 120000) format="relative" testId="live-time" font-size=14
+                        text "Two minutes ago"
+                      time datetime=surfaceClock.epochAtZero format="timer" testId="live-timer" font-size=14
+                      progress start=surfaceClock.epochAtZero end=(surfaceClock.epochAtZero + 120000) aria-label="Timed progress" testId="live-progress" width=24
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
                       button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
                         image "symbol:compose" width=20 height=20
@@ -465,6 +515,21 @@ component NativeFixture
                         text "Open in Maps"
                       button press=refreshProviders popovertarget="open-in-sheet" testId="open-in-sheet" padding=6 background-color="#e5e7eb"
                         text "Open in (sheet)"
+                      // A custom invoker whose children cover it: a touch
+                      // on any of them opens the menu, as on a UIButton.
+                      button appearance="none" press=refreshProviders popovertarget="open-in" testId="open-in-row" display="flex" flex-direction="row" align-items="center" gap=6
+                        column width=14 height=14 border-radius=4 background-color="#dbeafe" position="relative"
+                          column position="absolute" top=4 left=4 width=6 height=6 border-radius=3 background-color="#2563eb"
+                        text "Maps" testId="open-in-row-title"
+                        svg width=12 height=12 viewBox="0 0 24 24"
+                          path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width=3
+                      // One holding a field and a button of its own: each
+                      // keeps its touches; the rest of it opens the menu.
+                      button appearance="none" press=refreshProviders popovertarget="open-in" testId="open-in-mixed" display="flex" flex-direction="row" align-items="center" gap=6 padding=4
+                        text "Pick" testId="open-in-mixed-title"
+                        input value=query input=setQuery testId="open-in-mixed-field" aria-label="Filter" placeholder="Filter" width=70
+                        button press=bump testId="open-in-mixed-bump" padding=4 background-color="#e5e7eb"
+                          text "Bump"
                       text ("opened " + opened) testId="opened"
                     column id="open-in" popover="auto" position="absolute" role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
                       for p in providerItems key=p.id
@@ -583,6 +648,12 @@ component NativeFixture
                     button press=stopClock testId="clock-stop" padding=6 background-color="#e5e7eb"
                       text "Halt"
                 if e.name == "detail"
+                  row gap=6 padding-left=12 padding-right=12 padding-bottom=12 flex-shrink=0 flex-wrap="wrap" align-items="center"
+                    input type="date" hatch="due" data-weekends="off" value=due change=setDue min="2026-01-01" max="2027-12-31" testId="due" aria-label="Due" placeholder="Due"
+                    input type="time" hatch="due" value=dueAt change=setDueAt testId="due-at" aria-label="Due at" placeholder="Due at"
+                    input type="datetime-local" value=remind change=setRemind testId="remind" aria-label="Remind" placeholder="Remind me" accent-color="#d97706"
+                    column hatch="spin" testId="hatch-spin" aria-label="Spinner" width=48 height=48
+                if e.name == "detail"
                   row gap=6 padding-left=12 padding-right=12 padding-bottom=12 flex-shrink=0
                     row testId="post-row" press=openPost flex=1 padding-left=40 padding-right=40 padding-top=6 padding-bottom=6 background-color="#f3f4f6"
                       column testId="post-card" press=openCard flex=1 height=24 background-color="#dbeafe"
@@ -646,6 +717,15 @@ component NativeFixture
                 // from Sheet's controller, and closing it returns to Sheet.
                 if e.name == "sheet"
                   column testId="sheet-body" padding=16
+                    // Two fields in a mounted sheet: focus bubbles out of it
+                    // to the document's ancestors (LLP 1123 D2)
+                    input id="sheet-a" testId="sheet-field-a" aria-label="Sheet A" height=32
+                    input id="sheet-b" testId="sheet-field-b" aria-label="Sheet B" height=32
+                    // A field low in a short scroller: revealed once the
+                    // sheet's keyboard has settled (LLP 1123 C26)
+                    scroll id="sheet-scroll" testId="sheet-scroll" height=60 flex-shrink=0
+                      column height=200
+                      input id="sheet-c" testId="sheet-field-c" aria-label="Sheet C" height=32
                     button press=openMenu testId="sheet-menu" height=44
                       text "Menu over the sheet"
                     button press=askMenu testId="sheet-ask" height=44
@@ -657,6 +737,8 @@ component NativeFixture
                 if e.name == "plain" and focusPlain
                   input testId="plain-first" aria-label="First field" autofocus=true margin=12 height=32
                   input testId="plain-second" aria-label="Second field" autofocus=true margin=12 height=32
+                if e.name == "note" and focusNote
+                  textarea testId="note-text" aria-label="Note" autofocus=true margin=12 height=120
                 if e.name == "photo"
                   column testId="photo-view" flex=1 background-color="#000000" padding=12
                     button id="back" press=back testId="photo-back" aria-label="Close" padding=6 background-color="#e5e7eb" align-self="flex-start"
@@ -671,6 +753,9 @@ component NativeFixture
                         text "Clear"
                       exact-screen testId="screen" width="100%" height=96
                       text "Second" testId="second-top"
+                      row gap=4
+                        time datetime=surfaceClock.epochAtZero format="relative" testId="live-zero" font-size=14
+                        time datetime=(surfaceClock.epochAtZero + 9000000) format="relative" testId="live-hours" font-size=14
                       column testId="tall-second" height=1600 background-color="#eef2ff"
                       button press=showSecondPage("taller") testId="second-taller" padding=6 background-color="#e5e7eb"
                         text "Taller"

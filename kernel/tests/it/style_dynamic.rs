@@ -227,6 +227,7 @@ fn border_defaults_clear_and_wire_preserve_authored_width_separately_from_used_w
         &[Op::ClearStyle {
             id: 1,
             mask: StyleMask::of(StyleId::BorderStyleRight),
+            written: false,
         }],
     )
     .unwrap();
@@ -624,12 +625,30 @@ fn clearing_a_caret_override_restores_inheritance_not_auto() {
         None,
         "explicit auto stops inheritance"
     );
-    k.apply(0, 3, &[Op::ClearStyle { id: 2, mask }]).unwrap();
+    k.apply(
+        0,
+        3,
+        &[Op::ClearStyle {
+            id: 2,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
     assert_eq!(
         k.node(2).unwrap().computed_style(mask).caret_color,
         Some(Color::WHITE.into())
     );
-    k.apply(0, 4, &[Op::ClearStyle { id: 1, mask }]).unwrap();
+    k.apply(
+        0,
+        4,
+        &[Op::ClearStyle {
+            id: 1,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
     assert_eq!(k.node(2).unwrap().computed_style(mask).caret_color, None);
 }
 

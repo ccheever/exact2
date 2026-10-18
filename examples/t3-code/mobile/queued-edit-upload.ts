@@ -1,6 +1,6 @@
 // Pinned365aa87982 attachmentUpload + resolveQueuedEditPayload. Ordered mobile
 // attachments use existing native byte stores and shared authenticated RPC.
-// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';

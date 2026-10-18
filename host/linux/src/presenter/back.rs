@@ -100,7 +100,11 @@ impl<D: DataSource> Presenter<D> {
             .iter()
             .copied()
             .filter(|id| {
-                let pressable = (self.host.runner().handlers_of(*id)).contains(&EventKind::Press);
+                // It hears `press`, or invokes something (a confirmation it asks first).
+                let pressable = (self.host.runner().handlers_of(*id)).contains(&EventKind::Press)
+                    || kernel
+                        .node(*id)
+                        .is_some_and(|n| exact_kernel::Invocation::of(kernel, &n).is_some());
                 let disabled = kernel
                     .node(*id)
                     .is_some_and(|n| n.props.bool(PropId::Disabled) == Some(true));
@@ -200,7 +204,7 @@ impl<D: DataSource> Presenter<D> {
         };
         let error = match back {
             Back::Press(control) => {
-                self.dispatch_press(control, now_ms, false);
+                self.activate_with(control, now_ms, false);
                 None
             }
             Back::Navigate(root, location) => self

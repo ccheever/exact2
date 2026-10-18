@@ -1,5 +1,5 @@
 // Source365aa87982 ThreadComposer, ThreadDetailScreen and threadFeedback (MIT; LICENSE-T3).
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 import { collectProviderUsageLimits, type UsageLimitsReport } from './thread-local-usage-model';
 import { codexFeedbackNotice, type CodexFeedbackSubmission } from './thread-local-feedback-model';
 import { mobileThreadSendPlan, type ThreadSendSnapshot, type ThreadSendFacts } from './thread-send-admission';

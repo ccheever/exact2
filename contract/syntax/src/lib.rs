@@ -20,16 +20,21 @@
 
 pub mod ast;
 mod clock;
+mod colours;
 pub mod fmt;
 pub mod idioms;
 pub mod inline;
 pub mod lexer;
+mod midi;
 mod notfound;
+pub mod params;
 pub mod parser;
 mod part;
 pub mod scope;
+pub mod sequence;
 mod share;
 mod spans;
+pub mod state;
 
 pub use ast::*;
 pub use clock::{resolve_clock_timelines, resolve_clock_timelines_in};
@@ -38,8 +43,10 @@ pub use inline::{
     Instance, Owner,
 };
 pub use lexer::{Lexer, Token, TokenKind};
+pub use midi::MidiStep;
 pub use notfound::implicit_notfound;
 pub use parser::{is_launch, parse, parse_source, parse_source_all, same_launch, SyntaxError};
+pub use sequence::Sequence;
 pub use share::share_calls;
 pub use spans::VisitSpans;
 
@@ -116,6 +123,9 @@ pub const HOST_COMMANDS: &[&str] = &[
     // sets the root size `rem` follows, over the host's; `"medium"` hands it
     // back. The runner's own; the web also sets it on the document.
     "setRootFontSize",
+    // @ref LLP 1121 D5 — `setMode("dark-style", "dim")`: the window's app
+    // modes, as `setScheme` is its scheme. The runner's own.
+    "setMode",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
     // @ref LLP 1101.001 P5 — `HTMLDialogElement.showModal()` by the dialog's
@@ -157,12 +167,17 @@ pub const HOST_COMMANDS: &[&str] = &[
     // changes?" is answered. An action prop named `close` may be bound, but
     // calling it is refused as ambiguous (LLP 1089 D1, `syntax-call-ambiguous`).
     "close",
-    // @ref LLP 1096 D2 — `playSound(src, at=, gain=, group=)`,
+    // @ref LLP 1096 D2 — `playSound(src, at=, gain=, group=, playbackRate=, pan=)`,
     // `playSounds(hits)` and `stopSounds(group=)`: the runner keeps the voice
     // table, so every host skips them as the runner's own.
     "playSound",
     "playSounds",
     "stopSounds",
+    // @ref LLP 1125 D6, D7 — `requestMIDIAccess()` and `sendMIDI(output,
+    // data, at=)`: the runner keeps the MIDI queue and answers `exactMIDI()`,
+    // so every host skips them as the runner's own.
+    "requestMIDIAccess",
+    "sendMIDI",
 ];
 
 /// A written type as the author writes it: `Item[]`, `option<number>`.
@@ -170,6 +185,16 @@ impl std::fmt::Display for TypeExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TypeExpr::Named(n, _) => write!(f, "{n}"),
+            TypeExpr::Enum(values, _) => {
+                write!(f, "enum<")?;
+                for (i, value) in values.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{value:?}")?;
+                }
+                write!(f, ">")
+            }
             TypeExpr::Option(t, _) => write!(f, "option<{t}>"),
             TypeExpr::List(t, _) => write!(f, "{t}[]"),
         }

@@ -1,5 +1,5 @@
 // Pinned365aa87982 use-thread-outbox-drain.ts and use-composer-drafts.ts.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import { MAX_ATTACHMENTS } from './shared/composer-editor-files';
 import { mobileReferencedComposerContext, type MobileMessageContext } from './mobile-new-task-context';
 import { mobileOutboxDecode, type MobileOutboxRecord } from './mobile-outbox-model';

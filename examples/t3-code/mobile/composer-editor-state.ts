@@ -1,6 +1,6 @@
 // Controlled editor revision helpers, T3 Code (MIT); see LICENSE-T3.
 // Source365aa87982 src/native/composerEditorRevision.ts; helper bodies unchanged.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 export interface ComposerNativeEventSnapshot {
   readonly eventCount: number;
   readonly value: string;

@@ -1,5 +1,5 @@
 // Pinned365aa87982 shared/image and mobile attachmentUpload wire policy.
-// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import type { Obj } from './shared/domain';
 
 export interface MobileAttachmentPolicyInput {

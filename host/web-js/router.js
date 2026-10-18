@@ -16,7 +16,7 @@ export function routes(table) {
 }
 const HEX = "0123456789ABCDEF", utf8 = new TextEncoder();
 const enc = (s, esc) => { let o = ""; for (const b of utf8.encode(s)) o += esc(b) ? "%" + HEX[b >> 4] + HEX[b & 15] : String.fromCharCode(b); return o; };
-const dec = (s, plus) => { const out = []; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c === 37 && /^[0-9a-f]{2}$/i.test(s.substr(i + 1, 2))) { out.push(parseInt(s.substr(i + 1, 2), 16)); i += 2; } else if (plus && c === 43) out.push(32); else out.push(...utf8.encode(s[i])); } return new TextDecoder().decode(new Uint8Array(out)); };
+const dec = (s, plus) => { const out = []; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c === 37 && /^[0-9a-f]{2}$/i.test(s.substr(i + 1, 2))) { out.push(parseInt(s.substr(i + 1, 2), 16)); i += 2; } else if (plus && c === 43) out.push(32); else out.push(...utf8.encode(s[i])); } return new TextDecoder("utf-8", { ignoreBOM: true }).decode(new Uint8Array(out)); };
 const clean = s => s.replace(/^[\0- ]+|[\0- ]+$/g, "").replace(/[\t\n\r]/g, "");
 /** `canonical` (route/src/location.rs): path and query, dot segments resolved, escaped. */
 export function canonical(location) {
@@ -151,7 +151,7 @@ export const x_path = (name, ...values) => path(Routes.find(r => r.name === name
 let RouterSlot = null, Shown = null, Navigate = null, History = null; export const pageHistory = () => History; // the page's navigation.js, which the agent observes: its own copy's state is never written
 /** The plan's navigation roots, with a router or without (document.js `projectRoots`). A page with one loads the input
  * piece after first paint: the focus follows its routes (input-glue.js `arrive`; LLP 1115.000 D4.2). */
-export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate ? (Navigate(location), true) : false, say, After, hostBack, hostGo); pressFeedback(); }
+export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate ? (Navigate(location), true) : false, say, After, hostBack, hostGo, href => { const match = matchRoute(canonical(href)); return match !== null && !Routes[match[0]].notfound; }); pressFeedback(); }
 /** The platform's own Back from the selected visit `id`, with no `navigate` handler (LLP 1115 D5): the router's `back`
  * as a commit of its own, the runner's `host_back`. */
 function hostBack(id) { const r = RouterSlot?.n.v; if (r && validRouter(r) && top_(r)[0] === id && depth_(r) > 1) commit(() => W(RouterSlot, back_(r)), "host back"); }
@@ -187,8 +187,11 @@ export function router(slot, history) {
     const top = top_(r), ids = new Set(r[1].flatMap(t => t[1].map(e => e[0])));
     const removed = Shown ? Shown[1].flatMap(t => t[1].map(e => e[0])).filter(id => !ids.has(id)) : [];
     Shown = r;
-    history.apply({ top: top[0], url: top[2], removed });
+    history.apply({ top: top[0], url: top[2], removed, visits: r[1].flatMap(t => t[1].map(e => [e[0], e[2]])) });
   });
+  // `effect` runs once synchronously. Its first apply follows
+  // `projectRoots`' projection, so publish those initial visits now.
+  history.project(document.getElementById("exact-root"), say);
 }
 export const navigateTo = f => { Navigate = f; }, navigateRoot = location => Navigate ? (Navigate(location), true) : false; // the agent's `type <root> <location>` (LLP 1038 D11)
 export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;

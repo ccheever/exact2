@@ -12,7 +12,9 @@ import { checkOp, judge, ratio } from '../../scripts/agent-check.mjs';
 import { decodePng } from '../../scripts/png.mjs';
 import { serveBuildTree } from './serve.mjs';
 
-// One view per finding class, each named by its testId; `fits` and `ellipsis` are what must not be found.
+// One view per finding class, each named by its testId; `fits`, `ellipsis`, `covered-card` (a card under a view drawn over
+// it), `blob` (a shape holding no text or control that shows) and `grouped` (a list, whose ground is the page's, whatever its role) are what
+// must not be found; nor is `veiled-card`, which a half-opaque panel leaves unjudged (`faded`).
 const BROKEN = `component CheckFixture
   state on = false
   action toggle
@@ -30,6 +32,19 @@ const BROKEN = `component CheckFixture
         button testId="hidden" press=toggle
           text "Under"
         column testId="cover" position="absolute" top=0 left=0 width=300 height=60 background-color="-exact-secondary-background"
+      column position="relative" height=60
+        column testId="covered-card" position="absolute" top=8 left=8 width=160 height=44 border-radius=8 background-color="-exact-background"
+          text testId="covered-line" "Under a cover"
+        column position="absolute" top=0 left=0 width=300 height=60 background-color="-exact-secondary-background"
+      column testId="blob" width=48 height=48 border-radius=24 background-color="-exact-background" aria-hidden=true
+        text visibility="hidden" "Hidden"
+      column opacity=0.5 padding=8 background-color="-exact-secondary-background"
+        column testId="veiled-card" padding=8 border-radius=8 background-color="-exact-secondary-background"
+          text "In a half-opaque panel"
+      list testId="grouped" appearance="auto" listStyle="inset-grouped" role="presentation" height=100 flex-shrink=0
+        section
+          row
+            text "In a grouped list"
       row gap=0
         column testId="a" press=toggle width=100 height=44 background-color="-exact-secondary-background"
         column testId="b" press=toggle width=100 height=44 margin-left=-20 background-color="-exact-tertiary-fill"
@@ -102,6 +117,27 @@ component PaddedFixture
                 column testId="page" width="100%" padding=12
                   text "Scrolls on purpose"
               text testId="readout" white-space="nowrap" font-size="-exact-title2" "00:25:00"
+`;
+// LLP 1116.020 D4 (focus-timer and trivia-quiz, round 18): a vertical scroller holds no sideways overflow, though CSS computes
+// its x `auto` (a native host's vertical scroll view cuts it at the screen's edge). `count` runs past the screen; a strip that
+// scrolls sideways on purpose and a swipe row's snap scroll (LLP 1116.020 D1) hold what lies past their sides.
+const SIDEWAYS = `component SidewaysFixture
+  view
+    column testId="app" height="100vh" display="flex" flex-direction="column"
+      scroll flex=1 min-height=0 testId="scroller"
+        column padding=16 gap=12
+          row testId="count-row" gap=16 align-items="center"
+            text "Completed today" flex=1
+            text testId="count" white-space="nowrap" "0000000000000000000000000000000000000000"
+          scroll testId="strip" overflow-x="auto" overflow-y="hidden"
+            row gap=8
+              text testId="chip-1" white-space="nowrap" padding=8 "A chip that is long"
+              text white-space="nowrap" padding=8 "Another chip that is long"
+              text white-space="nowrap" padding=8 "A third chip, past the edge"
+          scroll testId="swipe" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+            row
+              text testId="swipe-content" width="100%" flex-shrink=0 scroll-snap-align="start" padding=12 "A row's content"
+              text testId="swipe-action" width=88 flex-shrink=0 scroll-snap-align="end" padding=12 "Delete"
 `;
 // A column held to the screen's height, its end past the screen's bottom: a line cut by it, a button out of reach.
 const TALL = `component TallFixture
@@ -226,7 +262,7 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(found([{ ...text, fg: [255, 56, 60, 1] }])).toEqual([]); // the grouped sheet's red (a destructive row's title), UIKit's at 3:1
   // LLP 1115.000 D4: a role known only by its drawn value is read in the column its host draws. A page in the neutral look
   // says so (`look`): there the table's neutral red (#c90f1a, 3.5:1 on this grey) is the platform's, at 3:1, and Apple's
-  // red is some author's colour, at 4.5:1. A host that names no look (iOS, a page built in LLP 1116 D1's) draws Apple's.
+  // red is some author's colour, at 4.5:1. An Apple host that names no look (iOS) draws Apple's.
   const onGrey = { ...text, fg: [201, 15, 26, 1], bg: [200, 200, 200], on: 'own' };
   expect(found([onGrey], { look: 'neutral' })).toEqual([]);
   expect(found([onGrey])).toEqual(['contrast:1']);
@@ -248,6 +284,15 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(hint()).not.toContain('on a plain page a card is');
   expect(found([{ ...card, x: 24 }])).toEqual([]);
   expect(found([{ ...card, edge: true }])).toEqual([]);
+  // A side is read only where the capture shows the card's fill over what lies outside it. A red card under a white view
+  // drawn over it (mapapp's park under its panel) shows white on both sides of its edge: no finding. A fill all but
+  // transparent shows the page through it, and is found. A card in a half-opaque ancestor (`faded`) is not judged.
+  expect(found([{ ...card, fill: [255, 59, 48, 1] }])).toEqual([]);
+  expect(found([{ ...card, fill: [0, 0, 0, 0.01] }])).toEqual(['card:2']);
+  expect(found([{ ...card, faded: true }])).toEqual([]);
+  // A white card whose box crosses into the grey (a rotated card over a band): the side in the grey shows its edge, and
+  // the white-on-white sides do not outweigh it.
+  expect(found([{ ...card, x: 10, w: 12 }])).toEqual([]);
   // LLP 1116.010 D2 (trivia, round 12): a card the host says none of is presented (below the viewport, past its scroller's edge) is
   // not judged on the page's pixels there.
   expect(found([{ ...card, vis: { x: 4, y: 20, w: 0, h: 0 } }])).toEqual([]);
@@ -267,6 +312,17 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const pale = judge(obs([{ ...white, bg: [142, 140, 240], on: 7 }]), png);
   expect(pale.map((f) => [f.kind, f.detail.bg, f.detail.on])).toEqual([['contrast', '#8e8cf0', 7]]);
   expect(judge(obs([{ ...white, bg: [142, 140, 240], on: 'own' }]), null).length).toBe(1); // no capture needed
+  // LLP 1116.019 D3: UIKit's white on a filled button's teal (2.1:1) is still found, and its hint names the accent, not a label colour.
+  const teal = judge(obs([{ ...white, bg: [0, 195, 208], on: 'own', label: true, onAccent: true }]), null);
+  expect(teal.map((f) => f.kind)).toEqual(['contrast']);
+  expect(teal[0].hint).toContain('leave the accent unsaid');
+  // LLP 1116.020 D7: white on an accent fill that is no button (a sent bubble) is held to a filled button's 3:1: UIKit's blue
+  // (3.4:1) reads, a pale accent (the web's dark one, 2.6:1) is found with the accent's hint; on another fill it stays 4.5:1.
+  expect(found([{ ...white, bg: [0, 136, 255], on: 'own', onAccentFill: true }])).toEqual([]);
+  expect(found([{ ...white, bg: [0, 136, 255], on: 'own' }])).toEqual(['contrast:1']);
+  const paleAccent = judge(obs([{ ...white, bg: [104, 165, 254], on: 'own', onAccentFill: true }]), null);
+  expect(paleAccent.map((f) => [f.kind, f.detail.need])).toEqual([['contrast', 3]]);
+  expect(paleAccent[0].hint).toContain('leave the accent unsaid');
   // Overlap is judged on what is presented of each box: a row its scroller cuts at y = 10 overlaps nothing below.
   const row = { id: 6, x: 0, y: 0, w: 40, h: 20, control: 'press', sized: 'platform' }, tab = { id: 7, x: 0, y: 10, w: 40, h: 20, control: 'press', sized: 'platform' };
   expect(found([row, tab])).toEqual(['overlap:6']);
@@ -324,6 +380,15 @@ test('a page with every finding class has each found, by testId, in the scheme i
     expect((await session.op({ op: 'check' })).look).toBe('neutral');
     expect(l.faint).toEqual(['contrast']);
     expect(l.card).toEqual(['card']);
+    // A card under a view drawn over it does not show because of that view, not its fill; a shape holding no text or
+    // control is no card.
+    expect(l['covered-card']).toBeUndefined();
+    expect(l['covered-line']).toEqual(['covered']);
+    expect(l.blob).toBeUndefined();
+    expect(l['veiled-card']).toBeUndefined(); // its fill is the panel's, but the capture mixes both with the page
+    const seen = await session.op({ op: 'check' }), ids = new Map(((await session.op({ op: 'tree' })).nodes ?? []).map((n) => [n.props?.testId, n.id]));
+    const observed = (testId) => seen.items.find((it) => it.id === ids.get(testId));
+    expect([observed('veiled-card').faded, observed('card').faded]).toEqual([true, undefined]);
     expect(l.tiny).toEqual(['target']);
     expect(l.fits).toBeUndefined();
     expect(l.ellipsis).toBeUndefined(); // an ellipsis the author asked for
@@ -331,6 +396,7 @@ test('a page with every finding class has each found, by testId, in the scheme i
     // In dark the card shows and the faint text reads on it; the author's white label on the pale
     // dark accent does not (unsaid, the web picks black there: LLP 1116.003 D3.1).
     expect(d.card).toBeUndefined();
+    expect(d.grouped).toBeUndefined(); // its ground is the plain page's colour in dark, under its section's card
     expect(d.faint).toBeUndefined();
     expect(d.go).toEqual(['contrast']);
     expect(both.text).toMatch(/^check web · light: \d+ findings\n/);
@@ -351,6 +417,12 @@ test('a page with every finding class has each found, by testId, in the scheme i
       expect(at[0].findings[0].detail.past).toBe(48);
     }
   } finally { await wide.close(); }
+  const sideways = await open({ host: 'web', url: await built('sideways', SIDEWAYS), size: [390, 844] });
+  try {
+    const run = (await checkOp(sideways, ['light'])).check[0];
+    expect(kinds(run)).toEqual({ count: ['overflow'] });
+    expect(run.findings[0].detail.width).toBe(390);
+  } finally { await sideways.close(); }
   const tall = await open({ host: 'web', url: await built('tall', TALL) });
   try {
     const t = kinds((await checkOp(tall, [])).check[0]);

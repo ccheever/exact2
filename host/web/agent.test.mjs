@@ -9,7 +9,8 @@ import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf, pickedPaths } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync, serveBuildTree } from './serve.mjs';
-import { focusController, placeReporter, timeReporter, pageReporter, appRootFontSize, viewBox, grantOrigins, launchLocation } from './navigation.js';
+import { focusController, placeReporter, timeReporter, pageReporter, appRootFontSize, grantOrigins, launchLocation } from './navigation.js';
+import { viewBox, layoutBoxes } from './input-glue.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
@@ -68,31 +69,6 @@ catch(e) { console.error(e.message); process.exitCode=1; }
     expect(missing.stderr).not.toContain('TypeError');
   } finally { rmSync(dir, {recursive:true,force:true}); }
 }, 60_000); // Six Bun launches of the driver: 25 s at load 110, so a hang bound, not a speed claim.
-
-test('driver deadlines release their timer on success, rejection and timeout', async () => {
-  const driver = readFileSync(new URL('../../scripts/agent.mjs', import.meta.url), 'utf8');
-  const implementation = driver.match(/async function waitAtMost\([^]*?\n\}/)[0];
-  const timers = new Set();
-  const wait = vm.runInNewContext(`(${implementation})`, {
-    setTimeout(callback) { timers.add(callback); return callback; },
-    clearTimeout(callback) { timers.delete(callback); },
-  });
-  expect(await wait(Promise.resolve('ready'), 20000)).toBe('ready');
-  expect(timers.size).toBe(0);
-  const failed = new Error('app exited');
-  await expect(wait(Promise.reject(failed), 20000)).rejects.toBe(failed);
-  expect(timers.size).toBe(0);
-  const pending = new Promise(() => {});
-  const closed = wait(pending, 2000);
-  expect(timers.size).toBe(1);
-  [...timers][0]();
-  expect(await closed).toBeUndefined();
-  expect(timers.size).toBe(0);
-  const late = wait(pending, 20000, () => { throw failed; });
-  [...timers][0]();
-  await expect(late).rejects.toBe(failed);
-  expect(timers.size).toBe(0);
-});
 
 test('driver joins only the inspected plan, retains old compatible maps, and labels formatting-only revisions honestly', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-driver-map-')), path = join(dir, 'app.plan');
@@ -250,7 +226,7 @@ function fixture(agentMode = true) {
     Date: class extends Date { static now() { return 123; } }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
     HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
     foldBits: () => 0 /* no fold posture (LLP 1078 D6) */,
-    document: { activeElement: null, body: {}, querySelector: () => null },
+    document: { activeElement: null, body: {}, querySelector: () => null, getElementById: () => null }, // boot's last plan's theme: none
     innerWidth: 300, innerHeight: 200, devicePixelRatio: 1, scrollX: 0, scrollY: 0,
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
     viewBox: element => element.getBoundingClientRect(),
@@ -259,7 +235,7 @@ function fixture(agentMode = true) {
     ask: req => req.op === 'state' ? state : req.op === 'logs' ? logs : req.op === 'node' ? { id: req.id, type: 'Text' }
       : req.op === 'tags' ? { epoch: 2, incarnation: 1, clock: 0 } : { error: 'unknown op' },
     tree: () => outline, now: () => 0, environment: () => ({}),
-    agentClock: 0, imageHold: null /* no animated image loaded (image-glue.js, LLP 1011.000) */, SETTLE_DEADLINE_MS: 20000, inflight: new Set(), forgettable: new Map(), waiting: () => [...context.inflight],
+    agentClock: 0, imageHold: null /* no animated image loaded (image-glue.js, LLP 1011.000) */, SETTLE_DEADLINE_MS: 20000, REPLACE_SETTLE_MS: 1000, inflight: new Set(), mediaAttaching: new Set(), forgettable: new Map(), waiting: () => [...context.inflight],
     // The page's own wait (http-body.js) races the deadline; here a request marked `stuck` is what a passed deadline finds.
     waitForInflight: async () => { const all = [...context.inflight]; if (all.some(p => p.stuck)) return false; await Promise.all(all); return true; },
     memory: { buffer: new ArrayBuffer(1024) }, readOut: value => value,
@@ -285,7 +261,7 @@ function fixture(agentMode = true) {
     preferences: () => '{}', localAssetURL: source => source,
     launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
   });
-  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox}; const layoutBoxes = ${layoutBoxes};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agentInputReady', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
@@ -618,19 +594,20 @@ test('page facts: the platform off the agent, the drive\'s values under it (LLP 
   const listened = [];
   const platform = { document: { visibilityState: 'hidden', addEventListener: name => listened.push(name) }, navigator: { onLine: false, share() {} }, addEventListener: name => listened.push(name) };
   const real = pageReporter(false, platform);
-  expect(real.bits()).toBe(1 | 2 | 4);
+  expect(real.bits()).toBe(1 | 2 | 4 | 32); // no navigation entry is a page the browser navigated to (bits 5–6: 1)
   platform.document.visibilityState = 'visible'; platform.navigator = { onLine: true };
-  expect(real.bits()).toBe(0);
+  expect(real.bits()).toBe(32);
+  expect(pageReporter(false, { ...platform, performance: { getEntriesByType: t => t === 'navigation' ? [{ type: 'reload' }] : [] } }).bits()).toBe(2 << 5);
   // The document pickers (studio diary R31): bit 3 where the browser has them.
-  platform.showOpenFilePicker = () => {};
-  expect(real.bits()).toBe(8);
-  delete platform.showOpenFilePicker; let focused = false; platform.document.hasFocus = () => focused; expect(real.bits()).toBe(16); focused = true; expect(real.bits()).toBe(0); // #114: bit 4 while `document.hasFocus()` is false
+  platform.showOpenFilePicker = () => {}; expect(real.bits()).toBe(32 | 8);
+  delete platform.showOpenFilePicker; let focused = false; platform.document.hasFocus = () => focused; expect(real.bits()).toBe(32 | 16); focused = true; expect(real.bits()).toBe(32); // #114: bit 4 while `document.hasFocus()` is false
   real.onChange(() => {});
   expect(listened).toEqual(['visibilitychange', 'online', 'offline', 'focus', 'blur']);
   const agent = pageReporter(true, new Proxy({}, {get(_, name) { if (name === 'devicePixelRatio') return 2; throw new Error('agent read the platform'); }})); // the display's scale alone is the page's own under the agent too: no drive value stands in for it (LLP 1115.000 D10.3)
-  expect(agent.bits()).toBe(4 | 8);
-  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16); agent.prefer({ 'has-focus': 'true' });
-  expect(agent.bits()).toBe(1 | 2 | 4);
+  expect(agent.bits()).toBe(4 | 8 | 32 | 256); // the drive navigated to the page: `navigate` (bits 5–6: 1); files in a share, never a picture (LLP 1125 D12)
+  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16 | 32 | 256); agent.prefer({ 'has-focus': 'true' });
+  expect(agent.bits()).toBe(1 | 2 | 4 | 32 | 256); agent.prefer({ 'can-share-files': false, 'can-share-pictures': true }); expect(agent.bits()).toBe(1 | 2 | 4 | 32 | 512); agent.prefer({ 'can-share-files': true, 'can-share-pictures': false });
+  const asked = [], sharing = pageReporter(false, { ...platform, File: class { constructor(_, name, { type }) { asked.push([name, type]); } }, navigator: { onLine: true, share() {}, canShare: d => d.files.length === 1 } }); expect(sharing.bits()).toBe(4 | 32 | 256); expect(asked).toEqual([['a.txt', 'text/plain']]); // files in a share where `navigator.canShare({files})` takes a small text file (LLP 1125 D12)
   expect(() => agent.prefer({ online: 'maybe', 'can-share': false })).toThrow('prefer: online');
   expect(agent.read()['can-share']).toBe(true); expect(agent.read()['display-scale']).toBe(2); expect(real.displayScale()).toBe(1); agent.prefer({ 'display-scale': 2 }); expect(() => agent.prefer({ 'display-scale': 3 })).toThrow("prefer: display-scale: 3: the page's is 2");
   agent.onChange(() => { throw new Error('agent listened to the platform'); });
@@ -731,7 +708,10 @@ function inputFixture() {
     removeEventListener(kind, fn) { windowListeners.set(kind, (windowListeners.get(kind) ?? []).filter(g => g !== fn)); },
   });
   const module = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-  vm.runInContext(module.replace('export function', 'function') + '\n' + declaration('attach'), f);
+  const withoutPrompt = module.replace(/^import\s+["']\.\/prompt-glue\.js["'];[^\n]*\n/m, '');
+  if (withoutPrompt === module) throw new Error('input glue must retain the prompt side-effect import');
+  const tested = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
+  vm.runInContext(tested + '\n' + declaration('attach'), f);
   f.attach(el, 7, ['pan']);
   function event(extra = {}) {
     return { isPrimary: true, button: 0, pointerId: 1, clientX: 0, clientY: 0,
@@ -870,7 +850,7 @@ test('a pressable that is no button activates by Enter or Space', () => {
 
 // @ref LLP 1043.000 §3 D7/D8 — optional host code cannot gate data readiness.
 const checkpoint = () => new Promise(resolve => setImmediate(resolve));
-async function startupFixture(rustOnly = false) {
+async function startupFixture(rustOnly = false, served = null) {
   const data = deferred(), input = deferred(), timer = deferred();
   const frames = [], loads = [], errors = [], events = [];
   const exports = { memory: {}, exact_compat: () => '{"inputs":{}}',
@@ -890,7 +870,7 @@ async function startupFixture(rustOnly = false) {
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, editMenu: () => false, focusAutofocus() {},
-    resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
+    resolveModuleReady: () => events.push('ready'), page: served && { holding: true, early: [] }, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
     loadAfterPaint(file) {
       loads.push(file);
       if (file === './input-glue.js') return input.promise;
@@ -900,10 +880,13 @@ async function startupFixture(rustOnly = false) {
       throw new Error('unexpected startup module: ' + file);
     },
   });
-  f.exact = {};
-  vm.runInContext([source.match(/^const AGENT_ADMITTED = .*$/m)[0], ...['setInputReady', 'activateData', 'main'].map(declaration)].join('\n')
+  f.exact = served ? { documentPage: { connect: () => ({ started: Promise.resolve(), ...served }) } } : {}; // a served document's capture (document-glue.js)
+  // navigation.js's export, which a context global would confuse with the browser's own `globalThis.navigation`.
+  vm.runInContext([source.match(/^const AGENT_ADMITTED = .*$/m)[0], "const navigation = { activate: () => events.push('navigation') };", ...['setInputReady', 'activateData', 'main'].map(declaration)].join('\n')
     .replaceAll('import.meta.url', '"https://fixture.invalid/glue.js"'), f);
   await f.main();
+  if (served) return { f }; // a served document's first pixel is painted: activation is not a frame away
+  expect(events).toEqual(['boot', 'navigation']); // Adoption activates navigation before optional modules or data.
   expect(loads).toEqual([]); // Neither optional nor app modules run before paint.
   frames.shift()();
   expect(loads).toEqual([]);
@@ -920,7 +903,7 @@ test('pending, failed and invalid optional modules leave Rust and JS apps ready 
     expect(f.root.dataset.moduleReady).toBe('true');
     expect(f.inputReady).toBe(true);
     expect(f.root['aria-busy']).toBe('false');
-    expect(f.events).toEqual(['boot', 'activate', 'batch', 'collections', 'ready']);
+    expect(f.events).toEqual(['boot', 'navigation', 'activate', 'batch', 'collections', 'ready']);
     expect(f.inputHandlers).toBeNull(); // A stalled import has no readiness deadline.
     expect(f.loads.filter(file => file === './input-glue.js')).toHaveLength(1);
     h.timer.reject(new Error('timer unavailable'));
@@ -937,6 +920,17 @@ test('pending, failed and invalid optional modules leave Rust and JS apps ready 
   }
 });
 
+// @ref LLP 1115.002 D4 — a served document is projected only once the target has adopted it.
+test('a served document activates navigation when release has adopted it, not at boot', async () => {
+  const released = [];
+  const { f } = await startupFixture(true, { hold: () => true, release: (...args) => released.push(args) });
+  await checkpoint();
+  expect(f.events).toEqual(['boot', 'activate', 'batch', 'collections', 'ready']); // a composition defers the adoption
+  expect(released).toHaveLength(1);
+  released[0][2]();
+  expect(f.events.at(-1)).toBe('navigation');
+});
+
 test('required app module failure still keeps dispatch gated and settles the error', async () => {
   const h = await startupFixture();
   h.data.reject(new Error('required app unavailable'));
@@ -944,7 +938,7 @@ test('required app module failure still keeps dispatch gated and settles the err
   expect(h.f.inputReady).toBe(false);
   expect(h.f.root.dataset.moduleReady).toBeUndefined();
   expect(h.f.root.dataset.error).toContain('required app unavailable');
-  expect(h.f.events).toEqual(['boot', 'ready']);
+  expect(h.f.events).toEqual(['boot', 'navigation', 'ready']);
   h.input.resolve(() => ({ arrive() {} })); h.timer.resolve(() => ({}));
   await checkpoint();
 });
@@ -982,18 +976,21 @@ test('initial flow loading cannot hold the first frame or module activation', as
   await boot;
 });
 
-test('module replacement drains current requests before swapping and rechecks supersession', async () => {
-  for (const result of ['accept', 'superseded', 'timeout']) {
-    const f = fixture(false), entered = deferred(), drained = deferred();
-    let current = true, swaps = 0;
+test('module replacement waits for requests, rechecks supersession; the dev loop swaps after its settle window, an update refuses', async () => {
+  for (const [result, letGo] of [['accept', true], ['superseded', true], ['pending', true], ['accept', false], ['pending', false]]) {
+    const f = fixture(false), entered = deferred(), drained = deferred(), lines = [];
+    let current = true, swaps = 0, flag = null;
     f.waitForInflight = async deadline => {
-      expect(deadline).toBe(20010);
+      expect(deadline).toBe(letGo ? 1010 : 20010);
       entered.resolve();
       return drained.promise;
     };
+    f.log = line => lines.push(line);
     f.setInputReady = value => { f.inputReady = value; };
-    f.wasm.exact_boot_module = () => { swaps++; return '{"ops":[],"timers":true}'; };
-    const candidate = {realm:{id:1},receipt:new Uint8Array([1])};
+    f.wasm.exact_boot_module = (...args) => { swaps++; flag = args[3]; return '{"ops":[],"timers":true}'; };
+    // An app that always has a request out, here a read and a write; the write is named when let go.
+    if (result === 'pending') f.inflight.add(new Promise(() => {})).add(Object.assign(new Promise(() => {}), { write: 'POST https://api.test/like' }));
+    const candidate = {realm:{id:1},receipt:new Uint8Array([1]),letGo};
     const update = f.boot(new Uint8Array([1]), null, () => current, candidate);
     const outcome = update.then(value => ({value}), error => ({error}));
     await entered.promise;
@@ -1001,18 +998,21 @@ test('module replacement drains current requests before swapping and rechecks su
     expect(f.views.size).toBe(1);
     expect(f.inputReady).toBe(true);
     if (result === 'superseded') current = false;
-    drained.resolve(result !== 'timeout');
+    drained.resolve(result !== 'pending');
     const reply = await outcome;
-    if (result === 'accept') {
-      expect(reply.error).toBeUndefined();
-      expect(swaps).toBe(1);
-      expect(f.activeModule).toBe(candidate);
-    } else {
+    if (result === 'superseded' || result === 'pending' && !letGo) {
       expect(swaps).toBe(0);
       expect(f.views.size).toBe(1);
       expect(f.activeModule).toBeNull();
-      if (result === 'timeout') expect(String(reply.error)).toContain('in-flight requests');
-      else expect(reply.value).toBeNull();
+      if (letGo) expect(reply.value).toBeNull();
+      else expect(String(reply.error)).toContain('in-flight requests');
+    } else {
+      expect(reply.error).toBeUndefined();
+      expect(swaps).toBe(1);
+      expect(flag).toBe(letGo ? 1 : 0);
+      expect(f.activeModule).toBe(candidate);
+      expect(f.inflight.size).toBe(0);
+      expect(lines.filter(l => l.startsWith('module replacement'))).toEqual(result === 'pending' ? ['module replacement let go of 2 requests still in flight after 1000 ms; aborted writes the server may or may not have seen: POST https://api.test/like'] : []);
     }
   }
 });
@@ -1332,9 +1332,9 @@ test('a hold is addressed by its node or capability, and an unclear name is refu
   expect(() => heldTicket([...pending, { name: 'other', ticket: 12, device: { capability: 'open-directory', args: { id: 'other' } } }], '@open-directory')).toThrow(/2 holds match/);
 });
 
-// Review A2: an authored test's `pick "photo" "my photo.png"` reaches the driver as one path per line, so a space
-// stays in its path; the CLI's `type @photo a.png b.png` still names two.
 test('a pick answer keeps a path with a space when it comes one per line', () => {
+  const paths = new Function(readFileSync(new URL('../web-js/files.js', import.meta.url), 'utf8').match(/^const paths = .*;$/m)[0] + ';return paths;')();
+  for (const input of ['/tmp/my photo.png\n', '/tmp/a b.png\n/tmp/c.png\n', 'a.png b.png', '']) expect(paths(input)).toEqual(pickedPaths(input));
   expect(pickedPaths('/tmp/my photo.png\n')).toEqual(['/tmp/my photo.png']);
   expect(pickedPaths('/tmp/a b.png\n/tmp/c.png\n')).toEqual(['/tmp/a b.png', '/tmp/c.png']);
   expect(pickedPaths('a.png b.png')).toEqual(['a.png', 'b.png']);

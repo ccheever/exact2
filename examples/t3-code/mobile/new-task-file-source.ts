@@ -1,5 +1,5 @@
 // Reuse saved/focused/fleet transport ownership for source standalone NewTaskFile.
-// @ref llp/1109.006-review-and-files.decision.md#draft-file-ownership
+// @ref examples/t3-code/mobile/docs/1130.006-review-and-files.decision.md#draft-file-ownership
 import type { T3Client } from './shared/client';
 import { environmentSources } from './shared/connections';
 import { savedList } from './shared/connection-routes-ops';

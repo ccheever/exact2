@@ -1,5 +1,7 @@
 //! Layout receipts survive silent list settling until the presenter sees them.
 use super::*;
+#[path = "closed.rs"]
+pub(super) mod closed;
 
 impl<D: DataSource> Host<D> {
     /// Writes `batch` for the presenter; every batch with ops is written
@@ -15,12 +17,30 @@ impl<D: DataSource> Host<D> {
         if self.layout_withheld {
             batch.withhold(!batch.layout_provisional);
         }
+        batch.facts = self.facts_moved();
+        batch.wakelock = self.wakelock_moved();
         batch.finish(
             self.runner.timer_due_ms(),
             !self.engine.quiescent(),
             self.runner.now_ms(),
             error,
         )
+    }
+
+    /// An empty batch, which has no geometry to hold: a refusal's.
+    pub(crate) fn refused(&self, error: Option<String>) -> String {
+        let mut batch = Batch::new();
+        self.state_onto(&mut batch);
+        let (timers, motion) = (self.runner.timer_due_ms(), !self.engine.quiescent());
+        batch.finish(timers, motion, self.runner.now_ms(), error.as_deref())
+    }
+
+    pub(super) fn state_onto(&self, batch: &mut Batch) {
+        batch.spatial = self.engine.spatial();
+        batch.frames = self.runner.wants_frames();
+        batch.seq = self.runner.seq_range();
+        batch.canvas_frames(self.runner.canvas_wants_frame());
+        self.canvas_owed_onto(batch);
     }
 
     fn withhold_layout(&mut self) {

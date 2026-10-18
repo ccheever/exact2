@@ -169,7 +169,7 @@ fn physical_vertical_contact_catches_wrapper_and_keeps_typing_live() {
     assert!(p.collection_interaction().is_none());
 }
 #[test]
-fn latest_unproved_release_cannot_dispatch_previous_gap_and_late_up_is_inert() {
+fn unmeasured_release_cannot_dispatch_previous_gap_and_late_up_is_inert() {
     let mut p = boot();
     let (_, point) = recognize(&mut p);
     p.pointer_move(point.0, point.1 + 60., 20.).unwrap();
@@ -319,11 +319,14 @@ fn edge_scroll_reads_actual_offset_and_keeps_stationary_source_in_view() {
     let before = p.rect_of(id(&p, "row-0")).unwrap();
     let list = id(&p, "list");
     let old = p.scroll_of(list).1;
+    assert_eq!(old, 0., "the first edge sample establishes its clock");
     assert!(p.needs_animation_frame());
+    p.tick(20.);
+    assert_eq!(p.scroll_of(list).1, old);
     p.tick(70.);
     p.frame();
     let after = p.rect_of(id(&p, "row-0")).unwrap();
-    assert!(p.scroll_of(list).1 > old);
+    assert!((p.scroll_of(list).1 - old - 720. * 0.032).abs() < 0.001);
     assert!((after.1 - before.1).abs() < 0.01, "{before:?} {after:?}");
     assert!(p
         .host()
@@ -355,9 +358,14 @@ fn edge_scroll_authored_counter_preserves_hold_position_and_one_terminal_drop() 
     p.pointer_move(point.0, y, 20.).unwrap();
     let before = p.rect_of(id(&p, "row-0")).unwrap();
     let old_scroll = p.scroll_of(list).1;
+    // The first frame in the band starts the edge's clock, as the page's first
+    // animation frame does; the next scrolls.
+    p.tick(38.);
+    assert_eq!(p.scroll_of(list).1, old_scroll);
+    assert_eq!(p.host().runner().slot("scrolls"), Some(&Value::Number(0.)));
     p.tick(70.);
     assert_eq!(p.host().runner().slot("scrolls"), Some(&Value::Number(1.)));
-    assert!(p.scroll_of(list).1 > old_scroll);
+    assert!((p.scroll_of(list).1 - old_scroll - 720. * 0.032).abs() < 0.001);
     assert!(p
         .host()
         .engine()
@@ -386,6 +394,7 @@ fn edge_scroll_authored_deletion_and_width_reflow_still_cancel_before_drop() {
         let y = port.1 + port.3 - 8.;
         let width_before = p.host().kernel().node(list).unwrap().frame.width;
         p.pointer_move(point.0, y, 20.).unwrap();
+        p.tick(38.);
         p.tick(70.);
         assert_eq!(p.host().runner().slot("scrolls"), Some(&Value::Number(1.)));
         assert!(!p

@@ -1,5 +1,5 @@
 // Pinned365aa87982 new-task-flow-provider: hydrate once; rebuild under original task IDs.
-// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import type { T3Client } from './shared/client';
 import { obj, str, type Obj } from './shared/domain';
 import { draftFiles, setDraftFiles, type DraftFile } from './shared/composer-editor-files';

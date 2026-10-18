@@ -2,8 +2,7 @@
 //! Only explicitly independent HTTP leaves the ordered lane. Each worker has
 //! its own bindings and transport, so held data cannot consume control leases.
 use exact_runner::{
-    FailureKind, HttpScheduling, Message, Outcome, Reply, Request, RequestOut, Response,
-    Work as OwnedWork,
+    FailureKind, HttpScheduling, Outcome, Reply, Request, RequestOut, Response, Work as OwnedWork,
 };
 use ibex2::stdlib::abort::AbortController;
 use std::collections::VecDeque;
@@ -163,9 +162,9 @@ struct State {
 struct Shared {
     state: Mutex<State>,
     ready: Condvar,
-    /// How often a worker's wait returned: a test counts an idle pool's.
+    /// Notifications issued by the executor, independent of wait scheduling.
     #[cfg(test)]
-    wakes: AtomicUsize,
+    worker_notifications: AtomicUsize,
     abort: AbortController,
     /// Where the app's files are, as the host names them; unset on a host or
     /// drive that has none.
@@ -176,6 +175,8 @@ struct Shared {
     /// boot: opening makes the directories, and a cold boot opens no app
     /// storage (fieldnotes' `apple_module_replacement_…` test).
     roots: std::sync::OnceLock<Result<ibex2::stdlib::app_fs::AppDirectories, String>>,
+    /// Open two-way sockets by stream ticket (LLP 1016.000 D7; `stream.rs`).
+    sockets: Mutex<std::collections::HashMap<u64, stream::Socket>>,
 }
 
 impl Shared {
@@ -226,7 +227,7 @@ fn owners(bindings: Option<ibex2::host::Bindings>) -> Vec<Option<ibex2::host::Bi
 }
 
 impl Core {
-    #[allow(dead_code)] // the Linux host's; Apple's is `start_switched`
+    #[allow(dead_code)] // the tests'; the hosts' executors use `start_switched` or `start_on`
     pub(super) fn start(bindings: Option<ibex2::host::Bindings>, grants: &str, wake: Wake) -> Self {
         // Additional transports are constructed on their own threads, not
         // while the presenter is trying to publish its first frame.
@@ -239,14 +240,15 @@ impl Core {
     }
 
     /// [`Core::start`], or, switched on, the machine (LLP 1120): Apple's.
-    #[allow(dead_code)] // Apple's executor's; Linux's is `start`
+    #[allow(dead_code)] // Apple's executor's; Linux's and the render host's are `start_on`
     pub(super) fn start_switched(b: Option<ibex2::host::Bindings>, g: &str, w: Wake) -> Self {
         Self::with_owners(owners(b), g, w)
     }
 
     /// [`Core::start`] with every transport the other owners, scoped grants
-    /// and streams open made by `host` (the render host's, LLP 1048.000 D10).
-    #[allow(dead_code)] // only the render host's executor calls it
+    /// and streams open made by `host` (the Linux host's, and the render
+    /// host's, LLP 1048.000 D10).
+    #[allow(dead_code)] // the Linux and render hosts' executors call it
     pub(super) fn start_on(
         bindings: Option<ibex2::host::Bindings>,
         grants: &str,
@@ -286,10 +288,11 @@ impl Core {
             }),
             ready: Condvar::new(),
             #[cfg(test)]
-            wakes: AtomicUsize::new(0),
+            worker_notifications: AtomicUsize::new(0),
             abort: AbortController::new(),
             root_paths: std::sync::OnceLock::new(),
             roots: std::sync::OnceLock::new(),
+            sockets: Mutex::default(),
         });
         let count = if lanes.is_some() {
             asynch::THREADS
@@ -307,12 +310,12 @@ impl Core {
         // Every test in the binary shares the process's bound, one core per
         // test thread: a test waits for a slot rather than being refused.
         // The including crate says when (`WAIT_FOR_SLOT`): its own tests,
-        // and an integration test's build of it (render's `test-wait`).
+        // and an integration test's build of it (render's, Linux's `test-wait`).
+        // Nothing announces a released slot, so it polls. The deadline is the
+        // clock's: under load each 1 ms sleep can last far longer.
         if super::WAIT_FOR_SLOT {
-            for _ in 0..5000 {
-                if reserved {
-                    break;
-                }
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !reserved && std::time::Instant::now() < deadline {
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 reserved = reserve();
             }
@@ -345,13 +348,29 @@ impl Core {
         }
     }
 
-    /// Start the workers, once, when the first request is admitted. False
-    /// when a thread could not be made: no job is admitted then, and the
-    /// workers that did start retire with the core.
-    fn start_workers(&self, state: &mut State) -> bool {
-        let Some(idle) = self.idle.lock().unwrap().take() else {
+    /// Start `lane`'s workers, once, when the first request for it is
+    /// admitted: the ordered owner, or the independent lane's six, which an
+    /// app that reads only its own files never needs. False when a thread
+    /// could not be made: no job is admitted then, and the workers that did
+    /// start retire with the core.
+    fn start_workers(&self, state: &mut State, lane: usize) -> bool {
+        let mut waiting = self.idle.lock().unwrap();
+        let Some(starters) = waiting.as_mut() else {
             return !self.failed.load(Ordering::Acquire);
         };
+        let idle = if self.machine.is_some() {
+            std::mem::take(starters)
+        } else {
+            let (now, later) = std::mem::take(starters)
+                .into_iter()
+                .partition(|(index, _, _)| usize::from(*index != 0) == lane);
+            *starters = later;
+            now
+        };
+        if starters.is_empty() {
+            *waiting = None;
+        }
+        drop(waiting);
         if let Some(machine) = &self.machine {
             // The base set holds the slots the workers would have.
             let guards: Vec<_> = idle.into_iter().map(|(_, _, guard)| guard).collect();
@@ -360,6 +379,10 @@ impl Core {
                 // takes no work.
                 self.failed.store(true, Ordering::Release);
                 state.retired = true;
+                #[cfg(test)]
+                self.shared
+                    .worker_notifications
+                    .fetch_add(1, Ordering::Relaxed);
                 self.shared.ready.notify_all();
                 machine.stop(state);
             }
@@ -380,6 +403,16 @@ impl Core {
             }
         }
         !self.failed.load(Ordering::Acquire)
+    }
+
+    /// Hand work that will not run to a worker to destroy. The ordered owner
+    /// may be busy with a held request, so the independent lane starts too:
+    /// its idle workers destroy it now.
+    fn discard(&self, state: &mut State, work: Option<OwnedWork>) {
+        if work.is_some() {
+            self.start_workers(state, 1);
+        }
+        discard(&self.shared, state, work);
     }
 
     /// Where `app:/data`, `app:/cache` and `app:/tmp` are, for a request
@@ -419,7 +452,8 @@ impl Core {
             .or(r.request.body_from_refusal())
             .map_or_else(|| reservation(&r.request), Err)
             .and_then(|charge| state.book.reserve_inline_copy(&r.request, charge));
-        if self.disabled || !self.start_workers(&mut state) {
+        let lane = checked.as_ref().map_or(0, |(lane, _, _)| *lane);
+        if self.disabled || !self.start_workers(&mut state, lane) {
             return Err(("native executor worker limit reached", work));
         }
         if state.retired {
@@ -454,7 +488,7 @@ impl Core {
                 }
                 Err(why) => {
                     state.fenced.push_back(Fenced::Refused(r.ticket, why));
-                    discard(&self.shared, &mut state, work);
+                    self.discard(&mut state, work);
                 }
             }
             return Ok(());
@@ -561,6 +595,10 @@ impl Core {
             limit,
             forgotten: false,
         });
+        #[cfg(test)]
+        self.shared
+            .worker_notifications
+            .fetch_add(1, Ordering::Relaxed);
         self.shared.ready.notify_all();
         Ok(())
     }
@@ -669,7 +707,8 @@ impl Core {
             for run in &mut state.running {
                 if !run.forgotten && !held(run.ticket) {
                     run.forgotten = true;
-                    aborts.extend(run.abort.clone());
+                    let stream = run.stream.then_some(run.ticket);
+                    aborts.extend(run.abort.clone().map(|abort| (stream, abort)));
                     // On the machine, cancelling a safe read claims it now.
                     if self.machine.is_some() && asynch::cancel(run) {
                         cancels.push((run.lane, (run.ticket, run.generation)));
@@ -693,7 +732,7 @@ impl Core {
             state.fenced_bytes = fenced_bytes(&state.fenced);
             for f in gone {
                 if let Fenced::Held(_, work, _) = f {
-                    discard(&self.shared, state, work);
+                    self.discard(state, work);
                 }
             }
             rouse(&self.shared, state);
@@ -709,9 +748,7 @@ impl Core {
                 machine.cancelled(lane, run);
             }
         }
-        for abort in aborts {
-            abort.abort();
-        }
+        stream::release(&self.shared, aborts);
     }
 
     pub(super) fn ordered_idle(&self) -> bool {
@@ -738,7 +775,7 @@ impl Core {
                     if let Err((reason, work)) = self.admit(*r, work) {
                         refused.push((ticket, reason));
                         let mut state = self.shared.state.lock().unwrap();
-                        discard(&self.shared, &mut state, work);
+                        self.discard(&mut state, work);
                     }
                 }
                 Fenced::Refused(ticket, reason) => {
@@ -827,10 +864,15 @@ impl Core {
             state.waiting.clear();
             state.waiting_set.clear();
         }
+        #[cfg(test)]
+        self.shared
+            .worker_notifications
+            .fetch_add(1, Ordering::Relaxed);
         self.shared.ready.notify_all();
         if let Some(machine) = &self.machine {
             machine.retire();
         }
+        let _ = stream::close_sockets(&self.shared, None);
         self.shared.abort.abort();
         // Never join arbitrary native work on the UI thread. Its WorkerSlot
         // remains charged until return, including across repeated replacement.
@@ -857,6 +899,8 @@ impl Drop for WorkerSlot {
 /// Retirement wakes them itself.
 fn rouse(shared: &Shared, state: &State) {
     if !state.discard.is_empty() || state.jobs.iter().any(|lane| !lane.is_empty()) {
+        #[cfg(test)]
+        shared.worker_notifications.fetch_add(1, Ordering::Relaxed);
         shared.ready.notify_all();
     }
 }
@@ -866,6 +910,8 @@ fn rouse(shared: &Shared, state: &State) {
 fn discard(shared: &Shared, state: &mut State, work: Option<OwnedWork>) {
     if let Some(work) = work {
         state.discard.push(work);
+        #[cfg(test)]
+        shared.worker_notifications.fetch_add(1, Ordering::Relaxed);
         shared.ready.notify_all();
     }
 }
@@ -1021,60 +1067,6 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
     }
 }
 
-/// One message of the open stream `ticket`, false once nobody wants more
-/// (forgotten, retired, ended). The newest undelivered message per ticket is
-/// kept and the ones it replaces are counted on it (LLP 1016.000 D4): display
-/// data coalesces, and a log sees the gap and re-asks from its cursor.
-fn message(shared: &Shared, ticket: u64, mut message: Message) -> bool {
-    let mut state = shared.state.lock().unwrap();
-    if state.retired {
-        return false;
-    }
-    let Some((lane, elapsed_ms)) = state
-        .running
-        .iter()
-        .find(|run| run.ticket == ticket && !run.forgotten)
-        .map(|run| {
-            (
-                run.lane,
-                run.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-            )
-        })
-    else {
-        return false;
-    };
-    let waiting = state.completed[lane]
-        .iter_mut()
-        .find(|done| done.ticket == ticket && done.message);
-    match waiting {
-        Some(done) => {
-            if let Outcome::Message(older) = &done.outcome {
-                message.coalesced = message
-                    .coalesced
-                    .saturating_add(older.coalesced)
-                    .saturating_add(1);
-            }
-            done.outcome = Outcome::Message(message);
-            done.elapsed_ms = elapsed_ms;
-        }
-        None => state.completed[lane].push_back(Completed {
-            elapsed_ms,
-            ticket,
-            outcome: Outcome::Message(message),
-            // Charged to the running stream: its ceiling covers one message.
-            bytes: 0,
-            message: true,
-            stream: true,
-            light: false,
-            again: false,
-        }),
-    }
-    if has_ready(&state) {
-        wake(&mut state);
-    }
-    true
-}
-
 /// A continuation a worker hands to the module's owner instead of running,
 /// and a long native call it hands to the app's native module.
 fn handoff(request: &Request) -> bool {
@@ -1210,8 +1202,6 @@ fn worker(
                     break next;
                 }
                 state = shared.ready.wait(state).unwrap();
-                #[cfg(test)]
-                shared.wakes.fetch_add(1, Ordering::Relaxed);
             }
         };
         let Job {

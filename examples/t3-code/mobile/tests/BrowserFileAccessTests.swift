@@ -1,4 +1,4 @@
-// @ref llp/1109.010-mobile-browser-devices.decision.md#native-lifetime
+// @ref examples/t3-code/mobile/docs/1130.010-mobile-browser-devices.decision.md#native-lifetime
 // swiftc modules/apple/T3MobileBrowserFileAccess.swift tests/BrowserFileAccessTests.swift -o /tmp/browser-file-access-tests
 import Foundation
 

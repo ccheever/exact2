@@ -72,10 +72,31 @@ final class GpuModule {
         }
         do {
             let bytes = try Data(contentsOf: URL(fileURLWithPath:path))
-            let digest = SHA256.hash(data:bytes).map { String(format:"%02x", $0) }.joined()
-            if card["sha256"] as? String != digest { return refusal("digest mismatch") }
+            if card["sha256"] as? String != codeDigest(bytes) { return refusal("digest mismatch") }
         } catch { return refusal(error.localizedDescription) }
         return nil
+    }
+    /// The bake's GPU digest (bake/src/receipt.rs, `code_digest`): the bytes,
+    /// less a signed 64-bit Mach-O's code signature and the three sizes that
+    /// follow it, so a re-signer (AppDrop) keeps it and a code change does not.
+    static func codeDigest(_ bytes: Data) -> String {
+        let b = [UInt8](bytes)
+        func word(_ at: Int) -> Int? { at >= 0 && at + 4 <= b.count ? Int(b[at]) | Int(b[at + 1]) << 8 | Int(b[at + 2]) << 16 | Int(b[at + 3]) << 24 : nil }
+        func code() -> [UInt8]? {
+            guard word(0) == 0xfeedfacf, let count = word(16) else { return nil }
+            var at = 32, signature: Int?, zero: [(Int, Int)] = []
+            for _ in 0..<count {
+                guard let cmd = word(at), let size = word(at + 4) else { return nil }
+                if cmd == 0x1d { guard let offset = word(at + 8) else { return nil }; signature = offset; zero.append((at + 12, 4)) }
+                else if cmd == 0x19, at + 24 <= b.count, b[(at + 8)..<(at + 24)].elementsEqual(Array("__LINKEDIT".utf8) + [UInt8](repeating: 0, count: 6)) { zero += [(at + 32, 8), (at + 48, 8)] }
+                at += max(size, 8)
+            }
+            guard let end = signature, end <= b.count else { return nil }
+            var code = Array(b[..<end])
+            for (at, len) in zero { guard at + len <= code.count else { return nil }; code.replaceSubrange(at..<(at + len), with: repeatElement(0, count: len)) }
+            return code
+        }
+        return SHA256.hash(data: code() ?? b).map { String(format: "%02x", $0) }.joined()
     }
 
     typealias LoadFn = @convention(c) () -> UInt32

@@ -1,0 +1,53 @@
+// The Device surface's opened device, workspace and floating player
+// (device-session.ts). Its one import (device-tools-shapes.contract) has none, so the surfaces' shapes can use
+// it without a cycle.
+use DeviceControls from "./device-tools-shapes.contract"
+use DeviceFolding from "./device-duo-shapes.contract"
+shape DeviceRail
+  inputConnected: bool
+  appearance: string
+  appearanceLabel: string
+  appearanceIcon: string
+  appearanceDisabled: bool
+  textSize: string
+  textSizeDisabled: bool
+  screenshotLabel: string
+  screenshotDisabled: bool
+shape DeviceStreamState
+  status: string
+  message: string
+  error: bool
+  inputNotice: string
+shape DeviceWorkspace
+  key: string
+  name: string
+  description: string
+  platform: string
+  deviceId: string
+  hostId: string
+  screenLabel: string
+  alert: string
+  stream: DeviceStreamState
+  rail: DeviceRail
+  controls: DeviceControls
+  folding: DeviceFolding
+shape DeviceSessionView
+  mode: string
+  pendingKey: string
+  openingName: string
+  openingDescription: string
+  openingMessage: string
+  operationError: string
+  booting: string
+  hostDetail: string
+  workspace: DeviceWorkspace
+shape DeviceMini
+  show: bool
+  key: string
+  name: string
+  description: string
+  platform: string
+  deviceId: string
+  hostId: string
+  stream: DeviceStreamState
+  sourceKey: string // previewMiniPlayerSourceKey: a gesture names the source it began on (the frame is the chat canvas's)

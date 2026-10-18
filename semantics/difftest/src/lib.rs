@@ -402,7 +402,7 @@ pub fn corpus(dirs: &[PathBuf]) -> Result<(Vec<Scripted>, Vec<String>), String> 
         } else {
             cases
         };
-        out.extend(stored_variants(cases));
+        out.extend(prerendered_variants(stored_variants(cases)));
     }
     Ok((out, errors))
 }
@@ -428,6 +428,28 @@ pub fn stored_variants(cases: Vec<Scripted>) -> Vec<Scripted> {
     out
 }
 
+/// `cases`, each followed, when its program has a tab panel, by the same
+/// events on a host that builds every panel from boot on (a prerendered
+/// page, LLP 1075.003 §9.14): its `expect`s are for panels that wait, so
+/// the variant only compares the two sides.
+pub fn prerendered_variants(cases: Vec<Scripted>) -> Vec<Scripted> {
+    let mut out = Vec::new();
+    for s in cases {
+        let panels = s.case.source.contains("\"tabpanel\"");
+        let variant = (panels && !s.case.prerendered).then(|| Scripted {
+            case: Case {
+                name: format!("{} (prerendered)", s.case.name),
+                prerendered: true,
+                ..s.case.clone()
+            },
+            items: s.case.events.iter().cloned().map(Item::Event).collect(),
+        });
+        out.push(s);
+        out.extend(variant);
+    }
+    out
+}
+
 /// A script for a program that has none: tap each `testId` the runner
 /// shows at boot, twice, in preorder, then advance the clock.
 pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
@@ -438,6 +460,7 @@ pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
         events: Vec::new(),
         path: path.map(Path::to_path_buf),
         stored: false,
+        prerendered: false,
     };
     if let Ok(plan) = compile(&probe) {
         let oracle = oracle::Oracle::new(&plan, seed_of(name));

@@ -145,6 +145,40 @@ fn deferred_replacement_executes_only_after_activation_and_copies_store_effects(
     assert_eq!(embedded.query("x", &[]).unwrap(), Value::Number(1.));
 }
 
+/// A candidate built from the source the binary compiled natively runs that
+/// native code; one built from other source is interpreted.
+#[test]
+fn a_candidate_of_the_native_source_runs_natively() {
+    let plan = plan();
+    let module = wasm("");
+    let stamped = |source: &str| {
+        let mut meta: serde_json::Value = serde_json::from_str(&receipt(&plan, &module)).unwrap();
+        meta["source"] = json!(source);
+        meta.to_string()
+    };
+    let installed = Swappable::wasm(Fixture).with_native("abc", || Fixture);
+    let mut same = installed
+        .replacement(&plan, &stamped("abc"), module.clone())
+        .unwrap();
+    assert!(same.embedded.is_some() && same.bytes.is_none());
+    assert_eq!(same.query("x", &[]).unwrap(), Value::Number(1.));
+    // It stays native-aware: a later candidate is judged the same way.
+    let changed = same
+        .replacement(&plan, &stamped("def"), module.clone())
+        .unwrap();
+    assert!(changed.embedded.is_none() && changed.bytes.is_some());
+    assert!(changed
+        .replacement(&plan, &stamped("abc"), module.clone())
+        .unwrap()
+        .embedded
+        .is_some());
+    // A binary that names no native source interprets every candidate.
+    let unnamed = Swappable::wasm(Fixture)
+        .replacement(&plan, &stamped("abc"), module)
+        .unwrap();
+    assert!(unnamed.embedded.is_none());
+}
+
 #[test]
 fn refuses_mismatched_pair_identity_grants_target_and_disabled_policy() {
     let plan = plan();

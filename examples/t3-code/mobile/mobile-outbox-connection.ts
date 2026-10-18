@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 // A connection view, never a second client or preference/outbox owner.
 import type { T3Client } from './shared/client';
 import { fleet, environmentKey } from './shared/settings-b-fleet';

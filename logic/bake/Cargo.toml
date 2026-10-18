@@ -5,6 +5,12 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[[bin]]
+name = "exact-logic-bake"
+path = "src/main.rs"
+test = false
+bench = false
+
 [dependencies]
 contract = { path = "../../contract/cli" }
 exact-logic = { path = ".." }

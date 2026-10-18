@@ -169,7 +169,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(field) = self.focus.filter(|_| rose) {
             match self.display.attached() {
                 true => self.window.reveal = Some(field),
-                false => self.keep_in_view(field),
+                false => self.keep_in_view(field, reveal::Cause::InsetAdjustment),
             }
         }
         error
@@ -185,13 +185,14 @@ impl<D: DataSource> Presenter<D> {
     )]
     pub(super) fn reveal_owed(&mut self) {
         if let Some(field) = self.window.reveal.take() {
-            self.keep_in_view(field);
+            self.keep_in_view(field, reveal::Cause::InsetAdjustment);
         }
     }
 
     /// What the shell draws around the page; on a host that told no window,
     /// the viewport at the origin.
     pub fn chrome(&self) -> Chrome {
+        let _roles = self.host.runner().bind_roles(); // Its session's (LLP 1121 stage 5).
         let dark = self.dark();
         let kernel = self.host.kernel();
         let authored = self
@@ -200,8 +201,13 @@ impl<D: DataSource> Presenter<D> {
             .roots()
             .first()
             .and_then(|root| kernel.node(*root))
-            .and_then(|n| n.style.background_color)
-            .map(|c| crate::paint::rgba(c.resolve(dark)))
+            .and_then(|n| {
+                // The root's own accent, as the painted root reads it.
+                let _accent = crate::paint::accent_scope(&n);
+                n.style
+                    .background_color
+                    .map(|c| crate::paint::rgba(c.resolve(dark)))
+            })
             .filter(|c| c[3] == 255);
         Chrome {
             frame: self

@@ -1,5 +1,5 @@
 // App-owned composer event/CAS boundary; source UTF16, never displayed chip offsets.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-focus-restoration
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-focus-restoration
 import Foundation
 
 struct T3ComposerIdentity: Codable, Equatable {

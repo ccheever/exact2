@@ -73,3 +73,48 @@ impl<D: DataSource + Default> CanvasHost<D> {
         );
     }
 }
+
+#[cfg(target_os = "android")]
+impl<D: DataSource + Default> CanvasHost<D> {
+    /// A reader's `ANativeWindow` of `size` pixels for canvas `view`, alive
+    /// until [`CanvasHost::detach_window`]; whether `view` is a GPU canvas.
+    #[cfg(target_os = "android")]
+    pub fn attach_window(&mut self, view: u32, window: usize, size: (u32, u32)) -> bool {
+        self.surfaces = true;
+        self.p.attach_window(view, window, size)
+    }
+    /// The window of canvas `view` is going.
+    #[cfg(target_os = "android")]
+    pub fn detach_window(&mut self, view: u32) {
+        self.p.detach_window(view);
+    }
+}
+
+/// `CLOCK_MONOTONIC` now, in nanoseconds: the clock `Instant` and the
+/// reader's frame times both read.
+pub(super) fn monotonic_ns() -> i64 {
+    let mut t = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: `t` is a valid out pointer for the call's duration.
+    #[allow(unsafe_code)]
+    unsafe {
+        libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut t);
+    }
+    t.tv_sec * 1_000_000_000 + t.tv_nsec
+}
+
+/// An atrace section for the rest of a scope.
+pub(super) struct Section;
+impl Section {
+    pub(super) fn begin(name: &'static core::ffi::CStr) -> Section {
+        crate::android::section_begin(name);
+        Section
+    }
+}
+impl Drop for Section {
+    fn drop(&mut self) {
+        crate::android::section_end();
+    }
+}

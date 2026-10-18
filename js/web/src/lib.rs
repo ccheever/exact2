@@ -267,7 +267,7 @@ impl Module {
                             ))
                         }
                         Outcome::Response(response) => response.body,
-                        Outcome::Message(_) => {
+                        Outcome::Message(_) | Outcome::Closed { .. } => {
                             return Err(unavailable(
                                 "a stream message supplied to JavaScript checkpoint",
                             ))
@@ -347,6 +347,7 @@ impl Module {
                 _ => exact_runner::failure::FailureCode::seam_error(
                     response["failure"].as_str(),
                     message,
+                    response["reason"].as_str(),
                 ),
             });
         }
@@ -400,7 +401,11 @@ impl Module {
                 .unwrap_or_else(|| json::decode(&Json::Null, result));
             Answer::Now(value.map_err(|e| {
                 let why = format!("`{source}` answered outside its shape: {e}");
-                DataError::Failed(exact_runner::failure::FailureCode::Shape, why)
+                DataError::Failed(
+                    exact_runner::failure::FailureCode::Shape,
+                    why,
+                    String::new(),
+                )
             })?)
         } else {
             return Err(unavailable("browser module returned no answer tag"));
@@ -439,6 +444,9 @@ fn outcome_json(outcome: Outcome) -> Result<Json, DataError> {
                 ("coalesced", m.coalesced.into()),
             ]),
         )]),
+        // The web's wasm host keeps every socket listening (LLP 1016.000 D7):
+        // no two-way socket ends here.
+        Outcome::Closed { .. } => return Err(unavailable("a socket close supplied to fetch")),
     })
 }
 
@@ -477,7 +485,7 @@ impl DataSource for Module {
                 | DataError::UnknownSource(e)
                 | DataError::Interface(e)
                 | DataError::DeferredAtBake(e)
-                | DataError::Failed(_, e),
+                | DataError::Failed(_, e, _),
             ) => exact_runner::DrawReply {
                 error: Some(e),
                 ..Default::default()
@@ -550,6 +558,7 @@ impl DataSource for Module {
                         DataError::Failed(
                             exact_runner::failure::FailureCode::Shape,
                             format!("`{source}`'s overlay is outside its shape: {e}"),
+                            String::new(),
                         )
                     })?;
                 let keep = fields["keep"]
@@ -1090,6 +1099,7 @@ mod tests {
                 Err(DataError::Failed(
                     exact_runner::failure::FailureCode::Shape,
                     "`source` answered outside its shape: expected a number, got null".into(),
+                    String::new(),
                 )),
             ),
         ] {

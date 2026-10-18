@@ -2,7 +2,7 @@
 
 **Type:** RFC
 **Status:** Accepted. Charlie Cheever approved implementing it on 2026-09-26, which ratifies §6 Q1 (one app-scoped module artifact with an inner tag → factory table). D8 landed 2026-09-27; §9 is what was built.
-**Amended:** 2026-10-01: intrinsic content-size reporting (D4, §9), implemented by GPT-6 Astra at Charlie Cheever’s request; Apple ABI major 3. Earlier, 2026-09-27 by LLP 1067.000 — the table is `major` 2: the module entries at offsets 72–88, and `create` receives the session's module instance; an app declares one `ExactModule` whose `views` is the roster.
+**Amended:** 2026-10-15: first-frame tags (D3), at Charlie Cheever’s request (the euxy port, whose native boot splash started 70–120 ms after the first frame). 2026-10-01: intrinsic content-size reporting (D4, §9), implemented by GPT-6 Astra at Charlie Cheever’s request; Apple ABI major 3. Earlier, 2026-09-27 by LLP 1067.000 — the table is `major` 2: the module entries at offsets 72–88, and `create` receives the session's module instance; an app declares one `ExactModule` whose `views` is the roster.
 **Systems:** Kernel (`NativeView` already in the schema — no new node type), Contract (hyphenated tags; leftover attrs as one literal JSON aggregate), Apple host (one NativeView arm; one app module artifact behind `dlopen`), Web host (the real custom-element tag; one injected sibling module), Linux host (unavailable in v1), Agent API (the eight operations; no ninth), GPU / iframe (stay first-party HTML tags)
 **Author:** Grok 4.6 for Charlie Cheever. r2 folded by Claude Fable from the three-model panel of 2026-08-31 (§8); the fold is an edit for Charlie to accept, not an approval.
 **Date:** 2026-08-31 (r1 and r2)
@@ -256,6 +256,24 @@ so activation's frame, and input already queued when activation returns,
 come before any module view; web: the injected script from the frame after
 the paint stamp). A node created after the gate opens attaches immediately.
 “First use” is this paragraph, not a phrase.
+
+**First-frame tags (2026-10-15, Apple).** A factory may say `firstFrame`
+in the roster (`{"tag": {…, "firstFrame": true}}`): its view belongs in the
+frame its node first shows in. A node of such a tag attaches at the end of
+the batch that made it, before that batch's Core Animation commit: the
+artifact loads and the session's module is made then, on the main thread:
+that cost, first pixel's, is the opt-in. The module's hatches are still
+called from first pixel on (LLP 1075.003.000.001 D5); its frame clock works
+from its creation. It is for a cheap view that a person would otherwise see
+arrive a frame late over a bare one, a boot splash; a slow view (a map) stays
+behind the gate, which still holds every other tag. The host learns which
+tags opted in without loading the artifact: the build reads the roster (from
+a Mac Catalyst build of the module's sources for iOS) and writes the tags to
+Info.plist (`ExactFirstFrameModules`). A tvOS build reads its roster from a macOS
+build, which compiles none of its tvOS code, and so has no first-frame tags. Measured on an iPhone 17 simulator
+(iOS 27), nine cold launches each: a splash attached at the gate drew 70 ms
+(median) after the first frame, which showed the page without it; with
+`firstFrame` it drew in the first frame's commit.
 
 **iOS device / App Store.** The artifact is in the signed `.app` at
 `codesign` (`Frameworks/libexact_modules.dylib`, signed with the app —

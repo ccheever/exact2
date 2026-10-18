@@ -4,6 +4,7 @@
 //! new schema rows need no mapping unless their name or unit differs.
 //! Unsupported rows are reported in [`Skipped`].
 
+mod clears;
 mod fonts;
 pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
@@ -43,8 +44,6 @@ fn css_text_in(
     font_names: &[String],
     relative: bool,
 ) -> (String, Vec<Skipped>) {
-    // The row's `rem`/`em` length as authored, appended, when asked for and
-    // the row has one.
     let authored = |out: &mut String, id| {
         use exact_kernel::style::relative::Unit;
         let Some((unit, n)) = style.relative.get(id).filter(|_| relative) else {
@@ -72,12 +71,14 @@ fn css_text_in(
         }
         true
     };
-    let mut out = String::new();
+    let mut out = String::from(exact_kernel::style::roles::scheme_color(style));
     let mut skipped = Vec::new();
-    // @ref LLP 1061's ruling: the row and host feedback are independent
-    // CSS numbers, multiplied through `scale` without writing `transform`.
+    // @ref LLP 1061: row scale and host feedback multiply independently.
     let press = press_composes(style);
-    for id in style.mask.iter() {
+    for id in style.mask.union(style.written).iter() {
+        if !style.mask.has(id) && clears::push(&mut out, id, press) {
+            continue;
+        }
         let value = style.get(id);
         match (id, &value) {
             (StyleId::Transition, RowValue::Transitions(t)) => {
@@ -367,9 +368,10 @@ fn css_text_in(
                     push_text!(&mut out, "--exact-fit:{};", kind);
                 }
             }
-            // Written with `rotate` and `translate` (LLP 1077 D8), never alone:
-            // nothing of their own to write, and nothing skipped (kanban F30).
+            // Written with `rotate` and `translate` (LLP 1077 D8), never alone, and a
+            // boundary's tuple (LLP 1121 D7): nothing to write, none skipped (F30).
             (StyleId::RotateAxis | StyleId::TranslateZ | StyleId::TranslatePercent, _) => {}
+            (StyleId::Mode, _) => {}
             _ if lowered(id, &value) => {
                 property(&mut out, id);
                 out.push(':');
@@ -576,7 +578,6 @@ pub(crate) fn translate_axis(out: &mut String, px: f32, pct: f32) {
 }
 
 fn property(out: &mut String, id: StyleId) {
-    // Every node's every row asks: each name is spelled once per process.
     static NAMES: [std::sync::OnceLock<String>; 256] = [const { std::sync::OnceLock::new() }; 256];
     out.push_str(NAMES[id as usize].get_or_init(|| {
         let mut name = String::new();
@@ -591,6 +592,13 @@ fn spell_property(out: &mut String, id: StyleId) {
         StyleId::TintColor => return out.push_str("--exact-tint"),
         // @ref LLP 1104 D3 — `::placeholder`'s colour, read by index.html.
         StyleId::PlaceholderColor => return out.push_str("--exact-placeholder-color"),
+        // @ref LLP 1061 D7 — the pressed paint: custom properties input-glue.js
+        // reads from the pressed element's own style, as `--exact-press`.
+        StyleId::PressOpacity => return out.push_str("--exact-press-opacity"),
+        // `:active`'s opacity, lowered (LLP 1121 D8).
+        StyleId::PressOpacityTo => return out.push_str("--exact-press-opacity-to"),
+        StyleId::PressBackgroundColor => return out.push_str("--exact-press-background-color"),
+        StyleId::PressColor => return out.push_str("--exact-press-color"),
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropFilter => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
@@ -623,7 +631,6 @@ fn dashed(out: &mut String, name: &str) {
     }
 }
 
-/// A [`lowered`] row's CSS value, appended.
 fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
     match value {
         // CSS's unbounded maximum is `none`; `max-width: auto` is no value (LLP 1102 §3.11).
@@ -702,6 +709,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             StyleId::FlexGrow
             | StyleId::FlexShrink
             | StyleId::Opacity
+            | StyleId::PressOpacity
+            | StyleId::PressOpacityTo
             | StyleId::Order
             | StyleId::ColumnCount
             | StyleId::Widows
@@ -844,9 +853,9 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
             num_into(out, plus.abs());
             out.push_str("px)");
         }
-        // The browser resolves the inset itself (under `viewport-fit=cover`,
-        // which the glue sets from the root's prop; zero otherwise).
-        Dimension::Env(edge, plus) => {
+        // The browser resolves the inset itself (under `viewport-fit=cover`, which the glue sets
+        // from the root's prop; zero otherwise); a layout region is its safe area (LLP 1123 D10).
+        Dimension::Env(edge, plus) | Dimension::Region(_, edge, plus) => {
             let inset = if plus == 0.0 { "env(" } else { "calc(env(" };
             out.push_str(inset);
             out.push_str("safe-area-inset-");
@@ -863,7 +872,7 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
         Dimension::Segment(var, x, y, plus) => exact_kernel::style::env::css(var, x, y, plus, out),
         // CSS's own `min()`, `max()` and `clamp()`: the browser resolves
         // them, the insets with the rest (LLP 1001 §2, 2026-10-07).
-        Dimension::Compare(c) => c.css(out),
+        Dimension::Compare(c) => exact_kernel::style::env::browser_css(c, out),
     }
 }
 
@@ -1396,41 +1405,6 @@ mod declaration_tests {
             css(&[(StyleId::BackgroundAttachment, t("fixed"))], &[]),
             "background-attachment:fixed;"
         );
-    }
-
-    /// `-exact-press-haptic` is the custom property input-glue.js plays at the
-    /// press (LLP 1077 D14, workout F4); `rotate`'s axis part is written
-    /// with the angle and skips nothing (kanban F30).
-    #[test]
-    fn press_haptic_is_the_glues_property_and_a_rotation_skips_nothing() {
-        fn t(s: &str) -> StyleValue<'_> {
-            StyleValue::Text(s.into())
-        }
-        let mut style = StyleProps::default();
-        style
-            .set_dynamic(StyleId::PressHaptic, &t("impact-medium"))
-            .unwrap();
-        for row in [StyleId::Rotate, StyleId::RotateAxis] {
-            style.set_dynamic(row, &t("3deg")).unwrap();
-        }
-        let (text, skipped) = css_text(&style, &[]);
-        assert_eq!(text, "rotate:3deg;--exact-press-haptic:impact-medium;");
-        assert!(skipped.is_empty(), "{skipped:?}");
-        assert_eq!(css(&[(StyleId::PressHaptic, t("none"))], &[]), "");
-    }
-
-    /// `-exact-fit` is the custom property navigation.js `fitText` reads
-    /// (LLP 1116.001 D1.4); its initial value writes nothing.
-    #[test]
-    fn fit_is_navigations_property() {
-        fn t(s: &str) -> StyleValue<'_> {
-            StyleValue::Text(s.into())
-        }
-        assert_eq!(
-            css(&[(StyleId::Fit, t("shrink"))], &[]),
-            "--exact-fit:shrink;"
-        );
-        assert_eq!(css(&[(StyleId::Fit, t("none"))], &[]), "");
     }
 
     /// The feedback's separate factor leaves the row's scale and

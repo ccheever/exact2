@@ -48,7 +48,8 @@ extension NodeView {
         let content = contentBox()
         clip.frame = content; leaf.frame = clip.bounds
         switch style["object_fit"]?.string ?? "fill" {
-        case "contain": leaf.imageScaling = .scaleProportionallyUpOrDown
+        // `fill` too: a symbol keeps its aspect, as an SVG does (NodeViewIOS `layoutSymbol`).
+        case "contain", "fill": leaf.imageScaling = .scaleProportionallyUpOrDown
         case "none": leaf.imageScaling = .scaleNone
         case "scale-down": leaf.imageScaling = .scaleProportionallyDown
         case "cover":

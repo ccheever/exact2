@@ -31,7 +31,12 @@ extension ControlHost {
 
     func configureValue(_ control: UIControl, _ owner: NodeView, accent: UIColor?) {
         #if !os(tvOS)
-        if let slider = control as? UISlider { configureRange(slider, owner, accent: accent); return }
+        if let slider = control as? RangeSlider {
+            // The accent is the slider's tint, which draws its filled track as a default slider's: grey behind a modal
+            assign(slider, \.tintColor, accent)
+            configureRange(slider, owner)
+            return
+        }
         if let picker = control as? UIDatePicker { configureDate(picker, owner, accent: accent); return }
         #endif
         guard let button = control as? UIButton else { return }
@@ -159,7 +164,7 @@ extension ControlHost {
     /// The agent's `type <id> <value>` (D9): the choice a menu would make.
     func type(_ node: NodeView, _ value: String) -> [String: Any]? {
         #if !os(tvOS)
-        if let slider = controls[node.id] as? UISlider {
+        if let slider = controls[node.id] as? RangeSlider {
             guard slider.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
             return typeRange(slider, node, value)
         }

@@ -5,11 +5,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Cdp } from '../../scripts/agent.mjs';
-import { chromium } from '../../scripts/agent-launch.mjs';
+import { chromium, DESKTOP_INPUT } from '../../scripts/agent-launch.mjs';
+import { need } from '../../scripts/coverage.mjs';
 
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const test = unavailable ? (name, ...args) => bunTest.skip(`${name} — ${unavailable}`, ...args) : bunTest;
+const test = need('chrome', unavailable, { test: bunTest });
 let server, child, cdp, evaluate, dir, call;
 beforeAll(async () => {
   if (unavailable) return;
@@ -22,7 +22,7 @@ beforeAll(async () => {
       headers: { 'content-type': path.endsWith('.js') ? 'text/javascript' : 'text/html' },
     });
   }});
-  child = spawn(chrome, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  child = spawn(chrome, ['--headless=new', DESKTOP_INPUT, '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
   cdp = new Cdp(child.stdio[3], child.stdio[4]);
   child.on('exit', () => cdp.fail('Chrome closed'));
   const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
@@ -77,6 +77,32 @@ test('a scroll event saves a row and an explicit restore survives remount and ne
   expect(result.offset).toBe(61);
   expect(result.within).toBeCloseTo(61, 0);
   expect(result.status).toBe('done');
+}, 60_000);
+
+test('agent alignments are malformed with or without a view; authored refusals stay journaled', async () => {
+  const result = await evaluate(`(async () => {
+    const port = document.createElement('div'); port.id = 'alignment-feed';
+    port.style.cssText = 'height:200px;width:200px;overflow:auto';
+    document.getElementById('exact-root').append(port);
+    const own = rt.scope(() => list.vl(port, () => [0], i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '50px'; w.append(row);
+    }, {est:50, pw:[], ph:[200]}));
+    await exact.lists.pending(); await exact.lists.settle();
+    const errors = [];
+    for (const view of [port.$list.view, null, undefined]) for (const [block, inline] of [['banana', 'nearest'], ['start', 'banana']]) {
+      try { exact.lists.into(view, '0', block, inline); errors.push(null); }
+      catch (e) { errors.push({message:e.message, malformed:e.malformed}); }
+    }
+    rt.Hosts.scrollIntoView('alignment-feed', 0, 'banana', 'nearest', 'instant', null, null);
+    const authored = exact.lists.intoView().at(-1);
+    exact.lists.into(-1, '0', 'start', 'nearest');
+    const missing = exact.lists.intoView().at(-1);
+    rt.end(own); port.remove(); rt.settled();
+    return {errors, authored, missing};
+  })()`);
+  expect(result.errors).toEqual(Array.from({length:6}, () => ({ message:'no alignment banana: start, center, end or nearest', malformed:true })));
+  expect(result.authored).toEqual({list:'alignment-feed', status:'refused: no alignment banana'});
+  expect(result.missing).toEqual({list:'#-1', status:'refused: view -1 is not a mounted virtualized list'});
 }, 60_000);
 
 test('element jumps use Chrome scroll padding and margins and settle once', async () => {
@@ -171,12 +197,18 @@ test('bordered element scrollports resolve percentage padding inside the border'
     port.style.cssText = 'height:200px;width:200px;overflow:auto;border-top:20px solid black;border-left:10px solid black;scroll-padding:25%';
     port.innerHTML = '<div style="height:400px;width:1000px"></div><div id="border-target" style="height:50px;width:50px;margin-left:400px"></div><div style="height:550px;width:1000px"></div>';
     document.getElementById('exact-root').append(port);
+    const width = port.clientWidth, height = port.clientHeight;
     rt.Hosts.scrollIntoView('border-target', 'start', 'nearest', 'instant');
     const start = [port.scrollLeft, port.scrollTop];
     rt.Hosts.scrollIntoView('border-target', 'end', 'end', 'instant');
-    const end = [port.scrollLeft, port.scrollTop]; port.remove(); return {start, end};
+    const end = [port.scrollLeft, port.scrollTop]; port.remove(); return {start, end, width, height};
   })()`);
-  expect(result).toEqual({start:[300,350], end:[300,300]});
+  // Percentage padding uses the scrollport, excluding borders and classic
+  // scrollbars. Nearest aligns the target's right edge with the padded end.
+  const {width, height} = result;
+  const right = Math.round(450 - width * 0.75);
+  expect(result.start).toEqual([right, Math.round(400 - height * 0.25)]);
+  expect(result.end).toEqual([right, Math.round(450 - height * 0.75)]);
 }, 60_000);
 
 test('a horizontal wheel leaves a vertical Chrome jump running to one scrollend', async () => {

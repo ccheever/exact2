@@ -92,7 +92,7 @@ fn view_of(k: &Kernel, test_id: &str) -> u32 {
 
 fn main() {
     if std::env::args().any(|arg| arg == "--flow") {
-        flow_metrics();
+        flow_metrics(22);
         return;
     }
     // A native tool that boots the whole plan links every capability (LLP 1047 D7).
@@ -1142,7 +1142,9 @@ fn flow_layout(kernel: &mut Kernel) -> exact_kernel::LayoutReceipt {
         .compute_layout(1, Offer::definite(800., 2000.))
         .unwrap()
 }
-fn flow_metrics() {
+/// The flow benchmark over `samples` timed samples a phase (the first discarded as warm-up),
+/// asserting each sample's passes, comparisons and frames.
+fn flow_metrics(samples_per_phase: usize) {
     use exact_kernel::{StyleId, StyleValue};
     let mut rows = Vec::new();
     for leaves in [8, 32] {
@@ -1153,7 +1155,7 @@ fn flow_metrics() {
             let mut comparison_counts = Vec::new();
             let mut measurements = Vec::new();
             // The first sample warms code/allocator pages and is discarded.
-            for sample in 0..22 {
+            for sample in 0..samples_per_phase {
                 let mut kernel = flow_page(leaves, phase != "plain_still", calls.clone());
                 if phase != "cold" {
                     flow_layout(&mut kernel);
@@ -1216,7 +1218,9 @@ fn flow_metrics() {
     println!("{{\"flow\":[{}]}}", rows.join(","));
 }
 
+// Every sample of a phase is the same deterministic work, so the test takes the warm-up and
+// one measured sample; the benchmark (`--flow`) takes 22 for its timings
 #[test]
 fn flow_metrics_exercises_serial_settlement_and_cached_layout() {
-    flow_metrics();
+    flow_metrics(2);
 }

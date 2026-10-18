@@ -1,9 +1,8 @@
 # Real-GitHub lane
 
 The clone's pull request features are verified against real GitHub (user decision 2026-10-07,
-which replaced the fake `gh` of `20261005-fake-github-fixture`). A lane T3 server runs on
-isolated homes, and the `gh` it spawns is the real GitHub CLI on a lane-only config dir that
-the user signed in to. Task record: `.exact/implementation/20261005-t3code-macos-parity/tasks/20261007-real-github-lane.md`.
+which replaced a fake `gh`). A lane T3 server runs on isolated homes, and the `gh` it spawns is the real GitHub CLI on a lane-only config dir that
+the user signed in to.
 
 Nothing here reads, prints or commits a token. The lane never uses `~/.config/gh`, the
 keyring, `gh auth token` from a normal shell, `~/.t3`, port 3773 or the `t3code` URL scheme,
@@ -15,7 +14,7 @@ and touches no repository but the approved sandbox and the second account's fork
 | --- | --- | --- |
 | `T3_GITHUB_LANE_SHARED` | `<checkout>/target/t3-ui-parity/github-lane` | `gh/` (primary account), `gh-second/` (second account), `sandbox.json` (the sandbox, the logins, the seeded numbers). Point every worktree at the base checkout's copy so the login is reused. |
 | `T3_GITHUB_LANE` | `<checkout>/target/github-lane` | this checkout's `bin/<account>/gh` wrappers, `home/<account>` (`.zprofile`, `.gitconfig`), `servers/<account>` (T3 home, Codex, Claude, XDG, tmp, the sandbox clone, `server.log`, `server.pid`), `work/` (the seed's object store), `logs/gh-calls.tsv`, `logs/probe-*.json` |
-| `T3_LANE_SERVER` | the staged release (`bun examples/t3-code/stage-runtime.mjs`), unpacked into `runtime/` | another server: a `t3` executable or a `bin.mjs` (run by `node`) |
+| `T3_LANE_SERVER` | the staged release (`bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs`), unpacked into `runtime/` | another server: a `t3` executable or a `bin.mjs` (run by `node`) |
 | `T3_GITHUB_LANE_GH` | `gh` on `PATH` | the real GitHub CLI the wrappers exec |
 
 A lane server's environment is built from nothing (`serverEnv`): `HOME`, `CODEX_HOME`,
@@ -41,19 +40,18 @@ GH_CONFIG_DIR=<shared>/gh-second gh auth login --hostname github.com --git-proto
 
 The first is the primary account (it owns the repository), the second its collaborator and
 fork owner. Sign the browser in to the matching account before entering the code at
-github.com/login/device. Signed in on 2026-10-07: primary `daehyeonmun2021`, second
-`daehyeon-mun`.
+github.com/login/device.
 
 ## The repository (user decision 2026-10-07)
 
-`daehyeonmun2021/playground`, public, with the second account's fork `daehyeon-mun/playground`.
-It is a plain playground: no code from this repository or T3 Code, and no "t3", "T3 Code",
+A public repository the primary account owns, with the second account's fork of it (the seed
+records both in `sandbox.json`). It is a plain playground: no code from this repository or T3 Code, and no "t3", "T3 Code",
 "sandbox", "exact" or clone wording in its name, description, README, branches, pull request
 titles and bodies, labels or commit messages (`lane.test.ts` checks the seed's). Branches are
 `feature/…`, `fix/…`, `docs/…`, `chore/note-NNN`; the probe's are `chore/check-<run>-<n>`.
 main requires the `ci/build` status (admins included), so merges wait for it and auto-merge can
 be armed. Checks are commit statuses (`ci/build`, `ci/test`); there is no workflow. The seed
-refuses a repository it did not create (`sandbox.json` keeps the id). The `daehyeon-mun` token
+refuses a repository it did not create (`sandbox.json` keeps the id). The second account's token
 can reach other organizations: use it for nothing but this repository and its fork.
 
 ## Use
@@ -71,7 +69,7 @@ The seed finds its pull requests by branch (`feature/changelog`, then `feature/c
 its comments by an invisible `<!-- ref:… -->` marker, puts a drifted one back where one call does
 it (draft again, closed again, reopened, merged), and otherwise opens the next generation, so a
 drive that merged or readied a seeded pull request is undone by the next `bun seed.mjs`. It also
-keeps a two-layer GitHub stack (`POST /repos/{o}/{r}/stacks`). The action scenarios (`actionScenarios`: pull requests a drive merges, readies, closes, updates and reverts, and a three-layer stack) are seeded only by name, `bun seed.mjs --only act-merge,…`, each run opening the next generation of one a drive used up (pr-header-actions-and-stacks). The probe writes only to its own
+keeps a two-layer GitHub stack (`POST /repos/{o}/{r}/stacks`). The action scenarios (`actionScenarios`: pull requests a drive merges, readies, closes, updates and reverts, and a three-layer stack) are seeded only by name, `bun seed.mjs --only act-merge,…`, each run opening the next generation of one a drive used up. The probe writes only to its own
 pull requests and stack. A worktree setup script for hand-off checks goes into the project's
 settings override (`ensureProject(…, { scripts })`): this server reads project scripts from
 settings, not from the project record. The repository, its fork and both logins stay in place

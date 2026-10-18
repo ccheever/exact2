@@ -1,5 +1,5 @@
 // Pinned365aa87982 QuestionAnswerHistory.tsx AnswerFile and state/assets.ts.
-// @ref llp/1109.005-composer-and-transcript.decision.md#work-log-detail-rows
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#work-log-detail-rows
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';

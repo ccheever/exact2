@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// diff-cite-popover DC-1: an assistant citation chip in the composer (T3 Code 1e2ecbd975 AssistantCitationChip.tsx,
+// An assistant citation chip in the composer (T3 Code 1e2ecbd975 AssistantCitationChip.tsx,
 // ComposerPromptEditorTiptap.tsx ComposerCitationNodeView, ContextChip.tsx). Its label is the comment, else the quote,
 // whitespace as one space, 64 UTF-16 units at most (`max-w-[16em]` truncates it where drawn); it ends with a comment
 // button "Add comment to citation" / "Edit citation comment" (ContextChipAction) whose press opens the comment's popover
@@ -288,17 +288,67 @@ final class ComposerCitationTests: XCTestCase {
 
     func testTheCommentButtonIsAnAccessibilityButton() {
         let fixture = CitationFixture("See " + link(quoteHref) + " and " + link(commentHref) + " ")
-        // composer-chips-accessibility DCP-Gv: each citation is AssistantCitationChip's source link and its comment trigger.
+        // Each citation is AssistantCitationChip's source link and its comment trigger.
         let all = fixture.press.accessibilityElements
         XCTAssertEqual(all.map { $0.accessibilityLabel() ?? "" }, ["View cited assistant text: parser keeps parsePatch pure, so a quote", "Add comment to citation",
                                                                    "View cited assistant text: Check the pure claim", "Edit citation comment"])
         XCTAssertEqual(all.map { $0.accessibilityRole() }, [.link, .popUpButton, .link, .popUpButton])
-        let elements = all.filter { $0 is T3ComposerChipPopupElement }
+        // Both are pressable: the link opens the cited answer (an action the app performs), the button the comment.
+        XCTAssertTrue(all.allSatisfy { $0 is T3ComposerChipPopupElement })
+        XCTAssertTrue(axPress(all[0]))
+        XCTAssertFalse(fixture.press.isOpen)
+        XCTAssertEqual(fixture.press.state["act"] as? String, "citation")
+        let elements = all.filter { $0.accessibilityRole() == .popUpButton }
         let frame = elements[0].accessibilityFrame(), window = fixture.base.window
         let expected = window.convertToScreen(fixture.base.editor.convert(fixture.styler.citationActionRect(fixture.styler.chips[0])!, to: nil))
         XCTAssertEqual(frame.midX, expected.midX, accuracy: 0.5)
-        XCTAssertTrue(elements[0].accessibilityPerformPress())
+        XCTAssertTrue(axPress(elements[0]))
         XCTAssertTrue(fixture.press.isOpen)
         XCTAssertEqual(fixture.press.state["anchor"] as? String, "chip")
+    }
+
+    /// VoiceOver follows a link it pressed to the link's linked elements, and with none it took the 'Scroll to end' pill
+    /// that the press's scroll showed (the keyboard focus followed). The source link leads to itself, so VoiceOver stays
+    /// on it, as on the reference's link; the comment button is no link and names none.
+    func testTheSourceLinkLeadsToItself() {
+        let fixture = CitationFixture("See " + link(quoteHref) + " now ")
+        let elements = fixture.press.accessibilityElements
+        XCTAssertEqual(elements.map { $0.accessibilityRole() }, [.link, .popUpButton])
+        XCTAssertTrue((elements[0].accessibilityLinkedUIElements() ?? []).elementsEqual([elements[0]]) { $0 as AnyObject === $1 })
+        XCTAssertTrue((elements[1].accessibilityLinkedUIElements() ?? []).isEmpty)
+        XCTAssertTrue(axPress(elements[0]))
+        fixture.base.tick()
+        XCTAssertEqual(fixture.press.state["act"] as? String, "citation")
+        let after = fixture.press.accessibilityElements
+        XCTAssertTrue(after[0] === elements[0], "the pressed link stays")
+        XCTAssertTrue((after[0].accessibilityLinkedUIElements() ?? []).elementsEqual([after[0]]) { $0 as AnyObject === $1 })
+    }
+
+    func testAPressedElementSurvivesTheRefreshesItsPressCauses() {
+        // VO-Space selects the chip and opens its details, and each refreshes the chips' elements; a replaced element would
+        // leave VoiceOver's cursor on one that is gone.
+        let fixture = CitationFixture("See " + link(quoteHref) + " now ")
+        let before = fixture.press.accessibilityElements
+        XCTAssertEqual(before.count, 2)
+        for element in before {
+            XCTAssertTrue(axPress(element))
+            fixture.base.tick()
+            XCTAssertTrue(zip(fixture.press.accessibilityElements, before).allSatisfy { $0 === $1 }, "the same objects after pressing \(element.accessibilityLabel() ?? "")")
+            fixture.press.close()
+        }
+        let listed = fixture.base.scroller.accessibilityChildren() ?? []
+        XCTAssertTrue(before.allSatisfy { element in listed.contains { $0 as AnyObject === element } })
+        // Typing before the chip moves it: its elements stay, holding the moved chip (their frames follow it).
+        fixture.base.editor.setSelectedRange(NSRange(location: 0, length: 0))
+        fixture.base.editor.insertText("Do ", replacementRange: NSRange(location: 0, length: 0))
+        fixture.base.tick()
+        let moved = fixture.press.accessibilityElements
+        XCTAssertTrue(zip(moved, before).allSatisfy { $0 === $1 })
+        XCTAssertEqual(moved[0].chip, fixture.styler.chips[0])
+        // Removing the chip drops its elements.
+        fixture.base.editor.string = "Do See now "
+        fixture.base.editor.didChangeText()
+        fixture.base.tick()
+        XCTAssertTrue(fixture.press.accessibilityElements.isEmpty)
     }
 }

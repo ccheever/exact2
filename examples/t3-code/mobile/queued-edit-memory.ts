@@ -1,5 +1,5 @@
 // App-owned queued edit memory and notice lifetime, below native/editor adapters.
-// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import type { T3Client } from './shared/client';
 import { obj, str, type Obj } from './shared/domain';
 import { ClientError } from './shared/protocol';

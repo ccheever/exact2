@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// `t3 app <dir>` (20261005-app-activation): the control socket, the broker, the address and the
+// `t3 app <dir>` opens a project in the running app: the control socket, the broker, the address and the
 // app-level control (T3AppControl.swift). Build and run with the README's module-test recipe (every
 // file in modules/apple/ and this directory). The reference's tests keep their names in the test
 // output (`T3 app control: <name> ok`).

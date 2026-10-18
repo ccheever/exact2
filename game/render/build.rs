@@ -29,15 +29,23 @@ fn main() {
         "fade",
         "lights",
         "shadow",
+        "shadow_seed",
         "sky",
+        "tone",
         "tonemap",
+        "forward_early",
         "bloom",
         "model",
+        "model_early",
+        "model_vertex",
+        "outline",
         "model_shadow",
         "no_shadow_sample",
         "cull",
         "ibl",
         "environment",
+        "occlusion",
+        "occluder",
     ] {
         let path = format!("src/shaders/{name}.wgsl");
         println!("cargo:rerun-if-changed={path}");

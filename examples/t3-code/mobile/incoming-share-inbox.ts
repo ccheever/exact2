@@ -1,5 +1,5 @@
 // Pinned365aa87982 IncomingShareProvider and incoming-share-presentation.ts.
-// @ref llp/1109.005-composer-and-transcript.decision.md#incoming-share-inbox
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#incoming-share-inbox
 import type { T3Client } from './shared/client';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';
 import { obj } from './shared/domain';

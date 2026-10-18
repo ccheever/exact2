@@ -465,6 +465,7 @@ mod storage {
             line_height: heights[variant],
             letter_spacing: -0.125,
             font_variant_numeric: 0,
+            bold_text: false,
         };
         let strut = TextStyle {
             font_size: 19.5,
@@ -474,6 +475,7 @@ mod storage {
             line_height: Some(30.25),
             letter_spacing: -0.0,
             font_variant_numeric: 0,
+            bold_text: false,
         };
         let runs = [
             TextRun {

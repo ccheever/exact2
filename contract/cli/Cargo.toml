@@ -23,11 +23,18 @@ contract-lower = { path = "../lower" }
 contract-syntax = { path = "../syntax" }
 contract-types = { path = "../types" }
 exact-kernel = { path = "../../kernel" }
+# `contract tamber`: the design's own check, eval and IR (LLP 1121 D2).
+exact-tamber = { path = "../../tamber" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
 # The app manifest, diagnostics and source maps as JSON; plan digests.
 serde_json = "1.0"
 sha2 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+# `contract tamber serve`: its journal and temporary files opened with
+# O_NOFOLLOW.
+libc = "0.2"
 
 [dev-dependencies]
 # A Rust source's crypto, baked (LLP 1069.005 D5).

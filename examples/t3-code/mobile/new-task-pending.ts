@@ -1,5 +1,5 @@
 // Pinned365aa87982 NewTaskFlowProvider: original pending identity, save before departure.
-// @ref llp/1109.005-composer-and-transcript.decision.md#pending-task-editor-save-and-restart-recovery
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#pending-task-editor-save-and-restart-recovery
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import { ClientError, bridgeReply, type Native, type Files } from './shared/protocol';
 import { letGo } from './shared/let-go';

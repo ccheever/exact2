@@ -14,6 +14,15 @@ const IDLE_FALLBACK_MS = 200;
 // A keydown or keyup as kind 6's or 43's payload, as glue.js's `keyChord` writes it (#140).
 const keyChord = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat;
 
+// Twin of navigation.js's inertAncestor: this boot entry must stay import-free.
+function inertAncestor(el) {
+  for (let node = el; node; node = node.parentElement) {
+    if (node.hasAttribute("inert")) return node;
+    if (node.localName === "dialog" && node.matches(":modal")) return null;
+  }
+  return null;
+}
+
 // The runtime's first loads after it boots, fetched beside its wasm: each
 // would otherwise wait for the one before it, a round trip apiece (0.45 s of
 // RealWorld's first press on a slow phone). A checkpoint whose logic answered
@@ -68,7 +77,7 @@ function documentBoot(options) {
     && el.getAttribute("data-testid") === at.test && el.getAttribute("type") === at.type
     && (sameDispatch || at.text === null || el.textContent === at.text);
   const usable = target => target instanceof Element && root.contains(target)
-    && !target.closest("[inert],:disabled,[disabled='true']");
+    && !inertAncestor(target) && !target.closest(":disabled,[disabled='true']");
   const enqueue = (el, kind, value = "", scope = null) => {
     const event = { at: identity(el), kind, value, scope };
     const previous = events.at(-1);
@@ -166,9 +175,10 @@ function documentBoot(options) {
     get adopting() { return adopting; },
     get restoringFocus() { return restoringFocus; },
     hold(batch) { if (holding) held.push(batch); return holding; },
-    release(apply, inputReady = Promise.resolve()) {
+    /** `onAdopted` runs once the held batches are applied, which a composition can defer past this call. */
+    release(apply, inputReady = Promise.resolve(), onAdopted = () => {}) {
       if (!holding) return;
-      if (composing.size) { releaseAfterComposition = [apply, inputReady]; return; }
+      if (composing.size) { releaseAfterComposition = [apply, inputReady, onAdopted]; return; }
       releaseAfterComposition = null;
       holding = false;
       for (const kind of kinds) root.removeEventListener(kind, record, true);
@@ -189,6 +199,7 @@ function documentBoot(options) {
       }
       for (const batch of held.splice(0)) apply(batch);
       adopting = null;
+      onAdopted();
       // Once the caller's input is ready: until then the host holds every
       // control disabled (input waits for the handlers of the pieces the tree
       // uses, LLP 1047 D5), and a replay into one would be dropped. The caller

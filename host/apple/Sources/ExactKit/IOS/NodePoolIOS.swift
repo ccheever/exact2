@@ -133,7 +133,7 @@ final class NodePool {
             parked[shape] = kept.isEmpty ? nil : kept
         }
         // A reused view the batch gave no frame has a fresh view's.
-        for view in unframed.values where view.frame != .zero { view.frame = .zero }
+        for view in unframed.values { if view.frame != .zero { view.frame = .zero }; view.grid = nil }
         unframed.removeAll()
     }
     /// Reused views, until the batch frames them.
@@ -541,11 +541,12 @@ extension NodeView {
         id = newID
         incarnation = NodePool.issue()
         scrollEnd?.reset()
-        focusedByTouch = false
+        focusedBySurfaceTouch = false
+        if presenter?.pressHandoff?.control === self { presenter?.pressHandoff = nil } // another node's view now
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
         if alpha != 1 { alpha = 1 }
-        translatePx = .zero; translatePercent = .zero; layoutOffset = .zero; layoutScale = CGPoint(x: 1, y: 1); endSurface(); scale = 1; rotate = 0; stopPressEase(); press = PressFeedback()
+        translatePx = .zero; translatePercent = .zero; layoutOffset = .zero; layoutScale = CGPoint(x: 1, y: 1); endSurface(); scale = 1; rotate = 0; stopPressEase(); press = PressFeedback(); dropPressPaint()
         if !transform.isIdentity { transform = .identity }
         if !isUserInteractionEnabled { isUserInteractionEnabled = true }
         if isAccessibilityElement { isAccessibilityElement = false }

@@ -1,5 +1,5 @@
 // Supported source365aa87982 context payloads shared by draft ownership and capture.
-// @ref llp/1109.005-composer-and-transcript.decision.md#foreground-capture-facts
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#foreground-capture-facts
 import { obj, str, type Obj } from './shared/domain';
 import { mobileImportedContextRecordValid } from './composer-context-record-admission';
 

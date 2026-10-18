@@ -1,6 +1,6 @@
 #if os(iOS)
 // Source: examples/t3-code/modules/apple/T3Transport.swift at 887b2491b182f851b11253655f6aa84fe2a26708.
-// Mobile adaptations: LLP 1109.003, native identity/lifecycle and endpoint-owned upload admission.
+// Mobile adaptations: LLP 1130.003, native identity/lifecycle and endpoint-owned upload admission.
 // Original desktop source is unchanged.
 import Foundation
 import CoreFoundation

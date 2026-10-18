@@ -1,5 +1,5 @@
 // Pinned365aa87982 shared/schemaJson.ts + contracts/t3ProjectFile.ts.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import type { Obj } from './shared/domain';
 
 const object = (value: unknown): value is Obj => value !== null && typeof value === 'object' && !Array.isArray(value);

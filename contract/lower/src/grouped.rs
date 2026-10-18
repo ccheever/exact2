@@ -15,7 +15,15 @@
 //! most 704 points wide). What stays written here is the sheet's structure:
 //! which box is a flex row, which part grows, a separator's overlap.
 
-use crate::{err, LowerError};
+mod actions;
+mod inputs;
+mod lines;
+mod messages;
+mod title;
+
+use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_field, Field};
+
+use crate::{err, swipe_rows, LowerError};
 use contract_syntax::{Attr, Expr, Node, Span};
 
 /// `listStyle`'s names (D2), UIKit's three list appearances.
@@ -43,6 +51,9 @@ const BODY: &str = "-exact-body";
 const SUBHEADLINE: &str = "-exact-subheadline";
 
 use crate::metrics::grouped as metric;
+use actions::{action_cell, disclosure};
+use lines::{stack_lines, stack_of_lines, subtitle};
+use title::{title_button, title_face};
 
 /// The style a grouped list's attributes ask for: `None` for any other
 /// element. `appearance` must be a literal (it decides what the node is),
@@ -106,7 +117,7 @@ pub(crate) fn style(tag: &str, attrs: &[Attr]) -> Result<Option<&'static str>, L
 /// A sheet row's name mark: the lowering takes marked rows out before an
 /// element's classes and puts them under them (`split`), so a class, like an
 /// attribute, replaces the sheet. No authored name can carry it.
-const MARK: &str = "ua:";
+pub(crate) const MARK: &str = "ua:";
 const BUTTON_CONTEXT: &str = "ua:button-context";
 
 /// Rows and their detail accessories belong to the grouped list's press
@@ -373,31 +384,6 @@ fn stray_label(node: &Node) -> Option<Stray> {
     }
 }
 
-/// LLP 1116.014 D1: the edit that puts a `header` or `footer` where UIKit
-/// draws one. Its words may change (`text (on ? "A" : "B")`); what comes and
-/// goes is a section, since a `header` holds one `text` and nothing else.
-fn stray_message(stray: &Stray) -> String {
-    let (tag, place) = (
-        &stray.tag,
-        if stray.tag == "header" {
-            "first"
-        } else {
-            "last"
-        },
-    );
-    match stray.flow {
-        None => format!(
-            "move `{tag}` to the section's {place} line: a section's `header` comes first and its `footer` last"
-        ),
-        Some("for") => format!(
-            "move `{tag}` to the section's {place} line, outside `for`: a section has one `{tag}`"
-        ),
-        Some(flow) => format!(
-            "move `{tag}` to the section's {place} line, outside `{flow}`: a {tag} that changes is `text (cond ? \"A\" : \"B\")` in it, and one that comes and goes means two `section`s under `{flow}`"
-        ),
-    }
-}
-
 fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerError> {
     let Node::Element {
         tag,
@@ -418,6 +404,19 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
             span,
         );
     }
+    // LLP 1116.017 D3, before the label's check: copied only when one folds.
+    let fold = |c: &Node| {
+        (is(c, "header") || is(c, "footer"))
+            .then(|| messages::fold_label(c))
+            .flatten()
+    };
+    let folded: Option<Vec<Node>> = children.iter().any(|c| fold(c).is_some()).then(|| {
+        children
+            .iter()
+            .map(|c| fold(c).unwrap_or_else(|| c.clone()))
+            .collect()
+    });
+    let children = folded.as_ref().unwrap_or(children);
     let head = children.iter().take_while(|c| is(c, "header")).count();
     let tail = children[head..]
         .iter()
@@ -433,7 +432,11 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     }
     let rows = &children[head..children.len() - tail];
     if let Some(stray) = rows.iter().find_map(stray_label) {
-        return err("lower-grouped-list", stray_message(&stray), stray.span);
+        return err(
+            "lower-grouped-list",
+            messages::stray_message(&stray),
+            stray.span,
+        );
     }
     // UIKit draws a header or footer as one text.
     for label in children[..head]
@@ -448,11 +451,8 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
         } = label
         {
             if !matches!(children.as_slice(), [only] if is(only, "text")) {
-                return err(
-                    "lower-grouped-list",
-                    format!("a section's `{tag}` holds one `text`, the words UIKit draws there"),
-                    *span,
-                );
+                let message = messages::label(tag, children);
+                return err("lower-grouped-list", message, *span);
             }
         }
     }
@@ -600,18 +600,18 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     if let Some(corner) = corner.filter(|_| !cardless) {
         group.push(m("border-radius", corner, span));
     }
-    // Every row draws the separator under it and overlaps the next by its
-    // width; the group clips the last one away (`row`). Where a platform's
-    // separator stands between two rows and takes no height from either
-    // (the Mac's), the rows are that far apart and the separator is drawn
-    // in the gap; no row elsewhere.
+    // Every row draws the separator under it and overlaps the next by its width; the group
+    // clips the last one away (`row`). Where a platform's separator stands between two rows
+    // and takes no height from either (the Mac's), the rows are that far apart and the
+    // separator is drawn in the gap; no row elsewhere.
     if !cardless {
         group.push(m("row-gap", "separator-gap", span));
     }
     group.push(s("overflow", "hidden", span));
+    let mut styled = |n: &Node| Ok(swipe_rows::grouped(n, &|n| row(n, !cardless)));
     let body = rows
         .iter()
-        .map(|r| over(r, &mut |node| Ok(row(node, !cardless))))
+        .map(|r| over(r, &mut styled))
         .collect::<Result<Vec<_>, _>>()?;
     let mut out: Vec<Node> = children[..head].iter().map(|h| label(h, false)).collect();
     out.push(Node::Element {
@@ -648,8 +648,8 @@ fn symbol(node: &Node) -> Option<&str> {
     match (tag.as_str(), positional.first()) {
         ("image", Some(Expr::Str(src, _))) => {
             let role = src.strip_prefix("symbol:")?;
-            // @ref LLP 1116.007 D3.1 — whichever way the role is spelled.
-            let role = exact_kernel::generated::symbol_role(role).unwrap_or(role);
+            // @ref LLP 1116.007 D3.1, LLP 1121 D10 — whichever way the role is spelled, or an icon.
+            let role = crate::icons::role_or_accessory(role).unwrap_or(role);
             Some(match role {
                 "forward-chevron" => "chevron.forward",
                 "checkmark" => "checkmark",
@@ -692,6 +692,38 @@ fn with(node: &Node, sheet: Vec<Attr>) -> Node {
         span: *span,
         instance: *instance,
     }
+}
+
+/// A field whose authored `flex` is a number alone (`flex=1`, CSS's `1 1
+/// 0%`) with no `flex-basis` after it, written as its grow and shrink: the
+/// row's sheet keeps the basis. `None` for any other field.
+fn grown_field(node: &Node) -> Option<Node> {
+    let Node::Element { attrs, .. } = node else {
+        return None;
+    };
+    let flex = attrs.iter().rposition(|a| a.name == "flex")?;
+    let grow = match &attrs[flex].value {
+        Expr::Str(v, _) => v.trim().parse::<f64>().ok()?,
+        v => crate::values::numeric_literal(v)?,
+    };
+    if attrs[flex..].iter().any(|a| a.name == "flex-basis") {
+        return None;
+    }
+    let mut node = node.clone();
+    let Node::Element { attrs, .. } = &mut node else {
+        return None;
+    };
+    let a = attrs.remove(flex);
+    let longhand = |name: &str, value: f64| Attr {
+        name: name.into(),
+        value: Expr::Number(value, a.span),
+        ..a.clone()
+    };
+    attrs.splice(
+        flex..flex,
+        [longhand("flex-grow", grow), longhand("flex-shrink", 1.0)],
+    );
+    Some(node)
 }
 
 /// `yes` where the boolean attribute `name` is true, else `otherwise`; a
@@ -769,6 +801,16 @@ fn row(node: &Node, separated: bool) -> Node {
         by_flag(attrs, "disabled", TERTIARY, ink, span)
     };
     let label = || Expr::Str(LABEL.into(), span);
+    // @ref LLP 1116.019 D6 — a `button` row that is an action cell (a title,
+    // a symbol before it at most, nothing at its trailing edge) is in the
+    // platform's action ink: the tint in UIKit's list, as SwiftUI's
+    // `List { Button }` and a hand-built action cell draw it. The kernel
+    // reads the same shape (`GroupedRow::action`).
+    let ink = if tag == "button" && action_cell(children) {
+        mv("action-color", span)
+    } else {
+        label()
+    };
     // A destructive `button` row's shape, where the platform's form shows
     // its push button: the button's height, its title at the button's
     // padding and no wider than its words, and `appearance`, which is how a
@@ -884,6 +926,10 @@ fn row(node: &Node, separated: bool) -> Node {
         });
     let row_height = mv("row-min-height", span);
     let row_end = mv("row-padding-end", span);
+    // A label beside a field: the row wraps, so where both do not fit (the
+    // accessibility text sizes) the field goes under the label, as in a
+    // SwiftUI `Form`, rather than squeezing the label to nothing.
+    let field = field_beside_label(children);
     let mut sheet = vec![
         s("display", "flex", span),
         s("flex-direction", "row", span),
@@ -913,9 +959,12 @@ fn row(node: &Node, separated: bool) -> Node {
         m("border-bottom-color", "separator", span),
         n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),
         s("font-size", BODY, span),
-        attr("color", tint(label()), span),
+        attr("color", tint(ink), span),
         s("text-align", "left", span),
     ];
+    if field.is_some() {
+        sheet.push(s("flex-wrap", "wrap", span));
+    }
     if destructive {
         sheet.extend([
             button("padding-left", "button-padding-start", unset()),
@@ -948,9 +997,11 @@ fn row(node: &Node, separated: bool) -> Node {
     let shown: Vec<&Node> = children.iter().filter(|c| !hidden(c)).collect();
     let last = shown.len().saturating_sub(1);
     let mut at_shown = 0;
-    let parts = children
+    let titled = title_button(children);
+    let parts: Vec<Node> = children
         .iter()
-        .map(|child| {
+        .enumerate()
+        .map(|(k, child)| {
             let i = if hidden(child) {
                 usize::MAX
             } else {
@@ -962,6 +1013,8 @@ fn row(node: &Node, separated: bool) -> Node {
                 last,
                 stack,
                 lines,
+                field,
+                titled: titled == Some(k),
                 tint: &tint,
                 grow: &title_grow,
             };
@@ -985,7 +1038,7 @@ fn row(node: &Node, separated: bool) -> Node {
         tag: tag.clone(),
         positional: positional.clone(),
         attrs: rows,
-        children: parts,
+        children: parts.iter().map(disclosure).collect(),
         span: *span,
         instance: *instance,
     }
@@ -1002,6 +1055,10 @@ struct Place<'a> {
     stack: bool,
     /// Whether a stack of lines here takes the cell's margins (`stacks`).
     lines: bool,
+    /// The field beside the row's label, if it is such a row.
+    field: Option<Field>,
+    /// Whether this part is the button that holds the row's title (D4).
+    titled: bool,
     /// The row's ink over a colour: its destructive or disabled one.
     tint: &'a dyn Fn(Expr) -> Expr,
     /// The title's `flex-grow`.
@@ -1031,6 +1088,8 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         last,
         stack,
         lines,
+        field,
+        titled,
         tint,
         grow: title_grow,
     } = at;
@@ -1093,6 +1152,11 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
     };
     let at = *at;
     match (tag.as_str(), symbol(child)) {
+        // LLP 1116.021 D4: the button that holds the title is the title.
+        _ if titled => {
+            *texts = Count::Known(1);
+            title_face(child)
+        }
         // The leading symbol: in UIKit's cell it stands in the margin the
         // text is inset by, pulled back into it; in the Mac's form it is the
         // row's first part. Its tint is the platform's too.
@@ -1155,21 +1219,38 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             let choose = |c: &Expr, a: Expr, b: Expr| {
                 Expr::Ternary(Box::new(c.clone()), Box::new(a), Box::new(b), at)
             };
+            // Beside a field the title keeps its words' width, and the row
+            // wraps instead (`field_beside_label`).
+            let squeeze = || field.is_none().then(|| n("min-width", 0.0, at));
             let (sheet, next) = match texts.clone() {
                 Count::Known(count) => (
                     if count == 0 {
-                        vec![attr("flex-grow", grow(true), at), n("min-width", 0.0, at)]
+                        [Some(attr("flex-grow", grow(true), at)), squeeze()]
+                            .into_iter()
+                            .flatten()
+                            .collect()
                     } else {
                         vec![attr("color", colour(false), at)]
                     },
                     Count::Known(count + 1),
                 ),
                 Count::Cond(c, a, b) => (
-                    vec![
-                        attr("flex-grow", choose(&c, grow(a == 0), grow(b == 0)), at),
-                        n("min-width", 0.0, at),
-                        attr("color", choose(&c, colour(a == 0), colour(b == 0)), at),
-                    ],
+                    [
+                        Some(attr(
+                            "flex-grow",
+                            choose(&c, grow(a == 0), grow(b == 0)),
+                            at,
+                        )),
+                        squeeze(),
+                        Some(attr(
+                            "color",
+                            choose(&c, colour(a == 0), colour(b == 0)),
+                            at,
+                        )),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
                     Count::Cond(c, a + 1, b + 1),
                 ),
             };
@@ -1192,12 +1273,31 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         ("input", _) if i == last && switch(child) => {
             with(child, vec![m("-exact-control-size", "switch-size", at)])
         }
-        ("input", _) if texts.low() >= 1 && text_field(child) => {
-            with(child, vec![m("text-align", "field-align", at)])
+        // A text field beside its label is 8rem at the far edge, so the
+        // fields of a section line up and the label, the author's `flex=1`
+        // one too, keeps the rest; 8rem and a short label fit on one line up
+        // to the largest size before the accessibility ones, and past it the
+        // row wraps the field under the label. A date, time or menu keeps its
+        // own width. Under the label either is as narrow as the line. An
+        // author's `flex=1` on the field (the number-field recipe writes it)
+        // grows it from the same basis: CSS's `1 1 0%` let the label squeeze
+        // it to "…" at the accessibility sizes instead of wrapping.
+        ("input", _) if texts.low() >= 1 && text_field(child) => with(
+            &grown_field(child).unwrap_or_else(|| child.clone()),
+            vec![
+                m("text-align", "field-align", at),
+                n("flex-grow", 0.0, at),
+                n("flex-shrink", 1.0, at),
+                s("flex-basis", "8rem", at),
+                n("min-width", 0.0, at),
+            ],
+        ),
+        ("input" | "select", _) if texts.low() >= 1 && field_kind(child) == Some(Field::Picker) => {
+            with(child, vec![n("min-width", 0.0, at)])
         }
         ("column", _) if stack => subtitle(child),
         _ if !stack && stacks(child) => {
-            let margins = if lines {
+            let mut margins = if lines {
                 vec![
                     m("margin-top", "lines-padding-block", at),
                     m("margin-bottom", "lines-padding-block", at),
@@ -1205,6 +1305,13 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             } else {
                 Vec::new()
             };
+            // LLP 1116.020 D5: a stack before any text is the title, and
+            // grows as a title does, so a text after it is the value at the
+            // far edge (`RowText` straight in a section drew it mid-row).
+            if matches!(texts, Count::Known(0)) {
+                margins.extend([attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)]);
+                *texts = Count::Known(1);
+            }
             // A control's lines are its label, in its own colour.
             match tag.as_str() {
                 "button" | "link" => with(child, margins),
@@ -1213,44 +1320,6 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         }
         _ => child.clone(),
     }
-}
-
-/// An `input`'s literal `type`, lowercased; `text` when it has none.
-fn input_type(node: &Node) -> Option<String> {
-    let Node::Element { attrs, .. } = node else {
-        return None;
-    };
-    match attrs.iter().rev().find(|a| a.name == "type") {
-        Some(a) => match &a.value {
-            Expr::Str(v, _) => Some(v.to_ascii_lowercase()),
-            _ => None,
-        },
-        None => Some("text".into()),
-    }
-}
-
-/// Whether an `input` is a switch: a checkbox written with HTML's word
-/// `switch`, or `role="switch"` (LLP 1069.001 D1, D3).
-fn switch(node: &Node) -> bool {
-    input_type(node).as_deref() == Some("checkbox")
-        && matches!(node, Node::Element { tag, positional, attrs, .. }
-            if positional.iter().any(|word| contract_syntax::is_input_switch(tag, word))
-                || attrs.iter().any(|a| a.name == "role"
-                    && matches!(&a.value, Expr::Str(v, _) if v == "switch")))
-}
-
-/// Whether an `input` is a field of text: one line a person types into.
-fn text_field(node: &Node) -> bool {
-    matches!(
-        input_type(node).as_deref(),
-        Some("text" | "email" | "url" | "tel" | "password" | "number")
-    )
-}
-
-/// Whether an element is written `display="none"`.
-fn hidden(node: &Node) -> bool {
-    matches!(node, Node::Element { attrs, .. }
-        if attrs.iter().rev().find(|a| a.name == "display").is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "none")))
 }
 
 /// Whether a row's parts are a leading symbol, one `column` of one or two
@@ -1315,175 +1384,10 @@ fn text_lines(nodes: &[Node]) -> Option<(usize, usize)> {
     })
 }
 
-/// Whether a row lays out as a column: a `column`, or a row whose authored
-/// `flex-direction` is a literal column; a `button`'s parts stay a row.
-fn column_row(tag: &str, attrs: &[Attr]) -> bool {
-    match attrs.iter().rev().find(|a| a.name == "flex-direction") {
-        Some(a) => matches!(&a.value, Expr::Str(v, _) if v.starts_with("column")),
-        None => tag == "column",
-    }
-}
-
 /// Whether a row's part is lines stacked in the row: a shown element that
 /// lays out as a column around two parts or more (a column with nothing in
 /// it is a box, as a cover's placeholder is). `part` reads an `if` through.
 fn stacks(node: &Node) -> bool {
     matches!(node, Node::Element { tag, attrs, children, .. }
         if !hidden(node) && column_row(tag, attrs) && children.iter().filter(|c| !hidden(c)).count() >= 2)
-}
-
-/// A stack of lines in a row that is not the subtitle cell, with `sheet`
-/// (its margins): its texts are drawn as the subtitle cell draws its lines
-/// (LLP 1116.000 D3.2), the first a title in the row's size and colour, a
-/// later one the subheadline in the secondary colour. It is presentation left
-/// unsaid, which is the platform's (LLP 1115): a text's own `font`,
-/// `font-size` or `color` replaces the row it names, as the author's rows
-/// replace the sheet's, and so does the stack's own (`stack_lines`).
-fn stack_of_lines(node: &Node, sheet: Vec<Attr>) -> Node {
-    let Node::Element {
-        attrs, children, ..
-    } = node
-    else {
-        return node.clone();
-    };
-    let lines = stack_lines(children, attrs);
-    match with(node, sheet) {
-        Node::Element {
-            tag,
-            positional,
-            attrs,
-            span,
-            instance,
-            ..
-        } => Node::Element {
-            tag,
-            positional,
-            attrs,
-            children: lines,
-            span,
-            instance,
-        },
-        other => other,
-    }
-}
-
-/// A title over a subtitle: the platform's subtitle cell (UIKit's has 15
-/// above and below), the second line the subheadline in the secondary
-/// colour.
-fn subtitle(node: &Node) -> Node {
-    let Node::Element {
-        tag,
-        positional,
-        attrs,
-        children,
-        span,
-        instance,
-    } = node
-    else {
-        return node.clone();
-    };
-    let at = *span;
-    let parts = stack_lines(children, attrs);
-    let mut rows = vec![
-        n("flex-grow", 1.0, at),
-        n("min-width", 0.0, at),
-        m("padding-top", "lines-padding-block", at),
-        m("padding-bottom", "lines-padding-block", at),
-        m("row-gap", "subtitle-gap", at),
-    ];
-    rows.extend(attrs.iter().cloned());
-    Node::Element {
-        tag: tag.clone(),
-        positional: positional.clone(),
-        attrs: rows,
-        children: parts,
-        span: at,
-        instance: *instance,
-    }
-}
-
-/// A subtitle stack's lines: the title in the row's size and colour, the
-/// second line the subheadline in the secondary colour. A size or colour the
-/// stack's author wrote (`own`, its rows) reaches its lines, which the
-/// sheet's would otherwise replace; a class or a style may say either.
-fn stack_lines(children: &[Node], own: &[Attr]) -> Vec<Node> {
-    let says = |names: &[&str]| {
-        own.iter().any(|a| {
-            names.contains(&a.name.as_str())
-                || matches!(a.name.as_str(), "class" | "className" | "style")
-        })
-    };
-    let (size, colour) = (!says(&["font", "font-size"]), !says(&["color"]));
-    let keep = move |a: &Attr| match a.name.strip_prefix(MARK) {
-        Some("font-size") => size,
-        Some("color") => colour,
-        _ => true,
-    };
-    // The second line, whether written or shown by a condition: a text
-    // after the first shown one, chosen by the condition where the arms
-    // differ (as `part` counts a row's texts).
-    fn line(c: &Node, texts: &mut Count, keep: &dyn Fn(&Attr) -> bool) -> Node {
-        match c {
-            Node::When {
-                tag,
-                cond,
-                then,
-                otherwise,
-                span,
-            } => {
-                let start = Count::Known(texts.low());
-                *texts = start.clone();
-                let then = then.iter().map(|n| line(n, texts, keep)).collect();
-                let after = std::mem::replace(texts, start);
-                let otherwise = otherwise.iter().map(|n| line(n, texts, keep)).collect();
-                *texts = match (after, texts.clone()) {
-                    (Count::Known(a), Count::Known(b)) if a == b => Count::Known(a),
-                    (Count::Known(a), Count::Known(b)) => Count::Cond(cond.clone(), a, b),
-                    (a, b) => Count::Known(a.low().min(b.low())),
-                };
-                Node::When {
-                    tag: *tag,
-                    cond: cond.clone(),
-                    then,
-                    otherwise,
-                    span: *span,
-                }
-            }
-            Node::Element { tag, span, .. } if tag == "text" && !hidden(c) => {
-                let at = *span;
-                let size =
-                    |title: bool| Expr::Str(if title { BODY } else { SUBHEADLINE }.into(), at);
-                // A title inherits the row's tint and authored colour, as
-                // the unconditional first line does by writing no colour.
-                let colour =
-                    |title: bool| Expr::Str(if title { "inherit" } else { SECONDARY }.into(), at);
-                let choose = |c: &Expr, a: Expr, b: Expr| {
-                    Expr::Ternary(Box::new(c.clone()), Box::new(a), Box::new(b), at)
-                };
-                let (mut sheet, next) = match texts.clone() {
-                    Count::Known(0) => (Vec::new(), Count::Known(1)),
-                    Count::Known(count) => (
-                        vec![s("font-size", SUBHEADLINE, at), s("color", SECONDARY, at)],
-                        Count::Known(count + 1),
-                    ),
-                    Count::Cond(c, a, b) => (
-                        vec![
-                            attr("font-size", choose(&c, size(a == 0), size(b == 0)), at),
-                            attr("color", choose(&c, colour(a == 0), colour(b == 0)), at),
-                        ],
-                        Count::Cond(c, a + 1, b + 1),
-                    ),
-                };
-                *texts = next;
-                sheet.retain(keep);
-                with(c, sheet)
-            }
-            other => other.clone(),
-        }
-    }
-    let mut texts = Count::Known(0);
-    children
-        .iter()
-        .map(|c| line(c, &mut texts, &keep))
-        .collect()
 }

@@ -810,3 +810,13 @@ fn a_list_on_a_covered_route_waits_for_it_to_show() {
     send(&mut r, 0.);
     assert_eq!(hits(&r), (1., 1.), "shown, the list is offered both edges");
 }
+
+#[test]
+fn an_edge_on_a_live_clock_reports_when_its_callback_ended() {
+    let mut r = boot(SOURCE);
+    r.set_live_clock(Some(Box::new(|| 4500.)));
+    let result = send(&mut r, 0.);
+    assert_eq!(hits(&r), (1., 0.));
+    assert_eq!(result.now_ms, 4500.);
+    assert_eq!(result.receipts.last().unwrap().at_ms, 4500.);
+}

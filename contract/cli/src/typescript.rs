@@ -1,7 +1,8 @@
 //! TypeScript's side of the data seam, derived from the plan's signatures.
 //! @ref LLP 1027 D2/D5 — no separately maintained argument or result shapes.
 
-use exact_plan::{Plan, TypeKind, TypesId};
+use exact_plan::{Opcode, Plan, StrId, TypeKind, TypesId};
+use std::collections::BTreeSet;
 use std::fmt::Write;
 
 /// Generate an `app.d.ts` from a compiled Contract's source signatures.
@@ -12,6 +13,13 @@ use std::fmt::Write;
 /// @ref LLP 1039 D1
 /// This is a build-time artifact, never a runtime import or committed file.
 pub fn typescript(plan: &Plan) -> Result<String, String> {
+    typescript_exporting(plan, None)
+}
+
+/// [`typescript`], its `ColorToken` union bounded by the design's `exports`
+/// when it lists them ([`design_exports`]): what a binding may name (LLP
+/// 1121 D7), though a view may name more.
+pub fn typescript_exporting(plan: &Plan, exports: Option<&[String]>) -> Result<String, String> {
     // Public callers may construct a Plan directly. Refuse malformed tables
     // before following any indices, just as the runtime decoder does.
     Plan::decode(&plan.encode()).map_err(|e| format!("invalid plan: {e:?}"))?;
@@ -33,7 +41,19 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
         match row.kind {
             TypeKind::Number => out.push_str("number"),
             TypeKind::Bool => out.push_str("boolean"),
-            TypeKind::String => out.push_str("string"),
+            TypeKind::String => {
+                if row.fields.is_empty() {
+                    out.push_str("string");
+                } else {
+                    out.push_str(
+                        &row.fields
+                            .iter()
+                            .map(|f| quoted(plan.str(plan.field(f).name)))
+                            .collect::<Vec<_>>()
+                            .join(" | "),
+                    );
+                }
+            }
             TypeKind::Unit => out.push_str("null"),
             TypeKind::Option | TypeKind::List => {
                 let elem = row.elem.ok_or_else(|| format!("type {i} has no element"))?;
@@ -61,6 +81,24 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
         }
         out.push_str(";\n");
     }
+    let mutation_sources: BTreeSet<_> = plan
+        .actions
+        .iter()
+        .flat_map(|action| exact_runner::vm::instructions(plan.code(action.body)))
+        .flatten()
+        .filter(|instruction| instruction.op == Opcode::Send)
+        .map(|instruction| quoted(plan.str(StrId(instruction.args[1] as u32))))
+        .collect();
+    writeln!(
+        out,
+        "\n/** Sources called by compiled mutation sends. */\nexport type MutationSource = {};",
+        if mutation_sources.is_empty() {
+            "never".into()
+        } else {
+            mutation_sources.into_iter().collect::<Vec<_>>().join(" | ")
+        }
+    )
+    .unwrap();
     out.push_str("\nexport interface SourceMap {\n");
     for row in &plan.sources {
         let name = plan.str(row.name);
@@ -84,6 +122,8 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
         "}\n\n\
          export type Source = keyof SourceMap;\n\
          export type Args<S extends Source> = SourceMap[S]['args'];\n\
+         /** A generated backend operation's arguments (distinct from this app's source tuple). */\n\
+         export type ArgsOf<O> = O extends { readonly __args?: infer A } ? A : never;\n\
          /** A source's answer. A shape has no exported name: name one by its source,\n\
           * `type Recipe = Result<'recipe'>` (a list's element: `Result<'recipes'>[number]`). */\n\
          export type Result<S extends Source> = SourceMap[S]['result'];\n\
@@ -103,7 +143,7 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
            function authCallback(): string;\n\
          }\n\
          export interface NativeModule { readonly available: boolean; call(request: Record<string, unknown>): Record<string, unknown>; later(request: Record<string, unknown>): Promise<Record<string, unknown>>; watch(topic: string): void }\n\
-         /** A resource-owned WebSocket, currently on the web JS TypeScript target only (LLP 1016.000 D7). Methods are synchronous-mutation-only; refresh or disposal invalidates it. */\n\
+         /** A resource-owned WebSocket, for TypeScript on the web JS target and native hosts (LLP 1016.000 D7). Methods are synchronous-mutation-only; refresh or disposal invalidates it. */\n\
          export interface StreamSocket { readonly readyState: number; readonly bufferedAmount: number; send(data: string | ArrayBuffer | ArrayBufferView): void; close(code?: number, reason?: string): void }\n\
          export interface StreamEvent { readonly type: string; readonly data: string | ArrayBuffer; readonly lastEventId: string; readonly coalesced: number; readonly kind?: string; readonly message?: string; readonly status?: number; readonly code?: number; readonly reason?: string; readonly wasClean?: boolean }\n\
          declare global {\n\
@@ -118,7 +158,67 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
          /** What a resource shows while writes affect it: its answer with them laid over it. Synchronous, with no effects; `undefined` shows the answer and stops showing every answered write. */\n\
          export type Overlay = <S extends Source>(source: S, args: Args<S>, answer: Result<S>, writes: readonly Write[]) => Result<S> | undefined;\n",
     );
+    tokens(plan, exports, &mut out);
     Ok(out)
+}
+
+/// The `exports` lines of the design of the app whose `app.contract` is
+/// `contract`, when it has a design that lists them (LLP 1121 D7).
+pub fn design_exports(contract: &std::path::Path) -> Option<Vec<String>> {
+    let path = crate::design_path(contract)?;
+    let design = exact_tamber::parse(&std::fs::read_to_string(path).ok()?).ok()?;
+    Some(design.exports?.into_iter().map(|e| e.value).collect())
+}
+
+/// @ref LLP 1121 D12 — the design's tokens as a string-literal union per
+/// kind, so a data module returning a token's name is checked
+/// (`ColorToken`, and since stage 6 G `LengthToken`, `NumberToken`,
+/// `TypeToken`, `FamilyToken`, `BoxShadowToken`, `TextShadowToken`): those
+/// its `exports` lists, else every one the plan keeps; none without a
+/// design. A synthetic token (an expression a row writes) is no name a
+/// module returns.
+fn tokens(plan: &Plan, exports: Option<&[String]>, out: &mut String) {
+    const KINDS: [(u8, &str, &str); 7] = [
+        (0, "ColorToken", "A colour token"),
+        (1, "LengthToken", "A length token"),
+        (2, "NumberToken", "A number token"),
+        (3, "BoxShadowToken", "A `box-shadow` token"),
+        (4, "TextShadowToken", "A `text-shadow` token"),
+        (5, "TypeToken", "A type token"),
+        (6, "FamilyToken", "A family token"),
+    ];
+    for (kind, union, what) in KINDS {
+        let mut names: Vec<&str> = Vec::new();
+        for row in plan.theme.iter().filter(|r| r.kind == kind) {
+            let role = Some(plan.str(row.role)).filter(|r| !r.is_empty());
+            // A role override by the role's spelling, as a row writes it and
+            // the generators name it (`CanvasText`, `-exact-secondary-label`).
+            let name = role.unwrap_or(plan.str(row.name));
+            // A component's param is every binding's (D15), as `tamber gen` names it
+            // (stage 7 D, over A's leaving it out: a data module may return one).
+            let exported = name.starts_with(contract_lower::params::PREFIX)
+                || exports.is_none_or(|lines| {
+                    lines
+                        .iter()
+                        .any(|line| exact_tamber::exports_names(line, name, role))
+                });
+            if exported && !name.contains('(') && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        if names.is_empty() {
+            continue;
+        }
+        let quoted: Vec<String> = names
+            .iter()
+            .map(|n| serde_json::to_string(n).expect("a string is JSON"))
+            .collect();
+        let _ = writeln!(
+            out,
+            "/** {what} of the app's design, by its name (LLP 1121 D12). */\nexport type {union} = {};",
+            quoted.join(" | ")
+        );
+    }
 }
 
 /// The file's top (LLP 1116.006 D7): what `app.ts` writes, one line each, so a builder reads

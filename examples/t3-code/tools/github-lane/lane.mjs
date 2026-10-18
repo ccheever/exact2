@@ -24,7 +24,7 @@ export function serverCommand() {
   const tree = join(paths.runtime, pin.version), t3 = join(tree, "t3");
   if (!existsSync(t3)) {
     const archive = join(example, "server-runtime", pin.asset);
-    if (!existsSync(archive)) throw new Error(`no staged server: run \`bun examples/t3-code/stage-runtime.mjs\` first, or set T3_LANE_SERVER`);
+    if (!existsSync(archive)) throw new Error(`no staged server: run \`bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs\` first, or set T3_LANE_SERVER`);
     mkdirSync(tree, { recursive: true });
     run("/usr/bin/tar", ["-xzf", archive, "-C", tree, "--strip-components=1"]);
   }

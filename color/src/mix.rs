@@ -161,14 +161,14 @@ impl MixSpace {
                 crate::from_xyz65(Space::DisplayP3Linear, crate::to_xyz65_from_srgb(v))
             }
             MixSpace::A98Rgb => crate::from_xyz65(Space::A98Rgb, crate::to_xyz65_from_srgb(v))
-                .map(|c| c.abs().powf(256.0 / 563.0).copysign(c)),
+                .map(|c| libm::pow(c.abs(), 256.0 / 563.0).copysign(c)),
             MixSpace::ProphotoRgb => {
                 crate::from_xyz65(Space::ProphotoRgb, crate::to_xyz65_from_srgb(v)).map(|c| {
                     let a = c.abs();
                     (if a < 1.0 / 512.0 {
                         a * 16.0
                     } else {
-                        a.powf(1.0 / 1.8)
+                        libm::pow(a, 1.0 / 1.8)
                     })
                     .copysign(c)
                 })
@@ -228,8 +228,8 @@ impl MixSpace {
 
 /// a/b to chroma/hue (degrees).
 fn polar([l, a, b]: [f64; 3]) -> [f64; 3] {
-    let h = b.atan2(a).to_degrees().rem_euclid(360.0);
-    [l, (a * a + b * b).sqrt(), h]
+    let h = libm::atan2(b, a).to_degrees().rem_euclid(360.0);
+    [l, libm::sqrt(a * a + b * b), h]
 }
 
 fn rgb_to_hsl([r, g, b]: [f64; 3]) -> [f64; 3] {

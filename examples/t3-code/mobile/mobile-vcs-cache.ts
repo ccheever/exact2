@@ -1,5 +1,5 @@
 // Pinned365aa87982 state/vcs.ts and vcsRefInvalidation.ts (MIT).
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 import { obj, type Obj } from './shared/domain';
 import { letGo } from './shared/let-go';
 import type { Native } from './shared/protocol';
