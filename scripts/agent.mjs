@@ -22,7 +22,7 @@
 // only). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
 import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
-import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, worldLook, worldTells, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
+import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, worldLook, worldTells, lookAcross, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 import { guardFlags } from './help.mjs';
 import { nativeBuild, planOverride, refuseBuild } from './agent-build.mjs';
@@ -1283,12 +1283,12 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // `window app` (iOS): the app's own drawing alone, never the display's (smoke's canvas readback, whose reference is one).
       if (form === 'app' && !(target === true && ['ios', 'host-ios'].includes(host))) throw new MalformedOperation('screenshot <png> window app: an iOS simulator\'s window as the app draws it');
       if (form !== undefined && form !== 'status' && form !== 'app') throw new MalformedOperation(`screenshot: unknown form ${form}`);
-      if (typeof target === 'string') return s.op({op:'screenshot', ...await s.target(target), world:true, path:resolve(path)});
+      if (typeof target === 'string') return worldTells(s, await s.op({op:'screenshot', ...await s.target(target), world:true, path:resolve(path)}));
       const r = await carrier.screenshot(resolve(path), target, film, form === 'status', form === 'app');
       if (scale === undefined) return worldTells(s, await s.tagged(r)); // a drawing world's tells (LLP 1127.000 D1)
       const { image, shrunk } = s.scaled(r);
       if (shrunk) writeFileSync(r.screenshot, encodePng(image));
-      return s.tagged({ ...r, scale });
+      return worldTells(s, await s.tagged({ ...r, scale }));
     },
     scaled(r) { return scaledScreenshot(r, scale, host); },
     /** Film on the agent's clock (LLP 1012.001.000 D2): a frame, `clock +every`, a frame … through `over`. A `.apng` path is an animated PNG (for a person to play); any other is one PNG of the frames in a grid (for an agent to look at), both at the drive's `--scale` (a grid wider than 2048 px is shrunk again; the reply's `scale` is the picture's). Every frame is also kept at full size beside it, `<path>.frames/<i>-<clock>ms.png`. The clock lands at the last frame. A step that fails stops the film: what was taken is written, and the error says so. */
@@ -1301,13 +1301,14 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const out = resolve(path), dir = out + '.frames', animated = /\.apng$/i.test(out), images = [], at = [];
       rmSync(dir, { recursive: true, force: true });
       mkdirSync(dir, { recursive: true });
-      let last, failure;
+      let last, failure, told = [];
       for (let i = 0; i < frames && !failure; i++) {
         try {
           if (i) await s.clock('+' + every);
           const file = resolve(dir, `${String(i).padStart(3, '0')}-${s.now}ms.png`);
           // The frame on disk stays at full size (D2); the sheet takes it at the drive's --scale.
           last = await s.tagged(typeof window === 'function' ? await window(file) : await carrier.screenshot(file, window, true)); // a function: a world's look frame
+          if (typeof window !== 'function') told.push(last = await worldTells(s, last)); // each live frame's tells (LLP 1127.000 D1)
           const { image } = s.scaled(last);
           if (scale !== undefined) last = { ...last, scale };
           if (images.length && (image.width !== images[0].width || image.height !== images[0].height)) throw new Error(`frame ${i} is ${image.width}×${image.height}, frame 0 ${images[0].width}×${images[0].height}; film needs one size`);
@@ -1322,7 +1323,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const { screenshot, ...tags } = last;
       // `scale` is the written picture's pixels a point: a sheet wider than its bound is shrunk again, by a whole factor.
       const perPoint = (sheet ? sheet.cell[0] : images[0].width) / tags.w;
-      return { ...tags, ...(Number.isFinite(perPoint) ? { scale: Math.round(perPoint * 1000) / 1000 } : {}), screenshot: out, frames, every, over, at, dir, form: animated ? 'animated' : 'sheet' };
+      return { ...tags, ...lookAcross(told), ...(Number.isFinite(perPoint) ? { scale: Math.round(perPoint * 1000) / 1000 } : {}), screenshot: out, frames, every, over, at, dir, form: animated ? 'animated' : 'sheet' };
     },
     /** An input's end (LLP 1012 §2): the `then` of each answer the input settled lands before the reply, as a click
      * handler's state is there for a test's next line — the clock unmoved and no timer fired (trivia F3, kanban F19).

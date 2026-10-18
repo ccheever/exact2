@@ -705,14 +705,15 @@ export function withRegions(env) {
 export function renderLook(r) {
   const q = JSON.stringify, head = `tick ${r.tick} · hash ${r.hash}`;
   if (r.visible) return `${head}\n${r.entity?.name ?? '#' + r.entity?.id}: ${r.visible} (${r.reason})`;
-  if (r.draws) return [head, ...r.draws.map((d) => [d.pass.padEnd(13), d.draw, d.winding, d.submitted != null && `submitted ${d.submitted}`, d.kept != null && `kept ${d.kept}`, d.variant != null && `variant ${d.variant}`, d.covered != null && (d.covered ? 'covered' : 'COVERED NOTHING'), `writes ${d.writes}`].filter(Boolean).join(' · '))].join('\n');
+  if (r.draws) return [head, ...r.draws.map((d) => [d.pass.padEnd(13), d.draw, d.winding, d.submitted != null && `submitted ${d.submitted}`, d.kept != null && `kept ${d.kept}`, d.variant != null && `variant ${d.variant}`, 'fragments' in d && `fragments ${d.fragments ?? 'not measured'}`, 'covered' in d && (d.covered == null ? 'coverage not measured' : d.covered ? 'covered' : 'COVERED NOTHING'), `writes ${d.writes}`].filter(Boolean).join(' · '))].join('\n');
   return [head, ...lookLines(r.look)].join('\n');
 }
 function lookLines(look) {
   if (!look) return [];
-  const particles = look.particles ? ` · particles ${look.particles.live} live, ${look.particles.covered ? 'covered' : 'none covered'}` : '';
-  const casters = look.sunCasters != null ? ` · sun casters ${look.sunCasters}` : '';
-  return [`mean luminance ${look.mean} · clipped ${(look.clipped * 100).toFixed(1)}%${particles}${casters} · readback ${look.readbackBytes} B`, ...look.tells.map((t) => t.line)];
+  const measured = (m, taken) => m == null ? '' : m.unmeasured != null ? `not measured (${m.unmeasured})` : taken(m);
+  const particles = look.particles ? ` · particles ${measured(look.particles, (draws) => draws.map((d) => `${d.batch}: ${d.live} live, ${d.covered} px`).join('; '))}` : '';
+  const casters = look.sunCasters != null ? ` · sun casters ${measured(look.sunCasters, (n) => n)}` : '';
+  return [`mean luminance ${look.mean} · clipped ${(look.clipped * 100).toFixed(1)}%${particles}${casters} · readback ${look.readbackBytes} B${look.reduced ? ' · reduced, not judged' : ''}`, ...look.tells.map((t) => t.line), ...(look.gaps ?? []).map((g) => `look: ${g}`)];
 }
 
 /** `screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>]`
@@ -731,17 +732,29 @@ export async function worldLook(s, args) {
   return s.tagged(await shoot(resolve(path)));
 }
 
-/** After `clock settle` (`r` its reply) and a `screenshot`, each world's tells where its canvas draws (LLP 1127.000 D1): a
- * look frame of the tick the clock reached, whose `look: …` lines reach the world's `logs`; the reply carries them as
- * `look`. A canvas that draws no frames (the GPU-less host) answers at once and adds none. */
+/** After `clock settle` (`r` its reply) and every pixel `screenshot`, each shown world's tells where its canvas draws (LLP
+ * 1127.000 D1): a look frame of the tick the clock reached, whose `look: …` lines reach the world's `logs`. The reply
+ * carries them as `look`, what a frame could not measure as `lookGaps`, and a look frame that failed as `lookFailed`.
+ * The worlds are the ones shown now (a settle's reply lists them; otherwise `state` does). A canvas that draws no
+ * frames (the GPU-less host) answers at once and adds none. */
 export async function worldTells(s, r) {
-  if (Array.isArray(r?.world)) s.worldCanvases = r.world.map((w) => w.canvas).filter((c) => c != null);
-  const lines = [];
-  for (const id of s.worldCanvases ?? []) {
-    const reply = await s.op({ op: 'state', id, world: true, look: true, drawing: true }).catch(() => null);
-    lines.push(...(reply?.look?.tells ?? []).map((t) => t.line));
+  if (r == null || r.error != null) return r;
+  const lines = [], gaps = [], failed = [];
+  const shown = Array.isArray(r.world) ? r.world : await s.op({ op: 'state' }).then((st) => st.world ?? [], (error) => (failed.push(`worlds: ${error.message}`), []));
+  for (const id of shown.map((w) => w.canvas).filter((c) => c != null)) {
+    const reply = await s.op({ op: 'state', id, world: true, look: true, drawing: true }).catch((error) => ({ error: error.message }));
+    if (reply.unavailable) continue;
+    if (reply.error != null || !reply.look) { failed.push(`canvas ${id}: ${reply.error ?? 'no look in the reply'}`); continue; }
+    lines.push(...reply.look.tells.map((t) => t.line));
+    gaps.push(...(reply.look.gaps ?? []).map((g) => `canvas ${id}: ${g}`));
   }
-  return lines.length ? { ...r, look: lines } : r;
+  return { ...r, ...(lines.length ? { look: lines } : {}), ...(gaps.length ? { lookGaps: gaps } : {}), ...(failed.length ? { lookFailed: failed } : {}) };
+}
+
+/** Several replies' tells, gaps and failures together: a film's frames. */
+export function lookAcross(replies) {
+  const all = (key) => replies.flatMap((r) => r?.[key] ?? []);
+  return Object.fromEntries([['look', all('look')], ['lookGaps', all('lookGaps')], ['lookFailed', all('lookFailed')]].filter(([, v]) => v.length));
 }
 
 /** One look frame of `target` from `view` ({} the game's camera, {top}, or {yaw, pitch, distance}) written to `path`. */
@@ -751,6 +764,6 @@ export async function lookPicture(s, path, target, view = {}) {
   if (reply.unavailable) throw Object.assign(new Error(`look ${target}: ${reply.unavailable}`), { reply, unavailable: reply.unavailable });
   if (reply.error || typeof reply.data !== 'string') throw Object.assign(new Error(`look ${target}: ${reply.error ?? 'no pixels in the reply'}`), { reply });
   writeFileSync(resolve(path), encodePng({ width: reply.width, height: reply.height, data: Buffer.from(reply.data, 'base64') }));
-  const { tick, hash, w, h, look } = reply;
-  return { screenshot: resolve(path), w, h, tick, hash, look };
+  const { tick, hash, w, h, look } = reply, from = Object.fromEntries(Object.entries(view).filter(([k]) => k !== 'resolution'));
+  return { screenshot: resolve(path), w, h, tick, hash, look, ...(Object.keys(from).length ? { view: from } : {}) };
 }
