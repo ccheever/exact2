@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod counts;
 mod launch;
-mod line_height;
+pub(crate) mod line_height;
 mod miswiring;
 mod nested_header;
 mod parts;

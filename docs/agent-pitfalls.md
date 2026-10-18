@@ -63,7 +63,8 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   28 × 22 = 616 px), unlike a bare number on a length row such as `font-size` or
   `width`, which means pixels. Fix: write `line-height="28px"`, or a ratio such as
   `line-height=1.3` (28.6 px at 22 px). A bare 4 or more is warned
-  (`lower-line-height-multiplier`). (Authoring bench, LLP 1087: three Codex
+  (`lower-line-height-multiplier`), and a quoted `line-height="28"` is refused
+  with the `px` form. (Authoring bench, LLP 1087: three Codex
   builders, caught only by a screenshot, 2026-10-05; the euxy port, 2026-10-16.)
 
 - **A `\n` in a text runs its two lines together.** ``text `${ref}\nResults rounded.` ``
@@ -555,6 +556,14 @@ screen, 2026-10-16.)
   `button` is `inline-block` and a `view` is `block`, as on the web, so those two do
   nothing there (a button centres its content vertically on its own, as browsers do).
   Fix: `display="flex"` on the button or view.
+- **`display="flex" align-items="center"` centres up and down, not across.** A ported
+  `alignItems: 'center'` on a `view` left its icon and label at the left edge, centred
+  vertically, and a `justifyContent` meant to space them down the screen spread them
+  across it. Cause: an unwritten `flex-direction` is CSS's `row`; React Native's is
+  `column`, so its `alignItems` is the cross axis across the screen. Fix: write
+  `flex-direction="column"` where the original relied on its default, or use `column`,
+  whose direction already is; keep `row` (or the bare `display="flex"`) where the
+  original wrote `flexDirection: 'row'`.
 - **A control sits at the top of its row.** euxy's Metronome segments, in a 52-point row
   with `align-items="center"`. Cause: the original's `Segmented` carried `alignSelf:
   'flex-start'`, and it centred only because the original wrapped it in a plain `View`,
