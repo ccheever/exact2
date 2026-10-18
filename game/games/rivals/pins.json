@@ -4,16 +4,16 @@
     "1080": "0x1e5dd38f9b0ce70a"
   },
   "saves": {
-    "continuation": "7cfc13bfeda8f51585e4a1fde5918f13fdf9f402c3d5fb1c3fbd4df85afe091b"
+    "continuation": "fb7228f320ecd6e1e2d4219836b5c6ce52cfd191d3fca8ee6bc4266e5a57a6b1"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "1020be63841b6e4e57e739f05987c2f5bbdb17ca09901788b6ce1eaba8f986e3",
-  "sourceInputs": "05fdee0304c4ca9e3e4de6cfe39d976c04fe77873ed113b63ef3233a0a7137c6",
+  "inputs": "0e3580d0e1ae109278fcf10ba20c78725586c2089318309cc8001c744a6ff755",
+  "sourceInputs": "abc78712eca22c6ee88456c18be5db097a564327b2b9b1ea0be79238c5aea2d1",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "00a6faa5be52b79ab0916fb4466260872d91ee3d",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream"
+  "at": "6419855d6257b681461c72dc257e33e6375017fb",
+  "reason": "EXGAME v5 (developmentEdits): continuation bytes differ by the version byte only; tick hashes unchanged"
 }
