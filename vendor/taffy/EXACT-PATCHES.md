@@ -1465,6 +1465,17 @@ eight normal-flow layouts, including the capped failure and the content-growth
 control. Its percentage heights and following sibling positions failed before
 the final stretch size became definite.
 
+`determine_used_cross_size` preserves the hypothetical size when its margin box
+already fills the line, then applies the item's bounds. Final definiteness
+compares margin-box sizes formed with the same addition, including after
+clamping. Subtracting a 200px margin from a 310.1px line must not turn a
+content-grown 110.1px item into a new percentage basis through rounding.
+Fourteen further Chrome 151 cases cover fractional contents, top, bottom,
+split and negative margins, padding, bounds and genuine stretch. Twelve frames
+failed before this correction. Taffy's
+`fractional_cross_margins_do_not_make_content_growth_a_stretch` checks ten
+layouts without rounding, including an item maximum that cancels stretching.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
