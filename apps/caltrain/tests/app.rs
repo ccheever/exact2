@@ -376,7 +376,26 @@ fn hover_focus_and_keys_reach_their_actions() {
 #[test]
 fn an_explicit_activity_update_sends_the_changed_state() {
     let mut app = caltrain::boot(caltrain::build().unwrap(), Kernel::with_monospace()).unwrap();
-    app.link_activities();
+    app.link_activities().unwrap();
+    // A completed start can be used before the asynchronous source snapshot arrives.
+    app.act("startTracking", vec![]).unwrap();
+    let start = app.take_requests().remove(0);
+    app.fulfill(
+        start.ticket,
+        exact_runner::Outcome::Response(exact_runner::Response {
+            status: 200,
+            headers: vec![],
+            body: br#"{"id":"train-id"}"#.to_vec(),
+        }),
+    )
+    .unwrap();
+    app.act("delayTrain", vec![]).unwrap();
+    let early = app.take_requests().remove(0);
+    let early = std::str::from_utf8(&early.request.body).unwrap();
+    assert!(early.contains("\"args\":[\"train-id\""), "{early}");
+    app.act("endTracking", vec![]).unwrap();
+    assert_eq!(app.slot("trainDelay"), Some(&Value::Number(0.0)));
+    app.take_requests();
     app.set_activities(r#"{"activities":[{"id":"train-id","kind":"departure","state":"{}","activityState":"active","token":null}],"frequentPushesEnabled":false}"#).unwrap();
     app.act("delayTrain", vec![]).unwrap();
     let requests = app.take_requests();

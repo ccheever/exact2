@@ -32,6 +32,11 @@ impl<D: DataSource> Host<D> {
                 self.now_ms,
             );
         }
+        if let Some(error) = value["error"].as_str() {
+            self.runner.activities_failed();
+            self.log(&format!("activities: {error}"));
+            return self.finish(Batch::new(), Some(format!("activities: {error}")));
+        }
         match self.runner.set_activities(json) {
             Ok(Some(receipt)) => self.commit(
                 &[Timed {

@@ -10,6 +10,7 @@
 //! compiler is, for one frame, a host.
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+mod activities;
 pub mod functions;
 mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
@@ -992,9 +993,10 @@ fn first_frame<D: DataSource>(
     fact_shape(
         plan,
         "exactActivities",
-        &["activities", "frequentPushesEnabled"],
+        &["activities", "frequentPushesEnabled", "linked"],
         "bake-activities-field",
     )?;
+    activities::shape(plan)?;
     fact_shape(
         plan,
         delivery::SOURCE,

@@ -18,7 +18,7 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
         ("exactSurface", &[][..], "surfaces"),
         (
             "exactActivities",
-            &["activities", "frequentPushesEnabled"][..],
+            &["activities", "frequentPushesEnabled", "linked"][..],
             "activities",
         ),
     ] {

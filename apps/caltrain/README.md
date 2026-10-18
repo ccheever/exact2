@@ -8,6 +8,10 @@ measured against it.
 There is no TypeScript here. The data is a Rust crate, so this is the app to read
 for a Rust data source, authored tests, routes and an optional GPU module.
 
+The header’s Follow train, Delay train and End activity buttons are the activity
+fixture (LLP 1126.001 WP9). They appear only when `exactActivities().linked` is
+true: the host has packaged its ActivityKit arm. Ending clears the fixture’s delay.
+
 ## Run it
 
 From the repository root:

@@ -176,6 +176,11 @@ impl<D: DataSource> Bridge<D> {
 }
 
 impl<D: DataSource> Bridge<D> {
+    /// Declare the packaged arm for this handle’s boots and reloads.
+    pub fn link_activities(&mut self) {
+        self.links.activities = true;
+    }
+
     /// Activity facts or one send completion in the input buffer.
     pub fn activities(&mut self, len: usize) -> u32 {
         let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();

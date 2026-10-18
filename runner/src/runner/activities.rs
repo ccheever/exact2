@@ -9,15 +9,17 @@ pub(super) struct Activities {
     snapshot: Json,
     demanded: bool,
     started: bool,
+    loading: bool,
     linked: bool,
 }
 impl Default for Activities {
     fn default() -> Self {
         Self {
-            snapshot: json!({"activities":[],"frequentPushesEnabled":false}),
+            snapshot: json!({"activities":[],"frequentPushesEnabled":false,"linked":false}),
             demanded: false,
             started: false,
-            linked: cfg!(target_os = "ios"),
+            loading: false,
+            linked: false,
         }
     }
 }
@@ -56,8 +58,18 @@ fn decode(plan: &Plan, ty: TypesId, v: &Json) -> Option<Value> {
 
 impl<D: DataSource> Runner<D> {
     /// Enable sends only when the host can load the ActivityKit arm.
-    pub fn link_activities(&mut self) {
+    pub fn link_activities(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
         self.activities.linked = true;
+        let mut snapshot = self.activities.snapshot.clone();
+        snapshot["linked"] = Json::Bool(true);
+        self.activities.snapshot = snapshot;
+        self.recommit_activities()
+    }
+
+    /// A failed load is recorded by the host; the next demand may retry it.
+    pub fn activities_failed(&mut self) {
+        self.activities.started = false;
+        self.activities.loading = false;
     }
 
     /// First source demand, consumed once by the Apple presenter's batch.
@@ -73,23 +85,30 @@ impl<D: DataSource> Runner<D> {
             ));
         }
         let value = decode(&self.plan, row.ty, &self.activities.snapshot).ok_or_else(|| DataError::BadArguments("exactActivities answers {activities: Activity[], frequentPushesEnabled: bool}; Activity has id, kind, state (JSON string), activityState, token (option<string>)".into()))?;
-        if self.activities.linked && !self.activities.started {
+        if self.activities.linked && !self.activities.started && !self.activities.loading {
             self.activities.demanded = true;
-            self.activities.started = true;
+            self.activities.loading = true;
         }
         Ok(value)
     }
 
     /// Enumerated activities, token rotation and state changes, in one commit.
     pub fn set_activities(&mut self, json: &str) -> Result<Option<CommitReceipt>, RunnerError> {
-        let snapshot: Json = serde_json::from_str(json).map_err(|e| RunnerError::Data {
+        let mut snapshot: Json = serde_json::from_str(json).map_err(|e| RunnerError::Data {
             resource: "exactActivities".into(),
             error: DataError::BadArguments(e.to_string()),
         })?;
+        self.activities.started = true;
+        self.activities.loading = false;
+        snapshot["linked"] = Json::Bool(self.activities.linked);
         if snapshot == self.activities.snapshot {
             return Ok(None);
         }
         self.activities.snapshot = snapshot;
+        self.recommit_activities()
+    }
+
+    fn recommit_activities(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
         let readers = self
             .plan
             .resources
@@ -226,7 +245,7 @@ component App
     #[test]
     fn empty_source_and_all_three_sends_refused_without_a_host_arm() {
         let mut r = boot();
-        r.activities.linked = false;
+        assert!(!r.activities.linked);
         assert_eq!(
             r.resource("activities"),
             Some(&Value::record(vec![
@@ -243,7 +262,7 @@ component App
     #[test]
     fn typed_sends_land_ids_and_rotating_tokens_reanswer_the_source() {
         let mut r = boot();
-        r.link_activities();
+        r.link_activities().unwrap();
         // A fresh demand after the host links its arm.
         r.activities_answer(0).unwrap();
         assert!(r.take_activities_demand());
@@ -262,6 +281,13 @@ component App
             let body: Json = serde_json::from_slice(&request.request.body).unwrap();
             assert_eq!(body["command"], command);
             assert_eq!(body["args"][1]["title"], title);
+            let expected = match action {
+                "start" => json!(["train", {"title":"🚆", "count":101}]),
+                "update" => json!(["a", {"title":"Delayed", "count":102}, "Train delayed", 1000]),
+                "clear" => json!(["a", {"title":"Cleared", "count":102}, null, null]),
+                _ => json!(["a", {"title":"Arrived", "count":103}, "immediate"]),
+            };
+            assert_eq!(body["args"], expected);
             assert!(r
                 .fulfill(
                     request.ticket,
@@ -293,6 +319,55 @@ component App
         }
     }
     #[test]
+    fn a_failed_demand_retries_and_a_successful_publication_stops_loading() {
+        let mut r = boot();
+        r.link_activities().unwrap();
+        assert!(r.take_activities_demand());
+        r.activities_answer(0).unwrap();
+        assert!(!r.take_activities_demand());
+        assert!(!r.activities.started);
+        r.activities_failed();
+        r.activities_answer(0).unwrap();
+        assert!(r.take_activities_demand());
+        r.set_activities(r#"{"activities":[],"frequentPushesEnabled":false}"#)
+            .unwrap();
+        r.activities_answer(0).unwrap();
+        assert!(r.activities.started);
+        assert!(!r.take_activities_demand());
+    }
+    #[test]
+    fn result_shapes_and_dismissal_policies_are_checked_before_a_send() {
+        for result in ["string", "number", "bool"] {
+            let error = contract::compile(&SOURCE.replace(
+                "mutation started as shape ID",
+                &format!("mutation started as shape {result}"),
+            ))
+            .unwrap_err();
+            assert!(
+                error.to_string().contains("type-activity-result"),
+                "{error}"
+            );
+        }
+        for fields in ["id: number", "id: string\n  extra: string", "other: string"] {
+            let error = contract::compile(
+                &SOURCE.replace("shape ID\n  id: string", &format!("shape ID\n  {fields}")),
+            )
+            .unwrap_err();
+            assert!(
+                error.to_string().contains("type-activity-result"),
+                "{error}"
+            );
+        }
+        for policy in ["\"soon\"", "true", "State(title=\"policy\", count=1).title"] {
+            let error = contract::compile(&SOURCE.replace("\"immediate\")", &format!("{policy})")))
+                .unwrap_err();
+            assert!(error.to_string().contains("type-activity-send"), "{error}");
+        }
+        for policy in ["\"default\"", "1787916000000"] {
+            contract::compile(&SOURCE.replace("\"immediate\")", &format!("{policy})"))).unwrap();
+        }
+    }
+    #[test]
     fn malformed_sends_and_source_fields_have_an_edit() {
         let error = contract::compile(&SOURCE.replace(
             "startActivity(\"train\", State(title=\"🚆\", count=101))",
@@ -300,6 +375,19 @@ component App
         ))
         .unwrap_err();
         assert!(error.to_string().contains("type-activity-send"));
+        for (from, to) in [
+            ("token: option<string>", "pushToken: option<string>"),
+            ("token: option<string>", "token: string"),
+            ("activityState: string", "activityState: number"),
+            ("activities: Activity[]", "activities: string[]"),
+        ] {
+            let error = contract::bake(contract::compile(&SOURCE.replace(from, to)).unwrap(), ())
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("bake-activities-field"),
+                "{error}"
+            );
+        }
         assert!(contract::bake(
             contract::compile(
                 &SOURCE.replace("  frequentPushesEnabled: bool", "  impossible: bool")

@@ -50,6 +50,19 @@ public enum WidgetContainer {
         }
         return directory
     }
+    package static func pinCurrent(_ assets: AssetResolver, root: URL? = WidgetContainer.root, compatibility: String? = nil) throws -> URL {
+        let cohort = compatibility ?? self.compatibility
+        guard let root, let directory = try? pin(root: root, compatibility: cohort), directory.lastPathComponent == generationName(assets, compatibility: cohort) else {
+            throw HeadlessSession.Failure(description: "widget generation not yet published")
+        }
+        return directory
+    }
+    private static func generationName(_ assets: AssetResolver, compatibility: String) -> String {
+        let stamp = Data((compatibility + "\n" + assets.publicationID).utf8)
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        _ = stamp.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(stamp.count), &hash) }
+        return hash.map { String(format: "%02x", $0) }.joined()
+    }
     private static let publisher = DispatchQueue(label: "exact.widget-generation", qos: .utility)
     private static var typescript: Bool { Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true }
     private static let statusLock = NSLock()
@@ -134,10 +147,7 @@ public enum WidgetContainer {
     package static func publish(_ assets: AssetResolver, root: URL, kinds: [String], compatibility: String, typescript: Bool = false) throws -> Bool {
         // A signed bake or accepted delivery identifies the bytes already. An
         // unchanged launch reads only current, without opening any asset.
-        let stamp = Data((compatibility + "\n" + assets.publicationID).utf8)
-        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        _ = stamp.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(stamp.count), &hash) }
-        let digest = hash.map { String(format: "%02x", $0) }.joined()
+        let digest = generationName(assets, compatibility: compatibility)
         let base = root.appendingPathComponent("widget-generations", isDirectory: true)
         let current = base.appendingPathComponent("current")
         if (try? String(contentsOf: current, encoding: .utf8)) == digest {

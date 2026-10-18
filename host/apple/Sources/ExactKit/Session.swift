@@ -483,6 +483,7 @@ public final class ExactSession {
         self.app = app
         self.label = label
         let runtime = Runtime()
+        if ActivityLibrary.packaged { runtime.linkActivities() }
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
         if !ExactEnv.agentFreezes { _ = runtime.startOnFrame(true, at: 0) }
         core = SessionCore(runtime: runtime, text: TextEngine.pair(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
@@ -1232,7 +1233,6 @@ public final class ExactSession {
     private func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
         guard state != .destroyed, generation == drawnGeneration else { return }
         if firstDrawMs == nil { firstDrawMs = ExactEnv.wall() }
-        activityOutput?.drain()
         app.sharedStore.firstPixel()
         guard activatedGeneration != drawnGeneration else { return }
         activatedGeneration = drawnGeneration
@@ -1248,6 +1248,7 @@ public final class ExactSession {
             appFileRoots = AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
             dataGeneration = drawnGeneration
+            activityOutput?.drain()
             storeRefresh.activated = { [weak self] in
                 guard let self, state != .destroyed, generation == drawnGeneration else { return }
                 presenter.collections.dataReady(); app.firstPixel(token)

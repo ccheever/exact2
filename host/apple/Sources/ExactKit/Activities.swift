@@ -9,16 +9,40 @@ final class ActivityLibrary {
     typealias Send = @convention(c) (UInt, UInt64, UnsafePointer<UInt8>?, Int) -> Void
     let open: Open, close: Close, send: Send
     private init(_ open: Open, _ close: Close, _ send: Send) { self.open = open; self.close = close; self.send = send }
-    static let shared: ActivityLibrary? = {
+    static var packaged: Bool {
         #if os(iOS)
-        let path = embeddedModule(framework: "ExactActivity", dylib: "libexact_activity.dylib")
-        guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else { return nil }
-        guard let open = dlsym(library, "exact_activity_open"), let close = dlsym(library, "exact_activity_close"), let send = dlsym(library, "exact_activity_send") else { dlclose(library); return nil }
-        return ActivityLibrary(unsafeBitCast(open, to: Open.self), unsafeBitCast(close, to: Close.self), unsafeBitCast(send, to: Send.self))
+        FileManager.default.fileExists(atPath: embeddedModule(framework: "ExactActivity", dylib: "libexact_activity.dylib"))
         #else
-        return nil
+        false
         #endif
-    }()
+    }
+    private static var shared: ActivityLibrary?
+    static func load() throws -> ActivityLibrary {
+        #if os(iOS)
+        if let shared { return shared }
+        let loaded = try load(path: embeddedModule(framework: "ExactActivity", dylib: "libexact_activity.dylib"))
+        shared = loaded
+        return loaded
+        #else
+        throw HeadlessSession.Failure(description: "ActivityKit is not linked into this artifact")
+        #endif
+    }
+    static func load(path: String) throws -> ActivityLibrary {
+        _ = dlerror()
+        guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
+            throw HeadlessSession.Failure(description: "ActivityKit arm: \(dlerror().map { String(cString: $0) } ?? "dlopen failed"): \(path)")
+        }
+        func symbol(_ name: String) throws -> UnsafeMutableRawPointer {
+            _ = dlerror()
+            guard let symbol = dlsym(library, name) else {
+                throw HeadlessSession.Failure(description: "ActivityKit arm: \(dlerror().map { String(cString: $0) } ?? "missing \(name)"): \(path)")
+            }
+            return symbol
+        }
+        do {
+            return try ActivityLibrary(unsafeBitCast(symbol("exact_activity_open"), to: Open.self), unsafeBitCast(symbol("exact_activity_close"), to: Close.self), unsafeBitCast(symbol("exact_activity_send"), to: Send.self))
+        } catch { dlclose(library); throw error }
+    }
 }
 
 final class ActivityOutput {
@@ -42,21 +66,29 @@ final class ActivityOutput {
         if session.firstDrawMs != nil { drain() }
     }
     func drain() {
-        guard let session, session.firstDrawMs != nil else { return }
+        guard let session, session.firstDrawMs != nil, session.dataActivated else { return }
         let work = queued
         queued = []
         for (op, generation) in work where generation == session.generation {
-            DispatchQueue.main.async { [weak self] in
+            let apply: () -> Void = { [weak self] in
                 guard let self, let session = self.session, session.state != .destroyed, session.generation == generation else { return }
                 self.apply(op)
             }
+            if op["ticket"] == nil && library == nil {
+                // First enumeration costs a main-thread framework load. Let dataReady's
+                // Core Animation commit finish before starting it in an idle turn.
+                let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue, false, 2_000_001) { _, _ in
+                    DispatchQueue.main.async(execute: apply)
+                }
+                CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+            } else { DispatchQueue.main.async(execute: apply) }
         }
     }
     private func apply(_ op: [String: Any]) {
         guard let session else { return }
-        if library == nil {
-            library = ActivityLibrary.shared
-            if let library {
+        do {
+            if library == nil { library = try ActivityLibrary.load() }
+            if let library, listener == 0 {
                 Self.next += 1; context = Self.next; Self.outputs[context] = Weak(self)
                 listener = library.open(UnsafeMutableRawPointer(bitPattern: context), { context, bytes, count in
                     guard let context, let bytes else { return }
@@ -64,21 +96,26 @@ final class ActivityOutput {
                     let key = UInt(bitPattern: context)
                     DispatchQueue.main.async { ActivityOutput.outputs[key]?.output?.report(json) }
                 })
+                if listener == 0 {
+                    Self.outputs.removeValue(forKey: context)
+                    throw HeadlessSession.Failure(description: "ActivityKit arm: exact_activity_open returned no listener")
+                }
             }
-        }
-        guard let library, listener != 0 else {
-            if let ticket = op["ticket"] {
-                reportJSON(["ticket": ticket, "status": 501, "error": "ActivityKit is not linked into this artifact"])
-            }
+        } catch {
+            let message = String(describing: error)
+            FileHandle.standardError.write(Data("\(message)\n".utf8))
+            // Record a demand failure even without a send ticket; a future demand retries.
+            reportJSON(["error": message])
+            if let ticket = op["ticket"] { reportJSON(["ticket": ticket, "status": 501, "error": message]) }
             return
         }
+        guard let library else { return }
         guard let ticket = (op["ticket"] as? NSNumber)?.uint64Value, var request = op["request"] as? [String: Any] else {
             if let snapshot { report(snapshot) }
             return
         }
         do {
-            _ = try WidgetContainer.publish(session.app.resolver)
-            request["generationDirectory"] = try WidgetContainer.pin().path
+            request["generationDirectory"] = try WidgetContainer.pinCurrent(session.app.resolver).path
             let data = try JSONSerialization.data(withJSONObject: request)
             Self.nextSend += 1
             let global = Self.nextSend

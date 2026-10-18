@@ -63,11 +63,13 @@ public typealias ActivityReport = @convention(c) (UnsafeMutableRawPointer?, Unsa
         }
         for listener in listeners.values { emit(["activities": entries, "frequentPushesEnabled": authorization.frequentPushesEnabled], to: listener) }
         // The final report includes the terminal state. ActivityKit no longer enumerates dismissed instances.
-        for activity in Array(live.values) where activity.activityState == .dismissed {
+        let dismissed = live.values.filter { $0.activityState == .dismissed }
+        for activity in dismissed {
             tasks.removeValue(forKey: activity.id)?.forEach { $0.cancel() }
             live.removeValue(forKey: activity.id)
             tokens.removeValue(forKey: activity.id)
         }
+        if !dismissed.isEmpty { publish() }
     }
     private func failure(_ message: String) -> NSError { NSError(domain: "exact.activity", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
     private func content(_ state: Any, attributes: ExactActivityAttributes, directory current: URL, stale: Any? = nil) throws -> ActivityContent<ExactActivityAttributes.ContentState> {

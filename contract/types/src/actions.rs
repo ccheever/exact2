@@ -212,7 +212,14 @@ impl Cx<'_, '_> {
                     source.as_str(),
                     "startActivity" | "updateActivity" | "endActivity"
                 ) {
-                    crate::activities::send(source, args, scope, shapes, *span)?;
+                    crate::activities::send(
+                        source,
+                        args,
+                        scope,
+                        shapes,
+                        &self.ct.mutations[mi],
+                        *span,
+                    )?;
                 }
                 let mut params = Vec::with_capacity(args.len());
                 for (i, arg) in args.iter().enumerate() {
