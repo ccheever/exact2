@@ -61,7 +61,11 @@ bun game/dev.mjs ./my-game
 Open the dev server's printed URL. It serves on 8765, or on the next free port when
 another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
 before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
-`my-game/app.contract` for UI. Gameplay reloads carry the running world; shared
+`my-game/app.contract` for UI. `bun exact.mjs check` (or `bun game/app/shells.mjs <game> --check`) checks the logic
+library for type errors and determinism violations, without linking. The dev loop prints
+that result before building each Rust save and keeps the running game when it fails.
+Host, linker and target errors still belong to the build.
+Gameplay reloads carry the running world; shared
 app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
@@ -516,8 +520,7 @@ Clippy holds every game's logic library to rules 1–3 with the SDK's
 naming its replacement. `sqrt` is correctly rounded and allowed; glam is built with
 `libm`, so `Vec3::length`, `Quat::slerp` and the other glam methods are portable. The
 lints run in `shells.mjs --test`, before first pins and `--repin`, and in every
-production-profile bake (web, Apple, release Linux, deploy); the gpu-dev edit loop
-leaves them to those. An `#[allow(clippy::disallowed_types)]` on an item is a
+production-profile bake (web, Apple, release Linux, deploy); the dev loop also checks the logic library before each Rust rebuild. An `#[allow(clippy::disallowed_types)]` on an item is a
 visible exception — a `HashMap` that is only ever looked up, say. Tests may time
 themselves. Setting `RUSTFLAGS` replaces the workspace's `-fp-contract=off`, so a
 game build under it is refused until the flag is appended.

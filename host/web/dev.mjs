@@ -126,6 +126,10 @@ async function currentWebBuild() {
       && pendingBuildInputs(build).length === 0;
   } catch { return false; }
 }
+if (app.manifest.game) {
+  const checked = spawnSync(process.execPath, [resolve(root, 'game/app/shells.mjs'), app.dir, '--check'], {cwd:root, env:buildEnv, stdio:'inherit'});
+  if (checked.status !== 0) process.exit(checked.status ?? 1);
+}
 if (!await currentWebBuild()) {
   const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
@@ -864,7 +868,17 @@ function drainBuilds() {
     buildPending = false;
     // A GPU-only save after a failed app build still rebuilds the wasm.
     const files = [...new Set([...lastFailed, ...changed])]; lastFailed = new Set(); changed = new Set();
-    if (gpuOnly(files)) void produceGpu(files); else rebuildNow(files);
+    if (app.manifest.game) {
+      building = true;
+      const check = hostBuildChild = spawn(process.execPath, [resolve(root, 'game/app/shells.mjs'), app.dir, '--check'], {cwd:root, env:buildEnv, stdio:['ignore','pipe','pipe']});
+      let output = '';
+      for (const stream of [check.stdout, check.stderr]) stream.on('data', bytes => { output += bytes; process.stdout.write(bytes); });
+      check.on('exit', code => {
+        building = false; hostBuildChild = null;
+        if (code === 0) { if (gpuOnly(files)) void produceGpu(files); else rebuildNow(files); }
+        else { lastFailed = new Set(files); push({error:output}); if (changed.size) drainBuilds(); }
+      });
+    } else if (gpuOnly(files)) void produceGpu(files); else rebuildNow(files);
   } else if (rustPending) { rustPending = false; produceRustNow(); }
 }
 function produceRustNow() {

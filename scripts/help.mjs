@@ -365,6 +365,13 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     example: 'bun exact.mjs feedback status',
   },
   // A game's own verbs (exact2's game/README.md).
+  check: {
+    line: 'check game logic types and determinism without linking',
+    usage: 'bun exact.mjs check',
+    flags: [], internal: ['--check'],
+    body: 'Checks the logic library only. Host, linker and target errors belong to the build.\nPorts    none. Runs to completion; exits 1 on failure.',
+    example: 'bun exact.mjs check',
+  },
   'test-rust': {
     line: 'the game\'s hostless Rust tests (logic/tests) and determinism lints',
     usage: 'bun exact.mjs test-rust',

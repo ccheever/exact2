@@ -701,19 +701,21 @@ test('R15 explicit crate and type without an inferred declaration require identi
 });
 
 test('the determinism lints refuse f32::sin, HashMap and Instant in game logic, naming each fix', async () => {
-  const {prepareGame,gameDefaults,lintGame}=await import('./app/shells.mjs');
+  const {checkGame}=await import('./app/shells.mjs');
   const root=realpathSync(mkdtempSync(resolve(tmpdir(),'determinism-lints-'))), app=resolve(root,'lint-game');
   try {
     createGame(app);
-    const game=gameDefaults(app).game, env={...process.env,CARGO_TARGET_DIR:resolve(import.meta.dir,'target')};
-    prepareGame(app,game);
-    lintGame(app,game,{env});
+    const env={...process.env,CARGO_TARGET_DIR:resolve(import.meta.dir,'target')};
+    assert.match(checkGame(app,{env}), /CHECK PASS.*logic types and determinism/);
     const source=resolve(app,'logic/src/lib.rs');
-    writeFileSync(source,readFileSync(source,'utf8').replace(/fn tick\(w: &mut World[^{]*\{/,match=>`${match}
+    const original = readFileSync(source,'utf8');
+    writeFileSync(source, original + '\nfn bad_type() { let _: u32 = \"wrong\"; }\n');
+    assert.throws(()=>checkGame(app,{env}), /mismatched types/);
+    writeFileSync(source,original.replace(/fn tick\(w: &mut World[^{]*\{/,match=>`${match}
         let _wobble = w.dt().sin();
         let _seen: std::collections::HashMap<u32, u32> = Default::default();
         let _wall = std::time::Instant::now();`));
-    assert.throws(()=>lintGame(app,game,{env}),error=>['f32::sin differs across hosts; use exact_game::math::sin',
+    assert.throws(()=>checkGame(app,{env}),error=>['f32::sin differs across hosts; use exact_game::math::sin',
       'use std::collections::BTreeMap','use world time: w.now()'].every(fix=>error.message.includes(fix)) || assert.fail(error.message));
   } finally {rmSync(root,{recursive:true,force:true});}
 },300000);
