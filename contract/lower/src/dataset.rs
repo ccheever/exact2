@@ -288,7 +288,7 @@ impl Lowerer<'_> {
             self.errors.push(e);
         }
         if let Some(origins) = origins {
-            origins.resize(bindings.len(), crate::Origin::Own);
+            origins.resize(bindings.len(), crate::Origin::Own(None));
         }
     }
 

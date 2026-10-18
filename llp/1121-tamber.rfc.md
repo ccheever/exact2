@@ -3771,3 +3771,27 @@ its bezel drawing its own ground). The protocol's tamber/1.11 window closes with
 next wire change takes tamber/1.12.
 
 **Stage 8 is closed.**
+
+### Stage 9, commit D1: the map says where a row is written (draft for theme2)
+
+`set-row`'s address (LLP 1122 D6) is the attribute's place and its file's digest, never a plan
+digest. The map carried each source's `sha256` and a state part's row's place; now every row an
+author wrote says where.
+- **The compiler** (`contract-lower`'s `Origin`): `Own` and `Class` carry the attribute the row
+  came from (`Written {span, name}`), its name as written, so an expansion names its shorthand. A
+  row the compiler derived, a tag's row, an implied one, a conditional class's (`class=(c ? A :
+  B)`) and a folded `:disabled` or `:checked` row carry none. A written row's origin is its place's
+  (a class's row is one of its style's attributes), so a rewrite that moves rows (a class's
+  animation composed, a grouped list's rows inserted) moves none across its origin. The map gives
+  the address only where the source as compiled (kept with its digest) says that name at that
+  place, so a row the compiler composed or renamed (an animation's longhands, a symbol's tint, a
+  grouped field's `flex` made `flex-grow`) says nowhere (fail closed, recorded).
+- **The map** (`map.rs`): such a binding gives `at` (the attribute's place, in the style's own file
+  for a class's row) and `attr`, its name as written. The map is not the plan: no format digest
+  moves.
+- **The selection join** (`scripts/tamber-inspect.mjs`): each such row carries `at` with that
+  file's `sha256` as compiled, and `attr`. A state part's row keeps its `state` and `at` as before,
+  and only a state part's place counts as a node's in `sitesAt`. *tamber/1.12* opens here.
+- **Tests:** `source_map.rs` (an own row, an expansion, a class's row in another file, a tag's row
+  saying nowhere); `tamber-inspect.test.mjs` (the join's `at`, `sha256` and `attr`; an attribute's
+  place is no node's site).

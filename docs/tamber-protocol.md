@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.11`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.12`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.11"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.12"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -72,6 +72,10 @@ on macOS and Linux.
   `hold`/`held` in its listing, a `selection`'s `held` rows, and a lowered `:active` row's `state`
   and `at` in the map; LLP 1122 T3 added the selection's param rung. The window's later additive
   changes (stage 8) add under the same version.
+- `tamber/1.12` (LLP 1121 stage 9, commit D1) added `set-row`'s address to the selection join:
+  a row its author wrote carries `at`, the attribute's place, with the file's `sha256` as
+  compiled, and `attr`, its name as written (a shorthand's for an expansion). Stage 9's later
+  wire changes add under the same version.
 
 ## Where it runs
 
@@ -1016,7 +1020,12 @@ The tool drives no input into an app; a command changes only what `prefer` would
   expression, a boundary, or an expression over tokens links its token, never this node's edit;
   a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place, and its edit is `set-state`'s
-  unless it is one token. A selection made while a state is held carries `held` `{state, rows}`
+  unless it is one token. A row its author wrote on the node or in its class's `style` (*1.12*)
+  carries `at` `{file, line, col, end_col, sha256}`, the attribute's place and that file's digest
+  as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
+  `padding` for `padding_top`. A tag's row, one the compiler derived, a conditional class's, a
+  folded `:disabled` or `:checked` row, and one the compiler composed or renamed (an animation's
+  longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, rows}`
   (*1.11*): the rows that state shows (`active`: the press paint's; a look's otherwise), each with
   `state` and `source` (an `:active` row's part's place, a look's row its node's). Each file the join reads is
   checked against the digest the map says it was compiled from (`sources`): one that moved since
