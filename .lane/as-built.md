@@ -40,6 +40,10 @@ headless host compiled for the Mac's native triple. The release cache was
 tested experimentally but is not wired into the product because it did not
 earn the quarter gate. The requested contributor-pitfalls file is absent.
 
+Required root and game checks, Bun script tests, all fourteen shell fixtures,
+and the Beacons baseline passed. The fresh Beacons attempt exercised the
+existing generated-directory refusal; its unchanged stable rerun passed.
+
 ## As built
 
 D2 measured the cold web, native `gpu-dev` and native release legs before
