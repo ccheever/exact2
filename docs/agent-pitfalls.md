@@ -935,6 +935,31 @@ screen, 2026-10-16.)
 
 ## Driving and testing
 
+- **Repeated macOS `s.type("composer", text)` calls replace earlier text.** The
+  string form sets the whole textarea: AppKit selects all, then inserts the supplied
+  value. Even one character per call is replacement, so `" suffix"` does not append
+  to the existing prompt. Keep strings for whole-value setup. For incremental ASCII,
+  first verify the actual native selection is collapsed at the intended insertion
+  point, then send keys, including `Space` for a space:
+
+  ```js
+  await s.type('composer', 'seed'); // Replace the whole field.
+  // Verify the native caret is at source offset 4 before appending.
+  for (const character of ' a') {
+    const reply = await s.type('composer', {
+      key: character === ' ' ? 'Space' : character,
+    });
+    assert.equal(reply.delivery, 'platform');
+  }
+  ```
+
+  Wait for the app's accepted source after each key: `"seed "`, then `"seed a"`.
+  Assert one accepted-input serial increment per character and an unchanged owner;
+  the final value or a delivery receipt alone does not prove incremental input.
+  This ASCII example does not exercise IME composition. (T3 composer acceptance,
+  2026-10-19; [AgentMac.swift](../host/apple/Sources/ExactKit/Mac/AgentMac.swift),
+  textarea branch of `type`; [public driver](../scripts/agent.mjs), `type`.)
+
 - **A compiler fixture silently tests its helper instead of `App`.** The first
   component is the root; the name `App` has no special meaning. Put the root
   before its helpers. (SVG `use` warning's component-expansion test, 2026-10-17;
