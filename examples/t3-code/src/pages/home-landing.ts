@@ -56,10 +56,13 @@ export function backgroundShellsBootstrapped(client: Pick<T3Client, 'environment
 
 /**
  * The focused project the landing picks, or '' while it waits or when the pick is another
- * environment's (kept in `homeMove` for the next refresh to focus). After the launch's landing,
+ * environment's (kept in `homeMove` until settleHome focuses it). After the launch's landing,
  * a project that went away falls back to the focused environment's most recent one.
  */
 export function landHome(client: Landing, fallback: () => string, source: EnvironmentFleet = fleet): string {
+  // The shell events drained after the synchronize that picked (its completion marker) come before settleHome:
+  // falling back here would land the focused environment's project and drop the move.
+  if (client.homeMove) return '';
   if (!client.homePending) return fallback();
   if (client.threadId) { client.homePending = false; return fallback(); }
   if (!backgroundShellsBootstrapped(client, source)) return '';

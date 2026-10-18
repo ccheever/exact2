@@ -286,8 +286,13 @@ remembers its origin (its port can change every launch; the transport keeps a fo
 when it was the last focus, else to the last switched-on saved environment with its saved
 credential, else to the primary while the Local environment switch is on (`relaunch-reconnect.ts`);
 while the server starts, the window shows the connecting state (the host opens the first window
-before the server is ready, exact2 #117). The window keeps its frame across launches
-(the host's frame autosave, restored after the window's final style since exact2 #113). Settings ›
+before the server is ready, exact2 #117). A launch reopens no thread: the reference's window loads `/`
+every time (DesktopWindow.ts, ElectronProtocol.ts `getDesktopUrl`), whose IndexDraftLanding waits until
+every switched-on environment's shell is in and opens a new draft in the most recently active project of
+any environment (by latest user message; a visit is not activity). The clone does the same
+(`home-landing.ts`), focusing that project's environment when it is not the one the launch reconnected.
+The window keeps its frame across launches (the host's frame autosave, restored after the window's final
+style since exact2 #113). Settings ›
 Connections shows "This machine" (`this-machine.ts`): the Local environment switch, which asks
 first, persists the setting and then relaunches the app through Contract's `relaunch()`, as the
 reference does, and the Version row. Under it (`connections-network.ts`) are Network access ("Reachable at <url>" and its endpoints; the server
@@ -450,6 +455,12 @@ Differences that belong to the app:
   "Open DevTools" item, and pages get no Notification API or geolocation.
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
+- The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but
+  not for This machine while its server starts, nor for one that is retrying: the reference opens its
+  window only once the server is ready, and keeps waiting for any switched-on environment until its
+  third attempt has failed (`state/shell.ts` `allEnvironmentShellsBootstrappedAtom`). So a relaunch can
+  open the draft in another environment's project when the most recent one is This machine's or a
+  retrying one's.
 - Code colours: eight languages are left out because of their licences (ada, gnuplot, nginx
   and racket are GPL-3.0; dax, dream-maker, glsl and tcl have no licence upstream), so they
   paint as plain text. Every other grammar is loaded at launch, so a fresh window colours
@@ -658,6 +669,12 @@ window resize (N22, FN23); Escape on 'Remove from this device…' and 'Delete ac
 sidebar drag (FN13); the shortcut recorder read as a text field (FN15); ⌘Z after a snooze from
 another environment (FN29); and 한글 typed as the first word in an app the input method had not
 met, in the terminal and the composer.
+
+**Checked by agent drive** (2026-10-18, bundle of `51d58fe45` and the fix; This machine, `second`
+seeded with `--turns` and `third`, paired in one kept store): quit with "Background follow-up" on Lane
+Second open, each relaunch opens a new draft in Lane Third's `shared-notes`, the project with the latest
+activity of any environment, as the reference's IndexDraftLanding does (3 of 3). The bundle of
+`51d58fe45` alone opened Lane Second's most recent project (3 of 3).
 
 **Checked by real input** (2026-10-17, bundle of `ea15f98f0` with `571d07c17`, `second` seeded with
 `--turns`; a lane copy with Lane Second paired in Settings › Connections, quit by holding ⌘Q): relaunched as
