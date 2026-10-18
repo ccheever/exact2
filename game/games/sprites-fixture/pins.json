@@ -1,16 +1,18 @@
 {
   "ticks": {
-    "300": "0x04bd5b984fb15ee6"
+    "300": "0x4884240fd15afc36"
   },
   "saves": {
-    "continuation": "81af51c431c2fd9b0d27f1b9dfd76e49dda6aab431f405ba791fe31a8206320c"
+    "continuation": "bfe4bea33e73d634f6aed6726bdf56855630c1271aeb9fb50de6ba77b0f48978"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "bbea76faf0acf15ed30b329373387a042ecd54b6d3a9403484b110461f4147dc",
+  "inputs": "e7573e677c8d25264812846d1f5c4ad73090a3bdb263407ee2463de994213a23",
+  "sourceInputs": "b2d32af8bb338a95893ddf2501d788e2f2b49464d313d2beb24c25e3c9bd3607",
   "game": "sprites-fixture",
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
-  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+  "at": "f95661f21cf43744b2209d8db1f71d58eab36c59",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream; 2e49129cb: EXSIM v7 header"
 }
