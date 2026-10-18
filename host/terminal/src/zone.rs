@@ -6,12 +6,39 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const AGENT_EPOCH: f64 = 1_767_225_600_000.;
 
 fn locale(value: &str) -> String {
-    let tag = value.split(['.', '@']).next().unwrap_or("");
+    let (head, modifier) = value.split_once('@').unwrap_or((value, ""));
+    let tag = head.split('.').next().unwrap_or("");
     if tag.is_empty() || matches!(tag, "C" | "POSIX") {
-        "en-US".into()
-    } else {
-        tag.replace('_', "-")
+        return "en-US".into();
     }
+    let mut parts = tag.split(['_', '-']);
+    let language = parts.next().unwrap_or("").to_ascii_lowercase();
+    let region = parts.next().map(str::to_ascii_uppercase);
+    // A glibc script modifier is a BCP 47 script subtag (`sr_RS@latin` is `sr-Latn-RS`).
+    let script = match modifier {
+        "latin" => Some("Latn"),
+        "cyrillic" => Some("Cyrl"),
+        _ => None,
+    };
+    [Some(language), script.map(str::to_string), region]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// An IANA name from `TZ` as the C library reads it: a leading `:` and a
+/// `zoneinfo/` path are forms of a name; a POSIX rule (`PST8PDT,M3.2.0,…`) is not one.
+fn zone_name(value: &str) -> Option<String> {
+    let name = value.strip_prefix(':').unwrap_or(value);
+    let name = name.rsplit_once("zoneinfo/").map_or(name, |(_, n)| n);
+    let name = name
+        .strip_prefix("posix/")
+        .or_else(|| name.strip_prefix("right/"))
+        .unwrap_or(name);
+    name.parse::<chrono_tz::Tz>()
+        .ok()
+        .map(|zone| zone.name().to_string())
 }
 
 pub(crate) fn launch(
@@ -28,6 +55,7 @@ pub(crate) fn launch(
                     .unwrap_or_default(),
             ),
             time_zone: env("TZ")
+                .and_then(|tz| zone_name(&tz))
                 .or_else(|| iana_time_zone::get_timezone().ok())
                 .unwrap_or_else(|| "UTC".into()),
             seed: 0.,
@@ -39,20 +67,31 @@ pub(crate) fn launch(
             seed: 1.,
         }
     };
-    let zone = match (place.validate(), place.time_zone.parse::<chrono_tz::Tz>()) {
-        (Ok(()), Ok(zone)) => zone,
-        _ => {
+    // Each fact falls back alone: a zone the runner cannot use keeps the locale.
+    let zone = place
+        .time_zone
+        .parse::<chrono_tz::Tz>()
+        .unwrap_or_else(|_| {
             notes.push(format!(
-                "terminal place refused: {}/{}; using en-US/UTC",
-                place.locale, place.time_zone
+                "terminal zone refused: {}; using UTC",
+                place.time_zone
             ));
-            place = Place {
-                seed: place.seed,
-                ..Place::default()
-            };
+            place.time_zone = "UTC".into();
             chrono_tz::UTC
-        }
-    };
+        });
+    if place.validate().is_err() {
+        notes.push(format!(
+            "terminal locale refused: {}; using en-US",
+            place.locale
+        ));
+        place.locale = "en-US".into();
+    }
+    if place.validate().is_err() {
+        place = Place {
+            seed: place.seed,
+            ..Place::default()
+        };
+    }
     let epoch = if interactive {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -97,7 +136,7 @@ mod tests {
     #[test]
     fn posix_locales_drop_codesets_and_modifiers() {
         for (value, expected) in [
-            ("sr_RS@latin", "sr-RS"),
+            ("sr_RS@latin", "sr-Latn-RS"),
             ("ca_ES@valencia", "ca-ES"),
             ("de_DE.UTF-8@euro", "de-DE"),
             ("C@calendar=gregorian", "en-US"),
@@ -138,5 +177,32 @@ mod tests {
             assert!(facts.place.unwrap().validate().is_ok());
             assert!(facts.time.unwrap().validate().is_ok());
         }
+    }
+
+    #[test]
+    fn a_tz_form_or_rule_keeps_the_locale() {
+        let env = |tz: &'static str| {
+            move |key: &str| match key {
+                "TZ" => Some(tz.to_string()),
+                "LANG" => Some("fr_FR.UTF-8".to_string()),
+                _ => None,
+            }
+        };
+        let (facts, notes) = launch(true, env(":America/Los_Angeles"));
+        let place = facts.place.unwrap();
+        assert_eq!(
+            (place.locale.as_str(), place.time_zone.as_str()),
+            ("fr-FR", "America/Los_Angeles")
+        );
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            zone_name("/usr/share/zoneinfo/Europe/Paris").as_deref(),
+            Some("Europe/Paris")
+        );
+        // A POSIX rule is not a name: the machine's zone stands in, the locale stays.
+        let (facts, _) = launch(true, env("PST8PDT,M3.2.0,M11.1.0"));
+        let place = facts.place.unwrap();
+        assert_eq!(place.locale, "fr-FR");
+        assert!(place.validate().is_ok());
     }
 }

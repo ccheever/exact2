@@ -135,7 +135,7 @@ a second screen, a sheet: A screen is a route, not an `if`; a sheet's root adds 
             text "New" role="heading"
             button press=save buttonStyle="bordered-prominent" aria-label="Save"
               image "symbol:checkmark"
-a confirmation: `aria-label` is the question; action buttons close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"`, or `showModal(id)` in an action.
+a confirmation: `aria-label` is the question; action buttons run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
   state n = 1
   action remove
     n = 0
