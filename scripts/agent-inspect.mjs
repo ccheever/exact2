@@ -712,7 +712,7 @@ function lookLines(look) {
   if (!look) return [];
   const measured = (m, taken) => m == null ? '' : m.unmeasured != null ? `not measured (${m.unmeasured})` : taken(m);
   const particles = look.particles ? ` · particles ${measured(look.particles, (draws) => draws.map((d) => `${d.batch}: ${d.live} live, ${d.covered} px`).join('; '))}` : '';
-  const casters = look.sunCasters != null ? ` · sun casters ${measured(look.sunCasters, (n) => n)}` : '';
+  const casters = look.sunTexels != null ? ` · sun shadow texels ${measured(look.sunTexels, (n) => n)}${look.sunCasters != null ? ` (casters ${look.sunCasters})` : ''}` : '';
   return [`mean luminance ${look.mean} · clipped ${(look.clipped * 100).toFixed(1)}%${particles}${casters} · readback ${look.readbackBytes} B${look.reduced ? ' · reduced, not judged' : ''}`, ...look.tells.map((t) => t.line), ...(look.gaps ?? []).map((g) => `look: ${g}`)];
 }
 
