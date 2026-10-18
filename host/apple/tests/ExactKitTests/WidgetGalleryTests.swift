@@ -70,6 +70,13 @@ final class WidgetGalleryTests: XCTestCase {
                     XCTAssertGreaterThan(image.height, 200, "the Lock Screen card, the expanded Island and the compact row stack")
                     let lock = try preview.render.layout(.lockScreen, width: width - 2 * ActivityPlacementView.platformMargins.leading, height: nil)
                     XCTAssertEqual(lock.size.width, width - 28, "the card's content is the gallery's width inside the HIG's margins")
+                    // The expanded regions, allocated together at this width: disjoint, the centre below the camera, the bottom below all.
+                    let view = ActivityGalleryView(preview: preview, width: width), frames = view.expandedFrames()
+                    for (i, a) in frames.all.enumerated() { for b in frames.all[(i + 1)...] { XCTAssertFalse(a.intersects(b) && !a.intersection(b).isEmpty && a.intersection(b).width > 0.5 && a.intersection(b).height > 0.5, "\(entry.kind) at \(width): \(a) overlaps \(b)") } }
+                    XCTAssertEqual(frames.center.minY, IslandGeometry.iPhone17Pro.obstruction.height)
+                    XCTAssertGreaterThanOrEqual(frames.bottom.minY, max(frames.leading.maxY, frames.trailing.maxY, frames.center.maxY))
+                    XCTAssertEqual(frames.leading.width, frames.trailing.width, "equal space for the sides")
+                    XCTAssertLessThanOrEqual(frames.trailing.maxX, view.expandedInner + 0.5)
                 }
                 XCTAssertGreaterThanOrEqual(preview.render.layoutCount, 8, "each placement laid out at least once: \(preview.render.layoutCount)")
                 XCTAssertGreaterThan(preview.render.size(.compactTrailing, proposal: .unspecified).width, 0)
@@ -79,6 +86,21 @@ final class WidgetGalleryTests: XCTestCase {
         let given = try ActivityPreview(entries[0], appSession: session, state: ["station": "Palo Alto", "headsign": "San Jose", "train": 233, "at": 1_787_915_700_000, "status": "Delayed"])
         let laid = try given.render.layout(.lockScreen, width: 330, height: nil)
         XCTAssertTrue(laid.snapshot.nodes.values.contains { $0.lines.contains { $0.text == "Palo Alto to San Jose" } })
+    }
+
+    /// Tall side content and wide centre content never overlap: the centre
+    /// gets what the sides' minimal width leaves, below the camera.
+    func testExpandedRegionsAreAllocatedTogether() {
+        let g = IslandGeometry.iPhone17Pro
+        let frames = ExpandedArrangement.allocate(inner: 300, geometry: g, leading: CGSize(width: 60, height: 100), trailing: CGSize(width: 40, height: 20), center: CGSize(width: 200, height: 24), bottom: CGSize(width: 300, height: 20))
+        XCTAssertEqual(frames.leading, CGRect(x: 0, y: 0, width: 60, height: 100))
+        XCTAssertEqual(frames.trailing, CGRect(x: 240, y: 0, width: 60, height: 20))
+        XCTAssertEqual(frames.center, CGRect(x: 60, y: g.obstruction.height, width: 180, height: 24))
+        XCTAssertEqual(frames.bottom.minY, 100); XCTAssertEqual(frames.height, 120)
+        for (i, a) in frames.all.enumerated() { for b in frames.all[(i + 1)...] { XCTAssertTrue(a.intersection(b).width < 0.5 || a.intersection(b).height < 0.5, "\(a) overlaps \(b)") } }
+        // Sides wider than the camera leaves them: the limit holds and the centre still gets its share.
+        let wide = ExpandedArrangement.allocate(inner: 200, geometry: g, leading: CGSize(width: 150, height: 20), trailing: CGSize(width: 150, height: 20), center: CGSize(width: 30, height: 20), bottom: .zero)
+        XCTAssertEqual(wide.leading.width, wide.trailing.width); XCTAssertLessThanOrEqual(wide.leading.maxX, wide.center.minX + 0.5); XCTAssertLessThanOrEqual(wide.center.maxX, wide.trailing.minX + 0.5)
     }
 
     func testGivenPropsSkipARefusingRefresh() throws {
