@@ -132,7 +132,7 @@ fn standalone_time_reserves_its_box_at_the_real_font() {
 
 #[test]
 fn standalone_time_frame_stays_constant_across_runner_clock_steps() {
-    let plan = contract::compile("component App\n  view\n    row\n      time datetime=-120000 format=\"relative\" testId=\"clock\"\n      text \"Following\" testId=\"following\"\n").unwrap();
+    let plan = contract::compile("component App\n  view\n    row\n      time datetime=-120000 format=\"relative\" testId=\"clock\"\n      time datetime=0 format=\"timer\" testId=\"timer\"\n      text \"Following\" testId=\"following\"\n").unwrap();
     let engine = Rc::new(RefCell::new(TextEngine::with_catalog(
         catalog::Catalog::from_bytes(
             &[include_bytes!("../../tests/fonts/Inter-Regular.ttf")],
@@ -146,14 +146,20 @@ fn standalone_time_frame_stays_constant_across_runner_clock_steps() {
     let read = |host: &crate::Host<()>| {
         let k = host.kernel();
         let time = k.node_by_key(k.find_by_test_id("clock")[0]).unwrap();
+        let timer = k.node_by_key(k.find_by_test_id("timer")[0]).unwrap();
         let sibling = k.node_by_key(k.find_by_test_id("following")[0]).unwrap();
         (
             time.props.str(PropId::Text).unwrap().to_string(),
-            (time.frame, sibling.frame),
+            (time.frame, timer.frame, sibling.frame),
         )
     };
     let (text, before) = read(&host);
     assert_eq!(text, "2 min. ago");
+    assert!(
+        before.1.width < 60.,
+        "timer reserves only mm:ss: {:?}",
+        before.1
+    );
     for (now, expected) in [(60000., "3 min. ago"), (480000., "10 min. ago")] {
         assert!(host.advance(now).is_none());
         let (text, after) = read(&host);

@@ -484,7 +484,7 @@ component NativeFixture
                       text ("composed " + composed.toString()) testId="composed"
                       time datetime=(surfaceClock.epochAtZero - 120000) format="relative" testId="live-time" font-size=14
                         text "Two minutes ago"
-                      time datetime=surfaceClock.epochAtZero format="timer" testId="live-timer" width=45 font-size=14
+                      time datetime=surfaceClock.epochAtZero format="timer" testId="live-timer" font-size=14
                       progress start=surfaceClock.epochAtZero end=(surfaceClock.epochAtZero + 120000) aria-label="Timed progress" testId="live-progress" width=24
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
                       button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"

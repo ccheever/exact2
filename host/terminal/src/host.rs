@@ -235,7 +235,7 @@ impl<D: DataSource> Host<D> {
         };
         kernel.set_env(env).map_err(|e| format!("{e:?}"))?;
         let viewport = Viewport::sized(cols as f64 * COLUMN as f64, rows as f64 * ROW as f64);
-        let runner =
+        let mut runner =
             Runner::boot(plan, data, kernel, viewport, "/").map_err(|e| match e {
                 // The data module answered another declaration than the
                 // screen's: most often a binary older than the shapes.
@@ -244,6 +244,13 @@ impl<D: DataSource> Host<D> {
                 ),
                 e => format!("{e:?}"),
             })?;
+        let (epoch, offset, locale, zone) = crate::zone::launch();
+        runner
+            .set_place(&locale, &zone, None)
+            .map_err(|e| format!("{e:?}"))?;
+        runner
+            .set_time(epoch, offset)
+            .map_err(|e| format!("{e:?}"))?;
         let mut host = Host {
             runner,
             cols,

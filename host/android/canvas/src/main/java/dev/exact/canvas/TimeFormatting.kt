@@ -15,11 +15,12 @@ object TimeFormatting {
     @JvmStatic fun format(datetime: Double, now: Double, format: String, language: String, zone: String): String? {
         if (!datetime.isFinite() || datetime < -62135596800000.0 || datetime > 253402300799999.0) return null
         return when (format) {
-            "relative-reservation" -> {
-                val sign = if (datetime < now) -1 else 1
-                DateUtils.getRelativeTimeSpanString(now.toLong() + sign * 59 * 60000L, now.toLong(), DateUtils.MINUTE_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE).toString() + ", " + DateUtils.getRelativeTimeSpanString(now.toLong() + sign * 59000L, now.toLong(), DateUtils.SECOND_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE).toString()
-            }
-            "relative" -> DateUtils.getRelativeTimeSpanString(datetime.toLong(), now.toLong(), DateUtils.MINUTE_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE).toString()
+            // DateUtils has no two-unit relative phrase; the kernel supplies its candidate.
+            "relative-reservation" -> null
+            "relative" -> if (ceil((datetime - now) / 60000) == 0.0) {
+                android.icu.text.RelativeDateTimeFormatter.getInstance(Locale.forLanguageTag(language))
+                    .format(android.icu.text.RelativeDateTimeFormatter.Direction.PLAIN, android.icu.text.RelativeDateTimeFormatter.AbsoluteUnit.NOW)
+            } else DateUtils.getRelativeTimeSpanString(datetime.toLong(), now.toLong(), DateUtils.MINUTE_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE).toString()
             "timer", "countdown" -> {
                 val seconds = if (format == "countdown") ceil(max(0.0, datetime - now) / 1000) else floor(abs(datetime - now) / 1000)
                 DateUtils.formatElapsedTime(seconds.toLong())

@@ -1611,6 +1611,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "exact-textflow",
+ "iana-time-zone",
  "libc",
  "png",
  "rustix 1.1.4",

@@ -36,6 +36,7 @@ vte = "0.15"
 # The headless screen: what the agent reads is a terminal emulator's
 # (LLP 1101.002 §0 P1); the writer's tests check against it too.
 vt100 = "0.15"
+iana-time-zone = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

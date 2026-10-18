@@ -12,13 +12,16 @@ struct Reader {
 // The VM, global class reference and method ID are valid across threads.
 unsafe impl Send for Reader {}
 unsafe impl Sync for Reader {}
-static READER: OnceLock<Option<Reader>> = OnceLock::new();
+static READER: OnceLock<Reader> = OnceLock::new();
 
 /// Install from a JNI entry, whose loader can see the reader's class.
 /// # Safety
 /// `env` belongs to this JNI entry and thread.
 pub unsafe fn attach(env: *mut JNIEnv) {
-    READER.get_or_init(|| {
+    if READER.get().is_some() {
+        return;
+    }
+    let read = || {
         let mut vm = std::ptr::null_mut();
         if ((**env).GetJavaVM?)(env, &mut vm) != JNI_OK {
             return None;
@@ -30,6 +33,10 @@ pub unsafe fn attach(env: *mut JNIEnv) {
         }
         let class = ((**env).NewGlobalRef?)(env, local);
         ((**env).DeleteLocalRef?)(env, local);
+        if class.is_null() {
+            ((**env).ExceptionClear?)(env);
+            return None;
+        }
         let method = ((**env).GetStaticMethodID?)(
             env,
             class,
@@ -43,12 +50,19 @@ pub unsafe fn attach(env: *mut JNIEnv) {
             return None;
         }
         Some(Reader { vm, class, method })
-    });
+    };
+    if let Some(reader) = read() {
+        if let Err(unused) = READER.set(reader) {
+            if let Some(delete) = (**env).DeleteGlobalRef {
+                delete(env, unused.class);
+            }
+        }
+    }
 }
 
 /// Ask the reader synchronously; the headless host uses the English fallback.
 pub fn format(r: &TimeRequest<'_>) -> Option<String> {
-    let reader = READER.get()?.as_ref()?;
+    let reader = READER.get()?;
     // SAFETY: attach retained the class globally; local references are dropped
     // before a thread we attached is detached.
     unsafe {

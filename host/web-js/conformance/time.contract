@@ -32,4 +32,5 @@ component Time
       time datetime=(time.epochAtZero - 120000) format="relative" testId="relative-time"
       time datetime=time.epochAtZero format="timer" testId="elapsed-time"
       time datetime=(time.epochAtZero + 120000) format="countdown" testId="remaining-time"
+      time datetime=time.epochAtZero format="relative" testId="current-time"
       progress start=time.epochAtZero end=(time.epochAtZero + 120000) testId="interval-progress"
