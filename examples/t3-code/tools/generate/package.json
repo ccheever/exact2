@@ -10,10 +10,15 @@
     "dompurify": "3.4.16",
     "lucide": "0.564.0",
     "lucide-react": "0.564.0",
+    "mdast-util-directive": "3.1.0",
     "mermaid": "11.17.2",
+    "micromark-extension-directive": "4.0.0",
+    "micromark-util-character": "2.1.1",
     "morphicons": "1.7.1",
     "oniguruma-parser": "0.12.2",
     "oniguruma-to-es": "4.3.6",
+    "remark-parse": "11.0.0",
+    "unified": "11.0.5",
     "unbash": "5.0.0"
   }
 }

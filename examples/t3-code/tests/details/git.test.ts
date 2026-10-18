@@ -150,7 +150,7 @@ describe('branch picker (BranchToolbarBranchSelector)', () => {
   });
   test('a new worktree starts from origin by default, and the label says so', () => {
     const client = { local: { composerControls: { contexts: { 'env:new:p1': { envMode: 'worktree', branch: '', worktreePath: '' } } } }, threadId: '', draftKey: 'env:new:p1', projectId: 'p1',
-      config: { settings: {} } } as unknown as T3Client;
+      config: { settings: {} }, shell: { projects: [], threads: [] } } as unknown as T3Client;
     expect(startFromOrigin(client)).toBe(true);
     branchState(client).refs = { cwd: '/repo', query: '', refs: [{ name: 'main', isDefault: true, current: true }], total: 1, nextCursor: null, loaded: true, generation: 0, stale: false };
     expect(originLabel(client, 'main')).toBe('origin/main');

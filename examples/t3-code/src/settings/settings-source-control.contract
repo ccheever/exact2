@@ -234,9 +234,9 @@ component ScopedSettingRow
                   WriterTraitsPicker(row=row, disabled=(busy or row.disabled), restInput=restInput)
               SettingsSwitch(checked=row.checked, label=(row.key == "reviewGuideModelSelection" ? "Use a separate review guide model" : "Use a separate source control writer model"), disabled=(busy or row.disabled or (not row.checked and row.status != "")), switchId=`scoped-${row.key}-enabled`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "off" : "default"}`))
       if row.kind == "textarea"
-        ScopedTextArea(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
+        ScopedTextArea(mixed=row.mixed, value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
       if row.child != "" or (row.key == "sourceControlWritingStyle" and row.value == "custom")
-        ScopedTextArea(value=row.child, placeholder=row.placeholder, label="Custom source control writing instructions", fieldKey="sourceControlWritingStyle.customInstructions", busy=(busy or row.disabled), restInput=restInput)
+        ScopedTextArea(mixed=row.mixed, value=row.child, placeholder=row.placeholder, label="Custom source control writing instructions", fieldKey="sourceControlWritingStyle.customInstructions", busy=(busy or row.disabled), restInput=restInput)
 
 // TraitsPicker beside the writer model (SourceControlWritingSettings): a pick saves that one trait
 // on the resolved writer selection ("instance:model#optionId=value", source-control-view.ts).
@@ -282,18 +282,27 @@ component ScopedTextField
 
 component ScopedTextArea
   props
+    mixed: bool
     value: string
     placeholder: string
     label: string
     fieldKey: string
     busy: bool
     restInput: action
-  state draft = value
+  state draft = mixed ? "" : value
+  state edited = false
   action edit(next: string)
     draft = next
+    edited = true
+  action commit(next: string)
+    let saved = next.trim()
+    if edited and (mixed or saved != value)
+      restInput("scoped", `key=${fieldKey}&value=`, saved)
+    draft = saved
+    edited = false
   view
     column width="100%" max-width="42rem" padding-top="0.75rem" padding-bottom="0.875rem" box-sizing="border-box"
-      textarea value=draft input=edit autocorrect="off" change=restInput("scoped", `key=${fieldKey}&value=`) placeholder=placeholder class=FieldPlaceholder aria-label=label disabled=busy testId=`scoped-input-${fieldKey}` box-sizing="border-box" width="100%" height="6rem" padding="0.6875rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+      textarea value=draft input=edit autocorrect="off" change=commit placeholder=placeholder class=FieldPlaceholder aria-label=label disabled=busy testId=`scoped-input-${fieldKey}` box-sizing="border-box" width="100%" height="6rem" padding="0.6875rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
 component DiscoveryMark
   props
