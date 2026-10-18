@@ -3,7 +3,8 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { moveSurface } from '../../src/panel/right-panel-tabs';
-import { panelState, surfaceLocal, type PanelState, type Surface } from '../../src/panel/panel-surfaces';
+import { panelState, surfaceLocal, surfaceCommand, type PanelState, type Surface } from '../../src/panel/panel-surfaces';
+import { deviceStateEvent, deviceStateOf } from '../../src/device/device-surface';
 import { savedPanel, adoptRightPanels, restoreRightPanel } from '../../src/panel/saved-panel';
 import { adoptClosedViews, captureClosedView, closedViews, rememberClosedView, planNextReopen, type ClosedView, type ReopenOwner } from '../../src/panel/closed-views';
 import { contractComponent } from '../support/contract-action-fixture';
@@ -77,9 +78,22 @@ describe('reopen the most recently closed view', () => {
   test('closing remembers each removed tab and a draft owns its allocated thread id by project', async () => {
     const app = client(), panel = panelState(app); Object.assign(panel, state());
     await surfaceLocal(app, native, 'close-to-right', 'file:a.ts', '');
-    expect(closedViews(app).map(view => view.surface.path)).toEqual(['c.ts', 'b.ts']);
+    expect(closedViews(app).map(view => view.surface.path)).toEqual(['b.ts', 'c.ts']);
     app.threadId = '';
     expect(captureClosedView(app, 'env:allocated-draft-id', file('draft.ts'))).toMatchObject({ draft: true, projectId: 'p1', key: 'env:allocated-draft-id' });
+  });
+  test('a successful device power-off remembers its tab, while a rejected power-off keeps it open', async () => {
+    const app = client(), panel = panelState(app), target = { hostId: 'local', deviceId: 'sim', platform: 'ios' as const, name: 'Fixture' };
+    const surface: Surface = { id: 'device:local:sim', kind: 'device', path: '', line: 0, reveal: 0, device: target };
+    Object.assign(panel, { surfaces: [surface], active: surface.id, visible: true });
+    await surfaceLocal(app, native, 'activate', surface.id, '');
+    deviceStateOf(app); deviceStateEvent(app, { subscriptionId: 'device-1', value: { hosts: [], devices: [{ id: 'sim', hostId: 'local', platform: 'ios' }], sessions: [{ threadId: 't1', deviceId: 'sim', hostId: 'local' }] } });
+    let fail = true;
+    app.restAccess = (() => ({ request: async () => { if (fail) throw new Error('Fixture refusal'); return {}; } })) as T3Client['restAccess'];
+    await surfaceCommand(app, native, {} as never, 'session-poweroff', '', '');
+    expect(panel.surfaces).toHaveLength(1); expect(closedViews(app)).toHaveLength(0);
+    fail = false; await surfaceCommand(app, native, {} as never, 'session-poweroff', '', '');
+    expect(panel.surfaces).toHaveLength(0); expect(closedViews(app)[0]!.surface.device).toEqual(target);
   });
   test('persisted history is validated and retains each surface payload', () => {
     const local = {}; adoptClosedViews(local, { closedViews: [entry('a.ts'), { id: 'bad', key: 'bad', surface: file('b.ts') }, { ...entry('terminal'), surface: { id: 'terminal:one', kind: 'terminal', terminal: { terminalIds: ['one'] } } }] });

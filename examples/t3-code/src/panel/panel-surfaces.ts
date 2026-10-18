@@ -235,7 +235,8 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op === 'close-confirmed') op = 'close';
   if (['close', 'close-others', 'close-to-right', 'close-all'].includes(op)) {
     const hadTerminal = state.surfaces.some(entry => entry.kind === 'terminal');
-    const closed = state.surfaces.map(surface => ({ surface, entry: captureClosedView(client, targetKey, surface) }));
+    const closed = [...state.surfaces.filter(surface => surface.id !== state.active), ...state.surfaces.filter(surface => surface.id === state.active)]
+      .map(surface => ({ surface, entry: captureClosedView(client, targetKey, surface) }));
     await closePanelSurfaces(client, state, op, id);
     for (const entry of closed) if (!state.surfaces.some(surface => surface.id === entry.surface.id)) rememberClosedView(client, entry.entry);
     if (panelState(client) !== state) return '';
@@ -290,7 +291,8 @@ export async function surfaceCommand(client: T3Client, native: Native, storage: 
   if (op.startsWith('linked-')) return linkedCommand(client, native, storage, op.slice(7), id); // pr-attachment-surfaces.ts
   if (op.startsWith('session-')) {
     const state = panelState(client), key = panelKey(client), closingId = state.active;
-    if (await deviceSessionCommand(client, native, deviceStateOf(client), key, op.slice(8), id, value)) closeSurfaceIn(state, closingId);
+    const closing = state.surfaces.find(surface => surface.id === closingId), entry = closing ? captureClosedView(client, key, closing) : null;
+    if (await deviceSessionCommand(client, native, deviceStateOf(client), key, op.slice(8), id, value)) { rememberClosedView(client, entry); closeSurfaceIn(state, closingId); }
     if (op === 'session-open') { const target = deviceTargetOf(client, key); if (target) openDeviceSurface(state, target); }
     return '';
   }
