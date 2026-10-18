@@ -12,14 +12,16 @@ import android.view.MotionEvent
  * Chrome on Android reads them, sent to exact2 ([Native.pad]) when a button or a quantized axis changed, and as
  * disconnected when Android removes the device or the activity goes to the background. A pad's index is its slot:
  * the next device takes the lowest free one, as a fresh pad. The activity hands every key and motion event here
- * first, whatever holds the focus, as a console's game hears its pad.
+ * first, whatever holds the focus, as a console's game hears its pad. Android has no call that reads a pad's
+ * current state, so after the background a pad reports itself again with its next event: a motion event carries
+ * every axis, and a button held through the background reads up until it is pressed again, as a key does.
  */
 class Pads(context: Context) : InputManager.InputDeviceListener {
     private val input = context.getSystemService(Context.INPUT_SERVICE) as InputManager
     /** The device id in each slot, -1 when free. */
     private val slots = IntArray(MAX) { -1 }
-    /** Each slot's last reading sent: 17 buttons, then 4 axes. */
-    private val sent = arrayOfNulls<FloatArray>(MAX)
+    /** Each slot's reading, as last sent. */
+    private val readings = arrayOfNulls<PadReading>(MAX)
 
     init { input.registerInputDeviceListener(this, null) }
 
@@ -28,9 +30,9 @@ class Pads(context: Context) : InputManager.InputDeviceListener {
         blur()
     }
 
-    /** The app went to the background: each pad is released, and reports itself again on its next change. */
+    /** The app went to the background: each pad is released, and reports itself again on its next event. */
     fun blur() {
-        for (slot in 0 until MAX) if (slots[slot] >= 0) { slots[slot] = -1; sent[slot] = null; send(slot, null) }
+        for (slot in 0 until MAX) if (slots[slot] >= 0) { slots[slot] = -1; readings[slot] = null; send(slot, null) }
     }
 
     /** A gamepad button's edge; whether it was one. */
@@ -38,38 +40,31 @@ class Pads(context: Context) : InputManager.InputDeviceListener {
         val button = BUTTONS[e.keyCode] ?: return false
         if (!isPad(e.deviceId) || (e.action != KeyEvent.ACTION_DOWN && e.action != KeyEvent.ACTION_UP)) return false
         if (e.repeatCount > 0) return true
-        val r = reading(e.deviceId) ?: return true
-        r[button] = if (e.action == KeyEvent.ACTION_DOWN) 1f else 0f
-        commit(e.deviceId, r)
+        val (slot, r) = reading(e.deviceId) ?: return true
+        if (r.key(button, e.action == KeyEvent.ACTION_DOWN)) send(slot, r)
         return true
     }
 
     /** A gamepad's or joystick's axes; whether they were its. */
     fun motion(e: MotionEvent): Boolean {
         if (e.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK || e.action != MotionEvent.ACTION_MOVE) return false
-        val r = reading(e.deviceId) ?: return true
-        r[17] = quantize(e.getAxisValue(MotionEvent.AXIS_X), -1f)
-        r[18] = quantize(e.getAxisValue(MotionEvent.AXIS_Y), -1f)
-        r[19] = quantize(e.getAxisValue(MotionEvent.AXIS_Z), -1f)
-        r[20] = quantize(e.getAxisValue(MotionEvent.AXIS_RZ), -1f)
-        // Triggers: some pads report LTRIGGER/RTRIGGER, others BRAKE/GAS.
-        r[6] = quantize(maxOf(e.getAxisValue(MotionEvent.AXIS_LTRIGGER), e.getAxisValue(MotionEvent.AXIS_BRAKE)), 0f)
-        r[7] = quantize(maxOf(e.getAxisValue(MotionEvent.AXIS_RTRIGGER), e.getAxisValue(MotionEvent.AXIS_GAS)), 0f)
-        // A hat is the d-pad.
-        val hx = e.getAxisValue(MotionEvent.AXIS_HAT_X); val hy = e.getAxisValue(MotionEvent.AXIS_HAT_Y)
-        if (hx != 0f || hy != 0f || HAT_SEEN.contains(e.deviceId)) {
-            HAT_SEEN.add(e.deviceId)
-            r[12] = if (hy < -0.5f) 1f else 0f; r[13] = if (hy > 0.5f) 1f else 0f
-            r[14] = if (hx < -0.5f) 1f else 0f; r[15] = if (hx > 0.5f) 1f else 0f
-        }
-        commit(e.deviceId, r)
+        val (slot, r) = reading(e.deviceId) ?: return true
+        val changed = r.motion(
+            e.getAxisValue(MotionEvent.AXIS_X), e.getAxisValue(MotionEvent.AXIS_Y),
+            e.getAxisValue(MotionEvent.AXIS_Z), e.getAxisValue(MotionEvent.AXIS_RZ),
+            // Triggers: some pads report LTRIGGER/RTRIGGER, others BRAKE/GAS.
+            maxOf(e.getAxisValue(MotionEvent.AXIS_LTRIGGER), e.getAxisValue(MotionEvent.AXIS_BRAKE)),
+            maxOf(e.getAxisValue(MotionEvent.AXIS_RTRIGGER), e.getAxisValue(MotionEvent.AXIS_GAS)),
+            e.getAxisValue(MotionEvent.AXIS_HAT_X), e.getAxisValue(MotionEvent.AXIS_HAT_Y),
+        )
+        if (changed) send(slot, r)
         return true
     }
 
     override fun onInputDeviceRemoved(deviceId: Int) {
         val slot = slots.indexOf(deviceId)
         if (slot < 0) return
-        slots[slot] = -1; sent[slot] = null
+        slots[slot] = -1; readings[slot] = null
         send(slot, null)
     }
     override fun onInputDeviceAdded(deviceId: Int) {}
@@ -81,30 +76,25 @@ class Pads(context: Context) : InputManager.InputDeviceListener {
             sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
     }
 
-    /** A copy of the device's last reading, taking it a slot if it has none; null when every slot is taken. */
-    private fun reading(id: Int): FloatArray? {
+    /** The device's slot and reading, taking it the lowest free slot if it has none; null when every slot is taken.
+     * The device's motion ranges say whether its triggers are analog ([PadReading]). */
+    private fun reading(id: Int): Pair<Int, PadReading>? {
         var slot = slots.indexOf(id)
         if (slot < 0) {
             slot = slots.indexOf(-1)
             if (slot < 0) return null
             slots[slot] = id
+            val device = InputDevice.getDevice(id)
+            val analog = listOf(MotionEvent.AXIS_LTRIGGER, MotionEvent.AXIS_BRAKE).any { device?.getMotionRange(it) != null }
+            readings[slot] = PadReading(analog)
         }
-        return sent[slot]?.copyOf() ?: FloatArray(21)
+        return slot to readings[slot]!!
     }
 
-    private fun commit(id: Int, r: FloatArray) {
-        val slot = slots.indexOf(id)
-        if (sent[slot]?.contentEquals(r) == true) return
-        sent[slot] = r
-        send(slot, r)
-    }
-
-    private fun send(slot: Int, r: FloatArray?) = Exact.pad(slot, r != null, r ?: FloatArray(21))
+    private fun send(slot: Int, r: PadReading?) = Exact.pad(slot, r != null, r?.values?.copyOf() ?: FloatArray(21))
 
     private companion object {
         const val MAX = 16
-        /** Devices that reported a hat: their d-pad is the hat, not keys. */
-        val HAT_SEEN = HashSet<Int>()
         /** Android's gamepad keys by standard index, as Chromium's Android mapping reads them. */
         val BUTTONS = mapOf(
             KeyEvent.KEYCODE_BUTTON_A to 0, KeyEvent.KEYCODE_BUTTON_B to 1,
@@ -117,7 +107,49 @@ class Pads(context: Context) : InputManager.InputDeviceListener {
             KeyEvent.KEYCODE_DPAD_LEFT to 14, KeyEvent.KEYCODE_DPAD_RIGHT to 15,
             KeyEvent.KEYCODE_BUTTON_MODE to 16,
         )
-        /** Values travel in 1/256 steps: exact in a float, and a stick's noise below that is no change. */
+    }
+}
+
+/**
+ * One pad's standard-mapping reading: [values] holds 17 buttons, then 4 axes, in 1/256 steps. The triggers have
+ * one owner: a pad with trigger axes ([analogTriggers]) reports their travel and ignores its L2/R2 keys; one
+ * without keeps the keys' state through every motion event. The d-pad is its keys until the pad reports a hat.
+ */
+internal class PadReading(private val analogTriggers: Boolean) {
+    val values = FloatArray(21)
+    private var hat = false
+
+    /** A button's edge; whether the reading changed. */
+    fun key(button: Int, down: Boolean): Boolean {
+        if ((button == 6 || button == 7) && analogTriggers) return false
+        return set(button, if (down) 1f else 0f)
+    }
+
+    /** One motion event's axes; whether the reading changed. */
+    fun motion(lx: Float, ly: Float, rx: Float, ry: Float, lt: Float, rt: Float, hatX: Float, hatY: Float): Boolean {
+        var changed = false
+        for ((i, v) in listOf(lx, ly, rx, ry).withIndex()) changed = set(17 + i, quantize(v, -1f)) || changed
+        if (analogTriggers) {
+            changed = set(6, quantize(lt, 0f)) || changed
+            changed = set(7, quantize(rt, 0f)) || changed
+        }
+        if (hatX != 0f || hatY != 0f) hat = true
+        if (hat) {
+            changed = set(12, if (hatY < -0.5f) 1f else 0f) || changed
+            changed = set(13, if (hatY > 0.5f) 1f else 0f) || changed
+            changed = set(14, if (hatX < -0.5f) 1f else 0f) || changed
+            changed = set(15, if (hatX > 0.5f) 1f else 0f) || changed
+        }
+        return changed
+    }
+
+    private fun set(i: Int, v: Float): Boolean {
+        if (values[i] == v) return false
+        values[i] = v
+        return true
+    }
+
+    private companion object {
         fun quantize(v: Float, low: Float) = (Math.round(v * 256f) / 256f).coerceIn(low, 1f) + 0f
     }
 }
