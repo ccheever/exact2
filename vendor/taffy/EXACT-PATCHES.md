@@ -1465,16 +1465,27 @@ eight normal-flow layouts, including the capped failure and the content-growth
 control. Its percentage heights and following sibling positions failed before
 the final stretch size became definite.
 
-`determine_used_cross_size` preserves the hypothetical size when its margin box
-already fills the line, then applies the item's bounds. Final definiteness
-compares margin-box sizes formed with the same addition, including after
-clamping. Subtracting a 200px margin from a 310.1px line must not turn a
-content-grown 110.1px item into a new percentage basis through rounding.
-Fourteen further Chrome 151 cases cover fractional contents, top, bottom,
-split and negative margins, padding, bounds and genuine stretch. Twelve frames
-failed before this correction. Taffy's
-`fractional_cross_margins_do_not_make_content_growth_a_stretch` checks ten
-layouts without rounding, including an item maximum that cancels stretching.
+`determine_used_cross_size` records whether stretching, after the item's bounds,
+changed its height, rounding the change to the nearest 1/64px layout unit. The
+absolute solver passes measured sizes back without their origin, so a local provenance flag
+cannot distinguish natural heights from constraints. Comparing layout units
+avoids treating margin, padding or border arithmetic as stretch. It also keeps
+the ratio basis when an item maximum cancels stretching. The earlier exact
+margin-box comparisons and special case preserving the hypothetical size are
+removed; this does not quantize layout geometry or change intrinsic measurement.
+
+Fourteen fractional-margin cases and 44 container cases, all measured in Chrome
+151.0.7922.34 on 2026-10-18, cover absolute and in-flow rows, padding, borders,
+box-sizing, nested containers, columns, bounds and stretch down to one layout
+unit. With 200px container padding and 60.1px content after the percentage child,
+the kernel gave that child 110.100006px instead of Chrome's 50px. The container
+cases had 22 failing frames before the layout-unit comparison.
+
+Taffy's `fractional_cross_margins_do_not_make_content_growth_a_stretch` checks ten
+layouts without pixel rounding. `container_insets_do_not_make_content_growth_a_stretch`
+checks sixteen more, including unit boundaries, one-unit changes and an unchanged
+subunit cap; six layouts failed before the correction. Both retain the ratio
+basis for content growth and use the final size for actual stretch.
 
 ## Cargo workspace boundary
 
