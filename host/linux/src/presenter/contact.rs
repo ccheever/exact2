@@ -73,6 +73,8 @@ pub(super) struct Contact {
     pan_velocity: VelocityTracker,
     retained: Option<super::retained_action::RetainedContact>,
     press: Option<(NodeKey, PaintedBox)>,
+    /// A mouse field's focus default was decided on down, even if prevented.
+    field_focus_on_down: bool,
     /// The canvas that owns this contact and sees its down, moves and up.
     canvas: Option<ViewId>,
 }
@@ -431,9 +433,39 @@ impl<D: DataSource> Presenter<D> {
             Ok(taken) => self.pointer_pressed(x, y, now_ms).map_or(Ok(taken), Err),
             Err(e) => Err(e),
         };
+        if result.is_ok() {
+            self.focus_field_on_down(now_ms);
+        }
         self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Down, x, y);
         result
+    }
+    fn focus_field_on_down(&mut self, now_ms: f64) {
+        if self.contact_is_direct() || self.menu.is_some() {
+            return;
+        }
+        // Authored pointerdown handlers have run and may have retired the contact.
+        let Some(contact) = self
+            .contact
+            .as_ref()
+            .filter(|c| c.canvas.is_none() && c.retained.is_none() && self.contact_live(c))
+        else {
+            return;
+        };
+        let Some(node) = self
+            .host
+            .kernel()
+            .node_by_key(contact.hit)
+            .filter(|n| n.node_type == NodeType::TextInput && !crate::fields::hosts(n))
+        else {
+            return;
+        };
+        let (hit, point) = (node.id, contact.origin);
+        self.contact.as_mut().unwrap().field_focus_on_down = true;
+        self.note_press(hit, false);
+        if !self.pointerdown_prevents_focus(hit) {
+            self.focus_for_press(hit, point, now_ms, false);
+        }
     }
     fn contact_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.pointer_sample(x, y, now_ms)?;
@@ -467,6 +499,7 @@ impl<D: DataSource> Presenter<D> {
                     group: false,
                     retained: Some(retained),
                     press: None,
+                    field_focus_on_down: false,
                     canvas: None,
                     panning: false,
                     pan_velocity: VelocityTracker::new(),
@@ -520,6 +553,7 @@ impl<D: DataSource> Presenter<D> {
                 pan_velocity: VelocityTracker::new(),
                 retained: None,
                 press: None,
+                field_focus_on_down: false,
                 canvas: Some(canvas),
             });
             return Ok(true);
@@ -559,6 +593,7 @@ impl<D: DataSource> Presenter<D> {
             pan_velocity,
             retained: None,
             press,
+            field_focus_on_down: false,
             canvas: None,
         });
         self.set_collection_interaction(Some(view));
@@ -949,7 +984,7 @@ impl<D: DataSource> Presenter<D> {
                     let hit = self.host.kernel().node_by_key(contact.hit).map(|n| n.id);
                     let hit = hit.unwrap_or(id);
                     self.note_press(hit, false);
-                    if !self.pointerdown_prevents_focus(hit) {
+                    if !contact.field_focus_on_down && !self.pointerdown_prevents_focus(hit) {
                         self.focus_for_press(hit, (x, y), now_ms, self.contact_is_direct());
                     }
                     self.activate(id, now_ms);
@@ -966,7 +1001,7 @@ impl<D: DataSource> Presenter<D> {
                         self.retained_press_target(target, now_ms);
                     }
                 } else {
-                    self.press_at(x, y, now_ms);
+                    self.press_at_with_focus(x, y, now_ms, !contact.field_focus_on_down);
                 }
             }
             Ok(false)

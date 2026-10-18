@@ -578,13 +578,23 @@ impl<D: DataSource> Presenter<D> {
 
     /// Pointer activation returns HUD button focus to its input canvas after press.
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
+        self.press_at_with_focus(x, y, now_ms, true)
+    }
+
+    pub(crate) fn press_at_with_focus(
+        &mut self,
+        x: f32,
+        y: f32,
+        now_ms: f64,
+        focus: bool,
+    ) -> Option<ViewId> {
         // An open select menu takes the press: a row, or light dismiss.
         if let Some(select) = self.menu_press(x, y) {
             return Some(select);
         }
         let hit = self.hit(x, y)?;
         self.note_press(hit, false);
-        let focus = !self.pointerdown_prevents_focus(hit);
+        let focus = focus && !self.pointerdown_prevents_focus(hit);
         // A popover's invoker, or a dialog's button: the top layer's, where
         // a shell presents one (`presenter/top.rs`); else refused.
         if let Some(invoker) = self.top_invoker(hit) {
