@@ -9,10 +9,10 @@
     "linux",
     "web"
   ],
-  "inputs": "6a4fd9e6fc067daf52dfb089d5ad17f88efe114a369236165bf52a59916d2c8c",
-  "sourceInputs": "0daf6f2b1794788cbb82f825312cc8eb1b6da60d5ee5a097e8cd420a14bb70aa",
+  "inputs": "0d20e9731c62f1639411d97a1e573a090672469fae3fc465a079175d2170fc69",
+  "sourceInputs": "375c405b859f57e59f46dff05c9547a378f407f796a2d11c2a6f5f103647e469",
   "game": "sprites-fixture",
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
-  "at": "db58966fb7a00f27713c34ba24b00d16ee58dbef",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear fields extend the hash stream"
+  "at": "888a7904529cd916cc394ec0ac1b0c1ba8d23d8d",
+  "reason": "07170a2db: saved Environment.tone_mapping (Aces) extends the world hash stream and simulation save; fog is None"
 }
