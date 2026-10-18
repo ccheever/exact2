@@ -222,8 +222,8 @@ package struct TextParagraphKey: Hashable {
 }
 
 private struct TextGeometryKey: Hashable {
-    package let token: TextIdentityToken
-    package let widthBits: UInt64
+    let token: TextIdentityToken
+    let widthBits: UInt64
 }
 
 package enum TextScalarKind: Hashable {
@@ -272,20 +272,20 @@ package final class TextShape {
 }
 
 private final class WeakTextIdentity {
-    package weak var value: TextIdentity?
-    package init(_ value: TextIdentity) { self.value = value }
+    weak var value: TextIdentity?
+    init(_ value: TextIdentity) { self.value = value }
 }
 
 private final class TextScalar {
-    package let identity: TextIdentity
-    package let metrics: ExactMetrics
-    package let minimum: CGFloat?
+    let identity: TextIdentity
+    let metrics: ExactMetrics
+    let minimum: CGFloat?
     /// What is left of a measured paragraph whose shaped form went (its
     /// `CTTypesetter` and `CTLine`s, a few kilobytes): where its lines break
     /// and their baselines. A worker rasters from these and paint lays its
     /// lines there, so the paragraph coming back is not typeset again.
-    package let lines: (ranges: [CFRange], baselines: [CGFloat])?
-    package init(_ identity: TextIdentity, _ metrics: ExactMetrics, minimum: CGFloat? = nil,
+    let lines: (ranges: [CFRange], baselines: [CGFloat])?
+    init(_ identity: TextIdentity, _ metrics: ExactMetrics, minimum: CGFloat? = nil,
          lines: (ranges: [CFRange], baselines: [CGFloat])? = nil) {
         self.identity = identity; self.metrics = metrics; self.minimum = minimum; self.lines = lines
     }
@@ -301,17 +301,17 @@ private enum TextValue {
     case paragraph(Paragraph)
     case shape(TextShape)
     case scalar(TextScalar)
-    package var object: AnyObject {
+    var object: AnyObject {
         switch self { case .paragraph(let p): return p; case .shape(let s): return s; case .scalar(let s): return s }
     }
-    package var identity: TextIdentity {
+    var identity: TextIdentity {
         switch self {
         case .paragraph(let p): return p.shape!.identity
         case .shape(let s): return s.identity
         case .scalar(let s): return s.identity
         }
     }
-    package var shape: TextShape? {
+    var shape: TextShape? {
         switch self { case .paragraph(let p): return p.shape; case .shape(let s): return s; case .scalar: return nil }
     }
 }

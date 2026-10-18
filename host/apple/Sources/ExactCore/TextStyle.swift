@@ -13,7 +13,7 @@ package enum TextStyle {
         default: return rtl ? 2 : 0
         }
     }
-    package static func run(_ text: String, style: NodeStyle, defaultSize: Double = 16) -> Run {
+    package static func run(_ text: String, style: NodeStyle, defaultSize: Double = Double(SessionFacts.defaultRootFontSize)) -> Run {
         let size = Float(style["font_size"]?.number ?? defaultSize)
         let height: CGFloat?
         if let ratio = style["line_height"]?.number { height = CGFloat(Float(ratio) * size) }

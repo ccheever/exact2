@@ -195,3 +195,36 @@ pub(super) fn sampler(wall: LiveClockFn) -> Box<dyn FnMut() -> f64> {
 #[cfg(test)]
 #[path = "live_clock_tests.rs"]
 mod live_clock_tests;
+
+impl<D: DataSource> Bridge<D> {
+    /// The root font size in points (LLP 1069.000 D3): a relayout.
+    pub fn set_root_font_size(&mut self, px: f64) -> u32 {
+        if self.host.is_none() {
+            if !px.is_finite() || !(px as f32).is_finite() || px <= 0.0 {
+                return self.refuse("root font size must be finite and positive");
+            }
+            self.launch_layout.root_font_size = Some(px as f32);
+        }
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_root_font_size(px));
+        self.emit(out)
+    }
+
+    /// The display's scale (LLP 1115.000 D10.3): a relayout where a row is a
+    /// hairline.
+    pub fn set_display_scale(&mut self, scale: f64) -> u32 {
+        if self.host.is_none() {
+            if !scale.is_finite() || !(scale as f32).is_finite() || scale <= 0.0 {
+                return self.refuse("display scale must be finite and positive");
+            }
+            self.launch_layout.display_scale = Some(scale as f32);
+        }
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_display_scale(scale));
+        self.emit(out)
+    }
+}

@@ -1,17 +1,10 @@
-// Text: CoreText, one engine for measuring and painting (LLP 1008 §3; the
-// lesson of exact1's LLP 0418/0430 — TextKit is ~5× slower per wrap, and
-// measuring with one engine while painting with another is a correctness
-// tax). A Paragraph is a width-specific snapshot: the wrapped CTLines, their
-// baselines, and the size — the object that answers the kernel's measure
-// and the object `draw` paints, cached by (spec, width). Fonts are cached.
-//
-// One `TextEngine` per session (LLP 1031 D12): the plan's catalog (stack id
-// → faces) and both caches are the session's, since two plans number their
-// stacks independently and a second session's install must not wipe the
-// first's. What is process-wide by platform — CoreText's file registration
-// — is `FontRegistry`, registered once per URL and never unregistered.
-// Shared by the AppKit and UIKit presenters: the two differ only in the
-// font and color classes, and the same CoreText answers the kernel on both.
+// Core Text measurement, shaping and paragraph geometry shared by headless
+// and presented sessions (LLP 1126 D8, LLP 1008 §3). ExactKit paints these same
+// CTLines; it supplies paint attributes, controls and Markdown through
+// TextPresentation. The ink index and ellipsized lines remain here because
+// they are geometry over shaped text, with no drawing or platform view API.
+// Each session owns its font catalog and caches (LLP 1031 D12); process-wide
+// Core Text file registration belongs to FontRegistry.
 #if canImport(UIKit)
 import UIKit
 package typealias PlatformFont = UIFont
@@ -1240,8 +1233,14 @@ package final class TextEngine {
     /// The kernel's measurer for one request: called for every paragraph
     /// it lays out. The paragraph wrapped to answer is the one the presenter
     /// paints.
+    package var requiresMarkdownExpansion = false
+    package var refusedMarkdown: UInt32?
     package func measure(_ request: ExactMeasureRequest) -> ExactMetrics {
         measureCount += 1
+        if requiresMarkdownExpansion, request.markup != 0, presentation == nil {
+            refusedMarkdown = request.view
+            return ExactMetrics(width: 0, height: 0, baseline: -1)
+        }
         if let pending = presentation?.measure(self, request) { return pending }
         let lookupStarted = ProcessInfo.processInfo.systemUptime
         let intrinsic = request.width < 0
@@ -1324,7 +1323,8 @@ package final class TextEngine {
         // Markdown source arrives as one run; the archive expands it the
         // same way the presenter paints it (LLP 1045 D3).
         if request.markup != 0, let source = runs.first {
-            runs = presentation?.markdown(self, source: source) ?? runs
+            if let expanded = presentation?.markdown(self, source: source) { runs = expanded }
+            else if requiresMarkdownExpansion { refusedMarkdown = request.view; runs = [] }
         }
         // Metric-only keys match the geometry used by the colored presenter.
         var made = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))

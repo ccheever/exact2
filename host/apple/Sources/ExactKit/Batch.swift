@@ -64,13 +64,6 @@ extension BatchValue {
         "srgb-linear": CGColorSpace.extendedLinearSRGB]
 }
 
-extension BatchOp {
-    var flat: FlatPaint? {
-        get { preparedPaint as? FlatPaint }
-        set { preparedPaint = newValue }
-    }
-}
-
 extension Batch {
     static func decode(_ data: Data, resolver: AssetResolver? = nil) -> Batch {
         data.withUnsafeBytes { decode($0.bindMemory(to: UInt8.self), resolver: resolver) }

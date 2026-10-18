@@ -74,6 +74,21 @@ public struct Batch {
 
 }
 
+/// Immutable composition services, installed before the runtime can serve a turn.
+package struct RuntimeHooks {
+    package let decodeBatch: (UnsafeBufferPointer<UInt8>, AssetResolver?) -> Batch
+    package let prepareBatch: ((inout Batch) -> Void)?
+    package let symbolMeasure: ExactSymbolFn?
+    package let prewarmIslands: ((UInt8) -> Void)?
+    package init(decodeBatch: @escaping (UnsafeBufferPointer<UInt8>, AssetResolver?) -> Batch,
+                 prepareBatch: ((inout Batch) -> Void)? = nil, symbolMeasure: ExactSymbolFn? = nil,
+                 prewarmIslands: ((UInt8) -> Void)? = nil) {
+        self.decodeBatch = decodeBatch; self.prepareBatch = prepareBatch
+        self.symbolMeasure = symbolMeasure; self.prewarmIslands = prewarmIslands
+    }
+    package static let headless = RuntimeHooks(decodeBatch: { Batch.decodeWire($0, resolver: $1) })
+}
+
 /// A runtime handle and its calls. `destroy` is idempotent at this layer and
 /// one-shot at the C boundary; a call after it is refused by the library by
 /// name, never a trap.
@@ -88,11 +103,9 @@ package final class Runtime {
     package var observeBatch: ((Data, Batch) -> Void)?
     #endif
 
-    package var prepareBatch: ((inout Batch) -> Void)?
-    package var prewarmIslands: ((UInt8) -> Void)?
-    package var symbolMeasure: ExactSymbolFn?
-    package var decodeBatch: (UnsafeBufferPointer<UInt8>, AssetResolver?) -> Batch = { Batch.decodeWire($0, resolver: $1) }
-    package init(headless: Void) {
+    private let hooks: RuntimeHooks
+    package init(hooks: RuntimeHooks = .headless) {
+        self.hooks = hooks
         rt = Owner.shared.sync { exact_create() }
     }
 
@@ -138,7 +151,7 @@ package final class Runtime {
             exact_set_measure(rt, measure, UnsafeMutableRawPointer(bitPattern: ctx))
             exact_set_lines(rt, measure == nil ? nil : TextEngine.linesText)
             // A system symbol's box, measured before layout as a paragraph's is
-            exact_set_symbol_measure(rt, measure == nil ? nil : symbolMeasure)
+            exact_set_symbol_measure(rt, measure == nil ? nil : hooks.symbolMeasure)
         }
     }
     /// The plan-font hook a boot calls synchronously, with its context.
@@ -153,7 +166,7 @@ package final class Runtime {
     }
     /// This binary's baked `compat.json`, read on a throwaway runtime.
     package static func bakedCompat() -> Data {
-        let runtime = Runtime(headless: ())
+        let runtime = Runtime(hooks: .headless)
         defer { runtime.destroy() }
         return runtime.on(busy: Data()) {
             let length = exact_baked_compat(runtime.rt)
@@ -168,12 +181,12 @@ package final class Runtime {
         // The runtime owns these bytes until its next call. The reader copies
         // strings into Swift values before returning; no batch borrows the buffer.
         let bytes = UnsafeBufferPointer(start: exact_out(rt), count: Int(len))
-        var batch = decodeBatch(bytes, profileResolver)
+        var batch = hooks.decodeBatch(bytes, profileResolver)
         #if DEBUG
         // What was decoded, before `prepare` adds the owner's values.
         observeBatch?(Data(bytes), batch)
         #endif
-        prepareBatch?(&batch)
+        hooks.prepareBatch?(&batch)
         return batch
     }
     /// A payload into the runtime's input buffer; its length. An empty
@@ -206,7 +219,7 @@ package final class Runtime {
     /// picture is drawn in the commit that shows it.
     private func islands(_ batch: Batch) -> Batch {
         let svg = on(busy: UInt8(0)) { exact_svg_islands(rt) }
-        prewarmIslands?(svg)
+        hooks.prewarmIslands?(svg)
         return batch
     }
     /// Boot from plan bytes (the dev loop's restart; LLP 1007 §6): state

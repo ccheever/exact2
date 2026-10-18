@@ -2,9 +2,9 @@ import CExact
 import CoreGraphics
 
 /// A style owns its environment snapshot; resizing must not grow a global cache.
-package final class CalculatedLength: Equatable {
-    package let handle: UInt32
-    package let environment: [Double]
+public final class CalculatedLength: Equatable {
+    public let handle: UInt32
+    public let environment: [Double]
     private let context: UnsafeMutableRawPointer
 
     package init?(_ object: [String: BatchValue]) {
@@ -26,8 +26,8 @@ package final class CalculatedLength: Equatable {
         return resolved
     }
     deinit { exact_calc_destroy(context) }
-    package func length(basis: CGFloat) -> CGFloat { CGFloat(exact_calc_resolve(context, Double(basis))) }
-    package static func == (a: CalculatedLength, b: CalculatedLength) -> Bool {
+    public func length(basis: CGFloat) -> CGFloat { CGFloat(exact_calc_resolve(context, Double(basis))) }
+    public static func == (a: CalculatedLength, b: CalculatedLength) -> Bool {
         a === b || (a.handle == b.handle && a.environment == b.environment)
     }
     package var value: BatchValue {

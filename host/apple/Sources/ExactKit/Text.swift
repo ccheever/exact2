@@ -59,7 +59,6 @@ final class PresentedText: TextPresentation {
             a[.strokeColor] = TextEngine.color(Array(st[1...]))
         }
         if let sh = r.shadow, TextEngine.isShadow(sh) { a[.exactShadow] = TextRunShadow(sh) }
-        if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
         if r.underlined { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
         if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
         if !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
