@@ -270,8 +270,8 @@ function measure() {
         chain = depth + 1;
       } else if (text === 'children') {
         if (fill) block(fill.lines, fill.file, depth, fill.env, fill.fill);
-      } else if (text === '::placeholder') {
-        // A field's `::placeholder` part: its declarations are the field's own values, at the field's site.
+      } else if (/^::?[a-z][\w-]*$/.test(text)) {
+        // Inline pseudo styles compile their declarations at the owning view's site.
         for (const line of body) site(depth, exprs(line.at, () => lineExprs(`part ${line.text}`)), env, line.at);
       } else if (/^[A-Z]/.test(text)) {
         const name = /^\w+/.exec(text)![0];
