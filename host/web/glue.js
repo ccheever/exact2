@@ -780,7 +780,7 @@ function apply(batch) {
           else try { el.showPicker(); } catch (e) { log(`picker: refused: ${e.name}`); const p = picker().then(m => m.cancel(Number(el.dataset.view))); inflight.add(p); p.finally(() => inflight.delete(p)); }
         }
         else if (op.name === "fastSeek" || op.name === "load") { const el = [...views.values()].find(el => el.id === op.args?.[0]), queue = () => ((el.exactMedia ??= { props: {}, handlers: [] }).commands ??= []).push([op.name, op.args?.[1]]); if (!(el instanceof HTMLMediaElement)) log(`${op.name} "${op.args?.[0]}" refused: ${el ? "not a video or audio" : "no live node with that id"}`); else if (op.name === "load" && el["exactApp-src"]) appSource(el, "src", el["exactApp-src"], queue); else { queue(); syncMedia(el); } } // a media element's, by HTML's method names (podcast F8, F18): queued for media-glue.js `run`; a `load` of an `app:/` source resolves the file again first
-        else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (markupModule) markupModule.then(run); else run(); }
+        else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (editorModules.markup) editorModules.markup.then(run); else run(); }
         else if (op.name === "openURL") {
           if (op.args?.length !== 1 || typeof op.args[0] !== "string") console.error("exact: openURL requires one string");
           else try { const target = navigableURL(new URL(op.args[0]).href); if (!target) throw Error("unsupported external URL scheme"); window.open(target, "_blank", "noopener,noreferrer"); } catch (error) { console.error("exact: openURL refused", String(error)); }
@@ -1191,7 +1191,7 @@ function agentReply(request) {
 // @ref LLP 1043.000 §3 D7/D8 — reads keep the last settled facts (LLP 1012).
 // Await flow only when requested; ordinary agent calls retain their return types.
 async function agentSettled(request) {
-  const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (markupModule) await markupModule;
+  const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; await Promise.all(Object.values(editorModules));
   if (flowLoading) await flowLoading;
   if (textflow) await textflow.settle();
   return agent(request);
