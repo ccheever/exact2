@@ -29,54 +29,50 @@ indirect enum ColorRow: Equatable {
     struct Wide: Equatable {
         let space: String
         let components: [Double]
-        init?(_ value: Any?) {
-            guard let half = value as? [String: Any], let space = half["s"] as? String,
-                  let v = (half["v"] as? [Any])?.compactMap({ ($0 as? NSNumber)?.doubleValue }), v.count == 4 else { return nil }
+        init?(_ value: BatchValue) {
+            guard case .object(let half) = value, let space = half["s"]?.string, let v = half["v"]?.numbers, v.count == 4 else { return nil }
             self.space = space; components = v
         }
     }
 
-    init?(_ value: Any?) {
-        if let object = value as? [String: Any] {
-            if let name = object["sys"] as? String { self = .platform(name: name, fallback: ColorRow(object["c"])) }
-            else if let halves = object["cs"] as? [Any], !halves.isEmpty {
+    init?(_ value: BatchValue?) {
+        switch value {
+        case .object(let object)?:
+            if let name = object["sys"]?.string { self = .platform(name: name, fallback: ColorRow(object["c"])) }
+            else if let halves = object["cs"]?.array, !halves.isEmpty {
                 self = .wide(light: Wide(halves[0]), dark: halves.count > 1 ? Wide(halves[1]) : nil, fallback: ColorRow(object["c"]))
             } else { return nil }
-            return
+        case .array(let array)?:
+            if array.count == 2, let light = array[0].numbers, let dark = array[1].numbers, light.count == 4, dark.count == 4 {
+                self = .pair(light: light, dark: dark)
+            } else if let c = value?.numbers, c.count == 4 {
+                self = .channels(c)
+            } else { return nil }
+        default: return nil
         }
-        guard let array = value as? [Any] else { return nil }
-        let numbers = { (list: [Any]) -> [Double]? in
-            let c = list.compactMap { ($0 as? NSNumber)?.doubleValue }
-            return c.count == 4 ? c : nil
-        }
-        if array.count == 2, let light = (array[0] as? [Any]).flatMap(numbers), let dark = (array[1] as? [Any]).flatMap(numbers) {
-            self = .pair(light: light, dark: dark)
-        } else if let c = numbers(array) {
-            self = .channels(c)
-        } else { return nil }
     }
 }
 
-/// A node's style rows, read here alone.
+/// A node's style rows (`NodeStyle`, the batch's typed values), read here alone.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotStyle {
-    private let rows: [String: Any]
+    private let rows: NodeStyle
     init(_ node: HeadlessSession.Node) { rows = node.style }
 
     func has(_ key: String) -> Bool { rows[key] != nil }
-    func number(_ key: String) -> CGFloat? { (rows[key] as? NSNumber).map { CGFloat($0.doubleValue) } }
-    func string(_ key: String) -> String? { rows[key] as? String }
-    /// Points, or a percentage against a basis (`{"px", "pct"}`); a
-    /// calculation is refused by the profile.
+    func number(_ key: String) -> CGFloat? { rows[key]?.number.map { CGFloat($0) } }
+    func string(_ key: String) -> String? { rows[key]?.string }
+    /// Points, or a percentage against a basis; a calculation is refused by
+    /// the profile and reads as none.
     func length(_ key: String, basis: CGFloat) -> CGFloat? {
-        if let n = number(key) { return n }
-        guard let object = rows[key] as? [String: Any], object["calc"] == nil else { return nil }
-        return CGFloat((object["pct"] as? NSNumber)?.doubleValue ?? 0) * basis / 100 + CGFloat((object["px"] as? NSNumber)?.doubleValue ?? 0)
+        guard let value = rows[key] else { return nil }
+        if case .calculation = value { return nil }
+        return value.length(basis: basis)
     }
     func color(_ key: String) -> ColorRow? { ColorRow(rows[key]) }
     /// A `background-image`'s layers, the first on top.
     func gradients(_ key: String) -> [GradientRow] {
-        if let list = rows[key] as? [Any] { return list.compactMap(GradientRow.init) }
+        if let list = rows[key]?.array { return list.compactMap(GradientRow.init) }
         return GradientRow(rows[key]).map { [$0] } ?? []
     }
     /// CSS `clip-path`, as the kernel validated it: its fill rule and path commands.
@@ -235,12 +231,12 @@ struct ClipPathRow: Shape {
     let evenOdd: Bool
     let commands: [(String, [CGFloat])]
 
-    init?(_ value: Any?) {
-        guard let object = value as? [String: Any], let list = object["commands"] as? [Any], !list.isEmpty else { return nil }
-        evenOdd = object["rule"] as? String == "evenodd"
+    init?(_ value: BatchValue?) {
+        guard case .object(let object)? = value, let list = object["commands"]?.array, !list.isEmpty else { return nil }
+        evenOdd = object["rule"]?.string == "evenodd"
         commands = list.compactMap { command in
-            guard let pair = command as? [Any], let kind = pair.first as? String else { return nil }
-            return (kind, (pair.last as? [Any])?.compactMap { ($0 as? NSNumber).map { CGFloat($0.doubleValue) } } ?? [])
+            guard let pair = command.array, let kind = pair.first?.string else { return nil }
+            return (kind, (pair.last?.numbers ?? []).map { CGFloat($0) })
         }
     }
 

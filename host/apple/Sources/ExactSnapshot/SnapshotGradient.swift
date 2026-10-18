@@ -29,24 +29,24 @@ struct GradientRow {
     /// From the kernel, for a `css` gradient it resolved.
     let resolved: Placement?
 
-    init?(_ value: Any?) {
-        guard let object = value as? [String: Any] else { return nil }
-        if let css = object["css"] as? String {
+    init?(_ value: BatchValue?) {
+        guard case .object(let object)? = value else { return nil }
+        if let css = object["css"]?.string {
             guard !css.isEmpty else { return nil }
             self.css = css; light = []; dark = nil; lightLinear = false; darkLinear = false; shape = .angle(180); resolved = nil
             return
         }
-        let numbers = { (key: String) -> [CGFloat]? in (object[key] as? [Any])?.compactMap { ($0 as? NSNumber).map { CGFloat($0.doubleValue) } } }
+        let numbers = { (key: String) -> [CGFloat]? in object[key]?.numbers?.map { CGFloat($0) } }
         guard let light = numbers("stops"), light.count >= 10, light.count % 5 == 0 else { return nil }
         css = nil
         self.light = light
         dark = numbers("dark")
-        lightLinear = object["space"] as? String == "srgb-linear"
-        darkLinear = object["darkSpace"] as? String == "srgb-linear"
+        lightLinear = object["space"]?.string == "srgb-linear"
+        darkLinear = object["darkSpace"]?.string == "srgb-linear"
         if let p = numbers("line"), p.count == 4 { resolved = .axial(CGPoint(x: p[0], y: p[1]), CGPoint(x: p[2], y: p[3])) }
         else if let p = numbers("ellipse"), p.count == 4 { resolved = .radial(CGPoint(x: p[0], y: p[1]), CGSize(width: p[2], height: p[3])) }
         else { resolved = nil }
-        if let degrees = (object["linear"] as? NSNumber).map({ CGFloat($0.doubleValue) }) { shape = .angle(degrees) }
+        if let degrees = object["linear"]?.number { shape = .angle(CGFloat(degrees)) }
         else if let c = numbers("corner"), c.count == 2 { shape = .corner(right: c[0] != 0, bottom: c[1] != 0) }
         else if let r = numbers("radial"), r.count == 6 { shape = .radial(circle: r[0] != 0, extent: Int(r[1]), at: Array(r[2...])) }
         else { return nil }
@@ -78,7 +78,7 @@ struct GradientRow {
             _ = exact_gradient(input, input.count, w, h, dark ? 1 : 0, &bytes, n)
             return bytes.withUnsafeBufferPointer { buffer -> GradientRow? in
                 var reader = BatchReader(bytes: buffer)
-                return (try? reader.value()).flatMap { GradientRow($0.any) }
+                return (try? reader.value()).flatMap { GradientRow($0) }
             }
         }
     }

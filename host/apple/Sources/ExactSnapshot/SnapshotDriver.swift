@@ -99,7 +99,7 @@ public enum SnapshotDriver {
         guard !environment.placeholder else { return nil }
         var stack = Array(snapshot.roots.reversed())
         while let id = stack.popLast() {
-            guard let node = snapshot.nodes[id], node.style["display"] as? String != "none" else { continue }
+            guard let node = snapshot.nodes[id], node.style["display"]?.string != "none" else { continue }
             if let url = SnapshotLinks.url(node.props["href"], base: environment.linkBase) { return url }
             stack.append(contentsOf: node.children.reversed())
         }
