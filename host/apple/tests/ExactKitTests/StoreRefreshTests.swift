@@ -42,10 +42,12 @@ final class StoreRefreshTests: XCTestCase {
         let readers = (0..<2).map { app.makeSession(label: "store-reader-\($0)") }
         let writer = app.makeSession(label: "store-writer")
         defer { (readers + [writer]).forEach { $0.destroy() } }
+        let booting = ExactEnv.wall()
         for session in readers + [writer] {
             XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 300, height: 400)).error)
             session.apply(session.runtime.dataReady())
         }
+        let booted = ExactEnv.wall()
         app.sharedStore.firstPixel()
         func text(_ session: ExactSession, _ value: String) -> Bool {
             #if os(macOS)
@@ -112,7 +114,10 @@ final class StoreRefreshTests: XCTestCase {
         XCTAssertTrue((readers + [writer]).allSatisfy { text($0, "Not a favourite") && text($0, "Marked") })
 
         setenv("EXACT_WIDGET_WRITER", "", 1)
-        XCTAssertEqual(readers[0].timerDue, 10000)
+        // Due 10 s after its window booted, however long the process ran
+        // before: a boot starts on the live clock, not at its zero.
+        let due = try XCTUnwrap(readers[0].timerDue, "the short task's timer is armed")
+        XCTAssertTrue((booting + 10000...booted + 10000).contains(due), "due \(due), booted between \(booting) and \(booted)")
         try tap(writer, "wait")
         try Data(String(peerCounter + 2).utf8).write(to: counter, options: .atomic)
         var timerBatch: Batch?

@@ -331,6 +331,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             utc_offset,
         }),
         place: Some(place.clone()),
+        clock: None,
     };
     let dev_url = config.dev_url.clone();
     let hatches = config.hatches;
