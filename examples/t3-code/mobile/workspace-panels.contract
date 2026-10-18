@@ -3,6 +3,7 @@
 use MobileWorkspace from "./mobile-workspace.contract"
 use HomeView, HomeChromeView, Theme, MobileLayout from "./app-shapes.contract"
 use Home, HomeColors from "./home.contract"
+use SettingsTextRole from "./settings.contract"
 use HomeChrome from "./home-chrome.contract"
 use InspectorState, InspectorPresentation, MobileInspectorContent from "./workspace-inspector.contract"
 use GitColors from "./git-overview.contract"
@@ -30,7 +31,7 @@ component MobileSidebarPanel
         header
           text "T3 Code" role="heading" aria-level=2
         if workspace.sidebarMounted
-          Home(routeId=routeId, active=workspace.sidebarVisible, refreshAt=sidebarHome.nextSwipeRefreshAt, epochAtZero=homeEpochAtZero, refreshClock=refreshHomeClock, reducedMotion=reducedMotion, listId="sidebar-list", items=sidebarHome.items, emptyTitle=sidebarHome.emptyTitle, emptyDetail=sidebarHome.emptyDetail, loading=sidebarHome.loading, addEnvironment=sidebarHome.addEnvironment, fullPageEmpty=sidebarHome.fullPageEmpty, liquidGlass=false, windowHeight=0, safeTop=0, bottomClearance=sidebarChrome.bottomClearance, emptyClearance=sidebarChrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMoreSidebar, addConnection=addEnvironment, colors=homeLook)
+          Home(routeId=routeId, active=workspace.sidebarVisible, refreshAt=sidebarHome.nextSwipeRefreshAt, epochAtZero=homeEpochAtZero, refreshClock=refreshHomeClock, reducedMotion=reducedMotion, listId="sidebar-list", items=sidebarHome.items, emptyTitle=sidebarHome.emptyTitle, emptyDetail=sidebarHome.emptyDetail, emptyTitleRole=SettingsTextRole(size=18, line=23), emptyDetailRole=SettingsTextRole(size=14, line=19), loading=sidebarHome.loading, addEnvironment=sidebarHome.addEnvironment, fullPageEmpty=sidebarHome.fullPageEmpty, liquidGlass=false, windowHeight=0, safeTop=0, bottomClearance=sidebarChrome.bottomClearance, emptyClearance=sidebarChrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMoreSidebar, addConnection=addEnvironment, colors=homeLook)
           HomeChrome(routeKey=workspace.sidebarRouteKey, configuration=sidebarChrome.configuration, event=sidebarChromeEvent, height=0)
 component MobileInspectorPanel
   props
