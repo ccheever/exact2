@@ -1040,3 +1040,152 @@ test('a new environment selection cannot refresh the previous prepared sources w
   fixture.calls.length=0;await mobileAutomationCommand('usage-refresh','','','',now+60_000,fixture.native);
   expect(fixture.calls.some(call=>call.method==='server.refreshProviders'||call.method==='server.refreshUsageRates'||call.method==='server.getUsageSummary')).toBe(false);
 });
+
+function creditFixture(){
+  const fixture=transport(),entry=`credit-entry-${fixture.id}`,key=`${fixture.id}:one`;
+  let confirmed=true,confirmHook:(()=>Promise<void>)|null=null;
+  const native:Native={...fixture.native,async later(input){
+    if(obj(input).op==='mobileScheduledConfirm'){
+      fixture.calls.push(obj(input));await confirmHook?.();return {ok:true,generation:mobileClient.generation,value:{confirmed}};
+    }
+    return fixture.native.later(input);
+  }};
+  const prepare=()=>prepareEmailAccount(native,key,entry);
+  const confirm=()=>answer('automationConfirmCredit',[fixture.id,key,entry],undefined,undefined,native);
+  const consume=(token:string,owner=entry)=>answer('automationCommand',['usage-redeem-confirmed',fixture.id,key,token,now,owner],undefined,undefined,native);
+  const snapshot=(token='',pending=false,confirmation=false,receipt:unknown={},preparing=false,failed=false)=>answer('automationSnapshot',[receipt,pending,token,confirmation,preparing,failed]);
+  return {...fixture,native,entry,key,prepare,confirm,consume,snapshot,cancel:()=>{confirmed=false;},holdConfirmation:(hook:(()=>Promise<void>)|null)=>{confirmHook=hook;}};
+}
+test('credit confirmation is separate from consume, rejects duplicates and publishes owned Using before consume begins',async()=>{
+  const f=creditFixture();await f.prepare();const gate=refreshBarrier();f.holdConfirmation(()=>gate.wait());
+  const confirming=f.confirm();await gate.entered;
+  try{
+    expect([f.snapshot('',false,true).account.creditBusy,f.snapshot('',false,true).account.creditUsing]).toEqual([true,false]);
+    expect((await f.confirm()).confirmed).toBe(false);expect(f.calls.filter(call=>call.op==='mobileScheduledConfirm')).toHaveLength(1);
+    expect(f.calls.some(call=>call.method==='provider.consumeResetCredit')).toBe(false);
+  }finally{gate.release();await confirming.catch(()=>{});}
+  const confirmation=await confirming;expect(confirmation.confirmed).toBe(true);expect(confirmation.requestRoute).toBe(f.entry);
+  expect([f.snapshot(confirmation.token,true).account.creditBusy,f.snapshot(confirmation.token,true).account.creditUsing]).toEqual([true,true]);
+  expect(f.snapshot('unrelated-token',true).account.creditUsing).toBe(false);
+  const write=refreshBarrier();f.intercept(async request=>{if(request.method==='provider.consumeResetCredit')await write.wait();});
+  const consuming=f.consume(confirmation.token);await write.entered;
+  try{expect((await f.consume(confirmation.token)).refresh).toBe(false);expect((await f.confirm()).confirmed).toBe(false);}
+  finally{write.release();await consuming.catch(()=>{});}
+  const result=await consuming;expect([result.message,result.refresh]).toEqual(['',true]);
+  expect(f.snapshot().account.creditStatus).toBe('No reset credit left.');expect(f.snapshot().account.creditUsing).toBe(false);
+  expect(f.calls.filter(call=>call.method==='provider.consumeResetCredit')).toHaveLength(1);
+  expect((await f.consume(confirmation.token)).refresh).toBe(false);expect(f.calls.filter(call=>call.method==='provider.consumeResetCredit')).toHaveLength(1);
+});
+test('cancelled confirmation preserves the prior inline result and requests no read or provider write',async()=>{
+  const f=creditFixture();await f.prepare();const first=await f.confirm();await f.consume(first.token);
+  const status=f.snapshot().account.creditStatus,before=f.calls.length;f.cancel();
+  const gate=refreshBarrier();f.holdConfirmation(()=>gate.wait());const pending=f.confirm();await gate.entered;
+  try{expect(f.snapshot('',false,true).account.creditStatus).toBe(status);expect(f.snapshot('',false,true).account.creditUsing).toBe(false);}
+  finally{gate.release();await pending.catch(()=>{});}
+  const cancelled=await pending;expect([cancelled.confirmed,cancelled.token]).toEqual([false,'']);
+  expect(f.snapshot().account.creditStatus).toBe(status);expect(f.calls.slice(before).map(call=>call.op)).toEqual(['mobileScheduledConfirm']);
+});
+test('confirmation admission refuses a denied account and stale entry, key or environment without opening UIKit',async()=>{
+  const f=creditFixture();f.permissions.splice(f.permissions.indexOf('providers:manage'),1);await f.prepare();
+  expect((await f.confirm()).confirmed).toBe(false);expect(f.calls.some(call=>call.op==='mobileScheduledConfirm')).toBe(false);
+  f.permissions.push('providers:manage');await f.prepare();
+  for(const args of [[f.id,f.key,'obsolete-entry'],[f.id,'other-key',f.entry],['other-environment',f.key,f.entry]])
+    expect((await answer('automationConfirmCredit',args,undefined,undefined,f.native)).confirmed).toBe(false);
+  expect(f.calls.some(call=>call.op==='mobileScheduledConfirm')).toBe(false);
+});
+test('changed displayed credit and revoked permission before write settle inline once without consuming',async()=>{
+  for(const changed of ['credit','permission']){
+    const f=creditFixture();await f.prepare();const confirmation=await f.confirm();
+    if(changed==='credit')mobileClient.config={...mobileClient.config,usageLimitSources:[{id:'hub',label:'Hub',accounts:[{id:'one',driver:'codex',email:'a@example.test',usageLimits:{...limits,resetCredits:{availableCount:2,nextCreditId:'different'}}}]}]};
+    else f.permissions.splice(f.permissions.indexOf('providers:manage'),1);
+    const result=await f.consume(confirmation.token);expect([result.message,result.refresh]).toEqual(['',true]);
+    expect(f.snapshot().account.creditStatus).toContain(changed==='credit'?'changed':'permission');
+    expect(f.calls.some(call=>call.method==='provider.consumeResetCredit')).toBe(false);
+  }
+});
+test('credit authorization guard refuses a replaced same-key visit after an awaited real auth read',async()=>{
+  const f=creditFixture();await f.prepare();const confirmation=await f.confirm(),gate=refreshBarrier();let held=false;
+  f.intercept(async request=>{if(request.op==='http'&&!held){held=true;await gate.wait();}});
+  const old=f.consume(confirmation.token);await gate.entered;
+  try{await prepareEmailAccount(f.native,f.key,'credit-successor',[f.entry,'credit-successor']);}
+  finally{gate.release();await old.catch(()=>{});}
+  expect((await old).refresh).toBe(false);expect(f.calls.some(call=>call.method==='provider.consumeResetCredit')).toBe(false);
+  expect(f.snapshot().account.creditStatus).toBe('');expect(f.snapshot().account.creditBusy).toBe(false);
+});
+test('stale confirmation cannot hand off after same-key visit, scope, window or selection changes',async()=>{
+  for(const change of ['entry','scope','window','selection']){
+    const f=creditFixture();await f.prepare();const gate=refreshBarrier();f.holdConfirmation(()=>gate.wait());const old=f.confirm().catch(cause=>cause);await gate.entered;
+    try{
+      if(change==='selection')await answer('automationCommand',['usage-environments','','','',now,f.entry],undefined,undefined,{...f.native,async later(input){if(obj(input).op==='mobileScheduledMenu')return {ok:true,generation:mobileClient.generation,value:{choice:JSON.stringify(['environment',f.id])}};return f.native.later(input);}});
+      else await answer('automationPrepare',['settingsUsageAccount',change==='scope'?'["another"]':'{}',f.key,change==='window'?'missing':'primary','session',now,0,0,change==='entry'||change==='window'?'credit-new-entry':f.entry,[f.entry,'credit-new-entry'].join('|')],undefined,undefined,f.native);
+    }finally{gate.release();await old.catch(()=>{});}
+    const result=await old;expect(result instanceof ClientError||result.confirmed===false).toBe(true);
+    expect(f.calls.some(call=>call.method==='provider.consumeResetCredit')).toBe(false);
+  }
+});
+test('old consume ordinary error and finally cannot clear a new same-account operation',async()=>{
+  const f=creditFixture();await f.prepare();const first=await f.confirm(),gate=refreshBarrier();let held=false;
+  f.intercept(async request=>{if(request.method==='provider.consumeResetCredit'&&!held){held=true;await gate.wait();throw new Error('old write failed');}});
+  const old=f.consume(first.token);await gate.entered;
+  let next:{token:string};
+  try{
+    await prepareEmailAccount(f.native,f.key,'credit-next',[f.entry,'credit-next']);
+    next=await answer('automationConfirmCredit',[f.id,f.key,'credit-next'],undefined,undefined,f.native);
+    expect(next.token).not.toBe('');
+  }finally{gate.release();await old.catch(()=>{});}
+  expect((await old).refresh).toBe(false);
+  expect(f.snapshot(next!.token,true).account.creditUsing).toBe(true);expect(f.snapshot().account.creditStatus).toBe('');
+  const result=await f.consume(next!.token,'credit-next');expect(result.refresh).toBe(true);expect(f.snapshot().account.creditStatus).toBe('No reset credit left.');
+});
+test('generation replacement during an already dispatched write cannot publish stale feedback or retry',async()=>{
+  const f=creditFixture();await f.prepare();const confirmation=await f.confirm(),gate=refreshBarrier();
+  f.intercept(async request=>{if(request.method==='provider.consumeResetCredit')await gate.wait();});
+  const old=f.consume(confirmation.token);await gate.entered;
+  try{mobileClient.generation++;}finally{gate.release();await old.catch(()=>{});}
+  expect((await old).refresh).toBe(false);expect(f.snapshot().account.creditStatus).toBe('');
+  expect(f.calls.filter(call=>call.method==='provider.consumeResetCredit')).toHaveLength(1);
+});
+test('owned ordinary consume failure becomes inline feedback with one refresh and no write retry',async()=>{
+  const f=creditFixture();await f.prepare();const confirmation=await f.confirm();
+  f.intercept(async request=>{if(request.method==='provider.consumeResetCredit')throw new Error('provider is offline');});
+  const result=await f.consume(confirmation.token);expect([result.message,result.refresh]).toEqual(['',true]);expect(f.snapshot().account.creditStatus).toBe('provider is offline');
+  expect((await f.consume(confirmation.token)).refresh).toBe(false);expect(f.calls.filter(call=>call.method==='provider.consumeResetCredit')).toHaveLength(1);
+});
+test('credit status survives pending, failed, unknown and stale read receipts but retires on committed real absence',async()=>{
+  const f=creditFixture();await f.prepare();const confirmation=await f.confirm();await f.consume(confirmation.token);const status=f.snapshot().account.creditStatus;
+  mobileClient.config={settings:{},providers:[]};const absent=await f.prepare();expect(absent.cardKnown).toBe(true);expect(absent.cardPresent).toBe(false);
+  expect(f.snapshot('',false,false,absent,true).account.creditStatus).toBe(status);
+  expect(f.snapshot('',false,false,absent,false,true).account.creditStatus).toBe(status);
+  expect(f.snapshot('',false,false,{...absent,cardKnown:false}).account.creditStatus).toBe(status);
+  expect(f.snapshot('',false,false,{...absent,owner:'other-entry'}).account.creditStatus).toBe(status);
+  expect(f.snapshot('',false,false,absent).account.creditStatus).toBe('');
+  mobileClient.config={settings:{},providers:[nativeAccount(limits)]};const present=await f.prepare();
+  expect([present.cardKnown,present.cardPresent,f.snapshot('',false,false,present).account.creditStatus]).toEqual([true,true,'']);
+});
+test('nested source failure and unavailable native read cannot retire an existing inline result',async()=>{
+  const f=creditFixture();await f.prepare();const confirmation=await f.confirm();await f.consume(confirmation.token);const status=f.snapshot().account.creditStatus;
+  mobileClient.config={settings:{},providers:[]};f.intercept(async request=>{if(request.op==='http')throw new Error('session offline');});
+  const failed=await f.prepare();expect(failed.cardKnown).toBe(false);expect(f.snapshot('',false,false,failed).account.creditStatus).toBe(status);
+  const unknown=await answer('automationPrepare',['settingsUsageAccount','{}',f.key,'primary','session',now,0,0,f.entry,f.entry],undefined,undefined,null);
+  expect(unknown.cardKnown).toBe(false);expect(f.snapshot('',false,false,unknown).account.creditStatus).toBe(status);
+});
+test('valid next credit identity changes preserve the completed result and captured Account clock',async()=>{
+  const f=creditFixture();await f.prepare();const confirmation=await f.confirm();await f.consume(confirmation.token);const status=f.snapshot().account.creditStatus,clock=f.snapshot().account.resets;
+  mobileClient.config={settings:{},providers:[nativeAccount({...limits,resetCredits:{availableCount:2,nextCreditId:'next-credit'}})]};
+  const read=await prepareEmailAccount(f.native,f.key,f.entry,[f.entry],now+3_600_000);
+  expect([read.cardKnown,read.cardPresent]).toEqual([true,true]);
+  expect([f.snapshot('',false,false,read).account.creditStatus,f.snapshot().account.resets]).toEqual([status,clock]);
+});
+
+test('non-Error reset failures use the credit copy while unrelated Usage failures keep their fallback',async()=>{
+  const f=creditFixture();await f.prepare();const confirmation=await f.confirm();
+  f.intercept(async request=>{if(request.method==='provider.consumeResetCredit')throw 'offline';});
+  const consumed=await f.consume(confirmation.token);
+  expect([consumed.message,consumed.refresh,f.snapshot().account.creditStatus]).toEqual(['',true,'Could not use the reset credit.']);
+  const url='https://usage.example.test/account';
+  mobileClient.config={settings:{},providers:[nativeAccount({...limits,externalUsage:{label:'Account usage',url}})]};
+  await f.prepare();f.intercept(async request=>{if(request.op==='mobileOpenURL')throw 'offline';});
+  const opened=await answer('automationCommand',['usage-command','open-link','',url,now,f.entry],undefined,undefined,f.native);
+  expect([opened.message,opened.refresh]).toEqual(['Could not update usage.',false]);
+  expect(f.calls.filter(call=>call.method==='provider.consumeResetCredit')).toHaveLength(1);
+});

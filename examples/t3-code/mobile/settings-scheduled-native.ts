@@ -5,7 +5,7 @@ import { obj, str, type Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';
 import { letGo } from './shared/let-go';
 import { mobileScheduledBegin, mobileScheduledClose, mobileScheduledCommand, mobileScheduledEdit, mobileScheduledEditor, mobileScheduledEnvironment, mobileScheduledMenu, mobileScheduledTasks } from './settings-scheduled';
-import { mobileUsageCommand, mobileUsageRedemption, mobileUsageEnvironmentChoices, mobileUsageToggleEnvironment } from './settings-usage';
+import { mobileUsageEnvironmentChoices, mobileUsageToggleEnvironment } from './settings-usage';
 const result=(message='',route='',closed=false)=>({revision:mobileClient.revision,message,route,closed});
 async function nativeControl(native:Native|null|undefined,input:Obj){
   if(!native?.available)throw new ClientError('This control requires the native app.');
@@ -58,11 +58,8 @@ export async function mobileScheduledNativeRotate(scopeJSON:string,native:Native
     return {...await mobileScheduledCommand('rotate-confirmed',scopeJSON,state.environmentId,state.taskId,native),route:''};
   }catch(error){if(letGo(error))throw error;return result(errorMessage(error));}
 }
-export async function mobileUsageNativeRedeem(environmentId:string,accountKey:string,now:number,native:Native|null|undefined){
-  try{const shown=mobileUsageRedemption(accountKey);if(!shown)throw new ClientError('No reset credit is available for this account.');
-    const response=await nativeControl(native,{op:'mobileScheduledConfirm',kind:'reset-credit'});if(response.confirmed!==true)return result();
-    return {...await mobileUsageCommand('redeem-confirmed',environmentId,accountKey,now,native,shown),route:''};
-  }catch(error){if(letGo(error))throw error;return result(errorMessage(error));}
+export async function mobileUsageNativeConfirm(native:Native|null|undefined){
+  return (await nativeControl(native,{op:'mobileScheduledConfirm',kind:'reset-credit'})).confirmed===true;
 }
 
 export async function mobileUsageNativeSelection(selectionJSON:string,native:Native|null|undefined){

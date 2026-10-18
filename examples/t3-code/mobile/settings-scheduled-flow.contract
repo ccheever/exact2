@@ -8,6 +8,10 @@ shape ScheduledClockTime
   now: number
 shape AutomationPrepared
   revision: number
+  epoch: number
+  owner: string
+  cardKnown: bool
+  cardPresent: bool
 shape AutomationData
   revision: number
   route: string

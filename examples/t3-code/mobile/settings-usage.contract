@@ -149,6 +149,9 @@ shape MobileUsageAccountData
   hasCredits: bool
   hasCreditBalance: bool
   creditPermissionDenied: bool
+  creditBusy: bool
+  creditUsing: bool
+  creditStatus: string
   canRedeem: bool
   environmentId: string
   light: string
@@ -479,10 +482,13 @@ component SettingsUsageAccount
               row flex-wrap="wrap" align-items="center" column-gap=10.5 row-gap=3.5
                 text data.credits flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px` font-variant-numeric="tabular-nums"
                 if data.hasCreditBalance
-                  button appearance="none" press=redeem(data.environmentId, data.key) disabled=(not data.canRedeem) min-height=44 box-sizing="border-box" flex-shrink=0 display="flex" flex-direction="column" justify-content="center" padding-top=5.25 padding-bottom=5.25 padding-left=10.5 padding-right=10.5 border-radius=999 background-color=colors.subtleStrong opacity=(data.canRedeem ? 1 : 0.45) text-align="start"
-                    text "Use reset" color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+                  button appearance="none" press=redeem(data.environmentId, data.key) disabled=(not data.canRedeem or data.creditBusy) min-height=44 box-sizing="border-box" flex-shrink=0 display="flex" flex-direction="column" justify-content="center" padding-top=5.25 padding-bottom=5.25 padding-left=10.5 padding-right=10.5 border-radius=999 background-color=colors.subtleStrong opacity=(data.canRedeem and not data.creditBusy ? 1 : 0.45) text-align="start"
+                    text (data.creditUsing ? "Using…" : "Use reset") color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
                 if data.creditPermissionDenied
                   text "This connection cannot manage provider accounts." flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+
+                if data.creditStatus != ""
+                  text data.creditStatus color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
 
 component UsageScroll
   props

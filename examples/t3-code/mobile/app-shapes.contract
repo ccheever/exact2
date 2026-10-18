@@ -118,6 +118,12 @@ shape Snapshot
   routing: GitHubRoutingRow[]
 shape ScheduledHeader
   configuration: string
+shape AutomationCreditConfirmation
+  token: string
+  environmentId: string
+  accountKey: string
+  requestRoute: string
+  confirmed: bool
 shape AutomationChange
   revision: number
   message: string
