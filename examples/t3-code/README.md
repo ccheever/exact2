@@ -116,6 +116,12 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 
 ## What it covers
 
+- Prompt links: packaged builds register `t3code://new?prompt=…` and
+  `t3code://threads/<environment>/<thread>`. Links fill a draft and never send it;
+  hidden characters are removed with a warning, and replacing a draft or checking
+  out a pull request requires a choice. The palette and user messages offer Copy
+  prompt link. Development and lane bundles register no scheme; test the handler
+  through `/open?u=<percent-encoded-link>` directly.
 - Sidebar: grouped projects, Working/active/Settled/Snoozed shelves, search, pin,
   settle/un-settle, snooze (presets and custom), Woke and Done pills (Woke dismissal
   syncs through `thread.visit`), project glyph overrides and favicons, Project order,
