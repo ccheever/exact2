@@ -55,6 +55,7 @@ use DialogFocusFrame, dialogFrame, dialogReturn, dialogLineage from "../shared/d
 use PromptLinkPage, PromptLinkView from "../prompt-links/prompt-links.contract"
 component T3Window
   props
+    promptLinkPage: PromptLinkView
     promptLinkNavigate: action
     promptLinkAct: action
     // The root's double-click wait for Cite (done to `citeWaitDone`; `citeWaitAsk(n)` asks wait n)
@@ -375,7 +376,6 @@ component T3Window
     dialogSeated
   // Dialogs snapshot the actual focus before their first focusin. A pointer-opened Mac button does not take focus.
   // The frames outlive popup subtrees; a nested confirm returns into its parent, and a replacement inherits its return.
-  resource promptLinkPage = promptLinkView(data.revision) as shape PromptLinkView
   state dialogFocusId = ""
   state dialogFocusOwner = ""
   state dialogFocusPopup = ""
