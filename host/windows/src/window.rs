@@ -43,7 +43,7 @@ struct App<D: DataSource> {
     samples: Vec<(f64, f64, f64)>,
     frame_limit: Option<u64>,
     first_tap: Option<String>,
-    pads: crate::pads::Pads,
+    pads: crate::pad_poll::Pads,
 }
 
 impl<D: DataSource> Drop for App<D> {
@@ -474,6 +474,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
                     self.buttons = 0;
                     let _ = p.pointer_lost(now);
                     p.blur();
+                    // Unfocused, the pads are not read: what they were is no longer known.
+                    p.forget_pads();
                     self.pads.forget();
                 }
             }
@@ -562,9 +564,13 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         // Pads are polled while the window has focus (below: when it wakes for them).
         if self.focused {
             let at = self.started.elapsed().as_secs_f64() * 1000.;
-            self.pads.poll(|index, connected, buttons, axes| {
-                p.hardware_pad(index, connected, buttons, axes, at)
-            });
+            self.pads.poll(
+                Instant::now(),
+                crate::pads::read,
+                |index, connected, buttons, axes| {
+                    p.hardware_pad(index, connected, buttons, axes, at)
+                },
+            );
         }
         if self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion() {
             if Instant::now() >= self.next_frame {
