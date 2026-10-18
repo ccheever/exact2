@@ -284,8 +284,11 @@ impl<D: DataSource> Presenter<D> {
             canvases.find(|view| self.surfaces.wants_input(*view))
         });
         if let Some(view) = target.filter(|v| self.surfaces.wants_input(*v)) {
-            self.surfaces.input(view, json!({"t":"pad","index":index,"connected":connected,"standard":true,
-                "buttons":buttons,"axes":axes,"at":self.host.now()}));
+            self.surfaces.input(
+                view,
+                json!({"t":"pad","index":index,"connected":connected,"standard":true,
+                "buttons":buttons,"axes":axes,"at":self.host.now()}),
+            );
         }
     }
     /// Route device keys through the same targeted path as agent keys.

@@ -124,7 +124,8 @@ pub(super) fn ranges(d: &Device) -> [Option<(i32, i32)>; 8] {
     let state = d.get_abs_state().ok();
     AXES.map(|a| {
         let info = state.as_ref()?[a.0 as usize];
-        (supported?.contains(a) && info.maximum > info.minimum).then_some((info.minimum, info.maximum))
+        (supported?.contains(a) && info.maximum > info.minimum)
+            .then_some((info.minimum, info.maximum))
     })
 }
 
@@ -145,14 +146,23 @@ mod tests {
             Some((-1, 1)),
         ]);
         assert!(s.key(0x130, 1) && s.reading.buttons[0] == 1.);
-        assert!(s.key(0x133, 1) && s.reading.buttons[3] == 1., "BTN_NORTH is BTN_X");
+        assert!(
+            s.key(0x133, 1) && s.reading.buttons[3] == 1.,
+            "BTN_NORTH is BTN_X"
+        );
         assert!(!s.key(0x130, 1), "no change, no event");
         assert!(s.axis(0x00, 255) && s.reading.axes[0] == 1.);
-        assert!(s.axis(0x01, 0) && s.reading.axes[1] == -1., "up is negative, as on the web");
+        assert!(
+            s.axis(0x01, 0) && s.reading.axes[1] == -1.,
+            "up is negative, as on the web"
+        );
         s.axis(0x00, 128);
         assert_eq!(s.reading.axes[0], quantize(256. / 255. - 1., -1.));
         assert!(s.axis(0x05, 1023) && s.reading.buttons[7] == 1.);
-        assert!(!s.key(0x139, 0), "an analog trigger's digital edge is ignored");
+        assert!(
+            !s.key(0x139, 0),
+            "an analog trigger's digital edge is ignored"
+        );
         assert!(s.axis(0x11, -1) && s.reading.buttons[12] == 1.);
         s.axis(0x11, 1);
         assert_eq!((s.reading.buttons[12], s.reading.buttons[13]), (0., 1.));
