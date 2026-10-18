@@ -1,7 +1,7 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
 // Adapted body from examples/t3-code/composer-controls.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
 // Mobile 365aa87982: only New Task writes the sticky model; an existing thread keeps per-model options.
-// Mobile 365aa87982: a started thread keeps only its edited model and modes until Send (use-composer-drafts).
+// Mobile 365aa87982: a started thread keeps only its edited model and modes as local saved settings (use-composer-drafts); Send carries them to the server and keeps them.
 // Composer selection, follow-up dispatch and primary-action state (lane
 // composer-controls), adapted from T3 Code (MIT); see LICENSE-T3. Sources:
 // apps/web/src/composerDraftStore.ts (sticky model memory, applyStickyState),
