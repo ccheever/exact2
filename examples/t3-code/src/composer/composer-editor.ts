@@ -5,6 +5,7 @@ import { noteComposerFilePaths, refreshFileMetadata } from '../shared/file-metad
 import { preserveCitationDraft } from '../timeline/citation-draft';
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
+import { letGo } from '../client/let-go';
 import { arr, messages, num, obj, str, type Obj } from '../client/domain';
 import { pushToast } from '../shell/toast';
 import { uuid } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
@@ -161,14 +162,14 @@ async function pathSearch(client: T3Client, native: Native, entry: EditorCache, 
   // and asks the editor to re-ask after the debounce; the re-ask searches.
   if (!entry.pending.has(key)) {
     entry.pending.set(key, 1);
-    await editorCall(native, { op: 'editorPoke', afterMs: 120 }).catch(() => ({}));
+    await editorCall(native, { op: 'editorPoke', afterMs: 120 }).catch(error => { if (letGo(error)) throw error; return {}; });
     return 'loading';
   }
   let result: Search;
   try {
     const response = await client.rpc(native, 'projects.searchEntries', { cwd, query, limit: 80 });
     result = { entries: arr(response.entries), failed: false };
-  } catch { result = { entries: [], failed: true }; }
+  } catch (error) { if (letGo(error)) throw error; result = { entries: [], failed: true }; }
   entry.pending.delete(key);
   entry.searches.set(key, result);
   if (entry.searches.size > 40) entry.searches.delete(entry.searches.keys().next().value!);
@@ -262,7 +263,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     try {
       state = await editorCall(native, { op: 'editorSync', snapshotOwner, fieldOwner,
         localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', foldLimit: client.ready ? foldLimit(client) : 0 });
-    } catch { state = {}; }
+    } catch (error) { if (letGo(error)) throw error; state = {}; }
     await refreshFileMetadata(client, native);
     if (state.snapshotOwner !== snapshotOwner || state.fieldOwner !== fieldOwner || client.snapshotOwner !== snapshotOwner || composerFieldOwner(client) !== fieldOwner) state = {};
     for (const notice of arr(state.notices)) pushToast(client, { kind: str(notice.kind) === 'error' ? 'error' : 'info', title: str(notice.title), description: str(notice.description), hideCopy: true });
