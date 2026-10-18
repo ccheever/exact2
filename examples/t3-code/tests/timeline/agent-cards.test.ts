@@ -92,3 +92,31 @@ for (const changed of ['generation', 'environment', 'origin', 'all']) test(`tool
   const preview = toolImagePreview(client), urls = await toolImageUrls(client, native, 0);
   expect({ preview: preview !== null, urls: urls.length, requests }).toEqual({ preview: false, urls: 0, requests: [] });
 });
+
+test('timeline image cards expose only their Contract fields while signing keeps the resource', async () => {
+  const { opened } = await import('../support/composer-controls-fixture');
+  const { obj, arr } = await import('../../src/client/domain');
+  const { snapshot } = await import('../../src/client/presentation');
+  const { toolImages, toolImageAction, toolImageUrls } = await import('../../src/timeline/tool-images');
+  const { client, native, command } = await opened();
+  const item = { id: 'capture', threadId: 't1', runId: 'r1', ordinal: 1, type: 'dynamic_tool', toolName: 'cua_repl.js',
+    status: 'running', input: { code: 'sky.get_window_snapshot()' }, output: { type: 'image', mimeType: 'image/png' } };
+  const row = JSON.stringify(['t1', item.id]);
+  client.projection.runs = [{ id: 'r1', status: 'running' }];
+  client.projection.turnItems = [item];
+  client.projection.visibleTurnItems = [{ sourceThreadId: 't1', sourceItemId: item.id, position: 0, visibility: 'local', item }];
+  const live = arr(snapshot(client).messages).find(message => message.kind === 'live')!;
+  await command('chatlocal:group', String(live.groupId));
+  const images = arr(snapshot(client).messages).flatMap(message => arr(message.activities)).flatMap(activity => arr(activity.toolImages));
+  const internal = toolImages(item)[0]!;
+  expect(images).toEqual([{ id: internal.id, name: internal.name, source: internal.source }]);
+  const original = native.later.bind(native), signed: unknown[] = [];
+  native.later = async input => {
+    const request = obj(input);
+    if (request.method === 'assets.createUrl') { signed.push(obj(request.payload).resource); return native.ok({ relativeUrl: '/tool.png' }); }
+    return original(input);
+  };
+  expect(toolImageAction(client, 'image-tool-open', internal.id, row)).toBe(true);
+  expect(await toolImageUrls(client, native, 0)).toHaveLength(1);
+  expect(signed).toEqual([{ _tag: 'tool-output-image', threadId: 't1', itemId: 'capture', index: 0 }]);
+});

@@ -16,7 +16,7 @@ export interface ThreadState {
   hasMore: boolean;
   latestLocalTurnOrdinal: number | null;
 }
-export interface Activity { replArguments?: ReturnType<typeof import('../timeline/tool-activity').replArguments>; terminal?: boolean; terminalTruncated?: boolean; terminalSpans?: ReturnType<typeof import('../timeline/command-output').commandSpans>; toolImages?: import('../timeline/tool-images').ToolImage[]; id: string; label: string; body: string; icon: string; output: string; result: string; failed: boolean; timestamp: string;
+export interface Activity { replArguments?: ReturnType<typeof import('../timeline/tool-activity').replArguments>; terminal?: boolean; terminalTruncated?: boolean; terminalSpans?: ReturnType<typeof import('../timeline/command-output').commandSpans>; toolImages?: Pick<import('../timeline/tool-images').ToolImage, 'id' | 'name' | 'source'>[]; id: string; label: string; body: string; icon: string; output: string; result: string; failed: boolean; timestamp: string;
   detailOpen?: boolean; outputState?: string; iconLight?: string; iconDark?: string; tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string;
   /** V2ItemInspector's search results and file change, a subagent's avatar and live start. */
   results?: import('../timeline/timeline-work-rows').InspectorResult[]; changePath?: string; stats?: boolean; additions?: number; deletions?: number; diffRunId?: string; diffPath?: string;
