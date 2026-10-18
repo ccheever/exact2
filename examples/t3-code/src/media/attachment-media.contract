@@ -6,8 +6,9 @@
 // - Audio: AudioPreview, `<audio controls preload="metadata" class="w-full max-w-xl">` centred
 //   in `p-6`; Chrome's audio controls are a 54 px pill.
 // - Video: `<video controls playsInline class="max-h-full max-w-full">` centred on black.
-// Audio and video are Contract `video` nodes with `controls` (AVKit); their `error` event is the
-// reference's onError ("Unable to load audio." / "Unable to load video.", attachment-media.ts).
+// Audio and video are Contract `video` nodes with `controls` (AVKit), a draft's playing its staged copy's typed link
+// (composer-chip-file.ts); their `error` event is the reference's onError ("Unable to load audio." / "Unable to load
+// video.", attachment-media.ts).
 use AttachmentSurface from "../panel/pr-attachment-shapes.contract"
 
 component AttachmentMediaBody
@@ -15,9 +16,6 @@ component AttachmentMediaBody
     att: AttachmentSurface
     local: action
   view
-    // A draft's audio plays from its staged copy in the same hook (T3MediaPreview.swift T3AudioBody).
-    if att.preview == "audio-local"
-      box hatch="t3-media" data-media-url=att.url data-media-kind="audio" data-media-name=att.name flex=1 min-height=0 width="100%" aria-label=att.name testId="attachment-audio"
     if att.preview == "pdf" or att.preview == "html"
       box hatch="t3-media" data-media-url=att.url data-media-kind=att.preview data-media-name=att.name flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=att.name testId=`attachment-${att.preview}`
     if att.preview == "audio"

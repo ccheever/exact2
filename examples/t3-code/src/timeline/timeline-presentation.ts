@@ -70,11 +70,13 @@ interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok
   historyError: Map<string, string>; revert: { threadId: string; messageId: string; turnCount: number } | null;
   treeAll: Set<string>; treeDirs: Map<string, boolean>; lastRows: { threadId: string; rows: MinimapRow[] };
   /** A citation's View source is placing its answer (citation-source.ts): ChatColumn restores no remembered position meanwhile. */
-  citing: number }
+  citing: number;
+  /** The answer row the last View source asked ChatColumn to place, on its thread; each request a new nonce. */
+  citeJump: { threadId: string; key: string; nonce: number } }
 const views = new WeakMap<T3Client, ViewState>();
 export function timelineView(client: T3Client): ViewState {
   let view = views.get(client);
-  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0 }; views.set(client, view); }
+  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeJump: { threadId: '', key: '', nonce: 0 } }; views.set(client, view); }
   return view;
 }
 const scoped = (client: T3Client, kind: string, id: string) => `${client.threadId}\u0000${kind}\u0000${id}`;
@@ -125,13 +127,13 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     await chatLocal(client, native, 'copy-code', id, value, storage);
     return '';
   }
-  // View source opens the cited thread and scrolls its answer into place (citation-source.ts).
-  // A minimap jump (Contract's scrollIntoView) ends the citation's native placement and hold.
-  if (op === 'timeline-release') { await client.restAccess(native).call({ op: 'timelineRelease' }).catch(() => undefined); return ''; }
+  // View source opens the cited thread and has the chat column place its answer (citation-source.ts).
   if (op === 'chip-citation') {
     view.citing++;
-    try { return await revealCitation(client, native, id, value, () => view.lastRows.threadId === client.threadId ? view.lastRows.rows : []); }
-    finally { view.citing--; }
+    try {
+      return await revealCitation(client, native, id, value, () => view.lastRows.threadId === client.threadId ? view.lastRows.rows : [],
+        key => { view.citeJump = { threadId: client.threadId, key, nonce: view.citeJump.nonce + 1 }; });
+    } finally { view.citing--; }
   }
   if (op === 'chip-pr') { if (!id) throw new ClientError('That pull request is no longer available.'); await openPullRequest(client, native, id); return ''; } // a sent pull request chip (pr-chip-open.ts)
   if (op === 'chip-thread') {
@@ -239,7 +241,9 @@ export function timelineSnapshot(client: T3Client) {
   const rows = view.lastRows.threadId === client.threadId ? view.lastRows.rows : [];
   return { historyError: view.historyError.get(client.threadId) ?? '', codeCopyNonce: view.codeCopy.threadId === client.threadId ? view.codeCopy.nonce : 0,
     revertPending: view.revert?.threadId === client.threadId ? view.revert.messageId : '', ...planSaveView(client),
-    minimap: minimapItems(rows), citing: view.citing > 0, ...imagePreviewView(client), ...diagramPreviewView(client) };
+    minimap: minimapItems(rows), citing: view.citing > 0,
+    citeJump: view.citeJump.threadId === client.threadId ? { key: view.citeJump.key, nonce: view.citeJump.nonce } : { key: '', nonce: 0 },
+    ...imagePreviewView(client), ...diagramPreviewView(client) };
 }
 
 /** The working root that path labels are made relative to (filePathDisplay). */

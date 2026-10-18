@@ -193,9 +193,11 @@ server to come back on the new version and shares that state with Settings › C
   pull request chip, or a hand-off draft's from its branch status, with its tooltip list,
   +N and stack forms, `strip-pr-badge.ts`), sent attachment
   previews (Markdown, table or numbered source, images, Copy contents and Save file;
-  opened from a sent file chip; `attachment-media*`, `T3MediaPreview.swift`: PDFs in PDFKit, HTML rendered in a sandboxed
+  opened from a sent file chip; the text is fetched from the signed asset URL, and Save file
+  hands the bytes to the window's Save panel, `attachment-files.ts`, `save-file.ts`;
+  `attachment-media*`, `T3MediaPreview.swift`: PDFs in PDFKit, HTML rendered in a sandboxed
   WebKit view that loads its token directory and external hosts as the reference's frame does, or as source coloured by Shiki's html grammar under the
-  Pierre themes (`html-syntax.ts`), audio and video in AVKit players, "Unable to
+  Pierre themes (`html-syntax.ts`), audio and video in the platform's players, "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
   opens its simulator with `device.open`, then the workspace shows the hub's H.264 screen
@@ -367,6 +369,37 @@ These it does not use, because on macOS they do not do what the reference does:
   ([`issues/closed/20261012-macos-inline-link-run-tab-stop.md`](../../issues/closed/20261012-macos-inline-link-run-tab-stop.md)). This fix is the host's, so the
   clone gets it on main with no change of its own. No drive has tabbed to a link in a Markdown
   table cell since.
+
+App Swift this clone keeps, where moving it onto what main offers would change what someone using
+the app sees, or where main has nothing to move it onto (each is a framework capability to add):
+
+- `T3MediaPreview.swift`: a PDF in PDFKit on Chromium's viewer surface, fitted to the width and
+  top-aligned; an `iframe` would show WebKit's own PDF viewer. A rendered HTML attachment opens a
+  `target="_blank"` link in the default browser and shows `alert` and `confirm` as sheets; an
+  `iframe` refuses popups (LLP 1020 §5) and has no dialogs.
+- `T3MediaActions.swift`: the media menu, Copy image and Save. Save opens in Downloads first and then
+  in the session's last folder, as Electron's download dialog does, where `saveFile` names no
+  folder; Copy image needs an image clipboard write (`ClipboardItem`), which main does not have;
+  the menu's Menu-key form opens at the media's bottom-left corner, where a `contextPopover` opens
+  at the focused node's centre.
+- `T3ToolActivityIcon.swift`: a muted tool icon is drawn at the reference's `brightness(0.6)` in the
+  light appearance; CSS `filter` applies only to SVG elements, and an SVG `image` is not built.
+- `T3ImageAccent.swift` and the composer's image chips (`T3ComposerImageChip.swift`): an image's
+  average colour needs its pixels, and readback is refused.
+- `T3RowDrop.swift`: a legacy row takes any file and rings while a drag is over it; `drop` takes only
+  `file_handlers` types and has no `dragenter` or `dragleave`.
+- `RightPanelTabsInput.swift`: the device tab's rename field keeps Escape and ⌘ chords to itself;
+  an `aria-keyshortcuts` button hears its chord before a field's `key` handler.
+- `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; `openURL`
+  opens only http, https, mailto and tel), `T3InstalledFonts.swift` (no `queryLocalFonts`),
+  `T3Locale.swift` (`exactTime().locale` is the preferred language, where Electron's
+  `getSystemLocale` follows the Region setting), `T3WindowChrome.swift` (no
+  `env(titlebar-area-*)`), `T3RootFont.swift` (the native views' rem), `T3PanelsNative.swift` (the
+  Files editor's caret under the press that mounted it), and the data module's sleep
+  (`timelineSleep`: data modules have no timers).
+- The composer's editor core and what rides on it (`T3ComposerAttach`, `T3ComposerIntent`,
+  `T3ComposerQueueKey` and the rest of `T3Composer*`): inline atoms, the caret's rectangle, pasted
+  files and a video's first frame are not in main's Markdown editor or media surface.
 
 Differences that belong to the app:
 

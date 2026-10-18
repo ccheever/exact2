@@ -8,6 +8,7 @@ import { answer } from '../../app';
 import { chatLocal } from '../../src/timeline/timeline-presentation';
 import { timestamp, thread, storage, Backend, connected, opened } from '../support/client-fixture';
 import { appPath } from '../support/app-files';
+import { noteTranscriptFacts } from '../../src/timeline/transcript-facts';
 
 describe('desktop presentation and model options', () => {
   const capabilities = { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', label: 'Reasoning', currentValue: 'medium',
@@ -861,7 +862,8 @@ test('provider account badges distinguish configured siblings and valid accents'
 test('timeline presentation belongs to one connection/project/thread and follows the configured collapse setting', () => {
   const client = new T3Client();
   client.origin = 'http://localhost:1'; client.projectId = 'p'; client.threadId = 't';
-  client.presentation = {owner:'http://localhost:1:p:t',resting:true,atEnd:false};
+  // The snapshot's arguments 4-7: the transcript's owner, resting, at its end, pulls (transcript-facts.ts).
+  noteTranscriptFacts(client, [0, '', '', '', 'http://localhost:1:p:t', true, false, 0]);
   expect(snapshot(client)).toMatchObject({composerResting:true,transcriptAway:true,composerCollapseOnScroll:true});
   client.threadId = 'other';
   expect(snapshot(client)).toMatchObject({composerResting:false,transcriptAway:false});

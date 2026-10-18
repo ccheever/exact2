@@ -20,8 +20,6 @@ final class T3Module: ExactModule {
     private let media: T3MediaPreview // Attachment PDF and HTML bodies (T3MediaPreview.swift).
     private let mediaFocus = T3MediaFocus() // A press elsewhere takes the focus off a media node (T3MediaActions.swift).
     let devices: T3DeviceStreams // Device screens, input and screenshots (T3DeviceStream.swift).
-    private let timeline: T3Timeline
-    let turns = T3TimelineTurns() // A citation's jump to its answer (T3TimelineTurns.swift).
     let snapShot: T3SnapShot
     let chrome = T3WindowChrome()
     let exportsRoot: URL? // Agent runs export into the isolated data root (T3ContextMenu.saveText).
@@ -45,7 +43,6 @@ final class T3Module: ExactModule {
         notifications = T3Notifications(agent: context.agent, changed: changed)
         sidebar = T3Sidebar(agent: context.agent, changed: changed)
         snapShot = T3SnapShot(directory: context.data, agent: context.agent, changed: changed)
-        timeline = T3Timeline(changed: changed)
         composer = T3Composer(changed: changed)
         composer.editor.styler.imageDirectory = context.data.appendingPathComponent("snapshots/drafts", isDirectory: true) // image chips (T3ComposerImageChip.swift)
         promptPreview.styler.richText = false // PromptFontPreview leaves ComposerPromptEditor's richTextEnabled off: markers stay text
@@ -98,7 +95,7 @@ final class T3Module: ExactModule {
                 DispatchQueue.main.async {
                     var result = response
                     var value = result["value"] as? [String: Any] ?? [:]
-                    value["presentation"] = (self?.timeline.status ?? [:]).merging(self?.composer.status ?? [:]) { first, _ in first }.merging(self?.intent.status ?? [:]) { first, _ in first }.merging(self?.frames.status ?? [:]) { first, _ in first }.merging(self?.sidebar.status ?? [:]) { first, _ in first }.merging(self?.media.status ?? [:]) { first, _ in first }.merging(self?.devices.status ?? [:]) { first, _ in first }.merging(self?.chrome.status ?? [:]) { first, _ in first }.merging(T3Terminals.shared.status) { first, _ in first }.merging(self?.browserSessions.status ?? [:]) { first, _ in first }.merging(self?.browserAutomation.status ?? [:]) { first, _ in first }.merging(self?.rowDrop.status ?? [:]) { first, _ in first }
+                    value["presentation"] = (self?.composer.status ?? [:]).merging(self?.intent.status ?? [:]) { first, _ in first }.merging(self?.frames.status ?? [:]) { first, _ in first }.merging(self?.sidebar.status ?? [:]) { first, _ in first }.merging(self?.media.status ?? [:]) { first, _ in first }.merging(self?.devices.status ?? [:]) { first, _ in first }.merging(self?.chrome.status ?? [:]) { first, _ in first }.merging(T3Terminals.shared.status) { first, _ in first }.merging(self?.browserSessions.status ?? [:]) { first, _ in first }.merging(self?.browserAutomation.status ?? [:]) { first, _ in first }.merging(self?.rowDrop.status ?? [:]) { first, _ in first }
                     result["value"] = value
                     reply.send(result)
                 }
@@ -109,7 +106,7 @@ final class T3Module: ExactModule {
         T3TerminalCommandKey.install(element)
         panelTabs.install(element); toolIcons.install(element)
         frames.install(element)
-        composer.install(element); promptPreview.install(element); chrome.install(element); timeline.install(element); menus.install(element); turns.install(element); media.install(element); devices.install(element)
+        composer.install(element); promptPreview.install(element); chrome.install(element); menus.install(element); media.install(element); devices.install(element)
         composerInput.install(element); mediaFocus.install(element)
         T3FileEditor.install(element) // the Files editor takes the focus its press began (T3PanelsNative.swift)
         rowDrop.install(element) // a legacy row's file drop target
@@ -121,12 +118,12 @@ final class T3Module: ExactModule {
         T3TerminalCommandKey.remove(element)
         panelTabs.remove(element); toolIcons.remove(element)
         frames.remove(element)
-        composer.remove(element); promptPreview.remove(element); timeline.remove(element); turns.remove(element); media.remove(element); devices.remove(element); mediaFocus.remove(element)
+        composer.remove(element); promptPreview.remove(element); media.remove(element); devices.remove(element); mediaFocus.remove(element)
         rowDrop.remove(element)
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
-    override func destroy() { detachAppControl(); activity.destroy(); mediaFocus.destroy(); T3MenuDismissal.disarm(); rowDrop.destroy(); panelTabs.destroy(); toolIcons.destroy(); latinChords.destroy(); composerInput.destroy(); textMenu.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy(); browserSessions.sync([]); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
+    override func destroy() { detachAppControl(); activity.destroy(); mediaFocus.destroy(); T3MenuDismissal.disarm(); rowDrop.destroy(); panelTabs.destroy(); toolIcons.destroy(); latinChords.destroy(); composerInput.destroy(); textMenu.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); chrome.destroy(); menus.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy(); browserSessions.sync([]); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
 }
 
 let exactModule: ExactModule.Type = T3Module.self

@@ -3,7 +3,7 @@
 // the reference's rules (ThreadDetailsPrRows / ThreadDetailsPrRow, useOpenPrLink,
 // rightPanelStore openPullRequest / openAttachment, AttachmentFilePreview,
 // FilePreviewPanel's localStorage keys). Native paths run against a recording fake.
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { panelState, surfaceLocal, panelView, availability } from '../../src/panel/panel-surfaces';
@@ -14,6 +14,12 @@ import { adoptFilesPrefs, filesPrefs } from '../../src/panel/files-prefs';
 import { surfaces } from '../../src/shell/shell';
 import { diagramPreviewAction, diagramPreviewView, noteMermaidFrame } from '../../src/timeline/timeline-mermaid';
 import { decodeClientPrefs } from '../../src/settings/settings-core';
+import { lastSave, memoryAppFiles, serveAssets, type AssetAnswer } from '../support/asset-server';
+
+let server: ReturnType<typeof serveAssets> | null = null;
+afterEach(() => { server?.restore(); server = null; });
+/** The asset server answers every read with `text` (a `() => …` answers afresh each time). */
+const serveText = (text: string | (() => string | Error)) => (server = serveAssets(() => { const body = typeof text === 'function' ? text() : text; return body instanceof Error ? body : { body }; }));
 
 type Call = { method: string; payload: Record<string, unknown> };
 const URL72 = 'https://github.com/ccheever/exact2/pull/72';
@@ -176,7 +182,7 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     const state = panelState(client);
     state.surfaces = [{ id: 'files', kind: 'files', path: '', line: 0, reveal: 0 }];
     replies['assets.createUrl'] = payload => ({ relativeUrl: `/api/assets/${(payload.resource as { disposition: string }).disposition}/sig`, expiresAt: 0 });
-    replies.attachmentText = () => ({ ok: true, text: '# Notes\n\n- one\n', truncated: false });
+    const assets = serveText('# Notes\n\n- one\n'), files = memoryAppFiles();
     await surfaceLocal(client, native, 'linked-attachment', 'att-md', 'owner');
     expect(state.surfaces.map(entry => entry.id)).toEqual(['attachment:att-md']);
     let view = await panelView(client, native, 1000);
@@ -185,7 +191,8 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
       showWrap: false, canCopy: true, copyLabel: 'Copy contents', canSave: true });
     // The chat renderer's source (app.contract filesMarkdown), kind "attachment" (no folder).
     expect(view.attachment.markdownSource).toEqual([{ id: 'attachment:att-md', kind: 'attachment', title: '', body: '# Notes\n\n- one\n' }]);
-    expect(calls.find(call => call.method === 'attachmentText')!.payload.url).toBe('http://127.0.0.1:14861/api/assets/inline/sig');
+    // The preview reads the first megabyte of the inline asset (FILE_TEXT_PREVIEW_MAX_BYTES).
+    expect(assets.calls[0]).toEqual({ url: 'http://127.0.0.1:14861/api/assets/inline/sig', range: 'bytes=0-1048576' });
     await surfaceLocal(client, native, 'linked-att-render', 'att-md', '');
     view = await panelView(client, native, 1000);
     expect(view.attachment).toMatchObject({ preview: 'code', renderLabel: 'Show rendered markdown', renderIcon: 'eye', showWrap: true, wrap: true, markdownSource: [] });
@@ -196,17 +203,17 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     expect(view.attachment).toMatchObject({ copied: true, copyLabel: 'Copied' });
     view = await panelView(client, native, 7100);
     expect(view.attachment.copied).toBe(false);
-    replies.attachmentSave = call => ({ ok: true, saved: true, name: call.name });
+    // Save file fetches the attachment asset whole and asks the window's Save panel for it.
     await surfaceLocal(client, native, 'linked-att-save', 'att-md', '');
-    const save = calls.find(call => call.method === 'attachmentSave')!;
-    expect(save.payload).toMatchObject({ url: 'http://127.0.0.1:14861/api/assets/attachment/sig', name: 'notes.md' });
+    expect(assets.calls.at(-1)).toEqual({ url: 'http://127.0.0.1:14861/api/assets/attachment/sig', range: null });
+    expect(lastSave(client, files)).toMatchObject({ name: 'notes.md', nonce: 1, text: '# Notes\n\n- one\n' });
   });
   // AttachmentFilePreview's rendered Markdown is ChatMarkdown (cwd undefined), as Files' is.
   test('a rendered attachment is the chat renderer: code colours, Mermaid diagrams and their expand', async () => {
     const { client, replies } = fakeClient();
     const flow = 'graph TD\n  Attachment --> Preview', text = `# Notes\n\n\`\`\`ts\nconst x = 1;\n\`\`\`\n\n\`\`\`mermaid\n${flow}\n\`\`\`\n`;
     replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
-    replies.attachmentText = () => ({ ok: true, text, truncated: false });
+    serveText(text);
     await surfaceLocal(client, native, 'linked-attachment', 'att-md', '');
     let view = await panelView(client, native, 1);
     expect(view.attachment.markdownSource).toEqual([{ id: 'attachment:att-md', kind: 'attachment', title: '', body: text }]);
@@ -222,7 +229,7 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
   test('a CSV renders as a table; a file with no preview offers Save; an unknown id fails plainly', async () => {
     const { client, replies } = fakeClient();
     replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
-    replies.attachmentText = () => ({ ok: true, text: 'a,b\n1,2\n', truncated: false });
+    serveText('a,b\n1,2\n');
     await surfaceLocal(client, native, 'linked-attachment', 'att-csv', '');
     let view = await panelView(client, native, 1);
     expect(view.attachment).toMatchObject({ preview: 'table', renderLabel: 'Show source', renderIcon: 'code' });
@@ -236,11 +243,13 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
   test('a read failure shows the message and Try again reads afresh', async () => {
     const { client, replies } = fakeClient();
     replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
-    replies.attachmentText = () => ({ ok: false, message: 'This file is not UTF-8 text. Open it in another app to view its contents.' });
+    // Latin-1 bytes are no UTF-8 text (decodeFilePreviewText); then a 206 of a longer file is a truncated preview.
+    let reply: () => AssetAnswer = () => ({ body: new Uint8Array([0x63, 0x61, 0x66, 0xe9]) });
+    server = serveAssets(() => reply());
     await surfaceLocal(client, native, 'linked-attachment', 'att-md', '');
     let view = await panelView(client, native, 1);
     expect(view.attachment).toMatchObject({ preview: 'error', error: 'This file is not UTF-8 text. Open it in another app to view its contents.', canCopy: false });
-    replies.attachmentText = () => ({ ok: true, text: 'ok', truncated: true });
+    reply = () => ({ status: 206, body: 'ok', headers: { 'Content-Range': 'bytes 0-1048576/4194304' } });
     await surfaceLocal(client, native, 'linked-att-retry', 'att-md', '');
     view = await panelView(client, native, 1);
     expect(view.attachment).toMatchObject({ preview: 'markdown', copyLabel: 'Copy preview', truncatedNote: 'Preview limited to the first 1 MB of a 64 byte file. Save the file to read it in full.' });

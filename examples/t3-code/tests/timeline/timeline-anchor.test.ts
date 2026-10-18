@@ -25,7 +25,7 @@ function chat() {
   const scope: Env = { ...anchorFns, ...minimapFns, TimelineAnchor, min: Math.min, max: Math.max, composerOwner: A, commandPending: false, jumpRequest: 1,
     canvas: { ready: false }, conversationWidth: 1024, rem: 16,
     data: { messages: rowsOf('a'), minimap: [], citing: false, threadId: 't-a', look: { chatMax: 768 } },
-    citeScrolled: () => {}, scrollIntoView: (...args: unknown[]) => calls.push(args), frame: () => ({ unavailable: false }) };
+    citeScrolled: () => {}, restScrolled: () => {}, restGesture: () => {}, scrollIntoView: (...args: unknown[]) => calls.push(args), frame: () => ({ unavailable: false }) };
   const now = () => ({ ...scope, ...column.derives(state, scope) });
   const c = {
     calls, state, scope,

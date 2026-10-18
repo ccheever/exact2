@@ -1,15 +1,9 @@
-// The right panel's native needs.
-//
-// 1. The Files editor (hook `t3-file-editor`) takes the focus when a press in the
-//    file's body mounts it. It writes exactly what was typed through its
-//    `autocorrect="off"`, which exact2 #111 maps to no smart quotes, dashes or
-//    text replacement (the reference's editor is a browser textarea, which never
-//    substitutes).
-// 2. A sent attachment's preview (MIT reference, see LICENSE-T3:
-//    components/files/AttachmentFilePreview.tsx): its text is read from the
-//    signed asset URL with a 1 MB range (FILE_TEXT_PREVIEW_MAX_BYTES), and Save
-//    file writes its bytes where the person chooses (an NSSavePanel; under the
-//    agent, the isolated data root's exports/ directory).
+// The right panel's native needs. The Files editor (hook `t3-file-editor`) takes the
+// focus when a press in the file's body mounts it. It writes exactly what was typed
+// through its `autocorrect="off"`, which exact2 #111 maps to no smart quotes, dashes
+// or text replacement (the reference's editor is a browser textarea, which never
+// substitutes). An attachment's text and Save file are the data module's
+// (attachment-files.ts).
 import AppKit
 import Foundation
 
@@ -81,109 +75,6 @@ enum T3FileEditor {
     }
     /// Tests stand in for a press.
     static func recordPress(_ window: NSWindow, at point: NSPoint) { press = (window, point, ProcessInfo.processInfo.systemUptime) }
-}
-
-enum T3AttachmentFiles {
-    static let previewBytes = 1024 * 1024
-    static let saveBytes = 64 * 1024 * 1024
-
-    /// Only a signed asset route of an http(s) server: never a file URL or another path.
-    static func assetURL(_ raw: Any?) -> URL? {
-        guard let raw = raw as? String, let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https", url.host != nil, url.user == nil, url.path.hasPrefix("/api/assets/") else { return nil }
-        return url
-    }
-
-    /// `attachmentText` (the first megabyte as UTF-8 text) and `attachmentSave` of a signed asset `url`, or of bytes this
-    /// device holds for a draft (AttachmentFilePreview's `file` Blob): a staged copy named by `staged` (`stagedFile`
-    /// resolves it) or a folded paste's text as `base64`.
-    static func perform(_ request: [String: Any], exportsRoot: URL?, stagedFile: (String) -> URL? = { _ in nil }, reply: @escaping ([String: Any]) -> Void) {
-        let generation = request["generation"] as? Int ?? 0
-        let failure = { (message: String) in reply(["ok": true, "generation": generation, "value": ["ok": false, "message": message]]) }
-        let text = request["op"] as? String == "attachmentText"
-        if let id = request["staged"] as? String {
-            guard let file = stagedFile(id) else { return failure(text ? "Could not load this file." : "The file could not be loaded. Try again.") }
-            DispatchQueue.global(qos: .userInitiated).async {
-                guard let handle = try? FileHandle(forReadingFrom: file) else { return failure("Could not load this file.") }
-                defer { try? handle.close() }
-                let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
-                if text {
-                    let data = (try? handle.read(upToCount: previewBytes + 1)) ?? Data()
-                    return decode(data, truncated: size > previewBytes, generation: generation, reply: reply, failure: failure)
-                }
-                guard size <= saveBytes else { return failure("The file is too large to save here.") }
-                guard let data = try? handle.readToEnd() else { return failure("The file could not be loaded. Try again.") }
-                save(data, request: request, exportsRoot: exportsRoot, generation: generation, reply: reply, failure: failure)
-            }
-            return
-        }
-        if let base64 = request["base64"] as? String {
-            guard let data = Data(base64Encoded: base64) else { return failure("The file could not be loaded. Try again.") }
-            if text { return decode(data, truncated: data.count > previewBytes, generation: generation, reply: reply, failure: failure) }
-            guard data.count <= saveBytes else { return failure("The file is too large to save here.") }
-            return save(data, request: request, exportsRoot: exportsRoot, generation: generation, reply: reply, failure: failure)
-        }
-        guard let url = assetURL(request["url"]) else { return failure("The attachment is unavailable.") }
-        if text {
-            var urlRequest = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-            urlRequest.setValue("bytes=0-\(previewBytes)", forHTTPHeaderField: "Range")
-            URLSession.shared.dataTask(with: urlRequest) { data, response, error in
-                if error != nil { return failure("Could not load this file.") }
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), let data else { return failure("Could not load this file.") }
-                let truncated = data.count > previewBytes || http.statusCode == 206 && total(http).map { $0 > previewBytes } == true
-                decode(data, truncated: truncated, generation: generation, reply: reply, failure: failure)
-            }.resume()
-            return
-        }
-        URLSession.shared.dataTask(with: URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 60)) { data, response, error in
-            guard error == nil, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), let data else {
-                return failure("The file could not be loaded. Try again.")
-            }
-            guard data.count <= saveBytes else { return failure("The file is too large to save here.") }
-            save(data, request: request, exportsRoot: exportsRoot, generation: generation, reply: reply, failure: failure)
-        }.resume()
-    }
-
-    /// decodeFilePreviewText: binary data and non-UTF-8 text are refused, not shown as replacement characters.
-    private static func decode(_ data: Data, truncated: Bool, generation: Int, reply: @escaping ([String: Any]) -> Void, failure: (String) -> Void) {
-        let bounded = data.prefix(previewBytes)
-        if bounded.contains(0) { return failure("This file contains binary data and cannot be shown as text.") }
-        var text = String(data: bounded, encoding: .utf8)
-        if text == nil && truncated {
-            // A cut can split one UTF-8 sequence; drop at most its three leading bytes.
-            for drop in 1...3 where text == nil { text = String(data: bounded.dropLast(drop), encoding: .utf8) }
-        }
-        guard let text else { return failure("This file is not UTF-8 text. Open it in another app to view its contents.") }
-        reply(["ok": true, "generation": generation, "value": ["ok": true, "text": text, "truncated": truncated]])
-    }
-
-    /// Save file: into the agent's exports, else where the person picks in a save panel.
-    private static func save(_ data: Data, request: [String: Any], exportsRoot: URL?, generation: Int, reply: @escaping ([String: Any]) -> Void, failure: @escaping (String) -> Void) {
-        let name = (request["name"] as? String ?? "attachment").replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-        let write = { (target: URL) in
-            do {
-                try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try data.write(to: target, options: .atomic)
-                reply(["ok": true, "generation": generation, "value": ["ok": true, "saved": true, "name": target.lastPathComponent]])
-            } catch { failure("Could not save \(name).") }
-        }
-        if let exportsRoot { return write(exportsRoot.appendingPathComponent(name.isEmpty ? "attachment" : name)) }
-        DispatchQueue.main.async {
-            let panel = NSSavePanel()
-            panel.nameFieldStringValue = name
-            panel.canCreateDirectories = true
-            guard panel.runModal() == .OK, let target = panel.url else {
-                return reply(["ok": true, "generation": generation, "value": ["ok": true, "saved": false]])
-            }
-            DispatchQueue.global(qos: .userInitiated).async { write(target) }
-        }
-    }
-
-    /// Content-Range: bytes 0-1048576/4194304 → 4194304.
-    private static func total(_ response: HTTPURLResponse) -> Int? {
-        guard let range = response.value(forHTTPHeaderField: "Content-Range"), let slash = range.lastIndex(of: "/") else { return nil }
-        return Int(range[range.index(after: slash)...])
-    }
 }
 
 /// PullRequestUnavailableError.message (contracts/pullRequest.ts PROVIDER_REQUIREMENT): the
