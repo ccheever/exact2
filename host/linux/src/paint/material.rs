@@ -278,12 +278,14 @@ impl super::Painter {
         } else {
             x + inset()
         };
-        // An authored `::placeholder` colour wins (LLP 1104 D3).
+        // An authored `::placeholder` colour wins (LLP 1104 D3); at rest the
+        // label is the `placeholder` role (Material's onSurfaceVariant, which
+        // a design's `placeholder` overrides: LLP 1121 D9).
         let ink = match super::control::authored_placeholder(node.style, dark) {
             Some(ink) => ink,
             None if disabled(node) => look::role("GrayText", dark),
             None if focused => super::control::ring(node, dark),
-            None => look::role("-exact-secondary-label", dark),
+            None => look::role("-exact-placeholder", dark),
         };
         self.backend.push_clip(
             &Shape::rect((x + inset(), y, (w - 2.0 * inset()).max(0.0), h)),
