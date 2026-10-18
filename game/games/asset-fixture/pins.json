@@ -4,16 +4,16 @@
     "60": "0x2987115a97f93508"
   },
   "saves": {
-    "continuation": "4d3596bcd64b499e40ae594705b6c33c8a7a8080345e5f2e6d5a07e47e33f0ca"
+    "continuation": "f28c3b2a3462132a52769c8cd1a1300b80bc035d8bb74bc391cf23497a6b7190"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "13bca524ca442589116c138dfacee31ffb462957beb3e30f32c97eb1cf71042a",
-  "sourceInputs": "30f2797f861720b97a464c0aa7c38aa44ea881fd7a713212173a1d7f1c405ca7",
+  "inputs": "64542c6490a75e184ca9b5038770b15edab53bcdf21639607b7720eeb61afbda",
+  "sourceInputs": "334ac36cb94c58029f4d809f114dfa4db97d7253a16cc6e7775fbdc759f94453",
   "game": "asset-fixture",
   "generated": "bun game/prove.mjs asset-fixture --repin --hosts 'linux,web'",
-  "at": "237821db6c2b59e37ed9b600efea2add5463b2c1",
-  "reason": "Refresh the stale fixture baseline against the current SDK after complete native/web mode and profile agreement"
+  "at": "83fd7b410815a1ce3192d8a1cda3104e23fd2f00",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear extend the hash stream; f01b345d9 isolates the device recovery probe; f5ad281e8: EXGAME v5 world save magic"
 }
