@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41 and 42 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42 and 43 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1233,6 +1233,24 @@ scan of every recorded call), both run by hand (`cargo test --manifest-path
 vendor/taffy/Cargo.toml --lib tree::memo`; no lane runs taffy's unit tests),
 and the kernel's `layout::memo_tests`, which compare replayed layouts with
 fresh ones bit for bit.
+
+## Patch 43: keep height bounds indefinite during intrinsic flex sizing
+
+Equal or inverted min/max bounds no longer supply known dimensions in
+`ContentSize`. Intrinsic main-size probes also leave a bounds-only cross size
+unknown under `InherentSize`, which a block parent uses to measure its children.
+This prevents premature stretch and ratio transfer. Authored sizes and dimensions
+supplied by the caller remain intact, including the clamped final height an
+absolute box receives in `ContentSize`. Block and root size promotion are unchanged.
+
+**Held by** `browser_replaced::constraints::intrinsic_flex_height_bounds_do_not_make_auto_height_definite`:
+12 literal Chrome 151.0.7922.34 cases measured on 2026-10-18. Absolute flex rows
+and normal flex rows inside absolute blocks stay 640px wide with two 320px
+canvases, for equal and inverted height bounds and natural and authored
+border-box ratios. Their final height stays 100px. Normal rows in a definite
+800px parent keep 400px items. Floated rows were also measured at 640/320px in
+Chrome; the kernel has no float style row. Patches 40 and 41 retain their
+definite-height, auto-margin and wrapping controls.
 
 ## Cargo workspace boundary
 

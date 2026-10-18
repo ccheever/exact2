@@ -259,11 +259,23 @@ pub fn compute_flexbox_layout(
         Size::NONE
     };
 
-    // If both min and max in a given axis are set and max <= min then this determines the size in that axis
-    let min_max_definite_size = min_size.zip_map(max_size, |min, max| match (min, max) {
-        (Some(min), Some(max)) if max <= min => Some(min),
-        _ => None,
-    });
+    // EXACT PATCH 43: bounds alone do not make an intrinsic cross size definite
+    // for stretch and ratio transfer. The caller's known dimensions still apply.
+    let mut min_max_definite_size = if inputs.sizing_mode == SizingMode::InherentSize {
+        min_size.zip_map(max_size, |min, max| match (min, max) {
+            (Some(min), Some(max)) if max <= min => Some(min),
+            _ => None,
+        })
+    } else {
+        Size::NONE
+    };
+    // A block parent's intrinsic width probe uses InherentSize for its child.
+    let dir = style.flex_direction();
+    if known_dimensions.or(clamped_style_size).or(min_max_definite_size).main(dir).is_none()
+        && !inputs.available_space.main(dir).is_definite()
+    {
+        min_max_definite_size.set_cross(dir, None);
+    }
 
     // The size of the container should be floored by the padding and border
     let styled_based_known_dimensions =
