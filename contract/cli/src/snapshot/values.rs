@@ -7,8 +7,11 @@ use exact_kernel::{
     Color, ColorValue, StyleId,
 };
 
-const BORDER: &str = "use one border for all four sides, with one width, one colour and solid, dashed or dotted style";
+const BORDER: &str = "use one border for all four sides, with one width, one colour and a solid, dashed, dotted or none style";
 const RADIUS: &str = "write a radius in px or %, without calc() or env()";
+const SLASH_RADIUS: &str = "a corner takes one radius, not `h / v`; a percentage (border-radius=\"50%\") makes an elliptical corner on a box that is not square";
+const LITERAL: &str =
+    "write a literal, or `cond ? A : B` of literals, so the bake can check each value";
 const COLOR: &str = "use an sRGB colour, a system colour role or a named colour asset";
 const GRADIENT: &str = "use a nonrepeating linear-gradient or radial-gradient in srgb or srgb-linear, with strictly increasing stops; use one stop unit when their order depends on the box";
 const OVERFLOW: &str = "write the same overflow on both axes: visible, hidden or clip";
@@ -24,6 +27,15 @@ fn choices(e: &Expr, accepts: &impl Fn(&Expr) -> bool) -> bool {
         Expr::Let { body, .. } => choices(body, accepts),
         _ => accepts(e),
     }
+}
+/// Whether every branch of `e` is a literal, so a refusal names the value.
+fn literal(e: &Expr) -> bool {
+    choices(e, &|e| {
+        matches!(
+            e,
+            Expr::Str(..) | Expr::Number(..) | Expr::Bool(..) | Expr::None(..)
+        )
+    })
 }
 fn words(e: &Expr, allowed: &[&str]) -> bool {
     choices(
@@ -127,7 +139,11 @@ pub(super) fn attribute(a: &Attr, errors: &mut Vec<CompileError>) {
             return;
         }
         Err(_) if a.name.ends_with("radius") => {
-            errors.push(fail("snapshot-radius", RADIUS));
+            let slash = matches!(&a.value, Expr::Str(s, _) if s.contains('/'));
+            errors.push(fail(
+                "snapshot-radius",
+                if slash { SLASH_RADIUS } else { RADIUS },
+            ));
             return;
         }
         Err(_) => return, // The ordinary compiler reports its grammar error.
@@ -162,14 +178,19 @@ pub(super) fn attribute(a: &Attr, errors: &mut Vec<CompileError>) {
             OverflowX | OverflowY => Some((words(&value, &["visible", "hidden", "clip"]), "snapshot-value", "a snapshot cannot scroll; write visible, hidden or clip on both axes")),
             TextAlign => Some((words(&value, &["start", "center", "end"]), "snapshot-text-align", "use text-align: start, center or end")),
             TextOverflow => Some((words(&value, &["clip"]), "snapshot-text-overflow", "use line-clamp instead of text-overflow: ellipsis")),
-            BorderStyleTop | BorderStyleRight | BorderStyleBottom | BorderStyleLeft => Some((words(&value, &["solid", "dashed", "dotted"]), "snapshot-border", BORDER)),
+            BorderStyleTop | BorderStyleRight | BorderStyleBottom | BorderStyleLeft => Some((words(&value, &["solid", "dashed", "dotted", "none", "hidden"]), "snapshot-border", BORDER)),
             BorderRadiusTopLeft | BorderRadiusTopRight | BorderRadiusBottomLeft | BorderRadiusBottomRight => Some((choices(&value, &radius), "snapshot-radius", RADIUS)),
             BackgroundColor | TextColor | BorderColorTop | BorderColorRight | BorderColorBottom | BorderColorLeft => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if color(s))), "snapshot-color", COLOR)),
             BackgroundImage => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if gradient(s))), "snapshot-gradient", GRADIENT)),
             _ => None,
         };
         if let Some((false, id, edit)) = rule {
-            errors.push(fail(id, edit));
+            // A computed value cannot be checked at bake, whatever it holds.
+            if literal(&value) {
+                errors.push(fail(id, edit));
+            } else {
+                errors.push(fail("snapshot-literal", LITERAL));
+            }
         }
     }
 }

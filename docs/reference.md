@@ -371,7 +371,7 @@ content. Live announcements and control-state accessibility rows are refused.
 
 Snapshot paint uses document order and the system colour scheme. Use a condition
 or `display: none` to hide content; `visibility` and `z-index` are refused.
-Borders have one width, colour and solid, dashed or dotted style on all sides.
+Borders have one width, colour and solid, dashed, dotted or `none` style on all sides.
 Radii are px or percentages; percentages on non-square boxes produce ellipses.
 Radius calculations are refused. Overflow is the same on both axes: visible,
 hidden or clip. Raster images author both width and height. An entry declaring

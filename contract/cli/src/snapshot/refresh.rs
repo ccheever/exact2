@@ -45,8 +45,20 @@ pub fn check_refreshes(
                     data.discard(token);
                 }
             }
+            // A refresh that fails at bake fails on the device too: nothing
+            // declares a bad argument, a broken seam or a thrown failure away.
+            Err(
+                DataError::BadArguments(why)
+                | DataError::Interface(why)
+                | DataError::Failed(_, why, _),
+            ) => {
+                return Err(format!(
+                    "widget {kind}: refresh `{name}` failed at bake: {why}; repair the data module"
+                ));
+            }
             // An async source or a Rust source seeded away in the dev producer
             // is checked by the emitted Sources signature, not a fake response.
+            // A Rust source's own error is also `Unavailable`; the device sees it.
             Err(_) => {}
         }
     }

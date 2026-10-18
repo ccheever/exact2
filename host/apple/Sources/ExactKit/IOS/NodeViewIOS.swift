@@ -1215,12 +1215,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Scrolling and clipping come from the effective overflow the host
     /// wrote in (never from the node's kind): `scroll` on an axis makes a
     /// scroll container that scrolls that axis; `hidden` clips.
-    /// Whether the style clips the children (`overflow: hidden`); a waiting
+    /// Whether the style clips the children (`overflow: hidden` or `clip`); a waiting
     /// scroll clips as its scroll view would. Without a clip box, it is the
     /// layer's `masksToBounds` (`syncScroll`; a landing flight, `FlightsIOS`).
     var overflowClips: Bool {
         let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
-        return ox == "hidden" || oy == "hidden" || scrollDormant
+        return ["hidden", "clip"].contains(ox) || ["hidden", "clip"].contains(oy) || scrollDormant
     }
 
     func syncScroll() {

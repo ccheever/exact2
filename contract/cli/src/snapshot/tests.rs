@@ -598,6 +598,17 @@ fn refresh_checks_distinguish_pending_sources_and_result_mismatches() {
         ),
     )
     .unwrap();
+    for failure in [
+        DataError::BadArguments("argument 0 is not a number".into()),
+        DataError::Failed(
+            exact_runner::failure::FailureCode::Offline,
+            "no session".into(),
+            String::new(),
+        ),
+    ] {
+        let error = check_refreshes(&entries, &mut Data(Err(failure), false)).unwrap_err();
+        assert!(error.contains("failed at bake"), "{error}");
+    }
     for (value, message) in [
         (Value::str("oops"), "result expected List, got string"),
         (
@@ -668,12 +679,12 @@ fn snapshot_v1_refusals_have_the_driver_edit() {
         (
             r#"view border="2px inset red""#,
             "snapshot-border",
-            "solid, dashed or dotted",
+            "solid, dashed, dotted or none",
         ),
         (
             r#"view border-style="double""#,
             "snapshot-border",
-            "solid, dashed or dotted",
+            "solid, dashed, dotted or none",
         ),
         (
             r#"view border-radius="calc(20% + 2px)""#,
@@ -909,4 +920,42 @@ fn snapshot_v1_classes_components_and_families_cannot_bypass_limits() {
         &widget(),
     )
     .unwrap();
+}
+
+#[test]
+fn round3_border_none_literals_slash_radii_and_template_images() {
+    for view in [
+        r#"view border="none""#,
+        r#"view border-width=2 border-style="none" border-color="red""#,
+        "image `symbol:${title}` width=20 height=20",
+        "image `app:/cache/${title}.png` width=20 height=20",
+    ] {
+        compile(&source(&format!("    {view}"), "", ""), &widget())
+            .unwrap_or_else(|e| panic!("{view}: {e:?}"));
+    }
+    for (view, id, edit) in [
+        (
+            "text title color=title",
+            "snapshot-literal",
+            "write a literal",
+        ),
+        (
+            r#"view border-radius="10px / 20px""#,
+            "snapshot-radius",
+            "not `h / v`",
+        ),
+        (
+            "image `app:/../${title}.png` width=20 height=20",
+            "snapshot-request",
+            "refresh must download",
+        ),
+    ] {
+        let errors = compile(&source(&format!("    {view}"), "", ""), &widget()).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.id == id && e.message.contains(edit)),
+            "{view}: {errors:?}"
+        );
+    }
 }

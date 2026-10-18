@@ -281,9 +281,19 @@ fn local_image(e: &Expr) -> bool {
     match e {
         Expr::Str(s, _) => path(s),
         Expr::Ternary(_, yes, no, _) => local_image(yes) && local_image(no),
-        // A fixed local prefix cannot turn into a network scheme when props change.
+        // A fixed local prefix cannot turn into a network scheme when props
+        // change; no literal part may climb or escape a directory. What a prop
+        // carries at run time the driver confines to the bundle or the group.
         Expr::Template(parts, _) => {
-            matches!(parts.first(), Some(TemplatePart::Text(prefix)) if prefix.ends_with('/') && path(prefix))
+            let literal_ok = parts.iter().all(|part| match part {
+                TemplatePart::Text(t) => {
+                    !t.contains('\\') && !t.split('/').any(|piece| piece == "..")
+                }
+                _ => true,
+            });
+            literal_ok
+                && matches!(parts.first(), Some(TemplatePart::Text(prefix))
+                    if prefix == "symbol:" || prefix.starts_with("symbol:") || (prefix.ends_with('/') && path(prefix)))
         }
         _ => false,
     }

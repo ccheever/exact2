@@ -1210,7 +1210,9 @@ impl Painter {
                 None => own,
             });
         }
-        let scrolls = ox != Overflow::Visible || oy != Overflow::Visible;
+        // `clip` clips without being a scroll container (CSS Overflow 3 §3).
+        let scrolls = !matches!(ox, Overflow::Visible | Overflow::Clip)
+            || !matches!(oy, Overflow::Visible | Overflow::Clip);
         let child_offset = if scrolls {
             let (sx, sy) = walk
                 .scene
