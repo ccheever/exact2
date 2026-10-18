@@ -1,4 +1,6 @@
 use super::*;
+#[path = "surface_tests/trace.rs"]
+mod trace;
 use exact_game::{Camera, Input, Mesh, Transform, Vec3};
 use exact_gpu::{fixture, Gpu};
 
@@ -19,6 +21,7 @@ impl Game for Move {
         w.spawn((Transform::at(0., 0., 8.), Camera::default()));
     }
     fn tick(w: &mut World, _: &Input, args: &Self::Args) {
+        let _span = w.span("move");
         if args.r#move {
             for (_, (_, t)) in w.query::<(&Mesh, &mut Transform)>().iter() {
                 t.position.x += 1.;

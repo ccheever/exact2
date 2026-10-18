@@ -34,7 +34,11 @@ pub(crate) struct Spans {
 }
 impl Spans {
     fn charge(&mut self, now: f64) {
-        let row = self.open.last().map_or(0, |s| s.row);
+        let row = self
+            .open
+            .last()
+            .map(|s| s.row)
+            .unwrap_or_else(|| self.row("tick.other", Location::caller()));
         self.rows[row].value += (now - self.last).max(0.);
         self.last = now;
     }
@@ -168,7 +172,9 @@ fn distribution(ring: &Ring, count: usize, zeros: usize) -> Distribution {
         count: n as u32,
     }
 }
-/// Opaque measurement lifetime. It exposes no clock or elapsed value to gameplay.
+/// Tick-scoped measurement lifetime; drop before returning from `Game::tick`.
+/// A guard retained past the tick ends there and produces no named trace interval.
+/// It exposes no clock or elapsed value to gameplay.
 pub struct Span {
     owner: Option<Rc<RefCell<Spans>>>,
     id: u64,

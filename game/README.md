@@ -470,7 +470,7 @@ comparing state does not advance the clock or mutate the world.
 
 ## The agent's interface
 
-Use Exact2's same eight operations: `tree`, `screenshot`, `tap`, `type`, `state`,
+Use Exact2's same ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs` and `clock`. An entity is addressed as `world:player`.
 
 ```sh

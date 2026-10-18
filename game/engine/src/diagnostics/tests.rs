@@ -89,18 +89,21 @@ impl Game for Footgun {
     fn tick(w: &mut World, _: &Input, _: &()) {
         let _span = w.span("render-column-query");
         // Constructing the exclusive render-column query touches its pages even
-        // when the loop writes nothing. The read-only control omits that term.
+        // when the loop writes nothing. The control visits the same column shared.
         let count = if w.resource::<Visited>().0 == 0 {
             w.query::<&mut Transform>().iter().count()
         } else {
-            std::hint::black_box(1)
+            w.query::<&Transform>().iter().count()
         };
         std::hint::black_box(count);
+        // Mutable access invalidates the column's cached digest even without
+        // assignments. Include the observation that pays for that invalidation.
+        std::hint::black_box(w.hash());
     }
 }
 #[test]
-#[ignore = "wall-clock observation: run explicitly, never a timing gate"]
 fn hundred_thousand_entity_query_span() {
+    let mut measurements = Vec::new();
     for count in [1000, 100_000] {
         for exclusive in [true, false] {
             let mut sim = Sim::<Footgun>::new(()).unwrap();
@@ -119,9 +122,27 @@ fn hundred_thousand_entity_query_span() {
                 .spans
                 .iter()
                 .any(|s| s.name == "render-column-query" && s.count >= 39));
+            let p50 = report
+                .spans
+                .iter()
+                .find(|s| s.name == "render-column-query")
+                .unwrap()
+                .p50;
+            measurements.push(p50);
             println!("perf world: entities={count} exclusive={exclusive}: {text}");
         }
     }
+    let [small_mut, _small_shared, large_mut, large_shared] = measurements[..] else {
+        unreachable!()
+    };
+    assert!(
+        large_mut > large_shared * 2.,
+        "mutable/shared ratio: {measurements:?}"
+    );
+    assert!(
+        large_mut > small_mut * 5.,
+        "mutable scaling: {measurements:?}"
+    );
 }
 
 #[test]
@@ -131,7 +152,9 @@ fn ten_seconds_of_tick_spans_are_joined_to_submitted_frames() {
     sim.advance(0., Clock::Seekable);
     for tick in 1..=600 {
         sim.advance(tick as f64 * 1000. / 60. + 0.001, Clock::Seekable);
-        sim.trace_frame();
+        if tick % 10 == 0 {
+            sim.trace_frame();
+        }
     }
     #[derive(Default, crate::Data)]
     struct Args {
@@ -155,13 +178,24 @@ fn ten_seconds_of_tick_spans_are_joined_to_submitted_frames() {
             .find(|e| e.name == "frame" && e.args.frame == tick.args.frame)
             .unwrap();
         assert!(frame.ts <= tick.ts && frame.ts + frame.dur >= tick.ts + tick.dur);
-        assert_eq!(tick.args.tick, tick.args.frame);
+        assert_eq!(tick.args.frame, tick.args.tick.div_ceil(10));
+        for name in ["outer", "inner"] {
+            let named: Vec<_> = rows
+                .iter()
+                .filter(|e| e.name == name && e.args.tick == tick.args.tick)
+                .collect();
+            assert_eq!(named.len(), if name == "inner" { 2 } else { 1 });
+            for span in named {
+                assert_eq!(span.args.frame, tick.args.frame);
+                assert!(span.ts >= tick.ts && span.ts + span.dur <= tick.ts + tick.dur);
+            }
+        }
     }
     if let Ok(path) = std::env::var("EXACT_DIAGNOSTIC_TRACE") {
         std::fs::write(path, format!("{{\"traceEvents\":{events}}}")).unwrap();
     }
     println!(
-        "trace export: 600 ticks under 600 submitted frames; {} intervals",
+        "trace export: 600 ticks under 60 submitted frames; {} intervals",
         rows.len()
     );
 }
@@ -174,4 +208,30 @@ fn a_difference_from_zero_refuses_when_its_prefix_has_expired() {
     sim.advance(300_000., Clock::Seekable);
     assert!(sim.spans_json(Some(0)).contains("window expired"));
     assert!(!sim.spans_json(None).contains("error"));
+}
+
+#[test]
+fn remainder_uses_its_name_and_difference_statistics_exclude_the_prefix() {
+    let mut s = Spans::default();
+    s.arm(now, true);
+    s.row("first", Location::caller());
+    s.rows.swap(0, 1);
+    s.begin(1);
+    add(100.);
+    s.end();
+    s.begin(2);
+    add(2.);
+    s.end();
+    let report: Report = crate::json::from_str(&s.json(Some(1))).unwrap();
+    assert_eq!(report.tickMs.p50, 2.);
+    let other = report
+        .spans
+        .iter()
+        .find(|r| r.name == "tick.other")
+        .unwrap();
+    assert_eq!(other.p50, 2.);
+    assert_eq!(
+        report.spans.iter().find(|r| r.name == "first").unwrap().p50,
+        0.
+    );
 }
