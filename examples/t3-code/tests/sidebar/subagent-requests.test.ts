@@ -43,7 +43,8 @@ test('a model change previews a required context handoff without modifying histo
   const selection = { instanceId: 'other', model: 'model-b' };
   expect(pendingHandoff(client.projection, selection, client.config.providers as Obj[])).toMatchObject({ from: { instanceId: 'codex' }, to: selection });
   client.providerId = 'other'; client.modelId = 'model-b';
-  expect(threadFooterRows(client, 0)[0]).toMatchObject({ title: 'Context handoff pending', detail: 'Model A → Model B' });
+  expect(threadFooterRows(client, 0)[0]).toMatchObject({ kind: 'handoff', title: 'Context handoff pending', detail: 'Model A → Model B',
+    activities: [{ label: 'Model A', detail: 'codex' }, { label: 'Model B', detail: 'codex' }] });
   expect(client.projection.contextHandoffs).toEqual([]);
   expect(pendingHandoff(client.projection, { instanceId: 'codex', model: 'model-b' }, client.config.providers as Obj[])).toBeNull();
 });
