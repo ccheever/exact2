@@ -163,13 +163,13 @@ struct ExactTimelineProvider: TimelineProvider {
     }
 }
 #if EXACT_INSPECT
-private func measurement(_ phase: String, start: UInt64, details: String) {
+func measurement(_ phase: String, start: UInt64, details: String) {
     let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
     widgetLog.notice("\(phase, privacy: .public) pid=\(getpid()) \(details, privacy: .public) ms=\(elapsed) now=\(footprintNow()) peak=\(footprint())")
 }
 /// The resident footprint now, apart from the ledger's lifetime peak: a
 /// series of these over renders tells a high-water mark from a leak.
-private func footprintNow() -> UInt64 {
+func footprintNow() -> UInt64 {
     var info = task_vm_info_data_t()
     var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
     let status = withUnsafeMutablePointer(to: &info) { pointer in
@@ -177,7 +177,7 @@ private func footprintNow() -> UInt64 {
     }
     return status == KERN_SUCCESS ? info.phys_footprint : 0
 }
-private func footprint() -> UInt64 {
+func footprint() -> UInt64 {
     var info = task_vm_info_data_t()
     var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
     let status = withUnsafeMutablePointer(to: &info) { pointer in

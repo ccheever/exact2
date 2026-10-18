@@ -168,12 +168,13 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
         .supportedFamilies([${entry.families.map(f => `.${f}`).join(', ')}]).contentMarginsDisabled()
     }
 }`).join('\n');
-  // An app with activities and no widgets still ships the extension (its ActivityConfiguration is LLP 1126.001
-  // WP10's); a bundle's body needs one widget, so an empty configuration stands in until then.
-  if (!names.length) names.push('ExactActivities');
-  const standIn = names[0] === 'ExactActivities' ? `struct ExactActivities: Widget {\n    let kind = ${JSON.stringify(`${app.id}.activities`)}\n    var body: some WidgetConfiguration { EmptyWidgetConfiguration() }\n}\n` : '';
+  // The one ActivityConfiguration for every activity kind (`widget/Activity.swift`, LLP 1126.001 WP10): the
+  // envelope's attributes name the kind and the generation at render time, so the generated bundle holds no
+  // activity string at all, and an app with activities and no widgets has it as its one member.
+  const activities = activityEntries(app).length > 0;
+  if (activities) names.push('ExactActivities');
   const source = resolve(directory, 'WidgetBundle.swift');
-  writeFileSync(source, `import SwiftUI\nimport WidgetKit\nimport UIKit\n${generated}\n${standIn}@main struct ExactWidgets: WidgetBundle { var body: some Widget { ${names.map(n => `${n}()`).join('; ')} } }\n`);
+  writeFileSync(source, `import SwiftUI\nimport WidgetKit\nimport UIKit\n${generated}\n@main struct ExactWidgets: WidgetBundle { var body: some Widget { ${names.map(n => `${n}()`).join('; ')} } }\n`);
   const entitlementPath = resolve(directory, 'widget-entitlements.plist');
   writeFileSync(entitlementPath, entitlements);
   writeFileSync(resolve(extension, 'Info.plist'), plistFile({ CFBundleIdentifier: widgetId(app), CFBundleName: 'ExactWidgets', CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWidgets', CFBundlePackageType: 'XPC!', ...versions, UIDeviceFamily: appInfo.UIDeviceFamily,
@@ -183,6 +184,6 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
     '-module-cache-path', resolve(directory, 'cache'), '-I', resolve(root, 'host/apple/Sources/CExact'), '-I', resolve(shared.framework, 'Modules'), '-F', resolve(shared.framework, '..'), '-framework', 'ExactCore',
     '-Xlinker', '-rpath', '-Xlinker', '@executable_path/../../Frameworks',
     ...(!device ? ['-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__entitlements', '-Xlinker', entitlementPath] : []),
-    shared.snapshotArchive, resolve(root, 'host/apple/widget/Timeline.swift'), source, '-o', resolve(extension, 'ExactWidgets')]);
+    shared.snapshotArchive, resolve(root, 'host/apple/widget/Timeline.swift'), ...(activities ? [resolve(root, 'host/apple/widget/Activity.swift')] : []), source, '-o', resolve(extension, 'ExactWidgets')]);
   sign(extension, entitlementPath);
 }
