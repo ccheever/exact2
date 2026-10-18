@@ -334,16 +334,45 @@ extension NavigationHost {
     }
 
     /// A route's content scroller (`contentScroller`, the status bar's) to
-    /// its top, as the status bar's tap takes it: animated, and to where a
-    /// large title is expanded, which UIKit opens as the offset arrives.
-    /// Unanimated (the agent's frozen clock), it lands at its top with the
-    /// title expanded, as a new screen opens (`rest`).
+    /// its top, as the status bar's tap takes it: UIKit's animation, to where
+    /// a large title is open, which UIKit opens as the offset arrives.
+    /// UIKit's tab bar does not do this itself: a selected tab tapped again
+    /// scrolls nothing in UIKit alone (iOS 27, a real touch).
     func scrollToTop(_ c: RouteController) {
         guard let node = contentScroller(of: c), let sv = shownScroll(node) else { return }
         guard sv.contentOffset.y > 0.5 - sv.adjustedContentInset.top else { return }
-        guard scrollsToTopAnimated else { return rest(sv, in: c) }
+        guard scrollsToTopAnimated else { return restAtTop(sv, in: c) }
         let inset = max(sv.adjustedContentInset.top, node === c.collapseScroll ? node.scrollOrigin : 0)
         sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: -inset), animated: true)
+    }
+
+    /// Where `scrollToTop` ends, in one turn, under the agent's frozen clock,
+    /// where Exact starts no UIKit animation: the content at its top and a
+    /// large title expanded. Measured in UIKit alone on iOS 27, an offset written
+    /// at the top under a collapsed title leaves it collapsed, and one written
+    /// above the top opens the title and leaves the content that far below
+    /// the bar. So the scroller is pulled past its top and put at rest there,
+    /// unanimated: no frame shows the pull. This is the one place Exact moves
+    /// a large title itself.
+    private func restAtTop(_ sv: UIScrollView, in c: RouteController) {
+        sv.contentOffset.y = -sv.adjustedContentInset.top
+        // tvOS has no large titles.
+        #if !os(tvOS)
+        guard c.navigationItem.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil,
+              let nav = c.navigationController, nav.topViewController === c, nav.transitionCoordinator == nil,
+              !nav.isNavigationBarHidden else { return }
+        UIView.performWithoutAnimation {
+            // By the bar's height at a time, while the title still opens:
+            // UIKit grows the inset by what the pull opened of it.
+            for _ in 0..<4 {
+                let top = sv.adjustedContentInset.top
+                sv.contentOffset.y = -top - nav.navigationBar.frame.height
+                nav.view.layoutIfNeeded()
+                if sv.adjustedContentInset.top <= top + 0.5 { break }
+            }
+            sv.contentOffset.y = -sv.adjustedContentInset.top
+        }
+        #endif
     }
 
     /// What holds the tabs goes: its stacks are retired, the authored
