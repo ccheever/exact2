@@ -18,7 +18,7 @@ impl Table {
         Self {
             name,
             decode: decode::<T>,
-            ty: crate::data::type_name::<T>,
+            ty: std::any::type_name::<T>,
         }
     }
     /// Validate a complete record, including required fields.
@@ -389,19 +389,20 @@ impl<G: crate::Game> crate::Sim<G> {
                 store.history.inputs.push(TableInput { tick: 0, rows });
                 self.world
                     .insert_resource(TableValues(store.history.active.clone()));
-            } else if store
-                .history
-                .pending
-                .last()
-                .map_or(&store.history.active, |input| &input.rows)
-                != &rows
-            {
+            } else {
                 // TODO(1127.004 D6): use the shared clock-stamped admission contract.
-                // Until it lands, a complete transaction activates at the next tick boundary.
-                store.history.pending.push(TableInput {
-                    tick: self.world.tick() + 1,
-                    rows,
+                // Insert after equal ticks so replay and live admission preserve arrival order.
+                let tick = self.world.tick() + 1;
+                let at = store
+                    .history
+                    .pending
+                    .partition_point(|input| input.tick <= tick);
+                let previous = at.checked_sub(1).map_or(&store.history.active, |index| {
+                    &store.history.pending[index].rows
                 });
+                if previous != &rows {
+                    store.history.pending.insert(at, TableInput { tick, rows });
+                }
             }
             self.world.assets.tables = Some(Arc::new(store));
             self.world

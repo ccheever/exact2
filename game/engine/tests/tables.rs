@@ -350,3 +350,110 @@ fn replay_export_includes_pending_transactions_and_curve_errors_name_the_point()
         );
     }
 }
+
+#[test]
+fn live_edits_interleave_with_replay_and_restore_in_every_mode() {
+    let mut expected = None;
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        let mut driven = sim(mode);
+        let mut inputs = driven.table_inputs();
+        inputs.extend([
+            asset::TableInput {
+                tick: 5,
+                rows: rows(5.0, "five"),
+            },
+            asset::TableInput {
+                tick: 20,
+                rows: rows(20.0, "twenty"),
+            },
+        ]);
+        driven.replay_tables(&inputs).unwrap();
+        // Equal to the last future input: it must still be admitted at tick 1.
+        deliver(&mut driven, rows(20.0, "twenty")).unwrap();
+        deliver(&mut driven, rows(2.0, "live last")).unwrap();
+        assert_eq!(
+            driven
+                .table_inputs()
+                .iter()
+                .map(|i| i.tick)
+                .collect::<Vec<_>>(),
+            [0, 1, 1, 5, 20]
+        );
+        let saved = driven.save().unwrap();
+        let mut restored = sim(mode);
+        restored.restore(&saved).unwrap();
+        assert_eq!(restored.save().unwrap(), saved);
+        let mut hashes = Vec::new();
+        for tick in 1..=24 {
+            if tick == 5 {
+                // The replay row at the same tick runs first; live arrival runs last.
+                for s in [&mut driven, &mut restored] {
+                    deliver(s, rows(6.0, "live five")).unwrap();
+                }
+            }
+            driven.run(1.0);
+            restored.run(1.0);
+            assert_eq!(driven.world().hash(), restored.world().hash());
+            assert_eq!(
+                driven.get::<Seen>("player").unwrap().speed,
+                if tick < 5 {
+                    2.0
+                } else if tick < 20 {
+                    6.0
+                } else {
+                    20.0
+                }
+            );
+            hashes.push(driven.world().hash());
+        }
+        if let Some(expected) = &expected {
+            assert_eq!(&hashes, expected);
+        } else {
+            expected = Some(hashes);
+        }
+    }
+}
+
+#[test]
+fn restore_distinguishes_same_named_types_in_different_modules() {
+    mod movement {
+        use exact_game::*;
+        #[derive(Default, Data)]
+        pub struct Tuning {
+            speed: f32,
+            recoil: asset::Curve,
+        }
+    }
+    struct Changed;
+    impl Game for Changed {
+        const ID: &'static str = "tables";
+        const TABLES: &'static [asset::Table] = &[
+            asset::Table::of::<movement::Tuning>("weapons.json"),
+            asset::Table::of::<Labels>("labels.json"),
+        ];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            Tables::setup(w, &());
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let saved = sim(Paranoid::Off).save().unwrap();
+    let mut changed = Sim::<Changed>::new(()).unwrap();
+    changed
+        .asset(
+            asset::TABLE_ASSET,
+            Some(json::to_string(&rows(4.0, "first")).unwrap().as_bytes()),
+        )
+        .unwrap();
+    let before = changed.save().unwrap();
+    let error = changed.restore(&saved).unwrap_err().to_string();
+    for name in [
+        "weapons.json",
+        "tables::Tuning",
+        "movement::Tuning",
+        "type identity",
+    ] {
+        assert!(error.contains(name), "{error}");
+    }
+    assert_eq!(changed.save().unwrap(), before);
+}
