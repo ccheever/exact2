@@ -1290,8 +1290,26 @@ heights, wrapping and auto-margin controls; patch 43's column cases still pass.
 `browser_position::positioned_boxes_roots_and_ratios_match_chrome` also holds
 22 Chrome 151 cases for absolute column wrapping and clamped ratio percentage
 bases, including reversed directions, `wrap-reverse`, equal bounds, authored
-heights, minima and block/flex/grid controls. Maximum-only columns hold item
-frames; their pre-existing container-height discrepancy is recorded in `QUEUE.md`.
+heights, minima and block/flex/grid controls. Patch 45 adds the maximum-only
+columns' container frames and the missing reversed-column cases.
+
+## Patch 45: size an automatic flex column height from its longest line
+
+`determine_container_main_size` applies the available-space floor to multiline
+rows only. A column's automatic height uses its longest line, including gaps,
+margins and the container's inset, then applies its height bounds. This follows
+[CSS Flexbox's automatic block sizing](https://www.w3.org/TR/css-flexbox-1/#algo-main-container).
+The absolute solver's definite offer still limits wrapping; it no longer raises
+a 60px line to a 100px maximum. Definite heights and row sizing keep their paths.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+34 full container/item frame cases measured in Chrome 151.0.7922.34 on
+2026-10-18, including 24 new cases. They cover absolute and normal-flow columns,
+both column directions, wrap-reverse, nowrap, equal and inverted height bounds,
+minimum and preferred heights, unequal lines with gaps, padding, and row and
+row-reverse controls in block and shrink-to-fit contexts. The maximum-only
+column is 300×60; reversed items start at y=0. Equal 100px bounds and nowrap
+retain a 100px height. The test had 17 frame mismatches before this patch.
 
 ## Cargo workspace boundary
 

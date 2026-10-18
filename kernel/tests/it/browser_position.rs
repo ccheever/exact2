@@ -8,9 +8,9 @@
 //! 16px/18px monospace`. Frames are measured from the 800px box. Text cases
 //! use one letter per line, so the measurer's advance does not matter.
 //!
-//! Cases prefixed `Chrome 151 absolute review` were measured on 2026-10-18
-//! with Chrome 151.0.7922.34. Maximum-only columns hold item frames; their
-//! pre-existing container-height discrepancy is recorded in QUEUE.md.
+//! Cases prefixed `Chrome 151 absolute review` or `Chrome 151 wrapped main size`
+//! were measured on 2026-10-18 with Chrome 151.0.7922.34, including full
+//! container and item frames for wrapping columns and row controls.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),
