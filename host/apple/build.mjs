@@ -54,7 +54,7 @@ import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory,
 import { keptModules } from './modules.mjs';
 import { quiet, quietFor } from './quiet.mjs';
 import { keptCrates } from './crates.mjs';
-import { linkable, linkedPlanArgs, placeLinkedPlan } from '../../scripts/linked-plan.mjs';
+import { linkedPlanArgs, placeLinkedPlan } from '../../scripts/linked-plan.mjs';
 import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets };
 import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, installedBuild, macIdentity, phone, replacedNote, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
@@ -870,7 +870,7 @@ async function main(args) {
   const fixedPlan = production && expected.composition === 'embedded';
   cargoEnv.EXACT_APPLE_LINK = linksByPlan(production, args) ? 'plan' : 'all'; // what the archive links (link.mjs)
   const hostModules = embedOnly || fixedPlan ? null : buildModules(['exact-svg-raster', ...(metal ? ['exact-canvas-vello'] : [])], 'host-modules.log');
-  const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, link: !args.includes('--embed') && !widgets && linkable(app), prepareGpu(product) {
+  const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, link: !args.includes('--embed') && !widgets, prepareGpu(product) {
     const artifact = gpuArtifacts.find(m => m.built === basename(product));
     if (!artifact) throw new Error(`unknown GPU product: ${product}`);
     const signed = signedGpuProduct(product, { identity: sha1, app, framework: ipa ? artifact.framework : null, platform: tv ? 'AppleTVOS' : 'iPhoneOS', hardened: !ios && distribution });

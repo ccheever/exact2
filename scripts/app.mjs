@@ -32,7 +32,7 @@ import { BINARYEN } from '../host/web/stages.mjs';
 import { SHELL_SOURCES } from '../host/web/look.mjs';
 import { createHash } from 'node:crypto';
 import { nativeSource, prepareRustBundle } from './rust.mjs';
-import { bakeOutside } from './linked-plan.mjs';
+import { bakeOutside, linkable } from './linked-plan.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
 import { filesystem, installedModules, removePrivateTree } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
@@ -1312,7 +1312,7 @@ export function buildBake(app, platform, target, options = {}) {
     // at `release`, so nothing is compiled under both.
     const whole=apple&&(options.profile??'release')==='release'?['--config','profile.release.lto="fat"']:[];
     const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...whole,...(sized?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
-    if(archive&&options.link&&!env.EXACT_RUST_BUNDLE)env.EXACT_BAKED=bakeOutside(app,platform,target,env);else delete env.EXACT_BAKED; // `link`: a TypeScript app's plan, which the link carries
+    if(archive&&options.link&&!env.EXACT_RUST_BUNDLE&&linkable(app,pkg))env.EXACT_BAKED=bakeOutside(app,platform,target,env);else delete env.EXACT_BAKED; // `link`: a TypeScript app's plan, which the link carries
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     if (gpuPackage(pkg) && platform !== 'web') {

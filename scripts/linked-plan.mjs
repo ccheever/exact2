@@ -30,17 +30,54 @@ const TOOL_TARGET = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TAR
 export const bakeTool = { command: 'cargo', args: ['build', '-q', '--profile', 'host-dev', '-p', 'exact-js-bake'], built: resolve(TOOL_TARGET, 'host-dev/exact-js-bake'),
   options: () => ({ cwd: ROOT, env: { ...developmentBuildEnv(), EXACT_UPDATE_TRUST: 'development', CARGO_TARGET_DIR: TOOL_TARGET } }) };
 
-/** Whether `app`'s plan can be baked before Cargo: a TypeScript app with no
- * Rust data crate, whose bake runs no Rust of the app's (`build_mixed`). An
- * embedding archive carries its plan (`--embed`: no link of ours adds it),
- * as does an iOS core its widgets share as a framework (host/apple/build.mjs).
- * An entry that declares `const PLAN` and `const COMPAT` itself (an outside
- * app from before) reads the plan from the archive, and builds as it did. */
-export function linkable(app) {
+/** The Apple build script `exact new` writes: it names the platform and
+ * bakes, and does nothing else a bake made before Cargo would miss. */
+export const APPLE_BUILD_SCRIPT = `fn main() {
+    let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        // tvOS and watchOS reuse the manifest's iOS policy, including interpreted Rust updates.
+        Ok("ios" | "tvos" | "watchos") => "ios",
+        _ => "macos",
+    };
+    exact_js_bake::build(std::path::Path::new(".."), platform).unwrap_or_else(|error| {
+        // What the bake found (tsc's and the compiler's diagnostics), as it is: no panic around it.
+        eprintln!("{error}");
+        std::process::exit(1);
+    });
+}
+`;
+
+/** The one `exact new` wrote before, which mapped iOS alone; `update`
+ * replaces it with APPLE_BUILD_SCRIPT. */
+export const EARLIER_APPLE_BUILD_SCRIPT = `fn main() {
+    let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("ios") => "ios",
+        _ => "macos",
+    };
+    exact_js_bake::build(std::path::Path::new(".."), platform).unwrap_or_else(|error| {
+        // What the bake found (tsc's and the compiler's diagnostics), as it is: no panic around it.
+        eprintln!("{error}");
+        std::process::exit(1);
+    });
+}
+`;
+
+/** Whether the plan of `app`'s Apple crate `pkg` (Cargo's metadata) can be
+ * baked before Cargo: a TypeScript app with no Rust data crate, whose build
+ * script is one `exact new` wrote. Any other build script may make what its
+ * bake reads (Expose writes `local.ts` first) or bake through the app's
+ * Rust (`build_mixed`), so Cargo bakes it, as it did. An entry that declares
+ * `const PLAN` and `const COMPAT` itself (an outside app from before)
+ * reads the plan from the archive too, until `update`. An embedding archive
+ * and an iOS core its widgets share as a framework carry their plan as well:
+ * no link of ours adds it there (host/apple/build.mjs). */
+export function linkable(app, pkg) {
   if (!existsSync(resolve(app.dir, 'app.ts')) || existsSync(resolve(app.dir, 'data/Cargo.toml'))) return false;
-  let entry = ''; try { entry = readFileSync(resolve(app.dir, 'apple/src/lib.rs'), 'utf8'); } catch { /* none */ }
-  if (!/^const PLAN:/m.test(entry) || !/^const COMPAT:/m.test(entry)) return true;
-  console.error(`host/apple: apple/src/lib.rs declares PLAN and COMPAT, so the plan is compiled into the archive and a Contract edit compiles it again; \`bun exact.mjs update\` drops them, and the link then carries the plan`);
+  const read = (target) => { try { return readFileSync(target.src_path, 'utf8'); } catch { return null; } };
+  const script = pkg.targets.find(t => t.kind.includes('custom-build')), entry = pkg.targets.find(t => t.kind.some(k => ['lib', 'rlib', 'staticlib'].includes(k)));
+  if (!script || !entry || ![APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT].includes(read(script))) return false;
+  const source = read(entry) ?? '';
+  if (!/^const PLAN:/m.test(source) || !/^const COMPAT:/m.test(source)) return true;
+  console.error(`host/apple: ${entry.src_path} declares PLAN and COMPAT, so the plan is compiled into the archive and a Contract edit compiles it again; \`bun exact.mjs update\` drops them, and the link then carries the plan`);
   return false;
 }
 

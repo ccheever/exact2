@@ -6,6 +6,7 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
 import { readDeviceStamp } from '../snapback4/web/device-build.mjs';
 import { cargoEnvironment, pathFrom, patchLines } from '../scripts/app.mjs';
+import { APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT } from '../scripts/linked-plan.mjs';
 
 /** Type names a game's generated type may not take: the engine's public items
  * (what `use exact_game::*` brings in) and the template's own. */
@@ -830,18 +831,7 @@ exact-js = ${dep('apple', 'js')}
 [build-dependencies]
 exact-js-bake = ${dep('apple', 'js/bake')}
 `,
-    'apple/build.rs': `fn main() {
-    let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        Ok("ios") => "ios",
-        _ => "macos",
-    };
-    exact_js_bake::build(std::path::Path::new(".."), platform).unwrap_or_else(|error| {
-        // What the bake found (tsc's and the compiler's diagnostics), as it is: no panic around it.
-        eprintln!("{error}");
-        std::process::exit(1);
-    });
-}
-`,
+    'apple/build.rs': APPLE_BUILD_SCRIPT,
     'apple/src/lib.rs': `//! ${title} on Apple: the Contract UI and the TypeScript data module.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
@@ -1337,9 +1327,14 @@ test "the app opens"
 `);
   // The Apple entry's plan and compatibility document come with its host.rs (`exact_plan()`, `exact_compat()`): an
   // Apple build links them (`exact_apple::baked`), and the constants an older entry declares read a file it no longer writes.
-  const entry = resolve(dir, 'apple/src/lib.rs'), source = existsSync(entry) ? readFileSync(entry, 'utf8') : '';
-  const entryNow = source.replace(/^const (?:PLAN|COMPAT): [^\n]*"\/(?:app\.plan|compat\.json)"\)\);\n/gm, '');
-  if (entryNow !== source && source.includes('/host.rs"')) { writeFileSync(entry, entryNow); notes.push('apple/src/lib.rs'); }
+  // And the build script `exact new` wrote before, which mapped iOS alone, is the one it writes now.
+  for (const crate of ['apple', 'ios', 'macos']) {
+    const entry = resolve(dir, crate, 'src/lib.rs'), source = existsSync(entry) ? readFileSync(entry, 'utf8') : '';
+    const entryNow = source.replace(/^const (?:PLAN|COMPAT): [^\n]*"\/(?:app\.plan|compat\.json)"\)\);\n/gm, '');
+    if (entryNow !== source && source.includes('/host.rs"')) { writeFileSync(entry, entryNow); notes.push(`${crate}/src/lib.rs`); }
+    const script = resolve(dir, crate, 'build.rs');
+    if (existsSync(script) && readFileSync(script, 'utf8') === EARLIER_APPLE_BUILD_SCRIPT) { writeFileSync(script, APPLE_BUILD_SCRIPT); notes.push(`${crate}/build.rs`); }
+  }
   // Each exact2 crate is found by name, so a checkout that moved is followed.
   const metadata = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: ROOT, env: cargoEnvironment(), encoding: 'utf8', maxBuffer: 1 << 26 });
   if (metadata.status !== 0) throw new Error(`cargo metadata in ${ROOT}:\n${metadata.stderr}`);
