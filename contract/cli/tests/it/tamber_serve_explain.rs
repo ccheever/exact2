@@ -151,3 +151,178 @@ fn an_icon_alias_reads_in_an_app_without_params() {
     assert_eq!(alias["ok"]["icon"]["sf"], "house", "{alias}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Stage 9 C2: `uses` of an icon lists the images that draw it, directly
+/// or through an icon param; a motion token's literal in a component used
+/// twice is two sites, each its plan node, the literal kept; one in a
+/// component no one uses keeps `site: null`.
+#[test]
+fn uses_lists_an_icons_images_and_a_motion_tokens_instances() {
+    let design = "tamber t\n\ntheme\n  motion.fast = 150ms\n\nicons\n  icon.reply = icon(sf \"bubble.left\", svg \"icons/reply.svg\")\n";
+    let dir = app("uses-c2", design);
+    std::fs::create_dir_all(dir.join("assets/icons")).unwrap();
+    std::fs::write(dir.join("assets/icons/reply.svg"), SVG).unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  view\n    column\n      image \"symbol:icon.reply\" testId=\"direct\"\n      Card()\n      Card()\n\ncomponent Card\n  params\n    glyph: icon = \"icon.reply\"\n  view\n    column transition=\"opacity motion.fast\"\n      image \"symbol:param.glyph\"\n\ncomponent Unused\n  view\n    column transition=\"opacity motion.fast\"\n      text \"u\"\n").unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (icon, _) = s.ask(json!({"method": "uses", "token": "icon.reply"}));
+    let sites = icon["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{icon}"));
+    assert_eq!(sites.len(), 3, "the direct image and Card's twice: {icon}");
+    assert!(
+        sites
+            .iter()
+            .all(|s| s["row"] == "symbol" && s["site"].is_u64()),
+        "{icon}"
+    );
+    assert_eq!(
+        sites
+            .iter()
+            .filter(|s| s["via"]["token"]
+                .as_str()
+                .is_some_and(|t| t.ends_with("Card.glyph")))
+            .count(),
+        2,
+        "{icon}"
+    );
+    let (motion, _) = s.ask(json!({"method": "uses", "token": "motion.fast"}));
+    let sites = motion["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{motion}"));
+    let card: Vec<_> = sites.iter().filter(|s| s["line"] == 12).collect();
+    assert_eq!(card.len(), 2, "Card used twice: {motion}");
+    assert!(
+        card.iter()
+            .all(|s| s["site"].is_u64() && s["literal"]["line"] == 12),
+        "{motion}"
+    );
+    assert_ne!(card[0]["site"], card[1]["site"]);
+    let unused: Vec<_> = sites.iter().filter(|s| s["line"] == 17).collect();
+    assert_eq!(unused.len(), 1, "{motion}");
+    assert!(
+        unused[0]["site"].is_null() && unused[0].get("literal").is_none(),
+        "{motion}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C2 review round 1: an icon is read from an image's source only (not a
+/// text, an attribute or a comment), a parenthesized source over lines
+/// too; an icon param asked about gives its images; motion sites are
+/// located at their node, an animation's longhands included; a design
+/// the app doesn't build has none.
+#[test]
+fn uses_reads_sources_not_text() {
+    let design = "tamber t\n\ntheme\n  motion.fast = 150ms\n\nicons\n  icon.reply = icon(sf \"bubble.left\", svg \"icons/reply.svg\")\n";
+    let dir = app("uses-c2-r1", design);
+    std::fs::create_dir_all(dir.join("assets/icons")).unwrap();
+    std::fs::write(dir.join("assets/icons/reply.svg"), SVG).unwrap();
+    let view = "component App\n  view\n    column\n      text \"symbol:icon.reply\"\n      image \"photo.png\" aria-label=\"symbol:icon.reply\" // \"symbol:icon.reply\"\n      image (\n        \"symbol:icon.reply\")\n      Card()\n\ncomponent Card\n  params\n    glyph: icon = \"icon.reply\"\n  view\n    column animation-name=\"pulse\" animation-duration=\"motion.fast\"\n      image \"symbol:param.glyph\"\n\nkeyframes pulse\n  from opacity=0\n  to opacity=1\n";
+    std::fs::write(dir.join("app.contract"), view).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (icon, _) = s.ask(json!({"method": "uses", "token": "icon.reply"}));
+    let sites = icon["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{icon}"));
+    let lines: Vec<u64> = sites.iter().map(|s| s["line"].as_u64().unwrap()).collect();
+    assert_eq!(
+        lines,
+        [6, 15],
+        "the parenthesized image and Card's, not the text or the attribute: {icon}"
+    );
+    let (param, _) = s.ask(json!({"method": "uses", "token": "Card.glyph"}));
+    let sites = param["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{param}"));
+    assert_eq!(sites.len(), 1, "{param}");
+    assert_eq!(sites[0]["line"], 15);
+    assert!(
+        param["ok"]["token"]
+            .as_str()
+            .unwrap()
+            .ends_with("Card.glyph"),
+        "{param}"
+    );
+    let (motion, _) = s.ask(json!({"method": "uses", "token": "motion.fast"}));
+    let sites = motion["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{motion}"));
+    let instance = sites
+        .iter()
+        .find(|s| s["site"].is_u64())
+        .unwrap_or_else(|| panic!("an animation longhand's instance: {motion}"));
+    assert_eq!(instance["line"], 14, "the node's place: {motion}");
+    assert_eq!(instance["col"], 5, "{motion}");
+    assert_eq!(instance["literal"]["line"], 14);
+    assert!(
+        instance["literal"]["col"].as_u64().unwrap() > 40,
+        "{motion}"
+    );
+    std::fs::write(dir.join("other.tamber"), design).unwrap();
+    let (other, _) =
+        s.ask(json!({"method": "uses", "token": "icon.reply", "file": "other.tamber"}));
+    assert_eq!(other["ok"]["sites"], json!([]), "{other}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C2 review round 2: a motion literal in a condition's arm or a `+`'s
+/// side, or on a style two nodes take, has its instances (with their call
+/// chains); an image naming it in a `match` arm is a site.
+#[test]
+fn uses_follows_expressions_styles_and_icon_aliases() {
+    let design = "tamber t\n\ntheme\n  motion.fast = 150ms\n\nicons\n  icon.base = icon(sf \"house\", svg \"icons/reply.svg\")\n";
+    let dir = app("uses-c2-r2", design);
+    std::fs::create_dir_all(dir.join("assets/icons")).unwrap();
+    std::fs::write(dir.join("assets/icons/reply.svg"), SVG).unwrap();
+    let view = "style Fade\n  transition=\"opacity motion.fast\"\n\ncomponent App\n  state on = true\n  state pick = some(\"x\")\n  view\n    column\n      Card()\n      Card()\n      box class=Fade\n      box class=Fade\n      image (match pick { case some(p) => \"symbol:icon.base\", case none => \"symbol:star\" })\n\ncomponent Card\n  state on = true\n  params\n    glyph: icon = \"icon.base\"\n  view\n    column transition=(on ? \"opacity motion.fast\" : \"none\") animation-duration=(\"\" + \"motion.fast\")\n      image \"symbol:param.glyph\"\n";
+    std::fs::write(dir.join("app.contract"), view).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (motion, _) = s.ask(json!({"method": "uses", "token": "motion.fast"}));
+    let sites = motion["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{motion}"));
+    let placed: Vec<_> = sites.iter().filter(|s| s["site"].is_u64()).collect();
+    // Card's two literals, twice each, and the style's on two boxes.
+    assert_eq!(placed.len(), 6, "{motion}");
+    assert!(
+        placed
+            .iter()
+            .all(|s| s["literal"].is_object() && s["chain"].is_array()),
+        "{motion}"
+    );
+    assert!(
+        sites.iter().all(|s| s["site"].is_u64()),
+        "every literal reached: {motion}"
+    );
+    let (icon, _) = s.ask(json!({"method": "uses", "token": "icon.base"}));
+    let sites = icon["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{icon}"));
+    assert_eq!(sites.len(), 3, "the match image and Card's twice: {icon}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C2 after round 3: a button's text child, which shares its span, is no
+/// motion site; an icon param asked about reads its own image directly
+/// (no `via` back to itself).
+#[test]
+fn uses_keeps_to_the_nodes_that_read() {
+    let design = "tamber t\n\ntheme\n  motion.fast = 150ms\n\nicons\n  icon.base = icon(sf \"house\", svg \"icons/reply.svg\")\n";
+    let dir = app("uses-c2-r3", design);
+    std::fs::create_dir_all(dir.join("assets/icons")).unwrap();
+    std::fs::write(dir.join("assets/icons/reply.svg"), SVG).unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      button \"Go\" press=go appearance=\"none\" transition=\"opacity motion.fast\"\n      Card()\n\ncomponent Card\n  params\n    glyph: icon = \"icon.base\"\n  view\n    image \"symbol:param.glyph\"\n").unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (motion, _) = s.ask(json!({"method": "uses", "token": "motion.fast"}));
+    let sites = motion["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{motion}"));
+    assert_eq!(sites.len(), 1, "the button, not its text child: {motion}");
+    let (param, _) = s.ask(json!({"method": "uses", "token": "Card.glyph"}));
+    let sites = param["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{param}"));
+    assert_eq!(sites.len(), 1, "{param}");
+    assert!(sites[0].get("via").is_none(), "{param}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

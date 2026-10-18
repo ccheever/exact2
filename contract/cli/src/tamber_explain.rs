@@ -139,3 +139,140 @@ pub(crate) fn param(
         });
     json!({"component": component, "identity": p.identity, "kind": p.param.kind, "file": file, "line": span.line, "col": span.col, "default": default, "set": set})
 }
+
+/// `uses` of an icon (stage 9 C2, *1.12*), or of an icon param (`name`
+/// its IR token): the plan nodes that draw it, directly, through a design
+/// icon naming it (`icon.alias = icon.base`), or through an icon param
+/// whose value (the design's line by its full name, or its short name
+/// where only one component has it; else its default as decoded) names it
+/// or a param that does, to a fixed point; a param's identity kept.
+pub(crate) fn icon_uses(
+    dir: &Path,
+    design: &str,
+    app: &AppParams,
+    snap: &[(String, String, String)],
+    name: &str,
+) -> Result<Value, Value> {
+    let parsed = snap
+        .iter()
+        .find(|(f, ..)| f == design)
+        .and_then(|(_, text, _)| exact_tamber::parse(text).ok());
+    let set: Vec<(String, String)> = parsed
+        .as_ref()
+        .map(|d| {
+            d.params
+                .iter()
+                .map(|e| (e.name.value.clone(), e.value.value.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let queried = app.tokens.iter().find(|p| p.token == name);
+    // The icon and the design's icons naming it, to a fixed point.
+    let mut icons: Vec<String> = queried
+        .is_none()
+        .then(|| name.to_string())
+        .into_iter()
+        .collect();
+    if let Some(d) = &parsed {
+        loop {
+            let more: Vec<String> = d
+                .icons
+                .iter()
+                .filter(|t| {
+                    !icons.contains(&t.name.value)
+                        && icons.contains(&t.value.value.trim().to_string())
+                })
+                .map(|t| t.name.value.clone())
+                .collect();
+            if more.is_empty() {
+                break;
+            }
+            icons.extend(more);
+        }
+    }
+    let short = |p: &ParamToken| {
+        format!(
+            "{}.{}",
+            p.identity.rsplit('#').next().unwrap_or(&p.identity),
+            p.param.name
+        )
+    };
+    // A short name the build reads only where one component has it.
+    let mut counts: std::collections::HashMap<String, usize> = Default::default();
+    for p in &app.tokens {
+        *counts.entry(short(p)).or_default() += 1;
+    }
+    let unique = |p: &ParamToken| counts.get(&short(p)) == Some(&1);
+    // Each icon param's value, once.
+    let values: Vec<(&ParamToken, String)> = app
+        .tokens
+        .iter()
+        .filter(|p| p.param.kind == "icon")
+        .map(|p| {
+            let line = set
+                .iter()
+                .find(|(n, _)| *n == p.full || (unique(p) && *n == short(p)))
+                .map(|(_, v)| v.clone());
+            let v = line.unwrap_or_else(|| p.param.default.clone());
+            (p, v.trim().trim_matches('"').trim().to_string())
+        })
+        .collect();
+    // The params that reach it: the one asked about, then any whose value
+    // names it (or one of its icons) or one already reached.
+    let mut reach: Vec<&ParamToken> = queried.into_iter().collect();
+    loop {
+        let more: Vec<&ParamToken> = values
+            .iter()
+            .filter(|(p, _)| !reach.iter().any(|q| q.full == p.full))
+            .filter(|(p, v)| {
+                icons.contains(v)
+                    || reach.iter().any(|q| {
+                        q.token == *v
+                            || q.identity == p.identity
+                                && v.strip_prefix("param.") == Some(q.param.name.as_str())
+                    })
+            })
+            .map(|(p, _)| *p)
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        reach.extend(more);
+    }
+    // Each read with the reference it goes through; the thing asked about
+    // is read directly.
+    let reads: Vec<(String, Option<String>)> = icons
+        .iter()
+        .map(|i| (format!("symbol:{i}"), (i != name).then(|| i.clone())))
+        .collect();
+    let params: Vec<(String, String, String, Option<String>)> = reach
+        .iter()
+        .map(|p| {
+            let via = queried
+                .is_none_or(|q| q.full != p.full)
+                .then(|| p.full.clone());
+            (
+                p.identity.clone(),
+                p.param.name.clone(),
+                p.token.clone(),
+                via,
+            )
+        })
+        .collect();
+    let (plan, map) = contract::compile_path_mapped(&dir.join("app.contract"))
+        .map_err(|e| json!({"message": format!("the app does not build: {}", e.message)}))?;
+    let map: Value = serde_json::from_str(&map.json(&plan.encode()))
+        .map_err(|e| json!({"message": format!("source map: {e}")}))?;
+    let sites = contract::tamber_uses::icon_sites(&dir.join("app.contract"), &map, &reads, &params)
+        .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
+    let aliases: Vec<&str> = icons
+        .iter()
+        .filter(|i| *i != name)
+        .map(String::as_str)
+        .chain(params.iter().filter_map(|(.., via)| via.as_deref()))
+        .collect();
+    let token = queried.map_or(name, |q| q.full.as_str());
+    Ok(
+        json!({"token": token, "plan": map["digest"], "sites": sites, "aliases": aliases, "files": files_json(snap)}),
+    )
+}

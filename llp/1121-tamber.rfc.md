@@ -3965,3 +3965,27 @@ Under `tamber/1.12`, optional fields (theme2's 19:25 ruling (a): one computation
   its default as written, and `set`, the design's line that sets the app's value, or null.
 - **Tests** (`tamber_serve_explain.rs`): an sf-only, an svg-only and a three-source icon's `draws`
   in `explain` and `describe`; a param before and after the app sets its value.
+
+### Stage 9, commit C2: `uses` of an icon; a motion token's sites by instance (draft for theme2)
+
+The rest of the QUEUE entry C1 began, under `tamber/1.12` (theme2 19:25 (b)). Both join the app's
+elements (every source it loads, walked from each view) to the source map's nodes by span, so a
+site is located as the map has it (`sitesAt` outlines by it) and a component used twice is two.
+- **An icon** (`contract::tamber_uses::icon_sites`, `tamber_explain::icon_uses`): each plan node
+  of an `image` whose source names it (its string, either arm of a condition, or `src`), directly
+  or through an icon param of its component, by identity, whose value (the design's, else its
+  default as decoded) resolves to it, to a fixed point (`via: {token: <param>}`); `row` is `symbol`.
+  A text, another attribute or a comment that spells `symbol:…` is no site. Asked about an icon
+  param, `uses` answers by its full name with the images that read it.
+- **A motion token by instance** (`motion_instances`): each plan node declared at the element
+  whose attribute holds a literal is a site, the literal kept as `literal` (an animation's
+  longhands, which the compiler composes, included). A literal in no element of the views (an
+  unused component, a component argument's) keeps `site: null`. `site` was always null before
+  1.12; the answer's `plan` is the digest.
+- The QUEUE entry closes but for the motion rebuild class (a motion value's change stays
+  `rebuild`), kept as its own entry.
+- **Tests** (`tamber_serve_explain.rs`): an icon drawn directly and through a param in a component
+  used twice; a text, an attribute and a comment spelling it are no sites, a parenthesized source
+  over two lines is; an icon param asked about; a motion literal in a component used twice (two
+  sites, the literal kept), an animation longhand's instance at its node, one in an unused
+  component (`site: null`); a design the app doesn't build has no sites.

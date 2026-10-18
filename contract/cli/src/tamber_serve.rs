@@ -978,13 +978,24 @@ impl Server {
     /// `outline`).
     fn uses(&mut self, request: &Value) -> Result<Value, Value> {
         let (snap, folding, name) = self.lookup(request)?;
-        if !folding.tokens.iter().any(|t| t.name == name) {
+        let icon = folding.icons.iter().any(|i| i.name == name);
+        if !icon && !folding.tokens.iter().any(|t| t.name == name) {
             return Err(no_token(&folding, &name));
         }
         // A design file the app does not build has no sites.
         if optional(request, "file")?.is_some_and(|f| f != self.design) {
             return Ok(
                 json!({"token": name, "plan": null, "sites": [], "aliases": [], "files": files_json(&snap)}),
+            );
+        }
+        // An icon's image sites, an icon param's too (stage 9 C2, *1.12*).
+        if icon {
+            return crate::tamber_explain::icon_uses(
+                &self.dir,
+                &self.design,
+                &self.app_params(),
+                &snap,
+                &name,
             );
         }
         let aliases = contract::tamber_uses::aliases(
@@ -1017,8 +1028,22 @@ impl Server {
                 &aliased,
             )
             .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
+            // Each instance at the element or style holding a literal is a
+            // site (stage 9 C2, *1.12*).
+            let (plan, map) = contract::compile_path_mapped(&self.dir.join("app.contract"))
+                .map_err(
+                    |e| json!({"message": format!("the app does not build: {}", e.message)}),
+                )?;
+            let map: Value = serde_json::from_str(&map.json(&plan.encode()))
+                .map_err(|e| json!({"message": format!("source map: {e}")}))?;
+            let sites = contract::tamber_uses::motion_instances(
+                &self.dir.join("app.contract"),
+                sites,
+                &map,
+            )
+            .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
             return Ok(
-                json!({"token": name, "plan": null, "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
+                json!({"token": name, "plan": map["digest"], "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
             );
         }
         let (plan, map) = contract::compile_path_mapped(&self.dir.join("app.contract"))
