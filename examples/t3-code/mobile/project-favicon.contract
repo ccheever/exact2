@@ -17,6 +17,8 @@ shape ProjectFaviconImages
   items: ProjectFaviconImage[]
 shape ProjectFaviconAdmission
   revision: number
+  owner: number
+  workRevision: number
 shape ProjectFaviconPrepared
   revision: number
   nextDeadline: number

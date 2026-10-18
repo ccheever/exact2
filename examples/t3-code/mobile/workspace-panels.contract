@@ -1,13 +1,16 @@
 // @ref examples/t3-code/mobile/docs/1130.011-responsive-workspace.decision.md#composition-decision
 // Presentation only; the root keeps the router, resources and all actions.
 use MobileWorkspace from "./mobile-workspace.contract"
-use HomeView, HomeChromeView, Theme, MobileLayout from "./app-shapes.contract"
+use HomeView, HomeChromeView, Theme, MobileLayout, Viewport from "./app-shapes.contract"
 use Home, HomeColors from "./home.contract"
 use SettingsTextRole from "./settings.contract"
 use HomeChrome from "./home-chrome.contract"
 use InspectorState, InspectorPresentation, MobileInspectorContent from "./workspace-inspector.contract"
-use GitColors from "./git-overview.contract"
+use GitColors, MobileGitFeedback, MobileGitFeedbackSnapshot from "./git-overview.contract"
 use ReviewColors from "./review-shapes.contract"
+use MobileKeyboard, MobileKeyboardSnapshot from "./mobile-keyboard.contract"
+use ThreadColors from "./thread-shapes.contract"
+use VoiceGlobalPill, VoiceSnapshot, VoiceColors from "./voice-controls.contract"
 component MobileSidebarPanel
   props
     workspace: MobileWorkspace
@@ -66,3 +69,33 @@ component MobileWorkspaceMarkers
         text "Workspace"
       view role="tab" aria-controls="inspector-panel" aria-selected=false
         text "Inspector"
+component MobileWorkspaceOverlays
+  props
+    workspace: MobileWorkspace
+    layout: MobileLayout
+    keyboard: MobileKeyboardSnapshot
+    threadLook: ThreadColors
+    homeLook: HomeColors
+    look: Theme
+    gitFeedback: MobileGitFeedbackSnapshot
+    gitLook: GitColors
+    viewport: Viewport
+    voiceData: VoiceSnapshot
+    voiceLook: VoiceColors
+    voicePillExpanded: bool
+    keyboardEvent: action
+    keyboardDismiss: action
+    pressGitFeedback: action
+    inspectorEvent: action
+    layoutChanged: action
+    voiceAction: action
+    expandVoicePill: action
+  view
+    MobileWorkspaceMarkers()
+    MobileKeyboard(data=keyboard, colors=threadLook, card=homeLook.card, dangerBorder=look.colors.dangerBorder, top=layout.safeTop + 56, event=keyboardEvent, dismiss=keyboardDismiss)
+    MobileGitFeedback(feedback=gitFeedback, press=pressGitFeedback, left=workspace.sidebarContentWidth + 10.5, right=workspace.inspectorContentWidth + 10.5, top=layout.safeTop + 56, reduced=viewport.prefersReducedMotion, colors=gitLook)
+    t3-workspace-layout workspace-configuration=workspace.configuration change=inspectorEvent position="absolute" width=0 height=0 aria-hidden=true
+    t3-layout-facts change=layoutChanged position="absolute" inset=0 aria-hidden=true pointer-events="none"
+    if voiceData.globalVisible
+      column position="absolute" right=0 bottom=(max(layout.safeBottom, 12) + 64)
+        VoiceGlobalPill(data=voiceData, colors=voiceLook, expanded=voicePillExpanded, width=min(320, viewport.width - 24), action=voiceAction, expand=expandVoicePill)
