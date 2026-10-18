@@ -2443,8 +2443,16 @@ fn determine_used_cross_size(
                         .maybe_resolve(constants.node_inner_size, |val, basis| tree.calc(val, basis))
                         .maybe_add(box_sizing_adjustment);
 
+                    // EXACT PATCH 50: keep the ratio's automatic inline minimum
+                    // for intrinsic measurement, but a column's final stretched
+                    // width only obeys authored width bounds (Flexbox §9.4).
+                    let min_cross_size = if constants.is_column && child_style.min_size().width.is_auto() {
+                        None
+                    } else {
+                        child.min_size.cross(constants.dir)
+                    };
                     let cross_size = (line_cross_size - child.margin.cross_axis_sum(constants.dir)).maybe_clamp(
-                        child.min_size.cross(constants.dir),
+                        min_cross_size,
                         max_size_ignoring_aspect_ratio.cross(constants.dir),
                     );
                     // EXACT PATCH 49: compare before reversing inset and margin
@@ -2457,7 +2465,7 @@ fn determine_used_cross_size(
                         == child.hypothetical_outer_size.cross(constants.dir) + inset
                     {
                         hypothetical_cross.maybe_clamp(
-                            child.min_size.cross(constants.dir),
+                            min_cross_size,
                             max_size_ignoring_aspect_ratio.cross(constants.dir),
                         )
                     } else {

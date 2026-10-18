@@ -70,14 +70,15 @@ To explore the existing sample instead, run `bun game/dev.mjs beacons`.
 `--allow-host <name>`, repeatable, to serve the game through a tunnel such as
 `tuft host`; without it a request under any name but the printed ones gets 421).
 
-In another terminal, establish the new game's proof baseline:
+Once the game plays and its `proof.mjs` describes it, establish its proof baseline:
 
 ```sh
 bun game/prove.mjs ./my-game
 ```
 
-The first baseline requires Linux and web agreement in all three simulation modes,
-plus a Linux release run. Later invocations verify one GPU-less Linux run by default.
+This is a release step, not part of the edit loop: nothing before it waits on it, and
+cold it takes many minutes. The first baseline requires Linux and web agreement in all
+three simulation modes, plus a Linux release run. Later invocations verify one GPU-less Linux run by default.
 Use `bun my-game/proof.mjs web --screenshot-only` for pixels only; this reports
 `UNVERIFIED` because it skips gameplay checks. Its screenshot is
 `my-game/artifacts/web/game.png`. The starter includes movement, jumping, two
@@ -343,6 +344,13 @@ arguments for settings, messages for things that happen once.
 
 ## Proof pins
 
+The async lane runs `bun game/app/shells.mjs --test`. It gates each game's
+hostless current-tick assertions: `Sim::assert_pin` compares only the tick the
+simulation has reached, not every checkpoint or any continuation-save digest.
+Later checkpoints not asserted by those tests and continuation saves remain the
+real-host proof's responsibility. Advancing a hostless test to another pinned tick
+adds coverage only when its options and inputs reproduce that proof's state.
+
 `pins.json` owns the game's expected tick hashes and continuation-save digests.
 The generated proof uses `pin(tick, snapshot)` and `pinSave(name, path)`;
 Rust tests use `sim.assert_pin(include_str!("../../pins.json"))`.
@@ -599,15 +607,17 @@ those against the root workspace. Web builds retain the game’s non-contracting
 floating-point flag alongside the core’s path-remapping flags.
 
 Linux development uses `gpu-dev` with separate completed host and GPU receipts;
-a logic-only edit can rebuild the GPU alone. Release/production bakes bind its exact
-digest. Generated profiles disable floating-point contraction; `gpu-dev` disables
+a logic-only edit can rebuild the GPU alone. Completed development receipts bind
+the whole file. Release/production bakes bind the product digest: a signed 64-bit
+Mach-O leaves out its signature and normalizes the signature and `__LINKEDIT` size
+fields; other files hash whole. Generated profiles disable floating-point contraction; `gpu-dev` disables
 debug assertions and overflow checks as release does. These profiles come from `game/Cargo.toml`, not authored per-game host code.
 
 `game.assets: true` selects the model-capable module; `game.audio: true` links the
 audio executor, which plays synthesized and sampled sounds. Sampled sounds need only
 `game.audio: true`. Optional capabilities are separate artifacts/executors, never
 Cargo features on a core crate. The engine's own workspace is outside Exact2's
-five core checks.
+six core checks.
 
 ### Assets, animation and placed UI
 

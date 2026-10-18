@@ -457,4 +457,214 @@ component App
         assert_eq!(row(name)["origin"], origin, "{name}");
     }
     assert!(row("display").get("state").is_none());
+    // A state part's row says its place as `at` with its state, not as the
+    // node's own attribute (no `attr`, D1).
+    assert!(row("press_color").get("attr").is_none());
+}
+
+/// LLP 1122 D6: a row an author wrote says where (`set-row`'s address):
+/// its attribute's span and name, a shorthand's for an expansion, a class's
+/// in the style's own file; a tag's row and a derived one say nowhere.
+#[test]
+fn a_written_row_says_its_attribute() {
+    let app = App::new("written");
+    let root = app.write(
+        "app.contract",
+        r##"use Card from "./card.contract"
+component App
+  view
+    column padding="4px 8px" color="#111111" testId="col"
+      Card()
+"##,
+    );
+    let card = app.write(
+        "card.contract",
+        r##"style Raised
+  background-color="#ffffff"
+
+component Card
+  view
+    row class=Raised font-size=14 testId="card"
+      text "c"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let rows = |id: &str| {
+        at(&runner, &map, id)["bindings"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    let row = |id: &str, name: &str| {
+        rows(id)
+            .into_iter()
+            .find(|r| r["row"] == name)
+            .unwrap_or_else(|| panic!("{name}: {:?}", rows(id)))
+    };
+    let file = |p: &PathBuf| p.canonicalize().unwrap().to_string_lossy().to_string();
+    let (top, color) = (row("col", "padding_top"), row("col", "text_color"));
+    assert_eq!(top["attr"], "padding", "{top}");
+    assert_eq!(top["at"]["line"], 4);
+    assert_eq!(
+        row("col", "padding_left")["at"],
+        top["at"],
+        "one shorthand, one place"
+    );
+    assert_eq!(color["attr"], "color");
+    assert_eq!(color["at"]["line"], 4);
+    let ground = row("card", "background_color");
+    assert_eq!(ground["origin"], "class:Raised");
+    assert_eq!(ground["attr"], "background-color");
+    assert_eq!(ground["at"]["line"], 2);
+    assert_eq!(
+        file(&PathBuf::from(ground["at"]["file"].as_str().unwrap())),
+        file(&card)
+    );
+    assert_eq!(row("card", "font_size")["at"]["line"], 6);
+    for tag in ["display", "flex_direction"] {
+        let r = row("card", tag);
+        assert!(r.get("at").is_none() && r.get("attr").is_none(), "{r}");
+    }
+    let _ = root;
+}
+
+/// Review round 1: a row the compiler composed or renamed, or a
+/// conditional class's, says nowhere: an animation's longhands composed,
+/// a symbol's tint from its `color`, a folded `:disabled` shorthand, a
+/// `class=(c ? A : B)` row.
+#[test]
+fn a_composed_or_renamed_row_says_nowhere() {
+    let app = App::new("composed");
+    app.write(
+        "app.contract",
+        r##"style A
+  background-color="#ffffff"
+
+style B
+  background-color="#eeeeee"
+
+keyframes pulse
+  from opacity=0
+  to opacity=1
+
+component App
+  state flag = true
+  view
+    column class=(flag ? A : B) testId="col"
+      box animation-name="pulse" animation-duration="1s" testId="anim"
+      image "symbol:star" color="#ff0000" testId="sym"
+      button "Go" border-color="#111111" disabled=flag testId="btn"
+        :disabled
+          border-color = "#999999"
+      box background-color="#ffffff" aria-checked=flag role="checkbox" testId="chk"
+        :checked
+          background-color = "#00ff00"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let rows = |id: &str| {
+        at(&runner, &map, id)["bindings"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    // A folded `:checked` row won the base's place: it says nowhere.
+    let chk = rows("chk");
+    let ground = chk.iter().find(|r| r["row"] == "background_color").unwrap();
+    assert!(
+        ground.get("attr").is_none() && ground.get("at").is_none(),
+        "{ground}"
+    );
+    let bad: Vec<_> = ["col", "anim", "sym", "btn", "chk"]
+        .iter()
+        .flat_map(|id| rows(id).into_iter().map(move |r| (id.to_string(), r)))
+        .filter(|(_, r)| {
+            r.get("attr").is_some_and(|a| {
+                let name = a.as_str().unwrap().replace('-', "_");
+                // An own row's attribute says its own name or a shorthand's.
+                let row = r["row"].as_str().unwrap();
+                r["origin"].as_str().unwrap().contains('/')
+                    || (name != row
+                        && !row.starts_with(&name)
+                        && (name, row) != ("color".into(), "text_color"))
+            })
+        })
+        .collect();
+    assert!(bad.is_empty(), "{bad:?}");
+    assert!(rows("col")
+        .iter()
+        .all(|r| r.get("at").is_none() || r["origin"] != "class:A/B"));
+}
+
+/// Review round 2: a row's origin is its place's, whatever a rewrite does
+/// to its position: a grouped list's inserted rows don't move a
+/// conditional class's row into the node's own; a class's composed
+/// animation doesn't take a node's own attribute's place. A grouped
+/// field's `flex=1` made `flex-grow` says nowhere (recorded).
+#[test]
+fn a_rewrite_moves_no_row_across_its_origin() {
+    let app = App::new("rewrites");
+    app.write(
+        "app.contract",
+        r##"style A
+  background-color="#ffffff"
+
+style B
+  background-color="#eeeeee"
+
+style Pulse
+  animation-name="pulse"
+  animation-duration="1s"
+
+keyframes pulse
+  from opacity=0
+  to opacity=1
+
+component App
+  state flag = true
+  state words = "a"
+  action write(value: string)
+    words = value
+  action go
+    flag = !flag
+  view
+    column
+      list appearance="auto" class=(flag ? A : B) testId="list"
+        section
+          input value=words change=write flex=1 aria-label="W" testId="field"
+      box class=Pulse color="#111111" press=go testId="pulse"
+        :active
+          color = "#222222"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let rows = |id: &str| {
+        at(&runner, &map, id)["bindings"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    let ground = rows("list")
+        .into_iter()
+        .find(|r| r["row"] == "background_color")
+        .unwrap();
+    assert!(
+        ground.get("at").is_none(),
+        "the conditional class's row says nowhere: {ground}"
+    );
+    let own = rows("pulse")
+        .into_iter()
+        .find(|r| r["row"] == "text_color")
+        .unwrap();
+    assert_eq!(own["origin"], "own", "{own}");
+    assert_eq!(own["attr"], "color", "{own}");
+    for r in rows("field")
+        .iter()
+        .filter(|r| r["row"].as_str().unwrap().starts_with("flex"))
+    {
+        assert!(r.get("attr").is_none() || r["attr"] == "flex", "{r}");
+    }
 }

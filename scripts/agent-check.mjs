@@ -95,9 +95,12 @@ export function judge(obs, png, { host = 'web' } = {}) {
       add('covered', it, { under: what, bar: it.cover.kind === 'bar' ? it.cover.name : undefined, offscreen: it.cover.kind === 'offscreen' },
         it.cover.kind === 'offscreen' ? OFFSCREEN : it.cover.kind === 'keyboard' ? 'scroll it above the keyboard, or move it before the field' : it.text && !it.control ? 'start the content below what covers it (padding or a divider), or let the bar take its place' : 'move it clear, or give the scroller room at that end');
     }
-    // Text that does not fit its box (beyond a clamp the author asked for), or an ancestor's clip cutting it.
-    if (it.text && it.over && !it.clamp && (it.over[0] >= 2 || it.over[1] >= 2)) {
-      add('clipped', it, { need: it.over.map(r0), clips: !!it.clips, unit }, it.clips ? 'let it wrap, give its box room, or ask for an ellipsis (`text-overflow: ellipsis` or `line-clamp`)' : 'its box is smaller than its text, which spills over what follows: drop the fixed size, or ask for `line-clamp`');
+    // Text that does not fit its box, or an ancestor's clip cutting it. A clamp the author asked for answers the lines
+    // past it, and only `text-overflow: ellipsis` (`ellipsis`) a line wider than the box (a word longer than its line:
+    // "January" into the next button at the largest text size, expense-tracker, round 22).
+    const need = it.text && it.over ? (it.clamp ? [it.ellipsis ? 0 : it.over[0], 0] : it.over) : null;
+    if (need && (need[0] >= 2 || need[1] >= 2)) {
+      add('clipped', it, { need: need.map(r0), clips: !!it.clips, unit }, it.clips ? 'let it wrap, give its box room, or ask for an ellipsis (`text-overflow: ellipsis` or `line-clamp`)' : 'its box is smaller than its text, which spills over what follows: drop the fixed size, or ask for `line-clamp`');
     } else if (it.text && it.cut) add('clipped', it, { cut: [r0(it.cut.dx), r0(it.cut.dy)], by: it.cut.by, edge: it.cut.edge, unit }, it.cut.edge ? OFFSCREEN : 'the clipping box is smaller than its content: let it grow, or scroll');
     // LLP 1116.009 D5: a written percentage width and the padding it does not include, past what its parent gives it: the cause, named.
     if (it.padded) add('overflow', it, { past: r0(it.padded.dx), of: it.padded.by, pad: r0(it.padded.pad), written: it.padded.width, unit }, 'drop the width (a block or a stretched flex item fills its parent) or say `box-sizing="border-box"`');
@@ -145,19 +148,22 @@ export function judge(obs, png, { host = 'web' } = {}) {
       }
     }
   }
-  // Controls overlapping each other, or a text: neither holds the other and they share more than a sliver of what is
-  // presented of each (`vis`: a row its list or scroller cuts overlaps nothing past that edge, LLP 1116.006 D5).
+  // Where a text's lines are drawn (`ink`, where the host says it is not the box, already cut to a box that clips it),
+  // within what a scroller presents of its box (`vis`) and above the keyboard.
+  const drawn = (it) => { const k = it.ink ?? it, v = shown(it.vis ? it : { ...it, ...k }, obs.keyboard), x = Math.max(v.x, k.x), y = Math.max(v.y, k.y); return { x, y, w: Math.min(v.x + v.w, k.x + k.w) - x, h: Math.min(v.y + v.h, k.y + k.h) - y }; };
+  // Controls overlapping each other, or a text where it is drawn (a word wider than its box runs into the button beside
+  // it): neither holds the other and they share more than a sliver of what is presented of each (`vis`: a row its list
+  // or scroller cuts overlaps nothing past that edge, LLP 1116.006 D5).
   const controls = items.filter((it) => it.control && !it.inline);
   for (const a of controls) for (const b of items) {
     if (a === b || !(b.control || b.text) || (b.control && b.id < a.id && controls.includes(b))) continue;
     if (!b.control && (b.of === a.id || controls.some((c) => c !== a && holds(c, b)))) continue; // its own label, or another control's
-    const i = inter(shown(a, obs.keyboard), shown(b, obs.keyboard));
+    const i = inter(shown(a, obs.keyboard), b.control ? shown(b, obs.keyboard) : drawn(b));
     if (i.w >= 2 && i.h >= 2 && !holds(a, b) && !holds(b, a)) add('overlap', a, { with: b.id, by: [r0(i.w), r0(i.h)] }, 'give them room (a gap, or let the row wrap)');
   }
   // Two texts running into each other: where their lines are drawn (`ink`, where the host says it is not the box) share
   // any width at all. Glyphs a pixel or two into a neighbour's read as one word ("GoingMaybe", event-rsvp at the largest
   // text size, round 21), and two texts set flush on purpose ("$" then "12") only touch.
-  const drawn = (it) => { const v = shown(it, obs.keyboard), k = it.ink ?? it, x = Math.max(v.x, k.x), y = Math.max(v.y, k.y); return { x, y, w: Math.min(v.x + v.w, k.x + k.w) - x, h: Math.min(v.y + v.h, k.y + k.h) - y }; };
   const texts = items.filter((it) => it.text && !it.control && !it.squeezed);
   for (const [k, a] of texts.entries()) for (const b of texts.slice(k + 1)) {
     if (holds(a, b) || holds(b, a)) continue;

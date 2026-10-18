@@ -150,6 +150,7 @@ public final class ExactApp {
     private(set) var selectedToken: UInt64 = 0
     private var sessionRefs: [WeakSession] = []
     let notificationProcessID = UUID().uuidString
+    let sharedStore = SharedStoreRefresh()
     /// Every live session, in creation order.
     public var sessions: [ExactSession] { sessionRefs.compactMap(\.session) }
     /// The one dev connection (D11): the app URL `dev.mjs` prints, resolved
@@ -165,6 +166,7 @@ public final class ExactApp {
         #endif
         assetRoot = URL(fileURLWithPath: ExactEnv.environment["EXACT_ASSETS"] ?? fallback, isDirectory: true)
         resolver = AssetResolver(root: assetRoot)
+        observeSharedStore()
     }
     /// The immutable Rust executor policy carried by this binary's bake.
     public var rustPolicy: (mode: String, target: String) {
@@ -354,6 +356,7 @@ public final class ExactSession {
     }
     /// Bumped by every reboot; a callback from an older generation is dropped.
     public private(set) var generation = 0
+    let storeRefresh = SessionStoreRefresh()
     private var activatedGeneration: Int?
     /// The generation whose deferred data has activated (or failed to): the
     /// agent's `clock data` waits for it before a test's first step.
@@ -385,6 +388,7 @@ public final class ExactSession {
     /// The voice table's output (LLP 1096 D8); settable for tests.
     lazy var sound = SoundOutput(self)
     lazy var midi = MIDIOutput(self)
+    private var activityOutput: ActivityOutput?
     package let frames: Frames
     /// A development session's presented frames (LLP 1079 D3); a production bake has none.
     var sampler: FrameSampler?
@@ -425,7 +429,7 @@ public final class ExactSession {
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
     // main instead, and runs after the slice lands, in order.
     private(set) var fillInFlight = false
-    private var afterFill: [(generation: Int, work: () -> Void)] = []
+    private var afterFill: [(generation: Int, work: () -> Void, cancelled: (() -> Void)?)] = []
     private let published = NSLock()
     /// What the owner committed without main waiting.
     private enum Published { case fill(UInt32), tick, canvas }
@@ -479,6 +483,7 @@ public final class ExactSession {
         self.app = app
         self.label = label
         let runtime = Runtime()
+        if ActivityLibrary.packaged { runtime.linkActivities() }
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
         if !ExactEnv.agentFreezes { _ = runtime.startOnFrame(true, at: 0) }
         core = SessionCore(runtime: runtime, text: TextEngine.pair(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
@@ -587,8 +592,8 @@ public final class ExactSession {
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
     /// Run `work` now, or after the slice in flight lands (LLP 1072 §3).
-    package func whenIdle(_ work: @escaping () -> Void) {
-        if fillInFlight { afterFill.append((generation, work)) } else { work() }
+    package func whenIdle(_ work: @escaping () -> Void, cancelled: (() -> Void)? = nil) {
+        if fillInFlight { afterFill.append((generation, work, cancelled)) } else { work() }
     }
 
     /// Send a build-only slice to the owner; its batch comes back published.
@@ -661,8 +666,12 @@ public final class ExactSession {
             guard state != .destroyed, next.generation == generation else {
                 // A replaced runtime's slice: its waiters go, the current runtime's run
                 guard case .fill = next.kind else { continue }
-                let current = state == .destroyed ? [] : afterFill.filter { $0.generation == generation }
-                afterFill.removeAll(); current.forEach { $0.work() }; continue
+                let waiting = afterFill
+                afterFill.removeAll()
+                for entry in waiting {
+                    if state != .destroyed && entry.generation == generation { entry.work() } else { entry.cancelled?() }
+                }
+                continue
             }
             let batch = next.batch
             if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
@@ -1055,6 +1064,10 @@ public final class ExactSession {
         #if os(macOS)
         regions.prepare(batch)
         #endif
+        for op in batch.ops where op.op == .activity {
+            if activityOutput == nil { activityOutput = ActivityOutput(self) }
+            activityOutput?.enqueue(op.payload)
+        }
         for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
         if !ExactEnv.agentMode { for op in batch.ops where op.op == .sound || op.op == .midi { if op.op == .sound { sound.apply(op.payload) } else { midi.apply(op.payload) } } } // LLP 1096 D8, LLP 1125 D7: the voice table's and the MIDI queue's ops, never under the agent's clock
         // Opened once the batch is applied, off this session's window (LLP 1069.006 D3).
@@ -1220,6 +1233,7 @@ public final class ExactSession {
     private func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
         guard state != .destroyed, generation == drawnGeneration else { return }
         if firstDrawMs == nil { firstDrawMs = ExactEnv.wall() }
+        app.sharedStore.firstPixel()
         guard activatedGeneration != drawnGeneration else { return }
         activatedGeneration = drawnGeneration
         DispatchQueue.main.async { [weak self] in
@@ -1234,10 +1248,13 @@ public final class ExactSession {
             appFileRoots = AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
             dataGeneration = drawnGeneration
-            if batch.error == nil {
-                presenter.collections.dataReady()
-                app.firstPixel(token)
+            activityOutput?.drain()
+            storeRefresh.activated = { [weak self] in
+                guard let self, state != .destroyed, generation == drawnGeneration else { return }
+                presenter.collections.dataReady(); app.firstPixel(token)
             }
+            storeRefresh.record(batch)
+            retryStoreActivation()
             canvases.loadIfNeeded()
             natives.activateAfterCommit { [weak self] in self.map { $0.state != .destroyed && $0.generation == drawnGeneration } ?? false } // @ref LLP 1024 D3
             drainSurfaceWork()
@@ -1456,6 +1473,8 @@ public final class ExactSession {
     public func destroy() {
         guard state != .destroyed else { return }
         state = .destroyed
+        let waiting = afterFill; afterFill.removeAll()
+        waiting.forEach { $0.cancelled?() }
         generation += 1
         cancelAuthSessions()
         clockTimer?.invalidate()

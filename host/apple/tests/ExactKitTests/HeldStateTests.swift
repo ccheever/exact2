@@ -597,10 +597,11 @@ final class HeldStateTests: XCTestCase {
         XCTAssertEqual(dropped, ["input"])
     }
 
-    private func plan(_ label: String) throws -> Data {
+    private func plan(_ label: String, look: String = "", design: String? = nil) throws -> Data {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
+        if let design { try design.write(to: dir.appendingPathComponent("app.tamber"), atomically: true, encoding: .utf8) }
         try """
         component App
           state n = 0
@@ -611,6 +612,7 @@ final class HeldStateTests: XCTestCase {
               column testId="card" press=go background-color="#ffffff"
                 :active
                   background-color = "#0000ff"
+                \(look)
                 text "\(label)"
 
         """.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
@@ -621,6 +623,30 @@ final class HeldStateTests: XCTestCase {
         XCTAssertEqual(compiler.terminationStatus, 0)
         return try Data(contentsOf: dir.appendingPathComponent("app.plan"))
     }
+
+    #if os(macOS)
+    /// Stage 9 E: a held hover's rows are its look's as the runner says
+    /// them, each with the token it read.
+    @MainActor func testAHeldHoversRowsNameTheirTokens() throws {
+        _ = NSApplication.shared
+        let app = ExactApp.shared, session = app.makeSession(label: "held-tokens")
+        defer { session.destroy() }
+        let first = try plan("Glow", look: ":hover\n          background-color = \"glow\"", design: "tamber t\n\ntheme\n  glow = #ffff00\n")
+        XCTAssertNil(session.boot(plan: first, size: CGSize(width: 400, height: 300)).error)
+        let view = ExactView(session: session)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        let p = session.presenter
+        let card = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "card" })
+        XCTAssertEqual(HeldState.hold("hover", on: card.id, in: p, dropped: nil).held, "hover")
+        let rows = try XCTUnwrap(HeldState.rows(for: card.id, in: p)?["rows"] as? [[String: Any]])
+        let row = try XCTUnwrap(rows.first { $0["name"] as? String == "background_color" }, "\(rows)")
+        XCTAssertEqual((row["token"] as? [String: Any])?["names"] as? [String], ["glow"], "\(row)")
+        XCTAssertEqual(row["value"] as? String, "#ffff00")
+        HeldState.letGo("replaced")
+    }
+    #endif
 
     #if EXACT_INSPECT
     /// The real path (`ExactApp.applyTogether`): under the same plan the hold
@@ -652,6 +678,10 @@ final class HeldStateTests: XCTestCase {
         let rows = try XCTUnwrap(HeldState.rows(for: label, in: p)?["rows"] as? [[String: Any]], "the label named answers too")
         XCTAssertEqual(rows.first?["name"] as? String, "press_background_color")
         XCTAssertEqual(rows.first?["value"] as? String, "#0000ff", "the runner's CSS value")
+        // It names the node it is held on, the press, by its site (stage 9 E).
+        let answer = try XCTUnwrap(HeldState.rows(for: label, in: p))
+        XCTAssertEqual(answer["node"] as? Int, Int(card.id))
+        XCTAssertEqual((answer["site"] as? NSNumber)?.intValue, (try node(card.id)["site"] as? NSNumber)?.intValue)
         XCTAssertTrue(app.apply(first))
         XCTAssertEqual(heard.count, 2, "\(heard)")
         XCTAssertEqual(heard.last?["state"] as? String, "active")

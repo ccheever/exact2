@@ -89,6 +89,7 @@ test('async compiles tvOS per commit with no simulator, and tier 2 installs it',
 
 test('tier 2 checks platform host and app crates for their actual target', () => {
   const checks = asyncLane.tierTwoChecks();
+  expect(checks.find(([name]) => name === 'watchos')).toEqual(['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']]);
   for (const name of ['linux', 'windows']) expect(checks.find(([step]) => step === name)?.[2]).toContain('CRATE_CC_NO_DEFAULTS=1');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('x86_64-unknown-linux-gnu');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('--keep-going');

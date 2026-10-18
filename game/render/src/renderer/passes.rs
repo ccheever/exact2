@@ -33,6 +33,18 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         pass.set_viewport(0.0, 0.0, size.0 as f32, size.1 as f32, near, far);
         pass.set_scissor_rect(0, 0, size.0, size.1);
     }
+    /// Whether a batch's records are posed by skin palettes, as a crowd's
+    /// avatars are. Those skip the depth prepass: small, many and moving, a
+    /// second vertex pass over them costs more than the overdraw it saves.
+    pub(crate) fn batch_skinned(&self, batch: usize) -> bool {
+        let start = self.batches[batch].slots.start as usize;
+        self.slot_list.get(start).is_some_and(|&slot| {
+            slot >= crate::RENDER_SLOT_BASE
+                && self.models.records[(slot - crate::RENDER_SLOT_BASE) as usize]
+                    .skin
+                    .is_some()
+        })
+    }
     pub(crate) fn draw_group<'a>(
         &'a self,
         pass: &mut wgpu::RenderPass<'_>,
@@ -357,10 +369,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     bound.group(&mut pass, 3, &binds.instances.as_ref().unwrap().1);
                 } else {
                     let material = &self.models.materials[material.0];
+                    let prepassed = self.prepass_active && !self.batch_skinned(group.batch);
                     let pipeline = self.pipelines.model_variant(
                         &self.device,
                         variant
-                            + crate::pipeline::PREPASS * usize::from(self.prepass_active)
+                            + crate::pipeline::PREPASS * usize::from(prepassed)
                             + 64 * usize::from(material.untextured)
                             + 128
                                 * usize::from(self.shadows.as_ref().is_some_and(|s| s.count == 1))
@@ -645,7 +658,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     }
                 }
             }
-            state.draws += passes - 1; // The bright pass is a compute dispatch.
+            state.draws += passes;
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game ACES"),

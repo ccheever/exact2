@@ -91,6 +91,8 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     shadow_sample_stale: bool,
     shadow_placeholder: wgpu::TextureView,
     shadow_comparison: wgpu::Sampler,
+    /// Nearest, clamped to the edge: `textureGather` of four cascade texels.
+    shadow_gather: wgpu::Sampler,
     pub(crate) vertices: Buffer,
     pub(crate) indices: Buffer,
     pub(crate) meshes: Vec<Mesh>,
@@ -311,6 +313,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let shadow_gather = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("game shadow gather"),
+            ..Default::default()
+        });
         let shadow_sample = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("game shadow sample"),
             layout: &pipelines.shadow_layout,
@@ -326,6 +332,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&shadow_placeholder),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&shadow_gather),
                 },
             ],
         });
@@ -380,6 +390,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             shadow_sample_stale: false,
             shadow_placeholder,
             shadow_comparison,
+            shadow_gather,
             vertices: Buffer::new(device, 1024, wgpu::BufferUsages::VERTEX, "game vertices"),
             indices: Buffer::new(device, 1024, wgpu::BufferUsages::INDEX, "game indices"),
             meshes: Vec::new(),

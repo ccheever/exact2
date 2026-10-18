@@ -983,6 +983,84 @@ component App
     assert_eq!(tile("Quito").style.text_color, named("-exact-label"));
 }
 
+/// A poll's options as a grouped list's rows (polls): each
+/// tile is the list's own cell, the vote its checkmark accessory rather than
+/// a drawn card inset in the row, and a closed poll's vote (`"chosen"`)
+/// keeps its checkmark while the rest dim; told tiles do not press.
+#[test]
+fn exact_content_answer_tiles_are_a_grouped_lists_cells() {
+    use exact_kernel::{Accessory, Offer, PropId};
+    let dir = Dir::new("content-answer-rows");
+    let root = dir.write(
+        "app.contract",
+        r#"use AnswerTile from "exact:content"
+component App
+  state mine = "Sushi"
+  state closed = false
+  action vote(o: string)
+    mine = o
+  action close
+    closed = true
+  view
+    column testId="root" width=400 height=900
+      list testId="list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+        section
+          for o in ["Tacos", "Sushi"] key=o
+            AnswerTile(label=o, status=(mine == o ? (closed ? "chosen" : "selected") : closed ? "dimmed" : "idle"), press=vote(o), testId=o)
+        section
+          button press=close testId="close"
+            text "Close Poll"
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let rows = |r: &mut exact_runner::Runner<NoData>| {
+        let k = r.kernel_mut();
+        let top = at(k, "root");
+        k.compute_layout(top, Offer::definite(400.0, 900.0))
+            .unwrap();
+        let list = k.grouped_list(at(k, "list")).unwrap();
+        list.sections[0]
+            .rows
+            .iter()
+            .map(|row| (row.title.clone(), row.custom, row.accessory, row.disabled))
+            .collect::<Vec<_>>()
+    };
+    let title = |t: &str| Some(t.to_string());
+    assert_eq!(
+        rows(&mut r),
+        [
+            (title("Tacos"), false, Accessory::None, false),
+            (title("Sushi"), false, Accessory::Checkmark, false),
+        ]
+    );
+    let close = at(r.kernel(), "close");
+    r.dispatch(close, exact_runner::Event::Press).unwrap();
+    assert_eq!(
+        rows(&mut r),
+        [
+            (title("Tacos"), false, Accessory::None, true),
+            (title("Sushi"), false, Accessory::Checkmark, true),
+        ]
+    );
+    let k = r.kernel();
+    assert_eq!(
+        k.node(at(k, "Sushi"))
+            .unwrap()
+            .props
+            .str(PropId::AccessibilityLabel),
+        Some("Sushi, selected")
+    );
+}
+
 /// LLP 1116.004 D9: a status is a `Badge`, not coloured text: its label in a
 /// capsule that keeps its own size at the start of a column and centred in a
 /// row, never stretched; its ink legible on its fill in either scheme (dark

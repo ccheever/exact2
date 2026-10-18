@@ -112,7 +112,7 @@ pub fn write_entries(entries: &BTreeMap<String, Entry>, out: &Path) -> Result<()
             .values()
             .filter_map(|e| match &e.declaration {
                 Declaration::Widget(w) => Some(
-                    serde_json::json!({"kind":w.kind, "families":w.families, "preview":w.preview}),
+                    serde_json::json!({"kind":w.kind, "families":w.families, "watchFamilies":w.watch_families, "preview":w.preview}),
                 ),
                 Declaration::Activity(_) => None,
             })
@@ -180,6 +180,12 @@ fn compile_widget(
     widget: &Widget,
     app: Option<&Path>,
 ) -> Result<Plan, Vec<CompileError>> {
+    let admission_families: Vec<_> = widget
+        .families
+        .iter()
+        .chain(&widget.watch_families)
+        .cloned()
+        .collect();
     compile_file(
         file,
         &RenderEntry {
@@ -187,7 +193,7 @@ fn compile_widget(
             component: &widget.component,
             props: &widget.props,
             preview: &widget.preview,
-            families: &widget.families,
+            families: &admission_families,
             refresh: Some(&widget.refresh),
         },
         app,
@@ -444,8 +450,10 @@ pub(super) fn compile_file(
     }
     plan.snapshot_entry = widget.kind.to_owned();
     // The snapshot reader exercises the same validating decoder as its host.
-    Plan::decode_snapshot(&plan.encode(), widget.kind)
-        .map_err(|e| vec![fail(format!("invalid snapshot plan: {e:?}"))])
+    let plan = Plan::decode_snapshot(&plan.encode(), widget.kind)
+        .map_err(|e| vec![fail(format!("invalid snapshot plan: {e:?}"))])?;
+    super::inline::check(&plan, widget.families, span)?;
+    Ok(plan)
 }
 
 fn same_type(a: &TypeExpr, b: &TypeExpr) -> bool {

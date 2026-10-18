@@ -115,7 +115,7 @@ final class SurfaceRecordTests: XCTestCase {
         entry.id = 0
     }
     func testModuleDigestSurvivesReSigningButNotACodeChange() {
-        // A 64-bit Mach-O: __LINKEDIT, the signature command, code, and the signature at 160 (bake/src/receipt.rs).
+        // A 64-bit Mach-O: __LINKEDIT, the signature command, code, and the signature at 160 (update/src/gpu.rs).
         func signed(_ signature: String, code: UInt8) -> Data {
             var b = [UInt8](repeating: 0, count: 160)
             func put<T: FixedWidthInteger>(_ v: T, _ at: Int) { withUnsafeBytes(of: v.littleEndian) { b.replaceSubrange(at..<(at + MemoryLayout<T>.size), with: $0) } }

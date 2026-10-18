@@ -316,6 +316,7 @@ extension Agent {
             item["size"] = Double(n.number("font_size", PageFacts.defaultRootFontSize)); item["weight"] = Double(n.number("font_weight", 400))
             if let role = n.systemColor("text_color") { item["fgRole"] = role }
             if spec.lineClamp > 0 || spec.ellipsis { item["clamp"] = true }
+            if spec.ellipsis { item["ellipsis"] = true }
             // A control's own label on the control's own fill (D3's ink rule): the nearest pressable node within three. A
             // disabled one's label is an inactive component's text, which WCAG 1.4.3 does not judge (the web's `inactive`).
             var up = n.superview, k = 0

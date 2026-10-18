@@ -1,6 +1,7 @@
 # Layout facts beyond size: visibility, live position, container/anchor CSS
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The admitted slice (ruling 5: `intersect=action`, `intersect-margin`, the nearest scroller as root, threshold 0, mount plus enter/leave) is built on both web targets, AppKit, UIKit and Linux; its unqualified geometry is declared in LLP 1001, and container queries and live geometry stay deferred.
 **Systems:** Contract, GUI hosts, layout events
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -489,3 +490,7 @@ Keep open with the bounded scope below.
 An IntersectionObserver-shaped event is a useful bounded candidate. Anchor placement belongs with #112. Derive-time frame reads or general live-position feedback can create layout loops.
 
 Keep one umbrella with explicit sub-decisions until work starts. Select an event payload/margin and consumer before building visibility; keep container queries out under LLP 1039.
+
+## Closed, 2026-10-18
+
+Built by f98327bda (web targets and the shared native sampler) and c016978a6 (sticky targets and rotated roots, matched to Chrome). Covered by `contract --test intersect`, the `native_intersect*` tests, `IntersectionMacTests` and `IntersectionIOSTests`, and `host/web/tests/intersect.test.mjs`. Native inline runs, presentation-time motion, nested or transformed sticky and SVG clip references stay declared in LLP 1001 until a consumer meets one. Anchor CSS is the popover ticket's.

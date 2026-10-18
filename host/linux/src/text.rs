@@ -18,6 +18,7 @@
 pub(crate) mod cache;
 mod catalog;
 mod catalog_recipe;
+pub(crate) mod decorations;
 mod fallback;
 pub(crate) mod field;
 mod flow;
@@ -1121,6 +1122,33 @@ impl TextMeasurer for Measurer {
         request: &TextMeasureRequest<'_>,
     ) -> Option<TextMetrics> {
         crate::fields::measure(&mut self.0.borrow_mut(), kind, request)
+    }
+
+    fn decorated_field_text(
+        &mut self,
+        kind: exact_kernel::FieldKind,
+        request: &TextMeasureRequest<'_>,
+        decorations: exact_kernel::text::DecoratedField<'_>,
+    ) -> Option<TextMetrics> {
+        if crate::fields::hosting().is_some() {
+            return self.field_text(kind, request);
+        }
+        let source = request
+            .runs
+            .iter()
+            .map(|run| run.text.as_ref())
+            .collect::<String>();
+        let decorations = decorations::FieldDecorations::read(
+            decorations.record,
+            decorations.styles,
+            decorations.root_font_size,
+            decorations.display_scale,
+        )
+        .ok()?;
+        let spec = decorations
+            .project(Spec::from_request(request), &source)
+            .spec;
+        Some(self.0.borrow_mut().measure(&spec, request.width))
     }
 
     fn set_language(&mut self, language: &str) {

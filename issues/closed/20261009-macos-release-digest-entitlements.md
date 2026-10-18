@@ -1,6 +1,7 @@
 # macOS release: entitlements for the app and its nested code, and a pre-seal step (rest of #119)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Built and qualified with Apple Development signing on 2026-10-16; the notarized helper proof, which needs a Developer ID and a notary profile, is a QUEUE item, and the docs claim no notarized support until it runs.
 **Systems:** host/apple, delivery, app manifest
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -281,3 +282,7 @@ Keep open with the bounded scope below.
 Code signed after a content digest is recorded can break delivered integrity. Keep entitlements derived from declared capability needs and scoped to the executable that needs them.
 
 Do the digest-order correctness fix first. Amend LLP 1069.008 for any runtime exception grants; use the existing build/staging flow rather than an arbitrary preseal callback. Require a real signed/notarized helper proof before claiming release support.
+
+## Closed, 2026-10-18
+
+Everything the ruling asked for is built: code is signed before the bake hashes it, Mach-O in content-addressed assets is refused, helper exceptions are `runtime.<exception> <path>` grants (`runner/src/hardened.rs`, `host/apple/assets.mjs` `signRelease`), and pre-seal files go through `host.macos.resources`. The 2026-10-16 qualification above passed with the hardened runtime. The notarized proof (the commands under that qualification) moved to QUEUE.md's "Notarize the granted helper".

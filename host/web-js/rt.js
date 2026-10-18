@@ -5,8 +5,7 @@ let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, e
 import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; // optimistic writes shown over answers (the runner's writes.rs)
 export const writeRecords = () => Ov.Writes.list.map(w => ({ id: w.id, mutation: w.m.name, landed: !!w.landed })); // the agent's `state.writes`
 let Media = null; export function useMedia(m) { Media = m; } // and media.js only where a plan has a `video` or `audio`
-// The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
-// by name, so an app's bundle carries only what its generated module uses.
+// The JS runtime is imported by name, so a bundle carries only what its generated plan uses.
 // Semantics kept from the runner (LLP 1005 §6):
 // - an action's writes land together at its commit (the VM collects
 //   `StoreSlot`s), then one synchronous flush updates the DOM, then its
@@ -431,6 +430,7 @@ function closeLetGo() {
   }
 }
 function ask(source, args, name, mutation = false) {
+  if (["startActivity", "updateActivity", "endActivity"].includes(source)) throw new Refusal(`${source} is not linked into this artifact`);
   let a; try { a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name, mutation); } catch (e) { Out.push(...(data.thrown?.() ?? [])); throw e; } // what a resource's source sent before it threw goes if the commit stands (ts-data.js)
   return a && a.then ? { promise: a } : a;
 }
@@ -653,8 +653,8 @@ function adopt(p, tag, cls, attrs) {
   if (!e || e.localName.toLowerCase() !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
   p.$n = e.nextSibling; e.$exactTree = true;
   e.$paintWaiting = false; e.$paintFacts = null; e.removeAttribute("data-exact-paint");
-  // The renderer's inline style stays: it is the class's declarations and
-  // the live rows, which the node's style bindings rewrite as they change.
+  // Inline rows stay, except spinner alignment: its class follows the live parent.
+  if (attrs?.["data-exact-progress"] !== undefined) e.style.removeProperty("justify-self");
   if (e.hasAttribute("data-view")) e.removeAttribute("data-view");
   if (attrs?.["data-exact-own-isolation"] === undefined && !e.hasAttribute("data-exact-own-isolation") && !e.hasAttribute("data-exact-policy") && e.style.isolation) e.style.removeProperty("isolation");
   if (cls !== 0 && e.getAttribute("class") !== "c" + cls) e.setAttribute("class", "c" + cls);
@@ -700,7 +700,7 @@ export function P(e, name, f) {
     if (PropHooks[name]?.(e, v)) return;
     if (e.$media && Media.mediaProp(e, name, v)) return; // media.js: `paused`, `volume`, `currentTime` … are the glue's; an `app:/` source its own
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
-    else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } writeValue(e, v ?? ""); }
+    else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } writeValue(e, v ?? ""); if (e.exactDecorations?.painted) e.exactDecorations.sync(); }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
     else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e && e.matches(":disabled")) e.blur(); /* HTML focus fixup, now, for a control only (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; if (name === "autofocus") { if (v === "true") e.removeAttribute("data-autofocus"); else e.setAttribute("data-autofocus", "false"); } }
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
@@ -955,7 +955,7 @@ export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); };
 export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isConnected && !own?.gone && f(); return l(kind, () => Flushing ? FocusQueue.push(run) : run()); };
 // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
 export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
-export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState, -1, -1]));
+export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState, ev.start ?? -1, ev.end ?? -1]));
 export const onSelectionChange = (e, kind, f, l) => { return textField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
@@ -1077,11 +1077,8 @@ export function wf(e, f) {
     .catch(err => say(`text flow: ${err.message}`)).finally(() => inflight.n--);
 }
 export { onResize, onIntersect } from "./observers.js";
-/** `frame(id)` and `measure(id)` (LLP 1051.000): the page's answers, from
- * the web host's own geometry-glue.js, fetched after first paint by a plan
- * whose actions read geometry (`geo`); unavailable until it is (D5). The
- * record is the runner's `Geometry`: x, y, width, height, provisional,
- * unavailable. */
+/** Page geometry (LLP 1051.000), fetched after first paint by `geo`; unavailable before loading.
+ * Answers use the runner's Geometry: x, y, width, height, provisional, unavailable. */
 let Geo = null, Geometry = null;
 export function geo() {
   if (Geometry || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
@@ -1095,8 +1092,11 @@ function geoRead(op, id) {
   return bits & 1 ? [out[0], out[1], out[2], out[3], !!(bits & 2), false] : [0, 0, 0, 0, false, true];
 }
 export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
-/** `elementFromPoint(x, y)` (LLP 1094 D10): the `id` nearest the front-most untransformed box
- * at the viewport point, `none` until the reader has loaded; `elementsFromPoint` every one. */
+export const x_rangeFrame = (id, start, end) => { const out = new Float64Array(4), bits = Number.isFinite(start) && Number.isFinite(end) && start >= 0 && start <= end && Geo ? Geo.range(document.getElementById(id), start, end, out) : 0;
+  return bits & 1 ? [...out, !!(bits & 2), false] : [0, 0, 0, 0, false, true]; };
+export { decorationRecord } from './shape.js'; import { startDecoration } from './editor.js';
+export const decoratedEditor = e => startDecoration(e, {own:Owner, onEnd, inflight, viewId, Ids, Views, say});
+/** `elementFromPoint(x,y)` (LLP 1094 D10): nearest front-most untransformed id at a viewport point; none before loading. `elementsFromPoint` returns every one. */
 export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest('[id]:not([id=""])'); return n && n !== root && root.contains(n) && n.id || null; };
 export const x_elementsFromPoint = (x, y) => Geo?.namedPoints(x, y) ?? [];
 /** A Markdown field (LLP 1045 D5): markup-editor.js over its wasm replaces

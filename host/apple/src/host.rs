@@ -22,6 +22,8 @@ use exact_motion::{Change, Engine, HoldToken, Property};
 #[path = "agent.rs"]
 mod agent;
 
+#[path = "activities.rs"]
+mod activities;
 #[path = "arrange.rs"]
 mod arrange;
 #[path = "arrange_group.rs"]
@@ -225,6 +227,9 @@ pub struct Host<D: DataSource> {
     /// or grants that do not parse).
     secrets: Option<Box<dyn crate::store::KeptStore>>,
     data_activated: bool,
+    store_refresh_pending: bool,
+    store_activation_pending: bool,
+    store_retry_names: Vec<String>,
     /// The session's wake (`listen`), which a pending activation leaves with the data source.
     preload_wake: exact_runner::PreloadWake,
     doc_watch: Option<crate::doc_watch::DocWatch>,
@@ -447,6 +452,9 @@ impl<D: DataSource> Host<D> {
         // caller's scope is that one's; LLP 1121 stage 5).
         let _roles = runner.bind_roles();
         runner.set_device_links(links.device);
+        if links.activities {
+            runner.link_activities().map_err(HostError::Runner)?;
+        }
         // @ref LLP 1079 D1 — a development build measures its work, a
         // release build from the first ask (`Bridge::measure_work`).
         crate::abi::measure_at_boot(&mut runner, compat);
@@ -536,6 +544,9 @@ impl<D: DataSource> Host<D> {
             viewport: (viewport.width as f32, viewport.height as f32),
             now_ms: 0.0,
             data_activated: false,
+            store_refresh_pending: false,
+            store_activation_pending: false,
+            store_retry_names: Vec::new(),
             preload_wake: Default::default(),
             doc_watch: None,
             secrets,

@@ -36,7 +36,7 @@
 // its own (AppDrop, a store's resigner). The simulator and phone helpers live
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. --release (or EXACT_UPDATE_TRUST=production) builds a signed-update-only artifact.
-import { widgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, entryProfiles } from './widgets.mjs';
+import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, entryProfiles } from './widgets.mjs';
 import { assembleMac, assembleIOS } from './bundle.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -403,7 +403,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   };
   // An entry of either kind makes the app the group store's writer (`ExactWidgetKinds`, empty with activities
   // alone, is what WidgetContainer.configure reads); the activity keys are ActivityKit's (LLP 1126.001 §1).
-  if (!tv && id === app.id && hasEntries(app)) Object.assign(dict, { ExactAppGroup: widgetGroup(app), ExactAppIdentifier: app.id, ExactWidgetKinds: widgetEntries(app).map(e => e.kind),
+  if (!tv && id === app.id && hasEntries(app)) Object.assign(dict, { ExactAppGroup: widgetGroup(app), ExactAppIdentifier: app.id, ExactWidgetKinds: platformWidgetEntries(app).map(e => e.kind),
     ...(activityEntries(app).length ? { NSSupportsLiveActivities: true, ...(activityEntries(app).some(e => e.frequent === true) ? { NSSupportsLiveActivitiesFrequentUpdates: true } : {}) } : {}) });
   Object.assign(dict, transportSecurity(tv ? {} : ios, ios.localNetworking ? { NSAllowsLocalNetworking: true } : {}));
   if (ios.localNetworking) dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
@@ -629,7 +629,7 @@ export function copyAppleGpuProducts(capture, destination, artifacts, archive = 
 
 // ---------------------------------------------------------------- the build
 
-async function main(args) {
+async function main(args, lockHeld = false) {
   let launchEnv;
   try { launchEnv = developmentLaunchEnvironment(args); }
   catch (e) { console.error(e.message); process.exitCode = 1; return; }
@@ -654,13 +654,14 @@ async function main(args) {
     console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE (or --unsigned, which needs --archive), and takes neither --run nor --host');
     process.exitCode = 1; return;
   }
-  const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link'].includes(args[i - 1]))), root);
+  const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link', '--watch-sim'].includes(args[i - 1]))), root);
+  if (args.includes('--watchos')) return (await import('./watch.mjs')).buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent: args => main(args, true) });
   if (args.includes('--prebuild')) { process.exitCode = await (await import('../../scripts/agent-build.mjs')).prebuild(app, args); return; } // LLP 1116.003 D1.2
   const gallery = process.env.EXACT_UPDATE_TRUST !== 'production' && !tv && (args.includes('--widget-gallery') || process.env.EXACT_WIDGET_GALLERY === '1');
   // An entry of either kind (a widget, a Live Activity) is the extension, the shared framework, the App Group and
   // the Keychain group (LLP 1126.001 WP13); tvOS has none of them.
   const widgets = ios && !tv && hasEntries(app);
-  const release = appleBuildLock(app);
+  const release = lockHeld ? () => {} : appleBuildLock(app);
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
   const crate = app.crate(ios ? 'ios' : 'macos');
@@ -1173,7 +1174,7 @@ async function main(args) {
       copyFileSync(resolve(swiftBinDir, p), executable);
       assertAppleIdentity(app, executable, bakedCompat.id, shared && resolve(shared.framework, 'ExactCore'));
       assertLinkedSdk(executable, designCompatible(app, ios ? 'ios' : 'macos') ? COMPATIBLE_SDK[ios ? 'ios' : 'macos'] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
-      assertCapabilityFrameworks(executable, gallery ? [...swiftCapabilities, 'ExactSnapshot'] : swiftCapabilities, gallery ? ['SwiftUI'] : []);
+      assertCapabilityFrameworks(executable, gallery ? [...swiftCapabilities, 'ExactSnapshot'] : swiftCapabilities, gallery ? ['SwiftUI', 'WidgetKit'] : []);
       if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
     }
   } finally { releaseSwift(); }
@@ -1379,7 +1380,7 @@ async function test(args) {
   } finally { cargoRelease?.(); release(); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
-  const args = guardFlags(['--ios', '--device', '--tvos'].some((flag) => process.argv.includes(flag)) ? 'ios' : 'mac', process.argv.slice(2));
+  const args = guardFlags(['--ios', '--device', '--tvos', '--watchos'].some((flag) => process.argv.includes(flag)) ? 'ios' : 'mac', process.argv.slice(2));
   useXcode(); if (args.includes('--release')) process.env.EXACT_UPDATE_TRUST = 'production'; // the build that ships: Cargo's release profile, no development trust
   (args.includes('--test') ? test(args) : main(args)).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

@@ -321,15 +321,46 @@ pub fn project(
         }
         out.push(Some(parts));
     }
+    let progress: Vec<_> = out
+        .iter()
+        .map(|p| {
+            p.as_ref()
+                .is_some_and(|p| p.props.contains_key("data-exact-progress"))
+        })
+        .collect();
     // Arms and each copies share templates. Only candidacy is static;
     // paint.js decides isolation from the actual instance's descendants.
     for (i, parts) in out.iter_mut().enumerate() {
         let Some(parts) = parts else { continue };
         let node = kernel.node(view(i)).expect("template node");
         crate::paint::attributes(&node.facts(), &mut parts.props);
+        // The immediate parent's live display supplies the block-flow exemption.
+        // A bound display writes the same property through `style_row`; regions
+        // inherit it from their actual element parent without a DOM scan.
+        if tree[i].iter().any(|c| progress[*c as usize]) {
+            let justify = if node.style.display == exact_kernel::Display::Block {
+                "start"
+            } else {
+                "auto"
+            };
+            parts
+                .css
+                .push_str(&format!("--exact-progress-justify:{justify};"));
+        }
+        if progress[i] {
+            parts.css = parts.css.replace("justify-self:start;", "");
+            let justify = if node.style.position_type == exact_kernel::PositionType::Absolute {
+                "auto"
+            } else {
+                PROGRESS_JUSTIFY
+            };
+            parts.css.push_str(&format!("justify-self:{justify};"));
+        }
     }
     Ok(out)
 }
+
+pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-justify,start)";
 
 /// Every `for` row's roots, through any region at its top.
 fn each_rows(plan: &Plan, sites: &crate::emit::Sites) -> Vec<usize> {
@@ -833,7 +864,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         ],
         StyleId::PositionTryFallbacks => vec![with(
             "position-try-fallbacks",
-            r#"v=>v==null||/^\s*(?:none|(?:flip-block(?:\s+flip-inline)?|flip-inline(?:\s+flip-block)?)(?:\s*,\s*(?:flip-block(?:\s+flip-inline)?|flip-inline(?:\s+flip-block)?))*)\s*$/i.test(v)?v:"invalid""#,
+            r#"v=>v==null||/^\s*none\s*$/i.test(v)||String(v).split(",").every(a=>{const w=a.replace(/[A-Z]/g,c=>c.toLowerCase()).split(/[\t\n\f\r ]+/).filter(Boolean);return w.length>0&&new Set(w).size===w.length&&w.every(t=>/^flip-(?:block|inline|start)$/.test(t))})?v:"invalid""#,
         )],
         StyleId::DragTimeline => vec![with("--exact-drag-timeline", NONE)],
         // @ref LLP 1055.002 — `-exact-clock(Name)` is css.rs's clock property and

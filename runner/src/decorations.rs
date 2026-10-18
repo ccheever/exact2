@@ -3,8 +3,87 @@
 //! the named JSON fields that native and browser editors receive.
 
 use exact_kernel::text::decorations::{Atom, Block, Decorations, Hidden, Marker, Range, Span};
+use exact_kernel::{StyleId, StyleProps, StyleValue};
 use exact_plan::Value;
 use serde_json::{json, Value as Json};
+use std::collections::BTreeMap;
+
+/// Compiled declaration aliases, decoded with the same style codecs as node rows.
+#[derive(Debug, Clone, Default)]
+pub struct StyleTable(BTreeMap<String, StyleProps>);
+
+impl StyleTable {
+    /// Read the compiler's internal ordered `[kernelStyleId, literal]` rows.
+    pub fn decode(text: &str) -> Result<Self, String> {
+        let table: BTreeMap<String, Json> =
+            serde_json::from_str(text).map_err(|e| e.to_string())?;
+        let mut styles = BTreeMap::new();
+        for (name, rows) in table {
+            let Some(rows) = rows.as_array() else {
+                return Err("decoration styles: expected rows".into());
+            };
+            let mut patch = StyleProps::default();
+            for row in rows {
+                let Some(row) = row.as_array().filter(|row| row.len() == 2) else {
+                    return Err("decoration styles: invalid row".into());
+                };
+                let id = row[0]
+                    .as_u64()
+                    .and_then(|id| StyleId::from_bit(u32::try_from(id).ok()?))
+                    .ok_or("decoration styles: unknown row")?;
+                let value = match &row[1] {
+                    Json::String(text) => StyleValue::Text(text.as_str().into()),
+                    Json::Number(number) => StyleValue::Number(
+                        number.as_f64().ok_or("decoration styles: invalid number")?,
+                    ),
+                    _ => return Err("decoration styles: expected literal".into()),
+                };
+                patch
+                    .set_dynamic(id, &value)
+                    .map_err(|error| format!("decoration styles: {error:?}"))?;
+            }
+            styles.insert(name, patch);
+        }
+        Ok(Self(styles))
+    }
+
+    /// A declaration's authored rows in a field's root/font/display context.
+    pub fn resolve(&self, name: &str, root: f32, font: f32, scale: f32) -> Option<StyleProps> {
+        let mut patch = self.0.get(name)?.clone();
+        let font_size = patch.relative.get(StyleId::FontSize).map_or_else(
+            || {
+                if patch.mask.has(StyleId::FontSize) {
+                    patch.font_size
+                } else {
+                    font
+                }
+            },
+            |(unit, number)| number * unit.basis(root, font, 1.0 / scale.max(1.0)),
+        );
+        for id in patch.mask.iter().collect::<Vec<_>>() {
+            if let Some((unit, number)) = patch.relative.get(id) {
+                let reference = if id == StyleId::FontSize {
+                    font
+                } else {
+                    font_size
+                };
+                let px = number * unit.basis(root, reference, 1.0 / scale.max(1.0));
+                let value = if id == StyleId::LineHeight {
+                    StyleValue::Text(format!("{px}px").into())
+                } else {
+                    StyleValue::Number(f64::from(px))
+                };
+                patch.set_dynamic(id, &value).ok()?;
+            }
+        }
+        Some(patch)
+    }
+
+    /// Visible aliases in stable order, for a host's declaration dictionary.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.0.keys().map(String::as_str)
+    }
+}
 
 /// Read a field's `decorations` prop. An invalid record is refused as a whole.
 /// Unknown marker words draw no marker; unknown declaration names remain for
@@ -208,6 +287,24 @@ fn named_range(value: &Json) -> Result<Span, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn declaration_lengths_resolve_against_field_font_root_and_display_scale() {
+        let table = json!({"heading":[
+            [StyleId::FontSize as u16,"1.5em"],
+            [StyleId::PaddingLeft as u16,"2em"],
+            [StyleId::MarginBottom as u16,"0.5rem"],
+            [StyleId::LineHeight as u16,"1.25em"]
+        ]});
+        let table = StyleTable::decode(&table.to_string()).unwrap();
+        let style = table.resolve("heading", 20., 16., 2.).unwrap();
+        assert_eq!(style.font_size, 24.);
+        assert_eq!(style.padding_left, exact_kernel::Dimension::Points(48.));
+        assert_eq!(style.margin_bottom, exact_kernel::Dimension::Points(10.));
+        assert_eq!(style.line_height, exact_kernel::LineHeight::Length(30.));
+        assert!(table.resolve("unknown", 20., 16., 2.).is_none());
+        assert!(StyleTable::decode(r#"{"bad":[[65535,1]]}"#).is_err());
+    }
 
     #[test]
     fn producer_record_serializes_named_fields_and_optional_ranges() {

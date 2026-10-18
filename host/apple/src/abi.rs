@@ -264,6 +264,12 @@ impl<D: DataSource> Bridge<D> {
                     Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
                     continue;
                 }
+                if r.request.url == "exact-activity:" {
+                    if let Ok(request) = std::str::from_utf8(&r.request.body) {
+                        presenter.activity(r.ticket, request);
+                    }
+                    continue;
+                }
                 if r.request.is_auth() {
                     Self::auth_arm(h, x, &mut presenter, &r);
                     continue;
@@ -621,6 +627,15 @@ impl<D: DataSource> Bridge<D> {
         self.painted = true;
         self.adopt_app_module();
         let out = self.host.as_mut().expect("checked").activate_data();
+        self.emit(out)
+    }
+
+    /// A peer published a store revision; first-pixel activation remains separate.
+    pub fn store_changed(&mut self, retry_only: bool) -> u32 {
+        let out = match &mut self.host {
+            Some(host) => host.refresh_store_after(retry_only),
+            None => not_booted(),
+        };
         self.emit(out)
     }
 

@@ -325,6 +325,58 @@ tempo is rounded to 0.1 and it and the anchor are said again only when they
 move by 0.5 bpm or 1/48 of a beat, or the state does); it is answered by a
 commit of its own after each change, as an answer's `then` runs.
 
+### Live Activities: `startActivity`, `updateActivity`, `endActivity`
+
+The three reserved mutation sources (LLP 1126.001 WP9) compile on every host.
+They run on iOS through an ActivityKit arm loaded at first use; other hosts
+refuse the send with `… is not linked into this artifact`.
+Declare the entry in `app.json`'s `live_activities`, its state shape and slots
+as in `apps/caltrain/activities.contract`. Each send answers a record whose only field is
+`id: string`; the compiler refuses other result shapes:
+
+```contract
+shape DepartureState
+  status: string
+  at: number
+shape ActivityHandle
+  id: string
+
+component App
+  mutation activity as shape ActivityHandle
+  action follow(state: DepartureState)
+    send activity = startActivity("departure", state)
+  action delay(id: string, state: DepartureState)
+    send activity = updateActivity(id, state, some("Train delayed"), none)
+  action finish(id: string, state: DepartureState)
+    send activity = endActivity(id, state, "immediate")
+  view
+    text "Train"
+```
+
+`state` is a record, checked against the entry's state shape at runtime.
+An update's optional third argument is `option<string>` (the alert's title,
+with the default sound); its optional fourth is `option<number>` (the stale
+date in Unix milliseconds). Ending takes `"default"`, `"immediate"`, or a
+Unix millisecond dismissal date. A string policy must be one of those literals
+or an `enum<"default", "immediate">` value; arbitrary strings are refused at compile time. Attributes plus state obey the same 4 KB
+bound as the bake. Update and end validate against the generation in which
+the activity started. Keep that state shape while its activities are alive; a
+new shape cannot update or end an older instance with incompatible state. A
+compatibility-changing binary update follows LLP 1126.001 §5 Q6’s device gate.
+
+`resource activities = exactActivities() as shape Activities` reads a record
+whose fields are `activities: Activity[]`, `frequentPushesEnabled: bool` and
+`linked: bool` (the host packaged its arm).
+An activity has `id`, `kind`, `state` (a JSON string), `activityState`
+(`pending`, `active`, `stale`, `ended`, `dismissed`) and `token: option<string>`.
+Readers may name only the fields they need. Off iOS the list is empty and
+frequent pushes are false. A first demand enumerates existing activities,
+including after a relaunch without a send; later token, state and content
+updates re-answer the source. A token is absent until ActivityKit supplies
+it, and exists only for an entry declaring `push: true`. The data module
+sends it to its own backend. Push-to-start, remote notification registration
+and the `remote-notification` background mode stay refused.
+
 ### MIDI: `exactMIDI`, `sendMIDI`, `midimessage`
 
 MIDI is Web MIDI's, by its names (LLP 1125 D6–D8), and needs the grant line
@@ -1014,11 +1066,12 @@ that paint their own (`contract vocab button`). This adds no tag or new
 expression grammar. Platform looks and stand-ins are documented in
 [LLP 1069.011](../llp/1069.011-native-buttons.rfc.md).
 
-### Plain textarea decorations (core surface; host adoption pending)
+### Plain textarea decorations
 
 `decoration` declares literal CSS appearance for app-computed UTF-16 ranges. The field's
-value stays a plain string. The compiler accepts the shared surface below; rendering,
-composition and undo acceptance remain pending in the host implementations.
+value stays a plain string. Both web targets render these records, preserve source
+selections and composition, and support undoable replacements. Other host acceptance
+is tracked separately.
 
 ```text
 decoration mention color="#1083fe"
@@ -1039,9 +1092,17 @@ arguments are named. Its other record types and freshness rules are in
 `textarea markup="markdown"` refuse this binding.
 
 An action may call `rangeFrame(id, start, end)` for viewport `Geometry` of a source range;
-a host without a range reader returns unavailable. `setRangeText(id, text, "undo")`, or
+a host without a range reader returns unavailable. Both web targets measure decorated
+source editors; plain fields and paint-only textareas require the browser's native
+value-range API. Browsers without that API return unavailable for plain fields.
+`setRangeText(id, text, "undo")`, or
 `setRangeText(id, text, start, end, selectionMode, "undo")`, requests one undo step once
-its host adopts that mode. Existing calls keep their behaviour.
+its host adopts that mode. The web supports it on plain fields and decorated
+textareas; each replacement emits one input event and can be undone independently
+of preceding typing. Existing calls keep their behaviour. Paint-only declarations
+retain the browser's native textarea when value ranges and custom highlights are
+available; font/layout changes, hidden ranges and chips use the optional source
+editor. Copying from that editor preserves the selected source, including markers.
 
 ### Markdown: `markup`, `format`, `select`
 

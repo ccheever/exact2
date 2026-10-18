@@ -390,6 +390,8 @@ uint32_t exact_commit_plan(ExactRuntime rt);
 uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height, uint32_t let_go);
 /* Call after first pixel, never as a prerequisite to painting the baked frame. */
 uint32_t exact_data_ready(ExactRuntime rt);
+/* A peer committed to the shared store. Does not activate before first pixel. */
+uint32_t exact_store_changed(ExactRuntime rt, uint32_t retry_only);
 void exact_discard_plan(ExactRuntime rt);
 /* Content has settled (a scroll came to rest): the tree and the motion
  * engine give back storage beyond the live nodes. Changes nothing shown. */
@@ -587,6 +589,10 @@ uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc
 uint32_t exact_set_launch_place(ExactRuntime rt, size_t len);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
+/* @ref LLP 1126.001 WP9: declare the packaged arm before boot, then deliver
+ * its source snapshots or send completions through the input buffer. */
+void exact_link_activities(ExactRuntime rt);
+uint32_t exact_activities(ExactRuntime rt, size_t len);
 /* @ref LLP 1125 D6-D8: a MIDI message, JSON in the input buffer: the MIDI
  * arm's {"ports":…} or {"messages":…}, or the agent's `prefer midi` and
  * `tap midi`. Returns the batch length. */

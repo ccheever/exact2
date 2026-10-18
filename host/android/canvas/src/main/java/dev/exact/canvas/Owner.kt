@@ -497,6 +497,9 @@ internal object Exact {
         if (o != null) { o.input(); o.call(f) } else { f(); turned() }
     }
 
+    fun moduleEvent(id: Int, slot: Int, generation: Int, kind: String, payload: String) =
+        field { Native.moduleEvent(id, slot, generation, kind, payload) }
+
     fun fieldFocused(id: Int, generation: Int, focused: Boolean) = field { Native.fieldFocused(id, generation, focused) }
     fun fieldEdited(id: Int, generation: Int, seq: Int, value: String, start: Int, end: Int) =
         field { Native.fieldEdited(id, generation, seq, value, start, end) }

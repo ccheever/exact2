@@ -311,9 +311,24 @@
                 "systemExtraLarge",
                 "accessoryCircular",
                 "accessoryRectangular",
-                "accessoryInline"
+                "accessoryInline",
+                "accessoryCorner"
               ]
             }
+          },
+          "watchFamilies": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "accessoryCircular",
+                "accessoryRectangular",
+                "accessoryInline",
+                "accessoryCorner"
+              ]
+            },
+            "description": "Optional watchOS families; defaults to the accessory families in families."
           },
           "preview": {
             "type": "object"
@@ -480,7 +495,9 @@
             "backgroundModes": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^(?!remote-notification$).*$",
+                "description": "remote-notification is refused; ActivityKit update tokens need no background mode (LLP 1126.001 WP9)."
               }
             },
             "associatedDomains": {

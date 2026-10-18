@@ -3867,7 +3867,7 @@
       "bit": 176,
       "field": "position_area",
       "codec": "enum:PositionArea",
-      "_comment": "@ref LLP 1021 D2: CSS physical position-area on an invoker-anchored popover. Painted Apple layers align the margin box and apply authored flip fallbacks; centred axes use CSS anchor-center overflow alignment. No anchor-name or position-anchor.",
+      "_comment": "@ref LLP 1021 D2: CSS physical position-area on an invoker-anchored popover. Painted Apple layers align the margin box and apply authored flip fallbacks; centred axes use CSS anchor-center overflow alignment, and a box no option fits is shifted inside the window as CSS shifts it. No anchor-name or position-anchor.",
       "cold": true
     },
     {
@@ -4105,7 +4105,7 @@
       "field": "position_try_fallbacks",
       "codec": "position-try-fallbacks",
       "cold": true,
-      "_comment": "@ref LLP 1021 D2: ordered comma-separated flip-block/flip-inline attempts on invoker popovers; none by default. Each attempt transforms the base area and margins. flip-start and named rules remain refused in this slice."
+      "_comment": "@ref LLP 1021 D2: ordered comma-separated attempts of flip-block, flip-inline and flip-start on invoker popovers; none by default. Each attempt transforms the base area and margins by its flips in the order written. flip-x, flip-y and named rules are refused."
     },
     {
       "bit": 207,
@@ -5850,7 +5850,7 @@
     ["focus-ring-offset", "length", 2],
     ["surface-radius", "length", 12],
     ["mark-radius", "length", 4],
-    ["mark-size", "length", 13, 13, 13, "1.25em"],
+    ["mark-size", "length", 13, 13, 13, "1.25em", 20],
     ["mark-size-coarse", "length", "1.5em"],
     ["mark-dot", "number", 0.38],
     ["mark-disabled-alpha", "number", 0.5],
@@ -5932,7 +5932,26 @@
     ["field-indicator", "length", "unset", "unset", "unset", "unset", 1],
     ["field-indicator-focused", "length", "unset", "unset", "unset", "unset", 2],
     ["state-hover-opacity", "number", "unset", "unset", "unset", "unset", 0.08],
-    ["state-pressed-opacity", "number", "unset", "unset", "unset", "unset", 0.1]
+    ["state-pressed-opacity", "number", "unset", "unset", "unset", "unset", 0.1],
+    ["nav-height", "length", "unset", "unset", "unset", "unset", 80],
+    ["nav-icon", "length", "unset", "unset", "unset", "unset", 24],
+    ["nav-indicator-width", "length", "unset", "unset", "unset", "unset", 56],
+    ["nav-indicator-height", "length", "unset", "unset", "unset", "unset", 32],
+    ["nav-label-gap", "length", "unset", "unset", "unset", "unset", 4],
+    ["nav-item-gap", "length", "unset", "unset", "unset", "unset", 8],
+    ["top-height", "length", "unset", "unset", "unset", "unset", 64],
+    ["top-edge", "length", "unset", "unset", "unset", "unset", 4],
+    ["top-title-inset", "length", "unset", "unset", "unset", "unset", 12],
+    ["top-icon", "length", "unset", "unset", "unset", "unset", 24],
+    ["filled-button-height", "length", "unset", "unset", "unset", "unset", 40],
+    ["filled-button-min-width", "length", "unset", "unset", "unset", "unset", 58],
+    ["filled-button-padding-inline", "length", "unset", "unset", "unset", "unset", 24],
+    ["filled-button-padding-block", "length", "unset", "unset", "unset", "unset", 8],
+    ["filled-button-disabled-container", "number", "unset", "unset", "unset", "unset", 0.1],
+    ["filled-button-disabled-label", "number", "unset", "unset", "unset", "unset", 0.38],
+    ["checkbox-corner", "length", "unset", "unset", "unset", "unset", 2],
+    ["checkbox-stroke", "length", "unset", "unset", "unset", "unset", 2],
+    ["checkbox-disabled-opacity", "number", "unset", "unset", "unset", "unset", 0.38]
   ],
   "_controls": "LLP 1121 D9 (stage 8 C): each native control's parameters a design can set (accent-color, or a colour role it reads) and how each host Exact ships honours one: [control (a `:state` after it: that state's), parameter, ios, macos, web, linux, windows, terminal, android], each host `exact`, `best-effort` (the platform alters it) or `none` (the platform's own stands), `: why` after it saying so. Measured by scripts/measure-controls.mjs, recorded with provenance in docs/control-roles-measured.md, which a test holds this table to; the compiler's tamber-unreachable lint reads it. A new parameter is a role first (LLP 1095 §3).",
   "controls": [

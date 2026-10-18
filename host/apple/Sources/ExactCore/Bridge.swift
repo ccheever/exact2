@@ -23,6 +23,10 @@ public struct Batch {
     public let busy: Bool
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
+    /// Store refresh acknowledged no runner commit; keep the current timers.
+    public var unchanged = false
+    public var storeReadPending = false
+    public var storeActivationPending = false
     public var pending = false
     /// A module generation refused while requests are in flight: ask again (LLP 1007 §6).
     public var requests = false
@@ -278,6 +282,7 @@ package final class Runtime {
         }
     }
     package func dataReady() -> Batch { on { read(exact_data_ready(rt)) } }
+    package func storeChanged(retryOnly: Bool = false) -> Batch { on { read(exact_store_changed(rt, retryOnly ? 1 : 0)) } }
     package func discardPlan() { on { exact_discard_plan(rt) } }
     package func trim() { on { exact_trim(rt) } }
 
@@ -593,6 +598,9 @@ package final class Runtime {
             return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }
+    package func linkActivities() { on { exact_link_activities(rt) } }
+    /// Activity snapshots or a send completion from the demand-loaded arm.
+    package func activities(_ json: String) -> Batch { on { read(exact_activities(rt, write(json))) } }
     /// A MIDI message (LLP 1125 D6–D8): the arm's ports or inputs, or the agent's `prefer midi` and `tap midi`.
     package func midi(_ json: String) -> Batch { on { read(exact_midi(rt, write(json))) } }
     package func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }

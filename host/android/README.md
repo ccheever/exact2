@@ -48,7 +48,10 @@ NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and
    `apps/shelf/android` for one whose data is TypeScript (three files each, and a line in the root `Cargo.toml`'s
    `members`). A game's is generated in its `.shells/` (`game/app/shells.mjs`). An app with a GPU module (LLP 1009;
    every game) is built as a Linux bake is (`buildBake`): the module first, then the crate, whose bake records the
-   module's SHA-256;
+   module's product digest. The shared Linux/Android loader checks baked cards against that digest: on
+   macOS, signed 64-bit Mach-O code omits the signature and normalizes its three size fields, matching
+   the definition in `update/src/gpu.rs` through a parity-tested host copy; other files hash whole. Completed development receipts always
+   bind the whole file. Both the process cache and Android's persistent cache distinguish these digests;
 2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so`, the GPU module beside it under
    its own name, the app's `assets/` to `app/build/<app>/rust/assets/app/assets/`, and a GPU module's shaders
    (`gpu/shaders/*.wgsl`, as a Linux bake packs them) to `app/build/<app>/rust/assets/app/shaders/`, where the host
@@ -57,11 +60,15 @@ NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and
    `app.json` is resolved), with `-PgpuModule=<file>` for a module: the APK then extracts its libraries and leaves
    the module unstripped, since the host opens it by path and checks its digest; with `-Pcompose=1` when the plan's
    uses name `dates` (a date or time control), which links Compose Material 3 for its pickers; and with the Kotlin
-   in the app's `modules/android`, its hatches, compiled in,
+   in the app's `modules/android`, its hatches and module roster, compiled in,
 
 and prints `app/build/<app>/outputs/apk/release/app-release.apk`. The package id and the label are the app's
 `app.json` (`app.id`, with `-` as `_`, which a package name cannot hold; `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
 (`<app id>.dev`). `./gradlew :canvas:assembleRelease` builds the reader alone.
+
+A component fixture may compile the real app's Kotlin with
+`ORG_GRADLE_PROJECT_modulesDir=<absolute path to the app's modules/android>`. The default
+is the built app's own `modules/android`; this override avoids copying a provider into fixtures.
 
 Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.MainActivity`, or drive it:
 `bun scripts/agent.mjs android --reader --app <app> …` (below, "Driving the reader").
@@ -454,6 +461,15 @@ under `ExactHatch`, gives its `due` pickers titles, no weekends and a 24-hour cl
 turns on exact2's clock and stops at a tap. `bun scripts/exact.mjs hatch <word> <app>` writes the class for an app
 with an `android/` crate.
 
+An app's optional native module views (LLP 1024) live in the same `modules/android` source directory. Define
+`class exact.app.Modules : dev.exact.canvas.NativeModules` with a `modules: Map<String, NativeModule>` roster;
+the APK resolves it only at the first module view. Each module creates and updates its real Android `View`.
+`events(view, emit)` binds before its first update; call `emit("change", value)` or `emit("input", value)` with
+string values, `emit("message", payload)` with the guest message, `emit("load", "")`, or `emit("press", "")`.
+Retired bindings and events for an old node allocation are ignored. A module button receives `performClick()`
+for an unscrolled tap that no long press took, at its painted position so a platform popup can anchor to it. Native drags, arbitrary
+pointer forwarding and zero-size service modules are not implemented by this button seam.
+
 ## Text fields (LLP 1115.001 D8)
 
 Each `input` of a text type and each `textarea` is the framework's own `android.widget.EditText` (`Fields.kt`), with
@@ -795,7 +811,7 @@ the bar took of the routes goes to nothing while it is covered (`Presenter::fit_
 |---|---|---|
 | Height | 64 dp, under the status bar | 64 dp |
 | Colour | `surface`; `surfaceContainer` once the route's content has scrolled; the status bar's area the same | the same two (`OnScrollContainerColor`) |
-| Title | the heading, title-large (22/28 sp, regular), `onSurface`, one line cut with an ellipsis; 16 dp from the side, or 52 dp after the Up arrow | title-large; 16 dp, and after a 48 dp navigation icon 4 dp from the side |
+| Title | the heading, title-large (22/28 sp, regular), `onSurface`, one line cut with an ellipsis; 16 dp from the side, or 4 dp after what leads it (56 dp after the Up arrow) | the same (`TopAppBarLayout`: the title's box at `TopAppBarTitleInset` or after the navigation icon, its own 4 dp padding) |
 | Up arrow | on a pushed route: Material Symbols' `arrow_back`, 24 dp in a 48 dp target 4 dp from the side, `onSurface` | the same |
 | Buttons | the header's, at the trailing side, 4 dp from it: a 24 dp symbol in a 48 dp target (`onSurfaceVariant`) where the button has a symbol, else a text button (label-large, `primary`, 12 dp padding, at least 58 dp wide) | icon buttons and text buttons, the same metrics |
 | Held | a state layer (10%): a 40 dp circle on an icon, a pill on a text button | a state layer and a ripple |
@@ -820,17 +836,18 @@ that opens a search view, or a search action in the bar; neither is built.
 |---|---|---|
 | Height | 80 dp, over the gesture bar | 80 dp |
 | Colour | `surfaceContainer`, the gesture bar's area the same | `surfaceContainer` |
-| Destinations | the root tablist's tabs that name a panel, sharing the width | 3 to 5, sharing the width |
+| Destinations | the root tablist's tabs that name a panel, sharing the width 8 dp apart | 3 to 5, the same (`NavigationBarItemHorizontalPadding`) |
 | Symbol and label | a 24 dp symbol 16 dp from the top, its label under it (label-medium, 12/16 sp), 16 dp from the bottom | the same |
-| Active indicator | a 64 by 32 dp pill in `secondaryContainer` behind the selected symbol | the same |
-| Colours | the selected destination `onSurface`, the others `onSurfaceVariant` | the same for labels; the selected symbol is `onSecondaryContainer`, a role the reader does not report yet |
+| Active indicator | a 56 by 32 dp pill in `secondaryContainer` behind the selected symbol | the same |
+| Colours | the selected destination's symbol `onSecondaryContainer` and its label `secondary`; the others `onSurfaceVariant`, at 38 % when disabled | the same (`NavigationBarItemDefaults.colors`) |
 
 "Here" in both tables is what was seen on a Pixel 10 Pro XL (Android 16, 2.4375 pixels a dp), from `state.bars`
 and its screenshots: the top bar's view is 317 pixels tall (a 66.05 dp status bar and 64 dp), the navigation bar's
 254 (80 dp and a 24.2 dp gesture bar); read off the pictures, the indicator is about 156 by 77 pixels and the
 title's first glyph about 40 pixels from the side, about 129 after the arrow. "Material 3" is the Compose Material 3 library's `TopAppBar` and `NavigationBar`
 and their tokens (`TopAppBarSmallTokens`, `NavigationBarTokens`) as remembered, not read against the library that
-day, and no reference app was beside it: the one S2 builds is what checks these.
+day. Both bars' are now read from it at the pinned version: their numbers are the schema's `top-` and `nav-` rows
+(`reference/rows.json`), and the Material oracle compares each with Compose's.
 
 A destination tapped again while it is selected and its stack is at its root scrolls that route's content to its
 top, as iOS does (in one step: nothing animates it). Above its root the tap is the app's own. At the largest font
@@ -1142,3 +1159,8 @@ app. On a machine with the SDK, Java 21 (`JAVA_HOME`) and Cargo:
 
 The report is `reference/build/oracle/report.html`. `specimens.json` lists the specimens, their probes and the planted
 defects; each specimen's Exact half is `apps/material-specimens/specimens/<id>.contract`.
+
+On a phone (O2's calibration, LLP 1115.001.001 §3): `./gradlew :reference:assembleDebug` builds the catalogue, which
+draws the specimen `--es id <id> --es scheme light|dark` names over the whole screen, and `bun
+scripts/agent-android.mjs build material-specimens --apk` the specimen app, whose reader boots a specimen's plan
+(`contract build`) pushed to the phone and named by `--es x_plan <path>`.

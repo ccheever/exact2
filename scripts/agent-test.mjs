@@ -320,6 +320,31 @@ export const STORAGE_NOTE = 'this drive names no --storage, so the app\'s storag
  *  beside the hold under `--touch platform` (Share.swift, DocumentPickers.swift). */
 const HELD_SHEETS = { share: 'share sheet', pick: 'photo or file picker', 'open-file': 'document picker', 'open-directory': 'document picker', 'save-file': 'document picker', export: 'export sheet', auth: 'sign-in sheet' };
 const SHOWN_SHEETS = ['share', 'open-file', 'open-directory', 'save-file'];
+// Native and web canvas journals advance their own cursors on every wire read.
+// Advice owns no journal entries: keep its batches until the caller asks for logs.
+const peekedWorldLogs = new WeakMap();
+export function resetLogs(s) {
+  peekedWorldLogs.delete(s);
+  s.logCursor = 0;
+}
+export async function peekLogs(s, since) {
+  let sessions = peekedWorldLogs.get(s);
+  if (!sessions) peekedWorldLogs.set(s, sessions = new Map());
+  const session = s.session, reply = await s.op({ op: 'logs', since });
+  // A probe started before a reload belongs to the old page, even if it replies later.
+  if (reply.world?.length && peekedWorldLogs.get(s) === sessions)
+    sessions.set(session, [...(sessions.get(session) ?? []), ...reply.world]);
+  return reply;
+}
+export function takeWorldLogs(s, world) {
+  const sessions = peekedWorldLogs.get(s), previous = sessions?.get(s.session) ?? [];
+  if (!previous.length) return world;
+  // Equal cursor boundaries can belong to different canvas lifetimes. Keep each read's metadata.
+  const batches = [...previous, ...(world ?? [])];
+  // Consume only after collecting all rows succeeds, so a failed read can be retried.
+  sessions?.delete(s.session);
+  return batches;
+}
 export function driveNotes(s, { host, storage, origins = [] }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
@@ -349,7 +374,7 @@ export function driveNotes(s, { host, storage, origins = [] }) {
     // sources were refused their storage reads as an app bug (the euxy port). Not here when an input's reply said it.
     if (storage === undefined && !said.has('storage') && !s.storageSaid && ++probes <= 20) {
       try {
-        const j = await bounded(s.op({ op: 'logs', since: peek }), 3000);
+        const j = await bounded(peekLogs(s, peek), 3000);
         if (Array.isArray(j?.lines)) {
           peek = j.next;
           if (j.lines.some((l) => STORAGE_REFUSED.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', STORAGE_NOTE);
@@ -358,7 +383,7 @@ export function driveNotes(s, { host, storage, origins = [] }) {
     }
     if (!(end || early || (host === 'web' && INPUTS.includes(op)))) return;
     try {
-      const j = await bounded(s.op({ op: 'logs', since: replies }), 3000);
+      const j = await bounded(peekLogs(s, replies), 3000);
       if (Array.isArray(j?.lines)) replies = j.next;
       for (const [name, why] of refusedReplies(j?.lines)) note(`reply ${name} ${why}`, replyNote(name, why));
       const state = await bounded(s.state(), 3000);
@@ -406,8 +431,10 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * time it reached, as a `reload` relaunches, LLP 1116.009 D1; `restart`: on the web, the `reload` step itself, run on the session so the page loads
  * again on its route and storage at that date, LLP 1116.010 D6; `typed`: the ids the test typed since its last other input, a draft; `touched`: every id it typed) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
  * `end.keep` keeps the test's store for a later launch (the result's `store`), which the caller then removes.
+ * `atStep(s, { name, line, op })` runs on the session after each input step (and `reload`) lands; returning 'stop' ends
+ * that test there, 'done' every test from there (verify's tour of the screens the tests pass through).
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, port } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, atStep, port } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   if (host === 'web' && !url) await backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
   // A fetch prefix outside every grant fails nothing (sb4 farm wave 4, lane 070: an origin moved in app.ts only).
@@ -440,7 +467,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const tag = base || host === 'android' ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
   sweepTestStores(base, storage);
   const server = serverUrl(selected.dir); // where a `request` line's path is (LLP 1116.006 D8)
+  let done = false;
   for (const [n, t] of tests.entries()) {
+    if (done) break;
     const failures = [], expectedRefusals = [];
     const refusalCursors = new Map();
     let end = null;
@@ -519,7 +548,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const now = await s.state().catch((e) => { throw new Error(`reload: could not read the fault table to carry: ${e.message}`); });
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
       facts.epoch = await reached();
-      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
+      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; resetLogs(s); s.notes = notes; return; }
       await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
@@ -545,7 +574,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const fail = async (message) => {
       const state = await s.state().catch(() => ({}));
       const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('')
-        + [...refusedReplies((await s.op({ op: 'logs', since: 0 }).catch(() => null))?.lines)].map(([name, why]) => ` (${replyNote(name, why)})`).join('');
+        + [...refusedReplies((await peekLogs(s, 0).catch(() => null))?.lines)].map(([name, why]) => ` (${replyNote(name, why)})`).join('');
       if (unpolled != null) return failures.push(`${message}${failed} (line ${unpolled} wrote to the server, and the clock has not moved past the app's next read since: \`clock +<its poll's ms>\`, then \`clock data\`)`);
       if (input != null) return failures.push(`${message}${failed} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
       const pending = (state.pending ?? []).filter((p) => !p.device).map((p) => p.name);
@@ -730,6 +759,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             default: failures.push(`${at}: unknown step ${st.op}`);
           }
           if (closedAt == null) await mutationClock.advance(s);
+          if (atStep && closedAt == null && (INPUTS.has(st.op) || st.op === 'reload')) {
+            const next = await atStep(s, { name: t.name, line: st.line, op: st.op });
+            if (next === 'done') done = true;
+            if (next === 'stop' || next === 'done') break;
+          }
         } catch (e) {
           failures.push(`${at}: ${e.message}`);
           break;
@@ -743,7 +777,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       if (failures.length && closedAt == null) try {
         const state = await s.state();
         const mutations = new Map(Object.entries(state.mutationFailures ?? {}).map(([name, failure]) => [name, `${failure.code}: ${failure.message}`]));
-        const refusal = rosterRefusalNote(reset, schema, mutations.size ? mutations : refusedReplies((await s.op({op: 'logs', since: 0}))?.lines));
+        const refusal = rosterRefusalNote(reset, schema, mutations.size ? mutations : refusedReplies((await peekLogs(s, 0))?.lines));
         if (refusal) notes.push(refusal);
         const logs = await Promise.race([s.logs(), new Promise((done) => setTimeout(() => done(null), 3000))]);
         const said = (logs?.host ?? []).filter((l) => /^console\.\w+: /.test(l));
@@ -790,7 +824,7 @@ export async function reloadWeb(s) {
   }
   const now=await s.state();
   await s.carrier.reset({keep:true, failFetch: now.faults ? faultSpecOf(now.faults) : undefined});
-  s.now=0; s.logCursor=0;
+  s.now=0; resetLogs(s);
   return {reloaded:true};
 }
 

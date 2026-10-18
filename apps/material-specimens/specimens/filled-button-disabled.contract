@@ -1,0 +1,5 @@
+component App
+  view
+    column padding=16 align-items="flex-start"
+      button buttonStyle="filled" disabled=true testId="specimen"
+        text "Save" testId="label"

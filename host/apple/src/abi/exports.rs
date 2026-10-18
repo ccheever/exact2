@@ -342,6 +342,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.data_ready(), |n| n)
         }
 
+        /// Re-read the shared store and ask its resources again (LLP 1126.001 WP12).
+        #[no_mangle]
+        pub extern "C" fn exact_store_changed(rt: u32, retry_only: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.store_changed(retry_only != 0), |n| n)
+        }
+
         /// Prepare an admitted module generation, optionally carrying a delivery token;
         /// `let_go`: the dev loop's, with requests in flight too (LLP 1007 §6).
         #[no_mangle]
@@ -665,8 +671,19 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reads_on_line(), |_| 1)
         }
 
-        /// A MIDI message in the input buffer (LLP 1125 D6–D8): the arm's
-        /// ports or inputs, or the agent's `prefer midi` and `tap midi`.
+        /// The presenter declares a packaged arm before any boot.
+        #[no_mangle]
+        pub extern "C" fn exact_link_activities(rt: u32) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.link_activities(), |_| ());
+        }
+
+        /// Activity facts or one send's completion in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_activities(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.activities(len), |n| n)
+        }
+
+        /// MIDI ports or messages from the host, or the agent's `prefer midi` and `tap midi`.
         #[no_mangle]
         pub extern "C" fn exact_midi(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.midi(len), |n| n)

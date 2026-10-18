@@ -21,7 +21,7 @@ The only required reading; the rest is lookup.
    converter's answer) stays a centred column (`max-width="26.25rem"`) or a `SummaryCard`.
    `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
    - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
-     `"correct"`, `"wrong"` or `"dimmed"`. `SummaryCard`: the one number, shown once
+     `"correct"`, `"wrong"`, `"dimmed"` or `"chosen"` (your pick once closed). `SummaryCard`: the one number, shown once
    - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark` done or not; `EmptyState` over your `button`
 4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
    phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
@@ -43,7 +43,7 @@ shell commands have no such help, so keep one directory.
 |`bun exact.mjs …`|What it does|
 |---|---|
 |`contract build app.contract --json --errors-only`|A CI gate: `[]` and exit zero mean no errors (omit `--errors-only` to include warnings); it rewrites the types `app.ts` imports and type-checks it.|
-|`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done.|
+|`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time, and reads those screens (on the web, also the ones the tests pass through) at the largest text size, where what spills is the app's layout to fix: one report. A clean run on the app's platform is done.|
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 

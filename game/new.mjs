@@ -91,7 +91,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   bun exact.mjs agent web tree  inspect or drive the game
   bun exact.mjs mac --run     build and launch on this Mac
   bun exact.mjs windows --run build and launch on Windows
-  bun exact.mjs prove         the proof's first baseline (pins.json)`;
+  bun exact.mjs prove         the proof's first baseline (pins.json), once the game plays`;
   }
   return `Created ${local ? destination : `game/games/${name}`}\n  bun ${script('dev.mjs')} ${argument}\n  bun ${script('prove.mjs')} ${argument}
   bun ${proof} web --screenshot-only`;
@@ -1036,7 +1036,7 @@ you name where you are, else here):
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
 | \`bun exact.mjs linux\`, then \`test linux\` or \`agent linux …\` | build the Linux host and drive it headless (any machine, no display); \`bun exact.mjs android\` builds the same host for Android (LLP 1107) |
 | \`bun exact.mjs windows --run\` | build and launch the standalone Windows game; omit \`--run\` to package only |
-| \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | the proof: a first baseline in \`pins.json\`, then real-host checks against it |
+| \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | the proof: a first baseline in \`pins.json\`, then real-host checks against it. The baseline is a release step for a game that already plays, not part of the loop: it builds Linux and web in release, three simulation modes each, and takes many minutes cold; nothing before it waits on it |
 | \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block, and says when \`Cargo.lock\` needs \`lock\` |
 | \`bun exact.mjs lock\` | when a build says exact2 moved since the game's \`Cargo.lock\` was captured, or after adding a dependency: fetches (the network), resolves again and prints what changed; builds never change the lock |
 | \`bun exact.mjs shells\` | write \`.shells/\`, the generated workspace a crate here names, without a build (\`cargo run --example\` in \`render/\` needs it) |
@@ -1045,7 +1045,8 @@ you name where you are, else here):
 The loop: \`test-rust\` while tuning gameplay, \`contract build --json\` until it prints
 \`[]\`, \`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
 \`proof.mjs\` asserts the starter's gameplay (its beacons, KeyE): rewrite it when you
-change \`Options\` or the scene, before the first \`prove\`.
+change \`Options\` or the scene. Run \`prove\` once, last, when the game plays and
+\`proof.mjs\` describes it; it is the release baseline, and the loop above never waits on it.
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names anything this machine is missing.
 
 Generated, so don't edit: \`exact.mjs\` and this block.
