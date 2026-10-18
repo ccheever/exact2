@@ -26,6 +26,8 @@ shape HostToolLine
   required: string
   installed: string
 shape HostRow
+  environment: string
+  hostId: string
   id: string
   label: string
   target: string
@@ -41,12 +43,19 @@ shape HostRow
   retry: bool
   retrying: bool
   menuId: string
+shape HostGroup
+  id: string
+  label: string
+  secondary: string
+  summary: string
+  hosts: HostRow[]
 shape DeviceHostsView
   available: bool
   canAdd: bool
   message: string
   environmentLabel: string
   hosts: HostRow[]
+  groups: HostGroup[]
 shape HostCheckRow
   id: string
   label: string
@@ -130,10 +139,33 @@ component DeviceHostsRow
         if not view.available
           text view.message font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
         else
-          if view.hosts.length == 0
+          if view.hosts.length == 0 and view.groups.length == 0
             text "No device hosts." font-size="0.875rem" line-height="1.25rem" padding-top="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717b, #818181)" testId="device-hosts-empty"
+          for group in view.groups key=group.id
+            HostGroupView(group=group, busy=(busy or not view.canAdd), rest=rest)
           for host in view.hosts key=host.id
             HostRowView(host=host, busy=(busy or not view.canAdd), rest=rest)
+
+component HostGroupView
+  props
+    group: HostGroup
+    busy: bool
+    rest: action
+  state open = false
+  action toggle
+    open = not open
+  view
+    column width="100%" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e780, #ffffff08)"
+      button press=toggle aria-expanded=open testId=`device-host-group-${group.id}` width="100%" padding="0.75rem" border-width=0 background-color="#00000000" display="flex" align-items="center" gap="0.5rem"
+        LucideChevronRight(size=12, color="light-dark(#71717b, #818181)")
+        column flex=1 min-width=0 align-items="flex-start"
+          text group.label font-size="0.875rem" font-weight=500 line-clamp=1
+          if group.secondary != ""
+            text group.secondary font-size="0.75rem" line-clamp=1 color="light-dark(#71717b, #818181)"
+        text group.summary font-size="0.75rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+      if open
+        for host in group.hosts key=host.id
+          HostRowView(host=host, busy=busy, rest=rest)
 
 component HostRowView
   props
@@ -203,12 +235,12 @@ component HostRowView
         button id=`device-host-options-${host.id}` popovertarget=host.menuId key=triggerKey disabled=busy aria-label=`${host.label} options` testId=`device-host-options-${host.id}` width="1.75rem" height="1.75rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(busy ? 0.64 : 1) title="" data-focus-stop=(busy ? "" : "enabled")
           LucideEllipsisVertical(size=16, color="light-dark(#71717b, #818181)")
         SkPopup(menuId=host.menuId, invoker=`device-host-options-${host.id}`, label=`${host.label} options`, width=160, list=false, endAlign=28, items=menuItems, keyed=0)
-          SkMenuItem(keysId=`${host.menuId}-keys`, label="Edit", menuId=host.menuId, itemId=`device-host-edit-${host.id}`, selected=false, check=false, destructive=false, disabled=false, choose=rest("hosts-edit", `id=${host.id}`))
-          SkMenuItem(keysId=`${host.menuId}-keys`, label="Remove", menuId=host.menuId, itemId=`device-host-remove-${host.id}`, selected=false, check=false, destructive=true, disabled=false, choose=rest("hosts-remove", `id=${host.id}`))
+          SkMenuItem(keysId=`${host.menuId}-keys`, label="Edit", menuId=host.menuId, itemId=`device-host-edit-${host.id}`, selected=false, check=false, destructive=false, disabled=false, choose=rest("hosts-edit", `id=${encodeURIComponent(host.hostId)}&environment=${encodeURIComponent(host.environment)}`))
+          SkMenuItem(keysId=`${host.menuId}-keys`, label="Remove", menuId=host.menuId, itemId=`device-host-remove-${host.id}`, selected=false, check=false, destructive=true, disabled=false, choose=rest("hosts-remove", `id=${encodeURIComponent(host.hostId)}&environment=${encodeURIComponent(host.environment)}`))
       if host.retry
-        HostButton(label=(host.retrying ? "Retrying…" : "Retry"), disabled=(busy or host.retrying), press=rest("hosts-retry", `id=${host.id}`), buttonId=`device-host-retry-${host.id}`, plus=false)
+        HostButton(label=(host.retrying ? "Retrying…" : "Retry"), disabled=(busy or host.retrying), press=rest("hosts-retry", `id=${encodeURIComponent(host.hostId)}&environment=${encodeURIComponent(host.environment)}`), buttonId=`device-host-retry-${host.id}`, plus=false)
       else
-        HostButton(label="Test connection", disabled=(busy or host.progress != ""), press=rest("hosts-test-row", `id=${host.id}`), buttonId=`device-host-test-${host.id}`, plus=false)
+        HostButton(label="Test connection", disabled=(busy or host.progress != ""), press=rest("hosts-test-row", `id=${encodeURIComponent(host.hostId)}&environment=${encodeURIComponent(host.environment)}`), buttonId=`device-host-test-${host.id}`, plus=false)
 
 component HostToolPair
   props
@@ -313,13 +345,23 @@ component HostCheckPanel
     busy: bool
     valid: bool
     test: action
+  state expandedKey = ""
+  state expanded = false
+  action toggle
+    expandedKey = checkKey
+    expanded = not expanded
+  derive results = checks.filter((group) => group.key == checkKey).map((group) => group.results).flat()
+  derive checksOpen = results.length <= 1 or (expandedKey == checkKey ? expanded : results.filter((result) => result.status == "Failed").length > 0)
   view
     column width="100%" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" box-sizing="border-box" testId="device-host-checks"
       row width="100%" align-items="center" justify-content="space-between" gap="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box"
         text (checks.filter((group) => group.key == checkKey).length == 0 ? "Check access before saving" : checks.filter((group) => group.key == checkKey).map((group) => group.summary).join("")) role="status" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="device-host-check-status"
         HostButton(label="Test connection", disabled=(busy or not valid or checks.filter((group) => group.key == checkKey and group.checking).length > 0), press=test, buttonId="device-host-test", plus=false)
+      if results.length > 1
+        button press=toggle aria-expanded=checksOpen testId="device-host-check-toggle" padding="0.5rem" border-width=0 background-color="#00000000"
+          text (checksOpen ? "Hide machines" : "Show machines") font-size="0.75rem"
       for group in checks key=group.key
-        if group.key == checkKey
+        if group.key == checkKey and checksOpen
           for result in group.results key=result.id
             column width="100%" gap="0.375rem" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
               row width="100%" justify-content="space-between" align-items="center" gap="0.75rem"
