@@ -18,7 +18,7 @@ From the repository root, the native build command is:
 EXACT_APP_DIR="$PWD/examples/t3-code/mobile" bun host/apple/build.mjs --ios t3-code-ios --run
 ```
 
-The app build bundles the pinned viewer sources with Rolldown before the Exact bake. It does not install dependencies or use the network. Generated assets under `assets/browser-mobile/` are ignored by Git.
+The app build bundles the pinned viewer sources with Rolldown before the Exact bake. It uses the viewer dependency installed above. If that dependency is missing, the build stops and names the install command. Generated assets under `assets/browser-mobile/` are ignored by Git.
 
 Generate the pinned app tables before data tests, strict TypeScript checks or a direct Contract build:
 
@@ -27,6 +27,6 @@ bun examples/t3-code/tools/generate/generate.mjs
 bun test examples/t3-code/mobile/*.test.ts
 ```
 
-The native build runs the same generator before bundling the mobile viewers and baking the app. Generated tables are ignored by Git.
+The native build runs the same generator before bundling the mobile viewers and baking the app. The generator installs its pinned packages and may fetch missing packages. Run it once while online to prepare an offline build. Generated tables are ignored by Git.
 
 The app-local [LLP 1130](docs/1130-t3-code-ios.rfc.md) and its children record the design, source pins and verification limits. They remain Draft. Their placement in the framework's root LLP corpus is not approved; the mobile documents and review records stay with this app.
