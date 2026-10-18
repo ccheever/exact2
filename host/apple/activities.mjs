@@ -15,7 +15,7 @@ export function packageActivityArm({ app, bundle, directory, triple, sdk, device
 }
 
 /** The update-token ruling admits neither push-to-start nor ordinary remote notifications.
- * Run on every assembled app and extension, including the async lane's builds. */
+ * Run on archives and the async lane's built iOS app and extension. */
 export function assertActivityRefusals(bundle, runApple) {
   const forbidden = ['pushToStartTokenUpdates', 'registerForRemoteNotifications'];
   const executables = [];

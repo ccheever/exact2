@@ -40,10 +40,10 @@ test('ordinary app executables refuse WidgetKit and ActivityKit load commands', 
   } finally { rmSync(dir, {recursive:true,force:true}); }
 });
 
-test('the assembled app and extension refuse push-to-start symbols, remote registration and its background mode (LLP 1126.001 WP9)', async () => {
+// The async iOS step supplies its just-built bundle. Glue has no assembled iOS fixture yet.
+test.skipIf(!process.env.EXACT_ACTIVITY_APP)('the assembled app and extension refuse push-to-start symbols, remote registration and its background mode (LLP 1126.001 WP9)', async () => {
   const { assertActivityRefusals } = await import('./activities.mjs');
-  const { plistFile } = await import('./assets.mjs');
-  const { copyFileSync, mkdirSync, readFileSync } = await import('node:fs');
+  const { cpSync, readFileSync, readdirSync } = await import('node:fs');
   const { spawnSync } = await import('node:child_process');
   const { resolve } = await import('node:path');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-activity-refusals-'));
@@ -53,22 +53,22 @@ test('the assembled app and extension refuse push-to-start symbols, remote regis
     return result;
   };
   try {
-    const extension = resolve(dir, 'PlugIns/Widgets.appex'); mkdirSync(extension, { recursive: true });
+    const app = resolve(process.env.EXACT_ACTIVITY_APP);
+    assert.ok(assertActivityRefusals(app, runApple) >= 3, 'app, extension and ActivityKit arm are scanned');
+    cpSync(app, dir, { recursive: true });
+    const extension = resolve(dir, 'PlugIns', readdirSync(resolve(dir, 'PlugIns')).find(n => n.endsWith('.appex')));
     for (const directory of [dir, extension]) {
-      copyFileSync('/bin/ls', resolve(directory, 'Executable'));
-      writeFileSync(resolve(directory, 'Info.plist'), plistFile({ CFBundleExecutable: 'Executable' }));
-    }
-    assert.equal(assertActivityRefusals(dir, runApple), 2);
-    for (const directory of [dir, extension]) {
-      writeFileSync(resolve(directory, 'Info.plist'), plistFile({ CFBundleExecutable: 'Executable', UIBackgroundModes: ['remote-notification'] }));
+      const plist = resolve(directory, 'Info.plist'), original = readFileSync(plist);
+      const info = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', plist]).stdout);
+      const binary = resolve(directory, info.CFBundleExecutable), bytes = readFileSync(binary);
+      runApple('plutil', ['-replace', 'UIBackgroundModes', '-json', '["remote-notification"]', plist]);
       assert.throws(() => assertActivityRefusals(dir, runApple), /remote-notification/);
-      writeFileSync(resolve(directory, 'Info.plist'), plistFile({ CFBundleExecutable: 'Executable' }));
+      writeFileSync(plist, original);
       for (const symbol of ['pushToStartTokenUpdates', 'registerForRemoteNotifications']) {
-        // The scan covers selectors and Swift mangled references, not only undefined C symbols.
-        writeFileSync(resolve(directory, 'Executable'), Buffer.concat([readFileSync('/bin/ls'), Buffer.from(`\0${symbol}\0`)]));
+        writeFileSync(binary, Buffer.concat([bytes, Buffer.from(`\0${symbol}\0`)]));
         assert.throws(() => assertActivityRefusals(dir, runApple), new RegExp(symbol));
       }
-      copyFileSync('/bin/ls', resolve(directory, 'Executable'));
+      writeFileSync(binary, bytes);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

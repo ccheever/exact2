@@ -17,7 +17,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { open } from './agent.mjs';
-import { HOST_DEV } from './app.mjs';
+import { HOST_DEV, resolveApp } from './app.mjs';
+import { appleArtifacts } from '../host/apple/build.mjs';
 
 const argv = process.argv.slice(2);
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -25,6 +26,10 @@ if (argv.includes('--sim')) process.env.EXACT_SIM = argv[argv.indexOf('--sim') +
 if (argv.includes('--build')) {
   const built = spawnSync('bun', ['host/apple/build.mjs', '--ios', 'caltrain-apple'], { cwd: ROOT, stdio: 'inherit' });
   if (built.status !== 0) { console.error('FAIL ios-touch build: host/apple/build.mjs --ios caltrain-apple'); process.exit(1); }
+  // WP9's refusal scan uses this iOS app, its extension and its packaged arm.
+  const bundle = appleArtifacts(resolveApp('caltrain'), { destination: 'ios-simulator' }).bundle;
+  const refused = spawnSync('bun', ['test', 'host/apple/link.test.mjs'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_ACTIVITY_APP: bundle } });
+  if (refused.status !== 0) { console.error('FAIL ios-touch activity refusals'); process.exit(1); }
 }
 const failures = [];
 const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
