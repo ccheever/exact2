@@ -650,7 +650,8 @@ An empty native `gpu-dev` game target can start from `~/.cache/exact/game-crates
 The cache separates channel, profile, target triple, rustc and compiler flags;
 Cargo checks each copied fingerprint. It keeps two coherent generations of
 registry units, excluding path crates and their dependants. Cache files are
-not game inputs. Removing the cache costs the next build its compilation time.
+not game inputs. A separate `CARGO_BUILD_BUILD_DIR` bypasses this cache.
+Removing the cache costs the next build its compilation time.
 Release builds compile their shipping products without this cache.
 Web builds keep their existing path: their remapping flags name the game's
 workspace and target directory, so a cache with those flags cannot warm a

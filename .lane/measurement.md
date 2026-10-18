@@ -111,7 +111,7 @@ end-to-end total. Every number in a build column shares the load context
 in its heading. `Game/shells` includes generated host/GPU wrappers; the
 unit-work table above shows compilation done concurrently as well.
 
-| Phase, seconds | Web, load 152–334 | Native `gpu-dev`, load 125–254 | Native release, load 71–222 |
+| Phase, seconds | Web, load 152–334 | Native `gpu-dev`, load 124–260 | Native release, load 71–222 |
 |---|---:|---:|---:|
 | Registry | 247.4 | 184.7 | 98.1 |
 | Engine path crates | 58.9 | 32.1 | 61.2 |
@@ -166,7 +166,7 @@ fire. A preceding transfer trial also built successfully with the source
 target directory moved away; reuse does not depend on that target remaining
 available. Changes to the compiler instrumentation create a separate key.
 
-| Phase, seconds | Web control, load 65–98 | Native `gpu-dev` reuse, load 134–226 | Release experiment, load 70–188 |
+| Phase, seconds | Web control, load 65–116 | Native `gpu-dev` reuse, load 134–226 | Release experiment, load 70–188 |
 |---|---:|---:|---:|
 | Registry | 144.3 | 49.7 | 0.0 |
 | Engine path crates | 30.0 | 44.0 | 103.7 |
@@ -239,3 +239,110 @@ An earlier transfer trial's end-to-end proof was invalidated by a tracked
 measurement-note commit during its run. Its successful Cargo transfer is
 not counted as an end-to-end proof; the stable-source run above is the
 recorded result.
+
+The rejection guard itself has a direct negative control: a completed fake
+fingerprint and a rustc invocation for the same hash. It exits 86 before
+running rustc:
+
+```text
+86 D2 CACHE REJECTED: Cargo invoked rustc for copied fingerprint 0123456789abcdef
+```
+
+This is a guard fixture, not a real Cargo rejection tolerated during reuse.
+Timing HTMLs from retired lane-owned targets are retained under
+`.lane/measure/retained-timings/`; unit JSONL, summaries and logs remain in
+each measurement directory. Retiring targets reclaims disk space and does
+not alter the recorded runs.
+
+## Public setup and live Rust edits
+
+`PATH="$HOME/.cargo/bin:$PATH" bun scripts/exact.mjs setup --game` exits 0:
+`SDK tools ready.` It built the asset-capable primer's GPU and native host
+with `gpu-dev`, retained its registry generation, and removed the primer.
+The full setup took **910.4 s**, load **112.27 / 86.22 / 99.56 →
+136.43 / 298.13 / 241.95**. This includes pinned Hermes installation and
+readiness checks, not just compilation; required verification and dev
+startup ran concurrently. It is not a build speed comparison.
+
+The actual loop command was `bun game/dev.mjs /tmp/exact-1132-a2-cold
+--port 8953`. After the watcher announced itself, the edit probe added an
+inline comment to `const HZ: u32 = 120;`, waited for a swap, then restored
+the original line and waited again. Code:
+`host/web/dev.mjs:1297` selects `gpu-dev` when the workspace defines it;
+the producer runs Cargo then wasm-bindgen, without wasm-opt.
+
+| Live edit | Producer time | Cargo | Bindgen | One-minute load range |
+|---|---:|---:|---:|---|
+| First use of wasm `gpu-dev` | 212.326 s | 210.180 s | 2.146 s | 106.20–136.43 |
+| Warm one-line restore | 4.800 s | 2.606 s | 2.194 s | 106.63–109.30 |
+
+First edit load before/after (1 / 5 / 15 minutes):
+**136.43 / 298.13 / 241.95 → 109.30 / 201.68 / 212.40**. Warm edit:
+**109.30 / 201.68 / 212.40 → 106.63 / 199.60 / 211.60**. Both overlap the
+required repository checks; these are loaded edit measurements, not latency
+budgets. Output:
+
+```text
+gpu: 1 source file(s) changed; building exact-1132-a2-cold-gpu (gpu-dev)
+gpu: rebuilt in 212326 ms (cargo 210180 ms, bindgen 2146 ms); swap pushed
+gpu: 1 source file(s) changed; building exact-1132-a2-cold-gpu (gpu-dev)
+gpu: rebuilt in 4800 ms (cargo 2606 ms, bindgen 2194 ms); swap pushed
+```
+
+**Handoff to LLP 1127.001 D1:** the current Rust-edit GPU producer selects
+`gpu-dev` correctly. F3's `Finished web profile` is not the profile this
+watcher used after either measured edit. The initial shipping host remains
+`web`; startup builds of native producers are separate from edit timings.
+The original Rust file was restored. The web agent drove Play, held W for
+500 ms, and settled; the player reached z=-1.7333331 at tick 229. The
+1280×720 screenshot was inspected: capsule, two beacons, grid and controls
+rendered. See report.md for the exact drive and output.
+
+## Normal namespace acceptance after setup
+
+A second public scaffold command succeeded:
+`bun scripts/exact.mjs new /tmp/exact-1132-a2-after-setup --game --assets`.
+Without any compiler wrapper or bootstrap flag, its first native build
+printed `starts with the 392 registry units this machine has compiled`.
+The setup primer had already been deleted. The 345 copied compiler-unit
+`invoked.timestamp` files and 47 copied build-script run fingerprints
+retained their times (allowing the copy's sub-millisecond rounding).
+The instrumented integration target's 47 build-script run fingerprints
+also retained their times. Release timing reports show no nonzero-duration
+eligible build-script run. Together with the rustc guard, this covers
+compiler units and build-script execution separately.
+
+The first fresh native proof deliberately refused generated directory
+creation after compiling its GPU leg: exit 1, **104.5 s**, load
+**75.14 / 165.87 / 197.48 → 100.48 / 145.38 / 185.63**. The existing E10
+fresh/stable/cached test in `game/proof.test.mjs` expects this refusal.
+The stable rerun exited 0, **192.2 s**, load
+**104.35 / 139.63 / 181.00 → 98.19 / 122.17 / 165.39**:
+
+```text
+PASS all recorded children exited
+PROOF UNVERIFIED exact-1132-a2-after-setup linux: 0 failures; 192.167 s
+```
+
+These are acceptance runs, not a replacement phase-table benchmark: the
+first attempt stopped between GPU and host, and other verification was
+active. A full native gameplay proof passed every assertion, including both
+beacons, victory, replay, pause/restart and focus. Its default final exit
+was 1 because this game has no baseline: that is the existing verdict
+contract, owned by D4. `EXACT_PROOF_COMPARE=0` alone also exits 1 for a game with no pins;
+collection additionally requires `EXACT_PROOF_REPIN`. No baseline was
+written or accepted. The default run's load was **90.40 / 118.46 / 162.81 → 88.21 / 117.54 / 162.22**:
+
+
+```text
+PASS victory waits for every beacon (2/2)
+PASS Play again clears victory and the lit count
+PASS Restart leaves movement running
+PASS all recorded children exited
+PROOF UNVERIFIED exact-1132-a2-after-setup linux: 0 failures; 3.538 s
+UNVERIFIED: no pins
+```
+
+It is a new game with no baseline, so this proves native loading and the
+scripted gameplay, not comparison to saved pins. The stable build rerun
+is the existing proof policy, owned by D3; the cache does not weaken it.

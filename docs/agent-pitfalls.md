@@ -1420,6 +1420,10 @@ screen, 2026-10-16.)
 
 ## Games
 
+- **A first native proof can require a rerun after generated directories appear.**
+  If it says `app or asset directories changed during build`, rerun the same
+  command after generation finishes. The first receipt is refused deliberately;
+  the fresh/stable/cached proof test covers this path.
 - **Stopping `game/dev.mjs` during a build can leave its build child running.**
   A terminated server does not prove its Cargo/build descendants exited. Record
   the process tree before stopping it, then check those PIDs; terminate only
