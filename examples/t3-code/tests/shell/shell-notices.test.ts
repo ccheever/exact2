@@ -91,3 +91,17 @@ describe('slow request notice', () => {
   });
 });
 
+test('the permission change notice waits for preferences and stays dismissed for its environment', async () => {
+  const { permissionUpdateNotices } = await import('../../src/shell/permission-update-notice');
+  const { applyDismissals } = await import('../../src/shell/shell');
+  const client = fakeClient({ legacyPermissions: true });
+  expect(permissionUpdateNotices(client, false)).toBe(0);
+  expect(permissionUpdateNotices(client, true)).toBe(1);
+  expect(permissionUpdateNotices(client, true)).toBe(0);
+  const notice = toasts(client)[0]!;
+  expect(notice.title).toBe('Permissions have changed for this environment');
+  expect(notice.action).toMatchObject({ label: 'Open Connections', id: 'connections' });
+  applyDismissals(client, `x${notice.id}`);
+  const reopened = fakeClient({ legacyPermissions: true }); reopened.local = client.local;
+  expect(permissionUpdateNotices(reopened, true)).toBe(0);
+});

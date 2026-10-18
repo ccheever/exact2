@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// Ported from T3 Code (MIT, see LICENSE-T3), reference 1e2ecbd975:
+// Ported from T3 Code (MIT, see LICENSE-T3), reference 9c161462c9:
 // apps/desktop/src/backend/DesktopBackendManager.test.ts and DesktopBackendConfiguration.test.ts.
 // Change from the reference: the tests were bun/vitest over Effect; the logic is native here
 // (T3LocalBackendManager.swift), so they are XCTest cases with the original names, and Effect's
@@ -50,6 +50,22 @@ final class LocalBackendManagerTests: XCTestCase {
         XCTAssertEqual(t.spawner.starts, 2)
         t.clock.adjust(1)
         XCTAssertEqual(t.spawner.starts, 3)
+    }
+
+    func test_reports_state_directory_ownership_once_without_scheduling_another_backend() {
+        let t = TestInstance()
+        var refused = 0
+        t.manager.spec.onStateDirOwned = { refused += 1 }
+        t.prober.fallback = nil
+        t.spawner.onSpawn = { $0.finish(T3LocalExit(code: T3LocalBackendManager.stateDirOwnedExitCode)) }
+        t.start()
+        XCTAssertEqual(refused, 1)
+        XCTAssertFalse(t.manager.snapshot.desiredRunning)
+        XCTAssertFalse(t.manager.snapshot.restartScheduled)
+        XCTAssertTrue(t.manager.stateDirOwned)
+        t.clock.adjust(60_000)
+        XCTAssertEqual(t.spawner.starts, 1)
+        XCTAssertEqual(refused, 1)
     }
 
     func test_starts_the_configured_backend_and_closes_the_scoped_process_on_stop() {

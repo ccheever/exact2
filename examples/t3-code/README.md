@@ -9,8 +9,8 @@ The app carries the official T3 server release (the CLI archive of the release b
 reference pin, unmodified; `server-runtime/runtime-pin.json`) and runs it as its own local
 server, "This machine". It does not modify T3 Code.
 
-The reference is T3 Code `1e2ecbd975` (`referencePin` in `server-runtime/runtime-pin.json`;
-the client mirrors Nightly `0.0.46-nightly.20261004.1`, `version-skew.ts`). Ported files name
+The reference is T3 Code `9c161462c9` (`referencePin` in `server-runtime/runtime-pin.json`;
+the client mirrors Nightly `0.1.1-nightly.20261018.3302`, `version-skew.ts`). Ported files name
 the reference files they follow, and T3 Code's MIT notice is kept in `LICENSE-T3`.
 
 macOS is the only target: there is no web, iOS or Linux build of this app.

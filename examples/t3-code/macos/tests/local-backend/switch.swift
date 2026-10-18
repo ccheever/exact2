@@ -14,7 +14,7 @@ private final class LocalServer: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let body: [String: Any] = request.url!.path == "/oauth/token"
             ? ["access_token": "local-bearer", "token_type": "Bearer"]
-            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.0.46-nightly.20261005.2667"]
+            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.1-nightly.20261018.3302"]
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["content-type": "application/json"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
         client?.urlProtocolDidFinishLoading(self)
@@ -34,7 +34,7 @@ final class LocalSwitchTests: XCTestCase {
     /// A runtime folder whose `t3` runs `body` after `--version`.
     private func runtime(_ body: String) -> URL {
         let directory = scratch("runtime"), script = directory.appendingPathComponent("t3")
-        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.0.46-nightly.20261005.2667'; exit 0; fi\n\(body)\n".write(to: script, atomically: true, encoding: .utf8)
+        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.1.1-nightly.20261018.3302'; exit 0; fi\n\(body)\n".write(to: script, atomically: true, encoding: .utf8)
         try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         return directory
     }
@@ -65,7 +65,7 @@ final class LocalSwitchTests: XCTestCase {
     private func alive(_ pid: Int) -> Bool { kill(pid_t(pid), 0) == 0 }
 
     func testTurningOffStopsAServerThatIgnoresSIGTERMWithinTheBound() {
-        // The double ignores SIGTERM: the stop waits 2 s, then SIGKILL (the reference's 2 s grace).
+        // The double ignores SIGTERM: the stop waits 5 s, then SIGKILL (the reference's 5 s grace).
         // Readiness answers at once (FakeProber), so the stop could reach the shell before its `trap`
         // ran and end it on the SIGTERM (~1 run in 5). The double marks the trap; the stop waits for it.
         let trapped = scratch("trap").appendingPathComponent("trapped")
@@ -79,7 +79,7 @@ final class LocalSwitchTests: XCTestCase {
         XCTAssertTrue(until(5) { FileManager.default.fileExists(atPath: trapped.path) }, "the double ignores SIGTERM")
         let (failure, elapsed) = setEnabled(backend, false)
         XCTAssertNil(failure)
-        XCTAssertGreaterThanOrEqual(elapsed, 1.9, "SIGTERM is ignored for 2 s")
+        XCTAssertGreaterThanOrEqual(elapsed, 4.9, "SIGTERM is ignored for 5 s")
         XCTAssertLessThan(elapsed, 5.5, "the stop is bounded")
         XCTAssertTrue(until(2) { !self.alive(pid) }, "the process is gone")
         XCTAssertEqual(backend.statusValue()["lastExit"] as? String, "signal=9", "SIGKILL ended it")

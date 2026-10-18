@@ -109,10 +109,44 @@ describe("thread synchronization", () => {
     expect(unknown.sequence).toBe(80);
     expect(unknown.projection).toBe(first.projection);
     expect(() => applyThread(first, event("turn-item.updated", { id: "broken" }))).toThrow("threadId");
-    expect(() => applyThread(first, event("turn-item.updated", turn("bad-type", 1, { type: "unrecognized" })))).toThrow("unknown value");
+    expect(() => applyThread(first, event("turn-item.updated", turn("bad-type", 1, { type: 7 })))).toThrow("type");
     expect(() => applyThread(first, event("run.updated", { id: "run-1", status: 4 }))).toThrow("status");
     expect(() => threadSnapshot({ snapshotSequence: 0, projection: {} })).toThrow("projection.thread");
     expect(() => threadSnapshot({ snapshotSequence: 0, projection: { thread: { id: "t" } } })).toThrow("projection.runs");
+  });
+
+  test("a turn item type this build does not know is dropped, and a known one that does not decode still fails", () => {
+    const secret = turn("secret", 2, { type: "secret_request", requestId: "request-1" });
+    const loaded = state([turn("known", 1), secret]);
+    expect(arr(loaded.projection.turnItems).map(item => item.id)).toEqual(["known"]);
+    expect(arr(loaded.projection.visibleTurnItems).map(entry => [entry.sourceItemId, entry.position])).toEqual([["known", 0]]);
+    expect(messages(loaded).map(message => message.body)).toEqual(["text known"]);
+    const skipped = applyThread(loaded, event("turn-item.updated", turn("later", 3, { type: "secret_request" }), 40));
+    expect(skipped.sequence).toBe(40);
+    expect(skipped.projection).toBe(loaded.projection);
+    const page = mergeHistory(state([turn("now", 5)], { historyCursor: "c", hasMoreHistory: true }),
+      { snapshotSequence: 10, items: [row(turn("old", 1)), row(turn("old-secret", 2, { type: "secret_request" }))], nextCursor: null, hasMoreHistory: false });
+    expect(arr(page.projection.visibleTurnItems).map(entry => entry.sourceItemId)).toEqual(["old", "now"]);
+    expect(() => state([turn("broken", 1, { type: "assistant_message", text: 3 })])).toThrow("text");
+  });
+
+  test("a pull request link update replaces only the link it names", () => {
+    const link = (number: number, source = "manual"): Obj => ({ host: "github.com", repository: "pingdotgg/t3code", number,
+      url: `https://github.com/pingdotgg/t3code/pull/${number}`, source, linkedAt: timestamp, snapshot: null, stack: null });
+    const linked = state([], { projection: { ...obj(snapshot().projection), thread: { id: "thread-1", title: "Example", pullRequests: [link(1), link(2)] } } });
+    const later = "2026-10-04T00:00:00.000Z";
+    const next = applyThread(linked, event("thread.pull-request-link-updated", link(2, "agent"), 12, { occurredAt: later }));
+    const pullRequests = arr(obj(next.projection.thread).pullRequests);
+    expect(pullRequests.map(entry => [entry.number, entry.source])).toEqual([[1, "manual"], [2, "agent"]]);
+    expect(pullRequests[0]).toBe(arr(obj(linked.projection.thread).pullRequests)[0]!);
+    expect(obj(next.projection.thread).title).toBe("Example");
+    expect(next.projection.updatedAt).toBe(later);
+    expect(next.sequence).toBe(12);
+    // The callers pass threadPullRequestKeysEqual: a link matched by its key, not its URL.
+    const byKey = applyThread(linked, event("thread.pull-request-link-updated", { ...link(1, "agent"), url: "https://github.com/PingDotGG/t3code/pull/1" }, 13),
+      (left, right) => left.number === right.number);
+    expect(arr(obj(byKey.projection.thread).pullRequests).map(entry => entry.source)).toEqual(["agent", "manual"]);
+    expect(() => applyThread(linked, event("thread.pull-request-link-updated", { host: "github.com" }, 14))).toThrow("repository");
   });
 
   test("updates for another thread do not change state or its cursor", () => {
