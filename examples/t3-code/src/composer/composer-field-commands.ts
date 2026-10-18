@@ -91,7 +91,7 @@ export class ComposerFieldCommands {
     return { applied, reason, value: this.snapshot?.value ?? '', start: this.snapshot?.start ?? 0, end: this.snapshot?.end ?? 0 };
   }
   private empty(seq: number, identity: ComposerFieldIdentity): ComposerFieldCommand {
-    return { ...identity, seq, ready: false, focus: false, then: '', history: 0, citation: 0, completion: 0, value: '', start: 0, end: 0, text: '', selectionStart: 0, selectionEnd: 0 };
+    return { generation: identity.generation, snapshotOwner: identity.snapshotOwner, owner: identity.owner, seq, ready: false, focus: false, then: '', history: 0, citation: 0, completion: 0, value: '', start: 0, end: 0, text: '', selectionStart: 0, selectionEnd: 0 };
   }
   private reject(request: Issued, reason: string): void {
     this.completed.push({ command: request.command, result: this.result(false, reason) });

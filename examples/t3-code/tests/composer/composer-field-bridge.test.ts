@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { appPath } from '../support/app-files';
 import { T3Client } from '../../src/client/client';
 import { editorLocal, replaceComposerPrompt } from '../../src/composer/composer-editor';
 import { composerFieldOwner } from '../../src/composer/auto-balance-owner';
@@ -18,7 +20,18 @@ function setup() {
   resource();
   return { host, observation, passthrough, native, get resource() { return resource(); } };
 }
+const fieldCommandKeys = readFileSync(appPath('src/composer/composer-rich.contract'), 'utf8')
+  .match(/^shape ComposerFieldCommand\n((?:  [^\n]+\n)+)/m)![1]!.trim().split('\n').map(line => line.trim().split(':')[0]!).sort();
+
 describe('composer field app bridge', () => {
+  for (const live of [true, false]) test(`idle resource emits exactly the declared command keys when live=${live}`, () => {
+    const state = setup(), observation = { ...state.observation, live, composing: !live, focused: true, inputSerial: 7 };
+    const command = composerFieldResource(state.host, [observation, 12], state.host.renderedOwner);
+    expect(command).not.toBeInstanceOf(Promise);
+    expect(Object.keys(command).sort()).toEqual(fieldCommandKeys);
+    expect(command).toMatchObject({ generation: observation.generation, snapshotOwner: observation.snapshotOwner, owner: observation.owner,
+      ready: false, seq: 12, value: '', start: 0, end: 0 });
+  });
   test('menu replacements use current fence policy and reject another owner or source policy', async () => {
     for (const situation of ['current', 'owner', 'source']) {
       const state = setup(), owner = state.host.renderedOwner, value = '```\n@path';
@@ -47,6 +60,7 @@ describe('composer field app bridge', () => {
     const pending = native.later({ op: 'editorEdit', text: '!', then: 'models', focus: false });
     const command = state.resource;
     expect(command).toMatchObject({ seq: 1, text: '!', focus: false, then: 'models' });
+    expect(Object.keys(command).sort()).toEqual(fieldCommandKeys);
     const observed = { ...state.observation, value: 'one!', start: 4, end: 4, inputSerial: 1 };
     composerFieldObserved(state.host, [observed, true], state.host.renderedOwner);
     const ack = (await composerFieldAcknowledged(state.host, [observed, command.seq, true], state.host.renderedOwner));
