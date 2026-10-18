@@ -45,6 +45,7 @@ pub const MAX_WARNINGS: usize = 20;
 
 /// Every warning the checked file earns, in source order of its checks.
 pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
+    crate::control_roles::unlowered();
     with_text_styles(checked, &TextStyles::new())
 }
 
@@ -159,8 +160,9 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     out.extend(parts::empty_state_in_list(checked));
     // @ref LLP 1116.021 D7 — a summary card in a grouped list's card.
     out.extend(parts::summary_card_in_list(checked));
-    // @ref LLP 1121 D8 — a node's own state part it never meets.
+    // @ref LLP 1121 D8, D9 — a node's own state part it never meets; a control parameter a shipped host does not honour.
     states::dead(&root.view, &mut out);
+    crate::control_roles::unreachable(&root.view, &checked.file.styles, &mut out);
     performance_now(root, &checked.file.fns, &mut out);
     // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
     launch::launch_identity(root, &checked.file.fns, &mut out);
