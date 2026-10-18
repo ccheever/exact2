@@ -1311,6 +1311,28 @@ row-reverse controls in block and shrink-to-fit contexts. The maximum-only
 column is 300×60; reversed items start at y=0. Equal 100px bounds and nowrap
 retain a 100px height. The test had 17 frame mismatches before this patch.
 
+## Patch 46: include automatic item minima in flex line contributions
+
+`determine_container_main_size` clamps each flex basis by the resolved minimum
+that flexible-length resolution enforces, including the content-based automatic
+minimum from [CSS Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto).
+The maximum clamp, padding/border floor and final margin addition keep patch 33's
+order. The shared contribution sizes columns in definite available space and
+wrapping rows under a min-content constraint. Patch 45's row-only available-space
+floor remains intact.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+40 literal Chrome 151.0.7922.34 cases measured on 2026-10-18. Three column items
+with a 60px flex basis and 100px-tall contents give a 100px wrapping container;
+reversed items start at y=0. A nowrap column capped at 400px is 300px tall, and
+a wrapping row in an 80px offer keeps its 100px content minimum. Cases cover
+both directions and wrap-reverse, normal-flow controls, single-item and capped
+nowrap columns, item maxima, zero minima, scrollable overflow, padding, borders
+and positive and negative margins. The added cases had 100 frame mismatches
+before this patch. The nowrap and row defects also reproduce on origin/main
+before patch 45; its available-space floor masked the reported wrapping-column
+case.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
