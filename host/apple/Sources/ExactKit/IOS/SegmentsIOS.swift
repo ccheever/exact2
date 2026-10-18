@@ -378,7 +378,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         let current = bar.items ?? []
         if current.count != faces.count || zip(current, faces).contains(where: { $0.title != $1.title || $0.madeWith != $1.symbol }) {
             bar.setItems(faces.enumerated().map { index, face in
-                let item = TabBarItem(title: face.title, image: FaceSymbol.image(face.symbol, points: FaceSymbol.tabBarPoints), tag: index)
+                let item = TabBarItem(title: face.title, image: FaceSymbol.image(face.symbol, points: FaceSymbol.tabBarPoints(bar.traitCollection)), tag: index)
                 item.made = face.symbol
                 return item
             }, animated: false)

@@ -35,6 +35,13 @@ package enum FaceSymbol {
     /// Whether `symbol` is a path's token, not a name.
     package static func isPath(_ symbol: String) -> Bool { symbol.hasPrefix(prefix) }
 
+    /// A face symbol as the agent reports it: the platform's name; for a
+    /// path, the icon token's name as its author wrote it (`icon.reply`)
+    /// where the face says it, else "" (the token is the face's drawing).
+    package static func observed(_ symbol: String?, icon: String? = nil) -> String? {
+        symbol.map { isPath($0) ? icon ?? "" : $0 }
+    }
+
     /// The template image of a path's token, an em square `points` on a
     /// side (the point size the site gives an SF Symbol); nil for a name.
     package static func pathImage(_ symbol: String, points: CGFloat) -> IconImage? {
@@ -50,7 +57,8 @@ package enum FaceSymbol {
     /// The point size of an SF Symbol drawn with no configuration (the body text's).
     package static var defaultPoints: CGFloat { NSFont.systemFontSize }
     /// A toolbar item's glyph: AppKit draws a symbol there at its own size,
-    /// an image as it is (the HIG's regular toolbar icon, 17 points).
+    /// an image as it is. Measured (FaceSymbolTests, macOS 27, by a screen
+    /// capture): an SF Symbol's inked box there is a 16.7-point symbol's.
     package static let toolbarPoints: CGFloat = 17
 
     /// A face symbol's image: a path's template image `points` square, else
@@ -70,7 +78,7 @@ package enum FaceSymbol {
         let image = NSImage(size: template.size, flipped: false) { rect in
             template.draw(in: rect)
             tint.set()
-            rect.fill(using: .sourceAtop)
+            rect.fill(using: .sourceIn) // the tint through the path's alpha, its own alpha kept
             return true
         }
         image.isTemplate = false
@@ -80,9 +88,17 @@ package enum FaceSymbol {
     #else
     /// The point size of an SF Symbol drawn with no configuration (the body text's).
     package static var defaultPoints: CGFloat { UIFont.preferredFont(forTextStyle: .body).pointSize }
-    /// A tab bar item's glyph (the HIG's 25-point regular tab bar icon):
-    /// UIKit sizes a symbol there itself, and an image as it is.
-    package static let tabBarPoints: CGFloat = 25
+    /// A tab bar item's glyph: UIKit sizes a symbol there itself, and an
+    /// image as it is. Measured (FaceSymbolIOSTests, iOS 27 simulator): an
+    /// SF Symbol's inked box there is a 23-point symbol's at a compact width
+    /// (an iPhone's stacked items), a 17-point one's at a regular width
+    /// (inline items, an iPad's).
+    package static func tabBarPoints(_ traits: UITraitCollection) -> CGFloat {
+        traits.horizontalSizeClass == .regular ? 17 : 23
+    }
+    /// A navigation bar item's glyph, measured as the tab bar's: a 22-point
+    /// symbol's (UIKit draws bar symbols larger than the body's 17).
+    package static let barItemPoints: CGFloat = 22
 
     /// A face symbol's image: a path's template image `points` square, else
     /// the named SF Symbol in `configuration` (nil for "" or an unknown name).

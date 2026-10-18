@@ -60,6 +60,24 @@ pub(crate) fn push_json(source: Option<&str>, json: &mut String) {
     quote(view_box, json);
 }
 
+/// The icon token's name as its author wrote it (`icon.reply`) for the
+/// source form `source` (after `symbol:`), from the plan's icons table,
+/// which keeps every icon a literal or a computed source names; the first
+/// of two names with the same source. `None` for no icon or no row.
+pub(crate) fn icon_name<'a>(plan: &'a exact_plan::Plan, source: &str) -> Option<&'a str> {
+    let icon = exact_kernel::Icon::parse(source)?;
+    let s = |id| plan.strings.get(id as usize).map_or("", String::as_str);
+    plan.icons
+        .iter()
+        .find(|i| {
+            s(i.sf.0) == icon.sf
+                && s(i.view_box.0) == icon.view_box
+                && s(i.path.0) == icon.path
+                && s(i.svg.0) == icon.svg
+        })
+        .map(|i| s(i.name.0))
+}
+
 /// A coordinate, the shortest text that reads back as the same `f32` (no
 /// fixed precision: a viewBox may be any size).
 fn n(v: f32) -> String {
@@ -72,7 +90,37 @@ fn n(v: f32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{commands, push_json};
+    use super::{commands, icon_name, push_json};
+
+    #[test]
+    fn an_icons_name_is_the_plans_row_for_its_source_form() {
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        b.icon(
+            "icon.reply",
+            "",
+            "0 0 24 24",
+            "M2 2 L22 2 Z",
+            "icons/reply.svg",
+        );
+        b.icon(
+            "icon.heart",
+            "heart",
+            "0 0 24 24",
+            "M2 2 L22 2 Z",
+            "icons/reply.svg",
+        );
+        let plan = b.finish().unwrap();
+        assert_eq!(
+            icon_name(&plan, "icon||0 0 24 24|M2 2 L22 2 Z|icons/reply.svg"),
+            Some("icon.reply")
+        );
+        assert_eq!(
+            icon_name(&plan, "icon|heart|0 0 24 24|M2 2 L22 2 Z|icons/reply.svg"),
+            Some("icon.heart")
+        );
+        assert_eq!(icon_name(&plan, "icon||0 0 24 24|M0 0 Z|icons/x.svg"), None);
+        assert_eq!(icon_name(&plan, "star"), None);
+    }
 
     #[test]
     fn a_faces_json_carries_an_svg_only_icons_path_and_no_other() {

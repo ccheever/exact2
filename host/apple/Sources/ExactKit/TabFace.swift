@@ -20,11 +20,16 @@ struct TabFace: Equatable {
     /// A filled box holding a text among the tab's children: the item's
     /// badge (LLP 1075.003 §9.9), as the web paints it on the tab.
     let badge: String?
+    /// An svg-only icon's token name (`icon.reply`) where the face says it:
+    /// the agent's name for a path `base`.
+    let icon: String?
     init(_ tab: NodeView) {
+        var icon: String?
         var symbol: String?, label = tab.props["accessibilityLabel"] ?? "", badges: [String] = []
         if tab.isNativeButton, let face = tab.face {
             // A native button's children are its face (LLP 1069.011.000 D1).
             symbol = face.symbol
+            icon = face.symbolIcon
             if let title = face.title, !title.isEmpty { label = title }
         }
         for case let child as NodeView in tab.container.subviews {
@@ -34,6 +39,7 @@ struct TabFace: Equatable {
         }
         // One badge box, or none: two are not a badge.
         self.badge = badges.count == 1 ? badges[0] : nil
+        self.icon = icon
         base = symbol.map { $0.hasSuffix(".fill") && !FaceSymbol.isPath($0) ? String($0.dropLast(5)) : $0 }
         title = label
         disabled = tab.disabled

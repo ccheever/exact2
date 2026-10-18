@@ -242,7 +242,7 @@ impl<D: DataSource> Bridge<D> {
     /// "ios","iosBefore26","macos","known"}` — `button` false (and the rest
     /// empty) for a node that is not a button, the symbol as the platform
     /// names it (an svg-only icon's "", its `symbolPath` and `symbolViewBox`
-    /// beside it), the style's row of the `buttonStyles` table (`bordered` for a
+    /// beside it, and `symbolIcon`, its token's name, for the agent), the style's row of the `buttonStyles` table (`bordered` for a
     /// name not in it); with no `buttonStyle` written, `"style":null` and no
     /// platform column (`button::face_json`). Not a batch: nothing changes.
     pub fn press_face(&mut self, view: u32) -> u32 {
@@ -255,7 +255,11 @@ impl<D: DataSource> Bridge<D> {
                 let style = kernel
                     .node(view)
                     .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle));
-                crate::button::face_json(face.as_ref(), rows.as_ref(), style)
+                let icon = face
+                    .as_ref()
+                    .and_then(|f| f.symbol.as_deref())
+                    .and_then(|s| crate::icon_path::icon_name(h.runner().plan(), s));
+                crate::button::face_json_named(face.as_ref(), rows.as_ref(), style, icon)
             },
         );
         self.output = json.into_bytes();

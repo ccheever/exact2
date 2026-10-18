@@ -66,6 +66,26 @@ enum ButtonConfigurationIOS {
         ])
         return parent.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
     }
+    /// The point size UIKit gives a symbol in `config` on `button` (the body
+    /// at the button's text size, scaled by its `buttonSize`): a probe
+    /// symbol's height as UIKit shows it, against its height at a known
+    /// point size. Nil when UIKit shows none.
+    private static func resolvedSymbolPoints(_ config: UIButton.Configuration, on button: UIButton) -> CGFloat? {
+        guard let probe = UIImage(systemName: "square"),
+              let known = UIImage(systemName: "square", withConfiguration: UIImage.SymbolConfiguration(pointSize: 100))?.size.height, known > 0 else { return nil }
+        var probing = config
+        probing.image = probe
+        probing.imageColorTransformer = nil
+        // A scratch button under the button's text size: the button keeps its frame and configuration.
+        let scratch = UIButton(configuration: probing)
+        scratch.traitOverrides.preferredContentSizeCategory = button.traitCollection.preferredContentSizeCategory
+        scratch.sizeToFit(); scratch.layoutIfNeeded()
+        // The box UIKit lays the symbol out in, else its image as configured.
+        let image = scratch.imageView?.image
+        let sized = scratch.imageView?.preferredSymbolConfiguration.flatMap { image?.applyingSymbolConfiguration($0) } ?? image
+        guard let shown = scratch.imageView.map({ $0.bounds.height }).flatMap({ $0 > 0 ? $0 : nil }) ?? sized?.size.height, shown > 0 else { return nil }
+        return shown / known * 100
+    }
     static func uniformRadius(_ face: ButtonFace) -> CGFloat? {
         let names = ["top_left", "top_right", "bottom_right", "bottom_left"]
         let radii = names.map { face.rows.button["border_radius_" + $0]?.number ?? 0 }
@@ -224,8 +244,14 @@ enum ButtonConfigurationIOS {
             symbolPoints = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).pointSize
         } else { config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: titleFont) }
         // An svg-only icon's path (stage 9 A2): a template image at the point
-        // size the configuration gives a symbol here, tinted as one below.
-        if let symbol = face.symbol, FaceSymbol.isPath(symbol) { config.image = FaceSymbol.pathImage(symbol, points: symbolPoints) }
+        // size the configuration gives a symbol here, tinted as one below. A
+        // symbol alone is sized by UIKit (its `buttonSize` too): the path
+        // takes the size UIKit resolves for a symbol in this configuration.
+        let path = face.symbol.flatMap { FaceSymbol.isPath($0) ? $0 : nil }
+        if let path {
+            if config.preferredSymbolConfigurationForImage == nil { symbolPoints = resolvedSymbolPoints(config, on: button) ?? symbolPoints }
+            config.image = FaceSymbol.pathImage(path, points: symbolPoints)
+        }
         config.imagePadding = rows.imageGap ?? systemSpacing(font: titleFont)
         // A symbol's colour is the configuration's, which UIKit greys with the whole button behind a modal
         // (`tintAdjustmentMode`), its own colour as much as the accent. A glass configuration draws a template
@@ -246,6 +272,20 @@ enum ButtonConfigurationIOS {
                 config.image = ink.drawn(in: native)
             } else {
                 config.imageColorTransformer = UIConfigurationColorTransformer { [weak button] _ in own ?? button?.tintColor ?? .tintColor }
+            }
+        } else if path != nil, let template = config.image {
+            // An unsaid path takes the title's foreground, as an untinted symbol does (D14): UIKit gives a
+            // configuration's foreground to a symbol image only, so the path asks for it (the colour UIKit
+            // proposes, greyed when disabled or dimmed). Glass ignores that: there the path is drawn in the
+            // glass's ink, white on a prominent glass, else the label, grey when disabled.
+            if drawn.lowercased().hasSuffix("glass"), let native {
+                let ink = !button.isEnabled ? UIColor.tertiaryLabel : config.baseForegroundColor ?? (filledStyles.contains(drawn) ? .white : .label)
+                let drawnInk = NativeButtonIOS.Ink(template: template, color: ink, alpha: nil)
+                native.noteTint()
+                native.symbolInk = drawnInk
+                config.image = drawnInk.drawn(in: native)
+            } else {
+                config.imageColorTransformer = UIConfigurationColorTransformer { $0 }
             }
         }
         button.configuration = config

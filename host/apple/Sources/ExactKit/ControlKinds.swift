@@ -163,6 +163,8 @@ struct ButtonFace: Equatable {
     var placement: String?
     var rows = ButtonFaceRows()
     var symbol: String?
+    /// An svg-only icon's token name (`icon.reply`), the agent's name for its path.
+    var symbolIcon: String?
     var raster = false
     var leading = true
     var label: String?
@@ -183,6 +185,7 @@ struct ButtonFace: Equatable {
         rows = ButtonFaceRows(o["rows"] as? [String: Any] ?? [:])
         // An svg-only icon's path as its token (FaceSymbol, stage 9 A2).
         symbol = FaceSymbol.of(o)
+        symbolIcon = o["symbolIcon"] as? String
         raster = o["raster"] as? Bool ?? false
         leading = o["leading"] as? Bool ?? true
         label = o["label"] as? String

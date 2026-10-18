@@ -304,7 +304,7 @@ extension ControlHost {
     func nativeObservation(_ button: NativeButtonIOS) -> [String: Any] {
         let face = button.written?.face ?? ButtonFace()
         return ["view": "UIButton", "style": face.style as Any, "drawn": button.drawn, "title": face.title as Any,
-                "symbol": face.symbol as Any, "enabled": button.isEnabled,
+                "symbol": FaceSymbol.observed(face.symbol, icon: face.symbolIcon) as Any, "enabled": button.isEnabled,
                 "subtitle": face.subtitle as Any, "imagePlacement": face.placement ?? (face.leading ? "leading" : "trailing"),
                 "pointerEvents": button.isUserInteractionEnabled ? "auto" : "none",
                 "rows": ButtonConfigurationIOS.observation(face, button: button),
