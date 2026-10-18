@@ -663,3 +663,44 @@ fn popover_commands_check_their_id_and_source() {
         assert_eq!(e.id, "type-popover-command", "{command}: {e}");
     }
 }
+
+#[test]
+fn optional_popover_preserves_the_node_and_clears_without_a_journal_refusal() {
+    let mut r = boot(
+        r#"component App
+  state full = false
+  action flip
+    full = not full
+  view
+    column
+      button testId="flip" press=flip
+        text "Flip"
+      column testId="resident" popover=(full ? some("manual") : none)
+        iframe testId="guest" src="about:blank" width=200 height=100
+"#,
+    );
+    let resident = node(&r, "resident").id;
+    let guest = node(&r, "guest").id;
+    let flip = node(&r, "flip").id;
+    assert_eq!(node(&r, "resident").props.str(PropId::Popover), None);
+    for expected in [Some("manual"), None, Some("manual"), None] {
+        r.dispatch(flip, exact_runner::Event::Press).unwrap();
+        assert_eq!(node(&r, "resident").id, resident);
+        assert_eq!(node(&r, "guest").id, guest);
+        assert_eq!(node(&r, "resident").props.str(PropId::Popover), expected);
+    }
+    assert!(!r.journal().any(|line| line.contains("invalid")));
+    for value in ["true", "5", "some(true)", "some(5)"] {
+        let source =
+            format!("component App\n  view\n    column popover={value}\n      text \"x\"\n");
+        assert_eq!(
+            contract::compile(&source).unwrap_err().id,
+            "lower-attr-type"
+        );
+    }
+    for value in ["\"manual\"", "\"auto\"", "none", "some(\"manual\")"] {
+        let source =
+            format!("component App\n  view\n    column popover={value}\n      text \"x\"\n");
+        assert!(contract::compile(&source).is_ok(), "{source}");
+    }
+}

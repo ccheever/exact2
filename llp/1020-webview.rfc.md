@@ -622,3 +622,9 @@ No structured-clone expansion, permission broker, navigation controller or app-o
 native bridge is admitted. Linux refuses iframe-tagged posts explicitly; it keeps its
 existing canvas protocol. The focused compiler/browser tests and native fixture are
 `post_message.rs`, `frame-messages.test.mjs` and `IframePostMessageTests.swift`.
+
+An inline guest that also uses full-screen presentation can keep one mounted
+iframe inside a box with `popover=(expanded ? some("manual") : none)`. The
+existing manual top layer and explicit viewport dimensions present that box;
+removing the optional property closes it and restores the same inline node. This
+uses the existing presentation lifecycle, without a new position mode or API.

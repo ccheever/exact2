@@ -1,0 +1,19 @@
+// One resident guest moves through the existing manual top layer and returns.
+component App
+  state full = false
+  action heard(payload: string)
+    let arrived = payload
+  action toggle
+    if full
+      full = false
+    else
+      full = true
+      showPopover("resident")
+  view
+    column width="100%" height="100%" position="relative"
+      scroll width=360 height=260
+        column padding=24
+          box id="resident" testId="resident" popover=(full ? some("manual") : none) position=(full ? "absolute" : "relative") width=(full ? 640 : 300) height=(full ? 500 : 180) margin=0 padding=0 border-width=0 background-color="#ffffff"
+            iframe id="guest" testId="resident-guest" src="about:blank" message=heard width="100%" height=(full ? 460 : 140)
+            button press=toggle testId="resident-toggle"
+              text (full ? "Collapse" : "Expand")

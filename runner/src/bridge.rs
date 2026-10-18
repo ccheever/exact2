@@ -167,6 +167,13 @@ pub fn icon_source(plan: &exact_plan::Plan, prop: PropId, value: PropValue) -> P
 /// A prop value by the prop's declared kind.
 pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeError> {
     let prop = PropId::from_wire(id).ok_or(BridgeError::UnknownProp(id))?;
+    if prop == PropId::Popover {
+        match value {
+            Value::Option(None) => return Err(BridgeError::Unset(prop)),
+            Value::Option(Some(inner)) => return prop_value(id, inner),
+            _ => {}
+        }
+    }
     let mismatch = || BridgeError::PropKind {
         prop,
         value: value.clone(),
