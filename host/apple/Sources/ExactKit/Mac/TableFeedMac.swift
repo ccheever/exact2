@@ -85,6 +85,7 @@ final class TableRowCell: NSTableCellView {
     func adopt(_ node: NodeView) {
         if row !== node { sendHome(); textMoved = true }
         row = node
+        feed?.rejoin(node)
         if node.superview !== self {
             // Where the presenter has it: layout's frame, in the document.
             kernel = (node.superview as? TableRowCell)?.kernel ?? node.frame
@@ -361,6 +362,8 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     func holds(_ node: NodeView) -> Bool { presenter?.views[node.id] === node && held.contains(node.id) }
     /// A row the feed no longer has that a menu still holds (`TableRowCell.sendHome`).
     fileprivate func menuHolds(_ node: NodeView) -> Bool { presenter?.menus.holds(node) ?? false }
+    /// A row of the list again: a hold on it ends, shown as it was (`MenuHost.rejoin`).
+    fileprivate func rejoin(_ node: NodeView) { presenter?.menus.rejoin(node) }
     fileprivate func moved() { moves += 1 }
     /// The table's row views now (the tests, the measures).
     var rowViews: Int {
@@ -723,6 +726,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         guard let home else { return }
         var kept = false
         func keep(_ node: NodeView) {
+            rejoin(node)
             guard !(node.superview is TableRowCell), node.superview !== home else { return }
             node.prepareToMount()
             home.addSubview(node)

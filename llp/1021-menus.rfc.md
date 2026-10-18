@@ -559,23 +559,28 @@ as it reloads, so a held row waits in the list's document instead of its
 cell. A window toolbar's menu item is AppKit's to pop up, from the item, and
 its chosen row presses inside AppKit's tracking, which no `popUp` here
 brackets: there the hold lasts until the run loop is next in its default
-mode, and meanwhile the bar keeps the item, hidden if the press took its
-button away, and gains and moves nothing. A `<dialog>` the press opens is
-the modal inside the action; its focus, the page's inertness and its sheet
-come once `popUp` has returned, so the page keeps its focus while the menu
-closes, and an alert-shaped one's `NSAlert` (a confirmation popover's too)
+mode, and meanwhile the bar keeps the item, hidden (disabled before macOS
+15) if the press took its button away, and gains and moves nothing. A
+`<dialog>` the press opens is the modal inside the action, so the page is
+inert to the session at once; its focus, the page's input gates (its
+fields' enablement and the focus they give up) and its sheet come once
+`popUp` has returned, so the page's field keeps the keyboard while the menu
+closes. An alert-shaped one's `NSAlert` (a confirmation popover's too)
 begins then. `beginSheet` returns only once the sheet is in, running the
 run loop meanwhile: a sheet begun inside `popUp` let the menu's close reach
-VoiceOver while it arrived, and a page field made inert there (or giving
-the session's one field editor up to the dialog's) left the app no focus
-as the menu closed, so VoiceOver read that field again. VoiceOver's landing
-on what the press opened (LLP 1080.003 D3) is told then too: told inside
-`popUp`, it named a modal whose sheet had not begun. Closing the menu neither
-sends VoiceOver to the trigger nor gives the focus back when the choice has
-moved the focus: a sheet's field is the first responder of the sheet's
-window, and the page window's still looks unmoved. With no choice left
-awaiting a turn, what the text above says of one (a reset before it, a batch
-or a new presentation cancelling it) no longer arises. iOS is unchanged.
+VoiceOver while it arrived, and a page field that gave up the focus there
+(made inert, or giving the session's one field editor to the dialog's) left
+the app no focus as the menu closed, so VoiceOver read that field again.
+VoiceOver's landing on what the press opened (LLP 1080.003 D3) is told then
+too: told inside `popUp`, it named a modal whose sheet had not begun.
+Closing the menu neither sends VoiceOver to the trigger nor gives the focus
+back when the choice has moved the focus by then (a sheet's field is the
+first responder of the sheet's window, and the page window's still looks
+unmoved); a dialog or alert the choice opens takes the focus after the
+menu has closed, and VoiceOver's landing goes to it, the trigger being
+outside that modal. With no choice left awaiting a turn, what the text
+above says of one (a reset before it, a batch or a new presentation
+cancelling it) no longer arises. iOS is unchanged.
 
 **Flip fallbacks (Charlie, 2026-10-08; implementation slice: Codex,
 2026-10-13).** This amends D2's unconditional clamp and §5's no-flip scope.

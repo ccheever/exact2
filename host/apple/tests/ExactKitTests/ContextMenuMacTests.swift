@@ -1296,9 +1296,9 @@ final class ContextMenuMacTests: XCTestCase {
         }
     }
 
-    /// A batch before the nested item is chosen that points its opener at
-    /// another popover, disables or hides the opener leaves the choice
-    /// nothing to press; untouched, it presses.
+    /// A batch that, before the nested item is chosen, points its opener at
+    /// another popover or disables or hides it leaves nothing to press;
+    /// untouched, the item presses.
     func testANestedChoiceDiesWithItsOpener() throws {
         let changes: [(String, (Presenter) -> Void)] = [
             ("untouched", { _ in }),

@@ -189,8 +189,7 @@ final class AlertHost {
         if source == nil { menus.reset() }
         presented = owner
         presenter.popoverEvents.changed(pop, open: true)
-        // Opened by a menu's pick, the sheet begins once the menu's `popUp`
-        // has returned, as a dialog's does (`MenuHost.afterPopUp`).
+        // Opened by a menu's pick, as `popUp` returns (`MenuHost.afterPopUp`).
         let begin = { [weak self, owner] in
             guard let self, self.presented === owner, !owner.withdrawn else { return }
             owner.alert.beginSheetModal(for: window) { [weak self, owner] response in

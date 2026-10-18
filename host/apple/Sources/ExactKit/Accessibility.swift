@@ -680,11 +680,8 @@ extension Presenter {
     /// VoiceOver is sent where the keyboard focus is once the commit that
     /// changed the modal or closed a menu has run its commands, so the
     /// landing is the element an opening commit's `focus()` or the focus
-    /// given back chose, not the one the batch left. A menu's pick presses
-    /// while AppKit still tracks the menu (`MenuHost.pick`), and its landing
-    /// waits for `popUp` to return, as the sheet the press opened does: told
-    /// inside `popUp`, it named a modal whose sheet had not begun, and
-    /// VoiceOver read the page's focused field first (2 of 6 runs).
+    /// given back chose, not the one the batch left; for a menu's pick, as
+    /// `popUp` returns (`MenuHost.afterPopUp`).
     func scheduleLanding() {
         guard !landing.scheduled else { return }
         landing.scheduled = true

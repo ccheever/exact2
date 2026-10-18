@@ -160,17 +160,13 @@ final class DialogHost {
             // given again.
             if entry.sheet != nil, self.begin(entry) { self.syncDefaultButton() }
         }
-        // Opened by a menu's pick, which presses while AppKit still tracks
-        // the menu (`MenuHost.pick`), the dialog is the modal at once, and
-        // its focus, the page's inertness and its sheet come once `popUp` has
-        // returned (`MenuHost.afterPopUp`), as when the press ran after it:
-        // the page keeps its focus while the menu closes. `beginSheet`
-        // returns only once the sheet is in, running the run loop meanwhile,
-        // and begun inside `popUp` the menu's close reached VoiceOver while
-        // the sheet arrived. The page's field made inert inside `popUp` (or
-        // giving the session's one field editor up to the dialog's) left the
-        // app no focus as the menu closed, and VoiceOver read that field
-        // again (2 of 6 runs each).
+        // Opened by a menu's pick, the dialog is the modal at once (`active`,
+        // and so the page's inertness and the accessibility tree the modal
+        // serves); its focus, the page's input gates and its sheet come as
+        // `popUp` returns (`MenuHost.afterPopUp`), so the page's field keeps
+        // the keyboard, and the session's one field editor, while the menu
+        // closes. Made inert inside `popUp`, it left the app no focus as the
+        // menu closed, and VoiceOver read that field again.
         if entry.sheet == nil || !presenter.menus.afterPopUp({ arrive(true) }) { arrive(false) }
     }
     func close(_ dialog: NodeView, restoreFocus: Bool = true, notify: Bool = true) {

@@ -106,10 +106,13 @@ final class MenuHost: NSObject {
     }
     /// `work` runs as the menu AppKit is tracking returns from `popUp`, in
     /// that turn, after the menu's close; false, and nothing kept, when no
-    /// menu is tracked. A sheet a pick opens begins there (`DialogHost.present`):
-    /// `beginSheet` returns only once the sheet is in, running the run loop
-    /// meanwhile, so begun inside `popUp` the menu's close reached VoiceOver
-    /// while the sheet arrived, and it read the page's old field first.
+    /// menu is tracked. What a pick opens arrives there: a dialog's focus and
+    /// sheet (`DialogHost.present`), an alert's sheet (`AlertHost.present`)
+    /// and VoiceOver's landing (`scheduleLanding`). `beginSheet` returns only
+    /// once the sheet is in, running the run loop meanwhile, so begun inside
+    /// `popUp` the menu's close reached VoiceOver while the sheet arrived; a
+    /// landing told there named a modal whose sheet had not begun; either way
+    /// VoiceOver read the page's old field first.
     func afterPopUp(_ work: @escaping () -> Void) -> Bool {
         guard !trackedIn.isEmpty else { return false }
         afterTracking.append(work)
@@ -870,8 +873,8 @@ final class MenuHost: NSObject {
         // here brackets: what the press takes out of the window, and the
         // item itself (ToolbarMac.swift), stay until it has returned, which
         // is when the run loop is next in its default mode.
-        let menu = sequence(first: sender.menu, next: { $0?.supermenu }).compactMap { $0 }.last
-        if trackedIn.isEmpty, let bar = menu as? InvokerMenu, let source = bar.source {
+        let bar = sequence(first: sender.menu, next: { $0?.supermenu }).first { $0 is InvokerMenu } as? InvokerMenu
+        if trackedIn.isEmpty, let bar, let source = bar.source {
             trackedIn.append(source)
             barMenu = bar
             RunLoop.main.perform(inModes: [.default]) { [weak self, source] in

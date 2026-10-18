@@ -542,9 +542,10 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // sidebar; the toolbar stays, as it stays for a stack.
         let sidebar = presenter.sidebar.installed(in: window), sidebarItems = sidebar && presenter.sidebar.inToolbar(of: window)
         // The menu item whose menu AppKit may still be tracking after its
-        // chosen row pressed (`MenuHost.tracks`) stays in the bar, hidden if
-        // the press took its button away, and the bar gains and moves
-        // nothing, until that has returned and the bar is synced again.
+        // chosen row pressed (`MenuHost.tracks`) stays in the bar, hidden
+        // (disabled before macOS 15) if the press took its button away, and
+        // the bar gains and moves nothing, until that has returned and the
+        // bar is synced again.
         let pinned = window.toolbar === toolbar ? toolbar?.items.first(where: presenter.menus.tracks) : nil
         guard declared != nil || header != nil || beside != nil || held || sidebar || pinned != nil else { reset(); return }
         // A host that takes its toolbar back wins. Never overwrite it on a tick.
@@ -647,7 +648,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             + nextOrder + appItems.map(\.itemIdentifier)
         if let pinned, !order.contains(pinned.itemIdentifier) {
             order.append(pinned.itemIdentifier)
-            if #available(macOS 15.0, *) { pinned.isHidden = true }
+            if #available(macOS 15.0, *) { pinned.isHidden = true } else { pinned.isEnabled = false }
         }
         // Keep both toolbar and command objects stable through route changes.
         for index in stride(from: toolbar.items.count - 1, through: 0, by: -1) {
