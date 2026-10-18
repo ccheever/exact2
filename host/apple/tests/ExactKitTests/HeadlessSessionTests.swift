@@ -6,7 +6,7 @@ final class HeadlessSessionTests: XCTestCase {
     func testPlanLayoutsWithoutAView() throws {
         let plan = try fixturePlan("HEADLESS")
         let session = try HeadlessSession(plan: plan, size: CGSize(width: 200, height: 400),
-                                          facts: SessionFacts(displayScale: 2, preferences: 0))
+                                          facts: SessionFacts(displayScale: 2, preferences: []))
         defer { session.close() }
         func node(_ id: String, in snapshot: HeadlessSession.Snapshot) throws -> HeadlessSession.Node {
             try XCTUnwrap(snapshot.nodes.values.first { $0.props["testId"] == id })
@@ -62,11 +62,87 @@ final class HeadlessSessionTests: XCTestCase {
         XCTAssertEqual(label.lines.map(\.text).joined(), "alpha beta gamma", "an old snapshot keeps its lines")
         XCTAssertEqual(try node("box", in: changed).frame, box.frame)
     }
+    func testClampedLinesAndSoftHyphensKeepShapedRanges() throws {
+        let session = try HeadlessSession(plan: fixturePlan("HEADLESS"), size: CGSize(width: 200, height: 600),
+                                          facts: SessionFacts(displayScale: 2, preferences: []))
+        defer { session.close() }
+        let snapshot = try session.snapshot()
+        func node(_ name: String) throws -> HeadlessSession.Node {
+            try XCTUnwrap(snapshot.nodes.values.first { $0.props["testId"] == name })
+        }
+        let clamped = try XCTUnwrap(node("clamped").lines.first)
+        XCTAssertEqual(clamped.range, NSRange(location: 0, length: 6))
+        XCTAssertEqual(clamped.text, "Hello …")
+        XCTAssertEqual(clamped.segments.map(\.text).joined(), clamped.text)
+        let emoji = try XCTUnwrap(node("clamped-emoji").lines.first)
+        XCTAssertEqual(emoji.range, NSRange(location: 0, length: "👨‍👩‍👧‍👦 ".utf16.count))
+        XCTAssertEqual(emoji.text, "👨‍👩‍👧‍👦 …")
+        XCTAssertEqual(emoji.segments.map(\.text).joined(), emoji.text)
+        let hyphen = try XCTUnwrap(node("hyphen").lines.first)
+        XCTAssertEqual(hyphen.range, NSRange(location: 0, length: 3))
+        XCTAssertEqual(hyphen.text, "ab-")
+        XCTAssertEqual(hyphen.segments.map(\.text).joined(), "ab-")
+        let styled = try node("styled")
+        XCTAssertEqual(styled.runs.map(\.weight), [400, 700])
+        XCTAssertEqual(styled.lines.flatMap(\.segments).map(\.run), [0, 1])
+        XCTAssertNotNil(styled.runs.last?.color)
+        XCTAssertGreaterThan(clamped.ascent, 0)
+        XCTAssertGreaterThan(clamped.descent, 0)
+    }
+
+    func testRefusedFactsFailBoot() throws {
+        let plan = try fixturePlan("HEADLESS")
+        for facts in [SessionFacts(displayScale: 0, preferences: []),
+                      SessionFacts(displayScale: .infinity, preferences: []),
+                      SessionFacts(displayScale: 1, preferences: [], rootFontSize: .nan),
+                      SessionFacts(displayScale: 1, preferences: [], rootFontSize: -1),
+                      SessionFacts(displayScale: 1, preferences: [], locale: "bad_locale"),
+                      SessionFacts(displayScale: 1, preferences: [], seed: 1 << 32)] {
+            XCTAssertThrowsError(try HeadlessSession(plan: plan, size: CGSize(width: 200, height: 400), facts: facts))
+        }
+        let accepted = try HeadlessSession(plan: plan, size: CGSize(width: 200, height: 400),
+            facts: SessionFacts(displayScale: 2, preferences: [], seed: UInt64(UInt32.max)))
+        defer { accepted.close() }
+        accepted.core.text.refusedMarkdown = 999
+        XCTAssertNoThrow(try accepted.resize(to: CGSize(width: 200, height: 450)), "each turn clears the previous refusal")
+        XCTAssertThrowsError(try HeadlessSession(plan: plan, entry: "widget", size: CGSize(width: 200, height: 400))) { error in
+            XCTAssertTrue(String(describing: error).contains("exact_boot_entry"))
+        }
+    }
+
+    func testCloseReleasesResidencyWithRetainedLazySnapshot() throws {
+        let session = try HeadlessSession(plan: fixturePlan("HEADLESS"), size: CGSize(width: 200, height: 600),
+            facts: SessionFacts(displayScale: 2, preferences: []))
+        let snapshot = try session.snapshot()
+        weak var engine = session.core.text
+        let before = Owner.shared.sync { () -> TextResidencyStats in
+            let engine = session.core.text
+            for n in 0..<500 {
+                let spec = TextStyle.spec(runs: [TextStyle.run(String(repeating: "memory ", count: 30) + String(n), style: [:])], style: [:], props: [:], strut: TextStyle.run("", style: [:]))
+                _ = engine.paragraph(spec, width: 200)
+            }
+            return engine.residencyStats
+        }
+        XCTAssertEqual(before.softTargetBytes, 2 * 1024 * 1024)
+        XCTAssertGreaterThan(before.coldEstimatedBytes, 0)
+        XCTAssertLessThanOrEqual(before.coldEstimatedBytes, before.softTargetBytes)
+        session.close()
+        XCTAssertNil(engine, "a retained snapshot must not keep the session's engine alive")
+        XCTAssertEqual(Owner.shared.sync { session.core.text.residencyStats.coldEstimatedBytes }, 0)
+        let label = try XCTUnwrap(snapshot.nodes.values.first { $0.props["testId"] == "label" })
+        XCTAssertEqual(label.lines.map(\.text).joined(), "alpha beta gamma", "uncomputed lines survive close")
+        print("HEADLESS_RESIDENCY target=\(before.softTargetBytes) coldBefore=\(before.coldEstimatedBytes) coldAfter=0 engineReleased=true")
+        let small = try HeadlessSession(plan: fixturePlan("HEADLESS"), size: CGSize(width: 200, height: 600),
+            facts: SessionFacts(displayScale: 2, preferences: [], textResidencyBytes: 1024))
+        defer { small.close() }
+        XCTAssertEqual(Owner.shared.sync { small.core.text.residencyStats.softTargetBytes }, 1024)
+    }
+
     func testMarkdownIsRefusedAtBootIncludingUnmeasuredNodes() throws {
         for (key, name) in [("HEADLESS_MARKDOWN", "markdown-body"), ("HEADLESS_HIDDEN_MARKDOWN", "hidden-markdown")] {
             let plan = try fixturePlan(key)
             XCTAssertThrowsError(try HeadlessSession(plan: plan, size: CGSize(width: 200, height: 400),
-                facts: SessionFacts(displayScale: 1, preferences: 0))) { error in
+                facts: SessionFacts(displayScale: 1, preferences: []))) { error in
                 XCTAssertTrue(String(describing: error).contains(name), "\(error)")
                 XCTAssertTrue(String(describing: error).contains("TextPresentation"), "\(error)")
             }
@@ -76,7 +152,7 @@ final class HeadlessSessionTests: XCTestCase {
     func testPackageCompositionCanSupplyMarkdownWithoutAView() throws {
         let adapter = MarkdownExpansion()
         let session = try HeadlessSession(plan: fixturePlan("HEADLESS_MARKDOWN"), size: CGSize(width: 200, height: 400),
-            facts: SessionFacts(displayScale: 1, preferences: 0), assets: AssetResolver(root: Bundle.main.bundleURL), presentation: adapter)
+            facts: SessionFacts(displayScale: 1, preferences: []), assets: AssetResolver(root: Bundle.main.bundleURL), presentation: adapter)
         defer { session.close() }
         let node = try XCTUnwrap(session.snapshot().nodes.values.first { $0.props["testId"] == "markdown-body" })
         XCTAssertEqual(node.lines.map(\.text).joined(), "expanded")

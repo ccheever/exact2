@@ -4,6 +4,15 @@ import XCTest
 @testable import ExactKit
 
 final class HeadlessParityIOSTests: XCTestCase {
+    func testPreferencesUseSuppliedTraitsWithoutAScreen() {
+        let traits = UITraitCollection(traitsFrom: [.init(userInterfaceStyle: .dark), .init(displayGamut: .P3), .init(displayScale: 3)])
+        let preferences = Preferences(traits: traits, reducedMotion: true, reducedTransparency: true,
+            increasedContrast: true, boldText: true, highDynamicRange: true, displayMode: .fullscreen)
+        XCTAssertEqual(preferences.rawValue, 1 | 2 | 4 | 16 | 32 | 128 | 256 | 1024 | 4096 | 16384)
+        let facts = SessionFacts(traits: traits)
+        XCTAssertEqual(facts.displayScale, 3)
+        XCTAssertTrue(facts.preferences.contains([.dark, .p3]))
+    }
     func testHeadlessAndPresentedLayoutsUseTheSamePageFacts() throws {
         let plan = try fixturePlan("HEADLESS"), size = CGSize(width: 200, height: 400)
         let presented = ExactApp.shared.makeSession(label: "headless-parity")
@@ -11,7 +20,7 @@ final class HeadlessParityIOSTests: XCTestCase {
         presented.presenter.viewport.frame = CGRect(origin: .zero, size: size)
         let date = presented.dateNow()
         let facts = SessionFacts(displayScale: PageFacts.displayScale(presented.presenter.viewport),
-            preferences: DisplayPreferences.bits(systemDark: presented.presenter.viewport.traitCollection.userInterfaceStyle == .dark, view: presented.presenter.viewport), rootFontSize: PageFacts.rootFontSize,
+            preferences: Preferences(rawValue: DisplayPreferences.bits(systemDark: presented.presenter.viewport.traitCollection.userInterfaceStyle == .dark, view: presented.presenter.viewport)), rootFontSize: PageFacts.rootFontSize,
             date: Date(timeIntervalSince1970: date.epoch / 1000),
             timeZone: try XCTUnwrap(TimeZone(identifier: presented.launchPlace.timeZone)),
             locale: presented.launchPlace.locale, seed: presented.launchPlace.seed)

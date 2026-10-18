@@ -3,6 +3,8 @@
 // CTLines; it supplies paint attributes, controls and Markdown through
 // TextPresentation. The ink index and ellipsized lines remain here because
 // they are geometry over shaped text, with no drawing or platform view API.
+// One Core Text engine measures and paints: TextKit wrapped about 5× slower,
+// and measuring and painting with different engines costs correctness (exact1 LLP 0418/0430).
 // Each session owns its font catalog and caches (LLP 1031 D12); process-wide
 // Core Text file registration belongs to FontRegistry.
 #if canImport(UIKit)

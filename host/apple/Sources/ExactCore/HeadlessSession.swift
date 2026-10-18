@@ -36,9 +36,16 @@ public final class HeadlessSession {
     public struct Segment {
         public let run: Int
         public let text: String
-        public init(run: Int, text: String) { self.run = run; self.text = text }
+        /// Shaped UTF-16 coverage; a trailing ellipsis is not part of this range.
+        public let range: NSRange
+        public init(run: Int, text: String, range: NSRange = NSRange(location: 0, length: 0)) {
+            self.run = run; self.text = text; self.range = range
+        }
     }
     public struct Line {
+        /// Justification lives in Core Text glyph positions, not these strings.
+        /// A renderer that cannot preserve it must refuse justified text.
+
         public let text: String
         /// UTF-16 range in the shaped text, after whitespace collapse, Markdown
         /// expansion and hyphenation; these are not offsets in the source prop.
@@ -111,13 +118,13 @@ public final class HeadlessSession {
         self.size = size; rootFontSize = facts.rootFontSize
         let runtime = Runtime(hooks: .headless)
         let text = TextEngine(assets: { assets.url($0) }, read: { assets.bytes($0) }, bundled: { assets.bundledURL($0) },
-                              presentation: presentation)
+                              coldTextTargetBytes: facts.textResidencyBytes, presentation: presentation)
         text.requiresMarkdownExpansion = true
         core = SessionCore(runtime: runtime, text: text)
         core.measure(with: text)
         runtime.setProfileResolver(assets)
         _ = try turn {
-            facts.prime(runtime)
+            try facts.prime(runtime)
             if let entry {
                 guard let plan else { return Batch(ops: [], timers: false, motion: false, clock: nil, error: "an entry requires a plan") }
                 return runtime.bootEntry(plan, kind: entry, width: size.width, height: size.height)
@@ -139,7 +146,7 @@ public final class HeadlessSession {
     public convenience init(plan: Data? = nil, entry: String? = nil, size: CGSize, rootFontSize: CGFloat? = nil,
                             assets: AssetResolver) throws {
         try self.init(plan: plan, entry: entry, size: size,
-                      facts: SessionFacts(displayScale: 1, preferences: 0, rootFontSize: Double(rootFontSize ?? Self.defaultRootFontSize)), assets: assets)
+                      facts: SessionFacts(displayScale: 1, preferences: [], rootFontSize: Double(rootFontSize ?? Self.defaultRootFontSize)), assets: assets)
     }
     public convenience init(plan: Data? = nil, entry: String? = nil, size: CGSize, rootFontSize: CGFloat? = nil,
                             assetRoot: URL = Bundle.main.bundleURL) throws {
@@ -156,7 +163,16 @@ public final class HeadlessSession {
         }
     }
 
-    public func close() { Owner.shared.sync { core.runtime.destroy() } }
+    public func close() {
+        Owner.shared.sync {
+            core.runtime.destroy()
+            core.text.install(nil)
+            // Snapshots hold a weak shaper; after close they shape on demand
+            // with the saved catalog and no cold residency.
+            core.text = TextEngine(assets: { _ in nil }, coldTextTargetBytes: 0)
+            nodes.removeAll(); roots.removeAll()
+        }
+    }
 
     /// The tree after the most recent successful turn. Asynchronous replies need `refresh`.
     public func snapshot() throws -> Snapshot {
@@ -182,11 +198,12 @@ public final class HeadlessSession {
         try turn { core.runtime.press(node, now: now) }
     }
 
-    private func turn(size: CGSize? = nil, _ body: () -> Batch) throws -> Snapshot {
+    private func turn(size: CGSize? = nil, _ body: () throws -> Batch) throws -> Snapshot {
         try Owner.shared.sync {
             Result {
                 guard !core.runtime.destroyed else { throw Failure(description: "headless session is closed") }
-                let batch = body()
+                core.text.refusedMarkdown = nil
+                let batch = try body()
                 if let error = batch.error { throw Failure(description: error) }
                 if let size { self.size = size }
                 try apply(batch)
@@ -250,25 +267,33 @@ public final class HeadlessSession {
 }
 
 /// Each node version retains only the inputs until a consumer asks for its lines.
-/// The engine is shared; this cache retains no runtime, presenter or CTLine array.
+/// The live engine is borrowed weakly. After close, an uncomputed node uses a
+/// temporary shaper with its saved catalog and no cold cache; computed nodes
+/// retain only their exported lines and fonts, never the engine's residency.
 fileprivate final class HeadlessLines {
-    private let build: () -> Value
+    private var build: (() -> Value)?
     typealias Value = (lines: [HeadlessSession.Line], runs: [HeadlessSession.Run])
     private var cached: Value?
     var computed: Bool { Owner.shared.sync { cached != nil } }
     var value: Value {
         Owner.shared.sync {
             if let cached { return cached }
-            let lines = build(); cached = lines; return lines
+            let lines = build!(); cached = lines; build = nil; return lines
         }
     }
     init(lines: [HeadlessSession.Line], runs: [HeadlessSession.Run]) {
-        cached = (lines, runs); build = { (lines, runs) }
+        cached = (lines, runs); build = nil
     }
     init(node: HeadlessSession.Node, engine: TextEngine, language: String, rootFontSize: Double, markdown: [Run]?) {
         // Capture individual COW values, not the node and its previous line cache.
         let props = node.props, style = node.style, inline = node.inline.filter(\.paints), flow = node.flow, box = node.contentBox
-        build = {
+        let catalog = engine.catalog, resolve = engine.resolve, read = engine.read, bundled = engine.bundled
+        build = { [weak engine] in
+            let engine = engine ?? {
+                let made = TextEngine(assets: resolve, read: read, bundled: bundled, coldTextTargetBytes: 0)
+                made.catalog = catalog
+                return made
+            }()
             let runs = markdown ?? props["text"].map { [TextStyle.run($0, style: style, defaultSize: rootFontSize)] }
                 ?? inline.map(\.lightRun)
             let spec = TextStyle.spec(runs: runs, style: style, props: props,
@@ -286,22 +311,34 @@ fileprivate final class HeadlessLines {
             }
             var ends: [Int] = [], offset = 0
             for run in spec.runs { offset += run.text.utf16.count; ends.append(offset) }
+            let geometry = LineGeometry(paragraph)
             let lines = paragraph.lines.enumerated().map { index, line in
-                let r = CTLineGetStringRange(line), range = NSRange(location: r.location, length: r.length)
+                let r = geometry.ranges[index], range = NSRange(location: r.location, length: r.length)
+                let suffix = index == geometry.ranges.count - 1 && geometry.clamped != nil ? "…" : ""
+                let painted = Self.ink(source.substring(with: range)) + suffix
                 var segments: [HeadlessSession.Segment] = [], from = range.location
                 for (run, end) in ends.enumerated() where end > from && from < NSMaxRange(range) {
                     let to = min(end, NSMaxRange(range))
-                    segments.append(.init(run: run, text: source.substring(with: NSRange(location: from, length: to - from))))
+                    let part = NSRange(location: from, length: to - from)
+                    segments.append(.init(run: run, text: source.substring(with: part), range: part))
                     from = to
+                }
+                if let tail = segments.popLast() {
+                    segments.append(.init(run: tail.run, text: Self.ink(tail.text) + suffix, range: tail.range))
+                } else if !suffix.isEmpty {
+                    segments.append(.init(run: 0, text: suffix))
                 }
                 var ascent: CGFloat = 0, descent: CGFloat = 0
                 let width = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, nil))
-                return HeadlessSession.Line(text: source.substring(with: range), range: range,
+                return HeadlessSession.Line(text: painted, range: range,
                     origin: CGPoint(x: paragraph.origin(index, align: spec.align, width: box.width), y: paragraph.baselines[index]),
                     width: width, ascent: ascent, descent: descent, segments: segments)
             }
             return (lines, renderedRuns)
         }
+    }
+    private static func ink(_ text: String) -> String {
+        text.last == "\u{AD}" ? String(text.dropLast()) + "-" : text
     }
     private static func color(_ ref: BatchValue?, light: [Double]?, dark: [Double]?) -> BatchValue? {
         if let ref { return ref }

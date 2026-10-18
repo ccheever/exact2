@@ -537,7 +537,11 @@ package final class Runtime {
     package func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
     package func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
     package func setLaunchTime(epochAtZero: Double, utcOffset: Double) { on { () -> Void in _ = exact_set_launch_time(rt, epochAtZero, utcOffset) } }
-    package func setLaunchPlace(locale: String, timeZone: String, seed: UInt64) { on { () -> Void in _ = exact_set_launch_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) } }
+    @discardableResult
+    package func setLaunchPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on {
+        let count = exact_set_launch_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed)))
+        return count == 0 ? Batch(ops: [], timers: false, motion: false, clock: nil, error: nil) : read(count)
+    } }
     package func setPreferences(_ bits: UInt32) -> Batch { on { read(exact_set_preferences(rt, bits)) } }
     package func setPage(_ bits: UInt32) -> Batch { on { read(exact_set_page(rt, bits)) } }
     /// Whether the running plan reads `onLine`; true when the owner is busy.
