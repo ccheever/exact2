@@ -442,7 +442,26 @@ measures its `fit_content_height`. `snapshot_viewport` thus reads the current
 region's size; no app-visible slot selector is injected. The other slots' frames
 are not a shared surface layout. Rendering remains read-only, with the same
 clock, request, input and handler refusals as widgets. `time` and `progress`
-remain platform live views. Activity rendering and sends are separate host work.
+remain platform live views.
+
+The extension renders every activity through one `ActivityConfiguration` for
+the envelope type (`host/apple/widget/Activity.swift`, LLP 1126.001 WP10): the
+attributes' `kind` names the plan, `plans/<kind>.plan` in the generation the
+attributes name (the embedded plans before the app's first publication), and
+the state is decoded by that plan, else the last decodable state kept for the
+activity id (shown dimmed, as the system's stale state is), else the preview,
+redacted as a placeholder. A placement's view answers the system's size
+proposals from the kernel (`ExactSnapshot`'s `ActivityRender`): the Lock
+Screen and the expanded bottom region are as wide as the region, the compact
+regions, the minimal view and the expanded leading, centre and trailing
+regions as wide as their content (a text's widest line, a `time`'s widest
+reserved value, an image's box; an authored `width` as written), every
+placement as tall as its content. The Lock Screen placement sits inside the
+system's content margins, or 16 pt where the system gives none; its root
+`background-color` is the `activityBackgroundTint`, and a gradient or an
+unsaid background leaves the system's material. A link in the Lock Screen or
+an expanded region is a `Link`; the first link of any placement is its URL.
+The sends that start, update and end an activity are LLP 1126.001 WP9.
 
 The bake writes `plans/activities.json` and `activities/<kind>.schema.json` plus
 `activities/<kind>.d.ts` (exporting `State`, `Attributes` and `ContentState`). The
