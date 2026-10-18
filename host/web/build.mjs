@@ -29,7 +29,8 @@ import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { compilerWarnings, webInputDigests } from '../../scripts/agent-launch.mjs';
 import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webGpuArtifacts, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
-import { webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
+import { webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { buildEditor, buildFlow } from '../web-js/module.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
@@ -205,23 +206,11 @@ function copyHostFiles(group) {
 }
 if (!bakeOnly) copyHostFiles('base');
 if (!bakeOnly && !production) copyHostFiles('development');
-// The Markdown editor's rules (exact-markdown-editor, LLP 1045 D5) are their
-// own wasm beside markup-editor.js, fetched only when a Markdown textarea mounts.
-const webEnv = webToolchainEnv(buildEnv);
-if (!bakeOnly) {
-const editor = spawnSync('cargo', ['build', '--locked', '--offline', '-q', ...WEB_STD, ...wasmRemapFlags(app, WEB_TOOLCHAIN), '-p', 'exact-markdown-editor', '--lib', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: webEnv, stdio: 'inherit' });
-if (editor.status !== 0) process.exit(editor.status ?? 1);
-const editorBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/exact_markdown_editor.wasm');
-const editorWasm = resolve(stage, 'markup-editor.wasm');
-if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', editorWasm, editorBuilt], { stdio: 'inherit' }).status !== 0) copyFileSync(editorBuilt, editorWasm);
-
-// The exclusions walker is its own leaf artifact; ordinary apps fetch none of it.
-const flow = spawnSync('cargo', ['build', '--locked', '--offline', '-q', ...WEB_STD, ...wasmRemapFlags(app, WEB_TOOLCHAIN), '-p', 'exact-textflow', '--bin', 'textflow-web', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: webEnv, stdio: 'inherit' });
-if (flow.status !== 0) process.exit(flow.status ?? 1);
-const flowBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/textflow-web.wasm');
-const flowWasm = resolve(stage, 'textflow.wasm');
-if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', flowWasm, flowBuilt], { stdio: 'inherit' }).status !== 0) copyFileSync(flowBuilt, flowWasm);
-}
+// These app-independent modules use the same input-checked products as the JS
+// target, so a gameplay edit does not rerun Cargo and wasm-opt for either leaf.
+if (!bakeOnly) await Promise.all([
+  [buildEditor, 'markup-editor.wasm'], [buildFlow, 'textflow.wasm'],
+].map(async ([build, name]) => copyFileSync(await build({keepFresh:true}), resolve(stage, name))));
 
 // The plan and its pointer card (LLP 1023 D1/D2): extract the exact bytes
 // baked into the produced, optimized wasm. Compiling app.contract a second
