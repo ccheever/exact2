@@ -746,3 +746,29 @@ Chrome 151 ratio minimum border-box padding min-height	display:flex;width:50px;	
 Chrome 151 ratio minimum border-box padding and border	display:flex;width:50px;	2>1>height:40px;aspect-ratio:2;padding-top:5px;padding-bottom:5px;padding-left:10px;padding-right:10px;box-sizing:border-box;border-width:3px;border-style:solid>	1=0,0,50,40 2=0,0,80,40
 Chrome 151 ratio minimum explicit nonzero minimum opts out	display:flex;width:50px;	2>1>height:80px;aspect-ratio:1;min-width:10px>	1=0,0,50,80 2=0,0,50,80
 Chrome 151 ratio minimum scroll overflow opts out	display:flex;width:50px;	2>1>height:80px;aspect-ratio:1;overflow:scroll>	1=0,0,50,80 2=0,0,50,80
+Chrome 151 ratio column stretch column stretch narrower than ratio width	display:flex;flex-direction:column;width:50px;height:100px;	2>1>height:80px;aspect-ratio:1>	1=0,0,50,100 2=0,0,50,80
+Chrome 151 ratio column stretch column stretch narrower, auto height	display:flex;flex-direction:column;width:50px;	2>1>height:80px;aspect-ratio:1>	1=0,0,50,80 2=0,0,50,80
+Chrome 151 ratio column stretch column align-items start	display:flex;flex-direction:column;width:50px;align-items:flex-start;	2>1>height:80px;aspect-ratio:1>	1=0,0,50,80 2=0,0,80,80
+Chrome 151 ratio column stretch block narrower than ratio width	width:50px;	2>1>height:80px;aspect-ratio:1>	1=0,0,50,80 2=0,0,80,80
+Chrome 151 ratio column stretch grid narrower than ratio width	display:grid;width:50px;	2>1>height:80px;aspect-ratio:1>	1=0,0,50,80 2=0,0,80,80
+Chrome 151 ratio column stretch column-reverse	display:flex;flex-direction:column-reverse;width:50px;height:100px;	2>1>height:80px;aspect-ratio:1>	1=0,0,50,100 2=0,20,50,80
+Chrome 151 ratio column stretch align-self stretch overrides start	display:flex;flex-direction:column;width:50px;height:100px;align-items:flex-start;	2>1>height:80px;aspect-ratio:1;align-self:stretch>	1=0,0,50,100 2=0,0,50,80
+Chrome 151 ratio column stretch align-self start opts out	display:flex;flex-direction:column;width:50px;height:100px;	2>1>height:80px;aspect-ratio:1;align-self:flex-start>	1=0,0,50,100 2=0,0,80,80
+Chrome 151 ratio column stretch center opts out	display:flex;flex-direction:column;width:50px;height:100px;align-items:center;	2>1>height:80px;aspect-ratio:1>	1=0,0,50,100 2=-15,0,80,80
+Chrome 151 ratio column stretch left auto margin opts out	display:flex;flex-direction:column;width:100px;height:100px;	2>1>height:80px;aspect-ratio:1;margin-left:auto>	1=0,0,100,100 2=20,0,80,80
+Chrome 151 ratio column stretch right auto margin opts out	display:flex;flex-direction:column;width:50px;height:100px;	2>1>height:80px;aspect-ratio:1;margin-right:auto>	1=0,0,50,100 2=0,0,80,80
+Chrome 151 ratio column stretch fixed margins	display:flex;flex-direction:column;width:50px;height:100px;	2>1>height:80px;aspect-ratio:1;margin-left:5px;margin-right:10px>	1=0,0,50,100 2=5,0,35,80
+Chrome 151 ratio column stretch explicit minimum	display:flex;flex-direction:column;width:50px;height:100px;	2>1>height:80px;aspect-ratio:1;min-width:60px>	1=0,0,50,100 2=0,0,60,80
+Chrome 151 ratio column stretch maximum	display:flex;flex-direction:column;width:50px;height:100px;	2>1>height:80px;aspect-ratio:1;max-width:30px>	1=0,0,50,100 2=0,0,30,80
+Chrome 151 ratio column stretch minimum height	display:flex;flex-direction:column;width:50px;height:160px;	2>1>height:40px;aspect-ratio:2;min-height:60px>	1=0,0,50,160 2=0,0,50,60
+Chrome 151 ratio column stretch maximum height	display:flex;flex-direction:column;width:50px;height:100px;	2>1>height:80px;aspect-ratio:1;max-height:60px>	1=0,0,50,100 2=0,0,50,60
+Chrome 151 ratio column stretch content-box padding	display:flex;flex-direction:column;width:50px;height:100px;	2>1>height:80px;aspect-ratio:1;padding:5px;box-sizing:content-box>	1=0,0,50,100 2=0,0,50,90
+Chrome 151 ratio column stretch border-box padding	display:flex;flex-direction:column;width:50px;height:100px;	2>1>height:80px;aspect-ratio:1;padding:5px;box-sizing:border-box>	1=0,0,50,100 2=0,0,50,80
+Chrome 151 ratio column stretch wider content	display:flex;flex-direction:column;width:50px;height:100px;	2>1>height:80px;aspect-ratio:1> & 3>2>width:120px;height:10px>	1=0,0,50,100 2=0,0,50,80 3=0,0,120,10
+Chrome 151 ratio column stretch wrapping	display:flex;flex-direction:column;width:50px;height:100px;flex-wrap:wrap;	2>1>height:80px;aspect-ratio:1>	1=0,0,50,100 2=0,0,80,80
+Chrome 151 ratio column stretch absolute column intrinsic width	display:flex;flex-direction:column;position:absolute;height:100px;	2>1>height:80px;aspect-ratio:1> & 3>2>width:120px;height:10px>	1=0,0,120,100 2=0,0,120,80 3=0,0,120,10
+Chrome 151 ratio column stretch absolute column empty ratio	display:flex;flex-direction:column;position:absolute;height:100px;	2>1>height:80px;aspect-ratio:1>	1=0,0,80,100 2=0,0,80,80
+Chrome 151 ratio column stretch wrapping column wider content	display:flex;flex-direction:column;width:50px;height:100px;flex-wrap:wrap;	2>1>height:80px;aspect-ratio:1> & 3>2>width:120px;height:10px>	1=0,0,50,100 2=0,0,120,80 3=0,0,120,10
+Chrome 151 ratio column stretch absolute wrapping column wider content	display:flex;flex-direction:column;position:absolute;width:50px;height:100px;flex-wrap:wrap;	2>1>height:80px;aspect-ratio:1> & 3>2>width:120px;height:10px>	1=0,0,50,100 2=0,0,120,80 3=0,0,120,10
+Chrome 151 ratio column stretch non-stretched wider content	display:flex;flex-direction:column;width:50px;height:100px;align-items:flex-start;	2>1>height:80px;aspect-ratio:1> & 3>2>width:120px;height:10px>	1=0,0,50,100 2=0,0,120,80 3=0,0,120,10
+Chrome 151 ratio column stretch absolute column intrinsic width with padding	display:flex;flex-direction:column;position:absolute;height:100px;padding:5px;	2>1>height:80px;aspect-ratio:1> & 3>2>width:120px;height:10px>	1=0,0,130,110 2=5,5,120,80 3=5,5,120,10

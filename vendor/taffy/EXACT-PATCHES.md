@@ -1511,6 +1511,21 @@ padding and borders under both box-sizing modes, and the explicit-minimum,
 overflow, stretch and column controls. The shared minimum fixes the absolute
 case without a separate intrinsic-layout change.
 
+The final cross-size clamp omits the automatic inline minimum when a column
+stretches the item's width. That cross size takes the line width and authored
+bounds ([Flexbox §9.4](https://www.w3.org/TR/css-flexbox-1/#algo-stretch)).
+Intrinsic measurement retains the minimum so shrink-to-fit and wrapping
+columns account for wider content. Rows, non-stretched columns, block and
+grid keep their ratio minima.
+
+Twenty-six `Chrome 151 ratio column stretch` fixtures, measured with the same
+Chrome version and date, cover definite and automatic column heights,
+column-reverse, alignment overrides, margins, bounds, padding, wider content
+and wrapping, plus block and grid controls. Ten frames failed before the
+correction, including an 80×80 item where Chrome stretches it to 50×80. Six
+additional frames guard intrinsic measurement: omitting the minimum during
+setup narrowed wider-content columns from Chrome's 120px to 80px.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested

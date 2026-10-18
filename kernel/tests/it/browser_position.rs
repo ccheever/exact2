@@ -33,6 +33,10 @@
 //! from definite heights in shrinking rows and an absolute block. Controls
 //! cover explicit minima, overflow, stretch, columns, wider content, height
 //! bounds, and padding and borders under both box-sizing modes.
+//! `Chrome 151 ratio column stretch` uses that version and date for narrow
+//! columns, reversed columns, alignment overrides, auto and fixed margins,
+//! width and height bounds, padding, wider content, intrinsic widths,
+//! wrapping, block and grid.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),
