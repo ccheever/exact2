@@ -893,7 +893,10 @@ The tool drives no input into an app; a command changes only what `prefer` would
     and the pin `revision` it applied.
     Sent on connect and on any change, the app's own `setScheme`, `setMode` and
     `setRootFontSize` included (at most once a turn). A scrub's frames move the design without a
-    status each: the web pages report it once, about 150 ms after the drag rests.
+    status each: the web pages report it once, about 150 ms after the drag rests. The server
+    tells clients a `build-status` whose only change is the design at most once every 150 ms
+    per build, with the latest design (a native host reports every scrub frame's); any other
+    change is told at once.
   - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
     `revision` when it is one (*1.3*, optional).
   - `selected` (*1.3*, LLP 1122 D5; the wasm web page and the iOS and Mac hosts send it in inspect mode):

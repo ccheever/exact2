@@ -40,7 +40,7 @@ const ID = /^[\w.:-]{1,64}$/;
 // many builds remembered (the oldest disconnected gone first): the routes
 // take no token, so what they keep is bounded.
 // A Linux build polls twice a second: unpolled 5 s, it is disconnected.
-const POLLED_MS = 5_000, POLLED = 64, STREAMS = 256, BUILDS = 256;
+const POLLED_MS = 5_000, POLLED = 64, STREAMS = 256, BUILDS = 256, DESIGN_TOLD_MS = 150;
 // A polled stream's queue: at most this many frames and bytes, past which
 // its live-table frames collapse into one notice (only the latest pin is
 // ever queued).
@@ -159,6 +159,25 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
   const connected = b => streams.get(b.nonce)?.build === b.id;
   const listed = () => [...builds.values()].filter(connected).map(shown);
   const announce = () => send({ event: 'builds', builds: listed() });
+  // A status that moved only the build's design (a native host reports each
+  // scrub frame's) is told once per DESIGN_TOLD_MS, the latest when it goes,
+  // as a page reports its own ~150 ms after a scrub rests: not every
+  // client's poll woken each frame. Anything else is told at once, with the
+  // design as it is then. id -> the last told, less its design; its design;
+  // the one waiting.
+  const toldFacts = new Map(), toldDesign = new Map(), toldLater = new Map();
+  const tellStatus = (b, due = false) => {
+    const { design, ...facts } = shown(b), key = JSON.stringify(facts);
+    if (!due && toldDesign.has(b.id) && toldFacts.get(b.id) === key && toldDesign.get(b.id) !== design) {
+      if (!toldLater.has(b.id)) toldLater.set(b.id, setTimeout(() => { toldLater.delete(b.id); const now = builds.get(b.id); if (now) tellStatus(now, true); }, DESIGN_TOLD_MS));
+      return;
+    }
+    clearTimeout(toldLater.get(b.id)); toldLater.delete(b.id);
+    // (Builds forgotten, their entries too.)
+    if (toldFacts.size > BUILDS * 2) for (const id of toldFacts.keys()) if (!builds.has(id)) { toldFacts.delete(id); toldDesign.delete(id); }
+    toldFacts.set(b.id, key); toldDesign.set(b.id, design);
+    send({ event: 'build-status', build: { ...facts, design } });
+  };
   // Inspect mode's owners, as they move (tamber/1.6): from `before`, each
   // client that lost builds (off) and each that took some (on), so a tool
   // follows another client's command and its own lapse with no gap.
@@ -369,7 +388,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         // A rebuild that kept its stream: its hold, under its new plan.
         if (b.planDigest && b.planDigest !== was) replayHold(b.id, b.planDigest);
         if (typeof r.design === 'string') b.design = r.design;
-        send({ event: 'build-status', build: shown(b) });
+        tellStatus(b);
       } else if (r.kind === 'held') {
         // The build's held state is every client's to know (theme2's 07:48
         // (c)); one it let go of itself (real input, disabled, its node

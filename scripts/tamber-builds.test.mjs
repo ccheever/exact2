@@ -622,3 +622,30 @@ test('a hold is one a build, its client\'s, replayed only through one correspond
   expect(report(channel, { nonce: a3.nonce, kind: 'held', state: 'pressed', revision: iffy.revision }).status).toBe(400);
   expect(report(channel, { nonce: a3.nonce, kind: 'held', state: null, reason: 'gone' }).status).toBe(400);
 });
+
+test('a status that moves only the design is told once per 150 ms, the latest; any other change at once', async () => {
+  const events = [];
+  const channel = buildChannel({ send: e => events.push(e) });
+  const a = stream(channel);
+  register(channel, a.nonce, 'mac-1', 'macos');
+  const status = (extra) => report(channel, { nonce: a.nonce, kind: 'status', scheme: 'light', contrast: 'no-preference', mode: null, rootFontSize: 16, revision: 0, ...extra });
+  const told = () => events.filter(e => e.event === 'build-status');
+  status({ design: 'd0' });
+  expect(told().map(e => e.build.design)).toEqual(['d0']);
+  // A scrub's frames, each a status: none told while they come...
+  for (let i = 1; i <= 5; i++) status({ design: `d${i}` });
+  expect(told().length).toBe(1);
+  expect(channel.list()[0].design).toBe('d5');
+  // ...then the latest, once.
+  await Bun.sleep(200);
+  expect(told().map(e => e.build.design)).toEqual(['d0', 'd5']);
+  // Another fact moving is told at once, with the design as it is then.
+  status({ design: 'd6' });
+  status({ design: 'd7', scheme: 'dark' });
+  expect(told().slice(2).map(e => [e.build.design, e.build.status.scheme])).toEqual([['d7', 'dark']]);
+  await Bun.sleep(200);
+  expect(told().length).toBe(3);
+  // The same status again is told at once (a status asked for).
+  status({ design: 'd7', scheme: 'dark' });
+  expect(told().length).toBe(4);
+});
