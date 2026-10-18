@@ -12,7 +12,9 @@ import { checkOp, judge, ratio } from '../../scripts/agent-check.mjs';
 import { decodePng } from '../../scripts/png.mjs';
 import { serveBuildTree } from './serve.mjs';
 
-// One view per finding class, each named by its testId; `fits` and `ellipsis` are what must not be found.
+// One view per finding class, each named by its testId; `fits`, `ellipsis`, `covered-card` (a card under a view drawn over
+// it), `blob` (a shape holding no text or control that shows) and `grouped` (a list, whose ground is the page's, whatever its role) are what
+// must not be found; nor is `veiled-card`, which a half-opaque panel leaves unjudged (`faded`).
 const BROKEN = `component CheckFixture
   state on = false
   action toggle
@@ -30,6 +32,19 @@ const BROKEN = `component CheckFixture
         button testId="hidden" press=toggle
           text "Under"
         column testId="cover" position="absolute" top=0 left=0 width=300 height=60 background-color="-exact-secondary-background"
+      column position="relative" height=60
+        column testId="covered-card" position="absolute" top=8 left=8 width=160 height=44 border-radius=8 background-color="-exact-background"
+          text testId="covered-line" "Under a cover"
+        column position="absolute" top=0 left=0 width=300 height=60 background-color="-exact-secondary-background"
+      column testId="blob" width=48 height=48 border-radius=24 background-color="-exact-background" aria-hidden=true
+        text visibility="hidden" "Hidden"
+      column opacity=0.5 padding=8 background-color="-exact-secondary-background"
+        column testId="veiled-card" padding=8 border-radius=8 background-color="-exact-secondary-background"
+          text "In a half-opaque panel"
+      list testId="grouped" appearance="auto" listStyle="inset-grouped" role="presentation" height=100 flex-shrink=0
+        section
+          row
+            text "In a grouped list"
       row gap=0
         column testId="a" press=toggle width=100 height=44 background-color="-exact-secondary-background"
         column testId="b" press=toggle width=100 height=44 margin-left=-20 background-color="-exact-tertiary-fill"
@@ -269,6 +284,15 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(hint()).not.toContain('on a plain page a card is');
   expect(found([{ ...card, x: 24 }])).toEqual([]);
   expect(found([{ ...card, edge: true }])).toEqual([]);
+  // A side is read only where the capture shows the card's fill over what lies outside it. A red card under a white view
+  // drawn over it (mapapp's park under its panel) shows white on both sides of its edge: no finding. A fill all but
+  // transparent shows the page through it, and is found. A card in a half-opaque ancestor (`faded`) is not judged.
+  expect(found([{ ...card, fill: [255, 59, 48, 1] }])).toEqual([]);
+  expect(found([{ ...card, fill: [0, 0, 0, 0.01] }])).toEqual(['card:2']);
+  expect(found([{ ...card, faded: true }])).toEqual([]);
+  // A white card whose box crosses into the grey (a rotated card over a band): the side in the grey shows its edge, and
+  // the white-on-white sides do not outweigh it.
+  expect(found([{ ...card, x: 10, w: 12 }])).toEqual([]);
   // LLP 1116.010 D2 (trivia, round 12): a card the host says none of is presented (below the viewport, past its scroller's edge) is
   // not judged on the page's pixels there.
   expect(found([{ ...card, vis: { x: 4, y: 20, w: 0, h: 0 } }])).toEqual([]);
@@ -356,6 +380,15 @@ test('a page with every finding class has each found, by testId, in the scheme i
     expect((await session.op({ op: 'check' })).look).toBe('neutral');
     expect(l.faint).toEqual(['contrast']);
     expect(l.card).toEqual(['card']);
+    // A card under a view drawn over it does not show because of that view, not its fill; a shape holding no text or
+    // control is no card.
+    expect(l['covered-card']).toBeUndefined();
+    expect(l['covered-line']).toEqual(['covered']);
+    expect(l.blob).toBeUndefined();
+    expect(l['veiled-card']).toBeUndefined(); // its fill is the panel's, but the capture mixes both with the page
+    const seen = await session.op({ op: 'check' }), ids = new Map(((await session.op({ op: 'tree' })).nodes ?? []).map((n) => [n.props?.testId, n.id]));
+    const observed = (testId) => seen.items.find((it) => it.id === ids.get(testId));
+    expect([observed('veiled-card').faded, observed('card').faded]).toEqual([true, undefined]);
     expect(l.tiny).toEqual(['target']);
     expect(l.fits).toBeUndefined();
     expect(l.ellipsis).toBeUndefined(); // an ellipsis the author asked for
@@ -363,6 +396,7 @@ test('a page with every finding class has each found, by testId, in the scheme i
     // In dark the card shows and the faint text reads on it; the author's white label on the pale
     // dark accent does not (unsaid, the web picks black there: LLP 1116.003 D3.1).
     expect(d.card).toBeUndefined();
+    expect(d.grouped).toBeUndefined(); // its ground is the plain page's colour in dark, under its section's card
     expect(d.faint).toBeUndefined();
     expect(d.go).toEqual(['contrast']);
     expect(both.text).toMatch(/^check web · light: \d+ findings\n/);
