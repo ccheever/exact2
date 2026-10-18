@@ -606,7 +606,7 @@ export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process
 
 /** `exact new`: check the machine first, since a missing Cargo fails the
  * scaffold itself; then write the app and say what its builds will still need. */
-function newApp(path, {update = false, without = null, game = false, assets = false, snapback = null} = {}) {
+function newApp(path, {update = false, without = null, game = false, assets = false, snapback = null, title, id} = {}) {
   if (update) {
     console.log(createApp(path, {update, without}));
     const manifest = resolve(path, 'app.json');
@@ -625,7 +625,7 @@ function newApp(path, {update = false, without = null, game = false, assets = fa
     throw new Error('exact new needs Cargo (rustup) to resolve the new app; install it, then run exact new again');
   }
   // A game is a path here, as an app is: `game/new.mjs` alone takes a bare name for game/games.
-  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path, {snapback}));
+  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path, {snapback, title, id}));
   prebuildCompiler();
   if (report.some(row => !row.ok)) {
     // Builders read a bare "still needs" list as the reason a later command failed (bench diaries,
@@ -652,6 +652,9 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch
+  exact new <path> --name <name> --bundle-id <id>
+                               the same, named: the name people see and the
+                               reverse-DNS bundle id (set both before a build)
   exact new <path> --snapback [--port <n>] [--online]
                                a new app wired to a Snapback backend in the
                                directory above (a guestbook to start from; the
@@ -1031,12 +1034,17 @@ async function main(argv) {
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
     const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), without = args.indexOf('--without');
-    const path = args.find((arg, i) => !arg.startsWith('--') && (port < 0 || i !== port + 1) && (without < 0 || i !== without + 1));
+    const titled = args.indexOf('--name'), bundle = args.indexOf('--bundle-id');
+    const values = new Set([port, without, titled, bundle].filter(i => i >= 0).map(i => i + 1));
+    const path = args.find((arg, i) => !arg.startsWith('--') && !values.has(i));
+    for (const [at, flag, example] of [[titled, '--name', '"Field Log"'], [bundle, '--bundle-id', 'com.yourcompany.fieldlog']])
+      if (at >= 0 && (!args[at + 1] || args[at + 1].startsWith('--'))) throw new Error(`exact new: ${flag} takes a value, as in ${flag} ${example}`);
+    if ((titled >= 0 || bundle >= 0) && args.includes('--game')) throw new Error('exact new: --name and --bundle-id name an app; a game takes its name and id from its app.json');
     if (args.includes('--online') && !args.includes('--snapback')) throw new Error('exact new: --online requires --snapback and an existing backend schema');
     if (port >= 0 && !args.includes('--snapback')) throw new Error('exact new: --port is the Snapback origin’s, with --snapback');
     if (without >= 0 && !args[without + 1]) throw new Error('update --without: name the platform, as in --without linux');
     const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined, online: args.includes('--online') } : null;
-    return newApp(path, {update: args.includes('--update'), without: without >= 0 ? args[without + 1] : null, game: args.includes('--game'), assets: args.includes('--assets'), snapback});
+    return newApp(path, {update: args.includes('--update'), without: without >= 0 ? args[without + 1] : null, game: args.includes('--game'), assets: args.includes('--assets'), snapback, title: titled >= 0 ? args[titled + 1] : undefined, id: bundle >= 0 ? args[bundle + 1] : undefined});
   }
   if (verb === 'backend') {
     const dir = resolve(name), parent = resolve(dir, '..');

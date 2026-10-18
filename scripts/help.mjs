@@ -413,8 +413,10 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
   // exact2's own verb that makes an app (scripts/exact.mjs new), not one of an app's.
   new: {
     line: 'a new app outside this repo, using this checkout',
-    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--game [--assets]]',
+    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--name <name>] [--bundle-id <id>] [--game [--assets]]',
     flags: [
+      ['--name <name>', 'the name people see (app.json app.name); default: the path\'s last part, capitalised'],
+      ['--bundle-id <id>', 'the reverse-DNS id (app.json app.id, app.ts appId); default: com.example.<name>-<hex>'],
       ['--online', 'use the server without a local device'],
       ['--snapback', 'write a guestbook wired to the Snapback backend above the app'],
       ['--port <n>', 'the Snapback origin’s port with --snapback (default 4400)'],
@@ -423,10 +425,12 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
       ['--update', 'rewrite an existing app\'s generated files (its exact.mjs update runs this)'],
       ['--without <platform>', 'with --update: stop building and shipping linux or android'],
     ],
-    body: `The path's last part names the app. Then cd there: its exact.mjs runs everything, and
-bun exact.mjs help lists its verbs. Read docs/start-here.md first.
+    body: `The path's last part names the app's crates. Give --name and --bundle-id here, before the
+first build: a later change to the id makes the next build cold and leaves the old app installed.
+Then cd there: its exact.mjs runs everything, and bun exact.mjs help lists its verbs. Read
+docs/start-here.md first.
 Ports    none. Runs to completion.`,
-    example: 'bun scripts/exact.mjs new ~/notes && cd ~/notes && bun exact.mjs test web',
+    example: 'bun scripts/exact.mjs new ~/notes --name Notes --bundle-id com.yourcompany.notes && cd ~/notes && bun exact.mjs test web',
   },
 };
 
