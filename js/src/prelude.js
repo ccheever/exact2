@@ -1044,16 +1044,11 @@
   // --- the seam ------------------------------------------------------------
   var calls = new Map();     // id -> { id, status, value, error, tickets }
   var nextCall = 1;
-  // Large native strings travel alongside the JSON skeleton. The built-in
-  // serializer still owns getters, toJSON, omissions, and cycle detection.
-  // Explicit paths avoid reserving any property spelling in application data.
-  var captureString = global.__exact_capture_string;
-  delete global.__exact_capture_string;
-  // The engine's collections so far: an answer whose value outlived one
-  // says so with its captures, and the engine collects after its reply.
-  var gcEpoch = global.__exact_gc_epoch;
-  delete global.__exact_gc_epoch;
-  function epoch() { return typeof gcEpoch === "function" ? gcEpoch() : 0; }
+  // Large native strings travel beside the JSON skeleton, by explicit paths that
+  // reserve no property spelling; the built-in serializer owns getters, toJSON,
+  // omissions and cycles. Each says if its answer outlived a collection (shim.cc).
+  var captureString = global.__exact_capture_string, gcEpoch = global.__exact_gc_epoch || function () { return 0; };
+  delete global.__exact_capture_string; delete global.__exact_gc_epoch;
   function ok(value, held) {
     var reply = { tag: 0, value: value === undefined ? null : value };
     if (typeof captureString !== "function") return JSON.stringify(reply);
@@ -1189,7 +1184,7 @@
       pending.forEach(function (p) { if (p.call === call && p.claimed) inFlight = true; });
       if (moduleWide && inFlight) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
       if (call.status === "done") handSocketOps(call);
-      return reply(call, call.status === "done" ? ok(call.value, call.epoch !== epoch()) : fail(call.error));
+      return reply(call, call.status === "done" ? ok(call.value, call.epoch !== gcEpoch()) : fail(call.error));
     }
     if (moduleWide) {
       var unclaimed;
@@ -1226,7 +1221,7 @@
   // answer still waiting on nothing of its own.
   global.__exact_call = function (source, argsJson, mutation) {
     initializing = false;
-    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", sync: false, socketOps: null, epoch: epoch() };
+    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", sync: false, socketOps: null, epoch: gcEpoch() };
     var result;
     currentCall = call;
     try {
