@@ -1,3 +1,6 @@
+use CommandSpan from "../timeline/command-output.contract"
+use SecretCardView from "../timeline/secret-card.contract"
+use CodeToken from "../timeline/markdown.contract"
 use DiffFindView, FindDiffSegment from "../diff/diff-find.contract"
 use CodeHighlight from "../timeline/markdown.contract"
 use MermaidDiagram from "../timeline/markdown.contract"
@@ -47,7 +50,21 @@ shape InspectorResult
   label: string
   href: string
   preview: string
+shape ToolImage
+  id: string
+  name: string
+  source: string
+shape ReplArgument
+  id: string
+  key: string
+  text: string
+  tokens: CodeToken[]
 shape Activity
+  replArguments: ReplArgument[]
+  terminal: bool
+  terminalTruncated: bool
+  terminalSpans: CommandSpan[]
+  toolImages: ToolImage[]
   id: string
   label: string
   body: string
@@ -95,6 +112,7 @@ shape Activity
   linkTitle: string
   linkThreadId: string
 shape Message
+  secret: SecretCardView[]
   id: string
   kind: string
   title: string
