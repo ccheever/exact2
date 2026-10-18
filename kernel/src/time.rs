@@ -300,13 +300,22 @@ pub(crate) fn prepare_padding(arena: &mut crate::arena::NodeArena, m: &mut dyn T
             ));
         }
         let gap = widest - current;
-        let space = measure(
+        // A shaper may hang trailing spaces, even a nonbreaking one. Measure
+        // them between visible marks; averaging avoids rounded glyph metrics.
+        let padded = format!("|{}|", "\u{a0}".repeat(1024));
+        let space = (measure(
             m,
             &[TextRun {
-                text: "\u{a0}".into(),
+                text: padded.into(),
                 style,
             }],
-        );
+        ) - measure(
+            m,
+            &[TextRun {
+                text: "||".into(),
+                style,
+            }],
+        )) / 1024.0;
         if gap > 0.01 && space > 0.0 && gap.is_finite() && space.is_finite() {
             let count = (gap / space).ceil().clamp(1.0, 4096.0) as usize;
             arena.time_padding.insert(

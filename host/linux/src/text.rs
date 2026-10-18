@@ -1084,7 +1084,11 @@ impl TextMeasurer for Measurer {
         if let Some(text) = crate::canvas::time::format(r) {
             return Some(text);
         }
-        exact_kernel::time::english(r)
+        let mut request = *r;
+        if r.format.starts_with("date-") || r.format.starts_with("time-") {
+            request.utc_offset = crate::zone::offset_minutes_at(r.time_zone, r.datetime);
+        }
+        exact_kernel::time::english(&request)
     }
 
     fn button_measure(
@@ -1264,3 +1268,7 @@ mod text_box_tests;
 #[cfg(test)]
 #[path = "text/balance_tests.rs"]
 mod balance_tests;
+
+#[cfg(test)]
+#[path = "text/live_time_tests.rs"]
+mod live_time_tests;
