@@ -15,7 +15,7 @@ export type ComposerRichInput = {
   skills: Readonly<Record<string, string>>;
   literalRanges: readonly ComposerRange[];
   chips?: readonly ComposerChip[];
-  chipFaces?: readonly { kind: string; label: string; suffix: string }[];
+  chipFaces?: readonly { kind: string; atomLabel: string }[];
 };
 
 /** One source signature owns both body tokens and header ranges. A late answer

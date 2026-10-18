@@ -24,6 +24,9 @@ import { threadContextRecords, withMessageContext } from '../composer/composer-e
 import { projectPendingUserInputAnswer } from '../timeline/thread-links';
 import { pendingThreadImports } from '../composer/composer-thread-import';
 import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } from '../browser/browser-annotation'; // an annotation's send
+import { markAnnotationSend } from '../browser/browser-annotation';
+import { annotationDispatchCurrent, takeAnnotationDispatch } from '../browser/browser-capture';
+import { composerChipFinishCurrent, takeComposerChipFinish } from '../composer/composer-chip-bridge';
 import { pressGesture, sendIntent } from '../composer/composer-editor-intent';
 import { launchTitle } from '../composer/composer-editor-title';
 import { promptLengthMessage } from '../composer/composer-editor-menu';
@@ -75,13 +78,27 @@ export async function composerOps(this: T3Client, op: string, id: string, value:
 export async function composerWrites(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
   let resultMessage = '';
   try {
+    const annotation = op === 'send-annotation' ? takeAnnotationDispatch(this, Number(id)) : null;
+    const citation = op === 'send-citation' ? takeComposerChipFinish(this, Number(id)) : null;
+    if (op === 'send-citation') {
+      if (!citation?.send || composerInput(this)) return true;
+      op = 'send'; id = ''; value = citation.value;
+    }
+    if (op === 'send-annotation') {
+      if (!annotation) return true;
+      op = 'send'; id = ''; value = annotation.value;
+    }
     if (['send', 'submit-answers', 'advance-question', 'pick-option'].includes(op) && pendingThreadImports(this)) throw new ClientError('Still bringing attached context into this message. Send again once its chip resolves.');
     // A request held while the user typed (composer-typing-guard.ts) leaves the composer theirs: this send goes to the
     // thread, and sending releases the request.
     if (op === 'send' && composerRequests(this).approvals.length) throw new ClientError('Resolve this approval request to continue.');
-    else if (op === 'send' && composerInput(this) && annotationSendMarked(this)) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
+    else if (op === 'send' && composerInput(this) && (annotation !== null || annotationSendMarked(this))) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
     else if (op === 'send' && composerInput(this)) await submitAnswers.call(this, native, storage, '', value);
-    else if (op === 'send') { try { await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value, id)) || ''; }); } finally { releaseHeldRequests(this); } } // onSend's guard (a move in flight finishes first)
+    else if (op === 'send') { try { await autoBalanceSend(this, native, async () => {
+      if (citation && !composerChipFinishCurrent(this, citation)) return;
+      if (annotation) { if (!annotationDispatchCurrent(this, annotation)) return; markAnnotationSend(this); }
+      resultMessage = (await send.call(this, native, storage, value, id)) || '';
+    }); } finally { releaseHeldRequests(this); } } // onSend's guard (a move in flight finishes first)
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value, n === 1); // n 1: the picker's Shift+click or Shift+Return
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
     // composer.increaseEffort / composer.decreaseEffort (keyboard-dispatch.ts): id is the direction.

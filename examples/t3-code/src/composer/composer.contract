@@ -9,6 +9,7 @@ use PromptLengthValidation from "./composer-editor.contract"
 use AttachmentUrl from "../timeline/timeline-attachments.contract"
 use ComposerRichView from "./composer-rich.contract"
 use ComposerCodeHeaders from "./composer-code-headers.contract"
+use ComposerChipControls, ComposerChipLayout from "./composer-chip-controls.contract"
 
 // T3's ChatComposer: the composer card, its toolbar controls (ComposerControl.tsx
 // "sm"), the send/stop actions (ComposerPrimaryActions.tsx) and the traits and
@@ -53,6 +54,8 @@ component ComposerCard
     rem: number
     richComposer: ComposerRichView
     richComposerOwner: string
+    composerChipLayout: ComposerChipLayout
+    composerFieldInputSerial: number
     composerMoved: action
     composerBeforeInput: action
     composerTaskToggle: action
@@ -138,8 +141,9 @@ component ComposerCard
           box position="relative" width="100%" id="composer-field-wrap"
             if text == ""
               text data.composer.placeholder font-family=data.look.promptFont position="absolute" left=0 top=0 right=0 font-size="0.875rem" line-height=(resting ? "2rem" : "1.421875rem") line-clamp=(resting ? 1 : 3) color="light-dark(#71717abf, #818181bf)" pointer-events="none" aria-hidden=true testId="composer-placeholder"
-            textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner value=text input=richWrite decorations=richRanges selectionchange=richMoved beforeinput=richBeforeInput toggle=richToggle key=richKey keyup=richKeyReleased focus=onFocus blur=onBlur aria-label="Message" aria-description=data.composer.placeholder width="100%" margin-top=(resting ? "0px" : "-0.25rem") margin-bottom=(resting ? "0px" : "0.25rem") field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "4.375rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" caret-color="light-dark(#27272a, #f5f5f5)" autocorrect="off" outline="none"
+            textarea id="composer" testId="composer" hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite decorations=richRanges selectionchange=richMoved beforeinput=richBeforeInput toggle=richToggle key=richKey keyup=richKeyReleased focus=onFocus blur=onBlur aria-label="Message" aria-description=data.composer.placeholder width="100%" margin-top=(resting ? "0px" : "-0.25rem") margin-bottom=(resting ? "0px" : "0.25rem") field-sizing=(resting ? "fixed" : "content") height=(resting ? "2rem" : "auto") min-height=(resting ? "2rem" : "4.375rem") font-family=data.look.promptFont font-size=data.look.promptSize line-height=(resting ? "2rem" : `${data.look.promptSize * 1.625}px`) padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" caret-color="light-dark(#27272a, #f5f5f5)" autocorrect="off" outline="none"
             ComposerCodeHeaders(source=richComposer, owner=richComposerOwner, value=text, resting=resting)
+            ComposerChipControls(source=richComposer, layout=composerChipLayout, owner=richComposerOwner, value=text, serial=composerFieldInputSerial, surface="composer", size=data.look.promptSize, family=data.look.promptFont)
       // The prompt editor (composer-editor.contract): the length line,
       // and ⇧⇥'s plan toggle as a key button the native editor presses.
       if editor.promptLimit != "" and not resting

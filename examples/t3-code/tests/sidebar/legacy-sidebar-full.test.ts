@@ -26,6 +26,7 @@ import type { OpOut } from '../../src/client/client-ops';
 import { terminalUiStore } from '../../src/terminal/terminal-ui-state';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
+import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
 
 const at = (minute: number) => `2026-03-09T10:${String(minute).padStart(2, '0')}:00.000Z`;
 const files: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, async readFile() { return new ArrayBuffer(0); } } };
@@ -79,7 +80,7 @@ function rig(options: { threads?: Obj[]; projects?: Obj[]; threadId?: string; se
   const native: Native = { available: true, watch() {}, async later(request) {
     const op = obj(request); ops.push(op);
     if (op.op === 'ids') return { ok: true, generation: 0, value: Array.from({ length: Number(op.count) }, () => `00000000-0000-4000-8000-${String(ids++).padStart(12, '0')}`) };
-    if (op.op === 'editorInsert') return { ok: true, generation: 0, value: { applied: options.editorApplies === true } };
+    if (op.op === 'editorInsert') return { ok: true, generation: 0, value: { applied: options.editorApplies === true && acceptComposerEdit(client, op) } };
     if (op.op === 'subscribe') return { ok: true, generation: Number(op.generation ?? 0), value: { id: `sub-${ops.length}` } };
     const generation = op.fleet ? 3 : Number(op.generation ?? 0);
     return { ok: true, generation, value: op.op === 'connect' ? { state: 'connecting' } : {} };
@@ -323,7 +324,8 @@ describe('list motion and the destructive "Delete anyway"', () => {
 describe('files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () => {
   test('once the dropped-on thread is open, its queued files join its composer: images to the shelf, files as chips', async () => {
     const queued = { rowDrops: ['fleet:local:thread-9', 'fleet:local:thread-2'] };
-    const { client, native, ops } = rig({ threadId: 'thread-2', presentation: queued });
+    const { client, native, ops } = rig({ threadId: 'thread-2', presentation: queued, editorApplies: true });
+    observeComposer(client, '');
     const staged = [{ kind: 'file', id: '11111111-1111-4111-8111-111111111111', name: 'notes.txt', sizeBytes: 5, mimeType: 'text/plain' },
       { kind: 'image', id: '22222222-2222-4222-8222-222222222222', name: 'shot.png', sizeBytes: 64 }, { kind: 'unsupported-image', name: 'raw.tiff', sizeBytes: 9 }];
     native.later = (original => async (request: unknown) => obj(request).op === 'rowDropTake' ? (ops.push(obj(request)), { ok: true, generation: Number(obj(request).generation ?? 0), value: { files: staged } }) : original(request))(native.later.bind(native));
@@ -332,7 +334,7 @@ describe('files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () 
     expect(draftFiles(client.local).map(file => [file.name, file.draftKey])).toEqual([['notes.txt', 'local:thread-2']]);
     expect(client.local.snapshotDrafts['local:thread-2']?.map(image => image.name)).toEqual(['shot.png']);
     expect(opsOf(ops, 'editorInsert')[0]).toMatchObject({ owner: client.snapshotOwner });
-    expect(client.local.drafts['local:thread-2']).toContain('notes.txt', 'another thread\'s editor refused the chips: they join the stored draft');
+    expect(client.local.drafts['local:thread-2']).toContain('notes.txt');
     expect(client.error).toBe("'raw.tiff' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
   });
   test('nothing queued for the open thread asks the module nothing', async () => {
@@ -850,7 +852,7 @@ describe('row drop ownership during an environment handoff', () => {
     expect(opsOf(ops, 'rowDropClear').map(op => op.keys)).toEqual([['fleet:local:abandoned'], ['fleet:local:thread-2']]);
     expect(draftFiles(client.local)).toEqual([]);
   });
-  test('an image-only drop keeps its inline fallback chip with its original shelf after editor navigation', async () => {
+  test('an image-only drop preserves its original source and shelf after editor navigation refuses insertion', async () => {
     const { client, native, ops } = rig({ presentation: { rowDrops: ['fleet:local:thread-1'] } });
     client.local.drafts['local:thread-1'] = 'Keep this image here';
     const original = native.later.bind(native), owner = client.snapshotOwner;
@@ -870,9 +872,10 @@ describe('row drop ownership during an environment handoff', () => {
     release!();
     expect(await taking).toBe(true);
     expect(client.local.snapshotDrafts['local:thread-1']?.map(image => image.name)).toEqual(['shot.png']);
-    expect(client.local.drafts['local:thread-1']).toContain('shot.png');
+    expect(client.local.drafts['local:thread-1']).toBe('Keep this image here');
     expect(client.local.drafts['local:thread-2']).toBeUndefined();
     expect(client.local.snapshotDrafts['local:thread-2']).toBeUndefined();
+    expect(client.error).toBe('');
     expect(opsOf(ops, 'editorInsert')[0]?.owner).toBe(owner);
   });
 });

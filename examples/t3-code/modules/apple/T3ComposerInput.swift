@@ -9,9 +9,9 @@ import AppKit
 ///   first responder is observed instead; when it becomes the composer's text view,
 ///   the view's own delegate (Exact's node, behind T3ComposerTextDelegate) hears the
 ///   begin-editing it would have heard on typing. Resigning already ends editing.
-/// - Composing text: a ⌘ chord or a press elsewhere ends composition first, as a
-///   browser's compositionend does, so ⌘B bolds under Korean 2-Set and a click is
-///   never spent committing a syllable.
+/// - Composing text: a press outside the composer commits its marked text before
+///   the press proceeds. Keyboard composition and formatting stay with Exact's
+///   shared field.
 /// - The transcript's remembered position is Contract's: ChatColumn keeps the first visible
 ///   key and offset from the list's ScrollEvent and restores them with a keyed
 ///   `scrollIntoView` (app-main.contract).
@@ -27,10 +27,14 @@ final class T3ComposerInput {
     // MARK: Elements
 
     func install(_ element: ExactElement) {
-        if element.hatch == .t3Composer, let view = element.textView { attachComposer(view) }
+        if element.hatch == .t3Composer, let view = element.textView { composerElement = element; attachComposer(view) }
         observeWindow()
     }
+    func remove(_ element: ExactElement) {
+        if composerElement === element { destroy() }
+    }
     func destroy() {
+        composerElement = nil; composer = nil; composerFocused = false
         responder = nil; observedWindow = nil
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
@@ -38,6 +42,7 @@ final class T3ComposerInput {
 
     // MARK: Composer focus
 
+    private weak var composerElement: ExactElement?
     private weak var composer: NSTextView?
     private weak var observedWindow: NSWindow?
     private var responder: NSKeyValueObservation?

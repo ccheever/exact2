@@ -53,7 +53,7 @@ test('preview uses its own session, globally replaces a composer press and close
   session.observe(owner, value, '', 'plain');
   const preview = { ...snapshot, owner, value, inputSerial: 1 };
   composerChipPreview(client, preview);
-  const next = composerChipOpen(client, { ...request(), ...session.chips[0]!, surface: 'preview', owner, value })!;
+  const next = composerChipOpen(client, { ...request(), ...session.chips[0]!, surface: 'preview', owner, value, inputSerial: preview.inputSerial })!;
   expect(next.seq).toBeGreaterThan(composer.seq);
   expect(next).toMatchObject({ surface: 'preview', name: 'preview', act: '' });
   expect(composerChipClose(client, composer.seq)).toBe(false);
@@ -63,6 +63,20 @@ test('preview uses its own session, globally replaces a composer press and close
   expect(composerChipCurrent(client)?.seq).toBe(next.seq);
   composerChipPreview(client, { ...preview, live: false });
   expect(composerChipCurrent(client)).toBeNull();
+  const reopen = { ...preview, inputSerial: 2 };
+  composerChipPreview(client, reopen);
+  const oldCallback = { ...request(), ...session.chips[0]!, surface: 'preview', owner, value, inputSerial: 1 };
+  expect(composerChipOpen(client, oldCallback)).toBeNull();
+  expect(composerChipOpen(client, { ...oldCallback, inputSerial: 2 })?.surface).toBe('preview');
+});
+
+test('same-source undo cannot revive a callback from an older accepted input serial', () => {
+  const { client, owner, snapshot, request, session } = setup(), old = request();
+  composerFieldObserved(client, [{ ...snapshot, value: 'new', inputSerial: 1 }, true], owner);
+  composerFieldObserved(client, [{ ...snapshot, inputSerial: 2 }, true], owner);
+  session.observe(owner, snapshot.value, 'historyUndo');
+  expect(composerChipOpen(client, old)).toBeNull();
+  expect(composerChipOpen(client, { ...old, inputSerial: 2 })?.kind).toBe('skill');
 });
 
 test('product press admission resolves context state and rejects unavailable context callbacks', () => {

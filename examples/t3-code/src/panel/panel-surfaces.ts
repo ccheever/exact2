@@ -38,7 +38,7 @@ import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import type { PrTarget } from './pr-surface';
 import { letGo } from '../client/let-go';
 // Browser tabs over the module's WKWebView (browser-surface.ts).
-import { annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from '../browser/browser-capture'; // The floating player's browser source, an annotation's send
+import { annotationDispatchView, annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from '../browser/browser-capture'; // The floating player's browser source, an annotation's send
 import { automationRecordingView, serveRecordingRequests, type AutomationRecordingView } from '../browser/browser-automation-recording';
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
@@ -60,6 +60,7 @@ export type PanelView = {
   browserMini: BrowserMiniView;
   /** Bumps when an annotation's ⌘Return should send, whatever the panel shows (app.contract annotationSend). */
   annotationSend: number;
+  annotationOwner: string; annotationValue: string; annotationSnapshot: string; annotationGeneration: number;
   /** Bumps when the previewAutomation host hands over a recording request, and names the
    *  queued send to run it on (app.contract automationRecording). */
   automationRecording: AutomationRecordingView;
@@ -378,7 +379,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
     browser: open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client), // The client's profiles for the "+" menu and the launcher
     browserMini: browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)), // shouldRenderPreviewMiniPlayer's browser half
-    annotationSend: annotationSendSerial(client), // After browserPrepare applied the picks
+    ...annotationDispatchView(client), annotationSend: annotationSendSerial(client), // After browserPrepare applied the picks
     automationRecording: automationRecordingView(client), // the agent's recording tools (browser-automation-recording.ts)
   };
 }
@@ -392,4 +393,4 @@ export function shownDevice(client: T3Client): DeviceTarget | undefined {
   const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
   return state.visible && active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
 }
-export const closedPanel = (): PanelView => ({ key: '', launcher: false, maximized: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), annotationSend: 0, automationRecording: { serial: 0, slot: 0 } });
+export const closedPanel = (): PanelView => ({ key: '', launcher: false, maximized: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), annotationSend: 0, annotationOwner: '', annotationValue: '', annotationSnapshot: '', annotationGeneration: -1, automationRecording: { serial: 0, slot: 0 } });

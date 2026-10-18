@@ -6,6 +6,7 @@ import { composerChipCompleted, composerChipStore } from './composer-chip-store'
 import { composerMarkdown } from './composer-markdown';
 import { chipDecorations, composerChips } from './composer-source-chips';
 import { composerHistoryComplete, composerHistoryReset } from './composer-prompt-history';
+import { finishAttachmentEffect, resetAttachmentEffects } from './composer-attachment-receipts';
 
 export type ComposerFieldHost = { generation: number; snapshotOwner: string; draftKey: string };
 export type ComposerFieldObservation = ComposerFieldSnapshot & { focused: boolean; inputSerial: number };
@@ -20,13 +21,14 @@ function field(host: ComposerFieldHost, owner: string): Field {
   const current = result.commands.read();
   if (current && (current.generation !== host.generation || current.snapshotOwner !== host.snapshotOwner || current.owner !== owner)) {
     composerHistoryReset(host);
+    resetAttachmentEffects(host);
     composerChipStore(host).citations.reset();
     result.commands.observe({ ...current, generation: host.generation, snapshotOwner: host.snapshotOwner, owner, live: false }, false);
     result.active = null;
   }
   return result;
 }
-function observation(value: unknown): ComposerFieldObservation | null {
+export function composerFieldObservation(value: unknown): ComposerFieldObservation | null {
   if (!record(value) || !integer(value.generation) || typeof value.snapshotOwner !== 'string' || typeof value.owner !== 'string'
     || typeof value.value !== 'string' || !integer(value.start) || !integer(value.end) || value.start < 0 || value.end < value.start || value.end > value.value.length
     || typeof value.composing !== 'boolean' || typeof value.live !== 'boolean' || typeof value.focused !== 'boolean' || !integer(value.inputSerial) || value.inputSerial < 0) return null;
@@ -39,6 +41,7 @@ export function composerFieldCurrent(host: ComposerFieldHost, owner: string): Co
   const current = fields.get(host)?.commands.read();
   return current?.live && current.generation === host.generation && current.snapshotOwner === host.snapshotOwner && current.owner === owner ? current : null;
 }
+export function composerFieldInputSerial(host: ComposerFieldHost): number { return Math.max(0, fields.get(host)?.inputSerial ?? 0); }
 const result = (entry: Field, reason = ''): ComposerFieldResult => {
   const current = entry.commands.read();
   return { applied: false, reason, value: current?.value ?? '', start: current?.start ?? 0, end: current?.end ?? 0 };
@@ -60,7 +63,7 @@ function observe(host: ComposerFieldHost, owner: string, value: ComposerFieldObs
 /** Root resources publish current owner/selection facts, then wait for one
  *  request. Only the separate typed input turn may confirm its source edit. */
 export function composerFieldResource(host: ComposerFieldHost, args: readonly unknown[], owner: string): ComposerFieldCommand | Promise<ComposerFieldCommand> {
-  const value = observation(args[0]), after = integer(args[1]) && args[1] >= 0 ? args[1] : 0;
+  const value = composerFieldObservation(args[0]), after = integer(args[1]) && args[1] >= 0 ? args[1] : 0;
   const entry = value ? observe(host, owner, value, false) ?? field(host, owner) : field(host, owner);
   const identity = value ?? { generation: host.generation, snapshotOwner: host.snapshotOwner, owner: '' };
   const command = entry.commands.wait(after, identity);
@@ -73,14 +76,14 @@ export function composerFieldResource(host: ComposerFieldHost, args: readonly un
 }
 
 export function composerFieldObserved(host: ComposerFieldHost, args: readonly unknown[], owner: string): ComposerFieldResult {
-  const value = observation(args[0]);
+  const value = composerFieldObservation(args[0]);
   if (!value || typeof args[1] !== 'boolean') return result(field(host, owner), 'field observation invalid');
   const entry = observe(host, owner, value, args[1]);
   return entry ? result(entry) : result(field(host, owner), 'field observation stale');
 }
 
 export function composerFieldAcknowledged(host: ComposerFieldHost, args: readonly unknown[], owner: string): ComposerFieldAcknowledgement {
-  const value = observation(args[0]), seq = integer(args[1]) && args[1] > 0 ? args[1] : 0;
+  const value = composerFieldObservation(args[0]), seq = integer(args[1]) && args[1] > 0 ? args[1] : 0;
   const entry = field(host, owner), active = entry.active;
   const fallback = { ...result(entry, 'field acknowledgement stale'), generation: host.generation, snapshotOwner: host.snapshotOwner, owner: value?.owner ?? '', seq, then: '', send: false };
   if (!value || typeof args[2] !== 'boolean' || !active || active.seq !== seq || !identityMatches(active, value)
@@ -91,6 +94,7 @@ export function composerFieldAcknowledged(host: ComposerFieldHost, args: readonl
   if (!current) return fallback;
   const completed = entry.commands.acknowledge(seq, value, current, args[2]);
   composerHistoryComplete(host, active, completed.applied);
+  finishAttachmentEffect(host, active, completed.applied, current);
   const effect = composerChipStore(host).citations.complete(active, completed.applied, current);
   const session = composerSourceSession(host);
   const chips = effect?.kind === 'open' && session.mode !== 'literal'
@@ -119,7 +123,8 @@ export function composerFieldNative(host: ComposerFieldHost, native: Native, cur
     if (replacement.kind === 'refused') return reply({ applied: false, reason: replacement.reason });
     if (replacement.fold !== null) await native.later({ op: 'editorForgetFold', id: replacement.fold });
     field(host, currentOwner());
-    const completed = await entry.commands.request(replacement.edit, { focus: replacement.focus, then: replacement.then, history: replacement.history, citation: replacement.citation });
+    const completed = await entry.commands.request(replacement.edit, { focus: replacement.focus, then: replacement.then, history: replacement.history, citation: replacement.citation, completion: replacement.completion });
+    finishAttachmentEffect(host, { ...replacement.edit, completion: replacement.completion ?? 0 }, completed.applied, entry.commands.read());
     return reply({ applied: completed.applied, reason: completed.reason, caret: completed.start });
   } };
 }
