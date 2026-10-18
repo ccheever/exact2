@@ -50,7 +50,9 @@ extension ControlHost {
             let written = Self.authorsAccent(owner)
             // `accent-color: AccentColor` under an authored accent keeps that one, as the web's
             // `var(--exact-accent, AccentColor)` does (LLP 1121 D9, stage 9 F1).
-            let kept = written || owner.style["accent_color"] == nil ? nil : Self.authoredAbove(owner)?.channels("accent_color").map { TextEngine.color($0) }
+            // (Resolved in the spinner's appearance, as the painters resolve it.)
+            let kept = written || owner.style["accent_color"]?.namesTint != true ? nil
+                : authoredAbove(owner)?.style["accent_color"]?.channels(dark: owner.drawsDark, contrast: owner.drawsHighContrast, elevated: owner.drawsElevated).map { TextEngine.color($0) }
             let accent = (written ? owner.channels("accent_color").map { TextEngine.color($0) } : nil) ?? kept ?? ThemeRoles.color("AccentColor", in: spinner)
             assign(spinner, \.color, own ?? accent ?? Self.platformInk)
             assign(spinner, \.isHidden, owner.cssVisibilityHidden)
@@ -70,14 +72,19 @@ extension ControlHost {
     /// Whether `view` authors its `accent-color` (not the platform's tint,
     /// which `accent-color: AccentColor` names).
     static func authorsAccent(_ view: NodeView) -> Bool {
-        view.style["accent_color"].map { "\($0)".contains("@tint/") || !"\($0)".contains("@tint") } ?? false
+        guard let accent = view.style["accent_color"] else { return false }
+        // A colour of its own, or one made from the tint (`Highlight`'s `@tint/0.2`); not the tint itself.
+        if case .object(let o) = accent, let sys = o["sys"]?.string { return sys.hasPrefix("@tint/") }
+        return !accent.namesTint
     }
-    /// The nearest view above `view` that authors an accent, if one does.
-    static func authoredAbove(_ view: NodeView) -> NodeView? {
-        var at = view.superview
+    /// The nearest view above `view` that authors an accent, if one does, by
+    /// the authored tree (a presented route, a dialog's sheet and a lifted
+    /// popover to their authored parent: `listenerParent`).
+    func authoredAbove(_ view: NodeView) -> NodeView? {
+        var at = presenter.listenerParent(of: view)
         while let current = at {
-            if let node = current as? NodeView, authorsAccent(node) { return node }
-            at = current.superview
+            if let node = current as? NodeView, Self.authorsAccent(node) { return node }
+            at = presenter.listenerParent(of: current)
         }
         return nil
     }
