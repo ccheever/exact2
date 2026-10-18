@@ -3284,7 +3284,9 @@ light-dark(#f1f3f5, #16181c)`, written as CSS, dotted names allowed), and an
 `axes` block of app modes (`dark-style = black | dim  under scheme=dark`), each
 token's value in a mode on its own `when dark-style=dim: …` line. Rows name a
 token as they name a role, and an expression over tokens
-(`color-mix(in oklab, accent.fill 40%, surface.card)`) is folded by the build.
+(`color-mix(in oklab, accent.fill 40%, surface.card)`) is folded by the build,
+written whole, in a choice's arm or inside a shadow; a mix of colours alone
+(`color-mix(in srgb, red 35%, transparent)`) is a token in the `theme` block.
 `setMode("dark-style", "dim")` sets the window's mode; `-exact-mode="dark-style=black"`
 on a node holds its subtree in one (pins are `axis=value`, by spaces or commas;
 `axis:value` is refused), and inherited text inside takes the pin's value. The

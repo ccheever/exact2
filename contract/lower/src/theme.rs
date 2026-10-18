@@ -19,6 +19,7 @@ use exact_kernel::style::{roles, theme};
 use exact_kernel::{Color, ColorValue};
 use exact_tamber as tamber;
 use scan::Said;
+pub(crate) use scan::{literal_leaves, words};
 
 /// One resolved entry: the names it answers to and the colour text it
 /// stands for, which names no entry.

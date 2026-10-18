@@ -171,6 +171,9 @@ pub(crate) fn value_edit(
     let Expr::Str(text, _) = value else {
         return None;
     };
+    if let Some(edit) = mix_edit(name, text) {
+        return Some(edit);
+    }
     match error {
         StyleValueError::BadColor { .. } => role_hint(text, true).map(|e| e.lead(name, text)),
         StyleValueError::WrongKind { .. } => {
@@ -209,6 +212,27 @@ pub(crate) fn value_edit(
         }
         _ => None,
     }
+}
+
+/// The edit for a refused value holding `color-mix()`, which no host parses: a mix of the
+/// design's tokens is folded by the build (a synthetic token, LLP 1121 D3), so one of
+/// colours alone is declared as a token, in a choice's arm or a shadow as anywhere.
+fn mix_edit(name: &str, text: &str) -> Option<String> {
+    let start = text.find("color-mix(")?;
+    let mut depth = 0;
+    let end = text[start..].char_indices().find_map(|(k, c)| {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => return None,
+        }
+        (depth == 0).then_some(start + k + 1)
+    })?;
+    let mix = &text[start..end];
+    let written = format!("{}mixed{}", &text[..start], &text[end..]);
+    Some(format!(
+        "declare the mix as a token in app.tamber's `theme` (a new app.tamber's first line is `tamber <name>`), `mixed = {mix}`, and write `{name}=\"{written}\"`: the build folds `color-mix()` only over the design's tokens, as `color-mix(in srgb, <token> 35%, transparent)`, and a mix of colours alone is no colour a host reads"
+    ))
 }
 
 #[cfg(test)]

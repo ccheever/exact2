@@ -250,7 +250,9 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 errors.extend(dataset::refused(a));
                                 continue;
                             }
-                            let checked = match tags::attr_valued(&a.name, &a.value) {
+                            let check = |a: &contract_syntax::Attr| match tags::attr_valued(
+                                &a.name, &a.value,
+                            ) {
                                 None => Err(unknown_attr(tag, a)),
                                 // A family is resolved against declared fonts.
                                 Some(tags::AttrTarget::Styles(rows))
@@ -299,11 +301,24 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 Some(_) => Ok(()),
                             };
                             // An expression over a token is folded by the
-                            // build (a synthetic token, LLP 1121 D3), not here.
-                            let folded = matches!(&a.value, contract_syntax::Expr::Str(t, _)
-                                if t.contains('(') && t.split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
-                                    .any(exact_kernel::style::theme::names));
-                            errors.extend(checked.err().filter(|_| !folded));
+                            // build (a synthetic token, LLP 1121 D3), not here,
+                            // in a choice's arm as in a whole value; the other
+                            // arms are checked here.
+                            let folded = |t: &str| {
+                                t.contains('(')
+                                    && crate::theme::words(t).any(exact_kernel::style::theme::names)
+                            };
+                            let mut leaves = Vec::new();
+                            crate::theme::literal_leaves(&a.value, &mut leaves);
+                            if leaves.iter().any(|(t, _)| folded(t)) {
+                                for (t, span) in leaves.into_iter().filter(|(t, _)| !folded(t)) {
+                                    let value = contract_syntax::Expr::Str(t, span);
+                                    let leaf = contract_syntax::Attr { value, ..a.clone() };
+                                    errors.extend(check(&leaf).err());
+                                }
+                            } else {
+                                errors.extend(check(a).err());
+                            }
                         }
                     }
                     walk(children, errors);
