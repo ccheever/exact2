@@ -444,7 +444,7 @@ test('the production file command refuses a source outside the admitted fs.read 
   writeFileSync(resolve(dir, 'files.js'), readFileSync(resolve(ROOT, 'host/web-js/files.js'), 'utf8')
     .replace("from './rt.js'", "from './rt-stub.js'").replace("from './navigation.js'", "from './navigation-stub.js'"));
   writeFileSync(resolve(dir, 'rt-stub.js'), `export const journal=[],clock={now:0,agent:true},inflight={n:0},Hosts={},OnHooks={},Views=new Map(),data={appId:'test.files'};export const nextTicket=()=>1,viewId=()=>1;\n`);
-  writeFileSync(resolve(dir, 'navigation-stub.js'), `export const reportPlace=()=> ['en','UTC','1'].join(String.fromCharCode(0));\n`);
+  writeFileSync(resolve(dir, 'navigation-stub.js'), `export { inertAncestor } from './navigation.js';\nexport const reportPlace=()=> ['en','UTC','1'].join(String.fromCharCode(0));\n`);
   cpSync(resolve(ROOT, 'host/web-js/pointer.js'), resolve(dir, 'pointer.js'));
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
   for (const name of ['grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
@@ -965,9 +965,9 @@ export function answer(name, args, store, storage) {
     // What `JSON.stringify` leaves out is not there for Hermes either.
     expect(data.answer('ledger', ['dropped'], new Map()).v).toEqual([[['d', [['a', 1]]]], 'n']);
     await expect(data.answer('later', [], new Map()).promise).rejects.toThrow('`later` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape');
-    // A storage refusal's code is Hermes's (kanban F28): a drive with no scratch store.
+    // A storage refusal's code is Hermes's (kanban F28): a drive with no scratch store reads an empty one.
     globalThis.location = { href: 'http://localhost/?agent' };
-    expect(await data.answer('read', [], new Map()).promise).toBe('Unavailable agent storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)');
+    expect(await data.answer('read', [], new Map()).promise).toBe('Unavailable ENOENT filesystem: no such file or directory: app:/data/x (a drive that names no scratch store reads an empty one; --storage <name> names one)');
     // A stream is the answer's, opened by the runtime, admitted as the wasm host admits it: a socket by
     // `net.websocket` (x2apps dash diary: refused as `net.fetch`). Outside an answer it says where to start one.
     const stream = data.answer('stream', [], new Map());
@@ -1176,7 +1176,7 @@ test('storage re-homes an answer\'s writes to the background before retiring it'
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-rehome-'));
   try {
     cpSync(resolve(ROOT, 'host/web/storage.js'), resolve(dir, 'storage.js'));
-    writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
+    writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => []; export const storageKey = () => 'k';");
     // Each write lands when the test says.
     writeFileSync(resolve(dir, 'storage-fs.js'), 'export const createFileSystem = () => ({ writeFile: () => new Promise(ok => globalThis.landWrite.push(ok)) });');
     globalThis.landWrite = [];
@@ -1282,7 +1282,7 @@ try {
   postMessage('error: ' + (error && error.stack || error));
 }
 `);
-  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
+  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => []; export const storageKey = () => 'k';");
   writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
   writeFile: () => new Promise(ok => globalThis.land.push(() => ok(''))),
   readFile: () => new Promise(ok => globalThis.land.push(() => ok('contents'))),
@@ -1339,7 +1339,7 @@ const scratch = owner => ({ owner });
 ${body}
 })();
 `);
-  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
+  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => []; export const storageKey = () => 'k';");
   writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
   writeFile: () => new Promise(ok => { globalThis.writes++; globalThis.land.push(() => ok('')); }),
   readFile: () => new Promise(ok => globalThis.land.push(() => ok('contents'))),

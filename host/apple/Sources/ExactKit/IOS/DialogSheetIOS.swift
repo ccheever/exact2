@@ -103,7 +103,11 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     /// modal dialog; one wider or taller than the sheet scrolls.
     private func place() {
         guard isViewLoaded, let dialog = scroller.subviews.lazy.compactMap({ $0 as? NodeView }).first else { return }
-        let center = CGPoint(x: max(box.width, scroller.bounds.width) / 2, y: box.height / 2)
+        // Its origin on the pixel grid, as every box's is (`PixelGridIOS.swift`).
+        let s = max(1, view.traitCollection.displayScale), size = dialog.bounds.size
+        let origin = CGPoint(x: PixelGrid.round((max(box.width, scroller.bounds.width) - size.width) / 2, scale: s),
+                             y: PixelGrid.round((box.height - size.height) / 2, scale: s))
+        let center = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
         if dialog.center != center { dialog.center = center }
         let content = CGSize(width: max(box.width, scroller.bounds.width), height: box.height)
         if scroller.contentSize != content { scroller.contentSize = content }
@@ -288,6 +292,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         if live(dialog), let parent = entry.parent {
             parent.insertSubview(dialog, at: min(entry.index, parent.subviews.count))
             dialog.frame = entry.frame
+            presenter?.regrid(dialog)
         } else {
             dialog.removeFromSuperview()
         }

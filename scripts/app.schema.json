@@ -211,6 +211,70 @@
         "additionalProperties": false
       }
     },
+    "live_activities": {
+      "description": "Reserved for stage 2; remove it for this bake.",
+      "not": {}
+    },
+    "widgets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "families",
+          "component",
+          "props",
+          "refresh",
+          "preview"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "title": {
+            "type": "string",
+            "description": "Gallery display name; defaults to the humanised kind."
+          },
+          "description": {
+            "type": "string",
+            "description": "Gallery description; defaults to the humanised kind."
+          },
+          "component": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "props": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "refresh": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "families": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "systemSmall",
+                "systemMedium",
+                "systemLarge",
+                "systemExtraLarge",
+                "accessoryCircular",
+                "accessoryRectangular",
+                "accessoryInline"
+              ]
+            }
+          },
+          "preview": {
+            "type": "object"
+          }
+        }
+      }
+    },
     "protocol_handlers": {
       "type": "array",
       "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s.",
@@ -487,6 +551,17 @@
                 "height"
               ],
               "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "android": {
+          "description": "Android: `minimumOS` (default 12).",
+          "type": "object",
+          "properties": {
+            "minimumOS": {
+              "description": "The oldest Android the app runs on, as \"12\"; never below 10. Below 12 the APK carries the reader's Android 10 and 11 code (host/android/README.md, \"Android 10 and 11\"); at 12 or later it carries none.",
+              "enum": ["10", "11", "12", "13", "14", "15", "16"]
             }
           },
           "additionalProperties": false

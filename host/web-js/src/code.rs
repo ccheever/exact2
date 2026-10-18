@@ -88,17 +88,19 @@ impl Uses {
     }
 }
 
-/// The roster entries that build a string past `MAX_STRING`'s reach: budget.js
-/// checks their result at the call's pc.
+/// The roster entries that build a string past `MAX_STRING`'s reach, and
+/// `sortBy`'s list: budget.js checks their result at the call's pc.
 fn checked(f: Stdlib) -> bool {
     matches!(
         f,
         Stdlib::Join
+            | Stdlib::SortBy
             | Stdlib::T
             | Stdlib::EncodeURIComponent
             | Stdlib::EncodeRouteSegment
             | Stdlib::ReplaceAll
             | Stdlib::ToLowerCase
+            | Stdlib::ToUpperCase
     )
 }
 
@@ -114,6 +116,8 @@ fn stepped(f: u64) -> bool {
         Stdlib::IndexOf,
         Stdlib::Split,
         Stdlib::Sum,
+        Stdlib::Range,
+        Stdlib::Flat,
     ]
     .iter()
     .any(|&g| f == g as u64)

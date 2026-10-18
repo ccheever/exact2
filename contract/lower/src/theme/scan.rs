@@ -48,6 +48,8 @@ pub(crate) fn colour_codec(row: StyleId) -> bool {
 /// An attribute that may hold a colour: a colour row, or a shorthand
 /// (`border`, `outline`, `background`) that sets one.
 fn colour_attr(name: &str) -> bool {
+    // A state part's row (LLP 1121 D8) is the row it is.
+    let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
     match crate::tags::attr(name) {
         Some(crate::tags::AttrTarget::Styles(rows)) => rows.iter().any(|r| colour_codec(*r)),
         Some(crate::tags::AttrTarget::Shorthand) => true,
@@ -84,6 +86,9 @@ pub(crate) struct Said {
     /// Every word the literals write, a token's name or not: what D7's
     /// retention reads (`tamber::Retention`), for this design or an edit of it.
     pub words: BTreeSet<String>,
+    /// Every word a colour keyframe writes: a token one names is folded into
+    /// the keyframes, so its value is the plan's structure.
+    pub folded: BTreeSet<String>,
 }
 
 impl Said {
@@ -128,6 +133,7 @@ impl Said {
                 Node::Children { .. } => {}
             }
         }
+        let mut folded = BTreeSet::new();
         // A colour keyframe folds its tokens as a row does (`keyframes::tokens`):
         // its value as the app compiles it, through a palette function's
         // template (`shade("chip")` to `light-dark(chip, #ffffff)`).
@@ -139,6 +145,7 @@ impl Said {
         {
             if colour_attr(&a.name) {
                 if let Some(text) = crate::keyframes::constant(&a.value, &file.fns) {
+                    folded.extend(words(&text).map(str::to_string));
                     literals.push((text, a.span, true));
                 }
             }
@@ -173,6 +180,7 @@ impl Said {
         let mut said = Said {
             computed,
             computed_measure,
+            folded,
             ..Default::default()
         };
         for (text, span, strict) in literals {
@@ -198,6 +206,7 @@ impl Said {
 
 /// An attribute that sets a row a length or number token may name.
 fn measure_attr(name: &str) -> bool {
+    let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
     match crate::tags::attr(name) {
         Some(crate::tags::AttrTarget::Styles(rows)) => rows.iter().any(|r| {
             use exact_kernel::style::theme::{admits, Kind};

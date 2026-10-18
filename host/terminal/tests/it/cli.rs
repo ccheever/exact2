@@ -356,6 +356,112 @@ fn normal_exit_waits_for_room_to_restore_screen() {
 }
 
 #[cfg(unix)]
+fn write_readiness(
+    mut output: impl std::io::Write + std::os::fd::AsFd,
+    mut bytes: &[u8],
+) -> std::io::Result<()> {
+    use rustix::event::{poll, PollFd, PollFlags};
+    use std::io::ErrorKind;
+
+    while !bytes.is_empty() {
+        match output.write(bytes) {
+            Ok(0) => return Err(ErrorKind::WriteZero.into()),
+            Ok(n) => bytes = &bytes[n..],
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                let mut fds = [PollFd::new(&output, PollFlags::OUT)];
+                match poll(&mut fds, None) {
+                    Ok(_) | Err(rustix::io::Errno::INTR) => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn readiness_write_handles_backpressure_and_partial_writes() {
+    use std::io::{ErrorKind, Read, Write};
+    use std::os::fd::{AsFd, BorrowedFd};
+    use std::os::unix::net::UnixStream;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    struct Writer {
+        stream: UnixStream,
+        blocked: Option<mpsc::Sender<()>>,
+        partial: bool,
+    }
+    impl AsFd for Writer {
+        fn as_fd(&self) -> BorrowedFd<'_> {
+            self.stream.as_fd()
+        }
+    }
+    impl Write for Writer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            // Force short writes even when the reader drains faster than we write.
+            let result = self.stream.write(&bytes[..bytes.len().min(4096)]);
+            match &result {
+                Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                    if let Some(tx) = self.blocked.take() {
+                        tx.send(()).unwrap();
+                    }
+                }
+                Ok(n) if *n < bytes.len() => self.partial = true,
+                _ => {}
+            }
+            result
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.stream.flush()
+        }
+    }
+
+    let (mut stream, mut reader) = UnixStream::pair().unwrap();
+    stream.set_nonblocking(true).unwrap();
+    reader
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut filled = 0;
+    loop {
+        match stream.write(&[b'X'; 4096]) {
+            Ok(n) => {
+                assert!(n > 0);
+                filled += n;
+            }
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+            Err(e) => panic!("fill output: {e}"),
+        }
+    }
+    let (tx, rx) = mpsc::channel();
+    let drain = std::thread::spawn(move || {
+        // Keep the buffer full until the readiness writer encounters EAGAIN.
+        rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let mut received = Vec::new();
+        reader.read_to_end(&mut received).unwrap();
+        received
+    });
+    let mut writer = Writer {
+        stream,
+        blocked: Some(tx),
+        partial: false,
+    };
+    let bytes = b"WORK_PENDING\n".repeat(filled);
+    let result = write_readiness(&mut writer, &bytes);
+    let partial = writer.partial;
+    drop(writer);
+    let received = drain.join().unwrap();
+    result.unwrap();
+    assert!(partial, "payload must exceed the output buffer");
+    assert_eq!(&received[..filled], vec![b'X'; filled]);
+    assert_eq!(&received[filled..], bytes);
+}
+
+#[cfg(unix)]
 #[test]
 fn pending_data_child() {
     use exact_plan::Value;
@@ -374,7 +480,8 @@ fn pending_data_child() {
 
         fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
             Some(Box::new(|| {
-                eprintln!("WORK_PENDING");
+                // The PTY's stdout and stderr share the host's O_NONBLOCK flag.
+                write_readiness(std::io::stderr().lock(), b"WORK_PENDING\n").unwrap();
                 loop {
                     std::thread::park();
                 }
@@ -836,4 +943,32 @@ fn a_progress_bar_is_a_row_of_blocks() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(text.contains("███████████████░░░░░"), "{text}");
+}
+
+#[test]
+fn headless_time_uses_agent_facts_and_survives_an_invalid_place() {
+    let path = entry("live-time-facts");
+    std::fs::write(&path, "component App\n  view\n    column\n      time datetime=1767234600000 format=\"relative\"\n      time datetime=1767225600000 format=\"time-short\"\n").unwrap();
+    // A refused locale falls back to en-US alone; the zone it came with stays.
+    for (locale, clock) in [("en-US", "7:00 PM"), ("invalid@locale", "7:00 PM")] {
+        let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
+            .arg(&path)
+            .args(["--size", "80x6", "print"])
+            .env("EXACT_AGENT_EPOCH", "1767225600000")
+            .env("EXACT_AGENT_TIME_ZONE", "America/Toronto")
+            .env("EXACT_AGENT_LOCALE", locale)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let screen = String::from_utf8(out.stdout).unwrap();
+        assert!(
+            screen.contains("in 3 hr.") && screen.contains(clock),
+            "{screen}"
+        );
+    }
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }

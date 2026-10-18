@@ -307,3 +307,17 @@ check('a sheet\'s bar centres its title, a page\'s stays leading, and the author
   // Centred in its own text where it fills the space (a title the author grew).
   expect(await evaluate(`document.getElementById('s3-title').style.flexGrow = '1'; getComputedStyle(document.getElementById('s3-title')).textAlign`)).toBe('center');
 }, bars), 60000);
+
+check('an app bar Back control remains live inside a modal beneath an inert ancestor', () => inChrome(async evaluate => {
+  await evaluate(`
+    const nav = document.getElementById('nav'), dialog = document.createElement('dialog');
+    nav.before(dialog); dialog.append(nav); dialog.showModal();
+    document.getElementById('exact-root').inert = true;
+    select('3');
+  `);
+  expect(await evaluate(`press('r3'); calls.splice(0)`)).toEqual(['pressed r3']);
+  expect(await evaluate(`document.querySelector('#r3 #back').inert = true; press('r3'); calls.splice(0)`))
+    .toEqual(['log app bar: Back refused: its id="back" control is disabled, inert or not shown']);
+  expect(await evaluate(`document.querySelector('#r3 #back').inert = false; document.querySelector('dialog').inert = true; press('r3'); calls.splice(0)`))
+    .toEqual(['log app bar: Back refused: its id="back" control is disabled, inert or not shown']);
+}), 60000);

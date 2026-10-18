@@ -141,7 +141,7 @@ impl<D: DataSource> Host<D> {
             }
         }
     }
-    /// Catch published presentation atomically, after Presenter geometry admission.
+    /// Catch visible presentation atomically, after Presenter geometry admission.
     pub fn transform_drag_begin(
         &mut self,
         binding: TransformDragBinding,
@@ -164,12 +164,10 @@ impl<D: DataSource> Host<D> {
             .id;
         let p = self.presented(view);
         let values = [
-            Value {
-                x: p.translate.0 as f64,
-                y: p.translate.1 as f64,
-                ..Value::ZERO
-            },
-            Value::scalar(p.scale as f64),
+            self.played_value(node, Property::Translate, now_ms / 1000.)
+                .unwrap_or_else(|| Value::new(p.translate.0 as f64, p.translate.1 as f64)),
+            self.played_value(node, Property::Scale, now_ms / 1000.)
+                .unwrap_or_else(|| Value::scalar(p.scale as f64)),
         ];
         if !valid_values(values) || !now_ms.is_finite() || now_ms < self.now_ms {
             return Err("invalid transform presentation or clock".into());

@@ -269,7 +269,7 @@ pub struct GeometryLinks {
     measure: fn(&mut Kernel, &Scrolled, ViewId) -> GeometryAnswer,
     point: fn(&Kernel, &Scrolled, f64, f64) -> Option<ViewId>,
     points: fn(&Kernel, &Scrolled, f64, f64) -> Vec<ViewId>,
-    shown: fn(&Kernel, &Scrolled, ViewId) -> bool,
+    shown: fn(&Kernel, &Scrolled, ViewId, bool) -> bool,
     ahead: fn(&Plan, &[u8], &mut Kernel, &Scrolled, &GeometryLinks) -> Measured,
     read: fn(&GeometryEnv<'_>, &Plan, Stdlib, &[Value]) -> Option<Value>,
 }
@@ -278,13 +278,15 @@ impl GeometryLinks {
     /// A host's reads: `frame`, where layout put a view as last laid out,
     /// `measure`, the view's box as if its `height` were `auto`, and
     /// `point`, the front-most view whose box holds a viewport point, and
-    /// `points`, every such view in paint order.
+    /// `points`, every such view in paint order. `shown` receives `true` on
+    /// the first candidate of each structural read, so a host can snapshot
+    /// its presentation once for the read.
     pub const fn new(
         frame: fn(&Kernel, &Scrolled, ViewId) -> GeometryAnswer,
         measure: fn(&mut Kernel, &Scrolled, ViewId) -> GeometryAnswer,
         point: fn(&Kernel, &Scrolled, f64, f64) -> Option<ViewId>,
         points: fn(&Kernel, &Scrolled, f64, f64) -> Vec<ViewId>,
-        shown: fn(&Kernel, &Scrolled, ViewId) -> bool,
+        shown: fn(&Kernel, &Scrolled, ViewId, bool) -> bool,
     ) -> GeometryLinks {
         GeometryLinks {
             frame,
@@ -762,13 +764,14 @@ fn data_selector(selector: &str) -> Option<(&str, &str)> {
 fn data_matches(
     kernel: &Kernel,
     scrolled: &Scrolled,
-    shown: fn(&Kernel, &Scrolled, ViewId) -> bool,
+    shown: fn(&Kernel, &Scrolled, ViewId, bool) -> bool,
     word: &str,
     value: &str,
 ) -> Vec<String> {
     let arena = kernel.arena();
     let mut stack: Vec<u32> = arena.roots().iter().rev().copied().collect();
     let mut out = Vec::new();
+    let mut first = true;
     while let Some(slot) = stack.pop() {
         let props = arena.props(slot);
         let blocked =
@@ -782,7 +785,12 @@ fn data_matches(
                     .is_some_and(|words| words.split_ascii_whitespace().any(|v| v == value))
                 && props.bool(PropId::Inert) != Some(true)
                 && inherited_hit_state(kernel, slot).is_some()
-                && shown(kernel, scrolled, arena.local_id(slot))
+                && shown(
+                    kernel,
+                    scrolled,
+                    arena.local_id(slot),
+                    std::mem::replace(&mut first, false),
+                )
             {
                 out.push(id.to_owned());
             }
@@ -825,7 +833,7 @@ fn behind_modal(kernel: &Kernel, scrolled: &Scrolled, slot: u32) -> bool {
     !std::iter::successors(Some(slot), |&s| arena.parent(s)).any(|s| live.contains(&s))
 }
 
-fn kernel_shown(kernel: &Kernel, scrolled: &Scrolled, view: ViewId) -> bool {
+fn kernel_shown(kernel: &Kernel, scrolled: &Scrolled, view: ViewId, _: bool) -> bool {
     if crate::head::inactive(kernel, view) {
         return false;
     }

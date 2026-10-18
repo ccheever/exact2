@@ -323,7 +323,41 @@ pub fn theme_css() -> String {
         true => format!("#exact-root [style*=color-scheme]{{{SCHEME_COLOR}}}"),
         false => String::new(),
     };
-    format!(":root{{{out}}}{scheme}")
+    format!(":root{{{out}}}{scheme}{}", brand_states())
+}
+
+/// @ref LLP 1129 D2, D3 — what a theme's accent and selection colours
+/// reach on the web beyond the controls. The keyboard's ring is drawn in
+/// the theme's accent, as iOS draws its focus halo in the tint the theme
+/// sets (LLP 1095 D1), and solid: Chrome's `auto` ring ignores its offset
+/// and hugs the control, so in the accent it vanishes on a control the
+/// accent fills. Selected text takes the theme's `Highlight` pair; unsaid,
+/// no `::selection` rule is written, since one changes how an engine draws
+/// an inactive selection.
+fn brand_states() -> String {
+    let said = |name: &str| role(name).is_some_and(|id| overridden(id).is_some());
+    let mut out = String::new();
+    if overridden(accent()).is_some() {
+        // Two ids and nothing else: over the shell's `outline: revert` on
+        // its controls (one id, index.html) and under the author's classes
+        // (two ids and a class), so an authored `outline` wins. An invalid
+        // field keeps its red ring. The bar's Back, and a platform button
+        // the accent fills, which the shell gives no offset, take one.
+        out.push_str(
+            "#exact-root#exact-root :where(:focus-visible:not([aria-invalid=true])),\
+             #exact-root#exact-root [navigationkey]>header::part(back):focus-visible\
+             {outline:2px solid var(--exact-accent)}\
+             #exact-root#exact-root :where(button[data-native]:is([data-button-style=filled],\
+             [data-button-style=bordered-prominent]):focus-visible){outline-offset:2px}",
+        );
+    }
+    if said("Highlight") || said("HighlightText") {
+        out.push_str(
+            "#exact-root ::selection{background-color:var(--exact-highlight,Highlight);\
+             color:var(--exact-highlight-text,HighlightText)}",
+        );
+    }
+    out
 }
 
 /// @ref LLP 1095 D4 — a theme's `CanvasText` is a `color` on the web's root,
@@ -779,6 +813,30 @@ impl ColorValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_themes_accent_and_highlight_reach_the_ring_and_the_selection() {
+        let pair = |l: u32, d: u32| ColorValue::LightDark(Color(l), Color(d));
+        let id = |name: &str| role(name).unwrap();
+        set_overrides(vec![(id("CanvasText"), pair(0x1f2a_22ff, 0xece7_daff))]);
+        let plain = theme_css();
+        assert!(
+            !plain.contains(":focus-visible") && !plain.contains("::selection"),
+            "{plain}"
+        );
+        set_overrides(vec![
+            (id("AccentColor"), pair(0x2f6b_3fff, 0x7cc0_8aff)),
+            (id("Highlight"), pair(0x2f6b_3fff, 0x7cc0_8aff)),
+        ]);
+        let branded = theme_css();
+        assert!(
+            branded.contains("#exact-root#exact-root :where(:focus-visible:not([aria-invalid=true])),#exact-root#exact-root [navigationkey]>header::part(back):focus-visible{outline:2px solid var(--exact-accent)}"),
+            "{branded}"
+        );
+        assert!(branded.contains("#exact-root ::selection{background-color:var(--exact-highlight,Highlight);color:var(--exact-highlight-text,HighlightText)}"), "{branded}");
+        set_overrides(Vec::new());
+        assert_eq!(theme_css(), "");
+    }
 
     #[test]
     fn a_reported_resolution_replaces_the_fallback_until_withdrawn() {

@@ -324,6 +324,32 @@ final class NativeButtonsMacTests: XCTestCase {
             XCTAssertEqual(checked, [true], kind)
         }
     }
+    /// A checkbox's or switch's own `press` runs before its `change`, as
+    /// HTML's `click` precedes them; an ancestor's does not.
+    func testACheckboxsOwnPressRunsBeforeItsChange() throws {
+        for kind in ["checkbox", "switch"] {
+            let props = ["type": "checkbox", "accessibilityRole": kind]
+            let p = presenter(box(1, handlers: ["press"]) + [["op": "create", "id": 2, "kind": "control", "props": props, "handlers": ["press", "change"], "style": [:]],
+                                                             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 140.0, "h": 30.0],
+                                                             ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]], faces: [:])
+            var heard: [String] = []
+            p.onPress = { heard.append("press \($0)") }
+            p.onChecked = { id, on in heard.append("checked \(id) \(on)") }
+            try XCTUnwrap(p.controls.controls[2], kind).performClick(nil)
+            XCTAssertEqual(heard, ["press 2", "checked 2 true"], kind)
+            p.views[2]?.handlers = ["change"]
+            try XCTUnwrap(p.controls.controls[2], kind).performClick(nil)
+            XCTAssertEqual(heard, ["press 2", "checked 2 true", "checked 2 false"], "\(kind): no press of its own, none bubbles")
+            // Bound and unchanged, its press's batch syncs the control back:
+            // the toggle reported is still the one the click made.
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["checked": "false"]]]))
+            p.views[2]?.handlers = ["press", "change"]
+            p.onPress = { heard.append("press \($0)"); p.apply(wireBatch([["op": "props", "id": 2, "set": ["checked": "false"]]])) }
+            try XCTUnwrap(p.controls.controls[2], kind).performClick(nil)
+            XCTAssertEqual(heard.suffix(2), ["press 2", "checked 2 true"], "\(kind): bound")
+            window.close()
+        }
+    }
     /// Runs the main queue past what is on it now.
     private func drain() {
         var drained = false

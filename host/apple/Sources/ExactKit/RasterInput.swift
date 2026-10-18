@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// A source-interest lifetime, not a Runtime callback. Cancelling detaches the
@@ -30,9 +31,17 @@ final class RasterInput: @unchecked Sendable {
     let url: URL
     let encodedBytes: Int
     private let temporary: Bool
-    private init(url: URL, encodedBytes: Int, temporary: Bool) {
-        self.url = url; self.encodedBytes = encodedBytes; self.temporary = temporary
+    /// The asset catalog's name for this file, when it is the launch image
+    /// the catalog was built from (`ExactLaunchImageSource` and its bytes'
+    /// `ExactLaunchImageSHA256`, host/apple/assets.mjs) and a plain PNG:
+    /// decoded from the catalog at the size the launch screen shows it. An
+    /// update's new bytes under the name are decoded from the file.
+    private(set) var catalog: String?
+    private init(url: URL, encodedBytes: Int, temporary: Bool, catalog: String? = nil) {
+        self.url = url; self.encodedBytes = encodedBytes; self.temporary = temporary; self.catalog = catalog
     }
+    private static let launchSource = Bundle.main.object(forInfoDictionaryKey: "ExactLaunchImageSource") as? String
+    private static let launchDigest = Bundle.main.object(forInfoDictionaryKey: "ExactLaunchImageSHA256") as? String
     deinit { if temporary { try? FileManager.default.removeItem(at: url) } }
     static func open(_ name: String, resolver: AssetResolver, cancellation: RasterCancellation = RasterCancellation()) throws -> RasterInput {
         guard !cancellation.isCancelled else { throw URLError(.cancelled) }
@@ -62,7 +71,8 @@ final class RasterInput: @unchecked Sendable {
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
         guard values.isRegularFile == true, let count = values.fileSize,
               count > 0, count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
-        return RasterInput(url: url, encodedBytes: count, temporary: false)
+        return RasterInput(url: url, encodedBytes: count, temporary: false,
+                           catalog: name == launchSource && launchDigest != nil ? "ExactLaunchImage" : nil)
     }
     /// A `data:` URL's bytes: base64 after `;base64`, else percent-decoded;
     /// whitespace and percent escapes in base64 forgiven, as browsers do.
@@ -85,6 +95,17 @@ final class RasterInput: @unchecked Sendable {
     func metadata() throws -> RasterMetadata {
         let file = try FileHandle(forReadingFrom: url)
         defer { try? file.close() }
+        // The launch image's name: the whole file is read once (only under
+        // that name, on the worker inspecting it), and the catalog stands in
+        // only for the bytes it was made from, whose header says its size.
+        if catalog != nil {
+            let whole = encodedBytes <= RasterMetadata.headerLimit ? try file.read(upToCount: encodedBytes + 1) ?? Data() : Data()
+            if whole.count == encodedBytes,
+               SHA256.hash(data: whole).map({ String(format: "%02x", $0) }).joined() == Self.launchDigest,
+               let plain = RasterMetadata.plainPNG(prefix: whole, encodedBytes: encodedBytes) { return plain }
+            catalog = nil
+            try file.seek(toOffset: 0)
+        }
         let prefix = try file.read(upToCount: RasterMetadata.headerLimit) ?? Data()
         return try RasterMetadata.read(prefix: prefix, encodedBytes: encodedBytes)
     }

@@ -241,6 +241,29 @@ impl Hasher for SlotHasher {
     }
 }
 
+std::thread_local! {
+    static STILL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While it lives, a change any engine on this thread observes jumps to its
+/// value: no transition starts, and one running on the property stops there
+/// (a scrub's frame, which follows the tool's gesture, LLP 1121 D13): the
+/// whole commit's, its layout and heights observed after its rows
+/// included. An animation plays on.
+#[must_use]
+pub struct Still(bool);
+
+/// See [`Still`].
+pub fn still() -> Still {
+    Still(STILL.with(|s| s.replace(true)))
+}
+
+impl Drop for Still {
+    fn drop(&mut self) {
+        STILL.with(|s| s.set(self.0));
+    }
+}
+
 /// The motion state of every node the host has told it about.
 #[derive(Debug)]
 pub struct Engine {
@@ -499,7 +522,7 @@ impl Engine {
                 .get(&change.node)
                 .and_then(|t| t.matching(change.property))
         }
-        .filter(|t| t.starts())
+        .filter(|t| t.starts() && !STILL.with(std::cell::Cell::get))
         .map(|t| t.governing(change.property));
 
         // An unchanged settled slot (most of a touched node's) changes

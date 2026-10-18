@@ -363,19 +363,6 @@ pub(super) fn agent_refusal() -> Outcome {
 }
 pub(super) const AGENT_REFUSAL: &str =
     "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)";
-/// Whether a storage request writes: what a drive with no store loses. A
-/// refused read answers as an empty store would (`storage-environment.js`
-/// `agentRefusalSaid` keeps the same list).
-pub(super) fn writes(payload: &[u8]) -> bool {
-    let op = serde_json::from_slice::<Value>(payload)
-        .ok()
-        .and_then(|r| r["op"].as_str().map(str::to_owned))
-        .unwrap_or_default();
-    !matches!(
-        op.rsplit('.').next(),
-        Some("readFile" | "readdir" | "stat" | "realpath" | "query")
-    )
-}
 /// Native disk operations do not need (or initialize) the app storage roots.
 /// Classify malformed disk spellings too: the filesystem adapter refuses them
 /// after source/grant admission, before opening any handle. This is not authority.

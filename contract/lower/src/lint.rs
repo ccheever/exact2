@@ -117,6 +117,21 @@ fn logical(name: &str) -> Option<String> {
     })
 }
 
+/// What is written for a React Native style name that has no one CSS name.
+pub(crate) fn react_native(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "paddingHorizontal" => "; React Native's `paddingHorizontal` is `padding-left` and `padding-right` here, or `padding=\"<vertical> <horizontal>\"`",
+        "paddingVertical" => "; React Native's `paddingVertical` is `padding-top` and `padding-bottom` here, or `padding=\"<vertical> <horizontal>\"`",
+        "marginHorizontal" => "; React Native's `marginHorizontal` is `margin-left` and `margin-right` here, or `margin=\"<vertical> <horizontal>\"`",
+        "marginVertical" => "; React Native's `marginVertical` is `margin-top` and `margin-bottom` here, or `margin=\"<vertical> <horizontal>\"`",
+        "shadowColor" | "shadowOpacity" | "shadowRadius" | "shadowOffset" | "elevation" => {
+            "; React Native's shadow is one `box-shadow=\"<x>px <y>px <2 × shadowRadius>px <shadowColor at shadowOpacity>\"` here"
+        }
+        "selectable" => "; selectable text is `user-select=\"text\"` here",
+        _ => return None,
+    })
+}
+
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
         None if crate::fields::placeholder_hint(&a.name).is_some() => {
@@ -141,6 +156,9 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
                 fragmentation(&a.name).unwrap_or_default()
             )
         }
+        None if react_native(&a.name).is_some() => {
+            react_native(&a.name).unwrap_or_default().into()
+        }
         None if logical(&a.name).is_some() => format!(
             "; CSS's logical `{}` is not admitted: write {}",
             a.name,
@@ -152,6 +170,14 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
              `commandfor=\"id\" command=\"show-modal\"` on a button; close it with `close(\"id\")` \
              or `commandfor=\"id\" command=\"close\"`. A dialog that state holds open is not \
              available yet"
+                .into()
+        }
+        // @ref LLP 1061 D7: no selectors, so no pressed block of any row;
+        // what the host can change under a finger, with no layout, is named.
+        None if a.name.starts_with("-exact-press-") => {
+            "; a pressed look is paint only, never layout: `-exact-press-opacity`, \
+             `-exact-press-background-color`, `-exact-press-color` and `-exact-press-scale` \
+             (and `-exact-press-haptic`), which the host shows while a pointer holds the node"
                 .into()
         }
         None if a.name == "className" => {
@@ -212,10 +238,10 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     } else {
                         let coerced = svg::coerce_lengths(tag, false, attrs);
                         let attrs = coerced.as_deref().unwrap_or(attrs);
-                        for a in attrs
-                            .iter()
-                            .filter(|a| a.name != "class" && !native::leftover(tag, a))
-                        {
+                        // `delete=` is lowering's, a list row's swipe (`swipe_rows.rs`).
+                        for a in attrs.iter().filter(|a| {
+                            a.name != "class" && a.name != "delete" && !native::leftover(tag, a)
+                        }) {
                             if let Some(e) = native::refused(tag, a) {
                                 errors.push(e);
                                 continue;
@@ -303,5 +329,10 @@ pub fn lint(file: &File) -> Vec<LowerError> {
         walk(&c.view, &mut errors);
     }
     errors.truncate(MAX_REFUSALS);
+    // A param by its full name, never its token's (LLP 1121 D15).
+    let params = crate::params::tokens(file);
+    for e in &mut errors {
+        e.message = crate::params::shown(&e.message, &params);
+    }
     errors
 }

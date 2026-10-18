@@ -496,10 +496,14 @@ extension Agent {
     }
 
     /// `tap {back:true}` (LLP 1116.006 D4): the platform's Back as a person
-    /// takes it — an open confirmation's cancel (a keyboard's Escape, a tap
+    /// takes it — a real share sheet's close (`--touch platform`, Share.swift),
+    /// an open confirmation's cancel (a keyboard's Escape, a tap
     /// outside), else a pushed route's Back button, else the top sheet's
     /// swipe down. The system's button is no node, so no tap reaches it.
     func back() -> [String: Any] {
+        #if os(iOS)
+        if ShareSheet.agentBack(in: session) || session.picker.agentBackDocument() { return backReply(("sheet", "")) }
+        #endif
         if let cancelled = presenter.menus.agentCancel() { return backReply(("dialog", cancelled ? "" : "the alert is still moving: `clock settle` first")) }
         if let refused = presenter.navigation.agentBack() { return backReply(("route", refused)) }
         return backReply(presenter.modals.agentDismiss().map { ("sheet", $0) })
@@ -518,6 +522,9 @@ extension Agent {
             return ["error": "a contact is already down; use `tap up` or `tap cancel` first"]
         }
         settleForPress()
+        // Each synthetic contact ends a live press's handoff before it is
+        // delivered, as a real one's touch-down does (PressHandoffIOS).
+        presenter.supersedePress()
         if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
@@ -552,11 +559,10 @@ extension Agent {
             if let reply = recognizedPan(phase, req) { return reply }
             return ["phase": phase, "delivery": "unsupported", "reason": "no held contact across requests on iOS (LLP 1080.000 P3)"]
         }
-        // The painted popovers under the agent (LLP 1021 D4): a tap opens,
-        // closes or dismisses them first, then is delivered as any tap.
+        // Light-dismiss before resolving the tap's press.
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil {
-            presenter.menus.agentTap(node)
+            presenter.menus.agentTap(node, landing: tapLanding(req, node: node))
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
@@ -760,6 +766,13 @@ extension Agent {
         return reply
     }
 
+    /// At a point, the view a finger there lands on, as `PopoverTouch` sees it; nil without one.
+    func tapLanding(_ req: [String: Any], node: NodeView) -> UIView? {
+        guard ["at", "x", "y"].contains(where: { req[$0] != nil }), let point = tapPoint(req, node: node),
+              point.x.isFinite, point.y.isFinite else { return nil }
+        return node.window?.hitTest(windowPoint(point), with: nil)
+    }
+
     /// A control's padding follows the ordinary press path when a point is given.
     private func tapHitsControl(_ node: NodeView, request: [String: Any]) -> Bool {
         if ["at", "x", "y"].allSatisfy({ request[$0] == nil }) { return true }
@@ -927,6 +940,8 @@ extension Agent {
                         p.collections.animationEnded(list.id, dragging: true)
                     }
                     sv.setContentOffset(target, animated: false)
+                    // As a trackpad's scroll shows them, fading after.
+                    sv.flashScrollIndicators()
                     return
                 }
                 if let owner = sv.superview as? NodeView,
@@ -1073,6 +1088,7 @@ extension Agent {
             // macOS's `routeKey` hear them (gallery F18, ShortcutsIOS).
             #if os(iOS)
             if phase != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
+                presenter.supersedePress() // a key, as `keyDown` and `performShortcut` take it
                 presenter.press(node.id)
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
@@ -1099,7 +1115,13 @@ extension Agent {
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
                     f.heard = nil
                 } else if presenter.controls.radioKey(focus, name, held: held) { // x2apps survey #2
-                } else if focus.handlers.contains("press") || focus.defaultLink != nil, name == "Enter" || (name == " " && focus.props["href"] == nil) { presenter.press(focus.id) }
+                } else {
+                    #if os(iOS)
+                    _ = focus.activateKey(name)
+                    #else
+                    if focus.handlers.contains("press") || focus.defaultLink != nil, name == "Enter" || (name == " " && focus.props["href"] == nil) { presenter.press(focus.id) }
+                    #endif
+                }
             }
             return ["typed": Int(v.id), "key": key, "value": Agent.shownValue(v.textArea?.text ?? v.field?.text ?? "", of: v), "delivery": "recognized"]
         }
@@ -1243,10 +1265,11 @@ extension Agent {
         }
         // What the picture shows in the page that the app presents as UIKit's
         // own, said where the image cannot (euxy port, FRICTION §2).
+        // Under native presentation what is still painted is what a person sees painted too (a content popover).
         let painted = presenter.menus.presented.filter { $0.window != nil && !$0.isHidden }
-        if !painted.isEmpty {
+        if !painted.isEmpty, ExactEnv.agentPaints {
             r["painted"] = painted.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
-            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview; under --touch platform a menu is UIKit's"
+            r["paintedNote"] = "an open popover is painted in the page under the agent, as the web draws it (LLP 1021 D4): the app shows a menu as UIKit's menu at its invoker, a context menu's with its preview; to picture UIKit's menu, drive with --touch platform, where a screenshot with a menu up is the window's, the menu in it"
         }
         let bars = presenter.navigation.paintedForBars()
         if !bars.isEmpty {
@@ -1331,6 +1354,9 @@ extension Agent {
         guard let window = presenter.viewport.window, let root = window.rootViewController else { return nil }
         visit(root)
         if let alert = found as? UIAlertController { return alert.preferredStyle == .alert ? "alert" : "action sheet" }
+        #if os(iOS)
+        if found is UIActivityViewController { return "share sheet" }
+        #endif
         // A menu one of the popovers gave UIKit (`--touch platform`), however
         // UIKit presents it; tvOS has no menus or popovers.
         #if !os(tvOS)

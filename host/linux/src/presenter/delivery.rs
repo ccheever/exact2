@@ -22,14 +22,51 @@ impl<D: DataSource> Presenter<D> {
     /// Connect the existing development URL loop; polling starts after first pixel.
     pub fn set_development(&mut self, url: Option<String>, identity: Option<String>) {
         self.dev = url.map(|url| crate::fetch::Poller::new(url, self.compat.clone(), identity));
+        // Its answers wake the executor's fd, so a host that turns only when
+        // woken (the Android reader's canvas host) takes them at once.
+        let waker = self.executor.waker();
+        if let Some(dev) = self.dev.as_mut() {
+            *dev.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(waker);
+        }
         // What the build channel's registration names (LLP 1122 D4).
         if let Some(link) = self.dev.as_mut().and_then(|dev| dev.link.as_mut()) {
             link.design = Some(self.host.runner().design());
         }
     }
 
+    /// Milliseconds from `now` until a turn is owed: the next timer, or the
+    /// development poll's next tick when sooner (attached, and the first
+    /// pixel out: it polls after). A host that turns only when woken asks
+    /// this (the Android reader's canvas host).
+    pub fn turn_due_ms(&self, now: f64) -> Option<f64> {
+        let timer = self.timer_due_ms().map(|due| (due - now).max(0.0));
+        let dev = self.dev.as_ref().filter(|_| self.painted);
+        let poll = dev
+            .and_then(|d| d.due_in())
+            .map(|d| d.as_secs_f64() * 1000.0);
+        match (timer, poll) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
     /// Apply a finished URL generation without blocking the presentation thread.
     pub fn poll_development(&mut self, data: impl FnOnce() -> D) {
+        if !self.painted {
+            return;
+        }
+        self.tick_development();
+        // The build channel (LLP 1122 D4): the frames its tick took, the
+        // commands dispatched before any generation is handled.
+        self.serve_build_channel();
+        self.apply_development(data);
+    }
+
+    /// The development poll's tick alone: its workers started when due, an
+    /// answer taken (a generation kept for [`Self::poll_development`] to
+    /// apply). A frame that must stay quick (a scroll step on the Android
+    /// reader) still ticks, so a due poll is never left waiting on it.
+    pub fn tick_development(&mut self) {
         if !self.painted {
             return;
         }
@@ -48,9 +85,10 @@ impl<D: DataSource> Presenter<D> {
             Some(Err(error)) => eprintln!("exact url: {error}; keeping the running app"),
             _ => {}
         }
-        // The build channel (LLP 1122 D4): the frames its tick took, the
-        // commands dispatched before any generation is handled.
-        self.serve_build_channel();
+    }
+
+    /// Install the generation a tick kept, when it may go.
+    fn apply_development(&mut self, data: impl FnOnce() -> D) {
         if let Some(generation) = self.pending_dev.take() {
             let let_go = self
                 .dev
@@ -59,8 +97,12 @@ impl<D: DataSource> Presenter<D> {
                 .is_some_and(|t| t.elapsed() >= LET_GO_AFTER);
             match self.reload_module(&generation.plan, data(), generation.module.clone(), let_go) {
                 Ok(_) => {
+                    let waker = self.executor.waker();
                     let dev = self.dev.as_mut().unwrap();
                     dev.identity = Some(generation.identity);
+                    // A new executor, so its waker (and a new wake
+                    // descriptor, which the Android reader watches again).
+                    *dev.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(waker);
                     // The generation runs the design it was built with; one
                     // applied live while it downloaded is newer. The next
                     // tick's snapshot (or 204, the plan's own) converges.

@@ -16,7 +16,7 @@ export function routes(table) {
 }
 const HEX = "0123456789ABCDEF", utf8 = new TextEncoder();
 const enc = (s, esc) => { let o = ""; for (const b of utf8.encode(s)) o += esc(b) ? "%" + HEX[b >> 4] + HEX[b & 15] : String.fromCharCode(b); return o; };
-const dec = (s, plus) => { const out = []; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c === 37 && /^[0-9a-f]{2}$/i.test(s.substr(i + 1, 2))) { out.push(parseInt(s.substr(i + 1, 2), 16)); i += 2; } else if (plus && c === 43) out.push(32); else out.push(...utf8.encode(s[i])); } return new TextDecoder().decode(new Uint8Array(out)); };
+const dec = (s, plus) => { const out = []; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c === 37 && /^[0-9a-f]{2}$/i.test(s.substr(i + 1, 2))) { out.push(parseInt(s.substr(i + 1, 2), 16)); i += 2; } else if (plus && c === 43) out.push(32); else out.push(...utf8.encode(s[i])); } return new TextDecoder("utf-8", { ignoreBOM: true }).decode(new Uint8Array(out)); };
 const clean = s => s.replace(/^[\0- ]+|[\0- ]+$/g, "").replace(/[\t\n\r]/g, "");
 /** `canonical` (route/src/location.rs): path and query, dot segments resolved, escaped. */
 export function canonical(location) {

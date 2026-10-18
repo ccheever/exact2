@@ -118,7 +118,7 @@ impl Module {
         let format = inst
             .config
             .as_ref()
-            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.format);
+            .map_or_else(|| inst.offscreen_format(), crate::view_format);
         if !matches!(
             format,
             wgpu::TextureFormat::Rgba8Unorm

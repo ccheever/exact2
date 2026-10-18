@@ -3,8 +3,6 @@ package dev.exact.canvas
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
-import android.os.MessageQueue
-import android.os.ParcelFileDescriptor
 import android.view.Choreographer
 import java.nio.ByteOrder
 import java.nio.IntBuffer
@@ -137,6 +135,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     /** Whether the host's wake descriptors are watched: once, however many readers boot it. */
     private var watching = false
+    /** The host's wake descriptors, watched again after each turn ([schedule]): a dev loop's plan brings new ones. */
+    private var wakes: Wakes? = null
 
     /** Whether an accessibility service is on, and whether the reader holds nothing of the tree yet (LLP 1115.001
      * D13): the exact thread's own. exact2 is asked for the tree with each stream only while one is on. */
@@ -168,17 +168,12 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
                 synchronized(lock) { owedDy = 0f; owedSeq = 0 }
                 if (!watching) {
                     watching = true
-                    val wakes = thread.looper.queue
-                    for (fd in Native.fds()) {
-                        if (fd < 0) continue
-                        val pfd = ParcelFileDescriptor.fromFd(fd)
-                        wakes.addOnFileDescriptorEventListener(pfd.fileDescriptor, MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT) { _, _ ->
-                            // A reply, a picture, or a request exact2 queued with no frame to follow it.
-                            if (Native.poll()) produce() else { requests(); schedule() }
-                            MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT
-                        }
+                    // A reply, a picture, or a request exact2 queued with no frame to follow it; or an acquired image.
+                    wakes = Wakes(thread.looper.queue) { index ->
+                        if (index == Wakes.ACQUIRED) Native.acquired(running) else if (Native.poll()) produce() else { requests(); schedule() }
                     }
                 }
+                wakes?.sync()
                 produce()
             }
             main.post { done(ok) }
@@ -354,9 +349,9 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     }
 
     /** Run [f] on the exact thread and wait for it (Back, a surface's window): rare, and the answer is needed now. */
-    fun <T> sync(f: () -> T): T {
+    fun <T> sync(publish: Boolean = true, f: () -> T): T {
         if (Looper.myLooper() == thread.looper) return f()
-        val task = FutureTask { val r = f(); produce(); r }
+        val task = FutureTask { val r = f(); if (publish) produce(); r }
         handler.post(task)
         return task.get()
     }
@@ -414,7 +409,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         // The display's frame: the shortest gap between consecutive vsyncs seen.
         if (vsync > 0 && t - vsync > 2_000_000) frameNanos = minOf(frameNanos, t - vsync)
         vsync = t
-        turnPosted = false; produce()
+        turnPosted = false; Native.displayFrame(); produce()
     }
     private var vsync = 0L
     private var frameNanos = 1_000_000_000L / 60
@@ -430,6 +425,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     private fun schedule() {
         if (!running) return
+        wakes?.sync()
         if (Native.animating() && late) { late = false; handler.post(again) }
         else if (Native.animating() && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
         var due = Native.nextDue()
@@ -572,13 +568,13 @@ internal object Exact {
     fun detachBuffers(view: Int) {
         val o = owner
         val f = { Native.detachSurface(view, 0L) }
-        if (o == null) f() else if (detachWait) o.sync(f) else o.call(f)
+        if (o == null) f() else if (detachWait) o.sync(f = f) else o.call(f)
     }
 
     /** Take a GPU canvas's window back, waiting for it; [window] (read on the exact thread) is the handle, 0 for none. */
     fun detachSurface(view: Int, window: () -> Long) {
         val o = owner
         val f = { val w = window(); if (w != 0L) Native.detachSurface(view, w) }
-        if (o != null) o.sync(f) else f()
+        if (o != null) o.sync(publish = false, f = f) else f()
     }
 }

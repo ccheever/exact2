@@ -1,12 +1,7 @@
 // swift-tools-version:5.9
-// One package for the Apple hosts (LLP 1031 D6): `ExactKit` — the session,
-// the view, the app owner, the presenters, text, canvases, web views, the
-// agent, the dev connection — over the C ABI in include/exact.h, with the
-// AppKit and UIKit halves under `#if os(...)`; the two standalone apps
-// (`ExactMac`, `ExactIOS`) and the two sample hosts (`ExactHostMac`,
-// `ExactHostIOS`) as executables over it. Links the app's static library
-// (`bun host/apple/build.mjs` builds it and points EXACT_LIB_DIR/EXACT_LIB
-// at it; the default is Caltrain's macOS archive).
+// ExactCore owns the extension-safe runtime, batches and text measurement.
+// ExactKit adds the presenters and app lifecycle; capabilities and executables
+// compose it. build.mjs selects the app's Rust archive with EXACT_LIB_DIR/EXACT_LIB.
 import PackageDescription
 import Foundation
 
@@ -45,15 +40,22 @@ let testing = ProcessInfo.processInfo.environment["EXACT_TESTS"] == "1"
 // production one (`EXACT_UPDATE_TRUST=production`) compiles none of it.
 let devTools: [SwiftSetting] = ProcessInfo.processInfo.environment["EXACT_UPDATE_TRUST"] == "production" ? [] : [.define("EXACT_INSPECT")]
 
+let widgetCore = ProcessInfo.processInfo.environment["EXACT_WIDGET_CORE"] == "1"
+let sharedCore = ProcessInfo.processInfo.environment["EXACT_CORE_FRAMEWORK"]
 let core: [Target] = [
     .systemLibrary(name: "CExact", path: "Sources/CExact"),
-    .target(
-        name: "ExactKit",
+    sharedCore.map { .binaryTarget(name: "ExactCore", path: $0) } ?? .target(
+        name: "ExactCore",
         dependencies: ["CExact"],
-        path: "Sources/ExactKit",
-        swiftSettings: devTools,
-        linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++")]
+        path: "Sources/ExactCore",
+        swiftSettings: [.unsafeFlags(["-application-extension"])] + (widgetCore ? [.define("EXACT_WIDGETS")] : []),
+        linkerSettings: (widgetCore ? [.unsafeFlags(["-Xlinker", "-force_load", "-Xlinker", libDir + "/lib" + libName + ".a"])] : [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName)]) + [.linkedLibrary("c++"), .linkedFramework("ImageIO")]
     ),
+    // The snapshot driver (LLP 1126 D4, D5): SwiftUI over a headless
+    // session's node model, for WidgetKit's archive. Linked by an app with
+    // entries and its extension, never by a presenter.
+    .target(name: "ExactSnapshot", dependencies: ["ExactCore", "CExact"], path: "Sources/ExactSnapshot", swiftSettings: [.unsafeFlags(["-application-extension"])]),
+    .target(name: "ExactKit", dependencies: ["ExactCore", "CExact"], path: "Sources/ExactKit", swiftSettings: devTools),
     .target(name: "ExactUpdates", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactUpdates"),
     .target(name: "ExactGroupedLists", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactGroupedLists"),
     .target(name: "ExactMarkdown", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactMarkdown"),
@@ -86,14 +88,14 @@ let tests: [Target] = [
     // The video arm's media session coordinator (LLP 1098 D7), driven by the
     // tests over stand-in players; the arm itself is build.mjs's dylib.
     .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),
-    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactMediaPicker", "ExactAuthSession", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests",
-                resources: [.copy("ColorFixtures")], swiftSettings: devTools),
+    .testTarget(name: "ExactKitTests", dependencies: ["ExactCore", "ExactSnapshot", "ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactMediaPicker", "ExactAuthSession", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests",
+                resources: [.copy("ColorFixtures"), .copy("SnapshotFixtures")], swiftSettings: devTools),
 ]
 
 let package = Package(
     name: "Exact",
-    platforms: [.macOS(.v14), .iOS(.v17), .tvOS(.v17)],
-    products: testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
+    platforms: [.macOS(.v14), .iOS(.v17), .tvOS(.v17), .watchOS(.v10), .visionOS(.v1)],
+    products: [.library(name: "ExactCore", type: widgetCore ? .dynamic : nil, targets: widgetCore ? ["ExactCore", "ExactSnapshot"] : ["ExactCore"]), .library(name: "ExactSnapshot", targets: ["ExactSnapshot"])] + (testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
         .library(name: "ExactKit", targets: ["ExactKit"]),
         .library(name: "ExactUpdates", targets: ["ExactUpdates"]),
         .library(name: "ExactGroupedLists", targets: ["ExactGroupedLists"]),
@@ -107,6 +109,6 @@ let package = Package(
         .executable(name: "ExactIOS", targets: ["ExactIOS"]),
         .executable(name: "ExactHostMac", targets: ["ExactHostMac"]),
         .executable(name: "ExactHostIOS", targets: ["ExactHostIOS"]),
-    ],
+    ]),
     targets: core + (testing ? tests : executables)
 )

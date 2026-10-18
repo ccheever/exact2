@@ -30,6 +30,7 @@ fn closed_wait() -> bool {
     if CLOSED_WAIT.get() {
         return true;
     }
+    // LLP 1126 D10: watchOS has no UIKit presenter to return covered top-layer boxes.
     cfg!(any(target_os = "ios", target_os = "tvos"))
 }
 

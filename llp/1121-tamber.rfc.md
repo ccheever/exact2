@@ -518,6 +518,8 @@ theme
   `setScheme`, which stays the host's appearance command. The new slice applies in the
   action's own commit, refreshed by D7's per-use domains: repainted, and laid out only where
   a selected value is in a layout row. Undeclared axes and values are refused at compile.
+  A dev reload keeps the window's slice (runner `Carried::modes`, the JS target's checkpoint);
+  an axis or value the edit removed starts again at its first value.
 - **A subtree pins app modes** with `-exact-mode="dark-style=dim"` (several, space- or comma-separated; `axis=value` is the one spelling, as in a `when`),
   as `color-scheme` pins the scheme (LLP 1034 §8). A pin inherits the axes it does not name
   from above. A mode pin never changes the scheme: a settings screen previews the three
@@ -698,16 +700,22 @@ style PostButton
   inherit: `background-color`, `border-color`, `opacity`, `box-shadow`,
   `-exact-press-scale`. Paint only, so a state never relayouts. A host overlay never changes
   an inherited colour, so it never has to recolour descendant text, inline runs, SVG or
-  `currentcolor` outside the runner's commit; a pressed text colour is a later step with
-  host-side inheritance designed for it. Another row is `lower-state-row`.
+  `currentcolor` outside the runner's commit. `:active` is the exception, by way of the press
+  paint (below): it takes `color` (the host's pressed colour already reaches the subtree, LLP
+  1061 D7) and, until the press paint can draw them, refuses `border-color` and `box-shadow`.
+  Another row is `lower-state-row`.
 - **Runner-known states** (`:disabled`, `:checked`) lower to the conditional rows an author
-  can write today. **Host-known states** (`:active`, `:hover`, `:focus-visible`) lower to a
-  **state look**: an interned entry `{ state, rows }` the node points to, applied by the
-  host on its own tracking, with no round trip (LLP 1061 D1's reason).
+  can write today. **`:hover` and `:focus-visible`** lower to a **state look**: a `looks` row
+  `{ node, state, rows }`, keyed by node and state, applied by the host on its own tracking,
+  with no round trip (LLP 1061 D1's reason). **`:active` lowers to the press paint** (LLP 1061
+  D7: `-exact-press-background-color`, `-exact-press-color`, the press's opacity and
+  `-exact-press-scale`), so each host has one press and one runtime for it, and no `:active`
+  look.
 - **`:active` is the host's existing press**, not CSS's: the innermost node with a `press`
   handler (LLP 1061), eased on the curve the host uses for `-exact-press-scale` today
-  (`cubic-bezier(.16, 1, .3, 1)` on Apple), held under Reduce Motion with colour changes
-  snapping, and unsmoothed on the agent's clock. On the web it is the runtime's existing press
+  (`cubic-bezier(.16, 1, .3, 1)` on Apple), held under Reduce Motion with its colours still
+  easing (the press is feedback, not motion: LLP 1061's 2026-09-27 ruling and D7), and
+  unsmoothed on the agent's clock. On the web it is the runtime's existing press
   glue (`data-pressed`), never a stylesheet `:active` rule, which would match ancestors and
   nodes with no `press` handler. A written `-exact-press-scale="0.97"` is that state's
   scale.
@@ -717,14 +725,21 @@ style PostButton
   1. the class's rows, then the node's own rows (the node wins, as today);
   2. `:checked`, the class's then the node's;
   3. `:disabled`, the class's then the node's;
-  4. the host overlays, `:hover`, then `:focus-visible`, then `:active`, each the class's then
-     the node's.
+  4. the host overlays, `:hover`, then `:focus-visible`, each the class's then the node's;
+  5. the press paint from `:active`, the class's then the node's.
 
   Steps 1–3 are the base, folded by the runner into conditional rows. A disabled node takes
   no press, hover or focus, as today. An overlay's values are absolute; when the base or the
   class changes under an active overlay, the host applies the overlay over the new base, and
   rows the overlay does not name show the new base. The host's ease owns overlay changes; an
-  authored `transition` owns base changes.
+  authored `transition` owns base changes. An `:active` `opacity` is CSS's, an absolute
+  target, eased from the opacity shown at the press (a hover or focus look's included), not
+  D7's share of the node's own; the press paint carries the target, replacing D7's clamped
+  share for it. A `:hover` or `:focus-visible` look's colours snap under Reduce Motion.
+- **One spelling a node.** A node or its class writing a D7 row and the same paint in `:active`
+  (`-exact-press-background-color` and `:active`'s `background-color`, say) is refused,
+  naming both. The design tool's `hold active` drives the host's real press, and inspect gives
+  an `:active` row's source span, though it lowered to the press paint.
 - **A declared state replaces the host's default for that state only.** `:disabled` sets the
   same `disabledStyled` mark the heuristic sets, and the heuristic's existing forms (an
   authored `opacity`; a colour that reads what `disabled` reads) still count. `:active`
@@ -733,6 +748,10 @@ style PostButton
 - **Excluded:** native controls (their states are the platform's, D9) and a `list`'s rows
   (their press is the cell highlight, LLP 1115.000 D16). A state part on either is
   `lower-state-target`.
+- **Ruled 2026-10-18 (Charlie, on a panel of Astra, Grok and Fable; option B):** `:active` is
+  the authoring form and D7's press paint its one runtime, extended until it paints what
+  `:active` says; this replaced looks for `:active` (stage 8 A's table keeps `:hover` and
+  `:focus-visible`).
 - **This amends LLP 1061 D1**, which rejected an `active` block as "a selector system for one
   property". It is now seven rows and five states over tracking the host already does, and
   it never selects another node. `::placeholder` (LLP 1104 D3) is the precedent for a part as
@@ -1054,8 +1073,13 @@ What every importer shares:
   item the person can decline, never folded into the token itself. A design stays the
   platform's unless the person chooses otherwise (D1).
 - **Kinds not built yet are reported, not dropped.** Before stage 6, length, type, shadow
-  and motion values are reported as `kind pending (stage 6)`, with the token each would
-  become, and are proposed once that stage lands.
+  and motion values were reported as `kind pending (stage 6)`, with the token each would
+  become. **As built (stage 6 H, 2026-10-17):** they are proposed, each as its kind's token
+  (`add-token` writes the kind), when it folds as that kind beside the import's other
+  tokens; a `var()` in one is the token it names. One that does not fold, or that differs
+  between light and dark (only a colour has a dark side), is reported with why. shadcn's
+  derived `radius.sm/md/xl` (`calc()` over a `rem` radius) are reported, outside the count,
+  until QUEUE's "`rem`/`em` where the kernel still takes only `px`".
 - **Components and utility classes from these libraries are out of scope** (§4).
 
 **1. shadcn/ui** (first: the most common). Source: the `:root` and `.dark` blocks of a
@@ -1087,9 +1111,10 @@ dark overrides wherever the stylesheet redefines the variables (`.dark { … }`,
 | `--spacing`, `--spacing-<n>` | `tw.space.base`, `tw.space.<n>` (length) | — |
 | `--radius-<n>` | `tw.radius.<n>` | — |
 | `--font-<n>` | `tw.family.<n>` | — |
-| `--text-<n>`, `--text-<n>--line-height` | `tw.type.<n>` (size and line height) | — |
-| `--font-weight-<n>`, `--leading-<n>`, `--tracking-<n>` | numbers (`tw.weight.<n>` …) | — |
-| `--shadow-<n>`, `--inset-shadow-<n>`, `--text-shadow-<n>` | `box-shadow`, `box-shadow` (inset), `text-shadow` | a dark redefinition, if any |
+| `--text-<n>`, `--text-<n>--line-height`, `--text-<n>--font-weight` | `tw.type.<n>` (size, line height and weight) | — |
+| `--font-weight-<n>`, `--leading-<n>` | numbers (`tw.weight.<n>`, `tw.leading.<n>`) | — |
+| `--tracking-<n>` | `tw.tracking.<n>` (length, as built: an `em`) | — |
+| `--shadow-<n>`, `--inset-shadow-<n>`, `--text-shadow-<n>` | `box-shadow`, `box-shadow` (inset), `text-shadow` | as built (stage 6 H): only a colour has a dark side, so a redefinition outside `@theme` is reported |
 | `--ease-<n>` | `tw.ease.<n>` (easing) | — |
 | `--breakpoint-*`, `--container-*`, `--blur-*`, `--drop-shadow-*`, `--perspective-*`, `--aspect-*`, `--animate-*` | not mapped, reported (no Tamber kind; breakpoints are layout, CSS's own) | — |
 | `--*: initial`, `--color-*: initial` | resets, honoured: the reset names are not imported | — |
@@ -1116,7 +1141,8 @@ stage 5.
 
 - **Names:** a group path becomes a dotted name, with the segments sanitised and
   collisions reported.
-- **Aliases:** `{a.b}` becomes a reference to the token.
+- **Aliases:** `{a.b}` becomes a reference to the token, for a colour; a value of another
+  kind is written out (as built, stage 6 H), inside a composite too.
 - **Modes:** a Resolver modifier, Tokens Studio theme set, or Figma mode named `light` and
   `dark` (or `Light` and `Dark`) is the scheme, and becomes `light-dark()`. Any other
   modifier becomes an app axis, proposed, with its contexts as values and `when` lines for
@@ -1249,8 +1275,10 @@ component MapCard
 tamber-file  = "tamber" IDENT NL { block } ;
 block       = "axes" NL block(axis) | "dials" NL block(dial)
                         | "theme" NL block(token) | "icons" NL block(token)
-            | "exports" NL block(NAME NL)
+            | "exports" NL block(NAME NL) | "params" NL block(setting)
             | "component" IDENT NL INDENT "params" NL block(param) DEDENT ;
+setting     = PARAM "=" value NL [ INDENT { when } DEDENT ] ;   (as built, stage 7 B)
+PARAM       = [ FILE "#" ] IDENT "." IDENT ;   (a full or short param name)
 param       = IDENT ":" kind "=" value [ "in" value ".." value ] { meta } NL ;
 meta        = IDENT "=" ( STRING | NUMBER | IDENT ) ;
 axis        = IDENT "=" IDENT { "|" IDENT } [ "under" "scheme" "=" "dark" ] NL ;
@@ -2653,7 +2681,12 @@ variance, per-tuple accent flags, and any value carrying a platform `var`.
 | Expose, the readers and an app with no design are unchanged | **Met** by plan contents. |
 
 **Known limit:** the Android Canvas host joins no dev loop, so it has no live table and no build
-channel (queued).
+channel (queued). *Lifted 2026-10-17:* the reader polls a dev loop's URL (`x_dev_plan`, a drive's
+`--url`) on its turns and wakes, as the Linux display does, registers as `android`, and takes the
+live batches, pins and `prefer`s; a plan the loop compiles replaces the running one, and a Rust
+change needs a new APK (`host/android/README.md`). Checked on the x2-android emulator with
+tamber-host: the Kotlin swatch follows a live batch (about 1.5 s from save to pixels) and a pin
+sent to that build only, and a contrast pin is applied.
 
 **Stage 5 is closed.**
 ### Stage 6, commit B: length and number tokens (B1, B2 the JS target, three review rounds)
@@ -2965,3 +2998,608 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   `exports`; a motion token has none, as it is written into its rows at build and no module names it
   (D13). `tamber gen` writes each kind; `tamber.css` writes a text style, an `em` and the
   hairline as px at the default root size, saying so. Icons' `symbol(.icon…)` follows F.
+
+### Stage 6, commit H: the importers propose every kind
+
+- **What changed.** shadcn, Tailwind, DTCG and Astryx no longer report lengths, numbers, type,
+  families, shadows and motion as `kind pending (stage 6)`. Each is proposed as its kind's token,
+  and `add-token` writes the kind (`tw.radius.lg: length = 0.5rem`). A value is proposed when it
+  folds as its kind beside the import's other tokens. The check is one design of them, plus the
+  colours they name and the axes their `when` lines name (`import/kinds.rs`). It also says why a
+  value does not fold, and that reason goes in the report: `not a <kind> Tamber folds: <why>`. A
+  token the design already has of another kind is reported, not set (its line keeps its kind);
+  so is a value that would change the kind of a design token with no kind written (`set-token`
+  leaves it unsaid), and one the edit grammar would not take on its own line (an unquoted `in`).
+  **The import is checked where it lands** (the follow-up, 2026-10-17, `import/landing.rs`):
+  each token it adds or sets is laid into the design as `reconcile` writes it (a `when` on the
+  importer's own axes it no longer gives taken out), and the design folded against the app's
+  vocabulary (`tailwind::import_with`, `dtcg::import_with`; the CLI and the server pass it).
+  - A token the design has of another kind is reported first, a colour too ("the design's `x` is
+    a length token, not a colour"): its kind as the design folds, or, where it does not, as what
+    folds once the lines it refuses are left out. So is a line the edit grammar would not take
+    (a colour named `--café`). A token naming a refused one goes with it, a quoted name aside.
+  - The import's axes are laid first: one that would leave the design unfolded refuses the import
+    whole (`tamber-import-axis`).
+  - Each refusal the fold makes that the design did not make before is charged to its cause: a
+    laid token's own line; a design token's failing value (a `when` with its default), through
+    the tokens it reads as laid (kept `when` lines too), to the laid tokens whose absence clears
+    it, or, where none alone does, to those it holds with all the others out ("the design's
+    `derived` would not fold once it lands: …"); a dial left unused to the token that no longer
+    reads it; anything else to every token laid. Until the design folds.
+  - The refused tokens' source values move from mapped to reported, so the count holds; a role
+    offer over a refused token is not made.
+- **References.** A `var(--x)` is the token `--x` becomes, named bare (D3), through a chain of
+  them; one to a variable that makes no token (another's name, a redefined key) is reported. A
+  string (a quoted family) is kept as written. A Tailwind shadow over `var(--color-ring)` names
+  `tw.ring`. A DTCG alias is written out as its value, inside a
+  composite too (a shadow's `{size.sm}`, a typography's `{font.body}`).
+- **One value on both sides.** A value of these kinds that differs between light and dark is
+  reported: only a colour has a dark side. A theme class (shadcn) or a mode (DTCG) still gives a
+  `when` line.
+- **Each importer:**
+  - **Tailwind.** `--text-<n>` with its `--line-height` and `--font-weight` is one type token.
+    Its size, leading and weight are written out, their `var()`s as what the keys hold (a
+    sub-property of another type too), and a `calc()` leading is folded to its number. A type
+    key whose size is `var(--text-<m>)` takes that size alone, through a chain, not `<m>`'s
+    leading and weight. A key whose value reads an `inline` key the stylesheet redefines,
+    anywhere in it, is reported.
+    Reported:
+    - a sub-property a token holds no part of (`--letter-spacing`, a family's
+      `--font-feature-settings`);
+    - a sub-property whose key the theme lacks;
+    - a key the stylesheet redefines outside `@theme`, or a sub-property of it (its utilities
+      follow the redefinition);
+    - a text shadow list.
+
+    The default theme is now 419 = 364 mapped + 55 reported.
+  - **shadcn.** A declaration that is no colour is a length by its value (a bare `0` too). It is a shadow or a
+    family by its name (`--shadow-*`, `--font-*`), or a reference the kind of what it names (its
+    last declaration, through a chain). A variable with one kind in every block it wins is a
+    token; one that is a colour, or a value of no kind, in another block is reported. A colour
+    role is offered only over a colour token. Neutral is 47 = 47 + 0.
+    - `--radius`'s derived sizes are proposed when they fold: `lg` is `shadcn.radius`.
+    - `sm`, `md` and `xl` are `calc()` over a `rem` radius. They are reported outside the
+      count until QUEUE's "`rem`/`em` where the kernel still takes only `px`".
+    - A px radius derives all four.
+  - **DTCG.** These `$type`s map (`import/dtcg/kinds.rs`):
+    - `dimension` and Tokens Studio's length types (a bare number is px);
+    - `fontFamily` (a string is one family, commas and all; Tokens Studio's `fontFamilies`
+      text is a stack);
+    - `fontWeight` (a weight's name too, DTCG's list: `book` 400, `extra-black` 950) and `number`
+      (a line height's percentage, as text or a dimension, is a ratio);
+    - `duration`, `cubicBezier`, `shadow` (an `innerShadow` is inset);
+    - `typography`, a `normal` leading kept. A typography whose letter spacing, paragraph
+      spacing, case or decoration says anything (a zero in any unit says nothing) is refused: a
+      type token holds none. A Tokens Studio `fontFamilies` alias inside it keeps its members.
+
+    Figma's fixture is 104 = 101 + 3; Tokens Studio's sample is 49 = 49 + 0.
+  - **Astryx.** A text style's size, weight and leading is one type token. Font sizes are lengths
+    and weights are numbers. A value must be on both sides. A second variable to one token's
+    name is reported, a second text style's too. 268 = 261 + 7: the six duration tiers and the line style.
+- **Counts.** Every importer's count still holds (source = mapped + reported), and re-importing
+  proposes nothing (`tamber/tests/it/import.rs`, `import_kinds.rs`).
+
+### Stage 6's gate: met (2026-10-17; the run is `~/x2theme/stage6-gate-run.txt`)
+
+The lines are §5 stage 6's, plus stage 9's for icons, brought forward.
+
+| Gate line | Result |
+|---|---|
+| Expose's 48 `font-family` writes and its radii become tokens, with screens identical on the web, iOS and the Mac | **Met:** 4 of 4 screens with 0 pixels different on each host, an identical native dump, and byte-identical JS CSS. |
+| Under Bold Text, a system-font type token is bolded, one with an authored weight too, and a bundled family isn't | **Met** on the Mac and the iOS simulator: system and authored-600 tokens bolded, and "Exposure Sans" unchanged. |
+| A length token's value edit is live on the clone and lays out; a shadow edit is live; a motion token's edit rebuilds | **Met** on the wasm loop. A length edit took about 1 s with no generation, the padding and width moved, and a typed draft was kept. A shadow edit was the same. A duration edit was `rebuild`, restarting with state carried. |
+| The sample host draws a `font(…)` and a `length(…)` that follow Dynamic Type and Bold Text | **Met** on the Mac and the iOS simulator. |
+| An export with every kind re-imports with no operations | **Met:** 13 of 13, with 0 operations. |
+| Stage 9's: the clone's `symbol:sf/…` uses draw on the web from icon tokens; a missing source fails the build | **Met:** every SVG on five routes drew, and a missing icon file fails naming the token and the file. F4 is merged into the clone's main. |
+| Expose, the readers and an app with no design are unchanged | **Met** by plan contents against the commit before stage 6. The only new rows are A's `fontShorthand` markers. Conform is 12 of 12 on Expose and 15 of 15 on tamber-modes. |
+
+**Stage 6's breaks:**
+- B moved the plan format and kernel schema digests (theme rows gain `kind`).
+- A moved the kernel schema digest (text style columns, `fontShorthand`).
+- F moved the plan format digest (the `icons` table).
+
+No host binary shipped between them, so users see one break. Both digests are now pinned by tests.
+
+**Known limits carried:**
+- the JS target writes type and family tokens, and inline font weights and SVG attributes, as literals, so they rebuild there and refuse to vary by axis;
+- a bare `font-size` style fills nothing on the JS target;
+- Apple draws only an icon's SF Symbol;
+- a varying type or family token is refused on a container's inherited rows (`tamber-inherited-axis`);
+- `calc()` with `rem` waits on QUEUE's item.
+
+**D3, amended by this stage:** `duration`, `easing` and `icon` token names must be dotted
+(`tamber-motion-name`, `tamber-icon-name`), so a transition's words or a symbol's name can't be
+mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
+
+**Stage 6 is closed** (with stage 9's icons).
+
+### Stage 7, commit A: the `params` section (`be8ae002c`..`08dfc82c3`)
+
+- **Grammar.** A component takes one `params` section. Each line is `name: kind = "default"`
+  followed by attributes `range`, `step`, `control`, `options`, `label`, `help`, `group` and
+  `priority` (a string or a number; any other is `syntax-param-attribute`). The AST holds it as
+  `Component.params` (`contract_syntax::params`). `contract fmt` keeps it as written.
+- **Identity and naming** (theme2's ruling, 2026-10-17). The loader gives each component its
+  identity: its file relative to the app's directory, or `<package>/<file>`, and its name
+  (`post.contract#PostButton`). A param's full name adds the param
+  (`post.contract#PostButton.radius`); its short name is `Component.param`.
+  - Below the IR (the reference table, the fold, the live table, `uses`, the JS target), a param is
+    the dotted token `param.f<hash>.<Component>.<param>`. The hash is FNV-1a of the file's path, as
+    eight hex digits after an `f`, since a name's segment starts with a letter.
+  - The loader rewrites `param.<name>` to that token before anything reads it, where a
+    component's row takes its value (a style, shorthand or motion row, an image's `symbol:`
+    source, named or positional): a string or a template, through `?:` branches, `match` arms and
+    `+`, the places a motion token is written into. An expansion's `let` (a child's shared derive)
+    is read by name, a comparison too, so a token in its value is refused as a derive's. Also in its params' defaults and
+    `select` options. A quoted word (the quote carried across a template's holes), one after `#`
+    (`url(#…)`) and one touching a template's `${…}` are left as written, as is text that is no
+    row (a `text`'s content, a `testId`, an image's URL, a `?:` branch of an image's source that is
+    no symbol's; an image's other rows take params as any element's do). So a param is read, folded, retained
+    (D7) and bound as any token is, and an import alias never redirects it.
+  - An argument to another component passes the param: the child's row reads it as its value
+    (round 2's change; round 1 refused it). After inlining, a param's token anywhere but a row's
+    value (a text, an attribute that is no row, a function's argument, a condition, a state, a
+    derive, an action) is refused (`tamber-param-scope`), naming the param.
+  - A param named where no component owns it is refused (`tamber-param-scope`): in a `style` or a
+    `keyframes`, which any component may apply; in a state's or a derive's value. So is one in
+    what a row computes (a function's argument, a condition, a comparison, a callback): what it
+    computes is data the param's value never reaches, and a duration there would never be written
+    in. A package's file is named by the package's declared name: the nearest directory above the
+    file, below the app's own, whose `package.json` has a name (under `node_modules`, linked from
+    elsewhere, or vendored). It is read from where the file is, never the route a `use` took, so
+    two routes, aliases or links to one package are one identity. A package with no name is named
+    by its place from the app (`../libs/a/index.contract` outside it). A source text with no path is `app.contract`.
+  - Every refusal names the full name, never the hash: the lowering's errors pass through
+    `params::shown`, every param's (a bad kind's too). `contract types` names no param, and
+    `describe`, `contract tamber ir` and the design's checks fold the params with the design but
+    list them only under `components` (`eval` lists none; `check` counts them apart, and admits
+    the design by building the app itself when it has params). A refusal or a warning on a param
+    is charged to its default, in its declaring file. An option names a param in full.
+- **Folded with the design.** The compiler adds each param to the design it checks, as a token
+  of its kind (an icon param among the icons), on lines past the design's own. A refusal on one is
+  charged to its default's span. An app with params and no design folds them alone. A duration or
+  easing param is written into its rows at build, as a motion token is. An icon param may default
+  to another icon (a param's or the design's), and its SVG is a source of the build.
+- **Checks:**
+  - `tamber-param-unknown`: a `param.<name>` the component doesn't declare.
+  - `tamber-param-unused`: a param no row of its component reaches, directly or through another
+    param. The message says a param read only by a state part lands with stage 8, since state
+    parts don't parse yet.
+  - `tamber-param-kind`: no kind. A param's kind against its rows is D3's `tamber-kind`.
+  - `tamber-param-control`: a control the kind doesn't take, `select` without `options`, or
+    `options` without `select`.
+  - `tamber-param-range`: a range on a kind without one, a range that isn't `low..high`, or a
+    default outside its range in some tuple.
+  - `tamber-range-unit`: a ranged length that isn't px.
+  - `tamber-param-options`: an option that is no token of the kind.
+  - `tamber-param-step` and `tamber-param-priority`.
+  - `tamber-param-name`: a design token named `param.…`. The check is the compiler's, since the
+    crate checks the param tokens themselves.
+  - `tamber-param-collision`: two declaring files whose hashes match, naming both.
+- **The IR's `components` block.** `describe` and `contract tamber ir` return it, at
+  *tamber/1.10*, the stage's protocol version. Per component it gives the identity; per param, the
+  full and short names, token, kind, default (params named in full), values per tuple, range,
+  step, control (default `token`), options, label, help, group and priority (default 2).
+  `params::resolve` reads a full or short name, and refuses a short name of a component name two
+  components share, whichever has the param or neither (`tamber-param-ambiguous`), naming both. B's
+  `set-param` and `resolve` take it. A param's name is a field's, so a reserved word may be one.
+- **No digest moves.** A param is a token in the reference table.
+
+### Stage 7, commit D: components that aren't Contract (ending `0d2e94e3b`)
+
+- **Grammar.** A design may declare `component Name` over one indented `params` block. Each line
+  reads as a dial's, for any kind: `name: kind = value [in low..high] [meta=…]`
+  (`exact_tamber::Component`, `Param`).
+  - Refused (`tamber-component`): a component with no `params`, or anything else under it; a
+    component named twice; a param named twice; a `when` under a param (the app's design sets a
+    param per mode, by name).
+  - `fmt` lays a param line out as a dial's.
+- **Identity.** The design file relative to the app's directory, and the name
+  (`app.tamber#MapCard`). `DesignSource.home` carries the path.
+  - `params::design_tokens` makes each param a `ParamToken`: `in low..high` becomes its `range`,
+    and its metadata become a Contract param's attributes (`range=` is refused here, and so is any
+    other unknown attribute, as `syntax-param-attribute`).
+  - `param.<name>` in a default names the component's own params (`tamber-param-unknown`).
+  - `params::tokens(file)` returns them after the Contract ones, so the checks (`declared`,
+    `folded`), `add_to`, `resolve`, the collision check and the `components` block are A's, unchanged.
+- **Roots.** `unused` never sees them. Retention keeps every one, and what its default reads
+  through any chain of tokens: the code that reads them is outside the views.
+- **Bindings** (`tamber gen`). A param is named from `<Component>.<param>`, never the hash
+  (`swatchRing`, `SWATCH_RING`); its value is the token name, which the runtimes resolve as any
+  token's. Contract params get the same.
+  - Swift members now cover colour, length, number and type tokens, not colour alone.
+  - `gen kotlin` writes `TamberTokens.kt` in package `exact.app`: `TamberColor`, `TamberLength`
+    and `TamberNumber` objects of `const val`s (theme2, 14:17).
+  - A collision across names that map alike is refused, naming both.
+  - The Apple build writes `tamber.swift`, and the Android reader writes `TamberTokens.kt`
+    (compiled beside the hatches), before the app's modules compile (`scripts/tamber-names.mjs`).
+- **The sample.** `apps/tamber-host` declares `component Swatch` (`ring`, `ringWidth`). The Swift
+  module and the Kotlin hatch stroke a ring through `.swatchRing` / `TamberColor.SWATCH_RING`. The
+  smoke reads the ring as it follows `setMode` and the pin, on the Mac and the iOS simulator; the
+  ring also draws on x2-android.
+- **Not yet:** a live `set-param` reaching them waits for B's server folding (the server's own
+  fold adds no params today). Packages' `.tamber` components are QUEUEd.
+- **A param's token name may appear in generated code as a value, never as an identifier**
+  (theme2's ruling, amending A's): the TypeScript kind unions (`contract types`, `tamber.ts`) and
+  the constants in TypeScript, Kotlin and Rust carry it, so a data module returns
+  `tokens.<name>.name` as a `ColorToken`. Diagnostics, `describe`, inspect, `set-param` text and the
+  DTCG export use the full or short name. The docs say: return the constant, never type the
+  literal.
+
+### Stage 7, commit B: the app's value, `set-param` and `unset-param` (`1530e9671`..`ff89cbae9`)
+
+- **The `params` block** (theme2's ruling, option 1). A design may have a `params` block beside
+  `theme`. Each line is a param's full or short name, `= value`, with `when` lines. `#` and `/`
+  are allowed in names there only, and a kind is not written (it is the component's). `tamber fmt`
+  lays it out as `theme`'s.
+  - Each line goes in place of its param's default and `when` lines, so every instance shares it.
+    One layout does it everywhere (`tamber::params::laid`): the compiler, the motion rows written
+    at load, the source graph, the CLI's checks, `plan`, the edits' check, `resolve` and
+    `describe`. An icon naming another icon takes its sources after the lines are laid, so an
+    alias follows the value set. A range is checked on each value written, the line's own and
+    each `when` line's, folded on its own in its param's place (a token's, a `calc()`, a `when`
+    no tuple picks), at its own line.
+  - A line naming no param of the app is a warning, `tamber-param-unknown`: a moved or renamed
+    declaring file must not break the build, and the value no longer applies.
+  - A short name two components share is `tamber-param-ambiguous`, whichever has the param or
+    neither: one rule (`tamber::params::named`), which `contract_lower::params::resolve` delegates
+    to. A second line naming the same param is `tamber-param-twice`. The compiler and the design
+    server refuse both alike (`params::entry_errors`): the server's reads refuse such a design, and
+    its writes refuse to leave one, except `unset-param` by the line's own spelling, which repairs
+    it.
+- **`set-param` and `unset-param`** (`tamber::edit`, *tamber/1.10*):
+  - `set-param` writes the param's line, making the block at the end when there is none, or sets
+    one `when` line. A `when` needs the line first.
+  - `unset-param` removes the line and its `when` lines, or one `when`. An emptied block goes.
+  - The inverse is the preimage, as every edit's is, so undoing the first `set-param` restores
+    absence.
+  - The server refuses a name no param answers, and an ambiguous short name. It writes on the line
+    the design already has, by that line's name, or by the name an earlier op of the transaction
+    used. After every write to an app with params, not only a `set-param`, it refuses a design
+    whose params do not fold or fall out of range (`tamber_ops::param_values`), each at its line.
+  - The block is found as the parser finds it (a trailing comment allowed), a new line takes the
+    block's indent and goes after its last line, comments included; the last line removed takes
+    the block with it, comments too. A token's rename renames the values naming it, a param's name
+    never, and is proved folded with the params, so a literal word it would change is refused.
+  - An icon param's SVG must be the app's file when a write sets it (`tamber-icon-svg`); the
+    build's per-target check (`tamber-icon-missing`) stays the build's.
+- **The closure** (`tamber::params`). `plan` folds the design with the app's params, each in its
+  `params` line's place (`Synthetic::params`; the server reads the app's params by its Contract
+  sources' key), and checks an edit laid out with them (`apply_all_with`), so a dial only a param
+  reads is read. So a param's value is `live`, and `rebuild` for a duration or easing param, even
+  one no instance uses (the planner does not see where motion rows were written). A live one is
+  scrubbed as a token is: the wire's scrub plans with `propose` and the dev loop compiles the
+  texts.
+- **Reads.** `resolve`, `explain` and `uses` take a param's full or short name and answer by its
+  full name, their errors too, folded with every param (so a design token's `uses` follows it
+  through a param). An ambiguous short name is refused, never read as a design token. `uses` gives
+  every instance's row; a motion param's sites are its source literals, as a motion token's are.
+  An icon param, like an icon, is read by `describe` and `resolve` (QUEUE: an icon's `explain` and
+  image sites in `uses`). `describe`'s `components` gives `set`, the app's value. It gives
+  `pinned`, each token or icon the default names that some value set (the line's own or a `when`
+  line's) no longer reads, directly or through another token, an icon's alias or a param: D14's
+  mark, "no longer follows `radius.md`".
+
+### Stage 6 C's follow-up: type and family tokens as properties on the JS target (draft for theme2)
+
+- **What changed.** The JS target wrote a type or family token as the kernel resolves each longhand,
+  a literal, so one that varied by an app axis was refused there and an edit to one rebuilt. Now each
+  row such a token writes is a property per tuple, as stage 6 B made lengths and numbers: a type
+  token's `--x-<name>-style`, `-weight`, `-size`, `-leading` and `-family`, as it writes them; a
+  family token's `--x-<name>`. One that varies has them always; in a development build every one
+  does (`measures::type_properties`).
+- **Each tuple's rule declares each part** as the template writes the literal's: a size, or a line
+  height that is a length, as its CSS (a text style its `rem`); a family as its plan stack's CSS
+  (`measures::part_css`).
+- **No sentinel marks a part.** A style is `normal` or `italic`, a weight a whole number, a family a
+  stack the plan declares, so none can be bound to a value no app writes. The declaration a row
+  writes is found by its property instead (`Modes::type_rows`): a varying token reaches only a text
+  with no element children (`tamber-inherited-axis`), whose own rows these are.
+- **A bound row** (`font=(c ? "type.a" : "type.b")`) maps the name to its part's `var()`.
+- **Live.** The design entry lists each row's property and its CSS per tuple (`parts`), and the page
+  sets each one; a type token is no longer `inline`. A change to its style, weight, size or line
+  height is live and scrubbable on the JS loop; one that changes the rows it writes or a family
+  rebuilds, by the design's shape, as everywhere.
+- **Release** output is byte for byte the same where no type or family token varies.
+- Out of scope: Bold Text, and the weight and leading a text style implies where the token writes
+  none (they stay the default tuple's literal).
+
+### Stage 7, commit E: the clone declares params (clone `d2406b4`, on its main)
+
+The Bluesky clone's `PostButton` declares `fill` and `height`, and its post action row
+(`Controls`) declares `gap`, `tint`, hit padding and `radius`, with groups, priorities, controls and
+`select` options. `Controls` passes `tint` to its glyph as the child's row value, which commit A
+admits. The defaults equal the literals they replaced, so the screens are unchanged.
+
+### Stage 7's gate: met (2026-10-17; the run is `~/x2theme/stage7-gate-run.txt`)
+
+The clone at `d2406b4` was run on exact2 `272f117e3`.
+
+| Gate line | Result |
+|---|---|
+| The clone's post action row and Post button declare params | **Met.** |
+| The design tool lists them by group and priority with their controls and `select` options | **Met through `describe`**, which gives group, priority, control and options per param. The tool's own panel is LLP 1122 T3, not yet landed. |
+| A `set-param` reaches every instance live, and one on a duration param rebuilds instead | **Met** on the wasm loop, the JS loop, the iOS simulator and the Mac. `tint` and `gap` reached all six action rows live, and the natives kept their plan ("2 tokens to 2 builds, no generation"). `Drawer.fade` (a duration) is `rebuild`, and the page and natives took a new plan. |
+| A Swift native view's `.tamber` params appear beside them and draw through `ExactTamber(view)` | **Met** on the Mac and the iOS simulator: tamber-host's Swatch ring follows the mode. At the gate run the iOS smoke's relaunch never opened its agent socket; that was the gate simulator's own state. reload1's rerun on main `78b93c82a`, on a freshly made simulator, passes in full: the relaunch, the ring's colour change, the pin, the scheme and the font. |
+| An unused param, an ambiguous short name and a `rem` value on a ranged length are refused | **Met.** |
+| Renaming an import keeps an override on its component | **Met.** |
+| No regressions | **Met.** Plans of apps without params are byte-identical before and after stage 7, apart from a format-digest header another lane moved. |
+
+**Deferred:** commit C (`add-param` and `remove-param`, the server owning `.contract` params
+sections) lands with LLP 1122 T5's `set-row`. A refuses an unread param, so either op only works
+paired with a row rewrite. Its `.contract` ownership infrastructure arrives with stage 8 D.
+
+**Queued:** a stale duration seen once on the JS loop after writes queued behind a slow first
+verifying build (not reproduced in three replays).
+
+**Stage 7 is closed.**
+
+
+### Stage 8, commit A: state parts, grammar and lowering (draft for theme2)
+
+- **Grammar** (`contract_syntax::parser::states`). `:active`, `:hover`, `:focus-visible`, `:disabled`
+  or `:checked` alone on a line, then its rows indented, in a `style` (literal rows) or under a node
+  before its children (computed rows, as the node's own). Each row is carried as an attribute named
+  for the state and the row (`:disabled background-color`, `contract_syntax::state`), so a class's
+  and the node's merge as any row does and the node's wins. `syntax-state`: an unknown state, a
+  combination, a state twice at one place, a block inside a state, a state after the node's
+  children. `contract fmt` keeps the block, its `:` against the name.
+- **Rows and targets** (`contract/lower/src/states.rs`). A runner-known state takes
+  `background-color`, `color`, `border-color` (each side's longhand too), `opacity`, `box-shadow` and
+  `-exact-tint-color`; a host-known one `background-color`, `border-color`, `opacity`, `box-shadow`
+  and `-exact-press-scale`. Another is `lower-state-row`. A host state's row is a literal
+  (`lower-state-literal`; a token's name is one, theme2's ruling (b)). A part on a native control
+  (`controls::control`, or a `Control` node) or on a cell list's row (through its `for`, `if` and
+  `match` regions) is `lower-state-target`.
+- **Runner-known states fold** into the node's rows, per longhand: `disabled ? D : (checked ? C :
+  B)`. B is the base the class and the node compose, a `border-color` split into its sides and a
+  side a `border` or `border-top` writes as its component, so a state's `border-color` overrides
+  each side the base wrote, longhand or not. `disabled` is the node's own `disabled`; `checked` is
+  `checked || aria-checked || aria-selected || aria-pressed`, the last compared with `"true"` unless
+  it is a bool. `:disabled` sets `DisabledStyled`, beside the heuristic.
+- **`lower-state-dead`** (a lint, theme2's ruling (a)): a node's own `:disabled` where it writes no
+  `disabled`, or its own `:checked` where it writes none of the four. A class's part is not judged.
+- **Host-known states are recorded** (the plan break, ruling (c), shape agreed with x2-perf4): a
+  `looks` table, `{node, state, bindings}` (0 `:active`, 1 `:hover`, 2 `:focus-visible`) in node
+  order, one look a state a node with the class's and the node's rows composed by longhand, each a
+  literal style row as a static row's (a token's name stays a name, for a live batch and a mode). A
+  node with no look has no row, so a plan without state parts pays 4 bytes (a nodes column cost the
+  clone's plan 159,596 bytes, 4%: theme2 asked to key the table by node). No host reads it until B.
+  FORMAT_DIGEST moves to `0x73dd_d2b7_978c_aec0`: every host takes a new binary (plan decode is
+  generated), and none applies looks yet.
+- **LLP 1001** declares the `:checked` deviation.
+- **Tests:** `contract/cli/tests/it/state_parts.rs`: `:checked` under `:disabled` on a checked,
+  disabled toggle (the gate line); a state's `border-color` over a `border` and a side's longhand;
+  the node's part over its class's; the disabled-look mark; every refusal; the lint; looks one a
+  state, composed; fmt.
+
+### Stage 8, commit F: params read by state parts (draft for theme2)
+
+- **Stage 7 A's refusal is lifted.** A state part's row is a row where a param may stand
+  (`params::rewrite`'s `row` reads `:active background-color` as `background-color`), so
+  `param.x` there is rewritten to its token and reaches the param: D15's `PostButton.pressed`,
+  read by `:active` alone, compiles and folds. `tamber-param-unused`'s message no longer points at
+  stage 8.
+- **What it does at run time** is A's and B's: a `:disabled` or `:checked` row reading a param
+  folds into the node's row, which reads the param's token, so a live `set-param` reaches it as
+  any token row's; a host look's row keeps the token's name as a static row does, which B's hosts
+  resolve per node tuple and follow live (theme2's ruling (b), 17:37).
+- **Tests:** `state_parts.rs`'s `a_param_read_only_by_a_state_part_is_reached` (refused as unused
+  before, `tamber-param-unused`).
+
+### Stage 8, commit D: the server owns `.contract` state parts (draft for theme2)
+
+- **Owned files.** The server's files are the design's, then the app's own Contract sources
+  (`tamber_contract::owned`: the source graph's `App` units inside the app, never a package's or
+  `node_modules`). `hello`, the snapshot, the journal and its recovery, a transaction's digests and
+  `commit`'s set take them as they take a design file; the JS wire's watcher announces a hand edit
+  of one with `client: null`, and a `set-state` without a `file` holds every Contract source for
+  `commit`'s guard. This is stage 7 C's infrastructure (its plan's points 1, 4 and 5), which
+  LLP 1122 T5's `add-param`, `remove-param` and `set-row` will use.
+- **`set-state {style, state, row, value, file?}`** writes `row = value` in the `style`'s `:state`
+  block (the block and the row made when absent; the row's value replaced where it is written);
+  **`unset-state`** removes the row, and the block's header with its last row. The file is the one
+  named, or the owned file declaring the style, refused where none or two do. `contract fmt` then
+  lays the file out, and the whole app is compiled in memory with it (`with_contract_texts`, beside
+  `with_design_text`) before anything is written: a refusal answers the build's diagnostics and
+  writes nothing. The class is `rebuild`, so there is no scrub.
+- **The inverse** is a line restore of the preimage (`exact_tamber::Op::Restore`, applied to the raw
+  text by `tamber_contract::restore`, bypassing fmt), so an unformatted file comes back byte for
+  byte (LLP 1122 D6).
+- **Deviation from LLP 1122 D6's one-line diff:** a `.contract` write runs `contract fmt` over the
+  whole file (as the approved plan said), so in an unformatted file a one-row `set-state` lays out
+  its other lines too; in a formatted file it is one line. The inverse still gives the unformatted
+  bytes back.
+- **A node's own state part** is `set-row`'s (LLP 1122 T5): a `set-state` naming a `node` is
+  refused, and the "no file declares `style`" refusal says so.
+- **History and revert** (the lead's 06:04 ruling, a follow-up): a `.contract` file's commits
+  read as its state rows' edits (`what: "state"`), `code` where other lines changed, which a
+  revert leaves alone; a change with no state row is the app's code and not listed.
+- **Wire:** `tamber/1.11`, the window stage 7's close opened (theme2, 20:30).
+- **Tests:** `contract/cli/tests/it/tamber_serve_contract.rs` (set, replace, undo to the
+  unformatted bytes; unset with its block; a refused compile writes nothing; an unknown style;
+  `propose` says `rebuild`); `scripts/tamber-server.test.mjs` (a hand edit announced, `commit`
+  takes a written `.contract`, one dirty at its baseline refused).
+
+### Stage 8, commit B1: `:active` as the press paint; looks on the runner and the web (draft for theme2)
+
+Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on the replan).
+
+- **`:active` lowers to the press paint** (`contract/lower/src/states.rs`). Its rows are written on the node, the class's then the node's (the node's wins), each keeping its `:active` span for inspect and the map:
+  - `background-color` → `-exact-press-background-color`;
+  - `color` → `-exact-press-color`;
+  - `-exact-press-scale` → the node's own;
+  - `opacity` → `-exact-press-opacity-to`, a new row, bit 215, lowering's alone. An author's is `lower-unknown-attr`, naming `:active opacity`, and `contract vocab` doesn't list it.
+
+  Tokens stay names, as in any row.
+
+  Refused:
+  - `border-color` and `box-shadow` in `:active` (`lower-state-row`: the press can't paint them yet);
+  - `-exact-press-scale` in `:hover` or `:focus-visible` (`lower-state-row`, pointing at `:active`);
+  - a node, or its class, saying a press paint both ways (`lower-state-press-paint`): `-exact-press-background-color`, `-exact-press-color`, `-exact-press-opacity` or `-exact-press-scale` beside the same `:active` row.
+- **Where an `:active` row is written** (theme2's 06:14 condition). The map's binding for a lowered row carries `"state": "active"` and `at`, the `:active` row's file and span (`sites::Origin::State`; its `origin` is still the node's or class's). `uses`, and so explain, name that line, not the node's.
+- **The absolute press opacity.** The press eases from the opacity shown at the press, a hover or focus look's included, to the target. For that node it replaces D7's clamped share. A hand-written `-exact-press-opacity` keeps the share.
+  - Web: `--exact-press-opacity-to`. The glue's `PAINT` list takes it, and index.html computes `base + (to − base) × paint`.
+  - Apple, Linux and Android: B2 and B3.
+- **Looks are `:hover` and `:focus-visible` only.**
+  - The looks table's state 0 is retired: the reader refuses it, and codes 1 and 2 are kept. `format.json`'s comment says so, so FORMAT_DIGEST moves to `0x973e_e759_65ad_8001` (over main's at the push).
+  - The runner resolves a node's looks rows in its tuple (`set_plan_style`) and sends `Op::SetLooks` (op 9: at most 2 looks, states 1 and 2, ascending; look rows only, set or cleared). It sends them at mount and when its tuple moves (a mode, a pin). `ThemeIndex::looks` keeps those that read a token, and `set_tokens` (a live batch, a role's value) sends them again.
+  - SCHEMA_DIGEST moves to `0x8b10_52ba_0e04_2f0b` (op 9 and bit 215, over main's at the push), in stage 8's window. Every host takes a new binary.
+- **The web, wasm** (`host/web/src/host/looks.rs`). A node with looks gets a `looks` batch op: one rule per state in the page's `#exact-looks` sheet, written as follows.
+  - `:hover` goes under `@media (hover:hover)`, then `:focus-visible`; none applies on a disabled node (`:disabled`, or a box's `disabled` of any value but "false").
+  - The rows are `!important` over the inline base, and below the shell's pressed-paint rules, which are `#exact-root`-scoped. So the press paint shows over a hover.
+  - They have no transition: a look snaps, under Reduce Motion too.
+  - The sheet goes with the last plan at a boot. An explicit clear (`unset`) crosses written with no value, as a static row's.
+- **Round 2:**
+  - A text with a look never folds into its parent's box (`element::folded`, `holds_folded`).
+  - The glue takes no press on a box whose `disabled` is any value but "false".
+  - The press paint re-reads what's beneath when a sheet or the root changes under a hold (a look's rule, the theme, the JS target's modes).
+  - `-exact-press-opacity-to` is refused in a `style` block, not suggested for a typo, and not described by `contract vocab`.
+  - `uses` lists a token a `:hover` or `:focus-visible` row reads, at its node, with its state.
+  - Round 3 (the last):
+    - A disabled box takes no press by key either.
+    - The design tool's inspect join and the agent's `layout` carry an `:active` row's `state` and `at`, and the inspector names it `:active opacity` and so on. Its edit is `set-state`'s; a token rung stands.
+    - `outline` finds a node from a `uses` location that is a part's row.
+    - The JS target's CSSOM token and tuple writes call the glue's `repaintPress`.
+    - The wasm looks sheet is written once per batch (a microtask).
+  - theme2's 07:06 question: a node's own `:active` where it has no `press` (nor `href`) never holds, and is `lower-state-dead` (a lint, as `:disabled`'s); a class's part is not judged.
+  - **Deviation (QUEUE):** on the web, a node's own `transition` on a property a look sets times the look's change. The look rule can't keep it out.
+- **The JS target** (`host/web-js`):
+  - The static tree applies each node's looks rows (`SetLooks`), and the template carries their declarations. A varying token's sentinel becomes its `var()`, as in a class, and look declarations join the sentinel scan.
+  - Each distinct set of looks is one rule group, `[data-exact-looks="N"]`, after the classes, as unscoped as wasm's, so the shell's pressed paint wins over it; the node takes `data-exact-looks`.
+  - `:active` reaches the page as D7's custom properties through the template.
+- **Tests:**
+  - `state_parts.rs` and `state_looks.rs`: each lowering, the refusals, one spelling, the internal row, retired state 0, looks re-sent by a live token (and not by one only the base reads), `unset`.
+  - `host/web/tests/it/looks.rs`: the press rows, the rules in order, a live batch re-sending them.
+  - `host/web/tests/looks.test.mjs` (Chrome):
+    - a hover at once;
+    - the press easing from the hovered 0.8 to its absolute 0.6, its paint over the hover;
+    - a base change while pressed;
+    - Reduce Motion (press colours ease, hover snaps);
+    - a disabled box taking none.
+  - The kernel's op round trip and its refusals; `modes_tests.rs`, the JS target's rule group.
+  - LLP 1061's press tests unchanged.
+
+### Stage 8, commit B2: Apple (iOS and Mac) (draft for theme2)
+
+- **The absolute press opacity** (`PressPaint.swift`). `press_opacity_to` is a pressed paint row: it makes the node `authorsPress`, so there is no dim and no ink wash. A full press takes away `shown − to`, where "shown" is a hover or focus look's opacity, else the node's own, through the same additive `pressOpacity` animation. That depth is recomputed when the base moves live or a look comes or goes mid-press. A hand-written `press_opacity` keeps D7's share.
+- **Looks** (`host/apple/src/looks.rs`). The node's style dictionary carries `"looks": {"hover": {…}, "focus_visible": {…}}`. Each look's rows are written as the style's own (colour pairs, roles), and its opacity is a number.
+- **How Swift shows them.** Swift keeps the engine's style (`presented` → `looked` → `pressPainted`).
+  - While the pointer hovers the node (the Mac) or its focus is visible, the look's background, border colours and shadow stand in, at once. The focus's go over the hover's, and the press's paint goes over both.
+  - The look's opacity is an additive `lookOpacity` layer animation that snaps.
+  - None of this applies on a disabled node.
+- **Mac hover** (`Mac/HoverMac.swift`). `setHoverPath` passes its whole path to `hoverLooks`. So a node shows its `:hover` look whether or not it hears `hover`, and only nodes with a handler get the runner's hover event. The native-module `hover(_:_:)` moved to that file too (PresenterMac.swift is at its cap).
+- **iOS** has no hover (an iPad pointer's hover is a later step), and no focus-visible yet.
+- **Round 1:**
+  - A pressed share is of what shows, a look's opacity included, as on the web and Linux.
+  - A change of `disabled` shows or drops the looks at once (`relook`).
+  - A depth re-aimed mid-ease re-aims from what shows (`segment`).
+  - A look's `currentcolor` is the node's colour, and a row a look clears crosses null (an opacity as 1), so the base's goes.
+  - A re-entrant hover publishes only the newer path's looks, for views still attached.
+- **Round 2:**
+  - The press's opacity fade is always `-depth × progress` of the press's own ease, held or easing either way. So a look's opacity that comes or goes mid-press moves what shows at once, as on the web and Linux, and the tracked segment is gone.
+  - A side a look clears is the node's colour (`currentcolor`).
+  - An opacity or background track a press row or a look names stays sampled by the engine, not Core Animation, so the additive layers compose on the rendered value.
+  - A sheet's or a popover's own window shows `:hover` looks through its pointer tracking.
+  - QUEUE: looks on an inline run, which have no view; and a look that comes while a track already plays.
+- **Round 3 (the last):**
+  - An opacity or background animation that a press row or a look names is engine-sampled on both platforms, in the common eligibility, not only for box-lowered properties.
+  - The press's clock moves on every press and release, a depth of 0 included.
+  - The opacity fade is the press's own ease, the same curve and start (`beginTime`), so what shows is `-depth × progress` at every frame.
+  - A press easing out reads its depth from a new style too.
+  - A sheet's or a popover's window keeps its hovered path on a child's exit.
+- **Tests:**
+  - `StateLooksTests` (Mac and iOS):
+    - `:active`'s paint with its absolute 0.6 (depth 0.4) and no dim;
+    - a base change while pressed;
+    - on the Mac, hover and focus looks at once, with the press easing from the hover's 0.8 to 0.6, then back;
+    - a disabled node taking none.
+  - `looks.rs`'s dictionary test. `PressPaintTests` and `PressFeedback*Tests` are unchanged.
+
+
+### Stage 8, commit B3: Linux, and Android through it (draft for theme2)
+
+- **The absolute press opacity** (`press.rs`, `press::present`). After the hover and focus looks' opacity, the press moves `shown.opacity` toward `press_opacity_to` by its progress. `press_opacity` keeps the share. `press_opacity_to` counts as pressed paint (`paints`), so a list row's wash stands aside.
+- **Looks** (`paint/presented.rs`, `BoxPaint::states`). While its `:hover` and then its `:focus-visible` look hold (`Presented.looks`), their background, border colours and shadow replace the box's own, at once. The press's background goes over them.
+- **When a look holds** (`presenter/feedback.rs`, `refresh_looks`):
+  - `:hover`: the mouse's hit and its ancestors that have one, as CSS matches. A finger hovers nothing.
+  - `:focus-visible`: the focus where its ring shows.
+  - A node whose looks change is marked for kept rows, and none applies on a disabled node.
+- **Round 1:**
+  - The engine's presentation cache starts from the committed style (`unpresented`), so a look's or a press's opacity is never kept in it.
+  - The hover looks follow a resting pointer through `hover_at`, as hover handlers do.
+  - A focus with no `:focus-visible` look marks nothing.
+  - A look's `currentcolor` is the node's colour, and a cleared opacity is 1.
+  - On Android's Canvas reader, an opacity, background or colour track the host paints over (a press row, a look naming it) is not lowered: the engine samples it, and the composed value is drawn.
+- **Round 2:**
+  - A reader layer takes the opacity as its alpha only when it plays the opacity. Otherwise the painter draws it, so a lowered scale under a look's or a press's opacity fades once. Before this, a style opacity under 1 with a lowered transform faded twice.
+  - The hover looks follow the point while a contact is held (`follow_pointer`).
+  - A row a look clears is CSS's initial: transparent, `currentcolor` or no shadow. `paints_over` counts a cleared row.
+  - A look's `currentcolor` follows a colour transition.
+  - A disabled node shows no press, its release ease included.
+  - The shown opacity is clamped before the press composes on it.
+  - QUEUE: a look that comes while a track already plays on the reader.
+- **Round 3 (the last):**
+  - An engine-sampled animation is never also a reader track, beside a transition that keeps the node's layer open.
+  - A colour transition stays engine-sampled where a look reads `currentcolor`.
+  - The hover looks follow a display's acknowledged frame (`follow_pointer` after `display_complete`).
+  - A `background-clip: text` background shows the states' colour.
+  - A look painted or taken off, and a focus with a look, take the full painter rather than flow damage.
+  - Not done (nit): an inset border's shading of a look's side colour.
+- **Android** replays the display list Linux records, so it needs no Kotlin change.
+- **A follow-up for every host** (theme2's 08:13 ruling): a `:hover`, `:focus-visible` or `:active` part on a run inside a paragraph is `lower-state-target`: a run's press, hover and focus are its paragraph's. A run has no view on Apple and no box on Linux, and D7's press rows paint no run there either, so `:active` is refused with them. Runner-known `:disabled` and `:checked` on a run fold as before. Android forwards no mouse hover, so it shows none.
+- **Tests:** `presenter/looks_tests.rs`:
+  - the hover at once with its 0.8;
+  - the press easing to its absolute 0.5 with the hover's border beneath;
+  - the hover again after the lift;
+  - hovering a child;
+  - a disabled node, and a finger leaving no hover;
+  - `press_paint_tests.rs` unchanged.
+
+### Stage 8, commit C1: the control-role table, measured (draft for theme2)
+
+- **`controls`** in `kernel/tables/schema.json`, beside `_metrics`: one row a (control, parameter),
+  `[control, parameter, ios, macos, web, linux, windows, terminal, android]`. A control is `switch`,
+  `checkbox`, `radio`, `range`, `progress` (with a value), `spinner` (`progress` without),
+  `select`, `button-prominent`, `field` or `textarea`, with a state
+  part's state after a `:` where the row is that state's (`button-prominent:disabled`); a parameter
+  is `accent-color` or a colour role (`Field`, `FieldText`, `placeholder`). Each host cell is
+  `exact`, `best-effort` or `none`, with `: why`. `build.rs` validates every part (the state too)
+  and emits `generated::CONTROLS`. No new role (theme2's ruling (1)); the off track waits for a
+  design that needs it.
+- **SCHEMA_DIGEST moves** to `0x278f_080f_af7d_307f` (every host a new binary; no host reads the
+  table). It lands in stage 8's break window with B's move, one new binary per host.
+- **Measured before it lands:** `scripts/measure-controls.mjs` over `scripts/fixtures/control-roles`
+  (the authored build against one with neither), on the web, the iOS simulator, macOS, the Linux
+  painter and the Android emulator. `docs/control-roles-measured.md` records every cell with its
+  ΔE00, pixels and provenance; `scripts/measure-controls.test.mjs` holds the table to it. Windows
+  is the Linux painter's row (inferred, not measured); the terminal is `none` by construction.
+- **What it found:** `accent-color` reaches every control on iOS but its spinner, and every one but
+  `select` and the spinner on the web, the painters and the Android reader; a disabled switch,
+  checkbox, radio or range is best-effort (dimmed) everywhere it is honoured. A disabled prominent button is the
+  platform's on iOS, the web and the painters, the author's on the reader. `Field` reaches only the
+  reader and the Mac's textarea, `FieldText` Apple's fields and the reader, `placeholder` every host
+  but the reader. Each `none` that is Exact's own gap says so (theme2's 07:32 ruling) and has a QUEUE
+  line. The Mac's accent cells are read from AppKit's API: its agent capture here is an inactive
+  window, which draws every control grey (QUEUE: measure in a key window).
+- **Round 1 (Astra, Grok):** Android's column is the Canvas reader (`--reader`, the fixture as an APK
+  in a scratch checkout), not the Linux host under adb; best-effort is theme2's rule; `progress`
+  is split from `spinner` and `field` from `textarea`; disabled switches, checkboxes, radios and ranges are rows;
+  a frame too small to read is `unmeasured` and fails the run.
+
+### Stage 8, commit C2: `tamber-unreachable` (draft for theme2)
+
+- **A lint** (`contract/lower/src/control_roles.rs`): for each target the app ships (app.json
+  `host`, `deploy.store`, `deploy.binaries` and its target crates, as icons read them), each
+  control the app draws, and each parameter it sets there, a `none` cell of `CONTROLS` warns once a
+  (target, control, parameter), at the override: `accent-color on macOS switches: NSSwitch draws
+  the system accent (the first at line N; LLP 1121 D9)`. `best-effort` says nothing (theme2's ruling (2)).
+- **Set** means an `accent-color` row on the control, an element around it or a class of either,
+  or the design's `AccentColor`; a field's parameter, the design's `Field`, `FieldText` or
+  `placeholder`, unless the field writes its own `background-color`, `color` or `::placeholder
+  color` (a node's own row wins over the role).
+- **The platform's own state** is a row: `button-prominent:disabled` (a prominent button that
+  writes `disabled`) names iOS's grey disabled glass, its why pointing at a styled pressable (D8).
+- **Tests:** `contract/cli/tests/it/control_roles.rs` (the Mac's switches warned, never the web's;
+  best-effort silent; nothing set, nothing judged; a field's own row exempting its role; the iOS
+  disabled glass line).

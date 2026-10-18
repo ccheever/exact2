@@ -1488,9 +1488,9 @@ fn refusals_from_the_app_diaries_name_the_fix() {
         ),
         ("substring(s, 1)", "write `s.slice(start, end)`"),
         ("padStart(s, 2, \"0\")", "LLP 1088 D2 defers it"),
-        ("toUpperCase(s)", "`text-transform=\"uppercase\"`"),
         ("parseInt(s)", "write `parseNumber(s)` for `parseInt`"),
         ("Number(s)", "`none` for anything else"),
+        ("random()", "random-rolls.md"),
     ] {
         let (id, message) = idiom(call);
         assert_eq!(id, "type-refused-idiom", "{call}: {message}");

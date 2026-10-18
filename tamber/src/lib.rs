@@ -11,6 +11,7 @@
 
 mod check;
 mod color_fn;
+mod component;
 mod css;
 mod edit;
 pub mod export;
@@ -24,13 +25,15 @@ mod ir;
 mod lex;
 mod measure;
 mod motion;
+pub mod params;
 mod session;
 mod shadow;
 mod syntax;
 mod typeface;
 
 pub use check::{Checked, MAX_TUPLES};
-pub use edit::{apply, apply_all, undo, Edited, Op, WhenLine};
+pub use component::{Component, Param};
+pub use edit::{apply, apply_all, apply_all_with, undo, Edited, Op, WhenLine};
 pub use fmt::format;
 pub use fold::{Folded, Half, Host};
 pub use icon::Icon;

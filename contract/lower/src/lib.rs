@@ -25,6 +25,7 @@ mod class;
 mod collection;
 mod color_profile;
 mod contain;
+mod control_roles;
 pub mod controls;
 pub mod dataset;
 mod disabled_look;
@@ -42,6 +43,7 @@ mod identity;
 mod intersect;
 mod keyframes;
 mod lint;
+mod live_time;
 mod media;
 mod menus;
 mod metrics;
@@ -49,10 +51,12 @@ pub mod motion;
 mod native;
 mod nodes;
 mod overflow;
+pub mod params;
 mod routes;
 mod shorthands;
 mod sites;
 mod sounds;
+mod states;
 mod stmts;
 mod strings;
 pub mod style_names;
@@ -64,6 +68,7 @@ mod theme;
 mod timers;
 mod type_tokens;
 mod values;
+pub use shorthands::style_values;
 pub mod vocab;
 mod warnings;
 
@@ -76,6 +81,7 @@ pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
+pub use states::PRESS_OPACITY_TO;
 pub use theme::vocab as tamber_vocab;
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
 pub use theme::{retention, synthetic_candidates};
@@ -173,9 +179,13 @@ pub(crate) struct Lowerer<'a> {
     /// The element whose attributes are lowered has element children, which
     /// inherit its text rows (stage 6 C: no type token that varies there).
     pub(crate) element_children: bool,
+    /// How many element levels below the node being lowered a list's rows
+    /// are: 1 says it is one (LLP 1121 D8, `ElementStep::rows`).
+    pub(crate) row_depth: u8,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
     parent_bounded_column: bool,
+    parent_horizontal_flex: Option<bool>,
     /// Where a native button may not be, from the nearest ancestor that says.
     pub(crate) button_context: Option<&'static str>,
     /// Whether the element being lowered is a popover's direct child.
@@ -215,7 +225,7 @@ pub fn lower(
 ) -> Result<Plan, LowerError> {
     lower_with_sites(checked, _analysis, asset_root, false, Profile::Web, None)
         .map(|(plan, _)| plan)
-        .map_err(|mut all| all.swap_remove(0))
+        .map_err(|all| theme::shown_errors(all).swap_remove(0))
 }
 
 /// Lower, reporting every independent refusal: each element and each of its
@@ -250,7 +260,7 @@ pub fn lower_all(
     if let Some(out) = warned {
         out.extend(warnings::with_text_styles(checked, &text_styles));
     }
-    result
+    result.map_err(theme::shown_errors)
 }
 
 fn lower_with_sites(
@@ -261,6 +271,9 @@ fn lower_with_sites(
     profile: Profile,
     text_styles: Option<&mut warnings::TextStyles>,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
+    // An earlier compile's targets and roles go first: lowering may stop
+    // before the design is read, and the warnings still run.
+    control_roles::unlowered();
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
         file,
@@ -300,8 +313,10 @@ fn lower_with_sites(
         fn_depth: 0,
         svg_depth: 0,
         element_children: false,
+        row_depth: 0,
         parent_positioned: true,
         parent_bounded_column: false,
+        parent_horizontal_flex: Some(false),
         button_context: None,
         popover_child: false,
         nav_place: Default::default(),
@@ -329,7 +344,17 @@ fn lower_with_sites(
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
-            match tags::attr(&a.name) {
+            // A state part's row is checked as the row it is; which rows a
+            // state takes is the fold's (`states`, LLP 1121 D8).
+            let name =
+                contract_syntax::state::state_of(&a.name).map_or(a.name.as_str(), |(_, row)| row);
+            // Lowering's own row for `:active`'s opacity (LLP 1121 D8).
+            let name = if name == states::PRESS_OPACITY_TO {
+                ""
+            } else {
+                name
+            };
+            match tags::attr(name) {
                 Some(tags::AttrTarget::Styles(_) | tags::AttrTarget::Flex | tags::AttrTarget::Shorthand) => {}
                 Some(tags::AttrTarget::Prop(p)) if p.styleable() => {} // LLP 1069.011 D12
                 Some(_) => l.errors.push(LowerError {
@@ -341,7 +366,9 @@ fn lower_with_sites(
                     span: a.span,
                 }),
                 None => {
-                    let hint = fields::placeholder_hint(&a.name)
+                    let hint = (name.is_empty() && !a.name.is_empty())
+                        .then(|| "; the press's opacity is `opacity` in an `:active` part (LLP 1121 D8)".to_string())
+                        .or_else(|| fields::placeholder_hint(&a.name))
                         .or_else(|| tags::renamed(&a.name).map(|n| format!("; `{}` is spelled `{n}` here", a.name)))
                         .or_else(|| tags::similar_attr(&a.name, true).map(|n| format!("; did you mean `{n}`?")))
                         .unwrap_or_default();
@@ -740,6 +767,16 @@ impl<'a> Lowerer<'a> {
                 let popover_child = std::mem::replace(&mut self.popover_child, step.popover_child);
                 let bounded = std::mem::replace(&mut self.parent_bounded_column, step.bounded);
                 let nav_place = std::mem::replace(&mut self.nav_place, step.nav_place);
+                let parent_axis =
+                    std::mem::replace(&mut self.parent_horizontal_flex, step.horizontal_flex);
+                // A grouped list's rows are its sections' group's (a
+                // `column`), not a header's or footer's text.
+                let below = match step.rows {
+                    0 if self.row_depth == 2 && step.tag != "column" => 0,
+                    0 => self.row_depth.saturating_sub(1),
+                    n => n,
+                };
+                let row_depth = std::mem::replace(&mut self.row_depth, below);
                 let lowered = self.nodes(
                     step.children.as_ref(),
                     Some(step.id),
@@ -748,7 +785,9 @@ impl<'a> Lowerer<'a> {
                     locals,
                     Some(step.tag),
                 );
+                self.parent_horizontal_flex = parent_axis;
                 self.nav_place = nav_place;
+                self.row_depth = row_depth;
                 self.parent_bounded_column = bounded;
                 self.button_context = button_context;
                 self.popover_child = popover_child;
@@ -917,8 +956,9 @@ impl<'a> Lowerer<'a> {
             return err(
                 "lower-attr-tag",
                 format!(
-                    "`{}` is an SVG element's attribute; it does nothing on `{tag}`",
-                    a.name
+                    "`{}` is an SVG element's attribute; it does nothing on `{tag}`{}",
+                    a.name,
+                    lint::react_native(&a.name).unwrap_or_default()
                 ),
                 a.span,
             );

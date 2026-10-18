@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Cdp } from '../../scripts/agent.mjs';
-import { chromium } from '../../scripts/agent-launch.mjs';
+import { chromium, DESKTOP_INPUT } from '../../scripts/agent-launch.mjs';
 import { need } from '../../scripts/coverage.mjs';
 
 const { executable: chrome, unavailable } = chromium();
@@ -22,7 +22,7 @@ beforeAll(async () => {
       headers: { 'content-type': path.endsWith('.js') ? 'text/javascript' : 'text/html' },
     });
   }});
-  child = spawn(chrome, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  child = spawn(chrome, ['--headless=new', DESKTOP_INPUT, '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
   cdp = new Cdp(child.stdio[3], child.stdio[4]);
   child.on('exit', () => cdp.fail('Chrome closed'));
   const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
@@ -197,12 +197,18 @@ test('bordered element scrollports resolve percentage padding inside the border'
     port.style.cssText = 'height:200px;width:200px;overflow:auto;border-top:20px solid black;border-left:10px solid black;scroll-padding:25%';
     port.innerHTML = '<div style="height:400px;width:1000px"></div><div id="border-target" style="height:50px;width:50px;margin-left:400px"></div><div style="height:550px;width:1000px"></div>';
     document.getElementById('exact-root').append(port);
+    const width = port.clientWidth, height = port.clientHeight;
     rt.Hosts.scrollIntoView('border-target', 'start', 'nearest', 'instant');
     const start = [port.scrollLeft, port.scrollTop];
     rt.Hosts.scrollIntoView('border-target', 'end', 'end', 'instant');
-    const end = [port.scrollLeft, port.scrollTop]; port.remove(); return {start, end};
+    const end = [port.scrollLeft, port.scrollTop]; port.remove(); return {start, end, width, height};
   })()`);
-  expect(result).toEqual({start:[300,350], end:[300,300]});
+  // Percentage padding uses the scrollport, excluding borders and classic
+  // scrollbars. Nearest aligns the target's right edge with the padded end.
+  const {width, height} = result;
+  const right = Math.round(450 - width * 0.75);
+  expect(result.start).toEqual([right, Math.round(400 - height * 0.25)]);
+  expect(result.end).toEqual([right, Math.round(450 - height * 0.75)]);
 }, 60_000);
 
 test('a horizontal wheel leaves a vertical Chrome jump running to one scrollend', async () => {

@@ -699,7 +699,20 @@ impl super::Device {
             .handle_types(vk::ExternalMemoryHandleTypeFlags::ANDROID_HARDWARE_BUFFER_ANDROID);
         // Not `create_image_without_memory`: an image of this handle type
         // has no memory requirements to ask for until it is bound.
-        let info = vk::ImageCreateInfo::default()
+        // EXACT (EXACT-PATCHES.md, 8): compatible views of an imported buffer.
+        let view_formats: Vec<_> = desc
+            .view_formats
+            .iter()
+            .chain(core::iter::once(&desc.format))
+            .map(|f| self.shared.private_caps.map_texture_format(*f))
+            .collect();
+        let mut format_list = vk::ImageFormatListCreateInfo::default().view_formats(&view_formats);
+        let mut info = vk::ImageCreateInfo::default()
+            .flags(if desc.view_formats.is_empty() {
+                vk::ImageCreateFlags::empty()
+            } else {
+                vk::ImageCreateFlags::MUTABLE_FORMAT
+            })
             .image_type(vk::ImageType::TYPE_2D)
             .format(self.shared.private_caps.map_texture_format(desc.format))
             .extent(conv::map_copy_extent(&desc.copy_extent()))
@@ -711,6 +724,11 @@ impl super::Device {
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .push_next(&mut external);
+        // Imported images need the same compatible-view declaration as owned images.
+        // https://docs.vulkan.org/spec/latest/chapters/memory.html#memory-external-android-hardware-buffer
+        if !desc.view_formats.is_empty() && self.shared.private_caps.image_format_list {
+            info = info.push_next(&mut format_list);
+        }
         let image = unsafe { self.shared.raw.create_image(&info, None) }
             .map_err(super::map_host_device_oom_and_ioca_err)?;
 
@@ -870,11 +888,23 @@ impl super::Device {
                     crate::PipelineError::PipelineConstants(stage_flags, format!("{e}"))
                 })?;
 
-                let spv = {
+                let mut spv = {
                     profiling::scope!("naga::spv::write_vec");
                     naga::back::spv::write_vec(&module, &info, options, Some(&pipeline_options))
                 }
                 .map_err(|e| crate::PipelineError::Linkage(stage_flags, format!("{e}")))?;
+                // EXACT (EXACT-PATCHES.md, 11): Naga declares uniform 16-bit
+                // storage even for function-local f16. Never send an unsupported
+                // capability to Vulkan, nor erase one a uniform really needs.
+                if !options
+                    .capabilities
+                    .as_ref()
+                    .unwrap()
+                    .contains(&naga::back::spv::Capability::UniformAndStorageBuffer16BitAccess)
+                {
+                    super::f16::restrict_uniforms(&module, &mut spv)
+                        .map_err(|e| crate::PipelineError::Linkage(stage_flags, e.into()))?;
+                }
                 self.create_shader_module_impl(&spv, &None)?
             }
         };
@@ -2288,19 +2318,15 @@ impl crate::Device for super::Device {
                 .render_pass(raw_pass)
         }];
 
-        let pipeline_cache = desc
-            .cache
-            .map(|it| it.raw)
-            .unwrap_or(vk::PipelineCache::null());
-
         let mut raw_vec = {
             profiling::scope!("vkCreateGraphicsPipelines");
-            unsafe {
+            // EXACT (EXACT-PATCHES.md, 10): exclude snapshots during creation.
+            super::PipelineCache::with_creation(desc.cache, |pipeline_cache| unsafe {
                 self.shared
                     .raw
                     .create_graphics_pipelines(pipeline_cache, &vk_infos, None)
                     .map_err(|(_, e)| super::map_pipeline_err(e))
-            }?
+            })?
         };
 
         let raw = raw_vec.pop().unwrap();
@@ -2371,19 +2397,15 @@ impl crate::Device for super::Device {
                 .stage(compiled.create_info)
         }];
 
-        let pipeline_cache = desc
-            .cache
-            .map(|it| it.raw)
-            .unwrap_or(vk::PipelineCache::null());
-
         let mut raw_vec = {
             profiling::scope!("vkCreateComputePipelines");
-            unsafe {
+            // EXACT (EXACT-PATCHES.md, 10): exclude snapshots during creation.
+            super::PipelineCache::with_creation(desc.cache, |pipeline_cache| unsafe {
                 self.shared
                     .raw
                     .create_compute_pipelines(pipeline_cache, &vk_infos, None)
                     .map_err(|(_, e)| super::map_pipeline_err(e))
-            }?
+            })?
         };
 
         let raw = raw_vec.pop().unwrap();
@@ -2503,18 +2525,14 @@ impl crate::Device for super::Device {
                 .groups(&groups)
         }];
 
-        let pipeline_cache = desc
-            .cache
-            .map(|it| it.raw)
-            .unwrap_or(vk::PipelineCache::null());
-
         let fns = self
             .shared
             .extension_fns
             .ray_tracing_pipelines
             .as_ref()
             .unwrap();
-        let pipelines = unsafe {
+        // EXACT (EXACT-PATCHES.md, 10): exclude snapshots during creation.
+        let pipelines = super::PipelineCache::with_creation(desc.cache, |pipeline_cache| unsafe {
             fns.create_ray_tracing_pipelines(
                 vk::DeferredOperationKHR::null(),
                 pipeline_cache,
@@ -2522,7 +2540,7 @@ impl crate::Device for super::Device {
                 None,
             )
             .map_err(|(_, e)| super::map_pipeline_err(e))
-        }?;
+        })?;
 
         if let Some(raw_module) = compiled_ray_gen.temp_raw_module {
             unsafe { self.shared.raw.destroy_shader_module(raw_module, None) };
@@ -2590,13 +2608,19 @@ impl crate::Device for super::Device {
         let raw = unsafe { self.shared.raw.create_pipeline_cache(&info, None) }
             .map_err(super::map_host_device_oom_err)?;
 
-        Ok(super::PipelineCache { raw })
+        Ok(super::PipelineCache {
+            raw: RwLock::new(raw),
+        })
     }
     fn pipeline_cache_validation_key(&self) -> Option<[u8; 16]> {
         Some(self.shared.pipeline_cache_validation_key)
     }
     unsafe fn destroy_pipeline_cache(&self, cache: super::PipelineCache) {
-        unsafe { self.shared.raw.destroy_pipeline_cache(cache.raw, None) }
+        unsafe {
+            self.shared
+                .raw
+                .destroy_pipeline_cache(cache.raw.into_inner(), None)
+        }
     }
     unsafe fn create_query_set(
         &self,
@@ -2749,8 +2773,8 @@ impl crate::Device for super::Device {
     }
 
     unsafe fn pipeline_cache_get_data(&self, cache: &super::PipelineCache) -> Option<Vec<u8>> {
-        let data = unsafe { self.raw_device().get_pipeline_cache_data(cache.raw) };
-        data.ok()
+        // EXACT (EXACT-PATCHES.md, 10): hold through both size and data queries.
+        cache.with_data(|raw| unsafe { self.raw_device().get_pipeline_cache_data(raw) }.ok())
     }
 
     unsafe fn get_acceleration_structure_build_sizes<'a>(

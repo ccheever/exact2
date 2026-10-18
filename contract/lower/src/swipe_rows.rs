@@ -23,7 +23,7 @@
 
 use crate::metrics::grouped as metric;
 use crate::LowerError;
-use contract_syntax::{Attr, Expr, Node, Span, TemplatePart};
+use contract_syntax::{Attr, Expr, Node, Span, StyleDecl, TemplatePart};
 
 /// The names the expansion gives the content and the action, where the
 /// row has no `id` of its own. Every row repeats them: a swipe row's names
@@ -361,7 +361,9 @@ struct Walk {
 
 /// `lower-delete-row`: a `delete=` on an element that is no list row, which
 /// lowering drops. Read as the expansion reads rows: a grouped list's
-/// section rows, a cell list's children, through `if`, `for` and `match`.
+/// section rows, a cell list's children, through `if`, `for` and `match`,
+/// each list's attributes after its class's rows, as lowering reads them
+/// (`class::rows`, over `styles`).
 ///
 /// @ref LLP 1116.021 D5 — `lower-row-delete-button`: a `button
 /// destructive=true` inside the row a `for` repeats, which says no
@@ -370,8 +372,15 @@ struct Walk {
 /// section is no repeated row, and an action in a row's dialog, popover,
 /// menu or swipe is that surface's. Round 19's census found it on no row
 /// but a per-row delete across the repo's contracts and the docs' blocks.
-pub(crate) fn unplaced(view: &[Node]) -> Vec<LowerError> {
-    fn walk(nodes: &[Node], w: Walk, out: &mut Vec<LowerError>) {
+///
+/// `lower-list-section`: a `list` that would be a list of cells but for its
+/// `section`s (no `appearance` and not `virtualized`) is neither form,
+/// grouped or cells, and draws its rows as written: no separators, and a
+/// hand-written swipe that is no row stacks its actions under the content.
+/// A windowed list's section rows, sticky headers and all, are the
+/// author's (LLP 1083 D5).
+pub(crate) fn unplaced(view: &[Node], styles: &[StyleDecl]) -> Vec<LowerError> {
+    fn walk(nodes: &[Node], w: Walk, styles: &[StyleDecl], out: &mut Vec<LowerError>) {
         for node in nodes {
             match node {
                 Node::Element {
@@ -409,6 +418,11 @@ pub(crate) fn unplaced(view: &[Node]) -> Vec<LowerError> {
                     } else {
                         w.advise && !holds_actions
                     };
+                    // A list's attributes as lowering reads them, its class's rows first.
+                    let list = (tag == "list").then(|| drawn(attrs, styles));
+                    if let Some(all) = &list {
+                        section_list(all, children, *span, out);
+                    }
                     let destructive = attrs
                         .iter()
                         .rev()
@@ -421,13 +435,13 @@ pub(crate) fn unplaced(view: &[Node]) -> Vec<LowerError> {
                             span: *span,
                         });
                     }
-                    let inside = match (tag.as_str(), at) {
-                        ("list", _) => match crate::grouped::style(tag, attrs) {
+                    let inside = match (&list, tag.as_str(), at) {
+                        (Some(all), ..) => match crate::grouped::style(tag, all) {
                             Ok(Some(_)) => At::Sections,
-                            Ok(None) if crate::cells::rows(tag, attrs, children, false) => At::Row,
+                            Ok(None) if crate::cells::rows(tag, all, children, false) => At::Row,
                             _ => At::Other,
                         },
-                        ("section", At::Sections) => At::Section,
+                        (None, "section", At::Sections) => At::Section,
                         _ => At::Other,
                     };
                     let w = Walk {
@@ -435,21 +449,21 @@ pub(crate) fn unplaced(view: &[Node]) -> Vec<LowerError> {
                         repeated: false,
                         advise,
                     };
-                    walk(children, w, out);
+                    walk(children, w, styles, out);
                 }
                 Node::When {
                     then, otherwise, ..
                 } => {
-                    walk(then, w, out);
-                    walk(otherwise, w, out);
+                    walk(then, w, styles, out);
+                    walk(otherwise, w, styles, out);
                 }
                 Node::Each { body, .. } => {
                     let repeated = w.repeated || matches!(w.at, At::Row | At::Section);
-                    walk(body, Walk { repeated, ..w }, out)
+                    walk(body, Walk { repeated, ..w }, styles, out)
                 }
                 Node::Match { some, none, .. } => {
-                    walk(&some.1, w, out);
-                    walk(none, w, out);
+                    walk(&some.1, w, styles, out);
+                    walk(none, w, styles, out);
                 }
                 Node::Use { children, .. } => walk(
                     children,
@@ -458,6 +472,7 @@ pub(crate) fn unplaced(view: &[Node]) -> Vec<LowerError> {
                         repeated: false,
                         advise: false,
                     },
+                    styles,
                     out,
                 ),
                 Node::Children { .. } => {}
@@ -470,8 +485,45 @@ pub(crate) fn unplaced(view: &[Node]) -> Vec<LowerError> {
         repeated: false,
         advise: false,
     };
-    walk(view, top, &mut out);
+    walk(view, top, styles, &mut out);
+    // A component used twice is inlined twice: one warning for its source.
+    let mut seen = std::collections::BTreeSet::new();
+    out.retain(|e| seen.insert((e.id, e.span)));
     out
+}
+
+/// `lower-list-section` for a `list` of the attributes `all` (its class's
+/// rows first) and `children`.
+fn section_list(all: &[Attr], children: &[Node], span: Span, out: &mut Vec<LowerError>) {
+    let windowed =
+        last(all, "virtualized").is_some_and(|a| !matches!(a.value, Expr::Bool(false, _)));
+    if !windowed && crate::cells::sectioned(children) && crate::cells::rows("list", all, &[], false)
+    {
+        out.push(LowerError {
+            id: "lower-list-section",
+            message: "this `list` holds a `section` but has no `appearance`, so it is neither a grouped list nor a list of cells: its rows are drawn as written, with none of the platform's separators or pressed-row highlight, and a row's `delete=` does nothing. Sections are a grouped list's: write `appearance=\"auto\"` on the list (`listStyle=\"plain\"` for a plain list's look) and put each of its children in a `section`, or drop the `section` so each child of the list is a cell; rows of your own drawing say `appearance=\"none\"` (docs/recipes/list-rows.md)".into(),
+            span,
+        });
+    }
+}
+
+/// An element's attributes as lowering reads them: its class's rows
+/// (`class::rows`), then its own. A class the build refuses adds none.
+fn drawn(attrs: &[Attr], styles: &[StyleDecl]) -> Vec<Attr> {
+    let style = |name: &str| {
+        styles
+            .iter()
+            .find(|s| s.name == name)
+            .map(|s| s.attrs.as_slice())
+    };
+    let class = crate::class::rows(attrs, &style).ok().flatten();
+    let own = attrs.iter().filter(|a| a.name != "class").cloned();
+    class
+        .map(|(_, rows)| rows)
+        .unwrap_or_default()
+        .into_iter()
+        .chain(own)
+        .collect()
 }
 
 /// An element's attributes without a `delete=` that is no list row's,

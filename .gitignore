@@ -52,3 +52,6 @@ apps/expose/local.ts
 /debug
 /manifest.pif
 /workspace-state.json
+
+# Lead agent notes dropped into worktrees; never commit them
+/LEAD-URGENT.md

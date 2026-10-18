@@ -82,6 +82,27 @@ pub enum Op {
         /// The token.
         name: String,
     },
+    /// `set-param name [when …] value` (D15): the app's value of a
+    /// component's param, in the design's `params` block (made at the end
+    /// when there is none), its line or one `when` line of it. A `when`
+    /// line needs the param's own line first.
+    SetParam {
+        /// The param, by the name its line has (full or short).
+        name: String,
+        /// The `when` line's conditions; none is the param's own line.
+        when: Vec<(String, String)>,
+        /// The value, a token's.
+        value: String,
+    },
+    /// `unset-param name [when …]`: the param's line and its `when` lines
+    /// (the component's default applies again), or one `when` line; an
+    /// emptied `params` block goes with it.
+    UnsetParam {
+        /// The param, by the name its line has.
+        name: String,
+        /// The `when` line's conditions; none is the whole param.
+        when: Vec<(String, String)>,
+    },
     /// `add-axis-value axis value`, before `before` (else last).
     AddAxisValue {
         /// The axis.
@@ -149,7 +170,7 @@ pub fn undo(src: &str, inverse: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diag
     let mut text = src.to_string();
     let mut undone = Vec::new();
     for op in inverse {
-        let (next, back) = step(&text, op, vocab)?;
+        let (next, back) = step(&text, op, vocab, &crate::params::NONE)?;
         text = next;
         undone.insert(0, back);
     }
@@ -160,7 +181,14 @@ pub fn undo(src: &str, inverse: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diag
 }
 
 /// One edit, unchecked: the new text and the `restore` that undoes it.
-fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnostic>> {
+/// One operation on `src`; a rename is proved folded with the app's
+/// `params` (LLP 1121 D15), as the build folds the design.
+fn step(
+    src: &str,
+    op: &Op,
+    vocab: &Vocab,
+    params: &crate::params::Params,
+) -> Result<(String, Op), Vec<Diagnostic>> {
     valid(op)?;
     let design = crate::parse(src)?;
     if let Op::RenameToken { from, to } = op {
@@ -208,9 +236,13 @@ fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnosti
     // that was no use (a channel, a colour space, a platform selector) would.
     if let Op::RenameToken { .. } = op {
         let folded = |text: &str| {
-            crate::check(text, vocab)
-                .ok()
-                .map(|f| f.tokens.into_iter().map(|t| t.values).collect::<Vec<_>>())
+            let folding = match params.list.is_empty() {
+                true => crate::check(text, vocab).ok(),
+                false => crate::parse(text)
+                    .ok()
+                    .and_then(|d| crate::check_design(crate::params::laid(&d, params), vocab).ok()),
+            };
+            folding.map(|f| f.tokens.into_iter().map(|t| t.values).collect::<Vec<_>>())
         };
         // Proved only where both sides check and fold the same.
         match (folded(src), folded(&doc.text())) {
@@ -233,7 +265,7 @@ fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnosti
 /// An operation's fields, each its own kind: a value on one line, names and
 /// conditions as the grammar has them, a comment that is one, so a field
 /// cannot write a second line or name.
-fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
+pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
     let one_line = |field: &str, v: &str| match v.contains(['\n', '\r']) {
         true => Err(refuse(format!("`{field}` is one line"))),
         false => Ok(()),
@@ -258,6 +290,12 @@ fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         true => Ok(()),
         false => Err(refuse(format!(
             "`{v}`: a token's name is identifiers joined by `.`, or a role's"
+        ))),
+    };
+    let param = |v: &str| match crate::syntax::param_name(v) {
+        true => Ok(()),
+        false => Err(refuse(format!(
+            "`{v}`: a param is named `Component.param`, or in full, `file.contract#Component.param`"
         ))),
     };
     let ident = |v: &str| match lex::is_ident(v) {
@@ -334,6 +372,16 @@ fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         }
         Op::RenameToken { from, to } => name(from).and_then(|_| name(to)),
         Op::RemoveToken { name: n } => name(n),
+        Op::SetParam {
+            name: n,
+            when,
+            value: v,
+        } => {
+            param(n)?;
+            conds(when)?;
+            value(v)
+        }
+        Op::UnsetParam { name: n, when } => param(n).and_then(|_| conds(when)),
         Op::AddAxisValue {
             axis,
             value,
@@ -371,18 +419,43 @@ pub fn apply_all(src: &str, ops: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Dia
     if ops.iter().any(|op| matches!(op, Op::Restore { .. })) {
         return Err(refuse("a restore is an inverse: undo applies it"));
     }
-    run(src, ops, vocab)
+    run(src, ops, vocab, &crate::params::NONE)
 }
 
-fn run(src: &str, ops: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diagnostic>> {
+/// [`apply_all`], the result checked laid out with the app's params (LLP
+/// 1121 D15), as the build checks it: a dial only a param reads is read.
+pub fn apply_all_with(
+    src: &str,
+    ops: &[Op],
+    vocab: &Vocab,
+    params: &crate::params::Params,
+) -> Result<Edited, Vec<Diagnostic>> {
+    if ops.iter().any(|op| matches!(op, Op::Restore { .. })) {
+        return Err(refuse("a restore is an inverse: undo applies it"));
+    }
+    run(src, ops, vocab, params)
+}
+
+fn run(
+    src: &str,
+    ops: &[Op],
+    vocab: &Vocab,
+    params: &crate::params::Params,
+) -> Result<Edited, Vec<Diagnostic>> {
     let mut text = src.to_string();
     let mut inverse = Vec::new();
     for op in ops {
-        let (next, undo) = step(&text, op, vocab)?;
+        let (next, undo) = step(&text, op, vocab, params)?;
         text = next;
         inverse.insert(0, undo);
     }
-    crate::check(&text, vocab)?;
+    match params.list.is_empty() {
+        true => drop(crate::check(&text, vocab)?),
+        false => drop(crate::check_design(
+            crate::params::laid(&crate::parse(&text)?, params),
+            vocab,
+        )?),
+    }
     Ok(Edited { text, inverse })
 }
 
@@ -436,6 +509,8 @@ const KEYWORDS: &[&str] = &[
     "transparent",
     "currentcolor",
 ];
+
+mod params;
 
 /// The design's lines, which an edit splices.
 struct Doc {
@@ -736,7 +811,8 @@ impl Doc {
                         format!("a token `{to}` is declared already"),
                     ));
                 }
-                // A token is named in the theme's values and the exports.
+                // A token is named in the theme's values, the exports, and
+                // the params block's values (D15).
                 let mut block = String::new();
                 for n in 0..self.lines.len() {
                     let raw = self.lines[n].clone();
@@ -745,18 +821,22 @@ impl Doc {
                         block = body.trim().to_string();
                         continue;
                     }
-                    if block != "theme" && block != "exports" {
+                    if block != "theme" && block != "exports" && block != "params" {
                         continue;
                     }
                     // A token line's name and value; a when line's value
-                    // only (its conditions are axes); an export whole.
+                    // only (its conditions are axes); an export whole; a
+                    // params line's value only (its name is a param's).
                     let code = body.trim_start();
                     let keep = match block.as_str() {
-                        "theme"
+                        "theme" | "params"
                             if code.starts_with("when ")
                                 && !code[4..].trim_start().starts_with('=') =>
                         {
                             lex::split_top(body, ':').map_or(body.len(), |(c, _)| c.len() + 1)
+                        }
+                        "params" => {
+                            lex::split_top(body, '=').map_or(body.len(), |(c, _)| c.len() + 1)
                         }
                         _ => 0,
                     };
@@ -821,6 +901,8 @@ impl Doc {
                 values,
                 under_dark,
             } => self.add_axis(design, name, values, *under_dark),
+            Op::SetParam { name, when, value } => self.set_param(design, name, when, value),
+            Op::UnsetParam { name, when } => self.unset_param(design, name, when),
             Op::RemoveAxisValue { axis, value } => {
                 let a = design
                     .axes

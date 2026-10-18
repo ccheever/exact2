@@ -1,3 +1,6 @@
+// 0: receiver plane; 1: PCF-soft; 2: read the frame; 3: bilinear.
+override SHADOW_FILTER: u32 = 2u;
+override SINGLE_CASCADE: bool = false;
 @group(1) @binding(0) var shadow_map: texture_depth_2d_array;
 @group(1) @binding(1) var shadow_sampler: sampler_comparison;
 // Local light shadows (local_shadows.rs): a spot's layer, or a point light's six.
@@ -6,14 +9,14 @@
 // footprint without erasing nearby casters. Compare each texel to its own
 // receiver-plane depth, then interpolate the four visibility values.
 fn plane_sample(uv: vec2<f32>, depth: f32, slope: vec2<f32>, index: u32) -> f32 {
-    let pixel = uv * 2048.0 - 0.5;
+    let pixel = uv * f32(textureDimensions(shadow_map).x) - 0.5;
     let base = floor(pixel);
     let weight = fract(pixel);
     var sum = 0.0;
     for (var y = 0; y <= 1; y++) {
         for (var x = 0; x <= 1; x++) {
             let corner = vec2(f32(x), f32(y));
-            let coord = clamp(vec2<i32>(base + corner), vec2(0), vec2(2047));
+            let coord = clamp(vec2<i32>(base + corner), vec2(0), vec2<i32>(textureDimensions(shadow_map)) - vec2(1));
             let reference = depth + dot(slope, vec2<f32>(coord) - pixel) - 0.000001;
             let stored = textureLoad(shadow_map, coord, i32(index), 0);
             let w = mix(vec2(1.0) - weight, weight, corner);
@@ -22,8 +25,34 @@ fn plane_sample(uv: vec2<f32>, depth: f32, slope: vec2<f32>, index: u32) -> f32 
     }
     return sum;
 }
+// The four pairs of a separable PCF-soft kernel have weights
+// (1-f, 1, 1, f)/3 per axis. Bilinear comparisons combine each adjacent pair.
+// https://github.com/mrdoob/three.js/blob/r180/src/renderers/shaders/ShaderChunk/shadowmap_pars_fragment.glsl.js
+fn pcf_soft(world: vec3<f32>, normal: vec3<f32>, index: u32) -> f32 {
+    let offset = normal * frame.shadow_filter.z;
+    let clip = frame.shadow_matrices[index] * vec4(world + offset, 1.0);
+    let uv = clip.xy * vec2(0.5, -0.5) + 0.5;
+    if any(uv < vec2(0.0)) || any(uv > vec2(1.0)) || clip.z < 0.0 || clip.z > 1.0 { return 1.0; }
+    if SHADOW_FILTER == 3u || (SHADOW_FILTER == 2u && frame.shadow_filter.x > 1.5) {
+        return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, i32(index), clip.z - frame.shadow_filter.y);
+    }
+    let f = fract(uv * f32(textureDimensions(shadow_map).x) + 0.5);
+    let at = uv - f / f32(textureDimensions(shadow_map).x);
+    let lo = 2.0 - f;
+    let hi = 1.0 + f;
+    let a = at + (-1.0 + 1.0 / lo) / f32(textureDimensions(shadow_map).x);
+    let b = at + (1.0 + f / hi) / f32(textureDimensions(shadow_map).x);
+    let z = clip.z - frame.shadow_filter.y;
+    return (textureSampleCompareLevel(shadow_map, shadow_sampler, a, i32(index), z) * lo.x * lo.y
+        + textureSampleCompareLevel(shadow_map, shadow_sampler, vec2(b.x, a.y), i32(index), z) * hi.x * lo.y
+        + textureSampleCompareLevel(shadow_map, shadow_sampler, vec2(a.x, b.y), i32(index), z) * lo.x * hi.y
+        + textureSampleCompareLevel(shadow_map, shadow_sampler, b, i32(index), z) * hi.x * hi.y) / 9.0;
+}
 fn cascade_sample(world: vec3<f32>, normal: vec3<f32>, index: u32) -> f32 {
-    let l = normalize(-frame.sun_direction_illuminance.xyz);
+    if SHADOW_FILTER == 1u || SHADOW_FILTER == 3u || (SHADOW_FILTER == 2u && frame.shadow_filter.x > 0.5) {
+        return pcf_soft(world, normal, index);
+    }
+    let l = (-frame.sun_direction_illuminance.xyz);
     let cosine = clamp(dot(normal, l), 0.0, 1.0);
     if cosine <= 0.005 { return 0.0; }
     let sine = sqrt(max(0.0, 1.0 - cosine * cosine));
@@ -52,28 +81,42 @@ fn cascade_sample(world: vec3<f32>, normal: vec3<f32>, index: u32) -> f32 {
     let uv = clip.xy * vec2(0.5, -0.5) + 0.5;
     if any(uv < vec2(0.0)) || any(uv > vec2(1.0)) || clip.z < 0.0 || clip.z > 1.0 { return 1.0; }
     var sum = 0.0;
-    for (var y = -1; y <= 1; y++) {
-        for (var x = -1; x <= 1; x++) {
-            let grid = vec2(f32(x), f32(y)) * frame.texels_softness.w;
-            let tap = grid - axis * dot(grid, axis) * (1.0 - cosine);
-            let depth = clip.z + dot(slope, tap);
-            let tap_uv = uv + tap / 2048.0;
-            if footprint > budget {
-                sum += plane_sample(tap_uv, depth, slope, index);
-            } else {
-                sum += textureSampleCompareLevel(shadow_map, shadow_sampler, tap_uv, i32(index), depth - bias);
+    // The receiver chooses one filter for all nine taps. Keep the manual
+    // footprint path out of the comparison-sampler loop.
+    if footprint > budget {
+        for (var y = -1; y <= 1; y++) {
+            for (var x = -1; x <= 1; x++) {
+                let grid = vec2(f32(x), f32(y)) * frame.texels_softness.w;
+                let tap = grid - axis * dot(grid, axis) * (1.0 - cosine);
+                sum += plane_sample(uv + tap / f32(textureDimensions(shadow_map).x), clip.z + dot(slope, tap), slope, index);
+            }
+        }
+    } else {
+        for (var y = -1; y <= 1; y++) {
+            for (var x = -1; x <= 1; x++) {
+                let grid = vec2(f32(x), f32(y)) * frame.texels_softness.w;
+                let tap = grid - axis * dot(grid, axis) * (1.0 - cosine);
+                sum += textureSampleCompareLevel(shadow_map, shadow_sampler,
+                    uv + tap / f32(textureDimensions(shadow_map).x), i32(index), clip.z + dot(slope, tap) - bias);
             }
         }
     }
     return sum / 9.0;
 }
-fn sun_visibility(world: vec3<f32>, normal: vec3<f32>) -> f32 {
+fn sun_visibility_filtered(world: vec3<f32>, normal: vec3<f32>) -> f32 {
+    if frame.splits_count.w < 1.0 { return 1.0; }
     // A plane is singular at N.L=0. Fade direct illumination to zero through
     // the unsupported interval, including cascade/distance fades; never to lit.
-    let cosine = dot(normal, normalize(-frame.sun_direction_illuminance.xyz));
+    let cosine = dot(normal, (-frame.sun_direction_illuminance.xyz));
     let support = smoothstep(0.005, 0.01, cosine);
     if support == 0.0 { return 0.0; }
     let depth = dot(frame.view_depth, vec4(world, 1.0));
+    if SINGLE_CASCADE {
+        let end = frame.splits_count.x;
+        if depth >= end { return support; }
+        let blend = smoothstep(end - (end - frame.shadow_near.x) * 0.1, end, depth);
+        return mix(cascade_sample(world, normal, 0u), 1.0, blend) * support;
+    }
     let count = u32(frame.splits_count.w);
     let distance = frame.splits_count[count - 1u];
     if depth >= distance { return support; }
@@ -92,6 +135,10 @@ fn sun_visibility(world: vec3<f32>, normal: vec3<f32>) -> f32 {
         visibility = mix(visibility, next, blend);
     }
     return visibility * support;
+}
+
+fn sun_visibility(world: vec3<f32>, normal: vec3<f32>) -> f32 {
+    return mix(1.0, sun_visibility_filtered(world, normal), frame.shadow_filter.w);
 }
 
 // A local light's shadow at `world` (lights.wgsl record words 13-15: first layer,

@@ -77,6 +77,7 @@ fn tiled_bright_matches_fragment_at_edges_odd_sizes_and_nonfinite_inputs() {
         });
     let reference = crate::pipeline::make_pipeline(
         &gpu.device,
+        None,
         &shader,
         "bloom oracle",
         "vs",
@@ -89,6 +90,7 @@ fn tiled_bright_matches_fragment_at_edges_odd_sizes_and_nonfinite_inputs() {
         None,
         &[],
         false,
+        true,
     );
     let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("bloom test frame"),

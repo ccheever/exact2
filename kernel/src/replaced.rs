@@ -11,6 +11,7 @@ use crate::arena::NodeArena;
 use crate::generated::NodeType;
 use taffy::geometry::{Rect, Size};
 use taffy::style::{AvailableSpace, BoxSizing};
+use taffy::tree::SizingMode;
 
 /// The content size of `slot` given what is `known` and the `space` offered,
 /// or `None` when it is not a replaced element. `inset` is its padding plus
@@ -22,6 +23,7 @@ pub(crate) fn measure(
     inset: Rect<f32>,
     known: Size<Option<f32>>,
     space: Size<AvailableSpace>,
+    sizing_mode: SizingMode,
 ) -> Option<Size<f32>> {
     let node_type = arena.node_type(slot);
     if !node_type.is_replaced() {
@@ -50,19 +52,23 @@ pub(crate) fn measure(
     if let Some(ratio) = unsized_ratio {
         // @ref LLP 1055.000 D4 — a replaced element with a ratio and no
         // natural size fills the offered width (CSS Sizing's stretch fit, as
-        // Chrome sizes one). It contributes no width to a min-content or
-        // max-content size, except that at max-content a percentage width
-        // that cannot resolve takes the 300 px default object width, as in
-        // Chrome.
+        // Chrome sizes one). Its intrinsic width starts at zero, or the
+        // 300 px default object width at max-content when a percentage
+        // width cannot resolve.
         let percent = style.size.width.into_raw().uses_percentage();
-        let width = known
-            .width
-            .or(known.height.map(|h| (h + ph) * ratio - pw))
-            .unwrap_or(match space.width {
-                AvailableSpace::Definite(w) => w,
-                AvailableSpace::MaxContent if percent => 300.0,
-                _ => 0.0,
-            });
+        let width = known.width.unwrap_or_else(|| {
+            known
+                .height
+                .map(|h| (h + ph) * ratio - pw)
+                .unwrap_or(match space.width {
+                    AvailableSpace::Definite(w) => w,
+                    AvailableSpace::MaxContent if percent => 300.0,
+                    _ => 0.0,
+                })
+                // A border-box ratio must fit the vertical inset even when
+                // no content contributes width. A given width still wins.
+                .max((ph * ratio - pw).max(0.0))
+        });
         return Some(Size {
             width,
             height: known.height.unwrap_or(((width + pw) / ratio - ph).max(0.0)),
@@ -73,13 +79,15 @@ pub(crate) fn measure(
     let Some((iw, ih)) = natural.or(default.map(|(size, _)| size)) else {
         return Some(Size::ZERO);
     };
-    // An `svg` has no natural size at all, only the default object size:
-    // nothing floors its min-content width (a flex row shrinks it; an
-    // iframe or video it does not).
+    // An unsized SVG's own content minimum is zero, but its contribution
+    // to an ancestor includes the default object width. Taffy's ContentSize
+    // probe asks for the former (a flex item's automatic minimum);
+    // InherentSize asks for the latter (a block child's contribution).
     if node_type == NodeType::Svg
         && natural.is_none()
         && known.width.is_none()
         && space.width == AvailableSpace::MinContent
+        && sizing_mode == SizingMode::ContentSize
     {
         return Some(Size {
             width: 0.0,

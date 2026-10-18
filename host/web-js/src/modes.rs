@@ -63,7 +63,7 @@ pub fn every(on: bool) -> impl Drop {
     Restore(EVERY.with(|e| e.replace(on)))
 }
 
-fn every_token() -> bool {
+pub(crate) fn every_token() -> bool {
     EVERY.with(std::cell::Cell::get)
 }
 
@@ -93,7 +93,9 @@ pub fn properties(plan: &Plan) -> Vec<(String, String)> {
     let inline = crate::measures::inline_tokens(plan);
     for (i, row) in plan.theme.iter().enumerate() {
         let role = roles::role(plan.str(row.role));
-        if crate::measures::kind(row).is_none()
+        // A type or family token is a property a row it writes
+        // (`measures::type_properties`).
+        if crate::measures::kind(row).is_none_or(|k| matches!(k, Kind::Type | Kind::Family))
             || row.slices.len == 0 && !every_token()
             || role.is_some_and(roles::tint)
             || inline.iter().any(|(n, _)| n == plan.str(row.name))
@@ -142,6 +144,9 @@ pub struct Modes {
     accent: Vec<String>,
     /// What the rows read from a token write, by index: a class's channel.
     pub texts: Vec<String>,
+    /// Each type or family token's property a row it writes:
+    /// `(name, row, property)` (`measures::type_properties`).
+    types: Vec<(String, StyleId, String)>,
 }
 
 impl Modes {
@@ -159,6 +164,7 @@ impl Modes {
             kinds: Vec::new(),
             accent: Vec::new(),
             texts: Vec::new(),
+            types: crate::measures::type_properties(plan, every_token()),
         };
         modes.accent = rules(plan, &properties(plan)).1;
         Some(modes)
@@ -219,6 +225,9 @@ impl Modes {
             parts = projected?;
             for p in parts.iter_mut().flatten() {
                 p.css = self.substitute(&p.css);
+                for (_, look) in &mut p.looks {
+                    *look = self.substitute(look);
+                }
                 p.props.retain(|_, v| {
                     *v = self.substitute(v);
                     true
@@ -227,10 +236,48 @@ impl Modes {
         }
         for (i, node) in plan.nodes.iter().enumerate() {
             if let Some(p) = parts[i].as_mut() {
+                self.type_rows(plan, node, p);
                 self.boundary(plan, node, p);
             }
         }
         Ok(parts)
+    }
+
+    /// A node's static rows that name a type or family token the page
+    /// declares, each written as its part's `var()`. No sentinel marks a
+    /// part (a style is `normal` or `italic`, a weight a whole number, a
+    /// family a stack the plan declares), so the declaration a row writes
+    /// is found by its property: a token reaches a text with no element
+    /// children only (`tamber-inherited-axis`), whose own rows these are.
+    fn type_rows(&self, plan: &Plan, node: &exact_plan::NodesRow, p: &mut Parts) {
+        if self.types.is_empty() {
+            return;
+        }
+        let rows: Vec<_> = node
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .filter(|b| b.kind == BindingKind::Style)
+            .collect();
+        for (id, css, _) in crate::measures::TYPE_ROWS {
+            // The row that wins: the last of its id, as the projection
+            // applies them (a node's own `font-weight=400` after `font`).
+            let Some(b) = rows.iter().rev().find(|b| b.id == id as u16) else {
+                continue;
+            };
+            let Some(text) = crate::style::literal(plan, plan.code(b.expr)) else {
+                continue;
+            };
+            let Some(name) = text.as_str().map(str::trim) else {
+                continue;
+            };
+            let Some((.., prop)) = self.types.iter().find(|(n, i, _)| n == name && *i == id) else {
+                continue;
+            };
+            if let Some((_, _, at)) = spans(&p.css).into_iter().rev().find(|(n, ..)| *n == css) {
+                p.css.replace_range(at, &format!("var({prop})"));
+            }
+        }
     }
 
     /// `text` with each sentinel its token's `var()`.
@@ -431,7 +478,9 @@ impl Modes {
             serde_json::to_string(&self.accent).unwrap(),
             self.tokens
                 .iter()
-                .map(|(name, prop, _)| format!("{}:{}", json(prop), json(name)))
+                .map(|(name, prop, _)| (name, prop))
+                .chain(self.types.iter().map(|(name, _, prop)| (name, prop)))
+                .map(|(name, prop)| format!("{}:{}", json(prop), json(name)))
                 .collect::<Vec<_>>()
                 .join(",")
         )
@@ -477,6 +526,11 @@ fn rules(plan: &Plan, props: &[(String, String)]) -> (String, Vec<String>) {
             let _ = write!(css, "{prop}:{text};");
             texts.push((selector.clone(), prop.clone(), text));
         }
+        for (name, id, prop) in crate::measures::type_properties(plan, every_token()) {
+            if let Some(text) = type_part_at(plan, &name, id, tuple) {
+                let _ = write!(css, "{prop}:{text};");
+            }
+        }
         css.push('}');
     }
     for (selector, prop, text) in texts {
@@ -488,6 +542,14 @@ fn rules(plan: &Plan, props: &[(String, String)]) -> (String, Vec<String>) {
         }
     }
     (css, accent)
+}
+
+/// Type or family token `name`'s part for row `id` in app tuple `tuple`, as
+/// the page's rules declare it (`measures::part_css`).
+fn type_part_at(plan: &Plan, name: &str, id: StyleId, tuple: u32) -> Option<String> {
+    let row = plan.theme.iter().find(|r| plan.str(r.name) == name)?;
+    let kind = crate::measures::kind(row)?;
+    crate::measures::part_css(plan, kind, id, crate::measures::value_at(plan, row, tuple))
 }
 
 /// A token's text as the page's rules declare it: a colour's CSS, a length's
@@ -513,6 +575,38 @@ fn css_of(entry: &exact_kernel::style::theme::Entry) -> String {
 /// [`rules`] writes them. The dev loop sends the changed ones as a batch.
 pub fn design(plan: &Plan) -> serde_json::Value {
     use exact_runner::design;
+    let tokens = design::tokens(plan);
+    serde_json::json!({
+        "structure": design::structure(plan),
+        "shape": design::shape(plan),
+        "digest": design::digest(&tokens),
+        "tokens": rows(plan, &Declared::of(plan), None),
+    })
+}
+
+/// What [`rows`] reads of a plan besides its design values: which token
+/// each property declares, which a type token's rows write, which are
+/// written inline. A plan whose values alone changed keeps it.
+pub struct Declared {
+    props: Vec<(String, String)>,
+    types: Vec<(String, StyleId, String)>,
+    inline: Vec<(String, String)>,
+}
+
+impl Declared {
+    pub fn of(plan: &Plan) -> Declared {
+        Declared {
+            props: properties(plan),
+            types: crate::measures::type_properties(plan, every_token()),
+            inline: crate::measures::inline_tokens(plan),
+        }
+    }
+}
+
+/// The design rows of `plan`'s tokens, as [`design`] gives them: every one,
+/// or those `only` names.
+pub fn rows(plan: &Plan, declared: &Declared, only: Option<&[String]>) -> Vec<serde_json::Value> {
+    use exact_runner::design;
     // The app's profiles, as `rules` reads a profile colour.
     let _profiles = exact_kernel::style::profiled::declarations(
         plan.profiles
@@ -520,16 +614,34 @@ pub fn design(plan: &Plan) -> serde_json::Value {
             .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
     );
     let tokens = design::tokens(plan);
-    let props = properties(plan);
-    let inline = crate::measures::inline_tokens(plan);
+    let Declared {
+        props,
+        types,
+        inline,
+    } = declared;
     let tables: Vec<_> = (0..bridge::tuples(plan))
         .map(|tuple| bridge::theme_table_at(plan, tuple))
         .collect();
-    let rows: Vec<serde_json::Value> = tokens
+    tokens
         .iter()
+        .filter(|t| only.is_none_or(|only| only.contains(&t.name)))
         .map(|t| {
             let mut row = serde_json::json!({"name": t.name, "value": t.value, "slices": t.slices});
-            if let Some((_, prop)) = props.iter().find(|(n, _)| *n == t.name) {
+            let parts: Vec<serde_json::Value> = types
+                .iter()
+                .filter(|(n, ..)| *n == t.name)
+                .map(|(name, id, prop)| {
+                    let css: Vec<String> = (0..bridge::tuples(plan))
+                        .map(|tuple| type_part_at(plan, name, *id, tuple).unwrap_or_default())
+                        .collect();
+                    serde_json::json!({"prop": prop, "css": css})
+                })
+                .collect();
+            if !parts.is_empty() {
+                // A type token's rows, each its property (stage 6 C's
+                // follow-up): the page sets each in every tuple's rule.
+                row["parts"] = parts.into();
+            } else if let Some((_, prop)) = props.iter().find(|(n, _)| *n == t.name) {
                 let css: Vec<String> = tables
                     .iter()
                     .map(|table| {
@@ -569,13 +681,7 @@ pub fn design(plan: &Plan) -> serde_json::Value {
             }
             row
         })
-        .collect();
-    serde_json::json!({
-        "structure": design::structure(plan),
-        "shape": design::shape(plan),
-        "digest": design::digest(&tokens),
-        "tokens": rows,
-    })
+        .collect()
 }
 
 /// The sheet property of the tint's override `name` (`AccentColor`), if it
@@ -622,6 +728,9 @@ fn written(parts: &[Option<Parts>]) -> String {
         for v in p.props.values() {
             out.push_str(v);
         }
+        for (_, look) in &p.looks {
+            out.push_str(look);
+        }
     }
     out
 }
@@ -637,16 +746,39 @@ fn declaration<'a>(css: &'a str, prop: &str) -> Option<&'a str> {
 
 /// `css`'s top-level declarations, `(property, value)`, in order.
 fn declarations(css: &str) -> Vec<(&str, &str)> {
-    let mut depth = 0i32;
+    spans(css)
+        .into_iter()
+        .map(|(name, value, _)| (name, value))
+        .collect()
+}
+
+/// `css`'s top-level declarations with each value's byte range; a `;` in
+/// parentheses or a quoted string (a family `"A;B"`) ends none.
+fn spans(css: &str) -> Vec<(&str, &str, std::ops::Range<usize>)> {
+    let (mut depth, mut quote, mut escaped) = (0i32, None, false);
     let mut start = 0;
     let mut out = Vec::new();
     for (i, c) in css.char_indices() {
+        if let Some(q) = quote {
+            match c {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                c if c == q => quote = None,
+                _ => {}
+            }
+            continue;
+        }
         match c {
+            '"' | '\'' => quote = Some(c),
             '(' => depth += 1,
             ')' => depth -= 1,
             ';' if depth == 0 => {
-                if let Some((name, value)) = css[start..i].split_once(':') {
-                    out.push((name.trim(), value.trim()));
+                if let Some(colon) = css[start..i].find(':') {
+                    let (name, raw) = (&css[start..start + colon], &css[start + colon + 1..i]);
+                    let lead = raw.len() - raw.trim_start().len();
+                    let from = start + colon + 1 + lead;
+                    let value = raw.trim();
+                    out.push((name.trim(), value, from..from + value.len()));
                 }
                 start = i + 1;
             }

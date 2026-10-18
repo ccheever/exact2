@@ -992,20 +992,16 @@ fn an_agent_drive_without_a_store_answers_with_the_webs_refusal() {
     host.activate().unwrap();
     let refused = run(
         &mut host,
-        storage::request("fs.writeFile", json!({"path":"app:/data/x","text":"x"})),
+        storage::request("fs.readFile", json!({"path":"app:/data/x"})),
     );
     assert_eq!(
         refused,
         Err("storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)".into())
     );
-    // The first refused write is said in the journal, for the driver's note; a read is not, nor a second write.
+    // The first refused read or write is said in the journal, for the driver's note; a second is not.
     let lines = host.take_logs();
     assert_eq!(lines.len(), 1);
     assert!(lines[0].starts_with("storage refused (agent): "));
-    let _ = run(
-        &mut host,
-        storage::request("fs.readFile", json!({"path":"app:/data/x"})),
-    );
     let _ = run(
         &mut host,
         storage::request("fs.writeFile", json!({"path":"app:/data/y","text":"y"})),
@@ -1016,23 +1012,6 @@ fn an_agent_drive_without_a_store_answers_with_the_webs_refusal() {
     assert!(host
         .answer(&mut Store::default(), "operation", &[])
         .is_err());
-}
-
-/// A refused read is not said: it answers as an empty store would.
-#[test]
-fn an_agent_drive_without_a_store_says_nothing_of_a_refused_read() {
-    let mut host = Storage::new(Fixture::new());
-    host.agent = true;
-    host.activate().unwrap();
-    let _ = run(
-        &mut host,
-        storage::request("fs.readFile", json!({"path":"app:/data/x"})),
-    );
-    let _ = run(
-        &mut host,
-        storage::request("fs.stat", json!({"path":"app:/data/x"})),
-    );
-    assert!(host.take_logs().is_empty());
 }
 
 #[test]

@@ -65,18 +65,22 @@ test("a prompt's Return commits its field, then presses its action", async () =>
     browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
     const page = await browser.newPage();
     await page.goto(server.url.href);
+    // Return queues the action on a zero-delay timer. Read after a timer
+    // queued behind it, including when checking that no action ran.
+    const log = () => page.evaluate(() => new Promise(resolve =>
+      setTimeout(() => resolve(document.querySelector('#log').textContent))));
     await page.locator('#name').press('Enter');
-    expect(await page.locator('#log').textContent()).toBe('');
+    expect(await log()).toBe('');
     await page.locator('#name').fill('Kick');
     await page.locator('#name').press('Enter');
-    expect(await page.locator('#log').textContent()).toBe('saved Kick');
+    expect(await log()).toBe('saved Kick');
     await page.evaluate(() => {
       const log = document.querySelector('#log');
       log.textContent = '';
       document.querySelector('#name').addEventListener('keydown', e => { if (e.key === 'Enter') { e.$submit = true; log.textContent = 'submitted'; } });
     });
     await page.locator('#name').press('Enter');
-    expect(await page.locator('#log').textContent()).toBe('submitted');
+    expect(await log()).toBe('submitted');
     // A `change` that closes the prompt: its Save, still mounted, is not pressed.
     await page.evaluate(() => {
       const dialog = document.querySelector('dialog'), name = document.querySelector('#name');
@@ -86,7 +90,7 @@ test("a prompt's Return commits its field, then presses its action", async () =>
     });
     await page.locator('#name').fill('Snare');
     await page.locator('#name').press('Enter');
-    expect(await page.locator('#log').textContent()).toBe('');
+    expect(await log()).toBe('');
   } finally {
     await browser?.close();
     server.stop(true);

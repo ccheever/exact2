@@ -48,6 +48,11 @@ pub fn signature(f: Stdlib) -> String {
     if name == "length" {
         return format!("{}.length -> {returns}", params[0]);
     }
+    // The roster row is the lowered call (the list, its keys, descending);
+    // an author writes the key callback and a direction literal.
+    if f == Stdlib::SortBy {
+        return "sortBy(list, (item, index) => key[, \"asc\" | \"desc\"]) -> list".into();
+    }
     let skip = usize::from(contract_syntax::idioms::is_method(name));
     let mut out = match skip {
         1 => format!("{}.{name}(", params[0]),

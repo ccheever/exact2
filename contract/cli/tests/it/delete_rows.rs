@@ -155,6 +155,22 @@ fn a_delete_no_list_row_holds_is_named() {
     assert_eq!(warned("list appearance=\"auto\" flex=1\n  section\n    header delete=remove(\"1\")\n      text \"Notes\"\n    row\n      text \"One\"").len(), 1);
 }
 
+/// The element lint, which runs beside an earlier refusal, takes `delete=`
+/// as lowering does: the one error is the type error.
+#[test]
+fn a_delete_beside_another_error_is_not_refused() {
+    let src = app(
+        "list flex=1\n  for n in notes key=n.id\n    row delete=remove(n.id)\n      text n.titel",
+    );
+    let Err(errors) =
+        contract::compile_path_source_all(std::path::Path::new("app.contract"), &src, false)
+    else {
+        panic!("the misspelt field refuses this app")
+    };
+    let ids: Vec<&str> = errors.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(ids, ["type-unknown-field"], "{errors:?}");
+}
+
 /// LLP 1116.021 D5: a destructive button inside the row a `for` repeats,
 /// with no `delete=` on the row, is advice to write one; a detail screen's
 /// section, a row that says `delete=`, and a dialog or menu in the row are
@@ -186,4 +202,141 @@ fn a_destructive_button_in_a_repeated_row_asks_for_delete() {
     assert!(warned("for n in notes key=n.id\n  list appearance=\"auto\" flex=1\n    section\n      button press=remove(n.id) destructive=true\n        text \"Delete Note\"").is_empty());
     // A row's dialog and menu hold their own actions.
     assert!(warned(&row("    for n in notes key=n.id\n      row\n        text n.title\n        dialog id=`ask-${n.id}` role=\"alertdialog\" aria-label=\"Delete?\"\n          button press=remove(n.id) destructive=true\n            text \"Delete\"\n        column popover=\"auto\" id=`menu-${n.id}` role=\"menu\"\n          button press=remove(n.id) destructive=true role=\"menuitem\"\n            text \"Delete\"")).is_empty());
+}
+
+/// A `list` holding a `section` with no `appearance` is neither form, grouped
+/// or cells, and draws its rows as written: Duo Notes' list. Each form, an
+/// opt-out, a class that says `appearance`, a windowed list of section rows
+/// (LLP 1083 D5) and a list that is no cell list for another reason
+/// (sideways) are quiet; a component used twice is named once.
+#[test]
+fn a_sectioned_list_with_no_appearance_is_named() {
+    let warned = |list: &str| -> Vec<(u32, String)> {
+        let (plan, warnings) = contract::compile_warned(&app(list));
+        plan.unwrap_or_else(|e| panic!("{e}"));
+        warnings
+            .into_iter()
+            .filter(|w| w.id == "lower-list-section")
+            .map(|w| (w.span.line, w.message))
+            .collect()
+    };
+    let section = "  section\n    for n in notes key=n.id\n      row\n        text n.title";
+    let found = warned(&format!("list flex=1\n{section}"));
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].0, 15);
+    assert!(
+        found[0].1.contains("write `appearance=\"auto\"`")
+            && found[0].1.contains("drop the `section`")
+            && found[0].1.contains("say `appearance=\"none\"`")
+            && found[0]
+                .1
+                .contains("put each of its children in a `section`"),
+        "{}",
+        found[0].1
+    );
+    // Through a choice, as `cells::rows` reads sections.
+    let chosen = "list flex=1\n  if notes.length > 0\n    section\n      for n in notes key=n.id\n        row\n          text n.title";
+    assert_eq!(warned(chosen).len(), 1);
+    for list in [
+        "list appearance=\"auto\" flex=1",
+        "list appearance=\"auto\" listStyle=\"plain\" flex=1",
+        "list appearance=\"none\" flex=1",
+    ] {
+        assert!(warned(&format!("{list}\n{section}")).is_empty(), "{list}");
+    }
+    // A class is read as lowering reads it: one that says `appearance` is that form,
+    // and a `delete=` in its section is a row's; one of layout alone says nothing.
+    // `class` is the list's class and `own` its other attributes, over `style Look`
+    // and a `style Plain` of padding alone.
+    let listed = |class: &str, own: &str, style: &str| {
+        let src = format!(
+            "{}\nstyle Look\n  {style}\nstyle Plain\n  padding=4\n",
+            app(&format!("list class={class} {own} flex=1\n  section\n    for n in notes key=n.id\n      row delete=remove(n.id)\n        text n.title"))
+        );
+        let (plan, warnings) = contract::compile_warned(&src);
+        plan.unwrap_or_else(|e| panic!("{e}"));
+        warnings
+            .into_iter()
+            .map(|w| w.id)
+            .filter(|id| id.contains("list") || id.contains("delete"))
+            .collect::<Vec<_>>()
+    };
+    let classed = |style: &str| listed("Look", "", style);
+    assert_eq!(classed("appearance=\"auto\""), Vec::<String>::new());
+    assert_eq!(
+        classed("padding=8"),
+        ["lower-list-section", "lower-delete-row"]
+    );
+    // A class chosen between two styles is read as lowering reads it (`class::rows`):
+    // a row both set alike is that row, and one they set differently is a choice,
+    // which says no layout the cell rule can read.
+    let chosen = "(opened == \"\" ? Look : Plain)";
+    assert_eq!(
+        listed(chosen, "", "padding=8"),
+        ["lower-list-section", "lower-delete-row"]
+    );
+    assert_eq!(
+        listed(chosen, "appearance=\"none\"", "padding=8"),
+        ["lower-delete-row"]
+    );
+    assert_eq!(
+        listed(chosen, "", "display=\"flex\"\n  flex-direction=\"row\""),
+        ["lower-delete-row"]
+    );
+    // Two styles that agree on a cell list's layout and differ on the rest: its rows
+    // are cells and their `delete=` swipes; two that differ on `display` make no cell
+    // list, so no section is named and a row's `delete=` is.
+    let pair = |a: &str, b: &str, rows: &str| {
+        let src = format!(
+            "{}\nstyle A\n  {a}\nstyle B\n  {b}\n",
+            app(&format!(
+                "list class=(opened == \"\" ? A : B) flex=1\n{rows}"
+            ))
+        );
+        let (plan, warnings) = contract::compile_warned(&src);
+        plan.unwrap_or_else(|e| panic!("{e}"));
+        warnings
+            .into_iter()
+            .map(|w| w.id)
+            .filter(|id| id.contains("list") || id.contains("delete"))
+            .collect::<Vec<_>>()
+    };
+    let cell_rows = "  for n in notes key=n.id\n    row delete=remove(n.id)\n      text n.title";
+    assert_eq!(
+        pair(
+            "overflow-x=\"auto\"\n  overflow-y=\"hidden\"",
+            "overflow-x=\"scroll\"\n  overflow-y=\"hidden\"",
+            cell_rows
+        ),
+        Vec::<String>::new()
+    );
+    let section_rows = "  section\n    for n in notes key=n.id\n      row delete=remove(n.id)\n        text n.title";
+    assert_eq!(
+        pair(
+            "display=\"block\"\n  flex-direction=\"column\"",
+            "display=\"flex\"\n  flex-direction=\"column\"",
+            section_rows
+        ),
+        ["lower-delete-row"]
+    );
+    assert!(
+        warned("list flex=1\n  for n in notes key=n.id\n    row\n      text n.title").is_empty()
+    );
+    let windowed = "list virtualized=true flex=1\n  for n in notes key=n.id\n    section\n      header position=\"sticky\" top=0\n        text n.title\n      row\n        text n.title";
+    assert!(
+        warned(windowed).is_empty(),
+        "section rows of a windowed list"
+    );
+    let sideways = "list display=\"flex\" flex-direction=\"row\" overflow-x=\"scroll\" overflow-y=\"hidden\" height=120\n  for n in notes key=n.id\n    section width=200\n      text n.title";
+    assert!(warned(sideways).is_empty(), "a carousel is no cell list");
+    // A component used twice is inlined twice, and named once for its source.
+    let twice = "shape Note\n  id: string\n  title: string\n\ncomponent App\n  state notes = [Note(id=\"1\", title=\"Groceries\")]\n  view\n    column\n      Notes(notes=notes)\n      Notes(notes=notes)\n\ncomponent Notes\n  props\n    notes: Note[]\n  view\n    list flex=1\n      section\n        for n in notes key=n.id\n          row\n            text n.title\n";
+    let (plan, warnings) = contract::compile_warned(twice);
+    plan.unwrap_or_else(|e| panic!("{e}"));
+    let lines: Vec<u32> = warnings
+        .iter()
+        .filter(|w| w.id == "lower-list-section")
+        .map(|w| w.span.line)
+        .collect();
+    assert_eq!(lines, [16]);
 }

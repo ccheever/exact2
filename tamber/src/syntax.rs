@@ -19,6 +19,13 @@ pub struct Design {
     pub exports: Option<Vec<At<String>>>,
     /// Icon tokens, the `icons` block's (D10).
     pub icons: Vec<Token>,
+    /// Components that aren't Contract, each with its params (D15).
+    pub components: Vec<crate::component::Component>,
+    /// The app's values of its components' params, the `params` block's
+    /// (D15): each named by a param's full name
+    /// (`post.contract#PostButton.radius`) or its short one
+    /// (`PostButton.radius`), with a token's value and `when` lines.
+    pub params: Vec<Token>,
 }
 
 /// Something with the place it was written.
@@ -157,7 +164,7 @@ pub fn parse(src: &str) -> Result<Design, Vec<Diagnostic>> {
             continue;
         }
         let word = head.text.split(' ').next().unwrap_or("");
-        if ["axes", "dials", "theme", "icons", "exports"].contains(&word) {
+        if ["axes", "dials", "theme", "icons", "exports", "params"].contains(&word) {
             if head.text != word {
                 errors.push(Diagnostic::new(
                     "tamber-block",
@@ -185,7 +192,8 @@ pub fn parse(src: &str) -> Result<Design, Vec<Diagnostic>> {
             "dials" => entries(body, &mut errors, |l, e| {
                 dial(l, e).map(|d| design.dials.push(d))
             }),
-            "theme" => tokens(body, &mut design.tokens, &mut errors),
+            "theme" => tokens(body, &mut design.tokens, &mut errors, false),
+            "params" => tokens(body, &mut design.params, &mut errors, true),
             "exports" => {
                 let mut names = Vec::new();
                 entries(body, &mut errors, |l, e| {
@@ -207,17 +215,18 @@ pub fn parse(src: &str) -> Result<Design, Vec<Diagnostic>> {
                 });
                 design.exports = Some(names);
             }
-            "icons" => tokens(body, &mut design.icons, &mut errors),
-            "component" => errors.push(Diagnostic::new(
-                "tamber-stage",
-                "component params (D15) arrive in stage 7",
-                head.line,
-                head.col,
-            )),
+            "icons" => tokens(body, &mut design.icons, &mut errors, false),
+            "component" => {
+                if let Some(c) =
+                    crate::component::block(head, body, &design.components, &mut errors)
+                {
+                    design.components.push(c);
+                }
+            }
             _ => errors.push(Diagnostic::new(
                 "tamber-block",
                 format!(
-                    "`{}`: a block is `axes`, `dials`, `theme`, `icons`, `exports` or `component`",
+                    "`{}`: a block is `axes`, `dials`, `theme`, `icons`, `exports`, `params` or `component`",
                     head.text
                 ),
                 head.line,
@@ -233,6 +242,25 @@ pub fn parse(src: &str) -> Result<Design, Vec<Diagnostic>> {
     }
 }
 
+/// A param's name as the `params` block writes it: `Component.param`, or
+/// its full name, a file (`screens/post.contract`, `@scope/pkg/x.contract`)
+/// before a `#`.
+pub(crate) fn param_name(name: &str) -> bool {
+    let (file, rest) = match name.rsplit_once('#') {
+        Some((f, r)) => (Some(f), r),
+        None => (None, name),
+    };
+    let short = rest
+        .split_once('.')
+        .is_some_and(|(c, p)| lex::is_ident(c) && lex::is_ident(p));
+    short
+        && file.is_none_or(|f| {
+            !f.is_empty()
+                && f.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '/' | '-' | '_' | '@'))
+        })
+}
+
 /// `-exact-secondary-label` or a bare role key's name, without the prefix;
 /// whether it names a role is the checker's question.
 pub(crate) fn role_spelling(name: &str) -> Option<&str> {
@@ -240,7 +268,7 @@ pub(crate) fn role_spelling(name: &str) -> Option<&str> {
 }
 
 /// A block's lines, one entry each at one indent.
-fn entries(
+pub(crate) fn entries(
     body: &[Line],
     errors: &mut Vec<Diagnostic>,
     mut each: impl FnMut(&Line, &mut Vec<Diagnostic>) -> Option<()>,
@@ -262,7 +290,7 @@ fn entries(
     }
 }
 
-fn syntax(l: &Line, message: impl Into<String>) -> Diagnostic {
+pub(crate) fn syntax(l: &Line, message: impl Into<String>) -> Diagnostic {
     Diagnostic::new("tamber-syntax", message, l.line, l.col)
 }
 
@@ -320,15 +348,8 @@ fn axis(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Axis> {
 
 fn dial(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Dial> {
     let shape = "a dial is `name: color|length|number = value [in low..high] [meta=…]`";
-    let (Some((name, rest)), true) = (l.text.split_once(':'), l.text.contains('=')) else {
-        errors.push(syntax(l, shape));
-        return None;
-    };
-    let Some((kind, value)) = rest.split_once('=') else {
-        errors.push(syntax(l, shape));
-        return None;
-    };
-    let kind = match kind.trim() {
+    let p = ranged(l, errors, shape, "dial")?;
+    let kind = match p.kind.as_str() {
         "color" => DialKind::Color,
         "length" => DialKind::Length,
         "number" => DialKind::Number,
@@ -337,12 +358,41 @@ fn dial(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Dial> {
             return None;
         }
     };
+    Some(Dial {
+        name: p.name,
+        kind,
+        value: p.value,
+        range: p.range,
+        meta: p.meta,
+    })
+}
+
+/// A dial's or a param's line, `name: kind = value [in low..high] [meta=…]`,
+/// its kind as written; `shape` says what one is, `what` names it.
+pub(crate) fn ranged(
+    l: &Line,
+    errors: &mut Vec<Diagnostic>,
+    shape: &str,
+    what: &str,
+) -> Option<crate::component::Param> {
+    let (Some((name, rest)), true) = (l.text.split_once(':'), l.text.contains('=')) else {
+        errors.push(syntax(l, shape));
+        return None;
+    };
+    let Some((kind, value)) = rest.split_once('=') else {
+        errors.push(syntax(l, shape));
+        return None;
+    };
     let name = name.trim();
     if !lex::is_ident(name) {
         errors.push(syntax(
             l,
-            format!("`{name}`: a dial's name is an identifier"),
+            format!("`{name}`: a {what}'s name is an identifier"),
         ));
+        return None;
+    }
+    if kind.trim().is_empty() {
+        errors.push(syntax(l, format!("`{name}` has no kind: {shape}")));
         return None;
     }
     let start = l.text.len() - value.len();
@@ -356,13 +406,13 @@ fn dial(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Dial> {
         errors.push(syntax(l, format!("`{name}` has no value: {shape}")));
         return None;
     };
-    let mut parsed = Dial {
+    let mut parsed = crate::component::Param {
         name: At {
             value: name.to_string(),
             line: l.line,
             col: l.col,
         },
-        kind,
+        kind: kind.trim().to_string(),
         value: value_at(l, start),
         range: None,
         meta: Vec::new(),
@@ -411,7 +461,8 @@ fn meta_word(w: &str) -> Option<(&str, &str)> {
 }
 
 /// A `theme` block: token lines, each with its deeper `when` lines.
-fn tokens(body: &[Line], out: &mut Vec<Token>, errors: &mut Vec<Diagnostic>) {
+/// A block of tokens: `params`' are named by a param's full or short name.
+fn tokens(body: &[Line], out: &mut Vec<Token>, errors: &mut Vec<Diagnostic>, params: bool) {
     let Some(indent) = body.first().map(|l| l.indent) else {
         return;
     };
@@ -451,13 +502,13 @@ fn tokens(body: &[Line], out: &mut Vec<Token>, errors: &mut Vec<Diagnostic>) {
             errors.push(syntax(l, "a `when` is indented under its token"));
             continue;
         }
-        if let Some(t) = token(l, errors) {
+        if let Some(t) = token(l, errors, params) {
             out.push(t);
         }
     }
 }
 
-fn token(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Token> {
+fn token(l: &Line, errors: &mut Vec<Diagnostic>, params: bool) -> Option<Token> {
     let Some((lhs, _)) = lex::split_top(&l.text, '=') else {
         errors.push(syntax(l, "a token is `name = value`"));
         return None;
@@ -466,7 +517,21 @@ fn token(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Token> {
         Some((n, k)) => (n.trim(), Some(k.trim().to_string())),
         None => (lhs.trim(), None),
     };
-    if !lex::is_name(name) && role_spelling(name).is_none() {
+    if params && kind.is_some() {
+        errors.push(syntax(
+            l,
+            format!("`{name}`: a param's kind is its component's, not written here"),
+        ));
+        return None;
+    }
+    if params && !param_name(name) {
+        errors.push(syntax(
+            l,
+            format!("`{name}`: a param is named `Component.param`, or in full, `file.contract#Component.param`"),
+        ));
+        return None;
+    }
+    if !params && !lex::is_name(name) && role_spelling(name).is_none() {
         errors.push(syntax(
             l,
             format!("`{name}`: a token's name is identifiers joined by `.`, or a role's"),

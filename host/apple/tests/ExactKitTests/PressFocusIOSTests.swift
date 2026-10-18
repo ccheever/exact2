@@ -7,11 +7,10 @@ import XCTest
 /// asked for focus (`focusesOnPress`), as UIKit's buttons take none from a
 /// touch; a plain button's press ends the editing, so the field it ends
 /// lowers the keyboard, and under `resizes-content` the button moves at
-/// once, yet the press is the finger's where it went down and came up. A
-/// button holding the focus a touch gave it (an opted-in FAB that opened a
-/// sheet) is no focus a node took for the autofocus pass, which still gives
-/// the sheet's field its autofocus, while a field, another focusable, or a
-/// button focused any other way (Tab, `focus(id)`) keeps its own.
+/// once, yet the press is the finger's where it went down and came up. A later
+/// autofocus takes no focus a node holds, however it came (Charlie,
+/// 2026-10-17), except the press's own work's: a field it mounts, or a
+/// sheet's it presents, takes the focus the press gave its control.
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class PressFocusIOSTests: XCTestCase {
     private var window: UIWindow!
@@ -515,20 +514,196 @@ final class PressFocusIOSTests: XCTestCase {
         XCTAssertFalse(fab.isFirstResponder)
     }
 
-    /// A FAB that asked for focus (a tabindex) holds the focus its tap gave
-    /// it, and a later focusable's autofocus still takes it.
-    func testAButtonHoldingItsTouchFocusDoesNotStopALaterFocusablesAutofocus() throws {
+    /// A FAB that asked for focus (a tabindex) keeps the focus its tap gave
+    /// it against an autofocus mounted after the press, by work the press
+    /// did not start (a timer's), as Chrome and AppKit keep it.
+    func testAnUnrelatedLaterAutofocusLeavesTheTappedButtonItsFocus() throws {
         let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "button", ["tabIndex": "0"], handlers: ["press"])
                           + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
         let fab = try XCTUnwrap(p.views[2])
         tap(fab)
-        XCTAssertTrue(fab.isFirstResponder && fab.focusedByTouch, "it asked for focus, and the tap gave it")
+        XCTAssertTrue(fab.isFirstResponder, "it asked for focus, and the tap gave it")
+        XCTAssertNil(p.pressHandoff, "the press's work is done")
         p.apply(wireBatch(node(3, "view", ["tabIndex": "0", "autofocus": "true"], y: 100)
                           + [["op": "children", "id": 1, "ids": [2, 3]]]))
         p.syncAccessibility()
-        let target = try XCTUnwrap(p.views[3])
-        XCTAssertTrue(target.isFirstResponder, "the focusable takes its autofocus")
+        XCTAssertTrue(fab.isFirstResponder, "the button keeps its focus")
+        XCTAssertFalse(try XCTUnwrap(p.views[3]).isFirstResponder)
+    }
+
+    /// The native fixture booted in a window of the test host's scene, from
+    /// which UIKit presents a sheet.
+    private func fixture() throws -> ExactSession {
+        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")
+        let session = ExactApp.shared.makeSession(label: "press-sheet")
+        self.session = session
+        let view = ExactView(session: session), host = UIViewController()
+        window = UIWindow(windowScene: try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene))
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.addSubview(view)
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: window.bounds.size).error)
+        view.frame = host.view.bounds
+        view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        return session
+    }
+
+    /// Run the main loop until `done`, at most five seconds.
+    private func until(_ done: () -> Bool) {
+        let deadline = Date().addingTimeInterval(5)
+        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+    }
+    private func fixtureNode(_ p: Presenter, _ testId: String) -> NodeView? { p.views.values.first { $0.props["testId"] == testId } }
+
+    /// A composer: the tap that focuses its opener (a tabindex) presents a
+    /// sheet whose textarea a later answer mounts once the sheet is up. The
+    /// sheet's route holds the press's handoff until then (UIKit, which put
+    /// the opener's focus aside as it presented, may hand it back); that
+    /// first autofocus in the sheet takes the focus, and the press hands on
+    /// nothing more.
+    func testAPressThatPresentsASheetHandsItsFocusToTheSheetsLaterAutofocus() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else {
+            throw missing("scene", "a presentation completes only in a scene's window")
+        }
+        let session = try fixture()
+        let p = session.presenter
+        let opener = try XCTUnwrap(fixtureNode(p, "open-focused-note"))
+        tap(opener)
+        until { self.window.rootViewController?.presentedViewController?.isBeingPresented == false }
+        let sheet = try XCTUnwrap(window.rootViewController?.presentedViewController, "the note is a sheet")
+        XCTAssertNil(fixtureNode(p, "note-text"), "the textarea is not there yet: the sheet is up first")
+        XCTAssertNotNil(p.pressHandoff, "the sheet's route still hands on its first autofocus")
+        func text() -> UITextView? { fixtureNode(p, "note-text")?.textArea }
+        until { text()?.isFirstResponder == true }
+        XCTAssertTrue(try XCTUnwrap(text(), "the note's textarea mounted").isDescendant(of: sheet.view))
+        XCTAssertTrue(try XCTUnwrap(text()).isFirstResponder, "the sheet's textarea takes the focus")
+        XCTAssertFalse(opener.isFirstResponder)
+        XCTAssertNil(p.pressHandoff, "one autofocus took it: the press hands on nothing more")
+    }
+
+    /// The sheet a press opened, dismissed before its answer mounts the
+    /// textarea: the press's work is over, and it hands nothing on.
+    func testADismissedSheetHandsNothingOn() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else {
+            throw missing("scene", "a presentation completes only in a scene's window")
+        }
+        let session = try fixture()
+        let p = session.presenter
+        let opener = try XCTUnwrap(fixtureNode(p, "open-focused-note"))
+        tap(opener)
+        until { self.window.rootViewController?.presentedViewController?.isBeingPresented == false }
+        let sheet = try XCTUnwrap(window.rootViewController?.presentedViewController)
+        let controller = try XCTUnwrap(sheet.presentationController)
+        // A finished swipe: UIKit dismisses the sheet, then tells its delegate.
+        sheet.presentingViewController?.dismiss(animated: false)
+        p.modals.presentationControllerDidDismiss(controller)
+        XCTAssertNil(p.pressHandoff, "the sheet went: its press hands nothing on")
+    }
+
+    /// A press's work presented a route (`pressShows`): after the press, the
+    /// first autofocus mounted inside that route takes the focus the press
+    /// left; one mounted outside it takes nothing and spends nothing.
+    func testOnlyThePresentedRoutesAutofocusTakesTheFocusAfterThePress() throws {
+        let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "button", ["tabIndex": "0"], handlers: ["press"])
+                          + node(4, "view", ["testId": "route"], y: 200, w: 400, h: 200)
+                          + [["op": "children", "id": 1, "ids": [2, 4]], ["op": "roots", "ids": [1]]])
+        let fab = try XCTUnwrap(p.views[2])
+        p.onPress = { _ in p.pressShows(p.views[4]) }
+        tap(fab)
+        XCTAssertTrue(fab.isFirstResponder)
+        p.apply(wireBatch(node(5, "view", ["tabIndex": "0", "autofocus": "true"], y: 100)
+                          + [["op": "children", "id": 1, "ids": [2, 4, 5]]]))
+        p.syncAccessibility()
+        XCTAssertTrue(fab.isFirstResponder, "an autofocus outside the route takes nothing")
+        p.apply(wireBatch(node(6, "textarea", ["autofocus": "true"], w: 300, h: 120) + [["op": "children", "id": 4, "ids": [6]]]))
+        p.syncAccessibility()
+        XCTAssertTrue(try XCTUnwrap(p.views[6]?.textArea).isFirstResponder, "the route's first autofocus takes the press's focus")
+        XCTAssertNil(p.pressHandoff)
+    }
+
+    /// A key, a shortcut, typed or composed text or a new contact going down (on the
+    /// control the press focused too) ends the handoff a press's route still
+    /// held: the route's autofocus then takes nothing.
+    func testAKeyAShortcutTypedTextOrAContactEndsTheHandoff() throws {
+        let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "button", ["tabIndex": "0"], handlers: ["press"])
+                          + node(3, "button", handlers: ["press"], y: 60) + node(4, "view", ["testId": "route"], y: 200, w: 400, h: 200)
+                          + node(7, "textarea", y: 120, w: 300, h: 60)
+                          + [["op": "children", "id": 1, "ids": [2, 3, 4, 7]], ["op": "roots", "ids": [1]]])
+        let fab = try XCTUnwrap(p.views[2]), other = try XCTUnwrap(p.views[3]), text = try XCTUnwrap(p.views[7]?.textArea)
+        p.onPress = { id in if id == 2 { p.pressShows(p.views[4]) } }
+        func touch(_ view: NodeView) { view.touchesBegan([PointTouch(view.convert(CGPoint(x: 10, y: 10), to: nil), on: view)], with: nil) }
+        let ends: [(String, () -> Void)] = [
+            ("a key", { _ = p.keyDown(at: nil, "a") }),
+            ("a shortcut", { p.performShortcut(UIKeyCommand(input: "k", modifierFlags: .command, action: #selector(UIResponder.becomeFirstResponder))) }),
+            ("typed text", { text.insertText("x") }),
+            ("composed text", { text.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0)) }),
+            ("a contact on another control", { touch(other) }),
+            ("a new contact on the control", { touch(fab) }),
+        ]
+        for (what, end) in ends {
+            tap(fab)
+            XCTAssertNotNil(p.pressHandoff, what)
+            end()
+            XCTAssertNil(p.pressHandoff, "\(what) ends the handoff")
+        }
+        p.apply(wireBatch(node(6, "textarea", ["autofocus": "true"], w: 300, h: 120) + [["op": "children", "id": 4, "ids": [6]]]))
+        p.syncAccessibility()
+        XCTAssertTrue(fab.isFirstResponder, "the opener keeps its focus")
+    }
+
+    /// A press that showed two routes (a pushed screen and a sheet over it):
+    /// the sheet dismissed, the screen still hands on its first autofocus.
+    func testADroppedRouteLeavesThePresssOtherRoute() throws {
+        let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "button", ["tabIndex": "0"], handlers: ["press"])
+                          + node(4, "view", ["testId": "screen"], y: 200, w: 400, h: 100) + node(8, "view", ["testId": "sheet"], y: 300, w: 400, h: 100)
+                          + [["op": "children", "id": 1, "ids": [2, 4, 8]], ["op": "roots", "ids": [1]]])
+        let fab = try XCTUnwrap(p.views[2])
+        p.onPress = { _ in p.pressShows(p.views[4]); p.pressShows(p.views[8]) }
+        tap(fab)
+        p.pressHandoff?.drop(try XCTUnwrap(p.views[8]))
+        XCTAssertNotNil(p.pressHandoff, "the screen is still the press's")
+        p.apply(wireBatch(node(6, "textarea", ["autofocus": "true"], w: 300, h: 80) + [["op": "children", "id": 4, "ids": [6]]]))
+        p.syncAccessibility()
+        XCTAssertTrue(try XCTUnwrap(p.views[6]?.textArea).isFirstResponder, "the screen's first autofocus takes the press's focus")
         XCTAssertFalse(fab.isFirstResponder)
+    }
+
+    /// The agent's tap on a field whose press mounts an autofocus textarea:
+    /// the press focused the field, and its work hands that focus on, as a
+    /// tap on a focusable button's does.
+    func testAnAgentTapOnAFieldHandsItsFocusToThePresssAutofocus() throws {
+        let session = ExactApp.shared.makeSession(label: "tap-field-handoff")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 400, height: 400)).error)
+        let view = ExactView(session: session)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        view.frame = window.bounds
+        window.addSubview(view)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let p = session.presenter
+        session.apply(wireBatch([
+            ["op": "create", "id": 9201, "kind": "view", "props": [:], "handlers": [], "style": [:]],
+            ["op": "create", "id": 9202, "kind": "input", "props": [:], "handlers": ["press"], "style": [:]],
+            ["op": "children", "id": 9201, "ids": [9202]],
+            ["op": "roots", "ids": [9201]],
+            ["op": "frame", "id": 9201, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 9202, "x": 20.0, "y": 20.0, "w": 200.0, "h": 34.0],
+        ]))
+        view.layoutIfNeeded()
+        until { !p.launchAutofocusPending }
+        p.onPress = { _ in
+            p.apply(wireBatch([
+                ["op": "create", "id": 9203, "kind": "textarea", "props": ["autofocus": "true"], "handlers": [], "style": [:]],
+                ["op": "children", "id": 9201, "ids": [9202, 9203]],
+                ["op": "frame", "id": 9203, "x": 20.0, "y": 100.0, "w": 300.0, "h": 120.0],
+            ]))
+        }
+        let reply = Agent(session: session).tap(["op": "tap", "id": 9202])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertTrue(try XCTUnwrap(p.views[9203]?.textArea).isFirstResponder, "the press's textarea takes the field's focus: \(reply)")
     }
 
     /// A button focused another way (`focus(id)`, Tab) keeps the focus
@@ -542,7 +717,6 @@ final class PressFocusIOSTests: XCTestCase {
         XCTAssertFalse(button.isFirstResponder)
         p.focusElement(["go"])
         XCTAssertTrue(button.isFirstResponder)
-        XCTAssertFalse(button.focusedByTouch, "focus(id) makes it the app's focus")
         p.apply(wireBatch(node(3, "textarea", ["autofocus": "true"], y: 100, w: 300, h: 120)
                           + [["op": "children", "id": 1, "ids": [2, 3, 4]]]))
         p.syncAccessibility()
@@ -550,10 +724,8 @@ final class PressFocusIOSTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(p.views[3]?.textArea).isFirstResponder)
 
         _ = button.resignFirstResponder() // a tap elsewhere would leave it focused
-        button.focusedByTouch = true // Tab's destination, as if a touch had focused it once
         p.moveFocus(backward: false)
         let tabbed = try XCTUnwrap([button, other].first { $0.isFirstResponder })
-        XCTAssertFalse(tabbed.focusedByTouch, "Tab makes it the keyboard's focus")
         p.apply(wireBatch(node(5, "view", ["tabIndex": "0", "autofocus": "true"], y: 250)
                           + [["op": "children", "id": 1, "ids": [2, 3, 4, 5]]]))
         p.syncAccessibility()
@@ -562,14 +734,19 @@ final class PressFocusIOSTests: XCTestCase {
 
     /// UIKit hands the focus back to a button that asked for focus (a
     /// tabindex) when its view moves (the viewport into a presented sheet):
-    /// still the touch's focus.
-    func testATouchFocusSurvivesUIKitHandingItBack() throws {
+    /// the button keeps it against a later autofocus, as it kept the focus
+    /// the tap gave it.
+    func testUIKitHandingTheFocusBackLeavesTheButtonFocused() throws {
         let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "button", ["tabIndex": "0"], handlers: ["press"])
                           + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
         let fab = try XCTUnwrap(p.views[2])
         tap(fab)
         XCTAssertTrue(fab.becomeFirstResponder(), "UIKit's own re-promotion calls this")
-        XCTAssertTrue(fab.focusedByTouch)
+        p.apply(wireBatch(node(3, "textarea", ["autofocus": "true"], y: 100, w: 300, h: 120)
+                          + [["op": "children", "id": 1, "ids": [2, 3]]]))
+        p.syncAccessibility()
+        XCTAssertTrue(fab.isFirstResponder, "the button keeps its focus")
+        XCTAssertFalse(try XCTUnwrap(p.views[3]?.textArea).isFirstResponder)
     }
 
     /// A button that asked for focus (it hears `focus`) takes it from a

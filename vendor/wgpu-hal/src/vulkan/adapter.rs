@@ -447,9 +447,20 @@ impl PhysicalDeviceFeatures {
             {
                 Some(
                     vk::PhysicalDevice16BitStorageFeatures::default()
-                        .storage_buffer16_bit_access(true)
+                        // EXACT (EXACT-PATCHES.md, 11): enable only supported storage bits.
+                        .storage_buffer16_bit_access(
+                            phd_features
+                                ._16bit_storage
+                                .as_ref()
+                                .is_some_and(|f| f.storage_buffer16_bit_access != 0),
+                        )
                         .storage_input_output16(phd_features.supports_storage_input_output_16())
-                        .uniform_and_storage_buffer16_bit_access(true),
+                        .uniform_and_storage_buffer16_bit_access(
+                            phd_features
+                                ._16bit_storage
+                                .as_ref()
+                                .is_some_and(|f| f.uniform_and_storage_buffer16_bit_access != 0),
+                        ),
                 )
             } else {
                 None
@@ -665,6 +676,7 @@ impl PhysicalDeviceFeatures {
         phd: vk::PhysicalDevice,
         caps: &PhysicalDeviceProperties,
         queue_props: &vk::QueueFamilyProperties,
+        f16_arithmetic: bool, // EXACT (EXACT-PATCHES.md, 11).
     ) -> (wgt::Features, wgt::DownlevelFlags) {
         use wgt::{DownlevelFlags as Df, Features as F};
         let mut features = F::empty()
@@ -888,9 +900,11 @@ impl PhysicalDeviceFeatures {
             // types when this capability is not available
             features.set(
                 F::SHADER_F16,
+                // EXACT (EXACT-PATCHES.md, 11): only opted-in native instances
+                // may substitute a pipeline error for unsupported uniform f16.
                 f16_i8.shader_float16 != 0
                     && bit16.storage_buffer16_bit_access != 0
-                    && bit16.uniform_and_storage_buffer16_bit_access != 0,
+                    && (bit16.uniform_and_storage_buffer16_bit_access != 0 || f16_arithmetic),
             );
         }
 
@@ -2373,6 +2387,10 @@ impl super::Instance {
             phd,
             &phd_capabilities,
             queue_family_properties,
+            // EXACT (EXACT-PATCHES.md, 11).
+            self.shared
+                .f16_arithmetic
+                .load(core::sync::atomic::Ordering::Relaxed),
         );
 
         if phd_capabilities.is_driver(vk::DriverId::MESA_LLVMPIPE) {
@@ -2742,9 +2760,16 @@ impl super::Adapter {
                 capabilities.push(spv::Capability::Int64);
             }
 
-            if features.contains(wgt::Features::SHADER_F16) {
-                capabilities.push(spv::Capability::Float16);
-            }
+            // EXACT (EXACT-PATCHES.md, 11): the translator uses the uniform
+            // grant to reject actual uniform f16 on arithmetic-only adapters.
+            super::f16::allow(
+                &mut capabilities,
+                features.contains(wgt::Features::SHADER_F16),
+                self.phd_features
+                    ._16bit_storage
+                    .as_ref()
+                    .is_some_and(|f| f.uniform_and_storage_buffer16_bit_access != 0),
+            );
 
             if features.contains(wgt::Features::SHADER_I16) {
                 capabilities.push(spv::Capability::Int16);

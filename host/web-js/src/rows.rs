@@ -11,6 +11,58 @@ use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
 impl Em<'_> {
+    /// Clock ticks format cached instants without evaluating app code.
+    pub(super) fn live_time(
+        &mut self,
+        i: u32,
+        element: &str,
+        e: &str,
+        scope: &crate::code::Scope,
+    ) -> Result<(), String> {
+        let plan = self.plan;
+        let row = &plan.nodes[i as usize];
+        if element == "time"
+            || (element == "progress"
+                && row
+                    .bindings
+                    .iter()
+                    .any(|b| plan.binding(b).id == PropId::Start as u16))
+        {
+            let mut values = Vec::new();
+            for prop in [
+                PropId::Datetime,
+                PropId::TimeFormat,
+                PropId::Start,
+                PropId::End,
+            ] {
+                let value = row
+                    .bindings
+                    .iter()
+                    .map(|b| plan.binding(b))
+                    .find(|b| b.kind == BindingKind::Prop && b.id == prop as u16);
+                values.push(match value {
+                    Some(b) => format!("({})()", self.f(b.expr, scope)?),
+                    None => "null".into(),
+                });
+            }
+            let live = self.uses.rt("liveTime");
+            let inline = row
+                .parent
+                .is_some_and(|p| plan.nodes[p.0 as usize].node_type == NodeType::Text as u8);
+            let reserve = !inline
+                && !row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
+                    b.kind == BindingKind::Style
+                        && (b.id == StyleId::Width as u16 || b.id == StyleId::MaxWidth as u16)
+                });
+            let _ = write!(
+                self.out,
+                "{live}({e},()=>[{}],{reserve});",
+                values.join(",")
+            );
+        }
+        Ok(())
+    }
+
     /// Whether image `i` needs symbols.js — it draws a symbol, its source is
     /// bound, or its source is an `app:/` file, which symbols.js resolves
     /// (`data-app-src`, LLP 1069.002 D7) — and whether its source is bound.
@@ -133,13 +185,37 @@ impl Em<'_> {
         let attribute = exact_web::host::template::attribute_rows(kind)
             .iter()
             .any(|(r, _)| *r == id);
+        // A node with children reads no varying type or family token: they
+        // would inherit it (the runner refuses it as an invalid value).
+        // (Asked only where one varies: a map's name stays as it was.)
+        let varying = plan.theme.iter().any(|r| {
+            r.slices.len > 0
+                && matches!(
+                    crate::measures::kind(r),
+                    Some(
+                        exact_kernel::style::theme::Kind::Type
+                            | exact_kernel::style::theme::Kind::Family
+                    )
+                )
+        });
+        let container = varying
+            && (plan
+                .nodes
+                .iter()
+                .any(|n| n.parent.is_some_and(|p| p.0 == i))
+                || plan
+                    .regions
+                    .iter()
+                    .any(|r| r.parent.is_some_and(|p| p.0 == i)));
         let measure = crate::measures::row(id)
-            .then(|| crate::measures::map(plan, &crate::modes::properties(plan), id, attribute))
+            .then(|| {
+                let props = crate::modes::properties(plan);
+                crate::measures::map(plan, &props, id, attribute, container)
+            })
             .flatten()
             .map(|m| {
-                let map = self
-                    .uses
-                    .constant(&crate::measures::map_name(id, attribute), || m);
+                let name = crate::measures::map_name(id, attribute, container);
+                let map = self.uses.constant(&name, || m);
                 format!("()=>{map}(({f})())")
             });
         let f = measure.as_deref().unwrap_or(f);
@@ -287,6 +363,26 @@ impl Em<'_> {
                 let _ = write!(self.out, "{press}();");
                 one("--exact-press-haptic", Some("v=>v==null||v===\"none\"?null:v".into()))
             }
+            // @ref LLP 1061 D7 — the pressed paint: the custom properties
+            // input-glue.js reads from the element's own style (css.rs).
+            StyleId::PressOpacity
+            | StyleId::PressOpacityTo
+            | StyleId::PressBackgroundColor
+            | StyleId::PressColor => {
+                let press = self.uses.rt("pressFeedback");
+                let _ = write!(self.out, "{press}();");
+                let name = match id {
+                    StyleId::PressOpacity => "--exact-press-opacity",
+                    StyleId::PressOpacityTo => "--exact-press-opacity-to",
+                    StyleId::PressBackgroundColor => "--exact-press-background-color",
+                    _ => "--exact-press-color",
+                };
+                let none = "v==null||/^\\s*unset\\s*$/i.test(v)?null:";
+                one(name, Some(match &cm {
+                    Some(cm) => format!("v=>{none}{cm}(v)"),
+                    None => format!("v=>{none}v"),
+                }))
+            }
             // @ref LLP 1116.001 D1.4 — what navigation.js `fitText` reads, inline.
             StyleId::Fit => {
                 let fit = self.uses.rt("fitTexts");
@@ -320,6 +416,17 @@ impl Em<'_> {
             // custom property that binding falls back on (below).
             StyleId::FontSize if parts.props.contains_key("data-fontshorthand") => {
                 let [weight, leading] = &*style::TEXT_STYLE_ROWS;
+                // A type token's size property stands for its text style
+                // here, as the literal's name would (`measures::size_styles`).
+                let styles = crate::measures::size_styles(plan, crate::modes::every_token());
+                let back = |map: &String| match styles.is_empty() {
+                    true => map.clone(),
+                    false => {
+                        let pairs: Vec<String> = styles.iter().map(|(v, s)| format!("{}:{}", serde_json::to_string(v).unwrap(), serde_json::to_string(s).unwrap())).collect();
+                        format!("(B=>v=>({map})(typeof v===\"string\"&&Object.hasOwn(B,v)?B[v]:v))({{{}}})", pairs.join(","))
+                    }
+                };
+                let (weight, leading) = (&back(weight), &back(leading));
                 let written = |name: &str| parts.css.split(';').any(|d| d.starts_with(&format!("{name}:")));
                 let mut w = vec![("font-size".into(), "px".into(), Some(style::TEXT_STYLE_MAP.to_string()))];
                 for (row, name, map) in [(StyleId::FontWeight, "font-weight", weight), (StyleId::LineHeight, "line-height", leading)] {
@@ -617,6 +724,11 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             // D14), which input-glue.js reads from the element's own style.
             "--exact-press:",
             "--exact-press-haptic:",
+            // The pressed paint (LLP 1061 D7), read the same way.
+            "--exact-press-opacity:",
+            "--exact-press-opacity-to:",
+            "--exact-press-background-color:",
+            "--exact-press-color:",
             // A fitted text's (LLP 1116.001 D1.4), which navigation.js finds by it.
             "--exact-fit:",
         ]

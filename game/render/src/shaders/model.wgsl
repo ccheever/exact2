@@ -1,33 +1,5 @@
-struct ModelInstance {
-    transform: u32, material: u32, geometry: u32, palette: u32,
-    local: mat4x4<f32>, normal: mat4x4<f32>,
-    // NodeMaterials: base-colour multiplier and added emission; glow.w's low
-    // 31 bits are 1 + the first per-part look of a merged draw (0: none), and
-    // its top bit makes the tint replace the material's base colour factor
-    // (MaterialOverrides). In a part look entry, glow.w's bits are the part's
-    // first vertex.
-    tint: vec4<f32>, glow: vec4<f32>,
-}
-@group(3) @binding(0) var<storage, read> instances: array<ModelInstance>;
-@group(3) @binding(1) var<storage, read> skin_palette: array<mat4x4<f32>>;
-struct SkinVertex { joints:vec4<u32>, weights:vec4<f32> }
-@group(3) @binding(2) var<storage, read> skin_vertices: array<SkinVertex>;
-fn skinned(draw:ModelInstance,vertex:u32,position:vec3<f32>,normal:vec3<f32>)->mat2x3<f32> {
-    if draw.palette==4294967295u {return mat2x3(position,normal);}
-    var m=mat4x4<f32>();
-    if (draw.palette & 2147483648u)!=0u {m=skin_palette[draw.palette & 2147483647u];}
-    else {
-        let v=skin_vertices[vertex];
-        for(var i=0u;i<4u;i++) { m+=skin_palette[draw.palette+v.joints[i]]*v.weights[i]; }
-    }
-    let p=(m*vec4(position,1.0)).xyz;
-    // Inverse transpose of the blended affine map, including hierarchy shear.
-    let cof=mat3x3(cross(m[1].xyz,m[2].xyz),cross(m[2].xyz,m[0].xyz),cross(m[0].xyz,m[1].xyz));
-    let det=dot(m[0].xyz,cof[0]);
-    // A collapsed joint/weight blend has no inverse; retain a finite authored normal.
-    if abs(det)<1e-10 {return mat2x3(p,normal);}
-    return mat2x3(p,(cof*normal)/det);
-}
+override MODEL_DISCARD: bool = true;
+override MODEL_TEXTURES: bool = true;
 struct BakedMaterial {
     base: vec4<f32>, surface: vec4<f32>, emission_cutoff: vec4<f32>, flags: vec4<f32>,
     uv: array<vec4<f32>, 10>,
@@ -43,50 +15,6 @@ struct BakedMaterial {
 @group(2) @binding(8) var emission_sampler: sampler;
 @group(2) @binding(9) var ao_texture: texture_2d<f32>;
 @group(2) @binding(10) var ao_sampler: sampler;
-struct ModelVarying {
-    @builtin(position) clip: vec4<f32>,
-    @location(0) world: vec3<f32>, @location(1) normal: vec3<f32>,
-    @location(4) color: vec4<f32>,
-    @location(2) uv: vec2<f32>, @location(3) @interpolate(flat) slot: u32,
-    @location(5) @interpolate(flat) tint: vec4<f32>, @location(6) @interpolate(flat) glow: vec4<f32>,
-}
-fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instance: u32, vertex:u32, color:vec4<f32>) -> ModelVarying {
-    let draw = instances[slots[instance] - 2147483648u];
-    let slot = draw.transform;
-    let i = slot * 10u;
-    let a = frame.camera_alpha.w;
-    let p = mix(vec3(prev[i],prev[i+1u],prev[i+2u]), vec3(curr[i],curr[i+1u],curr[i+2u]),a);
-    let qp=vec4(prev[i+3u],prev[i+4u],prev[i+5u],prev[i+6u]);
-    let qc=vec4(curr[i+3u],curr[i+4u],curr[i+5u],curr[i+6u]);
-    let qm=mix(qp,select(qc,-qc,dot(qp,qc)<0.0),a);
-    let q=qm*inverseSqrt(max(dot(qm,qm),1e-12));
-    let s=mix(vec3(prev[i+7u],prev[i+8u],prev[i+9u]),vec3(curr[i+7u],curr[i+8u],curr[i+9u]),a);
-    let skin=skinned(draw,vertex,position,normal);
-    var tint=draw.tint;
-    var glow=draw.glow.xyz;
-    let word=bitcast<u32>(draw.glow.w);
-    let looks=word & 2147483647u;
-    if looks!=0u {
-        // A merged part's look: the last part starting at or before this vertex
-        // (a run ends at a u32::MAX start).
-        var at=looks-1u;
-        while bitcast<u32>(instances[at+1u].glow.w)<=vertex { at+=1u; }
-        let look=instances[at];
-        tint*=look.tint;
-        glow+=look.glow.xyz;
-    }
-    let local=(draw.local*vec4(skin[0],1.0)).xyz;
-    if attached(slot) {
-        let affine=attachment_matrices[slot];
-        let world=(affine*vec4(local,1.0)).xyz;
-        let n=affine_normal(affine,(draw.normal*vec4(skin[1],0.0)).xyz);
-        return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,tint,vec4(glow,f32(word>>31u)));
-    }
-    let world=p+rotate(q,s*local);
-    let safe=select(max(abs(s),vec3(0.000001)),-max(abs(s),vec3(0.000001)),s<vec3(0.0));
-    let n=rotate(q,(draw.normal*vec4(skin[1],0.0)).xyz/safe);
-    return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,tint,vec4(glow,f32(word>>31u)));
-}
 @vertex fn model_vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>, @location(3) color:vec4<f32>, @builtin(instance_index) instance:u32, @builtin(vertex_index) vertex:u32) -> ModelVarying {
     return model_transform(position,normal,uv,instance,vertex,color);
 }
@@ -95,11 +23,13 @@ fn material_uv(uv: vec2<f32>, index:u32) -> vec2<f32> {
     return mat2x2(t.xy,t.zw)*uv+o.xy;
 }
 fn model_base(input:ModelVarying) -> vec4<f32> {
-    let i=input.slot*12u;
-    return textureSample(base_texture,base_sampler,material_uv(input.uv,0u))*select(baked.base,vec4(1.0),input.glow.w>0.5)*input.color*vec4(materials[i],materials[i+1u],materials[i+2u],select(materials[i+3u],1.0,materials[i+3u]<0.0))*input.tint;
+    var texel=vec4(1.0);
+    if MODEL_TEXTURES { texel=textureSample(base_texture,base_sampler,material_uv(input.uv,0u)); }
+    return texel*select(baked.base,vec4(1.0),input.glow.w>0.5)*input.color;
 }
 fn mapped_normal(input:ModelVarying, front:bool) -> vec3<f32> {
     let n=normalize(input.normal)*select(-1.0,1.0,front);
+    if !MODEL_TEXTURES || baked.surface.z == 0.0 { return n; }
     let uv=material_uv(input.uv,1u);
     let dp1=dpdx(input.world); let dp2=dpdy(input.world);
     let duv1=dpdx(uv); let duv2=dpdy(uv);
@@ -115,27 +45,44 @@ fn mapped_normal(input:ModelVarying, front:bool) -> vec3<f32> {
 }
 @diagnostic(off, derivative_uniformity)
 fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
+    if DEPTH_PREPASS && input.clip.z >= 1.0 { discard; }
     // Opaque materials fade by dither; blended ones multiply alpha below.
-    if baked.flags.x!=2.0 && faded(input.slot,input.clip.xy) { discard; }
+    if MODEL_DISCARD && baked.flags.x!=2.0 && faded(input.slot,input.clip.xy) { discard; }
     let base=model_base(input);
-    let mr=textureSample(mr_texture,mr_sampler,material_uv(input.uv,2u));
-    let emission=textureSample(emission_texture,emission_sampler,material_uv(input.uv,3u)).rgb;
-    let ao=mix(1.0,textureSample(ao_texture,ao_sampler,material_uv(input.uv,4u)).r,baked.surface.w);
-    let n=mapped_normal(input,front);
-    if baked.flags.x==1.0 && base.a < baked.emission_cutoff.w { discard; }
-    let metallic=clamp(baked.surface.x*mr.b,0.0,1.0);
-    let roughness=clamp(baked.surface.y*mr.g,0.045,1.0);
-    let v=normalize(frame.camera_alpha.xyz-input.world);
-    let i=input.slot*12u;
-    let glow=vec3(materials[i+6u],materials[i+7u],materials[i+8u]);
-    var color=ambient(n,v,base.rgb,metallic,roughness)*ao+emission*baked.emission_cutoff.rgb*materials[i+9u]+glow+input.glow.xyz;
-    if frame.sun_direction_illuminance.w>0.0 {
-        color+=brdf(n,v,normalize(-frame.sun_direction_illuminance.xyz),base.rgb,metallic,roughness)*frame.sun_color_count.xyz*frame.sun_direction_illuminance.w*visibility;
+    var mr=vec4(1.0);
+    var emission=vec3(1.0);
+    var ao=1.0;
+    if MODEL_TEXTURES {
+        mr=textureSample(mr_texture,mr_sampler,material_uv(input.uv,2u));
+        emission=textureSample(emission_texture,emission_sampler,material_uv(input.uv,3u)).rgb;
+        ao=mix(1.0,textureSample(ao_texture,ao_sampler,material_uv(input.uv,4u)).r,baked.surface.w);
     }
-    if frame.fill_direction_illuminance.w>0.0 { color+=fill_light(n,v,base.rgb,metallic,roughness); }
-    add_local_lights(&color,input.clip.xy,input.world,n,v,base.rgb,metallic,roughness,true);
-    if FOG { color=height_fog(color,input.world); }
-    return vec4(color,select(1.0,base.a*(1.0-fade_of(input.slot)),baked.flags.x==2.0));
+    let n=mapped_normal(input,front);
+    if MODEL_DISCARD && baked.flags.x==1.0 && base.a < baked.emission_cutoff.w { discard; }
+    let metallic=clamp(baked.surface.x*mr.b*input.part.x,0.0,1.0);
+    let roughness=clamp(baked.surface.y*mr.g*input.part.y,0.045,1.0);
+    let v=normalize(frame.camera_alpha.xyz-input.world);
+    // The colour in `shading` (frame.wgsl): f16 where the device has it.
+    let albedo=vec3<shading>(base.rgb);
+    var color=ambient(n,v,albedo,metallic,roughness)*shading(ao)+vec3<shading>(emission*baked.emission_cutoff.rgb*input.part_emission)+vec3<shading>(input.glow.xyz);
+    if frame.sun_direction_illuminance.w>0.0 {
+        color+=brdf(n,v,(-frame.sun_direction_illuminance.xyz),albedo,metallic,roughness)*vec3<shading>(frame.sun_color_count.xyz)*shading(frame.sun_direction_illuminance.w)*shading(visibility);
+    }
+    if LIGHTS && frame.fill_direction_illuminance.w>0.0 { color+=fill_light(n,v,albedo,metallic,roughness); }
+    if LIGHTS { add_local_lights(&color,input.clip.xy,input.world,n,v,albedo,metallic,roughness,true); }
+    if baked.flags.y > 0.0 {
+        let rim_view=select(v,-frame.view_depth.xyz,frame.toon.w>0.5);
+        color += shading(baked.flags.y * input.part.z * pow(1.0 - clamp(dot(n,rim_view),0.0,1.0),3.0)) * mix(albedo,vec3<shading>(1.0),0.2);
+    }
+    if FOG { color=shaded_fog(color,input.world); }
+    var alpha=1.0;
+    if MODEL_DISCARD && baked.flags.x==2.0 { alpha=base.a*(1.0-fade_of(input.slot)); }
+    return vec4(vec3<f32>(color),alpha);
 }
-@fragment fn model_fs(input:ModelVarying,@builtin(front_facing) front:bool)->@location(0) vec4<f32> {return model_shade(input,front,1.0);}
-@fragment fn model_fs_shadow(input:ModelVarying,@builtin(front_facing) front:bool)->@location(0) vec4<f32> {return model_shade(input,front,sun_visibility(input.world,normalize(input.normal)));}
+@fragment fn model_fs(input:ModelVarying,@builtin(front_facing) front:bool)->@location(0) vec4<f32> {return finish(model_shade(input,front,1.0));}
+@fragment fn model_fs_shadow(input:ModelVarying,@builtin(front_facing) front:bool)->@location(0) vec4<f32> {return finish(model_shade(input,front,sun_visibility(input.world,normalize(input.normal))));}
+
+@fragment fn model_depth_fs(input:ModelVarying) {
+    if faded(input.slot,input.clip.xy) { discard; }
+    if baked.flags.x==1.0 && model_base(input).a < baked.emission_cutoff.w { discard; }
+}

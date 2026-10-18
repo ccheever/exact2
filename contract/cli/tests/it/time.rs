@@ -1045,11 +1045,21 @@ fn resource_clock_advice_keeps_json_build_success_and_stdout_valid() {
         "{}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&run.stdout).unwrap(),
-        serde_json::json!([])
+    // The advice is among the array's warnings, and stderr is empty.
+    let reply = serde_json::from_slice::<serde_json::Value>(&run.stdout).unwrap();
+    let advice = reply.as_array().unwrap();
+    assert!(!advice.is_empty(), "{reply}");
+    assert!(
+        advice
+            .iter()
+            .all(|w| w["id"] == "analyze-resource-clock" && w["severity"] == "warning"),
+        "{reply}"
     );
-    assert!(String::from_utf8_lossy(&run.stderr).contains("warning:"));
-    assert!(String::from_utf8_lossy(&run.stderr).contains("analyze-resource-clock"));
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+    let human = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&human.stderr).contains("analyze-resource-clock"));
     std::fs::remove_dir_all(root).unwrap();
 }

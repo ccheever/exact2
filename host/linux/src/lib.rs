@@ -46,7 +46,7 @@ pub mod android;
 pub mod android_hint;
 pub mod app;
 mod build_channel;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 pub mod canvas;
 mod canvas2d;
 pub mod content_region;

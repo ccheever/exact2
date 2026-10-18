@@ -494,6 +494,7 @@ pub use backend::{Backend, WindowLayer};
 /// The painter: the walk over one backend.
 pub struct Painter {
     pub(crate) window_canvas: Option<ViewId>,
+    pub(crate) direct_canvases: std::collections::BTreeSet<ViewId>,
     pub(crate) alert: Option<alert::Picture>,
     /// The text engine, shared with the kernel's measurer.
     pub text: Shared,
@@ -542,6 +543,9 @@ pub struct Painter {
     /// The control under a pointer that hovers, and the one a contact holds
     /// down (`presenter/feedback.rs`), which the neutral look washes.
     pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
+    /// The background the last box painted shows, its states' over its own,
+    /// which its `background-clip: text` fills with (`text_clip`).
+    clipped: Option<(ViewId, [u8; 4])>,
     /// Each hosted text field's content box in its own border box (x, y,
     /// width, height), as last walked (`field.rs`, LLP 1115.001 D8).
     pub(crate) field_content: HashMap<ViewId, [f32; 4]>,
@@ -625,6 +629,7 @@ impl Painter {
     pub fn new(text: Shared, scale: f32, backend: Box<dyn Backend>) -> Painter {
         Painter {
             window_canvas: None,
+            direct_canvases: Default::default(),
             text,
             scale,
             dark: false,
@@ -652,6 +657,7 @@ impl Painter {
             flatten: None,
             ringless: None,
             feedback: (None, None),
+            clipped: None,
             field_content: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
@@ -898,12 +904,7 @@ impl Painter {
             .any(|p| !p.fragments().is_empty())
             .then(|| pixmap.clone());
         self.damage.dark = self.dark;
-        self.damage.caret = scene.focus.is_some_and(|id| {
-            scene
-                .kernel
-                .node(id)
-                .is_some_and(|n| n.node_type == NodeType::TextInput)
-        });
+        self.damage.focus_ink = damage::field_focus_ink(scene.kernel, scene.focus);
         Ok(Frame {
             pixmap,
             boxes: walk.boxes,
@@ -1065,8 +1066,12 @@ impl Painter {
         let paints_self = paints(walk.scene.kernel, node.id, walk.reveal);
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
-        // LLP 1062 D5): background, border sides and shadow.
-        let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark).presented(&shown.colors);
+        // LLP 1062 D5): background, border sides and shadow; then its states,
+        // its looks and a press's background (LLP 1061 D7, LLP 1121 D8).
+        let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark)
+            .presented(&shown.colors)
+            .states(node, &shown, self.dark);
+        self.clipped = Some((node.id, paint.background));
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));
@@ -1205,7 +1210,9 @@ impl Painter {
                 None => own,
             });
         }
-        let scrolls = ox != Overflow::Visible || oy != Overflow::Visible;
+        // `clip` clips without being a scroll container (CSS Overflow 3 §3).
+        let scrolls = !matches!(ox, Overflow::Visible | Overflow::Clip)
+            || !matches!(oy, Overflow::Visible | Overflow::Clip);
         let child_offset = if scrolls {
             let (sx, sy) = walk
                 .scene
@@ -1343,24 +1350,19 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     } else {
         node.style
     };
-    let mut y = if s.mask.has(StyleId::OverflowY) {
+    let y = if s.mask.has(StyleId::OverflowY) {
         s.overflow_y
     } else if node.node_type.scrolls_by_default() {
         Overflow::Auto
     } else {
         Overflow::Visible
     };
-    let mut x = if s.mask.has(StyleId::OverflowX) {
+    let x = if s.mask.has(StyleId::OverflowX) {
         s.overflow_x
     } else {
         Overflow::Visible
     };
-    if x == Overflow::Visible && y != Overflow::Visible {
-        x = Overflow::Auto;
-    } else if y == Overflow::Visible && x != Overflow::Visible {
-        y = Overflow::Auto;
-    }
-    (x, y)
+    (x.computed(y), y.computed(x))
 }
 
 /// A scroll container's content extent: the kernel's scrollable overflow,

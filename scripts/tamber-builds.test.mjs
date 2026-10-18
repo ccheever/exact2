@@ -7,7 +7,7 @@
 // poll within the hosts' limits and keeps an answer until it is
 // acknowledged; a report's fields typed, and its body read safely.
 import { expect, test } from 'bun:test';
-import { buildChannel, relayChannel, serveCommands, serveReport } from './tamber-builds.mjs';
+import { buildChannel, relayChannel, serveCommands, serveReport, streamFrame, BEHIND } from './tamber-builds.mjs';
 
 const stream = channel => {
   const frames = [];
@@ -208,6 +208,31 @@ test('a poll\'s answer is kept until acknowledged: a lost response loses no comm
   expect(channel.poll(nonce, 2)).toEqual({ seq: 3, frames: [] });
 });
 
+test('a long poll (`wait`) is held until a frame comes, or its wait passes; a newer one answers the older at once', async () => {
+  const channel = buildChannel();
+  const { nonce } = channel.openPolled();
+  register(channel, nonce, 'linux-1', 'linux');
+  // Its pin frame is queued: answered at once.
+  const first = await channel.waitPoll(nonce, 0, 4000);
+  expect(first.frames).toEqual([{ kind: 'pin', revision: 0, pin: null }]);
+  // Nothing queued: held until the pin comes.
+  const t0 = Date.now();
+  const held = channel.waitPoll(nonce, first.seq, 4000);
+  setTimeout(() => channel.pin('tool', 'linux-1', { scheme: 'dark' }), 30);
+  const second = await held;
+  expect(second.frames).toEqual([{ kind: 'pin', revision: 1, pin: { scheme: 'dark' } }]);
+  expect(Date.now() - t0).toBeLessThan(1000);
+  // Its wait passes: an answer with no frames.
+  expect((await channel.waitPoll(nonce, second.seq, 40)).frames).toEqual([]);
+  // One held per stream: a newer poll answers the older now.
+  const older = channel.waitPoll(nonce, 3, 4000);
+  const newer = channel.waitPoll(nonce, 3, 50);
+  expect((await older).frames).toEqual([]);
+  await newer;
+  // Its stream gone: null at once.
+  expect(await channel.waitPoll('none', 0, 4000)).toBe(null);
+});
+
 test('a polled queue is bounded: one pin queued, live frames collapsed into a notice', () => {
   const channel = buildChannel();
   const { nonce } = channel.openPolled();
@@ -352,12 +377,17 @@ test('the resident loop relays the main loop\'s commands onto its own stream', a
   const channel = buildChannel();
   // The first answer with frames is lost on the way (the connection reset
   // after the server answered): the relay asks again and loses nothing.
-  let lost = false;
-  const main = createServer((req, res) => {
+  // Each poll is a long one (`wait`), held until a frame comes.
+  let lost = false, waits = 0;
+  const main = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
+    if (url.searchParams.has('wait')) waits++;
     if (!lost && url.pathname === '/__dev/commands') {
-      const answer = channel.poll(url.searchParams.get('nonce'), url.searchParams.get('ack'));
+      const answer = await channel.waitPoll(url.searchParams.get('nonce'), url.searchParams.get('ack'), url.searchParams.get('wait'));
       if (answer?.frames.length) { lost = true; res.destroy(); return; }
+      res.writeHead(answer ? 200 : 404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(answer));
+      return;
     }
     serveCommands(channel, url, res);
   });
@@ -372,12 +402,15 @@ test('the resident loop relays the main loop\'s commands onto its own stream', a
   await until(() => frames.at(-1)?.revision === 1);
   // (A pin replaced before it was polled is not sent: only the latest is.)
   expect(lost).toBe(true);
+  expect(waits).toBeGreaterThan(0);
   expect(frames.at(-1)).toEqual({ kind: 'pin', revision: 1, pin: { scheme: 'light' } });
   // The main loop forgets the nonce: the relay ends the device's stream.
   channel.poll('x');
   for (const b of channel.list()) expect(b.id).toBe('ios-sim');
   const realNow = Date.now;
   Date.now = () => realNow() + 60_000;
+  // Swept then: the poll held there is answered with the stream gone.
+  channel.poll('x');
   try { await until(() => ended); } finally { Date.now = realNow; }
   expect(ended).toBe(true);
   relayed.close();
@@ -465,4 +498,32 @@ test('a build says the digest of the plan it runs, on registering and in its sta
   expect(channel.list()[0].planDigest).toBe('1'.repeat(64));
   report(channel, { nonce: a.nonce, kind: 'status', scheme: 'light', revision: 0, planDigest: '2'.repeat(64) });
   expect(channel.list()[0].planDigest).toBe('2'.repeat(64));
+});
+
+test('a scrub frame collapsed or over the bound keeps its mark in the notice (*1.11*)', () => {
+  const channel = buildChannel();
+  const { nonce } = channel.openPolled();
+  register(channel, nonce, 'linux-1', 'linux');
+  channel.poll(nonce);
+  const frame = i => ({ kind: 'tamber-batch', structure: 's', base: `d${i}`, design: `d${i + 1}`, tokens: [{ name: 't', value: 'x'.repeat(40_000), slices: [] }], scrub: { id: 'scrub-1', rev: i + 1, run: 'r' } });
+  channel.broadcast(frame(0));
+  const [f] = channel.poll(nonce, 1).frames.filter(f => f.kind === 'tamber-batch');
+  expect(f.tokens).toEqual([]);
+  expect(f.scrub).toEqual({ id: 'scrub-1', rev: 1, run: 'r' });
+});
+
+test('a stream behind takes no frames until it drains, then the latest design\'s notice', () => {
+  const written = [];
+  let drain = null;
+  const res = { writableLength: 0, write: t => written.push(t), once: (e, f) => { if (e === 'drain') drain = f; } };
+  streamFrame(res, '{"n":1}', () => ({ n: 'latest' }));
+  res.writableLength = BEHIND + 1;
+  streamFrame(res, '{"n":2}', () => ({ n: 'latest' }));
+  streamFrame(res, '{"n":3}', () => ({ n: 'latest' }));
+  expect(written).toEqual(['data: {"n":1}\n\n']);
+  res.writableLength = 0;
+  drain();
+  expect(written).toEqual(['data: {"n":1}\n\n', 'data: {"n":"latest"}\n\n']);
+  streamFrame(res, '{"n":4}', () => null);
+  expect(written.at(-1)).toBe('data: {"n":4}\n\n');
 });

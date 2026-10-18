@@ -30,13 +30,17 @@ final class FlatLeaf {
     var style: NodeStyle
     /// Its paint, read from `style` on the owner thread (LLP 1072 stage 4).
     var paint: FlatPaint
-    var frame = CGRect.zero
+    /// Its frame drawn, on the device's pixel grid, and as layout sent it
+    /// (`PixelGridIOS.swift`).
+    var frame = CGRect.zero, layout = CGRect.zero
     /// Its content box and padding as layout sent them (`fieldContent`),
     /// kept for the view it becomes: a leaf paints only its fill.
     var content: (box: CGRect, padding: [CGFloat?]?)?
     var opacity: Float = 1
     /// The node whose children op placed it.
     var parent: UInt32?
+    /// The appearance its paint resolved in: its parent view's.
+    var dark = false
     init(id: UInt32, style: NodeStyle, paint: FlatPaint) {
         self.id = id; self.style = style; self.paint = paint
         layer.delegate = FlatAction.shared
@@ -150,10 +154,42 @@ final class FlatLeaves {
     }
     func styleChanged(_ id: UInt32) { reconsider.insert(id) }
 
+    /// `parent`'s appearance changed (its trait-change registration): its
+    /// `light-dark()` leaves repaint in the new one.
+    func appearanceChanged(_ parent: UInt32) {
+        guard order[parent] != nil else { return }
+        resolveScheme(under: parent)
+        if dirty.contains(parent) { presenter.afterBatch { [weak self] in self?.flush() } }
+    }
+    /// Each `light-dark()` leaf under `parent` in the parent view's appearance.
+    /// Paint motion hears every leaf's, as a view says its own (LLP 1062 D4),
+    /// so a transition between pairs eases in the appearance it shows in.
+    private func resolveScheme(under parentID: UInt32) {
+        guard let ids = order[parentID], let parent = presenter.views[parentID] else { return }
+        let dark = parent.drawsDark
+        for id in ids {
+            guard let leaf = leaves[id] else { continue }
+            presenter.session?.noteAppearance(id, dark: dark)
+            guard leaf.paint.followsScheme, leaf.dark != dark else { continue }
+            leaf.dark = dark
+            paint(leaf)
+        }
+    }
+    /// The appearance `id` paints in, when it is a leaf under a view.
+    func appearance(of id: UInt32) -> Bool? { leaves[id]?.parent.flatMap { presenter.views[$0] }?.drawsDark }
+    private func mountPromoted() {
+        let mounts = remount
+        remount.removeAll()
+        for id in mounts {
+            if let parent = presenter.views[id], let ids = order[id] { presenter.placeChildren(parent, ids) }
+        }
+    }
+
     private func demote(_ id: UInt32) {
+        // A view's CSS animations are its layer's: one holding any stays a view.
         guard let view = presenter.views[id], view.kind == "view", view.paintRank == 0,
               view.handlers.isEmpty, view.props.isEmpty, view.subviews.isEmpty, !holdsLeaves(id),
-              view.surface == nil, view.boxFilter == nil,
+              view.surface == nil, view.boxFilter == nil, !presenter.svg.animatesBox(id),
               let flat = FlatPaint(view.style) else { return }
         var ancestor = view.superview
         while let v = ancestor, !(v is NodeView) { ancestor = v.superview }
@@ -162,7 +198,7 @@ final class FlatLeaves {
               parent.canvasAbove == nil, parent.surface == nil else { return }
         if order[parent.id] == nil { order[parent.id] = parent.container.subviews.compactMap { ($0 as? NodeView)?.id } }
         let leaf = FlatLeaf(id: id, style: view.style, paint: flat)
-        leaf.frame = view.frame
+        leaf.layout = view.grid?.layout ?? view.frame
         leaf.content = view.kernelContentBox.map { ($0, view.kernelPadding) }
         leaf.opacity = Float(view.alpha)
         leaf.parent = parent.id
@@ -171,7 +207,7 @@ final class FlatLeaves {
         view.removeFromSuperview()
         leaves[id] = leaf
         made += 1
-        frame(id, leaf.frame)
+        frame(id, leaf.layout)
         leaf.layer.opacity = leaf.opacity
     }
 
@@ -182,12 +218,30 @@ final class FlatLeaves {
 
     func frame(_ id: UInt32, _ rect: CGRect) {
         guard let leaf = leaves[id] else { return }
-        leaf.frame = rect
+        leaf.layout = rect
+        let drawn = place(leaf).drawn
+        leaf.frame = drawn
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        leaf.layer.bounds = CGRect(origin: .zero, size: rect.size)
-        leaf.layer.position = rect.origin
+        leaf.layer.bounds = CGRect(origin: .zero, size: drawn.size)
+        leaf.layer.position = drawn.origin
         CATransaction.commit()
         paint(leaf)
+    }
+    private func place(_ leaf: FlatLeaf) -> GridPlace {
+        let origin = leaf.parent.flatMap { presenter.views[$0]?.grid?.origin } ?? .zero
+        return PixelGrid.place(leaf.layout, in: origin, scale: presenter.gridScale(under: origin))
+    }
+    /// Every parent's leaves drawn again (a new display's grid).
+    func regridAll(where admits: (NodeView) -> Bool) {
+        for parent in order.keys { if let v = presenter.views[parent], admits(v) { regrid(parent: v) } }
+    }
+    /// `parent`'s leaves drawn again from its origin, where that moves them.
+    func regrid(parent: NodeView) {
+        for id in order[parent.id] ?? [] {
+            guard let leaf = leaves[id], place(leaf).drawn != leaf.frame else { continue }
+            frame(id, leaf.layout)
+            touch(leaf)
+        }
     }
     private func touch(_ leaf: FlatLeaf) { if let p = leaf.parent { dirty.insert(p) } }
     func opacity(_ id: UInt32, _ value: Float) {
@@ -222,7 +276,7 @@ final class FlatLeaves {
     private func paint(_ leaf: FlatLeaf) {
         let s = leaf.paint
         let bounds = CGRect(origin: .zero, size: leaf.frame.size)
-        let fill = s.fill
+        let fill = s.fill(dark: leaf.dark)
         let r = s.radii
         let sums = [r[0] + r[1], r[3] + r[2], r[0] + r[3], r[1] + r[2]]
         let edges = [bounds.width, bounds.width, bounds.height, bounds.height]
@@ -262,6 +316,7 @@ final class FlatLeaves {
         }
         order[parent.id] = ids
         for id in flat { leaves[id]?.parent = parent.id }
+        regrid(parent: parent)
         guard Self.parents.contains(parent.kind), parent.scroll == nil, parent.overlay == nil,
               parent.canvasAbove == nil, parent.surface == nil else { return flat }
         dirty.insert(parent.id)
@@ -272,11 +327,14 @@ final class FlatLeaves {
 
     /// Every leaf is rank zero; promotion removes other ranks before runs
     /// form. What a run shares: one fill, one radius on all four corners (or none),
-    /// shown whole. A leaf that is not alike stands alone.
+    /// shown whole. A leaf that is not alike stands alone, and so does a
+    /// `light-dark()` leaf: its layer paints the pixels its view did, where a
+    /// run's path antialiases the edges a layer leaves sharp at fractional
+    /// pixel positions (a 5×5 LED glyph's cells went soft).
     private struct RunKey: Equatable { let rgba: [Double]; let radius: CGFloat }
     private func runKey(_ leaf: FlatLeaf) -> RunKey? {
         let s = leaf.paint
-        guard leaf.opacity == 1, !s.hidden, let c = s.rgba, c.count == 4, c[3] > 0 else { return nil }
+        guard leaf.opacity == 1, !s.hidden, !s.followsScheme, let c = s.light, c.count == 4, c[3] > 0 else { return nil }
         let r = s.radii
         guard r.allSatisfy({ $0 == r[0] }) else { return nil }
         return RunKey(rgba: c, radius: r[0])
@@ -290,15 +348,15 @@ final class FlatLeaves {
     func flush() {
         // Promotions create views while ops are applied; each affected
         // parent's latest child list is mounted once before drawing runs.
-        let mounts = remount
-        remount.removeAll()
-        for id in mounts {
-            if let parent = presenter.views[id], let ids = order[id] { presenter.placeChildren(parent, ids) }
-        }
+        mountPromoted()
         let candidates = reconsider
         reconsider.removeAll()
         for id in candidates { demote(id) }
         guard !dirty.isEmpty else { return }
+        // A leaf's paint in its parent's appearance can need a view (a dark
+        // fill on corners a layer cannot say): it is mounted before drawing too.
+        for parentID in dirty { resolveScheme(under: parentID) }
+        mountPromoted()
         let parents = dirty
         dirty.removeAll()
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -367,7 +425,9 @@ final class FlatLeaves {
         let view = NodeView(id: id, kind: "view", presenter: presenter)
         view.applyStyle(style ?? leaf.style)
         view.applyProps(set: [:], clear: [])
-        view.frame = leaf.frame
+        let placed = place(leaf)
+        view.frame = placed.drawn
+        view.grid = placed
         if let content = leaf.content { view.applyKernelContentBox(content.box, padding: content.padding) }
         view.alpha = CGFloat(leaf.opacity)
         presenter.views[id] = view

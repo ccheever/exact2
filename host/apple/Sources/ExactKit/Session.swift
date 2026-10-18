@@ -109,13 +109,6 @@ public protocol ExactAppLifecycle: AnyObject {
 /// A plan and its complete asset namespace prepared by an app composition.
 /// The opaque token is meaningful only to that composition; zero is an
 /// ordinary core/dev plan, with no delivery selection to count or bless.
-/// A module's pairing receipt and compiled bytes. The caller authenticates
-/// a signed update or explicitly admits a development origin before preparation.
-public struct ExactModule {
-    public let receipt: Data
-    public let bytecode: Data
-    public init(receipt: Data, bytecode: Data) { self.receipt = receipt; self.bytecode = bytecode }
-}
 public struct ExactGeneration {
     public let plan: Data
     public let assets: AssetResolver
@@ -163,6 +156,7 @@ public final class ExactApp {
     /// and subscribed once; every `{seq}` applies to every session.
     private(set) var connection: PlanURL?
     private init() {
+        WidgetContainer.configure()
         #if canImport(UIKit)
         let fallback = Bundle.main.bundlePath
         #else
@@ -199,7 +193,10 @@ public final class ExactApp {
         return true
     }
 
-    func firstPixel(_ token: UInt64) { lifecycle?.firstPixel(self, token: token) }
+    func firstPixel(_ token: UInt64) {
+        lifecycle?.firstPixel(self, token: token)
+        WidgetContainer.publishAfterFirstPixel(resolver)
+    }
 
     /// Refresh generic delivery facts after a composition-owned event.
     public func refreshDelivery() {
@@ -358,14 +355,15 @@ public final class ExactSession {
     var dataActivated: Bool { dataGeneration == generation }
     private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
     private var updateToken: UInt64 = 0
-    package let runtime: Runtime
+    package let core: SessionCore
+    package var runtime: Runtime { core.runtime }
     /// This session's file roots, captured outside a native module callback.
     var appFileRoots: [String: String] = [:]
     let rasters = RasterLoader()
     #if os(macOS)
     lazy var regions = RegionController(self)
     #endif
-    var text: TextEngine
+    var text: TextEngine { get { core.text } set { core.text = newValue } }
     let fieldChrome = FieldChromeCache()
     let buttonMeasurements = ButtonMeasureCache()
     package let presenter: Presenter
@@ -473,11 +471,11 @@ public final class ExactSession {
     init(app: ExactApp, label: String) {
         self.app = app
         self.label = label
-        runtime = Runtime()
+        let runtime = Runtime()
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
         if !ExactEnv.agentFreezes { _ = runtime.startOnFrame(true, at: 0) }
-        text = TextEngine.pair(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
-                               bundled: { [weak app] source in app?.bundledAsset(source) })
+        core = SessionCore(runtime: runtime, text: TextEngine.pair(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
+                               bundled: { [weak app] source in app?.bundledAsset(source) }))
         presenter = Presenter()
         canvases = SurfacesLink.installed?.canvases() ?? NoCanvases()
         webviews = WebViews()
@@ -488,8 +486,7 @@ public final class ExactSession {
         natives.session = self
         frames.session = self
         sampler = FrameSampler.fromBoot(self)
-        runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        core.measure(with: text)
         installControlText()
         // LLP 1056 D8, D9: Canvas 2D measures with this engine and draws the
         // handles this session decodes.
@@ -583,7 +580,7 @@ public final class ExactSession {
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
     /// Run `work` now, or after the slice in flight lands (LLP 1072 §3).
-    func whenIdle(_ work: @escaping () -> Void) {
+    package func whenIdle(_ work: @escaping () -> Void) {
         if fillInFlight { afterFill.append((generation, work)) } else { work() }
     }
 
@@ -876,16 +873,14 @@ public final class ExactSession {
         runtime.setProfileResolver(resolver)
         defer { runtime.setProfileResolver(app.resolver) }
         let candidate = TextEngine.pair(resolve: { resolver.url($0) }, read: { resolver.bytes($0) }, bundled: { resolver.bundledURL($0) })
-        runtime.setMeasure(TextEngine.measureText, ctx: candidate.measuring.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: candidate.measuring.opaque)
+        core.measure(with: candidate)
         installControlText(on: candidate)
         let viewport = size ?? presenter.viewportSize
         primeTime()
         let batch: Batch
         if let module { batch = runtime.prepareModule(bytes, module: module, token: token, width: viewport.width, height: viewport.height, letGo: letGo) }
         else { batch = runtime.preparePlan(bytes, width: viewport.width, height: viewport.height, token: token) }
-        runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        core.measure(with: text)
         installControlText()
         requestsPending = batch.requests; if batch.pending { modulePending = true; return nil }
         // Resolve initially used local payloads before first pixel, without
@@ -910,8 +905,7 @@ public final class ExactSession {
         text = candidate.text
         runtime.setProfileResolver(candidate.resolver)
         updateToken = candidate.token
-        runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        core.measure(with: text)
         installControlText()
         text.commitFonts()
         let batch = runtime.commitPlan()
@@ -1315,7 +1309,12 @@ public final class ExactSession {
         // §8): queued now, and said in the scheme's own batch, after it.
         if first {
             let early = unreported; unreported.removeAll()
-            for id in early { if let v = presenter.views[id] { noteAppearance(v) } }
+            for id in early {
+                if let v = presenter.views[id] { noteAppearance(v); continue }
+                #if os(iOS) || os(tvOS)
+                if let dark = presenter.flats.appearance(of: id) { noteAppearance(id, dark: dark) }
+                #endif
+            }
         }
         // A subtree with a `color-scheme` of its own keeps its appearance when the session's changes, so no trait
         // callback says it: said here, after the scheme. Its views' appearance is the row's, already settled,
@@ -1344,12 +1343,13 @@ public final class ExactSession {
     private func treeIsIn() { awaitingTree = false; if colorsOwed { colorsOwed = false; reportColors() } } // only the replacement batch, not a reset's cleanup
     /// A view painting motion: when its own appearance is not the one its node's colours resolve by, say so after
     /// the batch (LLP 1062 D4).
-    func noteAppearance(_ view: NodeView) {
-        guard let session = schemeDark else { unreported.insert(view.id); return }
-        let dark = view.drawsDark
-        guard dark != viewDark[view.id] ?? session else { return }
-        viewDark[view.id] = dark == session ? nil : dark
-        pendingViewDark.append((view.id, dark))
+    func noteAppearance(_ view: NodeView) { noteAppearance(view.id, dark: view.drawsDark) }
+    /// A node painting in `dark`: a view, or a flat leaf in its parent's appearance.
+    func noteAppearance(_ id: UInt32, dark: Bool) {
+        guard let session = schemeDark else { unreported.insert(id); return }
+        guard dark != viewDark[id] ?? session else { return }
+        viewDark[id] = dark == session ? nil : dark
+        pendingViewDark.append((id, dark))
     }
     /// Views noted before the session had a scheme.
     private var unreported = Set<UInt32>()

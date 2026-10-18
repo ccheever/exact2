@@ -413,7 +413,7 @@ pub fn uses(plan: &Plan) -> Uses {
     if format {
         uses = uses.with(Capability::Format);
     }
-    // `toLowerCase` maps through the same case tables (LLP 1088 D2).
+    // `toLowerCase` and `toUpperCase` map through the same case tables (LLP 1088 D2).
     if lowercase {
         uses = uses.with(Capability::TextTransform);
     }
@@ -511,7 +511,7 @@ pub fn svg_filters(plan: &Plan) -> bool {
 }
 
 /// Whether any code range calls a `format` entry, whether any reads
-/// geometry (`frame`, `measure`, `elementFromPoint`), and whether any calls `toLowerCase`: each
+/// geometry (`frame`, `measure`, `elementFromPoint`), and whether any calls `toLowerCase` or `toUpperCase`: each
 /// validated body walked whole, so no call a run can reach is missed.
 fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
     let (mut format, mut geometry, mut lowercase) = (false, false, false);
@@ -533,7 +533,7 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
                         | Stdlib::ElementsFromPoint
                         | Stdlib::QuerySelectorAll,
                     ) => geometry = true,
-                    Some(Stdlib::ToLowerCase) => lowercase = true,
+                    Some(Stdlib::ToLowerCase | Stdlib::ToUpperCase) => lowercase = true,
                     _ => {}
                 }
             }

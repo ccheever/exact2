@@ -283,6 +283,7 @@ export function groupController({ views, collections, request, applyBatch, now, 
     if (r.accepted !== true) { cur = null; collections.releaseRetainedInteraction(lease); return; }
     d.token = r.token;
     const key = k => {
+      if (k.exactFlowCapture) return;
       if (cur !== d || d.phase !== 'active' || k.repeat && !STEPS[k.key]) return;
       if (STEPS[k.key]) {
         k.preventDefault();

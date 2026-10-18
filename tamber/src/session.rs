@@ -56,11 +56,16 @@ pub struct Planned {
     /// The app's synthetic tokens whose values change, each its expression
     /// and its new value per full app tuple.
     pub synthetic: Vec<(String, Vec<crate::Folded>)>,
+    /// Each token of the design file whose folded value changes, named as
+    /// the plan's theme row names it (the declared spelling; a synthetic
+    /// token by its expression), with its CSS text per full app tuple: a
+    /// scrub's frame patches the running design's rows from these.
+    pub values: Vec<(String, Vec<String>)>,
 }
 
 /// The app's synthetic tokens (D3): Contract rows' expressions over tokens,
 /// folded with the design file `file`.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Synthetic<'a> {
     /// The design file they fold with.
     pub file: &'a str,
@@ -71,6 +76,20 @@ pub struct Synthetic<'a> {
     /// Which of its tokens the app's plan keeps (D7), as the compiler last
     /// found; none: every token, as an app with bindings keeps.
     pub retention: Option<&'a Retention>,
+    /// The app's components' params (D15), which fold with the design file:
+    /// each a token, its `params` line in place of its default.
+    pub params: &'a crate::params::Params,
+}
+
+impl Default for Synthetic<'_> {
+    fn default() -> Self {
+        Synthetic {
+            file: "",
+            exprs: &[],
+            retention: None,
+            params: &crate::params::NONE,
+        }
+    }
 }
 
 /// D7's retention: which of a design's tokens an app's plan keeps. The
@@ -90,6 +109,10 @@ pub struct Retention {
     pub computed_measure: bool,
     /// Every word the views' literals write, any of which may name a token.
     pub words: std::collections::BTreeSet<String>,
+    /// Every word a colour keyframe writes: a token (or a role's override)
+    /// one names is folded into the plan's `@keyframes`, so its value is
+    /// structure, and an edit of it rebuilds.
+    pub folded: std::collections::BTreeSet<String>,
 }
 
 impl Retention {
@@ -139,6 +162,7 @@ pub fn plan(
     let mut out = Vec::new();
     let mut changed = Vec::new();
     let mut moved = Vec::new();
+    let mut values = Vec::new();
     let mut structure = false;
     let mut diff = String::new();
     for (path, text) in files {
@@ -152,6 +176,10 @@ pub fn plan(
         }
         let edited = match undo {
             true => edit::undo(text, &mine, vocab),
+            // The design file the app builds is checked with its params.
+            false if *path == synthetic.file => {
+                edit::apply_all_with(text, &mine, vocab, synthetic.params)
+            }
             false => edit::apply_all(text, &mine, vocab),
         }
         .map_err(|all| {
@@ -162,12 +190,13 @@ pub fn plan(
         if edited.text == *text {
             continue;
         }
-        let exprs: &[(String, bool)] = if *path == synthetic.file {
-            synthetic.exprs
-        } else {
-            &[]
-        };
-        let (before, after, moved_set) = folded(text, &edited.text, exprs, vocab);
+        let (exprs, params): (&[(String, bool)], &crate::params::Params) =
+            if *path == synthetic.file {
+                (synthetic.exprs, synthetic.params)
+            } else {
+                (&[], &crate::params::NONE)
+            };
+        let (before, after, moved_set) = folded(text, &edited.text, (exprs, params), vocab);
         structure |= moved_set;
         // A profile's colour (`color(--…)`) the compiler resolves itself, and
         // folds the rest around it: an edit to a design with one either side
@@ -197,6 +226,24 @@ pub fn plan(
         structure |= tokens
             .iter()
             .any(|t| motion(&before, t) || motion(&after, t));
+        if *path == synthetic.file {
+            if let Some(f) = &after {
+                for (c, declared) in f.tokens.iter().zip(&f.design.tokens) {
+                    if !tokens.contains(&c.name) {
+                        continue;
+                    }
+                    let name = match c
+                        .name
+                        .strip_prefix('~')
+                        .and_then(|i| i.parse::<usize>().ok())
+                    {
+                        Some(i) => exprs[i].0.clone(),
+                        None => declared.name.value.clone(),
+                    };
+                    values.push((name, c.values.iter().map(|v| v.css()).collect()));
+                }
+            }
+        }
         for t in tokens {
             match t.strip_prefix('~').and_then(|i| i.parse::<usize>().ok()) {
                 Some(i) => {
@@ -249,6 +296,7 @@ pub fn plan(
         },
         diff,
         synthetic: moved,
+        values,
     })
 }
 
@@ -259,11 +307,11 @@ pub fn plan(
 fn folded(
     before: &str,
     after: &str,
-    exprs: &[(String, bool)],
+    (exprs, params): (&[(String, bool)], &crate::params::Params),
     vocab: &Vocab,
 ) -> (Option<Folding>, Option<Folding>, bool) {
-    let (b, kept_b) = foldable(before, exprs, vocab);
-    let (a, kept_a) = foldable(after, exprs, vocab);
+    let (b, kept_b) = foldable(before, exprs, params, vocab);
+    let (a, kept_a) = foldable(after, exprs, params, vocab);
     let moved = b.is_some() && a.is_some() && kept_b != kept_a;
     (b, a, moved)
 }
@@ -271,10 +319,17 @@ fn folded(
 /// `text` folded with each synthetic token that folds with it, and which;
 /// none when the file does not fold, or a strict one does not (the build
 /// would refuse it).
-fn foldable(text: &str, exprs: &[(String, bool)], vocab: &Vocab) -> (Option<Folding>, Vec<usize>) {
+fn foldable(
+    text: &str,
+    exprs: &[(String, bool)],
+    params: &crate::params::Params,
+    vocab: &Vocab,
+) -> (Option<Folding>, Vec<usize>) {
     let Ok(design) = crate::parse(text) else {
         return (None, Vec::new());
     };
+    // The params fold with the design, each in its `params` line's place.
+    let design = crate::params::laid(&design, params);
     let mut kept: Vec<usize> = (0..exprs.len()).collect();
     loop {
         let mut checked = design.clone();
@@ -419,6 +474,21 @@ fn shape(f: &Folding, retention: Option<&Retention>, vocab: &Vocab) -> String {
             t.role,
             t.fixed
         ));
+        // A token a colour keyframe names, its value folded into the plan:
+        // by its name, or a role it overrides by any spelling of the role
+        // (`label`, `-exact-label`, `CanvasText` in any case).
+        let bare = |w: &str| {
+            let w = w.to_ascii_lowercase();
+            w.strip_prefix("-exact-").map_or(w.clone(), str::to_string)
+        };
+        if retention.is_some_and(|r| {
+            r.folded
+                .iter()
+                .any(|w| w == name || t.role.as_ref().is_some_and(|role| bare(w) == bare(role)))
+        }) {
+            let values: Vec<String> = t.values.iter().map(crate::Value::css).collect();
+            s.push_str(&format!("folded {name} {values:?}\n"));
+        }
     }
     s
 }

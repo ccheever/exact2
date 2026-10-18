@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 pub mod functions;
+mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
 /// `semantics/README.md`).
 pub mod lean;
@@ -28,7 +29,9 @@ mod surface;
 mod symbols;
 mod tests_json;
 pub use tests_json::tests_json;
+pub mod snapshot;
 /// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
+pub mod tamber_params;
 pub mod tamber_uses;
 pub mod terminal;
 mod typescript;
@@ -38,11 +41,13 @@ pub use contract_types::strings::Strings;
 /// crate its grants for the compatibility id (`Caltrain.grants()`).
 pub use exact_runner::DataSource;
 pub use logic::{apple_linked, rust_entry, web_linked, web_rust_mode};
-pub use manifest::Manifest;
+pub use manifest::{Manifest, Widget};
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
-pub use sources::{code_beside, design_path, with_design_text, Package, Source, SourceGraph};
+pub use sources::{
+    code_beside, design_path, with_contract_texts, with_design_text, Package, Source, SourceGraph,
+};
 pub use symbols::symbols_json;
 pub use typescript::{design_exports, typescript, typescript_exporting};
 /// The app's strings tables (LLP 1060 D1), `None` for an app without a
@@ -227,12 +232,29 @@ impl From<contract_analyze::AnalyzeError> for CompileError {
     }
 }
 from_pass!(contract_lower::LowerError, "lower");
+/// A source text's components' `param.` names as their tokens (LLP 1121
+/// D15), as the loader writes them for a file; a text with no path is
+/// `app.contract`, as an app's root is.
+pub(crate) fn params(file: &mut contract_syntax::File) -> Result<(), CompileError> {
+    for c in &mut file.components {
+        c.params
+            .identity
+            .get_or_insert_with(|| format!("app.contract#{}", c.name));
+    }
+    let mut refused = contract_lower::params::rewrite(file);
+    refused.extend(contract_lower::params::unused(file));
+    match refused.into_iter().next() {
+        Some(e) => Err(e.into()),
+        None => Ok(()),
+    }
+}
 /// Compile one source text to a validated plan. A text has no path, so a
 /// `use … from "./file.contract"` in it cannot be resolved: compile a file
 /// that uses others with [`compile_path`].
 pub fn compile(src: &str) -> Result<Plan, CompileError> {
     let mut file = contract_syntax::parse(src)?;
     contract_syntax::resolve_clock_timelines(&mut file)?;
+    params(&mut file)?;
     if let Some(u) = file.uses.first() {
         return Err(CompileError {
             pass: "use",
@@ -257,6 +279,7 @@ pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileErro
         .map_err(CompileError::from)
         .and_then(|mut file| {
             contract_syntax::resolve_clock_timelines(&mut file)?;
+            params(&mut file)?;
             picker::check(&file, None).map_err(first)?;
             compile_file_warned(
                 &file,
@@ -277,6 +300,7 @@ pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileErro
 pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
     let mut file = contract_syntax::parse(src)?;
     contract_syntax::resolve_clock_timelines(&mut file)?;
+    params(&mut file)?;
     terminal::check(&file).map_err(first)?;
     picker::check(&file, None).map_err(first)?;
     compile_file_output(&file, None, None, false, contract_lower::Profile::Terminal)
@@ -299,7 +323,8 @@ pub fn compile_path_mapped(path: &Path) -> Result<(Plan, SourceMap), CompileErro
     compile_path_source_mapped(path, &read_source(path)?)
 }
 fn read_source(path: &Path) -> Result<String, CompileError> {
-    let src = std::fs::read_to_string(path).map_err(|e| CompileError {
+    let read = sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok);
+    let src = read.map_err(|e| CompileError {
         pass: "use",
         id: "contract-use-unreadable".into(),
         message: e.to_string(),
@@ -363,6 +388,7 @@ pub fn compile_path_source_mapped(
 /// from, and the loader's refusals if it stopped (LLP 1091 D10): what a
 /// capture copies, a watcher watches, and a deploy freezes.
 pub fn source_graph(path: &Path) -> SourceGraph {
+    // The server's planned text of the root, where it has one (stage 8 D).
     let refused = |message: String| SourceGraph {
         sources: Vec::new(),
         packages: Vec::new(),
@@ -376,7 +402,7 @@ pub fn source_graph(path: &Path) -> SourceGraph {
             related: Box::new([]),
         }],
     };
-    let src = match std::fs::read_to_string(path) {
+    let src = match sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok) {
         Ok(src) => src,
         Err(e) => return refused(format!("{}: {e}", path.display())),
     };
@@ -662,7 +688,10 @@ fn compile_path_warned(
         all
     };
     let strings = strings::load(&app_root, path).map_err(joined)?;
-    let mut own = Vec::new();
+    let mut own = match warned {
+        Some(_) => grants::check(&file, &app_root, strings.as_deref()),
+        None => Vec::new(),
+    };
     let compiled = compile_file_warned(
         &file,
         Some(&app_root),

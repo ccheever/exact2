@@ -34,6 +34,7 @@ mod height_binding;
 mod image;
 mod invocation;
 mod layout_equality;
+mod live_time;
 mod motion;
 mod native_buttons;
 mod native_fields;

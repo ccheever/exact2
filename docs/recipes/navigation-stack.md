@@ -5,7 +5,8 @@ A second screen is a route (`if` over state gets no Back, links or split).
 
 A route's `header` is its bar when first in the route with one heading (the title: large at
 `aria-level=1`, inline at 2); buttons before it lead, after it trail. A pushed route without
-one gets the system Back (`contract vocab header`).
+one gets the system Back (`contract vocab header`); iOS titles Back with the
+route's `button id="back"` text.
 
 <!-- check: app -->
 ```contract
@@ -141,7 +142,6 @@ test "add, open, delete after asking"
   `clock data` precedes reading a save.
 - At 900 px up, pushed rows split list and detail; `follow` replaces it and
   `navigationSplit="none"` keeps it pushed.
-- A run (a study session, a workout, a quiz) has one exit, which ends it or asks: not two
-  exits, nor a pushed page whose Back leaves it running.
+- A run (a workout, a quiz) has one exit, which ends it or asks; no Back leaves it running.
 - An unmatched location keeps its URL and offers home (or uses `notfound`); a missing detail
   says so.

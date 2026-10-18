@@ -72,6 +72,7 @@ impl Writes for Recording {
             merged: &[],
             members: &[],
             starts: &[],
+            parts: &[],
             materials: &[],
             custom: &self.custom,
         })
@@ -1482,3 +1483,6 @@ fn a_static_offset_writes_no_pages_per_tick() {
         r.calls
     );
 }
+
+#[path = "../pose_cycle_tests.rs"]
+mod pose_cycle_tests;

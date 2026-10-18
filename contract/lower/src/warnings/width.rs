@@ -40,7 +40,7 @@ fn container(tag: &str) -> bool {
 /// The rows a node is drawn with: its `class`'s style rows, then its own,
 /// which win by coming last. `None` when the class is a choice or names no
 /// style the file declares, which the walk cannot see through.
-fn rows<'a>(attrs: &'a [Attr], styles: &'a [StyleDecl]) -> Option<Vec<&'a Attr>> {
+pub(super) fn rows<'a>(attrs: &'a [Attr], styles: &'a [StyleDecl]) -> Option<Vec<&'a Attr>> {
     let mut all: Vec<&Attr> = Vec::new();
     for class in attrs.iter().filter(|a| a.name == "class") {
         let Expr::Ident(name, _) = &class.value else {
@@ -53,7 +53,7 @@ fn rows<'a>(attrs: &'a [Attr], styles: &'a [StyleDecl]) -> Option<Vec<&'a Attr>>
 }
 
 /// The last row named `name` among `rows`.
-fn last<'a>(rows: &[&'a Attr], name: &str) -> Option<&'a Attr> {
+pub(super) fn last<'a>(rows: &[&'a Attr], name: &str) -> Option<&'a Attr> {
     rows.iter().rev().find(|a| a.name == name).copied()
 }
 
@@ -397,29 +397,108 @@ fn in_flow(rows: &[&Attr]) -> bool {
         .is_none_or(|a| literal_word(a, &["static", "relative", "sticky", "initial", "unset"]))
 }
 
-/// Only diagnose an authored width that other effective rows cannot supersede.
-fn proven_width(rows: &[&Attr], font: Option<&Attr>) -> bool {
-    let Some(width) = last(rows, "width") else {
-        return false;
-    };
-    let Some(px) = absolute_length(&width.value).filter(|n| *n > 0.0) else {
-        return false;
-    };
-    if !width.written
-        || !in_flow(rows)
-        || last(rows, "flex").is_some()
-        || last(rows, "flex-basis").is_some_and(|a| !literal_word(a, &["auto"]))
-        || last(rows, "flex-grow").is_some_and(|a| !matches!(a.value, Expr::Number(0.0, _)))
-        || last(rows, "display").is_some_and(|a| !literal_word(a, &["block", "flex", "grid"]))
-    {
-        return false;
+fn known_display(rows: &[&Attr]) -> bool {
+    last(rows, "display")
+        .is_none_or(|a| literal_word(a, &["block", "flex", "grid", "initial", "unset"]))
+}
+
+/// Whether flex sizes the children's widths. Tag defaults precede the
+/// effective rows; an unknown display or flex direction proves neither axis.
+pub(crate) fn horizontal_flex(
+    defaults: &[(exact_kernel::StyleId, &str)],
+    rows: &[Attr],
+) -> Option<bool> {
+    use exact_kernel::StyleId;
+    let word =
+        |name: &str, id: StyleId, initial: &str| match rows.iter().rev().find(|a| a.name == name) {
+            Some(Attr {
+                value: Expr::Str(s, _),
+                ..
+            }) => Some(s.trim().to_ascii_lowercase()),
+            Some(_) => None,
+            None => Some(
+                defaults
+                    .iter()
+                    .find(|(row, _)| *row == id)
+                    .map_or(initial, |(_, value)| *value)
+                    .to_string(),
+            ),
+        };
+    match word("display", StyleId::Display, "block")?.as_str() {
+        "block" | "grid" | "initial" | "unset" => Some(false),
+        "flex" => match word("flex-direction", StyleId::FlexDirection, "row")?.as_str() {
+            "row" | "row-reverse" | "initial" | "unset" => Some(true),
+            "column" | "column-reverse" => Some(false),
+            _ => None,
+        },
+        _ => None,
     }
-    let minimum = last(rows, "min-width")
-        .is_none_or(|a| fixed_bound(&a.value, font).is_some_and(|n| n <= px));
-    let maximum = last(rows, "max-width").is_none_or(|a| {
-        literal_word(a, &["none"]) || fixed_bound(&a.value, font).is_some_and(|n| n >= px)
-    });
-    minimum && maximum
+}
+
+/// A row item can shrink from its width, but cannot grow past it with a
+/// zero grow and auto basis. Shorthands replace both earlier longhands.
+fn flex_keeps_width(rows: &[&Attr]) -> bool {
+    let (mut grow, mut auto_basis) = (Some(0.0), Some(true));
+    for attr in rows {
+        match attr.name.as_str() {
+            "flex" => match crate::values::flex_longhands(&attr.value) {
+                Some((n, _, basis)) => {
+                    grow = Some(n);
+                    auto_basis = Some(basis.trim().eq_ignore_ascii_case("auto"));
+                }
+                None => (grow, auto_basis) = (None, None),
+            },
+            "flex-grow" => {
+                grow = if literal_word(attr, &["initial", "unset"]) {
+                    Some(0.0)
+                } else {
+                    crate::values::numeric_literal(&attr.value)
+                };
+            }
+            "flex-basis" => auto_basis = Some(literal_word(attr, &["auto", "initial", "unset"])),
+            _ => {}
+        }
+    }
+    grow == Some(0.0) && auto_basis == Some(true)
+}
+
+/// Prove a fixed ceiling, not an exact used width. CSS 2.2 §10.4 applies
+/// max-width before min-width, so an unknown minimum can lift either cap.
+/// https://www.w3.org/TR/CSS22/visudet.html#min-max-widths
+fn proven_width<'a>(
+    rows: &[&'a Attr],
+    font: Option<&Attr>,
+    horizontal_flex: Option<bool>,
+) -> Option<&'a Attr> {
+    let absolute = last(rows, "position").is_some_and(|a| literal_word(a, &["absolute"]));
+    if !known_display(rows) || !(in_flow(rows) || absolute) {
+        return None;
+    }
+    let fixed = |name: &str| {
+        let attr = last(rows, name)?;
+        let n = fixed_bound(&attr.value, font).filter(|n| n.is_finite() && *n >= 0.0)?;
+        attr.written.then_some((n, attr))
+    };
+    let width = if absolute || horizontal_flex == Some(false) || flex_keeps_width(rows) {
+        fixed("width")
+    } else {
+        None
+    };
+    let mut ceiling = match (width, fixed("max-width")) {
+        (Some(w), Some(m)) => Some(if m.0 < w.0 { m } else { w }),
+        (w, m) => w.or(m),
+    }?;
+    // The automatic minimum cannot exceed a definite maximum or preferred width.
+    if let Some(minimum) = last(rows, "min-width").filter(|a| {
+        !literal_word(a, &["auto"])
+            && !matches!(&a.value, Expr::Str(s, _) if exact_kernel::style::StyleValue::text_unsets(s, exact_kernel::StyleId::MinWidth))
+    }) {
+        let n = fixed_bound(&minimum.value, font)?;
+        if n > ceiling.0 {
+            ceiling = (n, minimum);
+        }
+    }
+    (ceiling.0.is_finite() && ceiling.0 > 0.0 && ceiling.1.written).then_some(ceiling.1)
 }
 
 #[derive(Clone, Copy, Default)]
@@ -469,9 +548,7 @@ fn text_widths(
                     _ => all.clone(),
                 };
                 if matches!(effective, Some(None))
-                    || last(&layout, "display").is_some_and(|a| {
-                        !literal_word(a, &["block", "flex", "grid", "initial", "unset"])
-                    })
+                    || last(&layout, "display").is_some_and(|a| literal_word(a, &["none"]))
                 {
                     continue;
                 }
@@ -526,20 +603,25 @@ fn text_widths(
                 } else {
                     (field && font == Some(true)) || child_scales
                 };
-                if text_scales
-                    && known_class
-                    && proven_width(&layout, font_row)
-                    && !(tag == "text" && context.inline)
-                    && seen.insert((span.source_id, span.line, span.col, span.end_col))
-                {
-                    out.push(LowerError {
-                        id: "lower-text-px-width",
-                        message: "this absolute `width` stays fixed while its text can grow at accessibility sizes and may overrun it: say the width in `rem` (for example, `width=\"3rem\"`) so it follows the root font, or let the content determine the width. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed".into(),
-                        span: *span,
-                    });
+                let parent_axis = effective
+                    .and_then(|style| style.as_ref())
+                    .and_then(|style| style.parent_horizontal_flex);
+                if let Some(bound) = proven_width(&layout, font_row, parent_axis) {
+                    if text_scales
+                        && known_class
+                        && !(tag == "text" && context.inline)
+                        && seen.insert((span.source_id, span.line, span.col, span.end_col))
+                    {
+                        out.push(LowerError {
+                            id: "lower-text-px-width",
+                            message: format!("this box's absolute `{}` keeps its width bounded while its text can grow at accessibility sizes and may overrun it: express the width and its bounds in `rem` (for example, `{}=\"3rem\"`) so they follow the root font, or let the content determine the width. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed", bound.name, bound.name),
+                            span: *span,
+                        });
+                    }
                 }
                 text_scales
                     && known_class
+                    && known_display(&layout)
                     && in_flow(&layout)
                     && tag != "dialog"
                     && last(&layout, "popover").is_none()

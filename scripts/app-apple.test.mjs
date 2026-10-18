@@ -122,6 +122,8 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
     assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
     assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
     assert.equal(keys.UILaunchScreen.UIImageName, 'ExactLaunchImage', 'the picture the launch screen centres on its colour');
+    assert.equal(keys.ExactLaunchImageSource, 'icon.png', 'an image of the picture decodes from the catalog');
+    assert.equal(keys.ExactLaunchImageSHA256, launchImageInventory(app).sha256, 'only for the bytes the catalog was made from');
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(bundle, 'Assets.car')], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const assets = JSON.parse(result.stdout);
@@ -289,6 +291,21 @@ test('simulator signing gives each app and embedded host a distinct Keychain ide
   assert.match(device, /TEAM.com.exact.test/);
   assert.doesNotMatch(device, /keychain-access-groups|SIMULATORX/);
   assert.match(device, /<key>get-task-allow<\/key><false\/>/);
+});
+
+test('widgets share the owner Keychain groups and leave the host sample outside the group', async () => {
+  const {entitlements, infoPlist} = await import('../host/apple/build.mjs');
+  const app = {id:'com.exact.test',displayName:'Test',manifest:{widgets:[{kind:'next-trains'}],host:{ios:{}}}};
+  for (const target of [app, {...app,id:app.id+'.widgets',widgetAppId:app.id}]) {
+    const ent = entitlements(target,null,true,null,{simulator:true});
+    assert.match(ent, /<key>keychain-access-groups<\/key><array><string>SIMULATORX.com.exact.test<\/string><string>com.exact.test<\/string><\/array>/);
+    assert.match(ent, /group.com.exact.test/);
+  }
+  const host = entitlements({...app,id:app.id+'.host',widgetHost:true},null,true,null,{simulator:true});
+  assert.doesNotMatch(host, /application-groups/);
+  assert.match(host, /SIMULATORX.com.exact.test.host/);
+  assert.doesNotMatch(infoPlist(app,false,{id:app.id+'.host',executable:'ExactHostIOS'}), /ExactAppGroup|ExactAppIdentifier|ExactWidgetKinds/);
+  assert.match(infoPlist(app,false,{executable:'Test'}), /ExactAppGroup/);
 });
 
 test('a HealthKit grant signs with its entitlement, tvOS drops it, and a device build takes only a profile that allows it', async () => {

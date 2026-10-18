@@ -33,11 +33,17 @@ const present = new Set<string>();
 // a preview takes `previewMs` (`/__stub/slow-preview`), and a release a
 // test refuses as moved (`/__stub/refuse-release`) names who moved it. An
 // edit of the warmth dial is rebuild-class (as if it fed a role override),
-// both proposed and scrubbed.
-const REBUILDS = new Set(['warmth']);
+// both proposed and scrubbed; so is a motion token's, as the server says.
+const REBUILDS = new Set(['warmth', 'duration.fast', 'easing.standard']);
+// A token the JS loop's pages write inline: rebuild-class while a web-js
+// build runs, as the serving loop says (LLP 1121 stage 6).
+const INLINE = new Set(['opacity.muted']);
+const classOf = (ops: { name?: string }[]) => ops.some(o => REBUILDS.has(o.name ?? '') || (INLINE.has(o.name ?? '') && BUILDS.some(b => b.host === 'web-js'))) ? 'rebuild' : 'live';
 // The design's axes in the other order, as a test reorders them
-// (`/__stub/reverse-axes`): describe says so from then on.
-let LIVE = false, refuseRelease = '', previewMs = 0, reversed = false;
+// (`/__stub/reverse-axes`): describe says so from then on. `describe`
+// refused (an event's `refuseDescribe`), so a test sees whether the tool
+// reads the design again.
+let LIVE = false, refuseRelease = '', previewMs = 0, reversed = false, refuseDescribe = '', describePasses = 0;
 const changedOf = (ops: { name?: string }[]) => ops.map(o => ({ file: 'app.tamber', token: o.name }));
 // A run's sessions (a restart starts their ids again, as a new server's do).
 const sessions = () => scrubSessions({
@@ -67,6 +73,19 @@ let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tambe
 type Event = Record<string, unknown> & { seq: number };
 const log: Event[] = existsSync(DB) ? JSON.parse(readFileSync(DB, 'utf8') || '[]') : [];
 const save = () => writeFileSync(DB, JSON.stringify(log));
+
+/** One event as a test adds it: logged, and the state it moves. */
+function take(e: Record<string, any>) {
+  // An event's `files` are the digests from then on.
+  if (e.files) FILES = { ...FILES, ...e.files };
+  // A `builds` event is the list hello gives from then on, and a
+  // `build-status` one that build's entry.
+  // (A record is the server's: its last refusal kept on it.)
+  if (e.event === 'builds') BUILDS = (e.builds ?? []).map((b: Record<string, unknown>) => ({ ...b }));
+  if (e.event === 'build-status') BUILDS = BUILDS.map(b => b.id === e.build?.id ? { ...b, ...e.build } : b);
+  if (e.event === 'unsupported') BUILDS = BUILDS.map(b => b.id === e.build ? { ...b, unsupported: { what: e.what, detail: e.detail ?? null } } : b);
+  log.push({ event: 'changed', epoch: EPOCH, client: null, changed: [], edited: [], ...e, files: FILES, seq: seq() + 1 });
+}
 
 // The tool's page is another origin under the test driver.
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, x-exact-tamber-token, authorization', 'access-control-allow-methods': 'GET, POST' };
@@ -136,6 +155,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // server refuses a design that does not check.
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
+      if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
       if (request.method === 'describe') return send({ ok: { ...DIALS.describe, ...(reversed ? { ir: { ...DIALS.describe.ir, axes: [...DIALS.describe.ir.axes].reverse() } } : {}), files: FILES } });
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
@@ -156,7 +176,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
         held.push({ proposal: id, client: request.client, diff: '', changed: [], ops: request.ops.map((op: unknown, index: number) => ({ index, op })), review: request.review });
         return send({ ok: { proposal: id, client: request.client } });
       }
-      if (request.method === 'propose') return send({ ok: { files: FILES, class: request.ops.some((o: { name?: string }) => REBUILDS.has(o.name ?? '')) ? 'rebuild' : 'live', changed: request.ops.map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
+      if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit') return refuseCommit
         ? send({ error: { message: `commit refused: app.tamber: ${refuseCommit}`, refused: [{ file: 'app.tamber', why: refuseCommit }] } }, 409)
@@ -213,6 +233,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       holds = 0;
       BUILDS = [];
       reversed = false;
+      refuseDescribe = '';
       pins = 0;
       present.clear();
       scrubs.lost();
@@ -291,18 +312,10 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
       const body = await req.json().catch(() => ({}));
-      // `{events: [...]}`: several, logged at once (one answer of the poll).
-      for (const e of body.events ?? [body]) {
-        // An event's `files` are the digests from then on.
-        if (e.files) FILES = { ...FILES, ...e.files };
-        // A `builds` event is the list hello gives from then on, and a
-        // `build-status` one that build's entry.
-        // (A record is the server's: its last refusal kept on it.)
-        if (e.event === 'builds') BUILDS = (e.builds ?? []).map((b: Record<string, unknown>) => ({ ...b }));
-        if (e.event === 'build-status') BUILDS = BUILDS.map(b => b.id === e.build?.id ? { ...b, ...e.build } : b);
-        if (e.event === 'unsupported') BUILDS = BUILDS.map(b => b.id === e.build ? { ...b, unsupported: { what: e.what, detail: e.detail ?? null } } : b);
-        log.push({ event: 'changed', epoch: EPOCH, client: null, changed: [], edited: [], ...e, files: FILES, seq: seq() + 1 });
-      }
+      // `refuseDescribe`: describe refused from then on (after `pass` more
+      // answered), with the events, so a test sees whether they read again.
+      if (typeof body.refuseDescribe === 'string') { refuseDescribe = body.refuseDescribe; describePasses = Number(body.pass ?? 0); }
+      for (const e of body.events ?? [body]) take(e);
       save();
       return send({ ok: true });
     },

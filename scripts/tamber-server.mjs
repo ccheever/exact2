@@ -237,13 +237,17 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     },
   });
   // Scrub sessions (tamber-scrub.mjs): previewed by the dev loop (`scrub`:
-  // `{preview(texts), restore()}`), one at a time, each end told.
+  // `{patch(values, frame, files)?, verify(texts)?, preview(texts, frame),
+  // restore(frame)}`, each frame its batch's mark), one at a time, each end
+  // told.
   const scrubs = scrubSessions({
     ask: r => ask(r),
     write: r => write(r),
-    preview: texts => scrub.preview(texts),
-    restore: () => scrub?.restore(),
-    released: () => scrub?.released?.(),
+    patch: scrub?.patch ? (values, frame, files) => scrub.patch(values, frame, files) : null,
+    verify: scrub?.verify ? texts => scrub.verify(texts) : null,
+    preview: (texts, frame) => scrub.preview(texts, frame),
+    restore: frame => scrub?.restore(frame),
+    released: frame => scrub?.released?.(frame),
     opened: e => send({ event: 'scrub', seq: ++seq, epoch, ...e, reason: 'opened' }),
     ended: e => send({ event: 'scrub', seq: ++seq, epoch, ...e }),
     idleMs: scrubIdleMs,
@@ -354,7 +358,17 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // design's, whatever the first read gave, and any other holding a file.
   // A directory removed and made again is watched again (by its inode).
   const watchAll = paths => {
-    for (const dir of new Set([appDir, dirname(designPath(appDir) ?? resolve(appDir, design)), ...paths.map(path => dirname(resolve(appDir, path)))])) {
+    // Each file's directory and every one between it and the app's, whose
+    // names are holders too: a directory replaced (a checkout) is found by
+    // its parent's event (a Contract source under `src/ui/`).
+    const between = path => {
+      for (let dir = dirname(resolve(appDir, path)); dir.startsWith(appDir + sep); dir = dirname(dir)) { holders.add(basename(dir)); holding.add(dir); }
+    };
+    // Every directory that ever held one stays watched (by its inode, once
+    // it is there again): a read taken while a checkout has it empty or
+    // gone does not drop it.
+    paths.forEach(between);
+    for (const dir of new Set([appDir, dirname(designPath(appDir) ?? resolve(appDir, design)), ...holding])) {
       let ino = null;
       try { ino = statSync(dir).ino; } catch { /* not there now */ }
       const held = watchers.get(dir);
@@ -366,14 +380,17 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         watchers.set(dir, { ino, watcher: watch(dir, (_, name) => {
           // A design file, or one that may be: `.tamber`, the design's own
           // name (app.json may name any), a directory a design is in, or a
-          // name the platform did not give.
+          // name the platform did not give; and the app's own Contract
+          // sources, whose state parts the server writes (LLP 1121 stage 8 D).
           const n = name && basename(String(name));
-          if (n && !n.endsWith('.tamber') && n !== design && !holders.has(n)) return;
+          if (n && !n.endsWith('.tamber') && !n.endsWith('.contract') && n !== design && !holders.has(n)) return;
           clearTimeout(timer); timer = setTimeout(rescan, settle);
         }) });
       } catch (e) { log(`tamber: cannot watch ${dir}: ${e.message}`); }
     }
   };
+  // The directories that held a design file or a Contract source.
+  const holding = new Set();
   // The directories between the app's and each design file's, by name.
   const holders = new Set(relative(appDir, dirname(designPath(appDir) ?? resolve(appDir, design))).split(sep).filter(Boolean));
   // While a write is in flight its own renames are not a hand edit.
@@ -541,7 +558,24 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       forget(request.proposal, { client: request.client, reason: 'dropped' });
       return { ok: { dropped: request.proposal } };
     }
+    if (request.method === 'propose' && scrub?.inline) return proposeHere(request);
     return ask(request);
+  }
+
+  /** `propose` through a dev loop whose pages write some tokens inline (the
+   * JS target, LLP 1121 stage 6): a `live` edit that moves one is `rebuild`
+   * there, since `class` is the serving loop's (LLP 1121 D13), so the tool
+   * says so before the gesture rather than failing a scrub. */
+  async function proposeHere(request) {
+    const reply = await ask({ ...request, texts: true });
+    if (!reply.ok) return reply;
+    const ok = { ...reply.ok };
+    if (ok.class === 'live' && ok.texts) {
+      const why = await scrub.inline(ok.texts).catch(() => null);
+      if (why) { ok.class = 'rebuild'; log(`tamber: propose is rebuild here: ${why}`); }
+    }
+    if (request.texts !== true) delete ok.texts;
+    return { ...reply, ok };
   }
 
   /** `inspect` `{client, build?, on?, refresh?}` (LLP 1122 D4, D5): inspect
@@ -618,7 +652,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const designFile = relative(appDir, designPath(appDir) ?? resolve(appDir, design));
     let holds;
     try {
-      holds = session.prepare(request.method === 'undo' ? [...known.keys()] : (Array.isArray(request.ops) ? request.ops : []).map(o => (typeof o?.file === 'string' ? o.file : designFile)));
+      // A state part's write without a `file` is the file that declares its
+      // style, which the server finds: every Contract source is held.
+      const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
+      const opFiles = o => (typeof o?.file === 'string' ? [o.file] : /^(un)?set-state$/.test(o?.op) ? contracts : [designFile]);
+      holds = session.prepare(request.method === 'undo' ? [...known.keys()] : (Array.isArray(request.ops) ? request.ops : []).flatMap(opFiles));
     } catch (e) {
       return { status: 500, error: { message: `reading git before the write: ${e.message}` } };
     }
@@ -673,7 +711,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const held = () => [...proposals].map(([id, p]) => p.shown);
   async function hold(client, ops, files, replaces, review, requires) {
     expire();
-    const touched = new Set((Array.isArray(ops) ? ops : []).map(o => o?.file ?? relative(appDir, designPath(appDir) ?? resolve(appDir, design))));
+    // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
+    const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
+    const designFile = relative(appDir, designPath(appDir) ?? resolve(appDir, design));
+    const touched = new Set((Array.isArray(ops) ? ops : []).flatMap(o => (typeof o?.file === 'string' ? [o.file] : /^(un)?set-state$/.test(o?.op) ? contracts : [designFile])));
     // The digests of files it was planned on but does not edit (a revert's
     // file already as before), and those the client requires, are its
     // preconditions too.
@@ -681,9 +722,26 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const untouched = Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path)));
     const clash = Object.keys(required).find(path => path in untouched && untouched[path] !== required[path]);
     if (clash) return { status: 400, error: { message: `\`requires\` and \`files\` give \`${clash}\` two digests` } };
-    const guards = { ...untouched, ...required };
-    const planned = await ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }), ...(Object.keys(guards).length ? { requires: guards } : {}) });
+    let guards = { ...untouched, ...required };
+    const propose = guards => ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }), ...(Object.keys(guards).length ? { requires: guards } : {}), texts: true });
+    let planned = await propose(guards);
     if (!planned.ok) return planned;
+    // A state part's write without a `file` touches the Contract source it
+    // wrote, not every one: the others' digests guard it too, asked again.
+    // Where it wrote none beyond the named files (already as asked), every
+    // source stays its target, as `prepare` takes them.
+    const named = new Set((Array.isArray(ops) ? ops : []).flatMap(o => (typeof o?.file === 'string' ? [o.file] : [])));
+    const wrote = new Set(Object.keys(planned.ok.texts ?? {}).filter(path => path.endsWith('.contract') && !named.has(path)));
+    if (wrote.size && (Array.isArray(ops) ? ops : []).some(o => typeof o?.file !== 'string' && /^(un)?set-state$/.test(o?.op))) {
+      for (const path of contracts) if (!wrote.has(path) && !named.has(path)) touched.delete(path);
+      const more = Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path) && !(path in guards)));
+      if (Object.keys(more).length) {
+        guards = { ...guards, ...more };
+        planned = await propose(guards);
+        if (!planned.ok) return planned;
+      }
+    }
+    delete planned.ok.texts;
     const id = `prop-${epoch}-${++proposalCount}`;
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
     const expires = Date.now() + HOLD_MS;
@@ -762,6 +820,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return done;
   }
 
+  // The app's own Contract sources the server has now (stage 8 D), whose
+  // state parts history reads and revert writes.
+  const ownContracts = () => [...known.keys()].filter(path => path.endsWith('.contract'));
   // The design as app.json names it, whether or not it is there now.
   const designRel = () => {
     let named = null;
@@ -774,7 +835,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) return { status: 400, error: { message: '`limit` is a count from 1 to 100' } };
     if (!Number.isInteger(skip) || skip < 0 || skip > 10_000) return { status: 400, error: { message: '`skip` is a count up to 10,000' } };
     let log;
-    try { log = designLog(appDir, designRel(), { limit, skip }); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
+    try { log = designLog(appDir, designRel(), { limit, skip, contracts: ownContracts() }); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
     if (!log.ok) return log;
     const commits = [];
     for (const c of log.ok.commits) {
@@ -784,9 +845,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         const compared = await ask({ method: 'compare', pairs: [{ file: f.file, before, after }] });
         if (!compared.ok && compared.status !== 413) return compared;
         const read = compared.ok?.files[0];
-        files.push({ ...f, edits: read?.edits ?? null, ...(compared.ok ? (read?.refused ? { refused: read.refused } : {}) : { refused: 'its versions are too large to compare (over 1 MiB)' }) });
+        files.push({ ...f, edits: read?.edits ?? null, ...(read?.code ? { code: true } : {}), ...(compared.ok ? (read?.refused ? { refused: read.refused } : {}) : { refused: 'its versions are too large to compare (over 1 MiB)' }) });
       }
-      commits.push({ ...c, files });
+      // A Contract source's change outside its state parts is the app's
+      // code, not its design: a commit with nothing else is no design commit
+      // (so a page may hold fewer than `limit`).
+      const design = files.filter(f => !f.file.endsWith('.contract') || f.edits?.length || f.refused);
+      if (design.length) commits.push({ ...c, files: design });
     }
     return { ok: { commits, more: log.ok.more } };
   }
@@ -800,10 +865,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * edit that cannot apply. */
   async function planRevert(rev, only) {
     let c;
-    try { c = designCommit(appDir, designRel(), rev); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
+    try { c = designCommit(appDir, designRel(), rev, 'all'); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
     if (!c.ok) return c;
     if (!c.ok.files.length) return { status: 400, error: { message: `commit ${c.ok.commit.slice(0, 12)} changed no design file` } };
-    const ops = [], already = [], conflicts = [], moved = [], files = {};
+    const ops = [], already = [], conflicts = [], moved = [], code = [], files = {};
     // One file a request, each within the server's line.
     for (const { file, before, after } of c.ok.files) {
       const planned = await ask({ method: 'revert-plan', pairs: [{ file, before, after }] });
@@ -814,17 +879,19 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       ops.push(...planned.ok.ops.filter(o => kept(revertKey(o)))); already.push(...planned.ok.already);
       // An edit's conflict counts for a kept item on it (any of an axis's values).
       const on = (x, prefix) => only.some(k => k.startsWith(prefix));
-      conflicts.push(...planned.ok.conflicts.filter(x => !only || (x.edit ? (x.edit.what === 'axis' ? on(x, `${x.file}\0axis\0${x.edit.name}\0`) : kept(editKey(x.file, x.edit))) : on(x, `${x.file}\0`)))); moved.push(...planned.ok.moved);
+      code.push(...(planned.ok.code ?? [])); conflicts.push(...planned.ok.conflicts.filter(x => !only || (x.edit ? (x.edit.what === 'axis' ? on(x, `${x.file}\0axis\0${x.edit.name}\0`) : kept(editKey(x.file, x.edit))) : on(x, `${x.file}\0`)))); moved.push(...planned.ok.moved);
       if (planned.ok.files[file] !== undefined) files[file] = planned.ok.files[file];
     }
     const short = c.ok.commit.slice(0, 12);
     if (conflicts.length) {
-      const named = conflicts.map(x => `${x.file}${x.edit ? ` ${x.edit.name}${x.edit.when.length ? ` when ${x.edit.when.map(w => `${w.axis}=${w.value}`).join(' ')}` : ''}` : ''}: ${x.why}`);
+      const named = conflicts.map(x => `${x.file}${x.edit ? ` ${x.edit.name}${x.edit.what === 'state' ? ` :${x.edit.state} ${x.edit.row}` : ''}${x.edit.when.length ? ` when ${x.edit.when.map(w => `${w.axis}=${w.value}`).join(' ')}` : ''}` : ''}: ${x.why}`);
       return { status: 409, error: { message: `revert of ${short} refused: ${named.join('; ')}`, refused: conflicts } };
     }
+    // Only Contract code (no state row) is no design change.
+    if (!ops.length && !already.length) return { status: 400, error: { message: `commit ${short} changed no design file (only the app's code in ${code.join(', ')})` } };
     if (!ops.length) return { status: 409, error: { message: `nothing to revert: the files have ${short}'s edits undone already`, already } };
     const subject = c.ok.message.split('\n')[0];
-    return { ok: { ops, files, review: { revert: { commit: c.ok.commit, subject, moved, already, ...(only ? { only } : {}) } } } };
+    return { ok: { ops, files, review: { revert: { commit: c.ok.commit, subject, moved, already, ...(code.length ? { code } : {}), ...(only ? { only } : {}) } } } };
   }
   /** An import the tool started: planned by the server from the source's
    * text, held with its review. */
@@ -849,7 +916,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     for (const poll of polls) poll();
     if (child.exitCode !== null || child.signalCode !== null || down) return Promise.resolve();
     const exited = new Promise(ok => child.once('exit', () => ok(true)));
-    const signal = name => { try { process.kill(-child.pid, name); } catch { child.kill?.(name); } };
+    // Its group by pid only when that names a process of its own: a pid of 0
+    // or 1 (a stand-in's, or none yet) would signal this process's own group
+    // or every process this user may.
+    const group = Number.isInteger(child.pid) && child.pid > 1;
+    const signal = name => { try { if (!group) throw null; process.kill(-child.pid, name); } catch { child.kill?.(name); } };
     const within = ms => Promise.race([exited, new Promise(ok => setTimeout(() => ok(false), ms).unref?.())]);
     child.stdin.end();
     signal('SIGTERM');
@@ -859,7 +930,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     });
   }
 
-  return { handle, close, ready, channel, get token() { return token; }, get down() { return down; } };
+  // `compete()`: the dev loop's build of an edit the watcher does not see
+  // (a Contract source's), which ends a scrub as a hand edit does.
+  return { handle, close, ready, channel, compete: () => scrubs.compete(), get token() { return token; }, get down() { return down; } };
 }
 
 /** The app directory an argument names (a directory, or a file in it). */
@@ -1134,8 +1207,9 @@ export async function op(argv) {
  * axis, and the `when` (conditions in any order), so a selection of a
  * revert's items is the same edits when it is planned again. */
 const whenKey = when => JSON.stringify([...(when ?? [])].map(c => `${c.axis}=${c.value}`).sort());
-const editKey = (file, e) => `${file}\0${e.what}\0${e.name}\0${whenKey(e.when)}`;
-const revertKey = o => editKey(o.file, {
+// A state part's row is its style's, by state and row (stage 8 D).
+const editKey = (file, e) => `${file}\0${e.what}\0${e.name}${e.what === 'state' ? `\0${e.state}\0${e.row}` : ''}\0${whenKey(e.when)}`;
+const revertKey = o => /^(un)?set-state$/.test(o.op) ? editKey(o.file, { what: 'state', name: o.style, state: o.state, row: o.row, when: [] }) : editKey(o.file, {
   what: o.op === 'set-dial' ? 'dial' : /axis/.test(o.op) ? 'axis' : 'token',
   name: o.op === 'add-axis' ? o.name : o.axis ?? o.name,
   // An axis's values each their own item, as a token's `when`s are.

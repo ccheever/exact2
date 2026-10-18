@@ -46,8 +46,14 @@ impl Painter {
             // Never a kept recording: the view comes and goes between paints.
             self.row_refuse();
             let props = format!("{{\"gen\":{generation}}}");
-            self.backend
-                .native(node.id, NativeKind::Hatch, &Shape::rect(rect), ts, &props);
+            self.backend.native(
+                node.id,
+                NativeKind::Hatch,
+                &Shape::rect(rect),
+                ts,
+                &props,
+                false,
+            );
         }
     }
 
@@ -101,7 +107,13 @@ impl Painter {
             radii: outer.radii,
             corners: None,
         };
-        self.backend
-            .native(node.id, kind, &clip, ts, &props.to_string());
+        self.backend.native(
+            node.id,
+            kind,
+            &clip,
+            ts,
+            &props.to_string(),
+            self.direct_canvases.contains(&node.id),
+        );
     }
 }

@@ -127,6 +127,22 @@ pub(crate) struct Poller {
     channel_due: std::time::Instant,
     /// Since when the generation it fetched has waited on requests in flight.
     pub held_since: Option<std::time::Instant>,
+    /// Woken when a worker's answer lands (the executor's waker), for a
+    /// host that turns only when woken (the Android reader's canvas host).
+    /// Shared with the workers, so one in flight when a reload brings a new
+    /// executor wakes that one.
+    pub waker: std::sync::Arc<std::sync::Mutex<Option<Waker>>>,
+}
+
+/// What a worker calls when its answer is in.
+pub(crate) type Waker = std::sync::Arc<dyn Fn() + Send + Sync>;
+
+/// Wake the host through the waker the poller has now.
+fn wake(slot: &std::sync::Mutex<Option<Waker>>) {
+    let waker = slot.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(wake) = waker {
+        wake();
+    }
 }
 
 type Tick = (FetchOutcome, Option<Option<String>>);
@@ -153,7 +169,21 @@ impl Poller {
             link,
             channel: None,
             channel_due: now,
+            waker: Default::default(),
         }
+    }
+
+    /// How long until this wants polling again: its next tick, or the
+    /// channel's, whichever is first and not already in flight.
+    pub fn due_in(&self) -> Option<std::time::Duration> {
+        let now = std::time::Instant::now();
+        let tick = self.worker.is_none().then_some(self.due);
+        let channel = (self.link.is_some() && self.channel.is_none()).then_some(self.channel_due);
+        [tick, channel]
+            .into_iter()
+            .flatten()
+            .min()
+            .map(|at| at.saturating_duration_since(now))
     }
 
     /// A `/__dev/design` answer: a snapshot is kept for the presenter; a
@@ -175,8 +205,14 @@ impl Poller {
             match worker.try_recv() {
                 Ok(answer) => {
                     self.channel = None;
+                    // A long poll answered paced itself; another tick waits.
+                    let pause = if answer.held() {
+                        std::time::Duration::ZERO
+                    } else {
+                        TICK
+                    };
                     link.settle(answer);
-                    self.channel_due = std::time::Instant::now() + TICK;
+                    self.channel_due = std::time::Instant::now() + pause;
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => self.channel = None,
                 Err(std::sync::mpsc::TryRecvError::Empty) => return,
@@ -190,8 +226,10 @@ impl Poller {
             let url = self.url.clone();
             let (send, receive) = std::sync::mpsc::channel();
             self.channel = Some(receive);
+            let waker = self.waker.clone();
             std::thread::spawn(move || {
                 let _ = send.send(exchange.run(&url));
+                wake(&waker);
             });
         }
     }
@@ -231,10 +269,12 @@ impl Poller {
             self.asked_design = design;
             let (send, receive) = std::sync::mpsc::channel();
             self.worker = Some(receive);
+            let waker = self.waker.clone();
             std::thread::spawn(move || {
                 let changed = fetch_changed(&url, &compat, previous.as_deref());
                 let design = design.then(|| fetch_design(&url)).flatten();
                 let _ = send.send((changed, design));
+                wake(&waker);
             });
         }
         Ok(None)

@@ -123,6 +123,28 @@ pub fn compatibility_id_sources(
     grants: Option<&str>,
     rust_grants: Option<&str>,
 ) -> Result<Compat, String> {
+    compatibility_id_sources_with_entries(
+        app_dir,
+        platform,
+        target,
+        manifest,
+        grants,
+        rust_grants,
+        None,
+    )
+}
+
+/// Reuse entry plans already compiled for source declarations and refresh checks.
+/// With `None`, compatibility generation compiles the manifest's entries itself.
+pub fn compatibility_id_sources_with_entries(
+    app_dir: &Path,
+    platform: &str,
+    target: &str,
+    manifest: &Manifest,
+    grants: Option<&str>,
+    rust_grants: Option<&str>,
+    entries: Option<&std::collections::BTreeMap<String, contract::snapshot::Entry>>,
+) -> Result<Compat, String> {
     // Cargo must rebake even when only the explicit trust selection changes.
     // External apps call this same entrypoint from their own build scripts.
     if std::env::var_os("OUT_DIR").is_some() {
@@ -159,14 +181,22 @@ pub fn compatibility_id_sources(
         if matches!(platform, "ios" | "macos") {
             crate::link::name_into(&mut compat, manifest, Path::new(&out))?;
         }
+        let compiled;
+        let entries = match entries {
+            Some(entries) => entries,
+            None => {
+                compiled = contract::snapshot::entries(app_dir)?;
+                &compiled
+            }
+        };
         crate::receipt::emit(
             &mut compat,
             &trust,
             app_dir,
-            platform,
-            target,
+            (platform, target),
             manifest,
             Path::new(&out),
+            entries,
         )?;
     }
     Ok(compat)
@@ -411,6 +441,13 @@ fn compatibility_with_trust(
                 inputs["protocolHandlers"] = handlers.clone();
             }
         }
+    }
+    let widgets = manifest.widgets()?;
+    if !widgets.is_empty() {
+        inputs["widgets"] = json!(widgets
+            .iter()
+            .map(|w| json!({"kind":w.kind,"families":w.families,"title":w.title,"description":w.description}))
+            .collect::<Vec<_>>());
     }
     // Which GPU artifact owns which surface (LLP 1009 D6): the manifest's
     // modules, bound into the cohort — a routing change is a new binary. An
@@ -698,6 +735,38 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("app.json"), "{}").unwrap();
         assert_eq!(Manifest::read(&dir).unwrap().id, "com.exact.resolved");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn widget_gallery_labels_require_a_new_binary_cohort() {
+        let dir = app("widget-label-cohort");
+        let mut manifest = Manifest::read(&dir).unwrap();
+        manifest.json["widgets"] = serde_json::json!([{"kind":"card","families":["systemSmall"],
+            "component":"Card","props":"Props","refresh":"refresh","preview":{}}]);
+        let build = |manifest: &Manifest| {
+            compatibility_with_trust(
+                &dir,
+                "ios",
+                "aarch64-apple-ios",
+                manifest,
+                Some(""),
+                "development",
+            )
+            .unwrap()
+        };
+        let original = build(&manifest);
+        for key in ["title", "description"] {
+            let mut labelled = manifest.clone();
+            labelled.json["widgets"][0][key] = serde_json::json!("Next trains");
+            assert_ne!(original.id, build(&labelled).id, "{key} is generated Swift");
+        }
+        manifest.json["widgets"][0]["preview"] = serde_json::json!({"title":"new preview"});
+        assert_eq!(
+            original.id,
+            build(&manifest).id,
+            "preview props ride the bundle"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

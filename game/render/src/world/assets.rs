@@ -1,5 +1,8 @@
 use super::*;
-use crate::{models::REPLACE, DrawInstance, MaterialId, RENDER_SLOT_BASE};
+use crate::{
+    models::{PartLook, NUMBERED, REPLACE},
+    DrawInstance, MaterialId, RENDER_SLOT_BASE,
+};
 // Geometry, material, mirrored, viewmodel, and the level of detail.
 type GroupKey = (MeshId, MaterialId, bool, bool, u8);
 #[derive(Default)]
@@ -9,7 +12,7 @@ pub(super) struct Assets {
     groups: BTreeMap<GroupKey, Vec<u32>>,
     // Per record, 1 + its first merged part look (0: none), and those looks.
     part_bases: Vec<u32>,
-    part_looks: Vec<[f32; 8]>,
+    part_looks: Vec<PartLook>,
     // Per record, its level of detail; and the `ModelLod` entities.
     levels: Vec<u8>,
     lods: Vec<crate::lod::Lod>,
@@ -182,8 +185,8 @@ impl Assets {
                 remap[old] = new as u32;
                 self.records[new] = self.records[old].clone();
                 let base = self.part_bases[old];
-                let part = base & !REPLACE;
-                self.part_bases[new] = (base & REPLACE)
+                let part = base & !(REPLACE | NUMBERED);
+                self.part_bases[new] = (base & (REPLACE | NUMBERED))
                     | if part == 0 {
                         0
                     } else {
@@ -287,8 +290,9 @@ impl Assets {
                     .iter()
                     .zip(&self.part_bases[first..])
                     .all(|(&a, &b)| {
-                        let flag = a & REPLACE == b & REPLACE;
-                        let (a, b) = (a & !REPLACE, b & !REPLACE);
+                        let flags = REPLACE | NUMBERED;
+                        let flag = a & flags == b & flags;
+                        let (a, b) = (a & !flags, b & !flags);
                         flag && (a == 0) == (b == 0)
                             && (a == 0 || a as usize + part_first == b as usize)
                     });
@@ -347,10 +351,16 @@ impl Assets {
             let names = draws.names;
             // A custom vertex shader sees node-local positions: never merged.
             let custom = draws.merged.iter().any(|n| draws.custom.contains(&n.1));
-            let (nodes, members) = if draws.merged.is_empty() || custom {
+            // A material override recolours one material's records: none of
+            // them may hold parts of others.
+            let several = overrides.is_some() && draws.parts.iter().any(|p| !p.is_empty());
+            let (nodes, members) = if draws.merged.is_empty() || custom || several {
                 (draws.nodes, None)
             } else {
-                (draws.merged, Some((draws.members, draws.starts)))
+                (
+                    draws.merged,
+                    Some((draws.members, draws.starts, draws.parts)),
+                )
             };
             // A material override replaces its records' base colour factor:
             // every part of a record shares its material.
@@ -380,28 +390,47 @@ impl Assets {
                 };
                 let mut look = None;
                 let mut base = 0;
+                // A draw of several materials: each part's entry carries its own.
+                let materials = members.and_then(|m| m.2.get(i)).map_or(&[][..], |p| &p[..]);
                 if parts.len() == 1 {
                     look = find(&parts[0]);
-                } else if parts.iter().any(|p| find(p).is_some()) {
-                    // A merged draw finds each vertex's part by its vertex range.
+                } else if !materials.is_empty() || parts.iter().any(|p| find(p).is_some()) {
+                    // A merged draw finds each vertex's part by its vertex range,
+                    // or by its number when it has several materials.
                     let starts = &members.unwrap().1[i];
-                    base = self.part_looks.len() as u32 + 1;
+                    base = (self.part_looks.len() as u32 + 1)
+                        | if materials.is_empty() { 0 } else { NUMBERED };
                     self.part_looks
-                        .extend(parts.iter().zip(starts).map(|(p, &start)| {
-                            let (c, e) =
-                                find(p).map_or(([1.; 4], [0.; 3]), |l| (l.color, l.emissive));
-                            [
-                                c[0],
-                                c[1],
-                                c[2],
-                                c[3],
-                                e[0],
-                                e[1],
-                                e[2],
-                                f32::from_bits(start),
-                            ]
-                        }));
-                    let mut end = [0.; 8];
+                        .extend(
+                            parts
+                                .iter()
+                                .zip(starts)
+                                .enumerate()
+                                .map(|(k, (p, &start))| {
+                                    let (c, e) = find(p)
+                                        .map_or(([1.; 4], [0.; 3]), |l| (l.color, l.emissive));
+                                    let m = materials.get(k).copied().unwrap_or_default();
+                                    [
+                                        c[0],
+                                        c[1],
+                                        c[2],
+                                        c[3],
+                                        e[0],
+                                        e[1],
+                                        e[2],
+                                        f32::from_bits(start),
+                                        m[0],
+                                        m[1],
+                                        m[2],
+                                        m[3],
+                                        m[4],
+                                        m[5],
+                                        m[6],
+                                        m[7],
+                                    ]
+                                }),
+                        );
+                    let mut end = [0.; 16];
                     end[7] = f32::from_bits(u32::MAX);
                     self.part_looks.push(end);
                 }

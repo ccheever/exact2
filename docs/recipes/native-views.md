@@ -1,41 +1,42 @@
 # Recipe: native views
 
-What Contract cannot draw is a Swift view: a hyphenated tag, listed in `app.json` `modules`,
-that the app's module (`modules/apple/*.swift`) makes. The Contract places, names and hears it:
+A view needing a platform API (video, a map, the camera) is a Swift view: a hyphenated tag in
+`app.json` `modules`, made by `modules/apple/*.swift`. Drawing is not: a Skia or Reanimated
+screen ports to boxes, SVG, keyframes and transitions, on every platform. Contract places it:
 
 ```text
-component Pad
+component Clip
   state last = ""
-  action picked(step: string)
-    last = step
+  action seeked(at: string)
+    last = at
   view
     column
-      step-strip steps="16" message=picked aria-label="Kick steps" height=48
+      video-view src="intro.mp4" message=seeked aria-label="Intro" height=180
       text last testId="last"
 ```
 
 ```swift
 import UIKit // AppKit on macOS, under #if os(macOS)
 
-final class Pad: ExactModule {
+final class Clip: ExactModule {
     override class var views: [String: ExactNativeFactory] {
-        ["step-strip": ExactNativeFactory(for: Pad.self) { pad, props, events in Strip(pad, props, events) }]
+        ["video-view": ExactNativeFactory(for: Clip.self) { clip, props, events in Video(clip, props, events) }]
     }
 }
-let exactModule: ExactModule.Type = Pad.self
+let exactModule: ExactModule.Type = Clip.self
 
-final class Strip: ExactNativeInstance {
-    private let strip = StripView() // a UIView that draws and has a tap recognizer
-    private let pad: Pad
+final class Video: ExactNativeInstance {
+    private let strip = VideoView() // an AVPlayerLayer and a tap recognizer
+    private let pad: Clip
     private var ticket: ExactTicket?
-    init(_ pad: Pad, _ props: [String: String], _ events: ExactNativeEvents) {
+    init(_ pad: Clip, _ props: [String: String], _ events: ExactNativeEvents) {
         self.pad = pad
         super.init(events: events)
         try? setProps(props)
-        strip.tapped = { [weak self] step in events.message(String(step)); self?.start() }
-        events.intrinsicSize(CGSize(width: 320, height: 48))
+        strip.tapped = { [weak self] at in events.message(String(at)); self?.start() }
+        events.intrinsicSize(CGSize(width: 320, height: 180))
     }
-    // A live ticket costs CPU; stopped, it's gone
+    // A live ticket costs CPU
     func start() {
         guard ticket == nil else { return }
         ticket = pad.context.frames { [weak self] f in
@@ -44,23 +45,23 @@ final class Strip: ExactNativeInstance {
         }
     }
     override var view: ExactNativeView { strip }
-    override func setProps(_ props: [String: String]) throws { strip.steps = Int(props["steps"] ?? "") ?? 16 }
+    override func setProps(_ props: [String: String]) throws { strip.src = props["src"] ?? "" }
     override func destroy() { ticket?.stop() }
 }
 ```
 
-- **Props are strings**, the whole object on each change. A name Contract knows
-  (`value`, `title`, `playing`) is the box's, not the module's: `contract vocab <name>`.
+- **Props are strings**, all of them on each change. A name Contract knows (`value`,
+  `title`) is the box's: `contract vocab <name>`.
 - **Events:** `events.message(text)` runs `message=`; `press()`, `change(v)`, `load()` likewise.
 - **Time is the session's:** `context.frames`, `context.after(ms)`, never a
-  `CADisplayLink` or a timer, so `clock +N` moves it; timed audio is a `sequence`.
-- **Touches:** recognizers on the view; one its `point(inside:)` declines goes to what is
-  under the box unless it has `press=`. Plain `tap` runs none: `agent ios --touch platform`.
+  `CADisplayLink` or timer, so `clock +N` moves it; timed audio is a `sequence`.
+- **Touches:** recognizers on the view; a point `point(inside:)` declines goes under the box
+  unless it has `press=`. Drive them with `agent ios --touch platform`.
 - **Size:** `intrinsicSize` is the natural size; an authored size wins.
 - **Accessibility:** [native views](../contract-for-agents.md#native-views-accessibility).
 - **Data:** `app.ts` asks: `native!.watch('state'); return native!.call({op: 'state'});`. The
   build has no module, so the resource shows its `else` row until launch: write no bake code.
-- **A crash:** `agent ios logs` shows this build's newest crash report on this simulator.
-- **First frame:** views attach after first paint. Only a cheap one (a splash)
-  says `ExactNativeFactory(firstFrame: true)`, never an engine's. The module is made with
-  it, on main: make an `AVAudioEngine` on first use, not in `init`.
+- **A crash:** `agent ios logs` shows the newest crash report.
+- **First frame:** views attach after first paint. Only a cheap one says
+  `ExactNativeFactory(firstFrame: true)`, never an engine's; the module is made with it, on
+  main: make an `AVAudioEngine` on first use. A splash is Contract: native slows launch.

@@ -435,7 +435,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let list = try node(session, "list-chat")
         let sv = try XCTUnwrap(list.scroll)
         XCTAssertTrue(journal(session).contains("scrolls its content under the bar"))
-        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .always, "UIKit insets it")
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .automatic, "UIKit insets it")
         XCTAssertEqual(list.convert(list.bounds, to: chat.view).minY, 0, accuracy: 0.5, "it starts under the bar")
         XCTAssertEqual(sv.adjustedContentInset.top, chat.view.safeAreaInsets.top, accuracy: 0.5, "inset to the bar's bottom")
         XCTAssertFalse(nav.isNavigationBarHidden)

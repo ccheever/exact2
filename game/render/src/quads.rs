@@ -86,7 +86,34 @@ impl Arena {
     }
 }
 const NO_LOOK: u32 = u32::MAX;
+/// The quad pipelines that draw straight into the target on a direct frame
+/// (`Renderer::set_direct`), tonemapped in the shader: made at their first such draw.
+#[derive(Default)]
+struct Direct {
+    sprites: Option<[wgpu::RenderPipeline; 3]>,
+    particles: Option<[wgpu::RenderPipeline; 2]>,
+    textured: Option<[wgpu::RenderPipeline; 2]>,
+    #[cfg(not(target_arch = "wasm32"))]
+    child: Option<wgpu::RenderPipeline>,
+}
+impl Direct {
+    fn count(&self) -> u64 {
+        let count = u64::from(self.sprites.is_some()) * 3
+            + u64::from(self.particles.is_some()) * 2
+            + u64::from(self.textured.is_some()) * 2;
+        #[cfg(not(target_arch = "wasm32"))]
+        let count = count + u64::from(self.child.is_some());
+        count
+    }
+}
 pub(crate) struct Quads {
+    cache: Option<wgpu::PipelineCache>,
+    samples: u32,
+    /// The renderer's output format, which direct pipelines draw in.
+    format: wgpu::TextureFormat,
+    direct: Direct,
+    sprite_shader: Option<wgpu::ShaderModule>,
+    particle_shader: Option<wgpu::ShaderModule>,
     particles: Vec<Item<Emitter>>,
     looks: Vec<Item<ParticleLook>>,
     textured_pipelines: Option<[wgpu::RenderPipeline; 2]>,
@@ -148,7 +175,8 @@ impl Quads {
     pub fn work_pipelines(&self) -> u64 {
         let count = u64::from(self.particle_pipelines.is_some()) * 2
             + u64::from(self.soft_pipelines.is_some()) * 4
-            + u64::from(self.sprite_pipelines.is_some()) * 3;
+            + u64::from(self.sprite_pipelines.is_some()) * 3
+            + self.direct.count();
         #[cfg(not(target_arch = "wasm32"))]
         let count = count + u64::from(self.child_pipeline.is_some());
         count
@@ -157,6 +185,8 @@ impl Quads {
         d: &wgpu::Device,
         q: &wgpu::Queue,
         uniform: &wgpu::Buffer,
+        (samples, format): (u32, wgpu::TextureFormat),
+        cache: Option<&wgpu::PipelineCache>,
     ) -> Self {
         let layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("game quad frame"),
@@ -180,6 +210,12 @@ impl Quads {
             }],
         });
         let mut result = Self {
+            cache: cache.cloned(),
+            samples,
+            format,
+            direct: Direct::default(),
+            sprite_shader: None,
+            particle_shader: None,
             particles: Vec::new(),
             looks: Vec::new(),
             textured_pipelines: None,
@@ -358,10 +394,17 @@ impl Quads {
             return;
         }
         self.texture_layout(d);
-        let shader = source(d, include_str!("shaders/sprite.wgsl"));
+        let shader = self.sprite_shader(d);
         let texture = self.texture_layout.as_ref().unwrap();
         self.sprite_pipelines = Some(std::array::from_fn(|i| {
-            pipeline(d, &shader, &[&self.layout, texture], i)
+            pipeline(
+                d,
+                self.cache.as_ref(),
+                &shader,
+                &[&self.layout, texture],
+                i,
+                (self.samples, None),
+            )
         }));
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -370,12 +413,14 @@ impl Quads {
             return;
         }
         self.texture_layout(d);
-        let shader = source(d, include_str!("shaders/sprite.wgsl"));
+        let shader = self.sprite_shader(d);
         self.child_pipeline = Some(pipeline(
             d,
+            self.cache.as_ref(),
             &shader,
             &[&self.layout, self.texture_layout.as_ref().unwrap()],
             4,
+            (self.samples, None),
         ));
     }
     pub fn prepare(&mut self, d: &wgpu::Device, q: &wgpu::Queue) {
@@ -427,17 +472,31 @@ impl Quads {
         self.draws.reserve(entries.saturating_sub(self.draws.len()));
         if !self.looks.is_empty() && self.textured_pipelines.is_none() {
             self.texture_layout(d);
-            let shader = source(d, include_str!("shaders/sprite.wgsl"));
+            let shader = self.sprite_shader(d);
             let texture = self.texture_layout.as_ref().unwrap();
             // Textured particles: straight alpha or additive, like dots.
             self.textured_pipelines = Some(std::array::from_fn(|i| {
-                pipeline(d, &shader, &[&self.layout, texture], i + 2)
+                pipeline(
+                    d,
+                    self.cache.as_ref(),
+                    &shader,
+                    &[&self.layout, texture],
+                    i + 2,
+                    (self.samples, None),
+                )
             }));
         }
         if !self.particles.is_empty() && self.particle_pipelines.is_none() {
-            let shader = source(d, include_str!("shaders/particle.wgsl"));
+            let shader = self.particle_shader(d);
             self.particle_pipelines = Some(std::array::from_fn(|i| {
-                pipeline(d, &shader, &[&self.layout], i + 2)
+                pipeline(
+                    d,
+                    self.cache.as_ref(),
+                    &shader,
+                    &[&self.layout],
+                    i + 2,
+                    (self.samples, None),
+                )
             }));
         }
         if self.wants_soft() && self.soft_pipelines.is_none() {
@@ -448,7 +507,7 @@ impl Quads {
                 ty: wgpu::BindingType::Texture {
                     sample_type: wgpu::TextureSampleType::Depth,
                     view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: true,
+                    multisampled: self.samples > 1,
                 },
                 count: None,
             };
@@ -466,14 +525,15 @@ impl Quads {
                 label: Some("game soft particles"),
                 entries: &[depth, uniform],
             });
-            let soft_source = include_str!("shaders/soft.wgsl");
+            let soft_source =
+                crate::pipeline::depth_source(include_str!("shaders/soft.wgsl"), self.samples);
             let dots = source(
                 d,
-                &[include_str!("shaders/particle.wgsl"), soft_source].concat(),
+                &[include_str!("shaders/particle.wgsl"), &soft_source].concat(),
             );
             let textured = source(
                 d,
-                &[include_str!("shaders/sprite.wgsl"), soft_source].concat(),
+                &[include_str!("shaders/sprite.wgsl"), &soft_source].concat(),
             );
             let texture = self.texture_layout.as_ref().unwrap();
             self.soft_pipelines = Some(std::array::from_fn(|i| {
@@ -484,10 +544,12 @@ impl Quads {
                 };
                 pipeline_entry(
                     d,
+                    self.cache.as_ref(),
                     shader,
                     &[Some(&self.layout), group, Some(&soft)],
                     i % 2 + 2,
                     "quad_soft_fs",
+                    (self.samples, None),
                 )
             }));
             self.soft_uniform = Some(d.create_buffer(&wgpu::BufferDescriptor {
@@ -497,6 +559,82 @@ impl Quads {
                 mapped_at_creation: false,
             }));
             self.soft_layout = Some(soft);
+        }
+    }
+    fn sprite_shader(&mut self, d: &wgpu::Device) -> wgpu::ShaderModule {
+        self.sprite_shader
+            .get_or_insert_with(|| source(d, include_str!("shaders/sprite.wgsl")))
+            .clone()
+    }
+    fn particle_shader(&mut self, d: &wgpu::Device) -> wgpu::ShaderModule {
+        self.particle_shader
+            .get_or_insert_with(|| source(d, include_str!("shaders/particle.wgsl")))
+            .clone()
+    }
+    /// Make the direct pipelines this frame's draws use (after `order`).
+    pub fn prepare_direct(&mut self, d: &wgpu::Device) {
+        let target = (self.samples, Some(self.format));
+        for i in 0..self.draws.len() {
+            match self.draws[i].kind {
+                Kind::Particle(_, NO_LOOK, _) if self.direct.particles.is_none() => {
+                    let shader = self.particle_shader(d);
+                    self.direct.particles = Some(std::array::from_fn(|i| {
+                        pipeline(
+                            d,
+                            self.cache.as_ref(),
+                            &shader,
+                            &[&self.layout],
+                            i + 2,
+                            target,
+                        )
+                    }));
+                }
+                Kind::Particle(_, look, _) if look != NO_LOOK && self.direct.textured.is_none() => {
+                    self.texture_layout(d);
+                    let shader = self.sprite_shader(d);
+                    let texture = self.texture_layout.as_ref().unwrap();
+                    self.direct.textured = Some(std::array::from_fn(|i| {
+                        pipeline(
+                            d,
+                            self.cache.as_ref(),
+                            &shader,
+                            &[&self.layout, texture],
+                            i + 2,
+                            target,
+                        )
+                    }));
+                }
+                Kind::Sprite(_) if self.direct.sprites.is_none() => {
+                    self.texture_layout(d);
+                    let shader = self.sprite_shader(d);
+                    let texture = self.texture_layout.as_ref().unwrap();
+                    self.direct.sprites = Some(std::array::from_fn(|i| {
+                        pipeline(
+                            d,
+                            self.cache.as_ref(),
+                            &shader,
+                            &[&self.layout, texture],
+                            i,
+                            target,
+                        )
+                    }));
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                Kind::Child(_) if self.direct.child.is_none() => {
+                    self.texture_layout(d);
+                    let shader = self.sprite_shader(d);
+                    let texture = self.texture_layout.as_ref().unwrap();
+                    self.direct.child = Some(pipeline(
+                        d,
+                        self.cache.as_ref(),
+                        &shader,
+                        &[&self.layout, texture],
+                        4,
+                        target,
+                    ));
+                }
+                _ => {}
+            }
         }
     }
     /// Whether any emitter's look fades softly into the scene (soft pipelines).
@@ -783,12 +921,19 @@ impl Quads {
             arena.buffer.write(q, 0, bytes(&arena.words));
         }
     }
+    /// `direct`: into the target on a direct frame, after `prepare_direct`.
     pub fn draw<'a, const ASSETS: bool>(
         &'a self,
         pass: &mut wgpu::RenderPass<'a>,
         draw: &Draw,
         textures: &'a BTreeMap<String, crate::models::Texture>,
+        direct: bool,
     ) {
+        fn pick<'a, T>(direct: bool, hdr: &'a Option<T>, twin: &'a Option<T>) -> &'a T {
+            if direct { twin } else { hdr }
+                .as_ref()
+                .expect("quad pipelines prepare before drawing")
+        }
         pass.set_bind_group(0, &self.bind, &[]);
         match draw.kind {
             Kind::Particle(additive, look, soft) => {
@@ -807,14 +952,14 @@ impl Quads {
                     }
                     pass.set_bind_group(2, bind, &[]);
                 } else if look == NO_LOOK {
-                    pass.set_pipeline(
-                        &self.particle_pipelines.as_ref().unwrap()[usize::from(additive)],
-                    );
+                    let pipelines: &[wgpu::RenderPipeline; 2] =
+                        pick(direct, &self.particle_pipelines, &self.direct.particles);
+                    pass.set_pipeline(&pipelines[usize::from(additive)]);
                 } else {
                     let texture = &textures[&self.looks[look as usize].value.texture];
-                    pass.set_pipeline(
-                        &self.textured_pipelines.as_ref().unwrap()[usize::from(additive)],
-                    );
+                    let pipelines: &[wgpu::RenderPipeline; 2] =
+                        pick(direct, &self.textured_pipelines, &self.direct.textured);
+                    pass.set_pipeline(&pipelines[usize::from(additive)]);
                     pass.set_bind_group(1, texture.sprite_bind.as_ref().unwrap(), &[]);
                 }
                 pass.set_vertex_buffer(
@@ -834,13 +979,19 @@ impl Quads {
                     AlphaMode::Mask => 1,
                     AlphaMode::Blend => 2,
                 };
-                pass.set_pipeline(&self.sprite_pipelines.as_ref().unwrap()[variant]);
+                let pipelines: &[wgpu::RenderPipeline; 3] =
+                    pick(direct, &self.sprite_pipelines, &self.direct.sprites);
+                pass.set_pipeline(&pipelines[variant]);
                 pass.set_bind_group(1, textures[&s.texture].sprite_bind.as_ref().unwrap(), &[]);
                 pass.set_vertex_buffer(0, self.sprite_arena.as_ref().unwrap().buffer.raw.slice(..));
             }
             #[cfg(not(target_arch = "wasm32"))]
             Kind::Child(i) => {
-                pass.set_pipeline(self.child_pipeline.as_ref().unwrap());
+                pass.set_pipeline(if direct {
+                    self.direct.child.as_ref().unwrap()
+                } else {
+                    self.child_pipeline.as_ref().unwrap()
+                });
                 pass.set_bind_group(1, &self.child_textures[&i].1, &[]);
                 pass.set_vertex_buffer(0, self.sprite_arena.as_ref().unwrap().buffer.raw.slice(..));
             }
@@ -989,6 +1140,7 @@ fn source(d: &wgpu::Device, fragment: &str) -> wgpu::ShaderModule {
         source: wgpu::ShaderSource::Wgsl(
             [
                 include_str!("shaders/frame.wgsl"),
+                include_str!("shaders/tone.wgsl"),
                 include_str!("shaders/quad.wgsl"),
                 fragment,
             ]
@@ -999,19 +1151,23 @@ fn source(d: &wgpu::Device, fragment: &str) -> wgpu::ShaderModule {
 }
 fn pipeline(
     d: &wgpu::Device,
+    cache: Option<&wgpu::PipelineCache>,
     shader: &wgpu::ShaderModule,
     layouts: &[&wgpu::BindGroupLayout],
     mode: usize,
+    target: (u32, Option<wgpu::TextureFormat>),
 ) -> wgpu::RenderPipeline {
     let layouts: Vec<_> = layouts.iter().map(|l| Some(*l)).collect();
-    pipeline_entry(d, shader, &layouts, mode, "quad_fs")
+    pipeline_entry(d, cache, shader, &layouts, mode, "quad_fs", target)
 }
 fn pipeline_entry(
     d: &wgpu::Device,
+    cache: Option<&wgpu::PipelineCache>,
     shader: &wgpu::ShaderModule,
     layouts: &[Option<&wgpu::BindGroupLayout>],
     mode: usize,
     fragment: &str,
+    (samples, direct): (u32, Option<wgpu::TextureFormat>),
 ) -> wgpu::RenderPipeline {
     let layout = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("game quad"),
@@ -1051,11 +1207,24 @@ fn pipeline_entry(
             module: shader,
             entry_point: Some(fragment),
             targets: &[Some(wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::Rgba16Float,
+                format: direct.unwrap_or(wgpu::TextureFormat::Rgba16Float),
                 blend,
                 write_mask: wgpu::ColorWrites::ALL,
             })],
-            compilation_options: Default::default(),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: &[
+                    ("DIRECT", if direct.is_some() { 1. } else { 0. }),
+                    (
+                        "ENCODE_SRGB",
+                        if direct.is_some_and(|f| !f.is_srgb()) {
+                            1.
+                        } else {
+                            0.
+                        },
+                    ),
+                ],
+                ..Default::default()
+            },
         }),
         primitive: wgpu::PrimitiveState {
             cull_mode: Some(wgpu::Face::Back),
@@ -1069,11 +1238,11 @@ fn pipeline_entry(
             bias: Default::default(),
         }),
         multisample: wgpu::MultisampleState {
-            count: 4,
+            count: samples,
             ..Default::default()
         },
         multiview_mask: None,
-        cache: None,
+        cache,
     })
 }
 

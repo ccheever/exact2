@@ -71,6 +71,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
   // The standard artifact.
   const s = await open({ host });
   try {
+    await liveTimeSmoke(s, check, host);
     let t = await until(s, 'the fixture and the plain box reach ready', (t) => module(t, 'box')?.state === 'ready' && module(t, 'plain')?.state === 'ready');
     let logs = await s.logs();
     const lines = logs.lines.join('\n');
@@ -859,6 +860,7 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
 
   const s = await open({ host });
   try {
+    await liveTimeSmoke(s, check, host);
     // Connected after first pixel: the app, its window, and the nodes there.
     let h = await hatches(s), lines = await journal(s);
     const at = (re) => lines.findIndex((l) => re.test(l));
@@ -1076,4 +1078,18 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
   }
   rmSync(tmp, { recursive: true, force: true });
   console.log(`${host} hatches: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (LLP 1075.003.000.001 stage 4)`);
+}
+
+// The same presentation-only minute on every running host (LLP 1126 D6).
+async function liveTimeSmoke(s, check, host) {
+  const read = async () => {
+    const t = await s.tree();
+    const node = id => t.nodes.find(n => n.props.testId === id);
+    return { text: node('live-time')?.props.text, timer: node('live-timer')?.props.text, value: Number(node('live-progress')?.props.value) };
+  };
+  const before = await read();
+  await s.clock('+60000');
+  const after = await read();
+  check(/2/.test(before.text) && /3/.test(after.text) && before.text !== after.text, `${host} time: one minute changes ${JSON.stringify(before.text)} to ${JSON.stringify(after.text)}`);
+  check(before.timer !== after.timer && Math.abs(after.value - before.value - 0.5) < 0.001, `${host} time: timer and interval progress advance without an app task: ${JSON.stringify({ before, after })}`);
 }

@@ -137,3 +137,48 @@ fn material_waits_for_all_textures_before_rebinding() {
     renderer.add_texture("normal.tex", &texture).unwrap();
     assert_eq!(renderer.models.materials[0].bind, final_bind);
 }
+
+/// Untextured materials with the same factors, in different models, share
+/// one group; different factors, or textures, get their own.
+#[test]
+fn untextured_materials_with_equal_factors_share_a_group() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let mut renderer =
+        crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    let model = |material: MaterialData| Model {
+        meshes: vec![exact_game::asset::MeshData {
+            positions: vec![0.; 9],
+            normals: vec![0.; 9],
+            uvs: vec![0.; 6],
+            indices: vec![0, 1, 2],
+            ..Default::default()
+        }],
+        nodes: vec![exact_game::asset::Node {
+            mesh: Some(0),
+            ..Default::default()
+        }],
+        materials: vec![material],
+        ..Default::default()
+    };
+    let red = MaterialData {
+        base_color: [1., 0., 0., 1.],
+        ..Default::default()
+    };
+    let blue = MaterialData {
+        base_color: [0., 0., 1., 1.],
+        ..Default::default()
+    };
+    for (name, material) in [("a.model", &red), ("b.model", &red), ("c.model", &blue)] {
+        renderer
+            .prepare_model(name, &model(material.clone()))
+            .unwrap();
+    }
+    let bind = |name: &str| {
+        let id = renderer.models.loaded[name].materials[0];
+        renderer.models.materials[id.0].bind.clone().unwrap()
+    };
+    assert!(bind("a.model") == bind("b.model"));
+    assert!(bind("a.model") != bind("c.model"));
+}

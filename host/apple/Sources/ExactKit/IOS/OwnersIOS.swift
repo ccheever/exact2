@@ -8,7 +8,7 @@ import UIKit
 /// Every node a press traversed, with the inertness rule from that side of
 /// the first presentation crossing. Held identities survive no pool reuse.
 struct PressPath {
-    private var nodes: [(held: HeldNode, crossed: Bool, moves: UInt64, inWindow: Bool)] = []
+    private var nodes: [(held: HeldNode, crossed: Bool, epoch: UInt64, inWindow: Bool)] = []
     private var openings: [() -> Bool] = []
     private let reachedTarget: Bool
     let bubbled: Bool
@@ -17,7 +17,7 @@ struct PressPath {
     init(from source: UIView, to target: UIView, presenter: Presenter) {
         var at: UIView? = source, crossed = false
         while let view = at {
-            if let node = view as? NodeView { nodes.append((HeldNode(node), crossed, node.pressMoves, node.window != nil)) }
+            if let node = view as? NodeView { nodes.append((HeldNode(node), crossed, node.pressEpoch, node.window != nil)) }
             if view === target { break }
             if let open = presenter.menus.pressLifetime(of: view) { openings.append(open) }
             let parent = presenter.listenerParent(of: view)
@@ -32,7 +32,7 @@ struct PressPath {
         reachedTarget && presentationsOpen && nodes.allSatisfy { entry in
             guard let node = entry.held.live(in: presenter) else { return false }
             // A node in a window when captured must still be in one.
-            return node.superview != nil && (node.window != nil || !entry.inWindow) && node.pressMoves == entry.moves
+            return node.superview != nil && (node.window != nil || !entry.inWindow) && node.pressEpoch == entry.epoch
                 && !node.disabled && !(entry.crossed ? node.authoredInert : node.inert)
         }
     }

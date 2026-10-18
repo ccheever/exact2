@@ -201,6 +201,7 @@ uint32_t gpu_input(uint32_t id, const unsigned char *text, size_t len) {
   return strstr(event,"control") && !strstr(event,"jump") ? 1 : 0;
 }
 uint32_t gpu_wants_input(uint32_t id) { return id != 98; }
+uint32_t gpu_presentation_flags(uint32_t id) { return 0; }
 uint32_t gpu_assets(void) { return 0; }
 bool gpu_asset(void) { return true; }
 uint32_t gpu_published(void) { return 268435457; }

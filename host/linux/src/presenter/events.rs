@@ -126,36 +126,62 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// `focus(id)` from an action: the node whose `id` that is, when it is
-    /// focusable, as `element.focus()` takes it on the web; otherwise the
-    /// journal says why, as the web host's does (it had been an unknown
-    /// command here).
-    /// The node it focused, if it did.
-    /// Whether `id` is being rendered and focusable in the current tree,
-    /// which the last painted picture may not show yet: no ancestor up to
-    /// the presented alert (which paint draws from its own root) is
-    /// `display: none`, on a hidden or inert route, or a dialog, which paint
-    /// skips. A top-layer surface's rows are `surface_focus`'s.
-    fn rendered(&self, id: ViewId) -> bool {
+    /// Focus uses the current tree, without requiring a painted box. Region
+    /// pictures and window-backed surfaces have separate input boundaries.
+    pub(super) fn focus_refusal(&self, id: ViewId) -> Option<&'static str> {
+        if self.top_open() && self.alert.is_none() {
+            return Some("page under surface is inert");
+        }
+        if !self.alert_allows(id) {
+            return Some("page under alert is inert");
+        }
         let kernel = self.host.kernel();
         let shown = self.alert_root();
+        let (hidden, inert) = self.host.route_visibility_to(id, shown);
+        if hidden || inert {
+            return Some("not rendered");
+        }
+        let region = self.host.content_region();
+        let content = region.map(|r| r.binding().content);
+        if self.brush.region_blocks_action(id) {
+            return Some("content region is not live");
+        }
+        // The successful presentation owns this boundary, including across a
+        // failed replacement or a picture awaiting display acknowledgement.
+        let skipped_pending = region
+            .filter(|r| matches!(self.brush.published_region(r), Ok(Some(_))))
+            .map(|r| r.binding().pending);
+        // Paint starts at an open alert's root, independently of its page
+        // ancestors. Every inherited eligibility check ends there too.
         let mut at = kernel.node(id);
         while let Some(node) = at {
-            let (hidden, inert) = self.host.route_visibility(node.id);
-            if node.style.display == exact_kernel::Display::None || hidden || inert {
-                return false;
+            if node.style.display == exact_kernel::Display::None
+                || matches!(
+                    self.brush.placements.get(&node.id),
+                    Some(crate::placement::Placement::Hidden)
+                )
+                || Some(node.key) == skipped_pending
+            {
+                return Some("not rendered");
+            }
+            if Some(node.key) == content {
+                // Pending content and newly inserted descendants have no
+                // retained-picture ID; current publications also replay.
+                return Some("content region is not live");
             }
             if Some(node.id) == shown {
-                return true;
+                return None;
             }
             if node.props.str(PropId::SemanticTag) == Some("dialog") {
-                return false;
+                return Some("not rendered");
             }
             at = node.parent.and_then(|parent| kernel.node(parent));
         }
-        true
+        None
     }
 
+    /// `focus(id)` selects a surface row or a live, eligible page node.
+    /// A refusal goes to the journal, as it does on the web host.
     pub(crate) fn focus_command(&mut self, args: &[exact_plan::Value]) -> Option<ViewId> {
         let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
             eprintln!("exact: focus requires an element id");
@@ -176,11 +202,11 @@ impl<D: DataSource> Presenter<D> {
             None => "no live node with that id",
             Some(id) if self.surface_focus(id) => return Some(id),
             Some(id) if !self.focusable(id) => "not focusable",
-            // As `HTMLElement.focus()` on an element that is not being
-            // rendered: a command queued by a handler can run after its
-            // dialog has closed.
-            Some(id) if !self.rendered(id) => "not rendered",
             Some(id) => {
+                if let Some(reason) = self.focus_refusal(id) {
+                    self.host.log(format!("focus \"{name}\" refused: {reason}"));
+                    return None;
+                }
                 if let Some(e) = self.set_focus(Some(id), self.host.now()) {
                     eprintln!("exact: {e}");
                 }
@@ -437,7 +463,10 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn hover_at(&mut self, at: Option<(f32, f32)>, now_ms: f64) -> Option<String> {
         self.hover_point = at;
         let mut under = Vec::new();
-        let mut node = at.and_then(|(x, y)| self.hit(x, y));
+        let hit = at.and_then(|(x, y)| self.hit(x, y));
+        // Its `:hover` looks follow the same point, a resting one's too (LLP 1121 D8).
+        self.refresh_looks(Some(hit));
+        let mut node = hit;
         while let Some(id) = node {
             if self
                 .host
@@ -486,10 +515,13 @@ impl<D: DataSource> Presenter<D> {
     /// contact is down. Never inside `frame()`: its pixels and witness are
     /// the tree it painted.
     pub fn follow_pointer(&mut self) {
+        let Some(at) = self.hover_point else { return };
         if self.contact.is_some() || self.pointer_held.is_some() || self.pointer_buttons != 0 {
+            // No hover event while held, but a `:hover` look follows the point (LLP 1121 D8).
+            let hit = self.hit(at.0, at.1);
+            self.refresh_looks(Some(hit));
             return;
         }
-        let Some(at) = self.hover_point else { return };
         if let Some(error) = self.hover_at(Some(at), self.host.now()) {
             self.host.log(error);
         }

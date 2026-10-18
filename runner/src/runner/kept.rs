@@ -507,10 +507,13 @@ impl<D: DataSource> Runner<D> {
             let target = super::Target::Mutation(m);
             let name = self.plan.str(self.plan.mutations[m].name).to_string();
             self.mutation_requests += 1;
-            let refused = match self
+            let answer = self
                 .data
-                .answer_for(target, &mut self.store, &source, &args)
-            {
+                .answer_for(target, &mut self.store, &source, &args);
+            // What its turn sent as an answer (LLP 1016.000 D7, the amendment
+            // of 2026-10-18).
+            self.stage_answer(target);
+            let refused = match answer {
                 Ok(super::Answer::Now(value))
                     if self.conforms(&value, self.plan.mutations[m].ty) =>
                 {

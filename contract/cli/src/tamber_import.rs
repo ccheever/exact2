@@ -126,8 +126,8 @@ fn import_with(
     }
     Some(match kind {
         "shadcn" => shadcn::import(text, prefix.unwrap_or("shadcn"), design, &vocab),
-        "tailwind" => tailwind::import(text, prefix.unwrap_or("tw"), design),
-        "dtcg" => dtcg::import(files, prefix.unwrap_or("dtcg"), design),
+        "tailwind" => tailwind::import_with(text, prefix.unwrap_or("tw"), design, &vocab),
+        "dtcg" => dtcg::import_with(files, prefix.unwrap_or("dtcg"), design, &vocab),
         "astryx" => astryx::import(text, prefix.unwrap_or("astryx"), design, &vocab),
         _ => return None,
     })
@@ -305,6 +305,12 @@ pub fn op_json(op: &Op) -> Value {
             "comment": comment, "before": before,
         }),
         Op::RenameToken { from, to } => json!({"op": "rename-token", "from": from, "to": to}),
+        Op::SetParam { name, when, value } => {
+            json!({"op": "set-param", "name": name, "when": conds(when), "value": value})
+        }
+        Op::UnsetParam { name, when } => {
+            json!({"op": "unset-param", "name": name, "when": conds(when)})
+        }
         Op::RemoveToken { name } => json!({"op": "remove-token", "name": name}),
         Op::AddAxisValue {
             axis,

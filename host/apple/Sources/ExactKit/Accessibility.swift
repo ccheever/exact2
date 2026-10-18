@@ -629,17 +629,17 @@ extension Presenter {
             let target = keyView(of: node)
             if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
             #else
-            // The session's own view holding the focus for its shortcuts (ShortcutsIOS) is no focus a node took,
-            // nor is a button's that came from a touch (Safari's buttons take none from a tap): the button that
-            // opened a sheet must not keep the sheet's field from its autofocus. A button reached by Tab or
-            // `focus(id)` keeps it.
-            func touchFocused(_ view: UIView) -> Bool { (view as? NodeView).map { $0.isButton && $0.focusedByTouch } == true }
-            func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && !touchFocused(view) && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
+            // Any focus a node holds stays, however it came (Charlie, 2026-10-17), except: the session's own
+            // view holding it for its shortcuts (ShortcutsIOS), a surface control's from its touch, which the
+            // author did not ask for, and the focus a press left on its control while that press's work runs,
+            // which an autofocus the work mounts takes (PressHandoffIOS).
+            func yields(_ view: UIView) -> Bool { (view as? NodeView)?.focusedBySurfaceTouch == true || pressHandsOff(view, to: node) }
+            func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && !yields(view) && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
             guard let window = node.window else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
             guard !hasFocus(window) else { continue }
             let target: UIResponder = node.textArea ?? node.field ?? node
-            node.focusedByTouch = false // the app's focus now, as Tab's and focus(id)'s
+            autofocused(node) // the app's focus now, as Tab's and focus(id)'s
             _ = target.becomeFirstResponder()
             #endif
         }

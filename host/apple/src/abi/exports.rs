@@ -105,6 +105,12 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.symbol = measure; });
         }
 
+        /// Format live time with the platform, on the runner clock.
+        #[no_mangle]
+        pub extern "C" fn exact_set_time_format(rt: u32, f: Option<$crate::time::TimeFormatFn>) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.time_format = f; });
+        }
+
         /// The Canvas 2D text measurer (LLP 1056 D8): called on the runtime's
         /// thread with the context `exact_set_measure` was given.
         #[no_mangle]
@@ -285,6 +291,22 @@ macro_rules! host {
                 b.set_delivery($delivery);
                 b.boot_plan(len, ($new)(), hooks, width, height)
             }, |n| n)
+        }
+
+        /// Snapshot bytes, kind and optional props JSON, concatenated in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_boot_entry(rt: u32, plan: usize, kind: usize, props: usize, width: f32, height: f32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
+                b.set_compat($compat);
+                if let Some(refusal) = b.refuse_analysis() { return refusal; }
+                b.set_delivery($delivery);
+                b.boot_entry(plan, kind, props, ($new)(), hooks, width, height)
+            }, |n| n)
+        }
+        /// Refresh the entry's declared source; returns a JSON timeline or an error.
+        #[no_mangle]
+        pub extern "C" fn exact_entry_timeline(rt: u32, now: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.entry_timeline(now), |n| n)
         }
 
         /// Prepare one session, optionally using a composition-owned generation.
@@ -585,7 +607,7 @@ macro_rules! host {
         /// Where the viewer is (`locale NUL timeZone NUL seed` input) for the next boot or candidate, before it.
         #[no_mangle]
         pub extern "C" fn exact_set_launch_place(rt: u32, len: usize) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_place(len); 0 }, |n| n)
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_launch_place(len), |n| n)
         }
 
         /// The display preferences: bit 0 reduced motion, bit 1 reduced

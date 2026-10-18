@@ -93,9 +93,13 @@ fn text(f: Stdlib, args: &[Value]) -> Result<Option<Value>, CallError> {
         // The case tables through `text-transform`'s link, which a web
         // artifact holds only when its plan uses them (LLP 1047 D6 refuses
         // one that does not at boot); unlinked, a trap.
-        Stdlib::ToLowerCase => {
-            let lower = exact_kernel::linked_lowercase().ok_or(CallError::TypeMismatch)?;
-            let out = lower(s(0)?, MAX_STRING).ok_or(CallError::StringTooLong)?;
+        Stdlib::ToLowerCase | Stdlib::ToUpperCase => {
+            let map = match f {
+                Stdlib::ToLowerCase => exact_kernel::linked_lowercase(),
+                _ => exact_kernel::linked_uppercase(),
+            };
+            let map = map.ok_or(CallError::TypeMismatch)?;
+            let out = map(s(0)?, MAX_STRING).ok_or(CallError::StringTooLong)?;
             if out == s(0)? {
                 args[0].clone()
             } else {
@@ -226,13 +230,16 @@ fn call_value(
         },
         // @ref LLP 1017.003 D5 — opcodes with a callback body, never a
         // call; `join` is the VM's, which bounds the string it makes, and so
-        // are `concat` and `split` (LLP 1088 §9.1), which build a list.
+        // are `concat`, `split`, `range` and `flat` (LLP 1088 §9.1), which build a list.
         Stdlib::Map
         | Stdlib::Filter
         | Stdlib::Join
         | Stdlib::Concat
         | Stdlib::Split
-        | Stdlib::Sum => return None,
+        | Stdlib::Sum
+        | Stdlib::SortBy
+        | Stdlib::Range
+        | Stdlib::Flat => return None,
         Stdlib::Floor => Value::Number(num(0)?.floor()),
         // `Math.sin` and `Math.cos` through the pinned `libm`, so every
         // native target computes the same bits (LLP 1003 §7).
@@ -258,7 +265,7 @@ fn call_value(
         Stdlib::Max => Value::Number(js_max(num(0)?, num(1)?)),
         Stdlib::Min => Value::Number(js_min(num(0)?, num(1)?)),
         Stdlib::T => unreachable!("interpolation is bounded by call"),
-        Stdlib::Slice | Stdlib::ReplaceAll | Stdlib::ToLowerCase => {
+        Stdlib::Slice | Stdlib::ReplaceAll | Stdlib::ToLowerCase | Stdlib::ToUpperCase => {
             unreachable!("strings are bounded by call")
         }
     })

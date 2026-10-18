@@ -10,16 +10,26 @@
 //!   ([`crate::typescript`]).
 //! - `rust`: `tamber.rs`, `pub const SURFACE_CARD: Token<Color>` per colour
 //!   token, which `session.tamber().get(token, place)` resolves.
-//! - `swift`: `tamber.swift`, `ExactTamberToken.surfaceCard` per colour
-//!   token, for `ExactTamber(view).color(.surfaceCard)`; a native module's
-//!   build compiles it into the module's library when it is there.
+//! - `swift`: `tamber.swift`, `ExactTamberToken.surfaceCard` per colour,
+//!   length, number and type token, for `ExactTamber(view).color(.surfaceCard)`
+//!   and `.length(_:)`, `.number(_:)`, `.font(_:)`; a native module's build
+//!   compiles it into the module's library when it is there.
+//!
+//! - `kotlin`: `TamberTokens.kt`, `TamberColor.SURFACE_CARD` (and
+//!   `TamberLength`, `TamberNumber`) per token, for
+//!   `ExactTamber(view).color(TamberColor.SURFACE_CARD)`; the reader's build
+//!   compiles it beside the app's hatches when it is there.
+//!
+//! A component's param (D15) is named by `<Component>.<param>` (`mapCardPin`,
+//! `MAP_CARD_PIN`), its value the token name below the IR, which the runtimes
+//! resolve as any token's.
 //!
 //! They name the tokens a binding may (D7): the design's `exports` when it
 //! lists them, else every token, which is what an app that can name tokens
 //! outside its views keeps in its plan.
 //!
 //! Names map as D12 says: dots and hyphens become camelCase in TypeScript
-//! and Swift (Kotlin names a token by its name) and `SCREAMING_SNAKE` in Rust. A design
+//! and Swift and `SCREAMING_SNAKE` in Rust and Kotlin. A design
 //! two of whose names collide after mapping is refused, naming both.
 
 use std::fmt::Write;
@@ -27,7 +37,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: contract tamber gen ts|rust|swift <app dir | app.contract | file.tamber> [-o <dir>]";
+    "usage: contract tamber gen ts|rust|swift|kotlin <app dir | app.contract | file.tamber> [-o <dir>]";
 
 /// `name` as a camelCase identifier: `surface.card` `surfaceCard`,
 /// `-exact-label` `exactLabel`, `CanvasText` `canvasText`.
@@ -79,22 +89,34 @@ fn collisions(names: &[&str], map: fn(&str) -> String) -> Vec<(String, String)> 
     out
 }
 
-/// One token as the generators read it: its name, kind and CSS per tuple.
+/// One token as the generators read it: its name, what its binding is
+/// named from, its kind and CSS per tuple.
 struct Token {
     name: String,
+    binding: String,
     kind: String,
     css: Vec<String>,
 }
 
+/// What a token's binding is named from: its name, or a component's
+/// param's `<Component>.<param>` (D15), never the hash below the IR.
+fn binding(name: &str) -> &str {
+    name.strip_prefix(contract_lower::params::PREFIX)
+        .and_then(|rest| rest.split_once('.'))
+        .map_or(name, |(_, named)| named)
+}
+
 /// The tokens a binding may name (D7): the design's `exports` when it lists
-/// them, else every token; what an app with bindings keeps in its plan.
+/// them, else every token; what an app with bindings keeps in its plan; and
+/// every component's param (D15).
 fn tokens(folding: &exact_tamber::Folding) -> Vec<Token> {
     let exported = |t: &exact_tamber::Checked| {
-        folding.design.exports.as_ref().is_none_or(|exports| {
-            exports
-                .iter()
-                .any(|x| exact_tamber::exports_names(&x.value, &t.name, t.role.as_deref()))
-        })
+        t.name.starts_with(contract_lower::params::PREFIX)
+            || folding.design.exports.as_ref().is_none_or(|exports| {
+                exports
+                    .iter()
+                    .any(|x| exact_tamber::exports_names(&x.value, &t.name, t.role.as_deref()))
+            })
     };
     let vocab = contract_lower::tamber_vocab();
     folding
@@ -104,6 +126,7 @@ fn tokens(folding: &exact_tamber::Folding) -> Vec<Token> {
         .filter(|(t, _)| exported(t))
         .map(|(t, _)| Token {
             name: t.name.clone(),
+            binding: binding(&t.name).to_string(),
             kind: t.kind.name().into(),
             css: t
                 .values
@@ -235,7 +258,7 @@ pub fn typescript(folding: &exact_tamber::Folding, source: &str) -> String {
         let _ = writeln!(
             out,
             "  {}: {{ name: {}, css: [{}] }},",
-            camel(&t.name),
+            camel(&t.binding),
             quoted(&t.name),
             css.join(", ")
         );
@@ -265,7 +288,7 @@ pub fn css(folding: &exact_tamber::Folding) -> String {
         );
         // By its camelCase name, which no two tokens share (`admitted`).
         for t in &tokens {
-            let _ = write!(out, "--{}:{};", camel(&t.name), t.css[i]);
+            let _ = write!(out, "--{}:{};", camel(&t.binding), t.css[i]);
         }
         out.push_str("}\n");
     }
@@ -293,8 +316,8 @@ pub fn rust(folding: &exact_tamber::Folding, source: &str) -> String {
         let _ = writeln!(
             consts,
             "/// `{}`.\npub const {}: Token<{kind}> = Token::new({name});",
-            t.name,
-            screaming(&t.name)
+            t.binding,
+            screaming(&t.binding)
         );
     }
     kinds.sort();
@@ -307,8 +330,9 @@ pub fn rust(folding: &exact_tamber::Folding, source: &str) -> String {
     )
 }
 
-/// `tamber.swift`: an `ExactTamberToken` static member per token
-/// (`.surfaceCard`), for `ExactTamber(view).color(_:)`, in a native module's
+/// `tamber.swift`: an `ExactTamberToken` static member per colour, length,
+/// number and type token (`.surfaceCard`), for `ExactTamber(view).color(_:)`
+/// and its siblings, in a native module's
 /// library or a host that links ExactKit (it names no module: it is
 /// compiled into the one that declares the type).
 pub fn swift(folding: &exact_tamber::Folding, source: &str) -> String {
@@ -374,8 +398,13 @@ pub fn swift(folding: &exact_tamber::Folding, source: &str) -> String {
          // A token is its name: `ExactTamber(view).color(.surfaceCard)` resolves it (LLP 1121 D12).\n\
          public extension ExactTamberToken {{\n"
     );
-    for t in tokens(folding).iter().filter(|t| t.kind == "color") {
-        let member = camel(&t.name);
+    // What `color`, `length`, `number` and `font` read (stage 7 D).
+    let read = ["color", "length", "number", "type"];
+    for t in tokens(folding)
+        .iter()
+        .filter(|t| read.contains(&t.kind.as_str()))
+    {
+        let member = camel(&t.binding);
         let member = match KEYWORDS.contains(&member.as_str()) {
             true => format!("`{member}`"),
             false => member,
@@ -384,17 +413,49 @@ pub fn swift(folding: &exact_tamber::Folding, source: &str) -> String {
         let _ = writeln!(
             out,
             "    /// `{}`.\n    static let {member} = ExactTamberToken({name})",
-            t.name
+            t.binding
         );
     }
     out.push_str("}\n");
     out
 }
 
+/// `TamberTokens.kt`: an object per kind the reader's `ExactTamber` reads
+/// (`TamberColor`, `TamberLength`, `TamberNumber`), a `const val` per token
+/// of it by its `SCREAMING_SNAKE` name, its value the token name, for
+/// `ExactTamber(view).color(TamberColor.MAP_CARD_PIN)`; in the app's
+/// package, `exact.app`, beside its hatches (stage 7 D).
+pub fn kotlin(folding: &exact_tamber::Folding, source: &str) -> String {
+    let tokens = tokens(folding);
+    let mut out = format!(
+        "// @generated by `contract tamber gen kotlin` from {source}; do not edit, never committed.\n\
+         // A token is its name: `ExactTamber(view).color(TamberColor.SURFACE_CARD)` resolves it (LLP 1121 D12).\n\
+         package exact.app\n"
+    );
+    for (kind, object) in [
+        ("color", "TamberColor"),
+        ("length", "TamberLength"),
+        ("number", "TamberNumber"),
+    ] {
+        let _ = write!(out, "\nobject {object} {{\n");
+        for t in tokens.iter().filter(|t| t.kind == kind) {
+            let name = serde_json::to_string(&t.name).expect("a string is JSON");
+            let _ = writeln!(
+                out,
+                "    /** `{}`. */\n    const val {} = {name}",
+                t.binding,
+                screaming(&t.binding)
+            );
+        }
+        out.push_str("}\n");
+    }
+    out
+}
+
 /// Refuse a design whose names collide after any mapping: each pair named.
 pub fn admitted(folding: &exact_tamber::Folding) -> Result<(), String> {
     let tokens = tokens(folding);
-    let names: Vec<&str> = tokens.iter().map(|t| t.name.as_str()).collect();
+    let names: Vec<&str> = tokens.iter().map(|t| t.binding.as_str()).collect();
     let mut refused = Vec::new();
     // What no constant can be named: one with no letter, or that starts
     // with a digit.
@@ -413,10 +474,14 @@ pub fn admitted(folding: &exact_tamber::Folding) -> Result<(), String> {
         ("SCREAMING_SNAKE", screaming),
     ] {
         for (a, b) in collisions(&names, map) {
-            refused.push(format!(
-                "`{a}` and `{b}` are both `{}` in {scheme}: rename one (LLP 1121 D12)",
-                map(&a)
-            ));
+            refused.push(match a == b {
+                // Two components of one name, in two files, each with the param.
+                true => format!("`{a}` is a param of two components named alike (in two files), both `{}` in {scheme}: rename one component (LLP 1121 D12)", map(&a)),
+                false => format!(
+                    "`{a}` and `{b}` are both `{}` in {scheme}: rename one (LLP 1121 D12)",
+                    map(&a)
+                ),
+            });
         }
     }
     match refused.is_empty() {
@@ -438,7 +503,9 @@ pub fn run(args: &[String]) -> ExitCode {
                 out = Some(PathBuf::from(&args[i + 1]));
                 i += 1;
             }
-            t @ ("ts" | "rust" | "swift") if target.is_none() => target = Some(t.to_string()),
+            t @ ("ts" | "rust" | "swift" | "kotlin") if target.is_none() => {
+                target = Some(t.to_string())
+            }
             path if input.is_none() && !path.starts_with('-') => input = Some(path.to_string()),
             _ => {
                 eprintln!("{USAGE}");
@@ -455,10 +522,43 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!("contract tamber gen: {input} has no design (an app.tamber, or the file app.json's \"tamber\" names)");
         return ExitCode::from(2);
     };
+    // The app's own `.exact/`: the directory named, or the one its
+    // `app.contract` is in; given a design file, the nearest directory
+    // above it whose app that design is (else the file's own).
+    let app = Path::new(&input);
+    let root = match app.is_dir() {
+        true => app.to_path_buf(),
+        false => {
+            let beside = app.parent().unwrap_or(Path::new(".")).to_path_buf();
+            let canonical = |p: &Path| p.canonicalize().ok();
+            beside
+                .ancestors()
+                .find(|dir| {
+                    dir.join("app.contract").is_file()
+                        && crate::tamber::design(dir).and_then(|d| canonical(&d))
+                            == canonical(&path)
+                })
+                .map_or(beside.clone(), Path::to_path_buf)
+        }
+    };
+    // The app's components' params, tokens of its design (D15), as its
+    // build checks them: a build that refuses writes no names.
+    let contract = root.join("app.contract");
+    if contract.is_file() {
+        if let Err(e) = contract::compile_path(&contract) {
+            eprintln!("{}: {}: {}", contract.display(), e.id, e.message);
+            return ExitCode::from(1);
+        }
+    }
+    let params = contract::tamber_params::params_of(&contract);
     let folding = match std::fs::read_to_string(&path)
         .map_err(|e| vec![e.to_string()])
         .and_then(|src| {
-            exact_tamber::check(&src, &contract_lower::tamber_vocab()).map_err(|all| {
+            let checked = exact_tamber::parse(&src).and_then(|mut design| {
+                contract_lower::params::add_to(&mut design, &params.tokens, &params.identities);
+                exact_tamber::check_design(design, &contract_lower::tamber_vocab())
+            });
+            checked.map_err(|all| {
                 all.iter()
                     .map(|d| format!("{}:{d}", path.display()))
                     .collect()
@@ -476,13 +576,6 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!("{}: {why}", path.display());
         return ExitCode::from(1);
     }
-    // The app's own `.exact/`: the directory named, or the one its
-    // `app.contract` (or, given a design file alone, that file) is in.
-    let app = Path::new(&input);
-    let root = match app.is_dir() {
-        true => app.to_path_buf(),
-        false => app.parent().unwrap_or(Path::new(".")).to_path_buf(),
-    };
     let dir = out.unwrap_or_else(|| root.join(".exact").join("tamber"));
     let source = path
         .file_name()
@@ -493,6 +586,7 @@ pub fn run(args: &[String]) -> ExitCode {
             ("tamber.css", css(&folding)),
         ],
         "swift" => vec![("tamber.swift", swift(&folding, &source))],
+        "kotlin" => vec![("TamberTokens.kt", kotlin(&folding, &source))],
         _ => vec![("tamber.rs", rust(&folding, &source))],
     };
     for (name, text) in files {

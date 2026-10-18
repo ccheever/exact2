@@ -99,5 +99,33 @@ final class PaintMotionIOSTests: XCTestCase {
         session.noteAppearance(view)
         XCTAssertNil(session.viewDark[view.id], "it agrees again")
     }
+
+    func testAFlatLeafInItsParentsOwnAppearanceIsNoted() throws {
+        let session = ExactApp.shared.makeSession(label: "paint-leaf-scheme")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        session.scheme(dark: false)
+        let p = session.presenter
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        p.apply(wireBatch([
+            ["op": "create", "id": 90_001, "kind": "view"],
+            ["op": "create", "id": 90_002, "kind": "view",
+             "style": ["width": 10.0, "height": 10.0, "background_color": [[255.0, 255.0, 255.0, 255.0], [0.0, 0.0, 0.0, 255.0]]]],
+            ["op": "frame", "id": 90_002, "x": 0.0, "y": 0.0, "w": 10.0, "h": 10.0],
+            ["op": "children", "id": 90_001, "ids": [90_002]],
+            ["op": "roots", "ids": [90_001]],
+            ["op": "frame", "id": 90_001, "x": 0.0, "y": 0.0, "w": 100.0, "h": 100.0],
+        ]))
+        XCTAssertTrue(p.flats.isFlat(90_002))
+        XCTAssertNil(session.viewDark[90_002], "it agrees with the session")
+        // A sheet's dark override: the leaf's pair, and its transitions, resolve dark.
+        let parent = try XCTUnwrap(p.views[90_001])
+        parent.overrideUserInterfaceStyle = .dark
+        parent.updateTraitsIfNeeded()
+        XCTAssertEqual(session.viewDark[90_002], true)
+    }
 }
 #endif

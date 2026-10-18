@@ -12,7 +12,7 @@ pub const NOW_REFUSED: &str = "`now()` is not in Contract: write `performanceNow
 /// The roster functions written as a call on their first argument, the web's
 /// method of the same name and meaning (@ref LLP 1116.015 D2): `s.trim()`,
 /// `xs.map(x => …)`. `length` is the property `xs.length`.
-pub const METHODS: [&str; 17] = [
+pub const METHODS: [&str; 19] = [
     "isEmpty",
     "toString",
     "includes",
@@ -20,6 +20,7 @@ pub const METHODS: [&str; 17] = [
     "endsWith",
     "trim",
     "toLowerCase",
+    "toUpperCase",
     "slice",
     "concat",
     "indexOf",
@@ -30,6 +31,7 @@ pub const METHODS: [&str; 17] = [
     "filter",
     "join",
     "toFixed",
+    "flat",
 ];
 
 /// Whether `name` is written `x.name(…)`.
@@ -73,6 +75,8 @@ pub fn method_fix(name: &str) -> String {
         "replace" => "write `s.replaceAll(find, with)`: the web's `replaceAll` with a string `find`; Contract has no regular expressions".into(),
         // `Date.now()`, `performance.now()`.
         "now" => NOW_REFUSED.into(),
+        // @ref LLP 1116.016 §5 — Exact's function, as `sum` is.
+        "sortBy" => "write `sortBy(xs, x => key)`: Exact's own function, not a method of the list (a method is TypeScript's, and TypeScript has no `sortBy`)".into(),
         _ => match refusal(name) {
             Some(why) => why,
             None => match nearest_method(name) {
@@ -131,15 +135,24 @@ pub fn refusal(name: &str) -> Option<String> {
                 "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): write {instead}, or compute it in the data source and hand the view the result"
             )
         }
+        // @ref LLP 1116.016 §5 — a comparator's result is left to each
+        // engine when it is inconsistent; one key, stable, is the same everywhere.
+        "sort" | "toSorted" => format!(
+            "`{name}` is refused: a list is never changed in place, and a comparator is not Contract's; write `sortBy(xs, x => x.name)`, a stable sort by one number or string key (`sortBy(xs, x => x.count, \"desc\")` for descending, equal keys keeping their order, so a second key is an earlier `sortBy`). A locale's collation, a stored or canonical order, and rows the view has not loaded are still the data module's: order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
+        ),
         // LLP 1116.016 §7: told only to sort in the data source, a builder
         // writing the view alone dropped the order; named, it kept it.
-        "sort" | "sortBy" | "toSorted" | "reverse" | "toReversed" => format!(
+        "reverse" | "toReversed" => format!(
             "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
         ),
         "reduce" | "reduceRight" => format!(
             "`{name}` is refused (LLP 1017.003): a total is `sum(xs)`, or `sum(xs.map(x => …))` over a field; compute any other fold in the data source and hand the view the result"
         ),
-        "findLast" | "flatMap" | "flat" | "forEach" => format!(
+        // `flat` joined the roster at depth 1 (2026-10-17); `flatMap` is it
+        // after `map` when the callback returns a list, and `map` alone when
+        // it returns one value, which `flatMap` keeps as it is.
+        "flatMap" => "`flatMap` is refused (LLP 1017.003): when the callback returns a list, write `xs.map(x => …).flat()`, which joins them; when it returns one value, `xs.map(x => …)` is the same list".into(),
+        "findLast" | "forEach" => format!(
             "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         // @ref LLP 1088 D7.4 — the web's string and list spellings an agent
@@ -152,6 +165,8 @@ pub fn refusal(name: &str) -> Option<String> {
         "floor" | "ceil" | "round" | "sin" | "cos" => format!(
             "write `{name}(n)`: `Math.{name}(n)`, written as a function"
         ),
+        // @ref LLP 1027.000 D1 — a draw is a pure function of a seed passed in.
+        "random" => "Contract has no ambient randomness (LLP 1027.000 D1): a draw comes from a seed passed to a pure function. For rolls in an expression, copy `roll(seed, k, n)` from docs/recipes/random-rolls.md: `1 + roll(time.seed, rolls, 6)` is a die, with `time` an `exactTime()` resource and `rolls` a counter in state; a deal or a shuffle is the data module's (docs/recipes/random-and-shuffle.md)".into(),
         "String" => "write `x.toString()`, or a template, `` `${x}` ``".into(),
         "useEffect" | "useState" | "useMemo" | "watch" | "effect" | "onChange" => format!(
             "Contract has no `{name}`, nor code that runs because a value changed (LLP 1116.016 D0): an action runs on an event and assigns what changes, a `derive` is a value computed from others, and a timer is a gated `task` (`task t when cond` with `after(ms, action)`)"
@@ -166,7 +181,6 @@ pub fn refusal(name: &str) -> Option<String> {
         "pow" | "sqrt" | "abs" => format!(
             "`{name}` is not in Contract: `x * x` is a square and `max(x, -x)` a magnitude; compute other maths in the data source and hand the view the result"
         ),
-        "toUpperCase" => "display casing is CSS: `text-transform=\"uppercase\"`; Contract has no `toUpperCase` (LLP 1088 D2)".into(),
         // LLP 1116.018: repairs changed what an unreadable field shows
         // without saying so; the message names where the two differ.
         "Number" | "parseInt" | "parseFloat" => {

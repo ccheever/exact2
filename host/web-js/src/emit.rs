@@ -145,6 +145,9 @@ struct Em<'a> {
     uses: Uses,
     out: String,
     classes: Vec<String>,
+    /// Each distinct set of state looks (LLP 1121 D8), `data-exact-looks`
+    /// index plus one.
+    looks: Vec<Vec<(u8, String)>>,
 
     paint: bool,
     warnings: Vec<String>,
@@ -224,6 +227,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         uses: Uses::default(),
         out: String::new(),
         classes: Vec::new(),
+        looks: Vec::new(),
         paint,
         warnings,
         row_actions: Default::default(),
@@ -762,6 +766,10 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let _ = write!(css, ".c{}{{{c}}}", i + 1);
     }
     css.push('}');
+    for (i, looks) in em.looks.iter().enumerate() {
+        let at = format!("[data-exact-looks=\"{}\"]", i + 1);
+        css.push_str(&exact_web::host::template::look_rules(&at, looks));
+    }
     // The classes that set a scheme read the theme's text on it.
     css.push_str(&exact_kernel::style::roles::scheme_classes(&em.classes));
     css.push_str(&modes.as_ref().map_or(String::new(), |m| m.css(plan)));
@@ -949,6 +957,10 @@ impl Em<'_> {
         // tablist and a menu theirs (LLP 1115.000 D4.5).
         if presence.contains("--exact-press:")
             || presence.contains("--exact-press-haptic:")
+            || presence.contains("--exact-press-opacity:")
+            || presence.contains("--exact-press-opacity-to:")
+            || presence.contains("--exact-press-background-color:")
+            || presence.contains("--exact-press-color:")
             || attrs.iter().any(|a| {
                 a.0 == "data-button-style"
                     || (a.0 == "role" && ["radiogroup", "tablist", "menu"].contains(&a.1.as_str()))
@@ -965,6 +977,17 @@ impl Em<'_> {
         }
         if element == "a" {
             attrs.push(("data-view".into(), String::new()));
+        }
+        // Its state looks, by the rules the sheet carries for their set.
+        if !parts.looks.is_empty() {
+            let at = match self.looks.iter().position(|l| *l == parts.looks) {
+                Some(at) => at,
+                None => {
+                    self.looks.push(parts.looks.clone());
+                    self.looks.len() - 1
+                }
+            };
+            attrs.push(("data-exact-looks".into(), (at + 1).to_string()));
         }
         if let Some(id) = self.exact_id(i) {
             attrs.push(("data-exact-id".into(), id));
@@ -1372,6 +1395,7 @@ impl Em<'_> {
         } else {
             self.children(self.sites.of_node(i), &e, scope)?;
         }
+        self.live_time(i, element, &e, scope)?;
         if panel {
             self.out.push_str("});");
         }

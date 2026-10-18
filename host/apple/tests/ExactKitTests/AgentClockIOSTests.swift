@@ -149,14 +149,21 @@ final class AgentClockIOSTests: XCTestCase {
         events = []
         XCTAssertEqual(agent.recognizedPan("down", ["id": Int(node.id)])?["delivery"] as? String, "recognized")
         XCTAssertEqual(events, ["down node", "down outer"], "down as it lands")
+        XCTAssertTrue(node.pressed, "held, the target shows its press")
+        XCTAssertFalse(outer.pressed)
         _ = agent.recognizedPan("hold", ["ms": 800.0])
         let up = try XCTUnwrap(agent.recognizedPan("up", [:]))
         XCTAssertEqual(events, ["down node", "down outer", "up node", "press"], "\(up)")
+        XCTAssertFalse(node.pressed, "released at the lift")
         events = []
         _ = agent.recognizedPan("down", ["id": Int(node.id)])
         _ = agent.recognizedPan("move", ["dx": 200.0, "ms": 16.0])
         _ = agent.recognizedPan("up", [:])
         XCTAssertEqual(events, ["down node", "down outer", "up node"], "lifted beside it: no press")
+        XCTAssertFalse(node.pressed)
+        _ = agent.recognizedPan("down", ["id": Int(node.id)])
+        _ = agent.recognizedPan("cancel", [:])
+        XCTAssertFalse(node.pressed, "released at a cancel")
         XCTAssertNil(agent.recognizedPan("down", ["id": Int(node.id), "pan": true]), "a drag's contact is a pan's or none")
     }
 
@@ -165,6 +172,26 @@ final class AgentClockIOSTests: XCTestCase {
     /// its own down disables still hears its release; a view the pool
     /// reuses for another node is not the held one. A press while a contact
     /// is held is refused; the samples carry the modifiers held.
+    func testAHeldFingersPressIsJudgedAgainstTheUnpressedBox() throws {
+        let session = try booted(), p = session.presenter
+        let node = NodeView(id: UInt32.max, kind: "view", presenter: p)
+        p.views[node.id] = node
+        node.frame = CGRect(x: 0, y: 200, width: 100, height: 40)
+        node.handlers = ["press"]
+        node.applyStyle(["press_scale": 0.5])
+        p.viewport.addSubview(node)
+        var pressed = 0
+        p.onPress = { _ in pressed += 1 }
+        let agent = Agent(session: session)
+        // Four points inside its left edge: outside the box drawn at half size, inside the box it presses as.
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(node.id), "x": 4.0, "y": 220.0])?["delivery"] as? String, "recognized")
+        XCTAssertTrue(node.pressed)
+        _ = agent.recognizedPan("move", ["dx": 0.0, "dy": 0.0])
+        XCTAssertTrue(node.pressed, "a still finger stays pressed")
+        _ = agent.recognizedPan("up", [:])
+        XCTAssertEqual(pressed, 1, "the lift presses it")
+    }
+
     func testAHeldFingerKeepsItsNodesAndATapItsTarget() throws {
         let session = try booted(), p = session.presenter
         let make = { (id: UInt32) -> NodeView in

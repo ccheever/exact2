@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -41,6 +41,26 @@ async function ask(tamber, gate, { path, method = 'GET', headers = {}, peer = '1
   const handled = await tamber.handle(req, res, new URL(path, 'http://x'), gate.check(req));
   return { handled, status, body: text ? JSON.parse(text) : null };
 }
+
+test('close() signals the server\'s group only by a pid of its own: a missing, 0 or 1 pid ends the child by its own kill', async () => {
+  const kill = process.kill;
+  const groups = [];
+  // Recorded, never sent: a pid of 0 or 1 here would reach this test's own group, or every process.
+  process.kill = (pid, signal) => { if (signal === 0 || signal === undefined) return kill.call(process, pid, signal); groups.push(pid); return true; };
+  try {
+    for (const pid of [undefined, 0, 1]) {
+      let child;
+      const spawnServe = () => (child = Object.assign(fakeServe(), pid === undefined ? {} : { pid }));
+      const tamber = tamberServer({ appDir: '/nowhere', spawnServe, log: () => {} });
+      await tamber.ready;
+      await tamber.close();
+      expect(groups).toEqual([]);
+      expect(child.exitCode).toBe(0);
+    }
+  } finally {
+    process.kill = kill;
+  }
+});
 
 test('a stale selection asks its build again once per status, its status first; a current one is joined with the map the dev loop gives', async () => {
   const map = { digest: 'p1', sources: [{ file: 'exact:app', sha256: 'x' }], nodes: [{ file: 'exact:app', line: 3, col: 5, end_col: 9, component: 'App', chain: [], bindings: [{ row: 'background_color', origin: 'own' }] }] };
@@ -474,6 +494,14 @@ test('no web build ships inspect: it lives in dev.js, which no build copies', as
   expect(Object.keys(shipped)).not.toContain('dev.js');
   for (const [name, source] of Object.entries(shipped)) if (name.endsWith('.js')) expect([name, readFileSync(resolve(ROOT, source), 'utf8').includes('exact-inspect')]).toEqual([name, false]);
   expect(readFileSync(resolve(ROOT, 'host/web/dev.js'), 'utf8')).toContain('exact-inspect');
+  // The JS target's half, and its table, are served by its dev loop
+  // (inspect-dev.js; `exact-web-js inspect-table` when first asked): no
+  // build makes or copies either.
+  const build = readFileSync(resolve(ROOT, 'host/web-js/build.mjs'), 'utf8');
+  expect(build).not.toContain('inspect-dev.js');
+  expect(build).not.toContain('dev-inspect');
+  expect(readFileSync(resolve(ROOT, 'host/web-js/dev.mjs'), 'utf8')).toContain("url.pathname === '/dev-inspect.json'");
+  expect(readFileSync(resolve(ROOT, 'host/web-js/inspect-dev.js'), 'utf8')).toContain('exact-inspect');
 });
 
 // LLP 1122 T2b: inspect mode in the wasm host, on the theme fixture's page.
@@ -605,6 +633,109 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
   }
 }, 900_000);
 
+// LLP 1122 T2b, the JS target: the same node on the theme fixture answers
+// the same on the JS loop as on the wasm loop (the gate's line), its rows
+// built in the page from the build's inspect table, and the join and
+// outline drawn from the page's own plan's map.
+test('inspect on the JS page: no tap reaches the app, and each node answers as on the wasm page, row for row, joined to the same source, with the same editability', async () => {
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const ids = ['page', 'dim', 'swap', 'card', 'light', 'dim-preview', 'black-preview'];
+  const polls = [], stops = [];
+  try {
+    const answers = [];
+    // One loop at a time (each builds; two would wait on each other's Cargo).
+    for (const flags of [['--wasm'], []]) {
+      const loop = await devLoop(flags, 'theme-fixture'), { base, said } = loop;
+      stops.push(loop.stop);
+      const { token } = await (await fetch(`${base}/__tamber/token`)).json();
+      const post = async (body, path = '/__tamber') => (await fetch(`${base}${path}`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(body) })).json();
+      const events = [], state = { polling: true };
+      polls.push(state);
+      const poll = (async () => { let after = 0, epoch; while (state.polling) { const r = await post(epoch ? { after, epoch, client: 'tool' } : { after: 0, wait: false, client: 'tool' }, '/__tamber/events'); events.push(...(r.events ?? [])); after = r.seq ?? after; epoch = r.epoch; } })();
+      const until = async (pass, ms = 30_000, what = '') => { const end = Date.now() + ms; for (;;) { const got = await pass(); if (got) return got; if (Date.now() > end) throw new Error(`not seen: ${what} on ${base}: ${JSON.stringify(events.slice(-3)).slice(0, 600)}`); await new Promise(ok => setTimeout(ok, 200)); } };
+      const page = await browser.newPage({ viewport: { width: 420, height: 900 } });
+      await page.goto(`${base}/`);
+      await until(() => said().includes('plan ready'), 300_000);
+      const build = await until(async () => (await post({ method: 'hello' })).ok?.builds?.find(b => b.host.startsWith('web')), 120_000);
+      expect(build.capabilities).toContain('inspect');
+      const dim = () => page.locator('[data-testid="dim-preview"]').evaluate(e => getComputedStyle(e).backgroundColor);
+      const before = await dim();
+      expect((await post({ method: 'inspect', client: 'tool', on: true })).ok).toEqual({ builds: [build.id], unsupported: [] });
+      await page.locator('#exact-inspect').waitFor();
+      const got = {};
+      for (const id of ids) {
+        const box = await page.locator(`[data-testid="${id}"]`).first().boundingBox();
+        const seen = events.length;
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        const selected = await until(() => events.slice(seen).find(e => e.event === 'selected'), 30_000, `${id} selected`);
+        const selection = await until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, `${id} selection`);
+        got[id] = { selected, selection };
+      }
+      // Swap pins was clicked: the app never heard it.
+      expect(await dim()).toBe(before);
+      // The selection's copies are outlined on the page.
+      await until(async () => (await page.locator('[data-exact-outline]').count()) >= 1);
+      // Escape leaves, and the server's clients are told.
+      await page.keyboard.press('Escape');
+      await page.locator('#exact-inspect').waitFor({ state: 'detached' });
+      await until(() => events.find(e => e.event === 'selected' && e.selected === null));
+      answers.push({ build, got });
+      state.polling = false;
+      await poll.catch(() => {});
+      await page.close();
+      await loop.stop();
+    }
+    const [wasm, js] = answers;
+    expect(js.build.host).toBe('web-js');
+    expect(js.build.planDigest).toBe(wasm.build.planDigest);
+    // A row as both say it: its value, source and token (a view id differs by page).
+    // (And no row the wasm page reads from the kernel is the JS page's computed CSS.)
+    const rows = (s) => s.rows.map(({ name, value, source, token, computed }) => ({ name, value, source, token: token ?? null, computed: !!computed }));
+    for (const id of ids) {
+      const [a, b] = [wasm.got[id], js.got[id]];
+      expect([id, b.selected.selected.site, b.selected.selected.type, b.selected.selected.testId, b.selected.selected.instance, b.selected.selected.tuple]).toEqual([id, a.selected.selected.site, a.selected.selected.type, a.selected.selected.testId, a.selected.selected.instance, a.selected.selected.tuple]);
+      expect([id, rows(b.selected.selected)]).toEqual([id, rows(a.selected.selected)]);
+      // The same source, and the same editability, row for row.
+      expect([id, b.selection.source.line, b.selection.readOnly]).toEqual([id, a.selection.source.line, a.selection.readOnly]);
+      expect([id, b.selection.rows.map(r => [r.name, r.editable])]).toEqual([id, a.selection.rows.map(r => [r.name, r.editable])]);
+    }
+  } finally {
+    for (const p of polls) p.polling = false;
+    await browser.close();
+    for (const stop of stops) await stop();
+  }
+}, 900_000);
+
+test('the JS loop: its own design server\'s lock is no edit, and an atomic save over the design is a value batch', async () => {
+  // An app of its own, so no other test's fixture moves under it.
+  const dir = mkdtempSync(join(tmpdir(), 'exact-atomic-save-'));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Atomic save', app: { id: 'com.exact.atomic-save', name: 'Atomic save' } }));
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    column background-color="surface.card" min-height=40\n      text "card"\n');
+  const file = join(dir, 'app.tamber'), was = 'tamber atomic\n\ntheme\n  surface.card = light-dark(#f1f3f5, #16181c)\n';
+  writeFileSync(file, was);
+  let loop = null;
+  try {
+    loop = await devLoop([], dir);
+    const { said } = loop;
+    const until = async (pass, ms) => { const end = Date.now() + ms; while (!pass()) { if (Date.now() > end) throw new Error(`not seen in: ${said().slice(-2000)}`); await new Promise(ok => setTimeout(ok, 200)); } };
+    // The design server has its lock in .exact/ and the reader is built:
+    // the loop's own start made no edit.
+    await until(() => said().includes('plan ready') && said().includes('design reader ready') && existsSync(join(dir, '.exact', 'tamber.lock')), 900_000);
+    expect(said()).not.toContain('edit →');
+    // An editor's atomic save: a temporary beside the design, renamed over it.
+    writeFileSync(`${file}.tmp`, was.replace('#16181c)', '#101010)'));
+    renameSync(`${file}.tmp`, file);
+    // The batch, then its verifying build's word that it stands.
+    await until(() => said().includes('edit → checked'), 300_000);
+    expect(said()).toMatch(/edit → batch ready/);
+    expect(said()).not.toContain('edit → plan ready');
+  } finally {
+    await loop?.stop().catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 1_200_000);
+
 test('the wasm loop\'s HTML, its page, install page and /__dev/open, may be framed only by the design tool\'s origin and its own', async () => {
   const { base, stop } = await devLoop(['--wasm'], 'caltrain');
   try {
@@ -623,7 +754,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.9');
+      expect(hello.protocol).toBe('tamber/1.11');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.
@@ -837,23 +968,25 @@ test("an import is held as proposals: the tokens as one, each role override apar
   try {
     expect(await importTheme(['shadcn', css, origin, '--app', dir])).toBe(0);
   } finally { console.log = log; }
-  expect(said[0]).toBe('shadcn: 47 source values, 46 mapped, 1 reported');
+  expect(said[0]).toBe('shadcn: 47 source values, 47 mapped, 0 reported');
   await stream.until(e => e.some(x => x.event === 'proposal' && x.client === 'import:shadcn'));
   const held = stream.events.find(x => x.event === 'proposal' && x.client === 'import:shadcn');
-  expect(held.ops.length).toBe(28);
-  expect(held.review.tokens).toBe(23);
-  expect(held.review.offers.map(o => [o.role, o.items])).toEqual([['-exact-background', [23]], ['-exact-label', [24]], ['-exact-secondary-background', [25]], ['-exact-separator', [26]], ['AccentColor', [27]]]);
-  expect(held.review.unmapped.map(u => u.name)).toContain('--radius');
+  // 23 colours, `--radius` a length and its derived `lg` (stage 6 H).
+  expect(held.ops.length).toBe(30);
+  expect(held.review.tokens).toBe(25);
+  expect(held.review.offers.map(o => [o.role, o.items])).toEqual([['-exact-background', [25]], ['-exact-label', [26]], ['-exact-secondary-background', [27]], ['-exact-separator', [28]], ['AccentColor', [29]]]);
+  expect(held.review.unmapped.map(u => u.name)).toContain('--radius-sm');
   // The overrides left off: the tokens alone, recomputed, then accepted.
-  const part = await post({ method: 'accept', client: 'person', proposal: held.proposal, items: [...Array(23).keys()] });
+  const part = await post({ method: 'accept', client: 'person', proposal: held.proposal, items: [...Array(25).keys()] });
   expect(part.ok.recomputed).toBe(true);
   // Its review kept, the overrides' items gone with them.
-  expect(part.ok.review.unmapped.map(u => u.name)).toContain('--radius');
+  expect(part.ok.review.unmapped.map(u => u.name)).toContain('--radius-sm');
   expect(part.ok.review.offers.every(o => o.items.length === 0)).toBe(true);
   expect((await post({ method: 'accept', client: 'person', proposal: part.ok.proposal })).status).toBe(200);
   const text = readFileSync(join(dir, 'app.tamber'), 'utf8');
   expect(text).toContain('shadcn.background = light-dark(oklch(1 0 0), oklch(0.145 0 0))');
   expect(text).not.toContain('-exact-background');
+  expect(text).toContain('shadcn.radius: length = 0.625rem');
   said.length = 0;
   console.log = line => said.push(line);
   try {
@@ -946,6 +1079,8 @@ test('history reads three design commits as token edits; a revert applies, is re
     expect(second.files[0]).toMatchObject({ file: 'app.tamber', status: 'M', edits: [{ what: 'token', name: 'edge', when: [], before: '#101010', after: '#202020' }] });
     expect(second.files[0].diff).toContain('+  edge = #202020');
     expect(third.files[0].edits.map(e => [e.name, e.before, e.after])).toEqual([['ink', '#000000', '#111111'], ['card', null, '#303030']]);
+    // Its app.contract has no state part: not the design's (stage 8 D).
+    expect(first.files.map(f => f.file)).toEqual(['app.tamber']);
     expect(first.files[0].status).toBe('A');
     expect(first.files[0].edits.map(e => [e.what, e.name])).toEqual([['other', 'name'], ['token', 'ink'], ['token', 'edge']]);
     const page = await call({ method: 'history', limit: 1, skip: 1 });
@@ -1005,8 +1140,9 @@ test('history reads three design commits as token edits; a revert applies, is re
     const imported = await call({ method: 'import', client: 'design-tool:ada', kind: 'shadcn', source: css, name: 'globals.css' });
     expect(imported.status, JSON.stringify(imported)).toBe(200);
     expect(imported.ok.client).toBe('design-tool:ada');
-    expect(imported.ok.ops).toHaveLength(28);
-    expect(imported.ok.review).toMatchObject({ importer: 'shadcn', counted: { source: 47, mapped: 46, reported: 1 }, tokens: 23 });
+    // 23 colours, `--radius` a length and its derived `lg` (LLP 1121 stage 6 H).
+    expect(imported.ok.ops).toHaveLength(30);
+    expect(imported.ok.review).toMatchObject({ importer: 'shadcn', counted: { source: 47, mapped: 47, reported: 0 }, tokens: 25 });
     expect(imported.ok.review.offers.map(o => o.role)).toEqual(['-exact-background', '-exact-label', '-exact-secondary-background', '-exact-separator', 'AccentColor']);
     expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(V1.replace('#000000', '#121212'));
     // A stylesheet's importer takes one sheet, never silently the first of two.
@@ -1018,7 +1154,7 @@ test('history reads three design commits as token edits; a revert applies, is re
     const sources = readdirSync(figma).map(name => ({ name, text: readFileSync(join(figma, name), 'utf8') }));
     const modes = await call({ method: 'import', client: 'design-tool:ada', kind: 'dtcg', sources });
     expect(modes.status, JSON.stringify(modes).slice(0, 400)).toBe(200);
-    expect(modes.ok.review.counted).toEqual({ source: 104, mapped: 40, reported: 64 });
+    expect(modes.ok.review.counted).toEqual({ source: 104, mapped: 101, reported: 3 });
     // A design file whose name git quotes still has its diff.
     writeFileSync(join(repo, 'ünï.tamber'), 'tamber u\n\ntheme\n  u.ink = #010101\n');
     g('add', 'ünï.tamber'); g('commit', '-q', '-m', 'a named file');
@@ -1102,6 +1238,192 @@ test("a held revert keeps its untouched files' digests and a person's selection 
     expect(again2.ok?.ops.map(o => o.op.value), JSON.stringify(again2)).toEqual(['dim']);
     // A client's own review cannot pose as a revert.
     expect((await call({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'ink', value: '#090909' }], review: { revert: { commit, only: {} } } })).status).toBe(400);
+  } finally {
+    await wire.close();
+    listener.close();
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 600_000);
+
+// LLP 1121 stage 8 D: the app's own `.contract` files are the server's too:
+// a hand edit of a state part is announced, a `set-state` is a session's
+// write that `commit` takes, and a file dirty at its baseline is refused.
+test("the app's .contract: a hand edit is announced, set-state is committed, and one dirty at its baseline refused", async () => {
+  const VIEW = 'style Post\n  background-color="#0a7aff"\n\ncomponent App\n  view\n    column class=Post\n      text "Post"\n';
+  const repo = mkdtempSync(join(tmpdir(), 'exact-tamber-contract-'));
+  const env = { ...process.env, GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.test', GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.test' };
+  const g = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', env });
+  writeFileSync(join(repo, 'app.contract'), VIEW);
+  writeFileSync(join(repo, 'app.tamber'), 'tamber t\n\ntheme\n  ink = #000000\n');
+  g('init', '-q'); g('config', 'user.email', 'ada@example.test'); g('config', 'user.name', 'Ada'); g('add', '.'); g('commit', '-q', '-m', 'app');
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  let wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+  listener.on('request', async (req, res) => {
+    if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); }
+  });
+  const at = `http://127.0.0.1:${port}`;
+  let token;
+  const call = async request => {
+    const res = await fetch(`${at}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) });
+    return { status: res.status, ...(await res.json()) };
+  };
+  const digest = f => createHash('sha256').update(readFileSync(join(repo, f))).digest('hex');
+  const active = value => ({ op: 'set-state', style: 'Post', state: 'active', row: 'background-color', value });
+  try {
+    await wire.ready;
+    ({ token } = await (await fetch(`${at}/__tamber/token`)).json());
+    const res = await fetch(`${at}/__tamber/subscribe`, { method: 'POST', headers: { 'x-exact-tamber-token': token } });
+    const reader = res.body.getReader(), decoder = new TextDecoder(), events = [];
+    let buf = '';
+    (async () => { for (;;) { const { value, done } = await reader.read().catch(() => ({ done: true })); if (done) return; buf += decoder.decode(value, { stream: true }); const parts = buf.split('\n\n'); buf = parts.pop(); for (const p of parts) if (p.startsWith('data: ')) events.push(JSON.parse(p.slice(6))); } })();
+    const until = async pass => { const end = Date.now() + 5000; while (!pass(events)) { if (Date.now() > end) throw new Error(JSON.stringify(events)); await Bun.sleep(20); } };
+    await until(e => e[0]?.event === 'subscribed');
+    // A hand edit of the Contract source, a state part added: announced.
+    writeFileSync(join(repo, 'app.contract'), VIEW.replace('  background-color="#0a7aff"\n', '  background-color="#0a7aff"\n  :hover\n    opacity=0.9\n'));
+    await until(e => e.some(x => x.event === 'changed' && x.client === null && x.edited?.includes('app.contract')));
+    writeFileSync(join(repo, 'app.contract'), VIEW);
+    await until(e => e.at(-1)?.files?.['app.contract'] === digest('app.contract'));
+    // A set-state: the session's write, which commit takes.
+    const done = await call({ method: 'transaction', client: 'agent', files: { 'app.contract': digest('app.contract') }, ops: [active('#0050c8')] });
+    expect(done.status, JSON.stringify(done)).toBe(200);
+    expect(done.ok.class).toBe('rebuild');
+    expect(readFileSync(join(repo, 'app.contract'), 'utf8')).toContain('  :active\n    background-color="#0050c8"\n');
+    const committed = await call({ method: 'commit', client: 'person', message: 'design: a pressed post' });
+    expect(committed.status, JSON.stringify(committed)).toBe(200);
+    expect(committed.ok.files).toEqual(['app.contract']);
+    // Dirty at its baseline: a session that writes it refuses to commit it.
+    writeFileSync(join(repo, 'app.contract'), readFileSync(join(repo, 'app.contract'), 'utf8').replace('#0a7aff', '#0b7bff'));
+    await until(e => e.at(-1)?.files?.['app.contract'] === digest('app.contract'));
+    await wire.close();
+    wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+    await wire.ready;
+    ({ token } = await (await fetch(`${at}/__tamber/token`)).json());
+    const again = await call({ method: 'transaction', client: 'agent', files: { 'app.contract': digest('app.contract') }, ops: [active('#003399')] });
+    expect(again.status, JSON.stringify(again)).toBe(200);
+    const refused = await call({ method: 'commit', client: 'person' });
+    expect(refused.status).toBe(400);
+    expect(refused.error.refused.find(r => r.file === 'app.contract').why).toContain('differed from HEAD');
+    reader.cancel();
+  } finally {
+    await wire.close();
+    listener.close();
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 600_000);
+// Stage 8 D, review round 2: a held set-state with no `file` is guarded by
+// the Contract sources it does not write; a source two directories down is
+// still watched after its directory is replaced empty and filled again.
+test("a held set-state is guarded by the other Contract sources, and a replaced directory's source stays watched", async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'exact-tamber-contract2-'));
+  mkdirSync(join(repo, 'src/ui'), { recursive: true });
+  const POST = 'style Post\n  background-color="#0a7aff"\n\ncomponent PostButton\n  view\n    column class=Post\n      text "Post"\n';
+  writeFileSync(join(repo, 'src/ui/post.contract'), POST);
+  writeFileSync(join(repo, 'app.contract'), 'use PostButton from "./src/ui/post.contract"\ncomponent App\n  view\n    PostButton()\n');
+  writeFileSync(join(repo, 'app.tamber'), 'tamber t\n\ntheme\n  ink = #000000\n');
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+  listener.on('request', async (req, res) => {
+    if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); }
+  });
+  const at = `http://127.0.0.1:${port}`;
+  let token;
+  const call = async request => {
+    const res = await fetch(`${at}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) });
+    return { status: res.status, ...(await res.json()) };
+  };
+  const digest = f => createHash('sha256').update(readFileSync(join(repo, f))).digest('hex');
+  try {
+    await wire.ready;
+    ({ token } = await (await fetch(`${at}/__tamber/token`)).json());
+    const res = await fetch(`${at}/__tamber/subscribe`, { method: 'POST', headers: { 'x-exact-tamber-token': token } });
+    const reader = res.body.getReader(), decoder = new TextDecoder(), events = [];
+    let buf = '';
+    (async () => { for (;;) { const { value, done } = await reader.read().catch(() => ({ done: true })); if (done) return; buf += decoder.decode(value, { stream: true }); const parts = buf.split('\n\n'); buf = parts.pop(); for (const p of parts) if (p.startsWith('data: ')) events.push(JSON.parse(p.slice(6))); } })();
+    const until = async pass => { const end = Date.now() + 5000; while (!pass(events)) { if (Date.now() > end) throw new Error(JSON.stringify(events)); await Bun.sleep(20); } };
+    await until(e => e[0]?.event === 'subscribed');
+    const files = { 'app.contract': digest('app.contract'), 'src/ui/post.contract': digest('src/ui/post.contract') };
+    const held = await call({ method: 'propose', hold: true, client: 'agent', files, ops: [{ op: 'set-state', style: 'Post', state: 'active', row: 'opacity', value: 0.8 }] });
+    expect(held.status, JSON.stringify(held)).toBe(200);
+    expect(held.ok.texts).toBeUndefined();
+    // A hand edit of the source it does not write: the accept is refused.
+    writeFileSync(join(repo, 'app.contract'), `${readFileSync(join(repo, 'app.contract'), 'utf8')}// moved\n`);
+    await until(e => e.some(x => x.client === null && x.edited?.includes('app.contract')));
+    const taken = await call({ method: 'accept', client: 'person', proposal: held.ok.proposal });
+    expect(taken.status, JSON.stringify(taken)).toBe(409);
+    expect(readFileSync(join(repo, 'src/ui/post.contract'), 'utf8')).toBe(POST);
+    // `src` replaced empty (a read taken then), then filled again.
+    renameSync(join(repo, 'src'), join(repo, 'src.old'));
+    mkdirSync(join(repo, 'src'));
+    await until(e => e.some(x => x.event === 'changed' && x.files && !('src/ui/post.contract' in x.files)));
+    mkdirSync(join(repo, 'src/ui'));
+    writeFileSync(join(repo, 'src/ui/post.contract'), POST);
+    await until(e => e.at(-1)?.files?.['src/ui/post.contract'] === digest('src/ui/post.contract'));
+    await Bun.sleep(400);
+    writeFileSync(join(repo, 'src/ui/post.contract'), POST.replace('#0a7aff', '#0b7bff'));
+    await until(e => e.at(-1)?.files?.['src/ui/post.contract'] === digest('src/ui/post.contract'));
+    reader.cancel();
+  } finally {
+    await wire.close();
+    listener.close();
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 600_000);
+// The app's own .contract files are in history and revert too (stage 8 D's
+// follow-up): a commit's state rows are edits, its other lines `code`,
+// which a revert leaves alone.
+test("history reads a .contract commit's state rows, and a revert undoes them, leaving its code", async () => {
+  const V1 = 'style Post\n  background-color="#0a7aff"\n\ncomponent App\n  view\n    column class=Post\n      text "Post"\n';
+  const V2 = 'style Post\n  background-color="#0a7aff"\n  :active\n    opacity=0.5\n\ncomponent App\n  view\n    column class=Post\n      text "Posted"\n';
+  const repo = mkdtempSync(join(tmpdir(), 'exact-tamber-history-contract-'));
+  const env = { ...process.env, GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.test', GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.test' };
+  const g = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', env });
+  writeFileSync(join(repo, 'app.tamber'), 'tamber t\n\ntheme\n  ink = #000000\n');
+  writeFileSync(join(repo, 'app.contract'), V1);
+  g('init', '-q'); g('add', '.'); g('commit', '-q', '-m', 'app');
+  writeFileSync(join(repo, 'app.contract'), V2); g('add', '.'); g('commit', '-q', '-m', 'a pressed post');
+  // A commit that changes only a Contract source's code is no design commit.
+  writeFileSync(join(repo, 'app.contract'), V2.replace('Posted', 'Sent')); g('add', '.'); g('commit', '-q', '-m', 'reword');
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+  listener.on('request', async (req, res) => {
+    if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); }
+  });
+  try {
+    await wire.ready;
+    const at = `http://127.0.0.1:${port}`;
+    const { token } = await (await fetch(`${at}/__tamber/token`)).json();
+    const call = async request => {
+      const res = await fetch(`${at}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) });
+      return { status: res.status, ...(await res.json()) };
+    };
+    await call({ method: 'hello', client: 'test' });
+    const log = await call({ method: 'history' });
+    expect(log.ok.commits.map(c => c.message.split('\n')[0])).toEqual(['a pressed post', 'app']);
+    expect(log.status, JSON.stringify(log)).toBe(200);
+    const pressed = log.ok.commits.find(c => c.message.startsWith('a pressed post'));
+    const file = pressed.files.find(f => f.file === 'app.contract');
+    expect(file.edits).toEqual([{ what: 'state', name: 'Post', state: 'active', row: 'opacity', when: [], before: null, after: '0.5' }]);
+    expect(file.code).toBe(true);
+    const held = await call({ method: 'revert', client: 'person', commit: pressed.commit });
+    expect(held.status, JSON.stringify(held)).toBe(200);
+    expect(held.ok.ops).toEqual([{ index: 0, op: { op: 'unset-state', style: 'Post', state: 'active', row: 'opacity', file: 'app.contract' } }]);
+    expect(held.ok.review.revert.code).toEqual(['app.contract']);
+    const taken = await call({ method: 'accept', client: 'person', proposal: held.ok.proposal });
+    expect(taken.status, JSON.stringify(taken)).toBe(200);
+    const now = readFileSync(join(repo, 'app.contract'), 'utf8');
+    expect(now).not.toContain(':active');
+    expect(now).toContain('text "Sent"');
+    // Again: nothing left to revert.
+    expect((await call({ method: 'revert', client: 'person', commit: pressed.commit })).status).toBe(409);
   } finally {
     await wire.close();
     listener.close();

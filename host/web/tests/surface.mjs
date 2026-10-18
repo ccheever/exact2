@@ -1,4 +1,5 @@
 import {assetDelivery} from '../gpu-assets.js';
+import { inertAncestor } from '../navigation.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { glueDeclarations, checkedGlueCall } from './glue-fixture.mjs';
@@ -65,6 +66,7 @@ export async function fixture(options = {}) {
     gpu_destroy() { order.push("next destroy"); }, ...options.nextGpu};
   const source = readFileSync(process.env.E2B_GPU_SOURCE || new URL('../gpu-glue.js', import.meta.url), 'utf8')
     .replace('import { assetDelivery } from "./gpu-assets.js";', '')
+    .replace('import { inertAncestor } from "./navigation.js";', '')
     .replaceAll('import.meta.url', '"http://fixture/"')
     .replace('import { pacer } from "./pace.js";', 'const pacer = () => Object.assign(now => now, {period_ms: 1000 / 120});') // the frame clock is tested in pace.test.mjs
     .replace('await import(`./gpu.js?g=${version}`)', 'await candidate(version)')
@@ -84,6 +86,7 @@ export async function fixture(options = {}) {
     remove() { order.push('remove clone'); this.isConnected = false; }
     replaceWith(el) { order.push("replace"); this.isConnected = false; el.isConnected = true; }
     getAttribute() { return null; }
+    hasAttribute(name) { return name === 'inert' && !!this.inert; }
     removeAttribute() {}
     setAttribute() {}
     addEventListener(name, fn) { const set = this.handlers.get(name) ?? new Set(); set.add(fn); this.handlers.set(name,set); this.listeners[name] = event => [...set].forEach(f => f(event)); }
@@ -100,9 +103,9 @@ export async function fixture(options = {}) {
     }
   }
   await new (Object.getPrototypeOf(async function() {}).constructor)(
-    'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'performance', 'setTimeout',
+    'inertAncestor', 'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'performance', 'setTimeout',
     source + `;exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
-  )(settings => assetDelivery({...settings, ...options.delivery}), { exact }, async version => version ? nextGpu : gpu, document, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
+  )(inertAncestor, settings => assetDelivery({...settings, ...options.delivery}), { exact }, async version => version ? nextGpu : gpu, document, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
     class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, window,
     options.performance ?? globalThis.performance, options.setTimeout ?? globalThis.setTimeout);
   function create(id, name = 'world') {

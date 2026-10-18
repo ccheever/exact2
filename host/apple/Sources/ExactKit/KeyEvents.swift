@@ -83,6 +83,9 @@ extension Presenter {
     /// `stopPropagation()` is the last. True when one called
     /// `preventDefault()`: the caller skips the default action.
     func keyDown(at target: NodeView?, _ name: String, held: String = "", code: String = "", repeats: Bool = false) -> Bool {
+        #if canImport(UIKit)
+        supersedePress()
+        #endif
         let prevented = keyEvent("key", at: target, KeyPress(held + name, code: code, repeats: repeats))
         #if canImport(UIKit)
         if !prevented, name == "Escape", !repeats, menus.dismissPopover() { return true }

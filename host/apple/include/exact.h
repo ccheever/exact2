@@ -302,6 +302,17 @@ typedef ExactButtonMeasure (*ExactButtonMeasureFn)(void *ctx, const ExactButtonM
 void exact_set_button_measure(ExactRuntime rt, ExactButtonMeasureFn measure);
 uint32_t exact_control_text_changed(ExactRuntime rt);
 
+typedef struct {
+    double datetime, now, relative_value;
+    uint32_t relative_unit;
+    double utc_offset;
+    const uint8_t *format; size_t format_len;
+    const uint8_t *locale; size_t locale_len;
+    const uint8_t *time_zone; size_t time_zone_len;
+} ExactTimeRequest;
+/* Return the UTF-8 byte count, writing at most cap bytes. Zero: fallback children. */
+typedef size_t (*ExactTimeFormatFn)(void *, const ExactTimeRequest *, uint8_t *, size_t);
+void exact_set_time_format(ExactRuntime rt, ExactTimeFormatFn format);
 void exact_set_measure(ExactRuntime rt, ExactMeasureFn measure, void *ctx);   /* NULL: a monospace reference measurer */
 /* LLP 1056 D8: one Canvas 2D run measured with Core Text where the draw
  * runs, with the context exact_set_measure was given. The strings live for
@@ -362,6 +373,10 @@ uint32_t exact_baked_compat(ExactRuntime rt);
  * viewport. Returns the first batch's length. A boot that fails leaves the
  * running app, if any, exactly as it was. */
 uint32_t exact_boot(ExactRuntime rt, float width, float height);
+/* Snapshot-only boot: concatenated plan bytes, UTF-8 kind and optional props JSON.
+ * Pure boot reads no store or secrets. Timeline refresh is the only data step. */
+uint32_t exact_boot_entry(ExactRuntime rt, size_t plan, size_t kind, size_t props, float width, float height);
+uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
 uint32_t exact_commit_plan(ExactRuntime rt);
@@ -565,7 +580,8 @@ uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset
  * running runner is not told. A date that does not validate is ignored. */
 uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
 /* Where the viewer is, as exact_set_place's input (locale NUL timeZone NUL
- * seed), for the next boot or candidate; the running runner is not told. */
+ * seed), for the next boot or candidate; the running runner is not told.
+ * Returns zero when accepted, otherwise an error batch length; keeps the last valid fact. */
 uint32_t exact_set_launch_place(ExactRuntime rt, size_t len);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);

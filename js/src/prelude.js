@@ -44,7 +44,7 @@
   fixed(global, "Date", InputDate);
   // Not a second door to randomness: `crypto` below is the secure one.
   fixed(global.Math, "random", function () {
-    throw new Error("Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument");
+    throw new Error("Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument; a roll in the view needs no source (docs/recipes/random-rolls.md)");
   });
   // No timers and no clock to read (LLP 1027.000): refused by name, as the
   // web's module bindings refuse them (host/web-js/ts-fetch.js), rather than
@@ -176,13 +176,12 @@
     : function () { return formatUuid(fillRandom(new Uint8Array(16))); };
   var initializing = true; // until the executor first calls in
   function Crypto() { throw new TypeError("Illegal constructor"); }
+  function answerOnly(api) { if (!currentCall || currentCall.status !== "pending") throw new Error(api + " is unavailable " + (initializing ? "during module initialization" : "outside an answer") + "; call it inside an answer"); }
   var cryptoObject = Object.create(Crypto.prototype);
   function draw(receiver, api, take) {
     if (receiver !== cryptoObject) throw new TypeError("Illegal invocation");
     if (overlaying) throw inOverlay(api);
-    if (!currentCall || currentCall.status !== "pending") {
-      throw new Error(api + " is unavailable " + (initializing ? "during module initialization" : "outside an answer") + "; call it inside an answer");
-    }
+    answerOnly(api);
     var value = take();
     host(8, "", "");
     return value;
@@ -252,9 +251,7 @@
       if (receiver !== subtleObject) throw new TypeError("Illegal invocation");
       if (overlaying) throw inOverlay("crypto.subtle." + member + "()");
       return Promise.resolve(run());
-    } catch (e) {
-      return Promise.reject(e);
-    }
+    } catch (e) { return Promise.reject(e); }
   }
   // Every member the web has; each refuses by name until it is built here.
   ["encrypt", "decrypt", "sign", "verify", "digest", "generateKey", "deriveKey", "deriveBits",
@@ -311,9 +308,7 @@
   }
   function only(usages, which) { return usages.filter(function (u) { return u === which; }); }
   function entropyRead(api) {
-    if (!currentCall || currentCall.status !== "pending") {
-      throw new Error(api + " is unavailable " + (initializing ? "during module initialization" : "outside an answer") + "; call it inside an answer");
-    }
+    answerOnly(api);
     // Natively Rust marks the read where it draws (`exact_data::crypto`).
     if (!bytesDoor) host(8, "", "");
   }
@@ -494,7 +489,7 @@
   // `claimed` once a settle has handed the executor its request, `release`
   // ends its watch on `signal`.
   var pending = new Map();
-  var currentCall = null, mapping = null; // the answer a fetch belongs to; a socket's mapper answering a frame (D7)
+  var currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
   // A fetch's `signal` is watched through Ibex's own abort hooks natively,
   // which run before any listener and so cannot be stopped by one; a
   // browser realm's signal is the browser's, watched by a listener, and
@@ -590,31 +585,36 @@
   // A resource's two-way socket (LLP 1016.000 D7): the handle its mapper
   // receives. Its state is what the mapper has seen: CONNECTING until
   // `open`, OPEN until the end, CLOSED once the stream ends or its answer
-  // is let go. A mutation's synchronous source may send or close, and so may
-  // the socket's own mapper answering `open` or a `message`; each operation
-  // is copied now and handed to the host with that turn's answer (`settle`,
-  // `__exact_message`), and published once the commit that settles it stands.
+  // is let go. A mutation's synchronous source and the socket's own mapper
+  // answering `open` or a `message` may send or close: each operation is
+  // copied now, handed over with that turn's answer (`settle`,
+  // `__exact_message`) and published once the commit that settles it stands.
+  // An answer in flight's go to the host as each is made, in any turn of it (amendment of 2026-10-18).
   var SOCKET_OPS = 256, SOCKET_BYTES = 1048576;
   // A mutation does one kind of effect, socket operations or a fetch: whichever
   // comes second refuses, and the mutation with it, before either leaves.
   var SOCKET_AND_FETCH = "a mutation cannot both send on a socket and fetch";
-  function socketOwner(ticket) {
+  function socketOwner(ticket, byMutation) {
     var owner = { ticket: ticket, state: 0 };
-    // The transport's bytes as this turn began (the runner's snapshot, door
-    // op 15, none on wasm, whose handle never opens), as WHATWG's
-    // `bufferedAmount` counts them at a task's start; what the turn stages adds.
+    // The transport's bytes as this turn began, earlier turns' unsent ones and
+    // an answer's this turn (door op 15; none on wasm, whose handle never
+    // opens), as WHATWG's `bufferedAmount` counts them at a task's start.
     function buffered() { try { return Number(host(15, String(ticket), "")) || 0; } catch (e) { return 0; } }
-    function turn() { return mapping && mapping.owner === owner ? mapping : currentCall; } // its own mapper's call, else a mutation's
+    function turn() { return mapping && mapping.owner === owner ? mapping : currentCall; } // its own mapper's call, else the turn's
+    var closed = function () { return new DOMException("the socket is not open", "InvalidStateError"); }, quota = function (what) { return new DOMException(what, "QuotaExceededError"); };
     function stage(op) {
       var call = turn(), mapper = !!mapping && call === mapping;
-      if (!call || !mapper && (!call.mutation || !call.sync)) throw new Error("socket." + (op.op === "close" ? "close" : "send") + " is only available in a mutation's synchronous source or its socket's own mapper");
-      if (owner.state !== 1) throw new DOMException("the socket is not open", "InvalidStateError");
+      // A turn of an answer the runner still holds, in no mapper call: a resource's, or a mutation's after a source that answered with a promise.
+      var answer = !mapper && !inMapper && !!call && !call.replied && !call.letGo && (call.answer || call.mutation && !call.sync && call.status === "pending");
+      if (!call || !mapper && !answer && (!call.mutation || !call.sync)) throw new Error("socket." + (op.op === "close" ? "close" : "send") + " is only available in a mutation's synchronous source, its socket's own mapper or an answer in flight");
+      if (owner.state !== 1 || answer && byMutation) throw closed();
+      if (answer) return sendNow(call, op);
       if (!mapper && call.tickets.length) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
-      var over = function (what) { var e = new DOMException(what, "QuotaExceededError"); if (mapper) call.overload = e; return e; }; // fails a mapper's snapshot, caught or not
+      var over = function (what) { var e = quota(what); if (mapper) call.overload = e; return e; }; // fails a mapper's snapshot, caught or not
       var ops = call.socketOps || (call.socketOps = []), bytes = op.size, mine = op.size, kind = mapper ? "mapper call" : "mutation";
       if (ops.length >= SOCKET_OPS) throw over("socket " + kind + " exceeds 256 operations");
       for (var i = 0; i < ops.length; i++) {
-        if (ops[i].owner === owner && ops[i].op === "close") throw new DOMException("the socket is not open", "InvalidStateError");
+        if (ops[i].owner === owner && ops[i].op === "close") throw closed();
         bytes += ops[i].size;
         if (ops[i].owner === owner) mine += ops[i].size;
       }
@@ -623,6 +623,17 @@
       if (buffered() + mine > SOCKET_BYTES) throw over("socket buffer exceeds 1 MiB");
       op.owner = owner;
       ops.push(op);
+    }
+    // An answer's operation goes to the host now; D7's bounds count over all its turns.
+    function sendNow(call, op) {
+      var sent = call.socketSent || (call.socketSent = { ops: 0, bytes: 0, closed: [] });
+      if (sent.closed.indexOf(owner) >= 0) throw closed();
+      if (sent.ops >= SOCKET_OPS) throw quota("socket answer exceeds 256 operations");
+      if (sent.bytes + op.size > SOCKET_BYTES) throw quota("socket answer exceeds 1 MiB");
+      if (buffered() + op.size > SOCKET_BYTES) throw quota("socket buffer exceeds 1 MiB");
+      sent.ops++; sent.bytes += op.size;
+      if (op.op === "close") sent.closed.push(owner);
+      host(17, String(ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason }));
     }
     owner.handle = Object.freeze({
       get readyState() { return owner.state; },
@@ -638,8 +649,7 @@
         stage({ op: "binary", data: toBase64(bytes), size: bytes.length });
       },
       close: function (code, reason) {
-        if (code === undefined) code = 1000;
-        if (reason === undefined) reason = "";
+        if (code === undefined) code = 1000; if (reason === undefined) reason = "";
         if (code !== 1000 && (!Number.isInteger(code) || code < 3000 || code > 4999)) throw new DOMException("invalid socket close code", "InvalidAccessError");
         if (typeof reason !== "string" || utf8Length(reason) > 123) throw new SyntaxError("socket close reason exceeds 123 UTF-8 bytes");
         stage({ op: "close", code: code, reason: reason, size: 0 });
@@ -654,10 +664,9 @@
     call.socketOps = null;
   }
   // A turn's staged operations to the host, with its answer.
-  function handSocketOps(call) {
-    var ops = call.socketOps;
-    call.socketOps = null;
-    for (var i = 0, op; ops && (op = ops[i]); i++) host(14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason }));
+  function handSocketOps(call, door) { // door 17: a promise-answering mutation's first answer turn, counted toward its bounds
+    var ops = call.socketOps || [], sent = door === 17 && (call.socketSent = { ops: ops.length, bytes: 0, closed: [] }); call.socketOps = null;
+    ops.forEach(function (op) { if (sent) { sent.bytes += op.size; if (op.op === "close") sent.closed.push(op.owner); } host(door || 14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason })); });
   }
 
   global.Response = Response;
@@ -768,7 +777,7 @@
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
-    var owner = socket ? (call.socket = socketOwner(ticket)) : null;
+    var owner = socket ? (call.socket = socketOwner(ticket, call.mutation)) : null;
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
       // own continuation), so that answer's own, whoever else is pending.
@@ -789,7 +798,7 @@
   // resolves with the callback URL (200) or rejects with the status and
   // message (499 cancelled, 403, 409, 428, 501, 502) as `error.status`.
   global.authCallback = function authCallback() {
-    if (!currentCall || currentCall.status !== "pending") throw new Error("authCallback() is unavailable " + (initializing ? "during module initialization" : "outside an answer") + "; call it inside an answer");
+    answerOnly("authCallback()");
     var callback = host(12, "callback", "");
     if (callback === undefined) throw new Error("authCallback(): the grants name no auth.callback");
     return callback;
@@ -843,7 +852,7 @@
     agent: "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)",
     unsupported: "storage is unsupported by this host",
   };
-  var toldAgent = false;
+  var toldAgent = false, READS = { readFile: true, readdir: true, stat: true, realpath: true };
   // Rust's error numbers are platform-specific. Never treat Windows access
   // denial (5) as EISDIR, or its 17/39 as Unix EEXIST/ENOTEMPTY.
   var windowsStorage = global.__exact_windows_storage === true;
@@ -901,9 +910,9 @@
     var path = receiver && nativeStorage && receiver === nativeStorage.fs && typeof args[0] === "string" ? args[0] : "";
     try { refused = host(5, path, "") || (receiver ? undefined : "unsupported"); }
     catch (e) { refused = "bake"; } // no filesystem or database effects during bake
-    // A drive with no scratch store is said once in the journal at its first refused read or write, as the web's
-    // (ts-data.js), for the driver's note (LLP 1102 §3.17): a caught read falls back silently, as on a fresh install.
+    // A drive with no scratch store is said once, at its first refused read or write, for the driver's note (LLP 1102 §3.17); a read finds an empty store, as on a fresh install (storage-environment.js `emptyRead`, word for word).
     if (refused === "agent" && !toldAgent) { toldAgent = true; journal("storage refused (agent): " + REFUSED.agent); }
+    if (refused === "agent" && READS[method] && receiver === (nativeStorage && nativeStorage.fs)) return method === "readdir" && /^app:\/(data|cache|tmp)$/.test(args[0]) ? Promise.resolve([]) : Promise.reject(storageError("filesystem: no such file or directory: " + args[0] + " (a drive that names no scratch store reads an empty one; --storage <name> names one)", "ENOENT"));
     if (refused) return Promise.reject(storageError(REFUSED[refused], refused));
     var what = method + (path ? " " + path : "");
     // The bound (D3): refusal is the overload policy (LLP 1041 D2).
@@ -1025,9 +1034,7 @@
       var dimension = options.maxDimension, bytes = options.maxBytes;
       if (!Number.isInteger(dimension) || dimension < 1 || dimension > MAX_IMAGE_DIMENSION) throw new TypeError(api + ": maxDimension must be an integer from 1 to " + MAX_IMAGE_DIMENSION);
       if (!Number.isInteger(bytes) || bytes < 1 || bytes > MAX_IMAGE_BYTES) throw new TypeError(api + ": maxBytes must be an integer from 1 to " + MAX_IMAGE_BYTES);
-    } catch (e) {
-      return Promise.reject(e);
-    }
+    } catch (e) { return Promise.reject(e); }
     return storageCall(nativeStorage && nativeStorage.fs, "compressImage", [from, to, dimension, bytes], function (value) {
       var parts = typeof value === "string" ? value.split("\t") : [value.width, value.height, value.size];
       return { path: to, type: "image/jpeg", size: +parts[2], width: +parts[0], height: +parts[1] };
@@ -1042,14 +1049,14 @@
   }) });
 
   // --- the seam ------------------------------------------------------------
-  var calls = new Map();     // id -> { id, status, value, error, tickets }
-  var nextCall = 1;
-  // Large native strings travel alongside the JSON skeleton. The built-in
-  // serializer still owns getters, toJSON, omissions, and cycle detection.
-  // Explicit paths avoid reserving any property spelling in application data.
-  var captureString = global.__exact_capture_string;
-  delete global.__exact_capture_string;
-  function ok(value) {
+  var calls = new Map(), nextCall = 1, gcOwed = false; // calls: id -> { id, status, value, error, tickets }
+  // Large native strings travel beside the JSON skeleton by explicit paths (no property
+  // spelling reserved); the serializer owns getters, toJSON, omissions and cycles. One
+  // whose answer outlived a collection owes a full one, once no answer awaits (shim.cc).
+  var captureString = global.__exact_capture_string, gcEpoch = global.__exact_gc_epoch || function () { return 0; };
+  delete global.__exact_capture_string; delete global.__exact_gc_epoch;
+  function cleanUp() { var waiting = false; calls.forEach(function (c) { if (!c.stream && !c.letGo) waiting = true; }); if (gcOwed && !waiting) { gcOwed = false; gcEpoch(true); } }
+  function ok(value, held) {
     var reply = { tag: 0, value: value === undefined ? null : value };
     if (typeof captureString !== "function") return JSON.stringify(reply);
     var head = null, root = true;
@@ -1076,7 +1083,7 @@
         for (var link = parent; link && link.parent; link = link.parent) pathKey(link.key);
         // Application toJSON hooks apply to its values, never our path metadata.
         Object.defineProperty(path, "toJSON", {value:undefined});
-        captureString(JSON.stringify(path), item);
+        captureString(JSON.stringify(path), item); if (held) gcOwed = true;
         return "";
       }
       // Only ancestors of the current object are needed for later capture paths.
@@ -1123,21 +1130,13 @@
     if (p.call !== call) { p.call = call; call.tickets.push(ticket); }
     return JSON.stringify({ tag: 1, call: call.id, ticket: ticket });
   }
-  // Whether an answer still has a fetch or storage step of its own in flight.
-  function owes(call) {
-    for (var i = 0; i < call.tickets.length; i++) {
-      var p = pending.get(call.tickets[i]);
-      if (p && p.call === call) return true;
-    }
-    return call.storage > 0 && !call.lost;
-  }
   // An answer is given when its value is ready, as in a browser (LLP 1097
   // D1): the storage it started and did not await finishes after it, as the
   // background's, so nothing is stranded (kanban F22's reason to wait). On a
   // worker placement, which runs one turn to its end, it still waits.
   function reply(call, text) {
     call.replied = true;
-    calls.delete(call.id);
+    calls.delete(call.id); cleanUp();
     return text;
   }
   function settle(call, final) {
@@ -1184,7 +1183,7 @@
       pending.forEach(function (p) { if (p.call === call && p.claimed) inFlight = true; });
       if (moduleWide && inFlight) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
       if (call.status === "done") handSocketOps(call);
-      return reply(call, call.status === "done" ? ok(call.value) : fail(call.error));
+      return reply(call, call.status === "done" ? ok(call.value, call.epoch !== gcEpoch()) : fail(call.error));
     }
     if (moduleWide) {
       var unclaimed;
@@ -1203,7 +1202,7 @@
       return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
     }
     call.replied = true;
-    calls.delete(call.id);
+    calls.delete(call.id); cleanUp();
     if (moduleWide) return fail(new Error("the answer is pending on nothing: it awaits a promise that no fetch or storage step " +
       "in flight in this module will settle"));
     return fail(new Error("the answer is pending on nothing: no host operation it started will resolve it. " +
@@ -1221,7 +1220,7 @@
   // answer still waiting on nothing of its own.
   global.__exact_call = function (source, argsJson, mutation) {
     initializing = false;
-    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", sync: false, socketOps: null };
+    var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0, replied: false, mutation: mutation === "mutation", answer: mutation === "answer", sync: false, socketOps: null, epoch: gcEpoch() };
     var result;
     currentCall = call;
     try {
@@ -1267,13 +1266,14 @@
       call.sync = true;
       try { result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native); }
       finally { call.sync = false; }
-      // Staged socket operations go out only with a value given now (D7):
-      // not with a promise, a stream answer or any other fetch.
+      // Staged socket operations go out with no fetch, a stream answer's included (D7); a source that answers with a promise is
+      // an answer in flight from its call on, and what it staged is that turn's (the amendment of 2026-10-18).
       if (call.socketOps && call.tickets.length) call.socketConflict = true;
-      if (call.socketConflict || (call.socketOps && result && typeof result.then === "function")) {
+      if (call.socketConflict) {
         if (result && typeof result.then === "function") result.then(undefined, function () {});
-        throw new Error(call.socketConflict ? SOCKET_AND_FETCH : "a socket mutation must answer synchronously");
+        throw new Error(SOCKET_AND_FETCH);
       }
+      if (call.socketOps && result && typeof result.then === "function") handSocketOps(call, 17);
     }
     catch (e) {
       calls.set(call.id, call);
@@ -1361,7 +1361,7 @@
     var rejected = dropped.length ? " rejected" : "";
     if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage" + rejected; }
     call.replied = true;
-    calls.delete(call.id);
+    calls.delete(call.id); cleanUp();
     return rejected.trim();
   };
   global.__exact_let_go = function (failed, message) {
@@ -1375,7 +1375,7 @@
       if (failed) { c.lost = true; storing.delete(c); }
       if (c.storage > 0 && !c.lost) owed = true;
       else { c.replied = true; calls.delete(c.id); }
-    });
+    }); cleanUp();
     if (!owed) return "";
     // Deliver only when the operation in flight is the let-go call's.
     // One queued behind a live answer stays there: delivering it here would
@@ -1397,7 +1397,7 @@
     else event = { type: "error", data: o.response.body, lastEventId: "", coalesced: 0, kind: "Response", message: "HTTP " + o.response.status, status: o.response.status };
     // The socket's state as of this event (D7): `open` opens it, an end closes it.
     if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
-    currentCall = call;
+    currentCall = call; inMapper = true;
     // Its mapper may reply on it answering `open` or a `message` (never on wasm, where it never opens): handed over however the call ends, sent if the frame's commit stands.
     var turn = mapping = socket && o.message && socket.state === 1 ? { owner: socket, socketOps: null, overload: null } : null;
     try {
@@ -1406,7 +1406,7 @@
       if (turn && turn.overload) throw turn.overload;
       return ok(value);
     } catch (e) { return fail(e); }
-    finally { currentCall = null; mapping = null; if (turn) handSocketOps(turn); }
+    finally { currentCall = null; mapping = null; inMapper = false; if (turn) handSocketOps(turn); }
   };
   // The module's storage, after a call or a delivery (LLP 1097 D5, D8):
   // whether the operation in flight is the background's (`head`), the

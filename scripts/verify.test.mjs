@@ -743,6 +743,27 @@ test('the largest text size: its findings once each with the screens they were o
   assert.equal(web.lines[1], 'largest text size (root font size 53 px at 390x844, iOS\'s body at its largest), 1 screen: nothing spills');
 });
 
+// LLP 1116.021 follow-up (water-tracker, contacts, round 20): a label a list's row cuts is given an ellipsis or a taller row,
+// never the flex-wrap the row does not take; an iOS test end at a window the phone shows scaled measures no contrast or target.
+test('the largest text size in a list row; a scaled iOS test end', async () => {
+  const { largeRemedy, scaledEnd } = await import('./verify.mjs');
+  const cut = { kind: 'clipped', detail: { cut: [9, 0], by: 3 } }, over = { kind: 'clipped', detail: { need: [4, 0] } };
+  for (const f of [cut, over]) {
+    assert.match(largeRemedy(f, { inRow: true }), /^ask for an ellipsis \(`line-clamp="1"`, or more lines\).*let the row grow taller/);
+    assert.doesNotMatch(largeRemedy(f, { inRow: true }), /flex-wrap/);
+  }
+  assert.match(largeRemedy(cut), /flex-wrap/);
+  assert.match(largeRemedy({ kind: 'clipped', detail: { edge: 'bottom' } }, { inRow: true }), /let the page scroll/);
+  const lines = ['  contrast day-2025-12-30\'s label "2025-12-30" [15,549 34×7]: 1:1 (#000000 on #000000), needs 4.5:1; use a role', '  target   add [300,20 16×16]: …', '  overlap  a [1,1 10×10]: …'];
+  const end = () => [{ screen: 'wide', size: [402, 292.36], scheme: 'light', lines: [...lines], findings: [{ kind: 'contrast' }, { kind: 'target' }, { kind: 'overlap' }], advice: [] }];
+  const [scaled] = scaledEnd(end(), [1100, 800]);
+  assert.deepEqual(scaled.lines, [lines[2]]);
+  assert.deepEqual(scaled.findings, [{ kind: 'overlap' }]);
+  assert.deepEqual(scaled.advice, ["  advice   the test's 1100x800 window is shown scaled to fit the phone (402x292): contrast and target sizes are not measured there (verify web measures them at that size)"]);
+  assert.deepEqual(scaledEnd(end(), undefined)[0].lines, lines, 'the phone\'s own size');
+  assert.deepEqual(scaledEnd(end(), [402, 292.36])[0].lines, lines, 'a size the phone shows unscaled');
+});
+
 
 // LLP 1116.020 D4: a font size the app's Contract fixes is a finding, named where it is written, with the rem it would be;
 // app.json's `verify.accept` takes one by its node's testId, and a test file is no screen.

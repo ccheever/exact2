@@ -58,7 +58,7 @@ internal class FieldText(context: Context) : EditText(unadjusted(context)) {
     /** Bold Text's step is in the weight the field is given ([unadjusted]): a change of the device's font weight
      * adjustment reaches the kernel, never the field's own typeface. */
     override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(Configuration(newConfig).apply { fontWeightAdjustment = 0 })
+        super.onConfigurationChanged(if (android.os.Build.VERSION.SDK_INT >= 31) Configuration(newConfig).apply { fontWeightAdjustment = 0 } else newConfig)
     }
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
@@ -594,7 +594,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
             quiet = true
             try { f.text.requestFocus() } finally { quiet = false }
         }
-        f.text.windowInsetsController?.show(WindowInsets.Type.ime())
+        if (android.os.Build.VERSION.SDK_INT >= 30) f.text.windowInsetsController?.show(WindowInsets.Type.ime()) else Legacy.showKeyboard(f.text)
     }
 
     /** exact2 says no hosted field holds the focus: the one that did lets go of it and the keyboard goes. Where
@@ -892,5 +892,5 @@ internal class Fields(context: Context) : FrameLayout(context) {
  * gives it (LLP 1115.000 D12.3, UIKit's step, which light weights take too), and a `TextView` would otherwise add the
  * device's adjustment to every typeface it is set in, the one it measures in included. */
 internal fun unadjusted(context: Context): Context = ContextThemeWrapper(context, context.theme).apply {
-    applyOverrideConfiguration(Configuration().apply { fontWeightAdjustment = 0 })
+    if (android.os.Build.VERSION.SDK_INT >= 31) applyOverrideConfiguration(Configuration().apply { fontWeightAdjustment = 0 })
 }

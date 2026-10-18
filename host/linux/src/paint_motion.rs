@@ -172,7 +172,7 @@ impl<D: DataSource> Host<D> {
         if let Some(n) = self.runner.kernel().node(view) {
             self.row_dirty.node(n.key);
         }
-        let base = self.presented(view);
+        let base = self.unpresented(view);
         let entry = self.presented.entry(view).or_insert(base);
         entry.colors.set(property, value);
     }

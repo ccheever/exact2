@@ -215,9 +215,13 @@ private final class RasterBackend: @unchecked Sendable {
         do {
             // Decode scope drops encoded data, source and staging before complete.
             let image: RasterImage = try autoreleasepool {
-                let bytes = try withExtendedLifetime(resolver) { try input.bytes() }
                 let plan = try RasterDecodePlan(metadata: metadata, maxPixel: Int(max(work.width, work.height)), variant: work.variant)
                 guard plan.width == work.width, plan.height == work.height else { throw RasterFailure.reservation }
+                if let name = input.catalog, exact_raster_is_cancelled(work.permit) == 0,
+                   let image = RasterImage.catalog(name, metadata: metadata, plan: plan, charge: charge, sourceOwner: source) {
+                    return image
+                }
+                let bytes = try withExtendedLifetime(resolver) { try input.bytes() }
                 guard exact_raster_is_cancelled(work.permit) == 0 else { throw RasterFailure.decode }
                 #if DEBUG
                 lock.lock(); let decline = testDeclines > 0; testDeclines = max(0, testDeclines - 1); lock.unlock()

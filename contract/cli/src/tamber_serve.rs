@@ -54,6 +54,7 @@
 //! - **A request** is one JSON object on a line of at most 1 MiB; a field
 //!   of the wrong type is an error, not absent.
 
+use crate::tamber_ops::{files_json, optional, required, seen_files};
 use exact_tamber::Op;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -62,9 +63,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
+#[path = "tamber_scrub.rs"]
+mod scrub;
+#[path = "tamber_walk.rs"]
+mod walk;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.9";
+pub const PROTOCOL: &str = "tamber/1.11";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -195,6 +200,21 @@ struct Server {
     /// Contract sources they were read from, with the retention its plan
     /// keeps tokens by (D7), read by the same build.
     synthetic: Option<Synthetic>,
+    /// The app's components' params (LLP 1121 D15), by the Contract
+    /// sources' key ([`Server::sources_key`]): every read and write asks
+    /// them, and loading them parses the app (~200 ms on the clone).
+    params: std::cell::RefCell<(String, std::rc::Rc<contract::tamber_params::AppParams>)>,
+    /// The Contract sources as last walked ([`walk::Walk`]): every snapshot and
+    /// every request's params ask them, and walking them parses the app
+    /// (~200 ms on the clone).
+    graph: std::cell::RefCell<Option<walk::Walk>>,
+    /// Requests handled: a walk is checked once per request.
+    asked: std::cell::Cell<u64>,
+    /// The app's own Contract sources at the last read that loaded them
+    /// all: a root that stops parsing for a moment keeps its imports.
+    contract: std::cell::RefCell<Vec<String>>,
+    /// What an open scrub's frames fold over (`tamber_scrub.rs`).
+    scrub: Option<scrub::Base>,
 }
 
 /// A digest, its synthetic token expressions, and the plan's retention.
@@ -326,6 +346,11 @@ impl Server {
             next: 0,
             client: None,
             synthetic: None,
+            params: Default::default(),
+            graph: Default::default(),
+            asked: Default::default(),
+            contract: Default::default(),
+            scrub: None,
         };
         server.same_state()?;
         server.recover()?;
@@ -345,32 +370,7 @@ impl Server {
     /// not kept, and tried again.
     fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
         let root = self.dir.join("app.contract");
-        let graph = contract::source_graph(&root);
-        let mut key = String::new();
-        for s in &graph.sources {
-            if s.path.extension().is_some_and(|e| e == "tamber") {
-                continue;
-            }
-            key.push_str(&s.path.to_string_lossy());
-            key.push('\0');
-            key.push_str(
-                &std::fs::read(&s.path)
-                    .map(|b| digest(&b))
-                    .unwrap_or_default(),
-            );
-            key.push('\n');
-        }
-        // Whether code beside the app can name a token outside its views
-        // (D7's retention: app.ts, a data crate, app.json's modules or
-        // hatches), which none of the sources say.
-        key.push_str(&format!("bindable {}\n", contract::code_beside(&root)));
-        // What resolved the imports (package manifests, the paths tried).
-        for path in &graph.consulted {
-            key.push_str(&path.to_string_lossy());
-            key.push('\0');
-            key.push_str(&std::fs::read(path).map(|b| digest(&b)).unwrap_or_default());
-            key.push('\n');
-        }
+        let mut key = self.sources_key();
         if let Some(design) = snap
             .iter()
             .find(|(f, _, _)| *f == self.design)
@@ -380,6 +380,9 @@ impl Server {
                 key.push_str(&t.name.value);
                 key.push('\n');
             }
+            // A native component's params, kept by their declaration, and
+            // what their defaults read.
+            key.push_str(&format!("{:?}\n", design.components));
         }
         if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {
@@ -542,7 +545,8 @@ impl Server {
 
     /// The design's files: the app's design first, then any other design
     /// beside it, as the directory has them now (a transaction may edit
-    /// several, committed as one set).
+    /// several, committed as one set), then the app's own Contract sources
+    /// (stage 8 D: a state part's row).
     fn files(&self) -> Result<Vec<String>, String> {
         let mut others: Vec<String> = std::fs::read_dir(&self.dir)
             .map_err(|e| format!("{}: {e}", self.dir.display()))?
@@ -554,7 +558,12 @@ impl Server {
             .filter(|n| n.ends_with(".tamber") && *n != self.design)
             .collect();
         others.sort();
-        Ok(std::iter::once(self.design.clone()).chain(others).collect())
+        let owned = self.walk().owned.clone();
+        let contract = crate::tamber_contract::owned_kept(&self.dir, owned, &self.contract);
+        Ok(std::iter::once(self.design.clone())
+            .chain(others)
+            .chain(contract)
+            .collect())
     }
 
     /// Every design file, read once: the text a plan edits is the text its
@@ -591,6 +600,7 @@ impl Server {
     }
 
     fn handle(&mut self, line: &str) -> Vec<Value> {
+        self.asked.set(self.asked.get() + 1);
         let request: Value = match serde_json::from_str(line) {
             Ok(v @ Value::Object(_)) => v,
             Ok(_) => {
@@ -608,10 +618,18 @@ impl Server {
         match request["method"].as_str() {
             Some("hello") => vec![reply(self.hello(&request))],
             Some("describe") => vec![reply(self.describe(&request))],
-            Some("resolve") => vec![reply(self.resolve(&request))],
-            Some("explain") => vec![reply(self.explain(&request))],
-            Some("uses") => vec![reply(self.uses(&request))],
+            Some(m @ ("resolve" | "explain" | "uses")) => {
+                let answer = match m {
+                    "resolve" => self.resolve(&request),
+                    "explain" => self.explain(&request),
+                    _ => self.uses(&request),
+                };
+                vec![reply(
+                    answer.map(|v| self.present(v)).map_err(|e| self.present(e)),
+                )]
+            }
             Some("propose") => vec![reply(self.transaction(&request, false))],
+            Some("scrub-fold") => vec![reply(self.scrub_fold(&request))],
             Some("transaction") => self.commit_reply(&request, reply, false),
             Some("undo") => self.commit_reply(&request, reply, true),
             // The wire's own, for `history`, `revert` and `import`.
@@ -679,6 +697,63 @@ impl Server {
 
     /// The file a read names (`file`, the app's design when unsaid),
     /// checked, from one snapshot that also gives the digests.
+    /// The design folded with the app's params (D15), each in its
+    /// `params` line's place, for a request's `token`, and the name to look
+    /// up: a param's token where it names one in full or short, else the
+    /// name as given (a design token, which may read a param). A short name
+    /// two components share is refused, not read as a design token.
+    fn lookup(&self, request: &Value) -> Result<(Snapshot, exact_tamber::Folding, String), Value> {
+        let name = required(request, "token")?;
+        let app = self.app_params();
+        let token = match contract_lower::params::resolve(&app.tokens, &app.identities, &name) {
+            Ok(p) => p.token.clone(),
+            Err(e) if e.id == "tamber-param-ambiguous" => {
+                return Err(json!({"message": format!("{}: {}", e.id, e.message), "id": e.id}));
+            }
+            Err(_) => name,
+        };
+        let (snap, folding, _) = self.design_with(request, &app)?;
+        Ok((snap, folding, token))
+    }
+
+    /// [`Self::design`], folded with the app's components' params (D15),
+    /// and the design as parsed, without them.
+    fn design_with(
+        &self,
+        request: &Value,
+        app: &contract::tamber_params::AppParams,
+    ) -> Result<(Snapshot, exact_tamber::Folding, exact_tamber::Design), Value> {
+        let params = app.tokens.as_slice();
+        if params.is_empty() {
+            let (snap, folding) = self.design(request)?;
+            let design = folding.design.clone();
+            return Ok((snap, folding, design));
+        }
+        let snap = self.snapshot()?;
+        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        let text = &snap
+            .iter()
+            .find(|(f, _, _)| *f == file)
+            .ok_or_else(|| json!({"message": format!("`{file}` is no file of this design")}))?
+            .1;
+        let (folding, design) = contract::tamber_params::fold_with(text, app, &self.vocab)
+            .map_err(|all| {
+                json!({"message": "the design is refused", "diagnostics": all.iter().map(|d| located(&file, d, app)).collect::<Vec<_>>()})
+            })?;
+        Ok((snap, folding, design))
+    }
+
+    /// A reply with each param named by its full name (D15), never by its
+    /// name below the IR.
+    fn present(&self, v: Value) -> Value {
+        let app = self.app_params();
+        if app.tokens.is_empty() {
+            return v;
+        }
+        let text = contract_lower::params::shown(&v.to_string(), &app.tokens);
+        serde_json::from_str(&text).unwrap_or(v)
+    }
+
     fn design(&self, request: &Value) -> Result<(Snapshot, exact_tamber::Folding), Value> {
         let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
         let snap = self.snapshot()?;
@@ -711,9 +786,18 @@ impl Server {
     }
 
     fn describe(&self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding) = self.design(request)?;
-        let ir: Value =
+        // The app's components' params (LLP 1121 D15) fold with the design,
+        // so a dial only a param reads is read; listed by full name.
+        let app = self.app_params();
+        let all = app.tokens.as_slice();
+        let (snap, folding, design) = self.design_with(request, &app)?;
+        let mut ir: Value =
             serde_json::from_str(&folding.ir()).map_err(|e| json!({"message": e.to_string()}))?;
+        if !all.is_empty() {
+            contract::tamber_params::hide(&mut ir);
+            ir["components"] =
+                contract::tamber_params::components(&app, Some(&design), &self.vocab);
+        }
         let meta =
             |m: &[(String, String)]| m.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>();
         let dials: serde_json::Map<String, Value> = folding
@@ -727,6 +811,7 @@ impl Server {
             .tokens
             .iter()
             .zip(&folding.design.tokens)
+            .filter(|(t, _)| !t.name.starts_with(contract_lower::params::PREFIX))
             .map(|(t, declared)| (t.name.clone(), json!(meta(&declared.meta))))
             .collect();
         // What each token is drawn on (`pair=`): a token by its name, a role
@@ -734,7 +819,7 @@ impl Server {
         let pairs: serde_json::Map<String, Value> = folding
             .tokens
             .iter()
-            .filter(|t| !t.pairs.is_empty())
+            .filter(|t| !t.pairs.is_empty() && !t.name.starts_with(contract_lower::params::PREFIX))
             .map(|t| {
                 let named = t.pairs.iter().map(|p| {
                     let token = folding.tokens.iter().any(|u| &u.name == p);
@@ -750,7 +835,7 @@ impl Server {
         let warnings: Vec<Value> = folding
             .warnings
             .iter()
-            .map(|d| diagnostic(&file, d))
+            .map(|d| located(&file, d, &app))
             .collect();
         Ok(
             json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings}),
@@ -760,8 +845,7 @@ impl Server {
     /// A token's stored value per tuple and scheme; a host value (a role, a
     /// platform colour) is a residual, labelled so, with its fallback.
     fn resolve(&self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding) = self.design(request)?;
-        let name = required(request, "token")?;
+        let (snap, folding, name) = self.lookup(request)?;
         // An icon (D10): its sources, the same in every tuple.
         if let Some(icon) = folding.icons.iter().find(|i| i.name == name) {
             let tuples: Vec<Value> = (0..folding.tuples)
@@ -849,14 +933,13 @@ impl Server {
     /// A token's chain: its default and `when` values, the dials it depends
     /// on, and the tokens those values name, as the checker resolved them.
     fn explain(&self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding) = self.design(request)?;
-        let name = required(request, "token")?;
+        let (snap, folding, name) = self.lookup(request)?;
         let (token, declared) = folding
             .tokens
             .iter()
             .zip(&folding.design.tokens)
             .find(|(t, _)| t.name == name)
-            .ok_or_else(|| json!({"message": format!("no token `{name}`")}))?;
+            .ok_or_else(|| no_token(&folding, &name))?;
         let whens: Vec<Value> = declared
             .whens
             .iter()
@@ -876,10 +959,9 @@ impl Server {
     /// joins the spans through its own source map (LLP 1122 T2b's
     /// `outline`).
     fn uses(&mut self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding) = self.design(request)?;
-        let name = required(request, "token")?;
+        let (snap, folding, name) = self.lookup(request)?;
         if !folding.tokens.iter().any(|t| t.name == name) {
-            return Err(json!({"message": format!("no token `{name}`")}));
+            return Err(no_token(&folding, &name));
         }
         // A design file the app does not build has no sites.
         if optional(request, "file")?.is_some_and(|f| f != self.design) {
@@ -936,7 +1018,8 @@ impl Server {
     /// must carry the digest the client saw (a `propose` checks the ones it
     /// carries).
     fn transaction(&mut self, request: &Value, write: bool) -> Result<Value, Value> {
-        let ops = parse_ops(&request["ops"], &self.design)?;
+        let (rest, written) = crate::tamber_contract::split(&request["ops"])?;
+        let mut ops = crate::tamber_ops::parse_ops(&rest, &self.design)?;
         let seen = seen_files(request, "files")?;
         // Files it does not edit but was planned on (a revert's file already
         // as before), each as the plan read it.
@@ -946,10 +1029,11 @@ impl Server {
             false => None,
         };
         let snap = self.snapshot()?;
+        let contract_ops = crate::tamber_contract::files(written, &snap)?;
         let stale: Vec<&String> = snap
             .iter()
             .filter(|(p, _, d)| {
-                ops.iter().any(|(f, _)| f == p)
+                (ops.iter().any(|(f, _)| f == p) || contract_ops.iter().any(|(f, _)| f == p))
                     && match seen.get(p) {
                         Some(s) => s != d,
                         None => write,
@@ -967,10 +1051,13 @@ impl Server {
                 json!({"conflict": true, "message": "a file changed since the client read it", "files": files_json(&snap), "stale": stale}),
             );
         }
+        // A param set or unset by a name the app has (D15), on the line the
+        // design already gives it, whichever name that line uses.
+        crate::tamber_ops::param_names(&mut ops, &snap, &self.app_params())?;
         // A scrub's preview (the wire's, LLP 1121 D13) compiles the texts
         // a propose would write, which it asks for.
         let texts = !write && request["texts"] == json!(true);
-        self.run(&snap, &ops, client, false, texts)
+        self.run(&snap, &ops, &contract_ops, client, false, texts)
     }
 
     /// Apply an inverse this server issued, while each file it restores is
@@ -998,7 +1085,7 @@ impl Server {
                 json!({"conflict": true, "message": "a file changed since that write: its inverse no longer applies", "files": files_json(&snap), "stale": stale}),
             );
         }
-        let result = self.run(&snap, &issued.ops, Some(client), true, false);
+        let result = self.run(&snap, &issued.ops, &[], Some(client), true, false);
         if result.is_ok() {
             self.issued.remove(&id);
             self.order.retain(|i| *i != id);
@@ -1007,68 +1094,66 @@ impl Server {
     }
 
     /// Plan over `snap`; with a `client`, commit and issue the inverse.
+    #[allow(clippy::too_many_arguments)]
     fn run(
         &mut self,
         snap: &Snapshot,
-        ops: &[(String, Op)],
+        all_ops: &[(String, Op)],
+        contract_ops: &[(String, crate::tamber_contract::ContractOp)],
         client: Option<String>,
         undo: bool,
         with_texts: bool,
     ) -> Result<Value, Value> {
+        // The design's files are the crate's; a `.contract` file's writes
+        // (and an inverse's restores of one) are `tamber_contract`'s.
+        let contract = |p: &str| p.ends_with(".contract");
         let texts: Vec<(String, String)> = snap
             .iter()
+            .filter(|(f, _, _)| !contract(f))
             .map(|(f, t, _)| (f.clone(), t.clone()))
             .collect();
+        let ops: Vec<(String, Op)> = all_ops
+            .iter()
+            .filter(|(f, _)| !contract(f))
+            .cloned()
+            .collect();
+        let ops = ops.as_slice();
         let known = self.synthetic(snap);
         let exprs = known.clone().unwrap_or_default();
         // The tokens the plan keeps (D7): an edit to one it does not keep
         // (a plain app's token no view names) leaves the plan as it is.
         let retention = self.synthetic.as_ref().and_then(|(_, _, r)| r.clone());
+        let app = self.app_params();
+        let params = crate::tamber_ops::params(&app);
         let synthetic = exact_tamber::Synthetic {
             file: &self.design,
             exprs: &exprs,
             retention: retention.as_ref(),
+            params: &params,
         };
-        let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
-            json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| diagnostic(f, d)).collect::<Vec<_>>()})
+        let mut planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
+            json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| located(f, d, &app)).collect::<Vec<_>>()})
         })?;
+        let restores: Vec<(String, Op)> = all_ops
+            .iter()
+            .filter(|(f, _)| contract(f))
+            .cloned()
+            .collect();
+        crate::tamber_contract::plan(
+            &self.dir,
+            &self.design,
+            snap,
+            contract_ops,
+            &restores,
+            undo,
+            &mut planned,
+        )?;
         // What the build refuses beyond the crate's check, a write refuses
         // too, so nothing is written that the app cannot build: a role
         // override that varies by an app axis (LLP 1121 D5, the compiler's
         // `tamber-role-axis`). An undo restores what was, and is not judged.
         if !undo {
-            // A role that varied before this write is the file's own,
-            // already refused by the build; only what the write makes vary.
-            let varies = |text: &str| -> Vec<(String, u32, u32)> {
-                exact_tamber::check(text, &self.vocab).map_or(Vec::new(), |f| {
-                    f.tokens
-                        .iter()
-                        .zip(&f.design.tokens)
-                        .filter(|(t, _)| {
-                            t.role.is_some()
-                                && t.values.windows(2).any(|w| w[0].css() != w[1].css())
-                        })
-                        .map(|(t, d)| (t.name.clone(), d.name.line, d.name.col))
-                        .collect()
-                })
-            };
-            let mut axis = Vec::new();
-            for (path, text, _) in &planned.files {
-                let before: Vec<String> = texts
-                    .iter()
-                    .find(|(p, _)| p == path)
-                    .map_or(Vec::new(), |(_, t)| {
-                        varies(t).into_iter().map(|(n, ..)| n).collect()
-                    });
-                for (name, line, col) in varies(text) {
-                    if !before.contains(&name) {
-                        axis.push(diagnostic(path, &exact_tamber::Diagnostic { id: "tamber-role-axis", message: format!("`{name}` overrides a role and varies by an app axis: a role has one value, which the hosts' own surfaces read; vary a token the rows name instead (LLP 1121 D5)"), line, col }));
-                    }
-                }
-            }
-            if !axis.is_empty() {
-                return Err(json!({"message": "refused", "diagnostics": axis}));
-            }
+            self.write_checks(&texts, &planned)?;
         }
         let mut out = json!({
             "files": files_json(snap),
@@ -1242,6 +1327,7 @@ impl Server {
                     self.stop(format!("withdrawing the journal: {e}"));
                 }
                 clean(&renames);
+                self.recheck();
                 let files = self
                     .snapshot()
                     .map(|s| files_json(&s))
@@ -1315,45 +1401,31 @@ fn temp_name(name: &str) -> bool {
         .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
 }
 
-/// A string field when the request has it; a field of another type is an
-/// error, not absent.
-fn optional(v: &Value, key: &str) -> Result<Option<String>, Value> {
-    match &v[key] {
-        Value::Null => Ok(None),
-        Value::String(s) => Ok(Some(s.clone())),
-        _ => Err(json!({"message": format!("`{key}` is a string")})),
+/// Why `explain` or `uses` has no token `name`: an icon (a param's too) is
+/// read through `describe` and `resolve` (D10).
+fn no_token(folding: &exact_tamber::Folding, name: &str) -> Value {
+    match folding.icons.iter().any(|i| i.name == name) {
+        true => {
+            json!({"message": format!("`{name}` is an icon: `describe` and `resolve` read an icon's sources; `explain` and `uses` take a token")})
+        }
+        false => json!({"message": format!("no token `{name}`")}),
     }
-}
-
-fn required(v: &Value, key: &str) -> Result<String, Value> {
-    optional(v, key)?.ok_or_else(|| json!({"message": format!("`{key}` is a string, and needed")}))
-}
-
-/// A request's `files` (or `requires`), each path's digest as the client saw it.
-fn seen_files(request: &Value, key: &str) -> Result<HashMap<String, String>, Value> {
-    let bad = || json!({"message": format!("`{key}` is an object of digests")});
-    match &request[key] {
-        Value::Null => Ok(HashMap::new()),
-        Value::Object(m) => m
-            .iter()
-            .map(|(k, v)| Ok((k.clone(), v.as_str().ok_or_else(bad)?.to_string())))
-            .collect(),
-        _ => Err(bad()),
-    }
-}
-
-/// `{path: digest}`.
-fn files_json(files: &[(String, String, String)]) -> Value {
-    Value::Object(
-        files
-            .iter()
-            .map(|(p, _, d)| (p.clone(), json!(d)))
-            .collect(),
-    )
 }
 
 fn diagnostic(file: &str, d: &exact_tamber::Diagnostic) -> Value {
     json!({"file": file, "line": d.line, "col": d.col, "id": d.id, "message": d.message})
+}
+
+/// [`diagnostic`], one of a param's (D15) in its declaring file, at its
+/// default, every name in full.
+fn located(
+    file: &str,
+    d: &exact_tamber::Diagnostic,
+    app: &contract::tamber_params::AppParams,
+) -> Value {
+    let mut d = d.clone();
+    let declaring = contract::tamber_params::relocate(&mut d, app);
+    diagnostic(declaring.as_deref().unwrap_or(file), &d)
 }
 
 fn refused(file: &str, all: Vec<exact_tamber::Diagnostic>) -> Value {
@@ -1372,110 +1444,4 @@ fn modes_of(axes: &[exact_tamber::Axis], tuple: usize) -> Value {
         rest /= a.values.len();
     }
     Value::Object(out.into_iter().map(|(a, v)| (a, json!(v))).collect())
-}
-
-/// The wire's operations (D13's names, kebab-case; named fields), each with
-/// the file it edits (the design's own when unsaid). A `restore` is no
-/// client's to send.
-fn parse_ops(ops: &Value, design: &str) -> Result<Vec<(String, Op)>, Value> {
-    let bad = |m: String| json!({"message": m});
-    let s = required;
-    let opt = optional;
-    let list = |v: &Value, k: &str| -> Result<Vec<Value>, Value> {
-        match &v[k] {
-            Value::Null => Ok(Vec::new()),
-            Value::Array(a) => Ok(a.clone()),
-            _ => Err(bad(format!("`{k}` is a list"))),
-        }
-    };
-    let conds = |v: &Value| -> Result<Vec<(String, String)>, Value> {
-        list(v, "when")?
-            .iter()
-            .map(|c| Ok((s(c, "axis")?, s(c, "value")?)))
-            .collect()
-    };
-    let mut out = Vec::new();
-    for v in ops
-        .as_array()
-        .ok_or_else(|| bad("`ops` is a list".into()))?
-    {
-        if !v.is_object() {
-            return Err(bad("each of `ops` is an object".into()));
-        }
-        let file = opt(v, "file")?.unwrap_or_else(|| design.to_string());
-        let op = match v["op"].as_str() {
-            Some("set-dial") => Op::SetDial {
-                name: s(v, "name")?,
-                value: s(v, "value")?,
-            },
-            Some("set-token") => Op::SetToken {
-                name: s(v, "name")?,
-                when: conds(v)?,
-                value: s(v, "value")?,
-                at: None,
-                comment: opt(v, "comment")?,
-            },
-            Some("unset-token-when") => Op::UnsetTokenWhen {
-                name: s(v, "name")?,
-                when: conds(v)?,
-            },
-            Some("add-token") => Op::AddToken {
-                name: s(v, "name")?,
-                kind: opt(v, "kind")?,
-                value: s(v, "value")?,
-                // `key=value` words, as the source writes them.
-                meta: list(v, "meta")?
-                    .iter()
-                    .map(|m| {
-                        m.as_str()
-                            .map(str::to_string)
-                            .ok_or_else(|| bad("each of `meta` is a `key=value` string".into()))
-                    })
-                    .collect::<Result<_, _>>()?,
-                whens: list(v, "whens")?
-                    .iter()
-                    .map(|w| Ok((conds(w)?, s(w, "value")?, opt(w, "comment")?)))
-                    .collect::<Result<Vec<_>, Value>>()?,
-                comment: opt(v, "comment")?,
-                before: opt(v, "before")?,
-            },
-            Some("rename-token") => Op::RenameToken {
-                from: s(v, "from")?,
-                to: s(v, "to")?,
-            },
-            Some("remove-token") => Op::RemoveToken {
-                name: s(v, "name")?,
-            },
-            Some("add-axis-value") => Op::AddAxisValue {
-                axis: s(v, "axis")?,
-                value: s(v, "value")?,
-                before: opt(v, "before")?,
-            },
-            Some("add-axis") => Op::AddAxis {
-                name: s(v, "name")?,
-                values: list(v, "values")?
-                    .iter()
-                    .map(|x| {
-                        x.as_str()
-                            .map(str::to_string)
-                            .ok_or_else(|| bad("each of `values` is a string".into()))
-                    })
-                    .collect::<Result<_, _>>()?,
-                under_dark: match opt(v, "under")?.as_deref() {
-                    None => false,
-                    Some("scheme=dark") => true,
-                    Some(other) => {
-                        return Err(bad(format!("`under` is `scheme=dark`, not `{other}`")))
-                    }
-                },
-            },
-            Some("remove-axis-value") => Op::RemoveAxisValue {
-                axis: s(v, "axis")?,
-                value: s(v, "value")?,
-            },
-            other => return Err(bad(format!("no operation {}", other.unwrap_or("(none)")))),
-        };
-        out.push((file, op));
-    }
-    Ok(out)
 }

@@ -242,6 +242,13 @@ Canvas arguments keep the app's current bindings when a world is restored. Use l
 arguments for app-owned settings; keep choices that should travel with a game save
 in components or resources.
 
+`Game::render_scale(args)` optionally reduces the world's presented raster relative
+to canvas device pixels. Return a finite value in `(0, 1]`; the default is `1`.
+The compositor stretches that raster to the same canvas box. Camera layout and
+input coordinates stay in CSS pixels, and ordinary Contract HUD children keep
+native resolution. Bind a `#[live]` argument through this method for an app setting.
+Explicit fixture and readback sizes still render at the caller's requested size.
+
 After the first GPU build, the compiler and dev loop check surface names and
 arguments against the emitted `.shells/surfaces.json`, including hidden branches
 and imports. Rust argument edits reach that declaration through the next GPU build,

@@ -611,3 +611,17 @@ component App
     assert!(at("$transport(") < at("const r_0="), "{js}");
     assert!(at("mount(") < at("$sequence("), "{js}");
 }
+
+#[test]
+fn inline_time_does_not_reserve_a_css_box() {
+    for (body, reserve) in [
+        ("    time datetime=0 format=\"relative\"\n", true),
+        ("    text\n      text \"Updated \"\n      time datetime=0 format=\"relative\"\n      text \" here\"\n", false),
+    ] {
+        let plan = contract::compile(&format!("component App\n  view\n{body}")).unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        let call = js.split("()=>[").nth(1).expect("live time arguments").split(';').next().unwrap();
+        assert!(call.ends_with(&format!("],{reserve})")), "{js}");
+        assert!(!js.contains("white-space:nowrap"), "{js}");
+    }
+}

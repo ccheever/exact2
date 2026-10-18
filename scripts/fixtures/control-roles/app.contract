@@ -1,0 +1,49 @@
+// The control-roles fixture (LLP 1121 D9, stage 8 C): each native control
+// once, on, under an authored accent and authored field roles (app.tamber),
+// for scripts/measure-controls.mjs, which builds it again with neither and
+// compares the two. Colours far from every platform's default.
+component App
+  state on = true
+  state level = 60
+  state choice = "b"
+  state words = "Typed"
+  state empty = ""
+  action toggle
+    on = !on
+  action check(checked: bool)
+    on = checked
+  action pick(value: string)
+    on = true
+  action slide(value: number)
+    level = value
+  action choose(value: string)
+    choice = value
+  action write(value: string)
+    words = value
+  action clear(value: string)
+    empty = value
+  view
+    column gap=16 padding=24 accent-color="accent.authored" testId="root"
+      input type="checkbox" switch checked=on change=check aria-label="Switch" testId="switch"
+      input type="checkbox" switch checked=on change=check disabled=true aria-label="Switch, off" testId="switch-disabled"
+      input type="checkbox" checked=on change=check aria-label="Checkbox" testId="checkbox"
+      input type="checkbox" checked=on change=check disabled=true aria-label="Checkbox, off" testId="checkbox-disabled"
+      input type="radio" name="pick" value="one" checked=on change=pick aria-label="Radio" testId="radio"
+      input type="radio" name="off" value="one" checked=on change=pick disabled=true aria-label="Radio, off" testId="radio-disabled"
+      row
+        input type="range" min=0 max=100 value=level change=slide aria-label="Range" flex=1 min-width=0 testId="range"
+      row
+        input type="range" min=0 max=100 value=level change=slide disabled=true aria-label="Range, off" flex=1 min-width=0 testId="range-disabled"
+      row
+        progress value=level max=100 flex=1 testId="progress"
+      row
+        progress flex=1 testId="spinner"
+      select value=choice change=choose aria-label="Select" testId="select"
+        option "Alpha" value="a"
+        option "Beta" value="b"
+      button "Prominent" buttonStyle="bordered-prominent" press=toggle testId="button-prominent"
+      button "Prominent, off" buttonStyle="bordered-prominent" press=toggle disabled=true testId="button-prominent-disabled"
+      input value=words change=write aria-label="Field" testId="field"
+      input value=empty change=clear placeholder="Placeholder" aria-label="Empty field" testId="field-placeholder"
+      textarea value=words change=write aria-label="Area" testId="textarea"
+      textarea value=empty change=clear placeholder="Placeholder" aria-label="Empty area" testId="textarea-placeholder"

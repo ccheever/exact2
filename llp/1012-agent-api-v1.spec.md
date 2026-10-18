@@ -614,13 +614,20 @@ logs     "(N earlier lines dropped by the journal ring)" when dropped > 0;
          exception, the app's message and the crashing thread's top eight frames;
          "(nothing new)" when there is nothing at all
 state    [epoch E · incarnation I · clock C ms], then one line per other section:
-         {name} {its JSON on one line}; an app's state without its empty sections
+         {name} {its JSON on one line}; an app's state without its empty sections.
+         Over 8 KB (`STATE_CAP`; `state … --full` lifts it), in its place:
+         state [{name}] is {size}, over the 8.0 KB printed whole [· the tags]
+         {section} {its JSON on one line}: slots, derives, then the smallest, up to 2 KB between them (`STATE_SHOWN`)
+         not shown: {section} {size} · … (largest first)
+         one section: "state {largest}" … | one key: "state {name}.{key}" | one item: "state {name}.0"; all of it: "state [{name}] --full", or --json
 tap      [ERROR {error} · ]tapped #{id} "{target}" [· at X,Y] · delivery D · epoch E
          [· incarnation I, when not 1] · clock C ms [· key=JSON for each other field but carrier and mode]
 type     the same, `typed`; a reply with an error or `delivery: unsupported` reads `tap`｜`type`, a contact's phase `tap {phase}`,
          a held request's answer `answered @{ticket} "{choice}"`; `at` shows for a phase and a drag only, and an
          input delivered whose answers did not land keeps its verb and adds `landing failed: …` (`landError`)
-others   the JSON on one line
+clock    clock C ms [· settled | NOT settled (reason)] [· epoch E] [· incarnation I] [· key=JSON …]
+screenshot  screenshot {path} · W×H [· epoch E] [· clock C ms] [· key=JSON …]; a comparison its text
+others   {op} [· epoch E] [· incarnation I, when not 1] [· clock C ms] [· key=JSON for each other field but carrier and mode]
 ```
 
 **What an agent pays to read (2026-10-08, revised 2026-10-09; measured while
@@ -773,16 +780,33 @@ deterministic and a smoke against real credentials leaves nothing behind.
   clock by `<ms>`, its timers firing as they would, and no wall time passes;
   under `--timing platform` `<ms>` of real time passes (the main run loop
   turns on iOS and macOS), so the platform's own motion runs on. A drag's
-  `press` and `hold` already were; Linux's always were.
+  `press` and `hold` already were; Linux's always were. Under `--touch
+  platform` on iOS the three are one real touch pressed at `tap up`: once it
+  has reached its view, the clock moves the holds' `<ms>` on real time under
+  either timing (the clock is the agent's then, as after any landed input),
+  and the finger lifts after it (LLP 1080.000 §14).
+- **A held target shows pressed** (amended 2026-10-17). Between `tap
+  <target> down` and `tap up` the target shows its press, its
+  `-exact-press-scale` or the platform's dim, on every host, so `tap row
+  down`, `screenshot held.png`, `tap up` pictures the press and then presses
+  once. Under `--touch platform` on iOS the holds, reads and `clock +<ms>`
+  steps written between run inside the one real touch in the order written (a
+  `clock +<ms>` counts toward the hold), after UIKit has handed the touch to
+  its view, and each answers at `tap up`, in that order; any other op between,
+  a waiting `clock` too, is refused, naming `tap up` and `tap cancel`, and a
+  `tap cancel` runs them after it with nothing pressed (LLP 1080.000 §14).
 - **iOS holds a contact.** Off a `pan` node, where no swipe or other drag
   could take it, `tap … down` is a recognized finger (`delivery: recognized`,
   `AgentPanIOS.swift`): its `pointerdown` as
   it lands, `pointermove`s as it moves (nothing scrolls: `tap <scroller>
   drag` does), its `pointerup` (to every node its down reached that is
   still that node, though one disabled itself) and then the press a finger
-  lifted there makes, if it is still on its target. It is no `UITouch`: no
+  lifted there makes, if it is still on its target; meanwhile its target
+  shows pressed while the finger is inside it. It is no `UITouch`: no
   UIKit recognizer sees it, under either timing. A drag's contact still
   asks for a `pan` node's alone. `input` on iOS reports `contact` and `hold`.
+  Under `--touch platform` the contact is one real touch instead, played
+  whole at `tap up` (LLP 1080.000 §14).
 
 ## Amended (2026-10-16: an iOS screenshot says what it paints)
 
@@ -912,7 +936,8 @@ pixels show.
   or more apart in size or place is given at both sizes. No size is derived
   from a move, and none is given for an edge not found.
 - **The picture.** `<png>.diff.png`: the reference, the screen, and the
-  screen faded with what differs in red and the regions boxed.
+  screen faded with what differs in red and the regions boxed, each panel
+  labelled above it; the head line names them in that order.
 
 On the euxy port the four screens the judge marked down came out as the
 judge saw them: the note pads (`pad-57 (View "A2") [146,361 25×48]: 25×40 at
@@ -922,3 +947,52 @@ under `listen`: `its content sits 4 pt left in the reference`), and the swipe
 action's text (`under Text "Delete": here #ddd on #f42, in the reference
 #000 on #f42`). A row a third of a point short (the judge's "rows slightly
 shorter") is under the grid's resolution.
+
+## Amended (2026-10-17: what a port's screenshots met)
+
+The euxy porter, capturing screens for a visual-fidelity judge, lost a screen
+to each of these.
+
+- **System sheets under `--touch platform`.** The share sheet and the
+  document pickers (`showOpenFilePicker`, `showDirectoryPicker`,
+  `showSaveFilePicker`) are held for the agent as before, so `state`'s
+  `pending` lists what was asked and `tap @t` / `type @t` answer it, and on
+  an iOS simulator under `--touch platform` they are also presented for real
+  (`"present": true` beside `"agent": true` in the runner's request). A
+  screenshot then waits for the sheet to arrive and is the window's
+  (`presented: "share sheet"` or `"sheet"`), drawn from the display. What the
+  person does in the sheet answers the hold, journalled as the agent's answer
+  is; the agent's answer, or `back`, closes the sheet. The photo and file
+  input picker, the export sheet and the sign-in sheet stay held only. A
+  screenshot taken while any held sheet is undrawn says so on stderr, naming
+  `--touch platform` where it would draw it.
+- **A painted menu's note** names `--touch platform` as the way to picture
+  UIKit's menu, and is not given under it, where what is painted is what a
+  person sees painted (a content popover). Under the flag a screenshot with a
+  UIKit menu or sheet up was already the window's (LLP 1116.012 D3): that
+  default stays, since a plain screenshot that leaves out what is on screen is
+  the surprise.
+- **The development build replacing a Release one.** The build a drive runs
+  first installs nothing (`--no-install`); the drive installs. Before its
+  first install over a build whose receipt is not a development one, it
+  copies that build aside (an APFS clone under
+  `~/.cache/exact/simulator-releases/<udid>-<id>/`, replacing an older copy
+  for that pair; a copy that fails stops the drive before the install), and
+  stderr says it was replaced, with the one command that puts it back:
+  `xcrun simctl install <udid> '<copy>'`. Nothing is reinstalled for the
+  drive: an automatic restore raced other drives and builds, and cost two
+  installs a session. The drive's later sessions find the development build
+  and copy nothing. `build.mjs --ios` says when its development build
+  replaced such a build, with the command that puts it back. Bundle ids are
+  unchanged.
+- **`compare` starts from an empty store.** A drive with a `screenshot …
+  compare` and `--storage` empties the store on every host unless
+  `--keep-storage` keeps it: what an earlier drive stored (a die rolled) is no
+  part of the screen. A region's ink leaves out an edge's anti-aliasing: a
+  cell on a run of up to three across or down between two colours present in
+  the region, every cell of the run a mix of theirs (one fraction of the way
+  in every channel). A side whose differing cells are only that reads `#fff, its
+  edge's anti-aliasing #bbb beside it`, and both sides' clauses are said. A
+  1 pt border off the line between its two sides keeps its colour; one on it
+  (grey between white and black) reads as a blend, which the pixels cannot
+  tell apart.

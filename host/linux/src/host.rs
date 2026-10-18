@@ -48,7 +48,7 @@ mod paint_motion;
 #[path = "presence.rs"]
 mod presence;
 #[path = "press.rs"]
-mod press;
+pub(crate) mod press;
 #[path = "scale.rs"]
 mod scale;
 #[path = "system_support.rs"]
@@ -93,6 +93,9 @@ pub struct Host<D: DataSource> {
     pub(crate) flow_damage: crate::paint::damage::Changes,
     /// What changed for the painter's kept rows since its last frame.
     pub(crate) row_dirty: crate::paint::rows::Dirty,
+    /// The nodes whose `:hover` look holds, and the one whose `:focus-visible`
+    /// does (LLP 1121 D8; the presenter's, `presenter/feedback.rs`).
+    pub(crate) looks_shown: (Vec<ViewId>, Option<ViewId>),
     height_bindings: height_binding::Bindings,
     transform_bindings: transform_binding::Bindings,
     height_projection: Option<exact_kernel::PresentedHeight>,
@@ -269,6 +272,7 @@ impl<D: DataSource> Host<D> {
             height_owner: None,
             flow_damage: Default::default(),
             row_dirty: Default::default(),
+            looks_shown: Default::default(),
             height_bindings: Default::default(),
             transform_bindings: Default::default(),
             height_projection: None,
@@ -670,10 +674,13 @@ impl<D: DataSource> Host<D> {
         }
         .or_else(|| self.paint.view_dark(node.key));
         shown.lowered = self.lowered_mask(node.key);
-        shown.press = self
-            .presses
-            .get(&node.key)
-            .map_or(1., |f| f.factor(self.now_ms));
+        // @ref LLP 1061 D7, LLP 1121 D8 — the press and the looks that hold;
+        // the painter shows their colours from the same progress.
+        let looks = [
+            self.looks_shown.0.contains(&id),
+            self.looks_shown.1 == Some(id),
+        ];
+        press::present(&node, self.press_progress(node.key), looks, &mut shown);
         shown
     }
 
@@ -1340,8 +1347,6 @@ impl<D: DataSource> Host<D> {
         });
         self.observe_layout();
         paint |= layout.as_ref().copied().unwrap_or(true);
-        // Transitions the reader plays leave the engine before it presents.
-        self.play_transitions();
         // Consume the final sample even when the seek has made motion quiescent.
         paint |= self.present();
         (error.or(layout.err()), paint)
@@ -1386,6 +1391,11 @@ impl<D: DataSource> Host<D> {
         self.navigation.visibility(self.runner.kernel(), id)
     }
 
+    pub(crate) fn route_visibility_to(&self, id: ViewId, root: Option<ViewId>) -> (bool, bool) {
+        self.navigation
+            .visibility_to(self.runner.kernel(), id, true, root)
+    }
+
     /// The first navigation root's stack as its key last named it: its
     /// routes through the one that shows (`presenter/arrive.rs`).
     pub(crate) fn shown_stack(&self) -> Option<&[ViewId]> {
@@ -1399,7 +1409,10 @@ impl<D: DataSource> Host<D> {
 
     /// Every presentation value the engine changed, kept by node.
     fn present(&mut self) -> bool {
-        let mut changed = false;
+        // Holds and commits both reconcile reader tracks before publishing.
+        let epoch = self.lowered_epoch;
+        self.play_transitions();
+        let mut changed = self.lowered_epoch != epoch;
         for p in self.engine.frame() {
             let key = node_key(p.node);
             let Some(view) = self.keys.get(&key).copied() else {
@@ -1418,7 +1431,7 @@ impl<D: DataSource> Host<D> {
                 self.present_paint(p);
                 continue;
             }
-            let base = self.presented(view);
+            let base = self.unpresented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
                 Property::Translate => {

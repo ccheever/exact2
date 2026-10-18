@@ -277,6 +277,13 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("color-scheme", "css CSS Color Adjustment 1", AttrTarget::Styles(&[StyleId::ColorScheme])),
     // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
     ("-exact-press-scale", "exact LLP 1061", AttrTarget::Styles(&[StyleId::PressScale])),
+    // @ref LLP 1061 D7 — the author's pressed paint, host-owned as the scale is.
+    ("-exact-press-opacity", "exact LLP 1061 D7", AttrTarget::Styles(&[StyleId::PressOpacity])),
+    ("-exact-press-background-color", "exact LLP 1061 D7", AttrTarget::Styles(&[StyleId::PressBackgroundColor])),
+    ("-exact-press-color", "exact LLP 1061 D7", AttrTarget::Styles(&[StyleId::PressColor])),
+    // @ref LLP 1121 D8 — lowering's row for `:active`'s `opacity`, never an
+    // author's (`nodes.rs` refuses it written).
+    ("-exact-press-opacity-to", "exact LLP 1121 D8", AttrTarget::Styles(&[StyleId::PressOpacityTo])),
     // CSS Animations (LLP 1055 D5): the shorthand is the row; the
     // longhands compose into it before lowering (`svg::compose_animation`).
     ("animation", "css CSS Animations 1", AttrTarget::Styles(&[StyleId::Animation])),
@@ -309,6 +316,22 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("text-box-edge", "css CSS Inline Layout 3", AttrTarget::Shorthand),
     ("text-box", "css CSS Inline Layout 3", AttrTarget::Shorthand),
 ];
+
+/// Why a literal `n` written as `name` is no value of the press family's
+/// numeric rows, if it is not.
+pub(crate) fn press_refusal(rows: &[StyleId], n: f64, name: &str) -> Option<String> {
+    // @ref LLP 1061 D1 — a press that makes a node vanish or flip is a
+    // typo, not a feel.
+    if rows.contains(&StyleId::PressScale) && n <= 0.0 {
+        return Some(format!(
+            "`{name}` takes a positive scale (0.97 is a button's, 1 is none)"
+        ));
+    }
+    // @ref LLP 1061 D7 — a share of the node's own opacity.
+    (rows.contains(&StyleId::PressOpacity) && !(0.0..=1.0).contains(&n)).then(|| {
+        format!("`{name}` takes a share of the node's own opacity, from 0 to 1 (0.65 is iOS's dim, 1 is none)")
+    })
+}
 
 /// The target of a style attribute, if `name` is one.
 pub fn lookup(name: &str) -> Option<AttrTarget> {

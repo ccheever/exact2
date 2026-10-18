@@ -41,7 +41,7 @@ inductive VNode.In : VNode → List VNode → Prop
 theorem findTestId_in {id : String} :
     ∀ {vs : List VNode} {m}, findTestId id vs = .some m → VNode.In m vs
   | [], _, h => by simp [findTestId] at h
-  | ⟨_, _, _, _, _, _, _, _, cs⟩ :: rest, m, h => by
+  | { children := cs, .. } :: rest, m, h => by
     rw [findTestId] at h
     split at h
     · cases h; exact .head
@@ -122,12 +122,15 @@ theorem render_handlers : ∀ fuel,
         cases node with
         | element tag pos props hs children =>
           simp only [Except.bind_ok_iff, Except.pure_ok_iff] at hx
-          obtain ⟨_, _, _, _, ⟨kids, l3⟩, hk, hx⟩ := hx
+          obtain ⟨_, _, _, _, _, _, ⟨kids, l3⟩, hk, hx⟩ := hx
           simp only [Prod.mk.injEq] at hx
           obtain ⟨rfl, -⟩ := hx
           simp only [Node.handlerList]
-          exact .single (fun _ h => List.mem_append_left _ h)
-            ((ihR hk).mono fun _ h => List.mem_append_right _ h)
+          refine .single (fun _ h => List.mem_append_left _ h) ?_
+          split at hk
+          · exact (ihR hk).mono fun _ h => List.mem_append_right _ h
+          · simp only [Except.pure_ok_iff, Prod.mk.injEq] at hk
+            rw [← hk.1]; exact .nil
         | when tag c thn els =>
           simp only [Except.bind_ok_iff] at hx
           obtain ⟨v, _, hx⟩ := hx
@@ -167,12 +170,26 @@ theorem render_handlers : ∀ fuel,
 
 /-! ## What a step can change -/
 
-theorem update_render {p o slots store now prev force st r}
-    (h : update p o slots store now prev force = .ok (st, r)) :
-    ∃ cx, render fuel cx [] p.view [] = r := by
+theorem renderTabs_render : ∀ n {cx view live},
+    renderTabs n cx = .ok (view, live) →
+    ∃ cy, render fuel cy [] cx.env.prog.view [] = .ok (view, live)
+  | 0, _, _, _, h => nomatch h
+  | n + 1, cx, view, live, h => by
+    simp only [renderTabs, Except.bind_ok_iff] at h
+    obtain ⟨⟨vs, ls⟩, hr, h⟩ := h
+    split at h
+    · simp only [Except.pure_ok_iff, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      exact ⟨cx, hr⟩
+    · have ih := renderTabs_render n h
+      exact ih
+
+theorem update_render {p o slots store now prev force old st view live}
+    (h : update p o slots store now prev force old = .ok (st, .ok (view, live))) :
+    ∃ cx, render fuel cx [] p.view [] = .ok (view, live) := by
   simp only [update, Except.bind_ok_iff, Except.ok_ok_iff, Prod.mk.injEq] at h
-  obtain ⟨_, _, -, rfl⟩ := h
-  exact ⟨_, rfl⟩
+  obtain ⟨_, _, _, hr⟩ := h
+  exact renderTabs_render fuel hr
 
 /-- An action keeps its timers' actions (its gate step moves only their
 deadlines, LLP 1092 D8), and its view is the old one or the program's view
@@ -467,7 +484,7 @@ theorem boot_cases {p o c out} (h : boot p o = (c, out)) :
   all_goals first
     | exact .inl (Prod.mk.inj h).1.symm
     | (simp only [Prod.mk.injEq] at h; obtain ⟨rfl, -⟩ := h
-       exact .inr ⟨_, _, _, _, by assumption, by assumption, by assumption, ⟨_, by assumption⟩,
+       exact .inr ⟨_, _, _, _, by assumption, by assumption, by assumption, renderTabs_render fuel (by assumption),
          gateStep_actions (by assumption)⟩)
 
 theorem foldlM_inv {α β ε : Type} {f : β → α → Except ε β} (P : β → Prop) :

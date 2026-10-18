@@ -7,8 +7,10 @@
 //   bun game/bench/phone.mjs webview 2000 5000 …   three.js in the WebView shell (MODE=meshes: a Mesh per cube)
 //   bun game/bench/phone.mjs chrome 2000 5000 …    three.js in Chrome
 //
+// CAPTURE_DIR saves the native run's screenshot and compositor dumps after measurement.
 // Each run launches the app, waits WARMUP seconds, resets the app's gfxinfo and reads it SECONDS later: the
-// frames its RenderThread drew, where the reader draws the GPU canvas and the WebView composites. Chrome draws
+// frames its RenderThread drew. A SurfaceView canvas instead uses SurfaceFlinger actual-present timestamps,
+// sampled each second; its HUD can stay unchanged while the world presents at the display rate. Chrome draws
 // outside gfxinfo, so its numbers are the page's own requestAnimationFrame intervals (the WebView's page reports
 // them too). The display is held at HZ (default 60) for every run; `settings put system peak_refresh_rate` and
 // `min_refresh_rate` are restored to the phone's default at the end. The phone must be awake and unlocked.
@@ -20,7 +22,7 @@ import { resolve } from 'node:path';
 const here = resolve(new URL('.', import.meta.url).pathname), root = resolve(here, '../..');
 const sdk = process.env.ANDROID_HOME ?? resolve(homedir(), process.platform === 'darwin' ? 'Library/Android/sdk' : 'Android/Sdk');
 const ADB = existsSync(resolve(sdk, 'platform-tools/adb')) ? resolve(sdk, 'platform-tools/adb') : 'adb';
-const WARMUP = Number(process.env.WARMUP ?? 4), SECONDS = Number(process.env.SECONDS ?? 10), HZ = Number(process.env.HZ ?? 60);
+const WARMUP = Number(process.env.SETTLE ?? process.env.WARMUP ?? 4), SECONDS = Number(process.env.SECONDS ?? 10), HZ = Number(process.env.HZ ?? 60);
 const MODE = process.env.MODE ?? 'instanced', PORT = 8790;
 const EXACT = 'com.exact.bench_cubes', TWIN = 'dev.exact.twin', CHROME = 'com.android.chrome';
 const contract = resolve(here, 'cubes/app.contract'), twinDir = resolve(here, '../twins/three');
@@ -56,9 +58,40 @@ async function measure(pkg) {
   if (focus !== pkg) throw new Error(`${pkg} is not in front (${focus}): dismiss what covers it and run again`);
   shell(`dumpsys gfxinfo ${pkg} reset`);
   const start = Date.now();
-  await Bun.sleep(SECONDS * 1000);
+  const layer = pkg === EXACT ? shell('dumpsys SurfaceFlinger --list').trim().split('\n')
+    .filter(l => l.startsWith('SurfaceView') && l.includes(pkg) && !l.includes('Background')).at(-1) : null;
+  const presented = new Set(), snapshots = [];
+  if (layer) shell('dumpsys SurfaceFlinger --latency-clear');
+  for (const end = start + SECONDS * 1000; Date.now() < end;) {
+    await Bun.sleep(Math.min(1000, Math.max(0, end - Date.now())));
+    if (layer) for (const line of shell(`dumpsys SurfaceFlinger --latency '${layer}'`).trim().split('\n').slice(1)) {
+      const t = Number(line.trim().split(/\s+/)[1]);
+      if (t > 0 && t < 9e18) presented.add(t);
+    }
+    if (!layer) snapshots.push(shell(`dumpsys gfxinfo ${pkg} framestats`));
+  }
   const g = gfxinfo(pkg);
-  return { ...g, fps: Math.round(g.frames / ((Date.now() - start) / 1000) * 10) / 10 };
+  if (layer) {
+    const times = [...presented].sort((a, b) => a - b);
+    return { frames: times.length, fps: times.length > 1 ? +(1e9 * (times.length - 1) / (times.at(-1) - times[0])).toFixed(2) : null,
+      pacing_source: 'surfaceflinger', layer, hwui: g,
+      missed_refreshes: times.slice(1).reduce((n, t, i) => n + Math.max(0, Math.round((t - times[i]) * HZ / 1e9) - 1), 0) };
+  }
+  const raw = snapshots.join('\n'), frames = new Set();
+  const since = Number(/Stats since: (\d+)ns/.exec(raw)?.[1] ?? 0);
+  let header = [];
+  for (const line of raw.split('\n')) {
+    if (line.startsWith('Flags,')) header = line.split(',');
+    else if (line.startsWith('0,') && header.length) {
+      const values = line.split(',').map(Number);
+      const intended = values[header.indexOf('IntendedVsync')], done = values[header.indexOf('FrameCompleted')];
+      if (intended >= since && done > intended && done < 9e18) frames.add(intended);
+    }
+  }
+  const times = [...frames].sort((a, b) => a - b);
+  return { ...g, frames: times.length, pacing_source: 'hwui',
+    fps: times.length > 1 ? +(1e9 * (times.length - 1) / (times.at(-1) - times[0])).toFixed(2) : null,
+    missed_refreshes: times.slice(1).reduce((n, t, i) => n + Math.max(0, Math.round((t - times[i]) * HZ / 1e9) - 1), 0) };
 }
 
 function record(row) {
@@ -91,6 +124,14 @@ async function exact(n) {
   const before = device();
   shell(`am start -W -n ${EXACT}/dev.exact.app.MainActivity`);
   const m = await measure(EXACT);
+  if (process.env.CAPTURE_DIR) {
+    const dir = resolve(process.env.CAPTURE_DIR); mkdirSync(dir, { recursive: true });
+    const shot = spawnSync(ADB, ['exec-out', 'screencap', '-p']);
+    if (shot.status !== 0) throw new Error('screenshot failed');
+    writeFileSync(resolve(dir, `exact-${n}-${HZ}.png`), shot.stdout);
+    writeFileSync(resolve(dir, `exact-${n}-${HZ}-sf.txt`), shell('dumpsys SurfaceFlinger'));
+    writeFileSync(resolve(dir, `exact-${n}-${HZ}-gfxinfo.txt`), shell(`dumpsys gfxinfo ${EXACT} framestats`));
+  }
   shell(`am force-stop ${EXACT}`);
   record({ engine: 'exact', n, ...m, ...before });
 }

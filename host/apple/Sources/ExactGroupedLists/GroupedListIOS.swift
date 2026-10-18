@@ -176,6 +176,8 @@ final class GroupedListHost: GroupedLists {
     private(set) var lists: [UInt32: GroupedListView] = [:]
     /// The theme's generation the lists last drew from (`sync`).
     private var theme = ThemeRoles.generation
+    /// Each list's margins as the kernel was last told them (`tell`).
+    var told: [UInt32: [CGFloat]] = [:]
     /// A list's model: the kernel's, through the runtime; a test's own.
     lazy var model: (UInt32) -> GroupedListModel? = { [unowned self] id in presenter.session?.runtime.groupedList(id) }
     init(_ presenter: Presenter) { self.presenter = presenter }
@@ -212,11 +214,39 @@ final class GroupedListHost: GroupedLists {
             list.update(model)
         }
         for id in Array(lists.keys) where !live.contains(id) { lists.removeValue(forKey: id)?.remove() }
+        tell()
+    }
+
+    /// The kernel lays a list's custom rows out by the margins UIKit gave its
+    /// cards and cells (`GroupedMargins`), told after the batch and once no
+    /// slice is in flight, as a route's blocks are (`OwnerBlocks.publish`):
+    /// sampled when told, so a report that waited tells what is current, and
+    /// one behind it finds nothing changed. A list of standard rows alone
+    /// shows nothing the kernel lays out.
+    private func tell() {
+        presenter.afterBatch { [weak self] in
+            guard let session = self?.presenter.session else { return }
+            session.whenIdle { [weak self] in
+                guard let self else { return }
+                var changes: [(UInt32, [CGFloat]?)] = []
+                for (id, list) in lists where list.carriesCustomRows {
+                    guard let margins = list.margins(), told[id] != margins else { continue }
+                    told[id] = margins
+                    changes.append((id, margins))
+                }
+                for id in Array(told.keys) where lists[id] == nil {
+                    told[id] = nil
+                    if presenter.views[id] != nil { changes.append((id, nil)) }
+                }
+                if !changes.isEmpty { session.apply(session.runtime.groupedMargins(changes)) }
+            }
+        }
     }
 
     func reset() {
         for list in lists.values { list.remove() }
         lists.removeAll()
+        told.removeAll()
     }
 
     /// The list that draws `id`, a row or a row's toggle or detail button.
@@ -403,6 +433,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private(set) var model = GroupedListModel()
     private var source: UICollectionViewDiffableDataSource<UInt32, UInt32>!
     private var rows: [UInt32: GroupedListModel.Row] = [:]
+    /// Some row is custom: its views, carried, are laid out by the kernel.
+    private(set) var carriesCustomRows = false
     /// Each row's symbol tint as last configured.
     private var looks: [UInt32: BatchValue?] = [:]
     /// The theme's roles this list last drew with (LLP 1095 D4): a new table
@@ -548,6 +580,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let restyled = next.style != previous.style || rethemed
         model = next
         rows = Dictionary(next.sections.flatMap { $0.rows }.map { ($0.view, $0) }, uniquingKeysWith: { a, _ in a })
+        carriesCustomRows = rows.values.contains(where: \.custom)
         #if !os(tvOS)
         switches = switches.filter { rows[$0.key]?.accessory == "toggle" }
         #endif
@@ -752,6 +785,19 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     func cell(_ id: UInt32) -> UICollectionViewCell? {
         source.indexPath(for: id).flatMap { collection.cellForItem(at: $0) }
+    }
+
+    /// Where UIKit put this list's cards and their content: a shown cell's
+    /// insets from the list's left and right edges, then its layout margins,
+    /// left and right, where content pinned to them starts and ends (nil
+    /// while no cell shows).
+    func margins() -> [CGFloat]? {
+        guard let cell = collection.visibleCells.first as? UICollectionViewListCell,
+              let path = collection.indexPath(for: cell),
+              let frame = collection.layoutAttributesForItem(at: path)?.frame else { return nil }
+        let m = cell.directionalLayoutMargins
+        let rtl = cell.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        return [frame.minX, collection.bounds.width - frame.maxX, rtl ? m.trailing : m.leading, rtl ? m.leading : m.trailing]
     }
 
     /// Row `id`'s middle, or the middle of `inner` (a box in the row's own
@@ -993,7 +1039,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             carriedOrder.append(id)
         }
         guard let place = carried[id] else { return }
-        let height = cellHeight(id, row: place.frame.height)
+        // At its layout x on the cell's grid, at the size it is drawn at
+        // home. Its children keep their places in it: carried and put back
+        // in every batch, a row placed afresh in the cell would place them
+        // twice a batch.
+        let drawn = row.grid.map { CGRect(x: PixelGrid.round($0.layout.minX, scale: host.presenter.gridScale), y: 0, width: $0.drawn.width, height: $0.drawn.height) }
+            ?? CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
+        let height = cellHeight(id, row: drawn.height)
         // Never invalidated here: a cell is configured inside the data
         // source's update; `mount` lays the list out after it.
         if cell.height != height { cell.height = height; resized = true }
@@ -1007,7 +1059,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             // cell comes back, so the pump paints it (`refreshVisibleText`).
             host.presenter.requestTextPublication()
         }
-        row.frame = CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
+        row.frame = drawn
     }
 
     /// A custom row's cell height for a row box `height` tall: less the

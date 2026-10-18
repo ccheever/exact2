@@ -9,6 +9,7 @@
 #include <ibex2_jsi.h>
 #include <jsi/instrumentation.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -71,9 +72,53 @@ struct State {
   size_t capture_limit;
   size_t capture_bytes = 0;
   std::vector<CapturedString> captures;
+  // Collections so far, Hermes' own and these: what the prelude stamps an
+  // answer with when it begins (`__exact_gc_epoch`).
+  int64_t gc_epoch = 0;
+  // The prelude asked for a full collection after this call
+  // (`__exact_gc_epoch(true)`): kept until a call that returns collects.
+  bool collect_owed = false;
+  // At the last full collection (collect_garbage): the heap's total
+  // allocation then and what it held, all of it live.
+  int64_t collected_at = 0;
+  int64_t live = 0;
 };
 
 constexpr size_t kLogLines = 256;
+
+// A full collection, after which the heap holds only what is live.
+void collect_garbage(State *state, const char *cause) {
+  auto &instrumentation = state->rt->instrumentation();
+  instrumentation.collectGarbage(cause);
+  auto info = instrumentation.getHeapInfo(false);
+  state->collected_at = info["hermes_totalAllocatedBytes"];
+  state->live = info["hermes_allocatedBytes"];
+  state->gc_epoch = info["hermes_numCollections"] + info["hermes_yg_numCollections"];
+}
+
+// Hermes' young generation keeps every page it has touched (exact_js_harden),
+// and Hades lets it grow over a session to its whole 4 MB segment: each young
+// collection ends it at a share of the segment that starts at a half and grows
+// by a tenth with every collection under 10 ms. A module that allocates a
+// little per call collects here instead, between calls, once it has allocated
+// half as much as it held live at the last full collection and at least
+// kCollectEvery since. Its young generation then stays near its largest
+// call's allocation plus kCollectEvery: euxy's boot (a 430 KB call, then a
+// 760 KB one) kept 1.2 MB of it touched at 512 KB, and keeps 0.8 MB. A full
+// collection's cost follows the live heap, so this is at most one per half
+// that much allocation. The total counts what Hermes' own young collections
+// already reclaimed, so after one this collects early, never late.
+constexpr int64_t kCollectEvery = 256 << 10;
+
+void collect_if_due(State *state) {
+  auto info = state->rt->instrumentation().getHeapInfo(false);
+  int64_t total = info["hermes_totalAllocatedBytes"];
+  // Hermes' own collections within the call count too: one may have moved
+  // an answer's value to the old generation.
+  state->gc_epoch = info["hermes_numCollections"] + info["hermes_yg_numCollections"];
+  if (total - state->collected_at >= std::max(kCollectEvery, state->live / 2))
+    collect_garbage(state, "between calls");
+}
 
 void clear_captures(State *state) {
   state->captures.clear();
@@ -100,6 +145,15 @@ void install_capture(State *state) {
             state->capture_bytes += path.size() + value.size()*sizeof(char16_t);
             state->captures.push_back({std::move(path), std::move(value)});
             return jsi::Value::undefined();
+          }));
+  // The collections as of the last call's end, read when an answer begins;
+  // `true` asks for a full collection when this call returns.
+  rt.global().setProperty(rt, "__exact_gc_epoch",
+      jsi::Function::createFromHostFunction(rt,
+          jsi::PropNameID::forAscii(rt, "__exact_gc_epoch"), 1,
+          [state](jsi::Runtime &, const jsi::Value &, const jsi::Value *args, size_t count) -> jsi::Value {
+            if (count == 1 && args[0].isBool() && args[0].getBool()) state->collect_owed = true;
+            return jsi::Value(static_cast<double>(state->gc_epoch));
           }));
 }
 
@@ -297,15 +351,17 @@ int exact_js_harden(void *h, const uint8_t *harden, size_t harden_len, char **ou
     // Hermes' young generation is one heap segment that keeps every page it
     // has touched, so its footprint is the furthest point allocation reaches
     // between two collections. The runtime and prelude allocate about
-    // 0.5 MB, the guarded freeze 0.9 MB, nearly all of it garbage, and an
-    // app's first screens often as much again: collecting before and after
-    // the freeze lets each reuse the pages of the one before, so boot
-    // touches about as much young generation as its largest step. A
-    // collection takes 0.15 to 0.3 ms here (iPhone simulator).
+    // 0.5 MB (much of the runtime's own in the old generation), the freeze's
+    // guard and harden.js about 0.45 MB each (Adapter::harden collects
+    // between them), nearly all of it garbage, and an app's first screens
+    // often as much again: collecting between the steps lets each reuse the
+    // pages of the one before, so boot touches about as much young
+    // generation as its largest step. A collection takes 0.15 to 0.3 ms here
+    // (iPhone simulator).
     state->rt->instrumentation().collectGarbage("bootstrap");
     ibex2::jsi_adapter::CompiledScript script{"harden", harden, harden_len};
     state->adapter->harden(script);
-    state->rt->instrumentation().collectGarbage("hardened");
+    collect_garbage(state, "hardened");
     return 0;
   } catch (const jsi::JSError &e) {
     return fail(out, e.getMessage(), 1);
@@ -365,7 +421,22 @@ int exact_js_call(void *h, const char *name, const char *a, const char *b, const
                            : "did not return a string",
                   3);
     }
-    return fail(out, result.getString(rt).utf8(rt), 0);
+    int status = fail(out, result.getString(rt).utf8(rt), 0);
+    // A captured string (64 Ki characters or more) whose answer outlived a
+    // collection may be old generation now, promoted while its answer was
+    // pending, and once sent it is garbage that no later collection frees
+    // while the module is idle (euxy's QR path: 376 KB). The prelude owes a
+    // full collection for it, asked for once no answer awaits a reply:
+    // asked at each reply, one collection would mark the answers still
+    // pending, whose replies would ask again. A string made and sent with no
+    // collection between, as a frame's answer is, waits for collect_if_due.
+    if (state->collect_owed) {
+      state->collect_owed = false;
+      collect_garbage(state, "owed after a large reply");
+    } else {
+      collect_if_due(state);
+    }
+    return status;
   } catch (const jsi::JSError &e) {
     clear_captures(state);
     return fail(out, e.getMessage(), 1);

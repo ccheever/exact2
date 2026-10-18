@@ -18,7 +18,7 @@ The only required reading; the rest is lookup.
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
    rows, an empty state with its next step in the list's place. A labelled entry or settings
    form is a grouped list (`grouped-form`), not cards of fields; a focal result (a timer, a
-   converter's answer) stays a centred column (`max-width=420`) or a `SummaryCard`.
+   converter's answer) stays a centred column (`max-width="26.25rem"`) or a `SummaryCard`.
    `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
    - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
      `"correct"`, `"wrong"` or `"dimmed"`. `SummaryCard`: the one number, shown once
@@ -42,7 +42,7 @@ name is found where you are, else in the app, and it says which it took. Your
 shell commands have no such help, so keep one directory.
 |`bun exact.mjs …`|What it does|
 |---|---|
-|`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports.|
+|`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports and type-checks it.|
 |`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done.|
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
@@ -118,31 +118,43 @@ component Groceries
 - **Styles.** A colour behind a box is `background-color`; the `background` shorthand is refused.
 - **Syntax.** Indent with spaces. Quote units (`width="50%"`); a bare number is pixels.
   Subtract with spaces (`a - b`): names hold hyphens. A view chooses with `if`/`else`, as
-  an action does, and repeats with `for x in xs key=…`; no `form` (a field's Enter is its `submit`).
+  an action does, and repeats with `for x in xs key=x.id` (`for x, i in xs key=x.id` binds the
+  index `i` too); no `form` (a field's Enter is its `submit`).
+- **Fields.** An `input` handler should update the draft on every edit so live search,
+  validation and button enablement follow typing. A text field fires `change` on Enter or
+  blur; its handler should normalize the draft. Use `submit` for explicit submission.
 - **Expressions** are TypeScript's: what compiles means what it means in TypeScript, and
   what does not is refused with what to write. The web's string and array methods are
   methods (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
   (`first(xs)`, `round(n)`). What differs: no truthiness; absence is an option (`none`,
   `some(x)`, `match`), not `null`; a value never changes (`xs.concat([x])`, a record copy
   `Shape(old, field=value)`); `==` compares lists and records by value; a stored number is
-  finite (a `NaN` refuses the commit); sorting, grouping and joining are the data module's,
-  and the view names the order it relies on where it reads it (`resource tasks = loadTasksByDueDate()`).
+  finite (a `NaN` refuses the commit). A presentation order by one key is
+  `sortBy(xs, x => x.name)`, stable (`"desc"` third; a second key is an earlier `sortBy`), not
+  `sort`; grouping, joining and a stored or locale order are the data module's, and the view
+  names the order it relies on where it reads it (`resource tasks = loadTasksByDueDate()`).
   Nothing runs because a value changed: an event runs an action, which passes its captured
   arguments, then the payload (`toggle(i.id)` gets the bool). Its writes land when it ends, so a
   later line reads the old value: bind the new one (`let n = go(nav, url)`, `nav = n`, read `n`).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
   write (`queue` keeps them in order, `refreshes` re-reads, `then` runs an action: clear
   the field only on an ok reply, as `afterAdd` does). Only the root declares them;
-  children take `props`.
+  children take `props`. For a mutation without `queue`, the action that sends it must
+  not also assign its slot to `none`: assignments commit after sends and can discard its
+  new reply. Hide an old error with `pending(added)`. `none` means the slot contains no
+  reply, not failure; use `failure(added)` to show request failures and match the reply
+  to handle a domain refusal.
 - **Refreshes.** Include every resource the write changes (`refreshes groceries, counts`).
 
 **The data module** answers each source with exactly its declared shape: an extra
 field fails a resource or voids a mutation’s reply, whose slot keeps its old value.
 Type the function returning a reply (`Promise<Result<'post'>>`) so the build names
-an extra field. It reaches only what its `grants` name and answers failed fetches as data
-([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and randomness are
-refused there; time comes as an argument. A date from a value works
-(`new Date(ms)`, `Intl.DateTimeFormat`). `console.log` appears in the agent’s
+an extra field. It reaches only what its `grants` name. A failed read should
+fail its resource so Exact can retain its previous answer; a mutation may return
+a shaped domain refusal for its action to handle
+([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and
+randomness are refused there; time comes as an argument. A date from a value
+works (`new Date(ms)`, `Intl.DateTimeFormat`). `console.log` appears in the agent’s
 `logs` and its last lines in a failed test’s notes. It imports its own `.ts`/`.js` and pure-JS npm
 packages (ESM or CommonJS, a `browser` build first); one needing Node (`fs`, `Buffer`), the DOM or a native
 addon is refused by name. Type an untyped one with `@types/<name>` or `declare module '<name>';` in a `.d.ts`.
@@ -195,7 +207,7 @@ test "an item is added, a repeat refused, checked off and kept"
   expect text "left" == "0 items left"
 ```
 
-Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
+Every step, launch line and `verify` flag is on the card.
 
 Interactive web drives also accept `reload` (keeps storage and fetch faults) and
 `pick <input-id> <path>`. `agent web --help all` lists driver capabilities.
@@ -228,35 +240,36 @@ snapshot. The backend’s clock stays its own.
 
 ## Look it up
 
-Start from the nearest pattern, a tested app with what the recipes teach. Look up what it lacks:
-`contract vocab` prints each name's answer in turn, a recipe (`docs/recipes/<name>.md`) whole, so
-one call fetches what a screen needs:
+Look up what the nearest pattern (a tested app) lacks:
+`contract vocab` prints each name's answer in turn, a keyword, tag, function or part as well as a
+recipe (`docs/recipes/<name>.md`, whole), so one call fetches what a screen needs:
 
 ```sh
 bun exact.mjs contract vocab list-rows search swipe            # a list with search and delete
-bun exact.mjs contract vocab grouped-form number-field choice persist   # an entry or settings form
+bun exact.mjs contract vocab for match persist grouped-form choice   # keywords, a settings form
 bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day's log
-bun exact.mjs contract vocab rest-backend fetch-loading-error after-a-write   # a server's data
 ```
 
 |Pattern|Already has|
 |---|---|
-|`one-screen`|a tracker: a total, buttons, a centred column over a grouped log in a file|
+|`one-screen`|a tracker: a total, quick-add buttons, a dated log in a file|
 |`dashboard`|a summary, bars, dated rows, an add sheet that validates, two columns|
 |`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
 |`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
-|`rest`|its own server, polled; a signed-in person (`rest-backend`)|
+|`rest`|its own server, polled; a signed-in person (`rest-backend`, `fetch-loading-error`, `after-a-write`)|
 
 |Not in a pattern|Look up|
 |---|---|
 |an entry or settings form|`grouped-form`|
+|rows added and removed in a form|`editable-rows`|
 |a write that may be refused|`after-a-write`|
 |tabular digits: numeric columns or values changing in place|`numeric-readout`|
-|a count 1–99|`stepper`|
+|a number field, a stepper's `step`|`number-field`, `stepper`|
 |a chat that opens at its newest message|`chat-thread`|
+|a welcome at first launch|`first-launch`|
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
-|a view only Swift can draw|`native-views`|
+|video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|

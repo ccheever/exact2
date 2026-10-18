@@ -69,6 +69,7 @@ mod midi;
 mod paint;
 #[path = "paragraph.rs"]
 mod paragraph;
+use paragraph::props_for;
 #[path = "presence.rs"]
 mod presence;
 #[path = "tamber.rs"]
@@ -76,7 +77,7 @@ mod tamber;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
-use exact_plan::{EventKind, Plan};
+use exact_plan::EventKind;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
 use height_drag::{HeightDrag, HeightHandle};
@@ -95,6 +96,9 @@ use layout::{content_size, published_content_box};
 mod resize;
 #[path = "scale.rs"]
 mod scale;
+#[path = "snapshot.rs"]
+pub(crate) mod snapshot;
+pub(crate) use scale::LaunchLayout;
 #[cfg(test)]
 #[path = "spacing_tests.rs"]
 mod spacing_tests;
@@ -238,22 +242,7 @@ pub struct Host<D: DataSource> {
     closed: layout::closed::Closed,
 }
 
-/// A plan's bytes at boot: copied from while decoding, or linked into the
-/// program, whose data pool the decoded plan then keeps in place.
-#[derive(Clone, Copy)]
-pub(crate) enum PlanBytes<'a> {
-    Copied(&'a [u8]),
-    Static(&'static [u8]),
-}
-
-impl PlanBytes<'_> {
-    fn decode(self) -> Result<Plan, exact_plan::PlanError> {
-        match self {
-            PlanBytes::Copied(bytes) => Plan::decode(bytes),
-            PlanBytes::Static(bytes) => Plan::decode_static(bytes),
-        }
-    }
-}
+pub(crate) use crate::plan_bytes::PlanBytes;
 
 impl<D: DataSource> Host<D> {
     /// Boot from plan bytes with the app's text measurer and viewport (points):
@@ -321,6 +310,7 @@ impl<D: DataSource> Host<D> {
             PlanBytes::Copied(plan_bytes),
             data,
             measurer,
+            scale::LaunchLayout::NONE,
             exact_runner::Viewport::sized(width as f64, height as f64),
             carried,
             snapshot,
@@ -346,6 +336,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
+        layout: scale::LaunchLayout,
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, Vec<u8>)>,
@@ -364,6 +355,7 @@ impl<D: DataSource> Host<D> {
             plan_bytes,
             data,
             measurer,
+            layout,
             viewport,
             carried,
             snapshot,
@@ -386,6 +378,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
+        layout: scale::LaunchLayout,
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, Vec<u8>)>,
@@ -410,13 +403,21 @@ impl<D: DataSource> Host<D> {
             }
         }
         let plan = plan_bytes.decode().map_err(HostError::Plan)?;
+        let entry_props = match plan_bytes {
+            PlanBytes::Entry(_, _, Some(bytes)) => {
+                Some(snapshot::props(&plan, bytes).map_err(HostError::Layout)?)
+            }
+            _ => None,
+        };
+        let carried = entry_props.as_ref().or(carried);
         // Before anything is built from it (LLP 1047.001 D5).
         if let Some(names) = crate::link::missing(&plan, crate::link::linked()) {
             return Err(HostError::Unlinked(names));
         }
         // This archive links its grammars; every public boot links all (LLP 1047.001 D3; 1053.000 §2).
         links.grammars.link();
-        let kernel = scale::kernel(measurer);
+        let mut kernel = scale::kernel(measurer);
+        layout.prepare(&mut kernel)?;
         let facts = candidate_delivery.unwrap_or_else(|| {
             let mut facts = exact_runner::Delivery::default();
             if let Some(json) = compat {
@@ -485,6 +486,7 @@ impl<D: DataSource> Host<D> {
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
+            // LLP 1126 D10: watchOS has no Core Animation presenter for box motion or path morphs.
             svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),
@@ -502,6 +504,7 @@ impl<D: DataSource> Host<D> {
                 // Settled values only when the plan animates nothing (LLP 1047.001).
                 let mut engine = Engine::linked(links.engine);
                 let _ = engine.set_start_on_frame(start_on_frame, 0.0);
+                // LLP 1126 D10: watchOS keeps box motion sampled for its SwiftUI driver.
                 engine.set_lowered_properties(&svg::lowered(cfg!(any(
                     target_os = "ios",
                     target_os = "tvos"
@@ -1112,22 +1115,6 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// The root font size `rem` follows (LLP 1069.000 D3): a relayout in
-    /// one commit, no resource asked again; the same size commits nothing.
-    pub fn set_root_font_size(&mut self, px: f64) -> String {
-        match self.runner.set_root_font_size(px) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("root font size: {e:?}"))),
-        }
-    }
-
     /// The viewer's locale and zone, beside the date: one commit when it changes.
     pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
         let (receipts, error) = match self.runner.set_place(locale, time_zone, seed) {
@@ -1438,53 +1425,6 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
 pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
     let scale = node.fit_scale();
     (node.node_type == NodeType::Text && scale != 1.0).then(|| style::num(scale))
-}
-
-/// Props by their own names, as strings. An empty `href` is no link: not told.
-fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
-    let mut out = exact_kernel::SortedMap::default();
-    for (id, value) in node.props.iter() {
-        let text = match value {
-            PropValue::Str(_) if id == PropId::Href && node.props.link().is_none() => continue,
-            PropValue::Str(s) => s.to_string(),
-            PropValue::Bool(b) => b.to_string(),
-            PropValue::Int(i) => i.to_string(),
-            PropValue::Float(f) => style::num(*f as f32),
-        };
-        out.insert(id.name().to_string(), text);
-    }
-    // Swift paints the measured paragraph with text-transform applied (LLP 1064 D5).
-    if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
-        out.insert(PropId::Text.name().to_string(), shown);
-    }
-    style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
-    if let Some(scale) = fit_scale(node) {
-        out.insert("fitScale".into(), scale);
-    }
-    if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
-        // The runner preserves collection anchors and follows the end using
-        // sequence-checked corrections. Eager native autoscroll would compete.
-        out.remove(PropId::ScrollFollowEnd.name());
-    }
-    if node.node_type == NodeType::TextInput {
-        out.remove("spellcheck");
-        if let Some(value) = node.spellcheck() {
-            out.insert("spellcheck".into(), value.to_string());
-        }
-    }
-    if node.node_type == NodeType::Image {
-        if let Some(role) = node
-            .props
-            .str(PropId::ImageSource)
-            .and_then(|s| s.strip_prefix("symbol:"))
-        {
-            out.insert(
-                "symbolName".into(),
-                exact_kernel::apple_symbol_name(role).into(),
-            );
-        }
-    }
-    out
 }
 
 fn handler_name(e: EventKind) -> Option<&'static str> {

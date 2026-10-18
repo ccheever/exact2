@@ -20,24 +20,24 @@ bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
 exact.mjs agent ios --touch platform … "clock settle" "screenshot .exact/x.png compare ref/x.png"`
 captures as a device does, the keyboard too on a simulator it booted (status bar: `xcrun simctl status_bar <udid> override --time 9:41`) and
 says where they differ: each region by node, where its content moved, a box measured in both
-(in `x.diff.png`). Each tap is a real touch: it picks from a pull-down menu,
+(in `x.diff.png`, left to right: reference, screen, differences). Each tap is a real touch: it picks from a pull-down menu,
 switches tabs, reaches a native module's controls. A context menu, a row scrolled out of its
 menu and an alert's buttons take a drive without the flag.
 
 | Flag or op | What it does |
 | --- | --- |
-| `check`, `check dark`, `check both` | What is wrong with the screen, a line each: clipped text, a covered control, a small target, low contrast. |
+| `check`, `check dark`, `check both` | What is wrong with the screen: clipped text, a covered control, a small target, low contrast. |
 | `--chrome agent` | Paints the authored header and tablist. |
 | `--scale 3` | Screenshots at the device's pixels (default 1 a point). |
 | `screenshot <file> window` | The whole screen, bars included; a plain one is the window's too while an alert, sheet or menu is up. `screenshot <f> over 600 every 50 window` films it. |
-| `tap <id> down` `tap hold <ms>` `tap up` | Press and hold (hold to charge): `pointerdown`, the clock moved `<ms>`, `pointerup`. |
+| `tap <id> down` `screenshot <png>` `tap up` | `<id>` shown pressed, then pressed once; `tap hold <ms>` moves the clock; a real touch under `--touch platform`. |
 | `clock settle` | Ends a transition; waits up to 1.5 s for the app's own `UIView.animate` (longer: `settled: false`). |
 | `--timing platform`, `--touch platform` | UIKit's own transition timing (default: frozen); every tap and drag a real touch. |
-| `--sim <udid\|name>` (`EXACT_SIM`) | Which simulator (default: the one the app is on). |
+| `--sim <udid\|name>` (`EXACT_SIM`) | Which simulator (default: the app's). |
 
-- Drive by `testId`, never by coordinates; on a bar button, search field, segment or tab
-  it is the `accessibilityIdentifier`.
-- `tap` and `type` scroll a target out of view, or under a bar or the keyboard, into view first.
+- Drive by `testId` (a bar button's, search field's, segment's, tab's
+  `accessibilityIdentifier`), never by coordinates.
+- `tap` and `type` scroll their target into view first.
 - Without `--touch platform`, `tap <scroll or list> drag 0 -300` scrolls as a finger would, with
   no fling, past the screen too; any other drag is refused, naming the flag.
 - A tap on an alert's or action sheet's button returns once UIKit has dismissed it and the press

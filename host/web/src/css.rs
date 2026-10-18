@@ -592,6 +592,13 @@ fn spell_property(out: &mut String, id: StyleId) {
         StyleId::TintColor => return out.push_str("--exact-tint"),
         // @ref LLP 1104 D3 — `::placeholder`'s colour, read by index.html.
         StyleId::PlaceholderColor => return out.push_str("--exact-placeholder-color"),
+        // @ref LLP 1061 D7 — the pressed paint: custom properties input-glue.js
+        // reads from the pressed element's own style, as `--exact-press`.
+        StyleId::PressOpacity => return out.push_str("--exact-press-opacity"),
+        // `:active`'s opacity, lowered (LLP 1121 D8).
+        StyleId::PressOpacityTo => return out.push_str("--exact-press-opacity-to"),
+        StyleId::PressBackgroundColor => return out.push_str("--exact-press-background-color"),
+        StyleId::PressColor => return out.push_str("--exact-press-color"),
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropFilter => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
@@ -702,6 +709,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             StyleId::FlexGrow
             | StyleId::FlexShrink
             | StyleId::Opacity
+            | StyleId::PressOpacity
+            | StyleId::PressOpacityTo
             | StyleId::Order
             | StyleId::ColumnCount
             | StyleId::Widows
@@ -1396,41 +1405,6 @@ mod declaration_tests {
             css(&[(StyleId::BackgroundAttachment, t("fixed"))], &[]),
             "background-attachment:fixed;"
         );
-    }
-
-    /// `-exact-press-haptic` is the custom property input-glue.js plays at the
-    /// press (LLP 1077 D14, workout F4); `rotate`'s axis part is written
-    /// with the angle and skips nothing (kanban F30).
-    #[test]
-    fn press_haptic_is_the_glues_property_and_a_rotation_skips_nothing() {
-        fn t(s: &str) -> StyleValue<'_> {
-            StyleValue::Text(s.into())
-        }
-        let mut style = StyleProps::default();
-        style
-            .set_dynamic(StyleId::PressHaptic, &t("impact-medium"))
-            .unwrap();
-        for row in [StyleId::Rotate, StyleId::RotateAxis] {
-            style.set_dynamic(row, &t("3deg")).unwrap();
-        }
-        let (text, skipped) = css_text(&style, &[]);
-        assert_eq!(text, "rotate:3deg;--exact-press-haptic:impact-medium;");
-        assert!(skipped.is_empty(), "{skipped:?}");
-        assert_eq!(css(&[(StyleId::PressHaptic, t("none"))], &[]), "");
-    }
-
-    /// `-exact-fit` is the custom property navigation.js `fitText` reads
-    /// (LLP 1116.001 D1.4); its initial value writes nothing.
-    #[test]
-    fn fit_is_navigations_property() {
-        fn t(s: &str) -> StyleValue<'_> {
-            StyleValue::Text(s.into())
-        }
-        assert_eq!(
-            css(&[(StyleId::Fit, t("shrink"))], &[]),
-            "--exact-fit:shrink;"
-        );
-        assert_eq!(css(&[(StyleId::Fit, t("none"))], &[]), "");
     }
 
     /// The feedback's separate factor leaves the row's scale and

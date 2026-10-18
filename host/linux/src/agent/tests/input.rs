@@ -765,6 +765,62 @@ fn a_named_tap_never_toggles_focuses_or_follows_what_is_inside_it() {
     assert!(!reply.contains("error") && on(&p), "{reply}");
 }
 
+/// A checkbox's own `press` runs before its `change`, as HTML's `click`
+/// precedes them; an ancestor's does not, the control taking the tap.
+#[test]
+fn a_checkbox_runs_its_own_press_before_its_change() {
+    let plan = contract::compile(concat!(
+        "component App\n  state log = \"\"\n  state on = false\n",
+        "  action hit(what: string)\n    log = `${log}${what};`\n",
+        "  action set(value: bool)\n    on = value\n    log = `${log}change;`\n",
+        "  view\n    column width=300 press=hit(\"column\")\n",
+        "      input type=\"checkbox\" checked=on press=hit(\"box\") change=set testId=\"box\"\n",
+        "      text log testId=\"log\" height=20\n",
+    ))
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let k = p.host().kernel();
+    let id = k.node_by_key(k.find_by_test_id("box")[0]).unwrap().id;
+    let log = |p: &Presenter<()>| {
+        let k = p.host().kernel();
+        let log = k.find_by_test_id("log")[0];
+        k.node_by_key(log)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    let on = |p: &Presenter<()>| p.host().runner().slot("on") == Some(&Value::Bool(true));
+    let reply = handle(&mut p, &format!(r#"{{"op":"tap","id":{id}}}"#));
+    assert!(!reply.contains("error"), "{reply}");
+    assert_eq!(
+        (log(&p), on(&p)),
+        ("box;change;".to_string(), true),
+        "{reply}"
+    );
+    // The agent's `type`, a click on the web (`typeControl`).
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{id},"text":"false"}}"#),
+    );
+    assert!(!reply.contains("error"), "{reply}");
+    assert_eq!(
+        (log(&p), on(&p)),
+        ("box;change;box;change;".to_string(), false),
+        "{reply}"
+    );
+}
+
 #[test]
 fn media_seek_time_is_malformed_before_ownership_is_checked() {
     let plan = contract::compile("component App\n  view\n    text \"ready\"\n").unwrap();

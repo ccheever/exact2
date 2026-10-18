@@ -327,6 +327,24 @@ ${patch}`;
 /** `text` without its `// dev-only {` … `// dev-only }` regions: what a
  * build that is not the dev loop's copies of a runtime file (modes.js's
  * live table, LLP 1121 stage 4), so no release page carries it. */
+/** A development build's copy of rt.js with inspect mode's two hooks
+ * (LLP 1122 T2b; inspect-dev.js), so rt.js itself, and every other build's
+ * copy, has none: an element's view id (`$exactViewId`), and every `each`
+ * region with its rows and key function (`$exactEaches`), which a
+ * development build's emitter names (regions.rs passes the region id) and
+ * which leaves with its scope. Throws when rt.js no longer has the lines
+ * they hang on. */
+export function withInspectHooks(text) {
+  const hooks = [
+    [/^export function viewId\(e\) \{.*\n/m, (line) => `${line}globalThis.$exactViewId = viewId;\n`],
+    [/^  let rows = new Map\(\), single = false, order = null;\n/m, (line) => `${line}  if (arguments[5] !== undefined) { const e = { region: arguments[5], rows: () => order ?? [], key, live: () => a.isConnected }; (globalThis.$exactEaches ??= new Set()).add(e); onEnd(() => globalThis.$exactEaches.delete(e)); }\n`],
+  ];
+  for (const [at, hook] of hooks) {
+    if (!at.test(text)) throw new Error(`rt.js: inspect mode's hook has no line to hang on (${at})`);
+    text = text.replace(at, hook);
+  }
+  return text;
+}
 export const withoutDev = (text) => text.replace(/^[ \t]*\/\/ dev-only \{.*\n[\s\S]*?^[ \t]*\/\/ dev-only \}.*\n/gm, '');
 
 /** The plan-to-JavaScript compiler (`exact-web-js`) as `[cmd, args]`: its

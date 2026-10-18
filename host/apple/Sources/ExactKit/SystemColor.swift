@@ -234,14 +234,13 @@ package enum SystemColor {
 
 #if os(iOS) || os(tvOS)
 extension SystemColor {
-    /// The traits a platform colour resolves by: style, contrast and, on
-    /// iOS, the level (tvOS has none).
-    static var traits: [UITrait] {
+    /// Whether a platform colour resolves differently under `b` than under
+    /// `a`: by style, contrast and, on iOS, the level (tvOS has none).
+    static func resolvesDifferently(_ a: UITraitCollection, _ b: UITraitCollection) -> Bool {
         #if os(iOS)
-        return [UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self, UITraitUserInterfaceLevel.self]
-        #else
-        return [UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]
+        if a.userInterfaceLevel != b.userInterfaceLevel { return true }
         #endif
+        return a.userInterfaceStyle != b.userInterfaceStyle || a.accessibilityContrast != b.accessibilityContrast
     }
 }
 #endif

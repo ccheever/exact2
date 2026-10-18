@@ -11,6 +11,33 @@ use std::collections::{BTreeMap, BTreeSet};
 mod midi;
 mod sounds;
 
+/// Whether a roster parameter admits `t`. The roster table spells three
+/// parameters `any`; each is held to the values its runner entry reads, so a
+/// call that would fail at runtime (`isEmpty(5)`) is refused here instead.
+/// (`length` is `lists::infer_length`'s.)
+pub(super) fn roster_accepts(f: exact_plan::Stdlib, spec: &str, t: &Ty) -> bool {
+    use exact_plan::Stdlib;
+    match (f, spec) {
+        (Stdlib::IsEmpty, "any") => matches!(t, Ty::String | Ty::Enum(_) | Ty::List(_)),
+        (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool),
+        (Stdlib::First | Stdlib::At, "any") => matches!(t, Ty::List(_)),
+        _ => t.matches_roster(spec),
+    }
+}
+
+/// A roster parameter as a refusal spells it.
+pub(super) fn roster_spelling(f: exact_plan::Stdlib, spec: &str) -> &str {
+    use exact_plan::Stdlib;
+    match (f, spec) {
+        (Stdlib::Length | Stdlib::IsEmpty, "any") => "string | list",
+        (Stdlib::ToString, "any") => "number | string | bool",
+        (Stdlib::First | Stdlib::At, "any") => "list",
+        // The ISO 4217 codes `"currency"` takes (LLP 1116 D8), too many to spell here.
+        (Stdlib::FormatNumber, code) if code.starts_with("\"USD\"") => "\"USD\" | \"EUR\" | …",
+        _ => spec,
+    }
+}
+
 /// Reject recursive functions without revisiting completed subgraphs.
 pub(super) fn check_function_cycles(file: &File) -> Result<(), TypeError> {
     let indices: BTreeMap<&str, usize> = file

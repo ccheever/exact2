@@ -336,6 +336,26 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                     });
                 }
             }
+            Op::SetLooks { id, looks } => {
+                staged.require(op_index, *id)?;
+                let rows = crate::look_rows();
+                let mut last = None;
+                for (state, patch) in looks {
+                    // Each state once, ascending; only the look rows, set
+                    // or cleared.
+                    if !(crate::LOOK_HOVER..=crate::LOOK_FOCUS_VISIBLE).contains(state)
+                        || last.is_some_and(|l| l >= *state)
+                        || !patch.mask.union(patch.written).minus(rows).is_empty()
+                        || patch.validate_domain().is_err()
+                    {
+                        return Err(ApplyError::LookRow {
+                            op_index,
+                            state: *state,
+                        });
+                    }
+                    last = Some(*state);
+                }
+            }
             Op::SetStyle { id, patch } => {
                 staged.require(op_index, *id)?;
                 if let Err(error) = patch.validate_domain() {
@@ -769,6 +789,12 @@ pub(crate) fn continue_document(
                         touched.push(arena.key(slot));
                     }
                 }
+                Op::SetLooks { id, looks } => {
+                    let slot = live_slot(arena, op_index, *id)?;
+                    if arena.set_looks(slot, looks) {
+                        touched.push(arena.key(slot));
+                    }
+                }
                 Op::SetStyle { id, patch } => {
                     let slot = live_slot(arena, op_index, *id)?;
                     let changed = arena.style(slot).changed_mask(patch);
@@ -831,6 +857,16 @@ pub(crate) fn continue_document(
                         .filter(|o| !retained.contains(o))
                         .map(|o| (o, arena.computed_inherited(o), arena.default_context(o)))
                         .collect();
+                    // Whether a grouped list's margins reach each box that
+                    // arrives or leaves, read before any parent changes.
+                    let reached: Vec<(u32, bool)> = if arena.has_grouped_margins() {
+                        let arriving = new.iter().filter(|n| arena.parent(**n) != Some(slot));
+                        let leaving = detached.iter().map(|d| &d.0);
+                        let at = |n: &u32| (*n, crate::grouped::reached(arena, *n));
+                        arriving.chain(leaving).map(at).collect()
+                    } else {
+                        Vec::new()
+                    };
                     for o in &old {
                         if !retained.contains(o) {
                             arena.set_parent(*o, None);
@@ -883,6 +919,12 @@ pub(crate) fn continue_document(
                     arena.set_children(slot, new);
                     sync_children(arena, layout, slot);
                     crate::kernel::cover_children_changed(arena, layout, slot);
+                    // A box into or out of a grouped list takes or sheds the platform's margins.
+                    for (n, was) in reached {
+                        if was || crate::grouped::reached(arena, n) {
+                            crate::grouped::restyle(arena, layout, n);
+                        }
+                    }
                     arena.flags_mut(slot).insert(NodeFlags::CHILDREN_DIRTY);
                     if arena.node_type(slot) == NodeType::Text {
                         invalidate_text(arena, layout, slot);

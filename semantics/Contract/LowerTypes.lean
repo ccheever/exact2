@@ -212,6 +212,14 @@ theorem VTys.joinAll {sh} : ∀ {vs : List Value} {ts : List STy}, VTys sh vs ts
     exact ⟨vty_join_left h.1, VTyAll.imp (fun hv => vty_join_right hv) (VTys.joinAll h.2)⟩
   | [], _ :: _, h | _ :: _, [], h => by simp [VTys] at h
 
+theorem flat_vty {sh t} : ∀ {xss ys : List Value}, VTyAll sh xss (.list t) →
+    Value.flat xss = .some ys → VTyAll sh ys t
+  | [], ys, _, h => by simp [Value.flat] at h; subst h; trivial
+  | x :: rest, ys, hx, h => by
+    cases x <;> simp [Value.flat] at h
+    obtain ⟨ws, hws, rfl⟩ := h
+    exact VTyAll.append (by simpa [VTy] using hx.1) (flat_vty hx.2 hws)
+
 set_option maxHeartbeats 1000000 in
 theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts : VTys sh vs ts) :
     VTy sh v (rosterTy f ts) := by
@@ -277,6 +285,28 @@ theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts 
   case h_44 =>
     split at h <;> simp at h; subst h
     split <;> simp [VTy]
+  case h_49 =>
+    split at h <;> simp at h; subst h; simp [VTy]
+  case h_51 =>
+    split at h
+    · split at h <;> simp at h; subst h
+      exact VTyAll.of_mem fun x hx => by
+        obtain ⟨i, _, rfl⟩ := List.mem_map.mp hx
+        simp [VTy]
+    · simp at h
+  case h_52 _ _ xss =>
+    split at h <;> simp at h; subst h
+    rcases ts with _ | ⟨t0, ts⟩
+    · simp [VTys] at hts
+    · simp only [VTys] at hts
+      rename_i ys hys
+      cases t0 <;> try simp [VTy]
+      rename_i t1
+      cases t1 <;> try simp [VTy]
+      · cases xss with
+        | nil => simp [Value.flat] at hys; subst hys; trivial
+        | cons x _ => simp only [VTy, VTyAll] at hts; exact hts.1.1.elim
+      · exact flat_vty (by simpa [VTy] using hts.1) hys
 
 /-! ## Strict operators -/
 

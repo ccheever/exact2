@@ -30,7 +30,7 @@ const PUBLIC_FILES = new Set([
 // `/gpu/`: each declared GPU module's wasm and its glue (LLP 1009 D6).
 // `/stages/`: the core's staged capabilities, named by digest (LLP 1047.000).
 // `/modules/`: the app's native-module web executor (LLP 1024 D3), page code.
-const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/', '/gpu/', '/stages/', '/modules/'];
+const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/', '/gpu/', '/stages/', '/modules/', '/plans/'];
 const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'navigation.js', 'index.html', 'manifest.json'];
 // An origin's update streams (LLP 1030.000 D7; `scripts/origin.mjs`):
 // `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
@@ -638,9 +638,29 @@ export function serveBuildTree(dist, req, res) {
   sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
 }
 
-/** The assets by digest (LLP 1023 D4's owed slice; 1026 D11; 1030 D10): every file under assets/, deck/, and shaders/ in a build, named by its path beside the page, so a client fetches by name and verifies by digest and a dev push names what changed. Sorted by name. */
+const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', ...(rust ? ['rust'] : [])];
+
+/** Capture every bundle asset tree through the owned filesystem reader. */
+export function captureAssets(dir, rust = false) {
+  const files = new Map();
+  for (const tree of assetTrees(rust)) {
+    const captured = filesystem({ op: 'tree', root: resolve(dir, tree), optionalRoot: true }) ?? {};
+    for (const [relative, encoded] of Object.entries(captured)) files.set(`${tree}/${relative}`, Buffer.from(encoded, 'base64'));
+  }
+  return files;
+}
+
+/** Static builds and dev generations authenticate the same captured bytes. */
+export function assetCards(files) {
+  return [...files].map(([name, bytes]) => ({ name, url: `./${name}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }))
+    .sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+}
+
+/** Every file under assets/, deck/, shaders/ and plans/, sorted by name.
+ * Read and digested here, one file at a time: a build of a large asset tree
+ * must not pass every byte through the filesystem reader's reply. */
 export function listAssets(dir, rust = false) {
-  const out = [];
+  const files = [];
   const walk = (sub) => {
     const abs = resolve(dir, sub);
     if (!existsSync(abs)) return;
@@ -649,12 +669,21 @@ export function listAssets(dir, rust = false) {
       if (entry.isDirectory()) walk(rel);
       else if (entry.isFile()) {
         const bytes = readFileSync(resolve(dir, rel));
-        out.push({ name: rel, url: `./${rel}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length });
+        files.push({ name: rel, url: `./${rel}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length });
       }
     }
   };
-  for (const tree of ['assets', 'deck', 'shaders', ...(rust ? ['rust'] : [])]) walk(tree);
-  return out.sort((a, b) => (a.name < b.name ? -1 : 1));
+  for (const tree of assetTrees(rust)) walk(tree);
+  return files.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+}
+
+/** Named snapshot plans share the asset roster's authenticated bytes. */
+export function entryPlans(assets) {
+  const plans = Object.fromEntries(assets.flatMap(card => {
+    const kind = /^plans\/([A-Za-z][A-Za-z0-9_-]*)\.plan$/.exec(card.name)?.[1];
+    return kind ? [[kind, card]] : [];
+  }));
+  return Object.keys(plans).length ? { plans } : {};
 }
 
 /** The one web envelope producer for static builds and the live dev overlay.
@@ -670,6 +699,7 @@ export function webEnvelope(app, bytes, assets, live = {}) {
     plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length,
       formatVersion: bytes.readUInt32LE(4), kernelSchema: bytes.readBigUInt64LE(16).toString(16).padStart(16, '0') },
     assets,
+    ...entryPlans(assets),
     ...live,
   };
 }

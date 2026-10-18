@@ -209,22 +209,112 @@ impl Lowerer<'_> {
         asset_root: Option<&std::path::Path>,
     ) -> exact_kernel::style::theme::ThemeScope {
         crate::icons::clear(asset_root);
+        ROLES.with(|r| r.borrow_mut().clear());
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
         MEASURES.with(|m| m.borrow_mut().clear());
         RETENTION.with(|r| *r.borrow_mut() = None);
         MOTION.with(|m| m.borrow_mut().clear());
-        let Some((mut design, origin)) = self.design(file) else {
+        // The components' params, tokens of the design (D15): an app with
+        // params and no design has one of them alone.
+        let params = crate::params::tokens(file);
+        PARAMS.with(|p| *p.borrow_mut() = params.clone());
+        SHOWN.with(|p| *p.borrow_mut() = params.clone());
+        let found = self.design(file).or_else(|| {
+            (!params.is_empty()).then(|| (tamber::Design::default(), Origin::Inline(Vec::new())))
+        });
+        let Some((mut design, origin)) = found else {
             return exact_kernel::style::theme::declarations([]);
         };
+        for t in design.tokens.iter().chain(&design.icons) {
+            if t.name.value.starts_with(crate::params::PREFIX) {
+                self.push(LowerError {
+                    id: "tamber-param-name",
+                    message: format!("`{}`: a token named `param.…` is a component's param, which its component's `params` section declares (D15); name this token otherwise", t.name.value),
+                    span: self.token_span(&origin, t.name.line, t.name.col),
+                });
+            }
+        }
+        // A param passed through a prop to a place no row reads (D15).
+        for e in crate::params::reached(root, &params) {
+            self.push(e);
+        }
+        // Each param as declared, then those of a kind, into the design.
+        let (refused, unkinded) = crate::params::declared(&params);
+        // (Whether each is read is the driver's, before a motion param is
+        // written into its rows: `params::unused`.)
+        for e in refused {
+            self.push(e);
+        }
+        let kinded: Vec<crate::params::ParamToken> = params
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !unkinded.contains(i))
+            .map(|(_, p)| p.clone())
+            .collect();
+        PARAMS.with(|p| *p.borrow_mut() = kinded.clone());
+        // The app's values of its params, the design's `params` block (D15,
+        // stage 7 B): `add_to` lays each in place of its param's default and
+        // `when` lines. One naming no param is a warning (`params::unknown`):
+        // a moved or renamed declaring file leaves it, and it no longer
+        // applies. An ambiguous short name, and a second line for one param,
+        // are refused.
+        let identities = crate::params::identities(file);
+        let mut overridden: Vec<(String, Span)> = Vec::new();
+        for entry in &design.params {
+            if let Ok(p) = crate::params::resolve(&kinded, &identities, &entry.name.value) {
+                if !overridden.iter().any(|(t, _)| *t == p.token) {
+                    let span = self.token_span(&origin, entry.name.line, entry.name.col);
+                    overridden.push((p.token.clone(), span));
+                }
+            }
+        }
+        for (line, col, e) in crate::params::entry_errors(&design, &kinded, &identities) {
+            let span = self.token_span(&origin, line, col);
+            self.push(LowerError { span, ..e });
+        }
+        for (line, col, e) in crate::params::written_ranges(&design, &kinded, &identities, &vocab())
+        {
+            let span = self.token_span(&origin, line, col);
+            self.push(LowerError { span, ..e });
+        }
+        crate::params::add_to(&mut design, &kinded, &identities);
         let mut said = Said::of(file, root, &design);
         // D7's retention, left for the design server before the design is
         // folded, as it does not depend on the fold.
+        let mut words = std::mem::take(&mut said.words);
+        // A component that isn't Contract reads its params outside the views:
+        // its declaration keeps each (D15), with every token its default
+        // reads, through any chain.
+        let designed = file
+            .design
+            .as_ref()
+            .map(|d| crate::params::design_tokens(d).0);
+        let mut kept: Vec<String> = designed.into_iter().flatten().map(|p| p.token).collect();
+        let mut roots = std::collections::BTreeSet::new();
+        while let Some(name) = kept.pop() {
+            if !roots.insert(name.clone()) {
+                continue;
+            }
+            for t in design
+                .tokens
+                .iter()
+                .chain(&design.icons)
+                // A role's spelling in any case, as the fold reads one.
+                .filter(|t| t.name.value.eq_ignore_ascii_case(&name))
+            {
+                let read =
+                    std::iter::once(&t.value.value).chain(t.whens.iter().map(|w| &w.value.value));
+                kept.extend(read.flat_map(|v| scan::words(v)).map(str::to_string));
+            }
+            words.insert(name);
+        }
         let retention = tamber::Retention {
             bindable,
             computed: said.computed,
             computed_measure: said.computed_measure,
-            words: std::mem::take(&mut said.words),
+            words,
+            folded: said.folded.clone(),
         };
         RETENTION.with(|r| *r.borrow_mut() = Some(retention.clone()));
         CANDIDATES.with(|c| {
@@ -284,17 +374,25 @@ impl Lowerer<'_> {
                     for d in all.iter().filter(|d| !loose(d)) {
                         self.design_refusal(d, &origin, &said);
                     }
+                    // Its icons' uses say no more than the design's refusal.
+                    crate::icons::mark_refused(design.icons.iter().map(|t| t.name.value.clone()));
                     return exact_kernel::style::theme::declarations([]);
                 }
             }
         };
+        for e in crate::params::folded(&kinded, &folding, &overridden, None) {
+            self.push(e);
+        }
         // @ref LLP 1121 D10 — the icons' SVGs, and a source per shipped target.
         let exports = &folding.design.exports;
+        // An icon a component that isn't Contract reads is kept as its
+        // colours are (D15).
         let exported = |name: &str| {
-            bindable
-                && exports
-                    .as_ref()
-                    .is_none_or(|e| e.iter().any(|x| x.value == name))
+            roots.contains(name)
+                || bindable
+                    && exports
+                        .as_ref()
+                        .is_none_or(|e| e.iter().any(|x| x.value == name))
         };
         let refused = crate::icons::declare(
             &folding.icons,
@@ -351,6 +449,11 @@ impl Lowerer<'_> {
                     span: self.token_span(&origin, at.line, at.col),
                 });
                 continue;
+            }
+            if let Some((_, row)) = &role {
+                let span = self.token_span(&origin, at.line, at.col);
+                let role = row.strip_prefix("-exact-").unwrap_or(row).to_string();
+                ROLES.with(|r| r.borrow_mut().push((role, span)));
             }
             entries.push(ThemeEntry {
                 name,
@@ -593,6 +696,13 @@ impl Lowerer<'_> {
     /// Where a design's token line is: its entry's span, or its place in
     /// the design file.
     fn token_span(&self, origin: &Origin, line: u32, col: u32) -> Span {
+        // A param's token: its default, where its component declares it.
+        if (crate::params::LINE..SYNTHETIC).contains(&line) {
+            let at = (line - crate::params::LINE) as usize;
+            if let Some(span) = PARAMS.with(|p| p.borrow().get(at).map(|p| p.param.default_span)) {
+                return span;
+            }
+        }
         match origin {
             Origin::Inline(spans) => spans
                 .get(line.saturating_sub(1) as usize)
@@ -610,7 +720,19 @@ impl Lowerer<'_> {
     /// The crate's refusal, where it was written: an inline entry, a
     /// synthetic token's row, or the design file's line.
     fn design_refusal(&mut self, d: &tamber::Diagnostic, origin: &Origin, said: &Said) {
-        let (span, message) = if d.line >= SYNTHETIC {
+        let param = (crate::params::LINE..SYNTHETIC).contains(&d.line).then(|| {
+            PARAMS.with(|p| {
+                p.borrow()
+                    .get((d.line - crate::params::LINE) as usize)
+                    .cloned()
+            })
+        });
+        let (span, message) = if let Some(p) = param.flatten() {
+            (
+                p.param.default_span,
+                format!("param `{}`: {}", p.full, d.message),
+            )
+        } else if d.line >= SYNTHETIC {
             let s = &said.synthetic[(d.line - SYNTHETIC) as usize];
             (s.span, format!("`{}`: {}", s.expr, d.message))
         } else {
@@ -635,6 +757,10 @@ impl Lowerer<'_> {
 }
 
 thread_local! {
+    /// The roles the last design lowered on this thread overrides, each
+    /// by its schema name (`AccentColor`, `placeholder`) and its token's
+    /// span: what `tamber-unreachable` judges (LLP 1121 D9).
+    static ROLES: std::cell::RefCell<Vec<(String, Span)>> = const { std::cell::RefCell::new(Vec::new()) };
     /// The app's axes while its styles are lowered, each with its values:
     /// what a `-exact-mode` pin may name.
     static AXES: std::cell::RefCell<Vec<(String, Vec<String>)>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -651,6 +777,39 @@ thread_local! {
     /// The design's duration and easing tokens while its styles are lowered
     /// (D3): each name and its value, which the build writes in its place.
     static MOTION: std::cell::RefCell<Vec<(String, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The app's components' params as tokens while its styles are lowered
+    /// (D15): what a refusal names by full name, and what checks them.
+    static PARAMS: std::cell::RefCell<Vec<crate::params::ParamToken>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Every param, a bad kind's too: what a refusal names by full name.
+    static SHOWN: std::cell::RefCell<Vec<crate::params::ParamToken>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Forget the last design's roles.
+pub(crate) fn forget_roles() {
+    ROLES.with(|r| r.borrow_mut().clear());
+}
+
+/// The roles the last design overrides, each with its token's span.
+pub(crate) fn overridden_roles() -> Vec<(String, Span)> {
+    ROLES.with(|r| r.borrow().clone())
+}
+
+/// `errors` with each param's token name written as its full name (D15):
+/// an author never reads the hash.
+pub(crate) fn shown_errors(errors: Vec<LowerError>) -> Vec<LowerError> {
+    SHOWN.with(|p| {
+        let params = p.borrow();
+        if params.is_empty() {
+            return errors;
+        }
+        errors
+            .into_iter()
+            .map(|mut e| {
+                e.message = crate::params::shown(&e.message, &params);
+                e
+            })
+            .collect()
+    })
 }
 
 /// The synthetic tokens the last build on this thread could have, folding
@@ -793,12 +952,20 @@ pub(crate) fn check_pins(text: &str, axes: &[(String, Vec<String>)]) -> Result<(
 /// a length token stands in a length row as the build reads it. A design
 /// that does not fold binds every name as a colour, as before.
 pub(crate) fn lint_scope(file: &File) -> exact_kernel::style::theme::ThemeScope {
+    let mut params = crate::params::tokens(file);
+    let unkinded = crate::params::declared(&params).1;
+    let mut i = 0;
+    params.retain(|_| {
+        i += 1;
+        !unkinded.contains(&(i - 1))
+    });
     let design = match (&file.theme, &file.design) {
         (Some(theme), _) => Some(inline_design(theme)),
         (None, Some(source)) => tamber::parse(&source.text).ok(),
-        _ => None,
+        _ => (!params.is_empty()).then(tamber::Design::default),
     };
     let folding = design.and_then(|mut d| {
+        crate::params::add_to(&mut d, &params, &crate::params::identities(file));
         stand_in_profiles(&mut d);
         tamber::check_design(d, &vocab()).ok()
     });
@@ -1207,7 +1374,7 @@ pub(crate) fn measure_row(
             "a length"
         };
         let hint = match kind {
-            tamber::Kind::Number => ", and only `opacity`, `line-height`, `flex-grow`, `font-weight` and `-exact-press-scale` take one",
+            tamber::Kind::Number => ", and only `opacity`, `line-height`, `flex-grow`, `font-weight`, `-exact-press-scale` and `-exact-press-opacity` take one",
             _ => "",
         };
         return refuse(

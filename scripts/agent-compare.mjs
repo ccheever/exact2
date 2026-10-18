@@ -108,15 +108,57 @@ export function regions(mask, w, h, { gap = 4, least = 6 } = {}) {
 }
 
 const hex8 = (G, i) => '#' + [0, 1, 2].map((c) => Math.round(Math.round(G.rgb[i * 3 + c] / 255 * 7) * 15 / 7).toString(16)).join('');
-/** A box's fill (the commonest colour of its cells) and ink (the commonest colour of `picked` beyond INK of the fill),
- *  as hex at 8 levels a channel. */
-function inkOf(G, box, picked) {
+/** Whether colour v (cell `i`) is a mix of the colours of cells `a` and `b`: one fraction t of the way from a to b, in
+ *  (0.1, 0.9), in each channel where they differ (within 0.15), and a's own value, within INK/2, in each where they
+ *  do not. A colour off that line (a grey border between white and blue) is no mix of them. */
+function mixOf(G, a, i, b) {
+  let t = null;
+  for (let c = 0; c < 3; c++) {
+    const from = G.rgb[a * 3 + c], span = G.rgb[b * 3 + c] - from, v = G.rgb[i * 3 + c];
+    if (Math.abs(span) <= INK / 2) { if (Math.abs(v - from) > INK / 2) return false; continue; }
+    const at = (v - from) / span;
+    if (at <= 0.1 || at >= 0.9 || (t !== null && Math.abs(at - t) > 0.15)) return false;
+    t ??= at;
+  }
+  return t !== null;
+}
+
+/** Whether cell i is an edge's anti-aliasing: on a run of at most three cells across or down, between two cells whose
+ *  colours are present in the region (`present`), every cell of the run, i among them, a mix of theirs (`mixOf`). A
+ *  1 pt border whose colour is off the line between its two sides, or beside a cell that is no mix of them (a strip
+ *  of another colour), is its own colour; one on it (grey between white and black) reads as a blend, which the
+ *  pixels cannot tell apart. */
+export function blended(G, i, present) {
+  const { w, h } = G, x = i % w, y = (i - x) / w, step = (dx, dy) => dy * w + dx;
+  for (const [dx, dy] of [[1, 0], [0, 1]]) for (let d1 = 1; d1 <= 3; d1++) for (let d2 = 1; d1 + d2 - 1 <= 3; d2++) {
+    const xa = x - dx * d1, ya = y - dy * d1, xb = x + dx * d2, yb = y + dy * d2;
+    if (xa < 0 || ya < 0 || xb >= w || yb >= h) continue;
+    const a = ya * w + xa, b = yb * w + xb;
+    if (!present(a) || !present(b)) continue;
+    let run = true;
+    for (let k = a + step(dx, dy); k !== b && run; k += step(dx, dy)) run = mixOf(G, a, k, b);
+    if (run) return true;
+  }
+  return false;
+}
+
+/** A box's fill (the commonest colour of its cells) and ink (the commonest colour of `picked` beyond INK of the fill,
+ *  an edge's anti-aliasing left out), as hex at 8 levels a channel. When every such cell was anti-aliasing, `edges`
+ *  and `blend`, their commonest colour: the picture has no colour of its own there (a box edge a point or two from the
+ *  other picture's). A colour is present when 3 or more cells of the box, grown by 3 on each side, have it. */
+export function inkOf(G, box, picked) {
   const tally = (cells) => { const m = new Map(); for (const i of cells) m.set(hex8(G, i), (m.get(hex8(G, i)) ?? 0) + 1); return m; };
   const mode = (m) => [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  const all = [];
-  for (let y = box.y; y < box.y + box.h; y++) for (let x = box.x; x < box.x + box.w; x++) all.push(y * G.w + x);
-  const fill = mode(tally(all)), f = fill && [1, 2, 3].map((k) => parseInt(fill[k], 16) * 17);
-  return { fill, ink: mode(tally(picked.filter((i) => !f || [0, 1, 2].some((c) => Math.abs(G.rgb[i * 3 + c] - f[c]) > INK)))) };
+  const cells = (grow) => {
+    const out = [];
+    for (let y = Math.max(0, box.y - grow); y < Math.min(G.h, box.y + box.h + grow); y++) for (let x = Math.max(0, box.x - grow); x < Math.min(G.w, box.x + box.w + grow); x++) out.push(y * G.w + x);
+    return out;
+  };
+  const fill = mode(tally(cells(0))), f = fill && [1, 2, 3].map((k) => parseInt(fill[k], 16) * 17), counts = tally(cells(3));
+  const present = (k) => (counts.get(hex8(G, k)) ?? 0) >= 3;
+  const unlike = picked.filter((i) => !f || [0, 1, 2].some((c) => Math.abs(G.rgb[i * 3 + c] - f[c]) > INK));
+  const own = unlike.filter((i) => !blended(G, i, present));
+  return { fill, ink: mode(tally(own)), ...(unlike.length && !own.length ? { edges: true, blend: mode(tally(unlike)) } : {}) };
 }
 
 /** Where a region's content sits in the reference, when that is plain: the one vertical or horizontal offset (up to
@@ -280,11 +322,13 @@ const hintText = ({ axis, d }, unit) => `its content sits ${Math.abs(d)} ${unit}
 export function report(result, nodes, { reference, diff, unit = 'pt', boxes = [] }) {
   const pct = (v) => `${(Math.floor(v * 1000) / 10).toFixed(1)}%`, out = [];
   const left = [result.top ? `the top ${result.top} (status bar)` : '', result.bottom ? `the bottom ${result.bottom} (home indicator)` : ''].filter(Boolean).join(' and ');
-  out.push(`compare ${reference}: ${pct(result.match)} matches (${result.w}×${result.h} ${unit}${left ? `; ${left} not scored` : ''}); diff ${diff}`);
+  out.push(`compare ${reference}: ${pct(result.match)} matches (${result.w}×${result.h} ${unit}${left ? `; ${left} not scored` : ''}); diff ${diff} (${PANELS.join(' | ')})`);
   result.regions.forEach((r, i) => {
-    const names = under(nodes, r.screen), { screen: sc, reference: rc } = r.colours, colour = (c) => (c.ink ? `${c.ink} on ${c.fill}` : c.fill ?? 'nothing');
-    // Content that moved puts unlike cells side by side: their colours say nothing, so the hint is said instead.
-    const said = r.hint ? [hintText(r.hint, unit)] : sc.fill === rc.fill && sc.ink === rc.ink ? [] : [`here ${colour(sc)}, in the reference ${colour(rc)}`];
+    const names = under(nodes, r.screen), { screen: sc, reference: rc } = r.colours;
+    const colour = (c) => (c.ink ? `${c.ink} on ${c.fill}` : c.edges ? `${c.fill}, its edge's anti-aliasing ${c.blend} beside it` : c.fill ?? 'nothing');
+    // Content that moved puts unlike cells side by side: their colours say nothing, so the hint is said instead. Both
+    // clauses are said when either side's differing cells are only an edge's anti-aliasing.
+    const said = r.hint ? [hintText(r.hint, unit)] : sc.fill === rc.fill && sc.ink === rc.ink && !sc.edges && !rc.edges ? [] : [`here ${colour(sc)}, in the reference ${colour(rc)}`];
     out.push(`  ${i + 1} ${boxText(r.screen)} (${r.count} ${unit}²)${names.length ? ` under ${names.map(nodeName).join(', in ')}` : ''}${said.length ? `: ${said.join('; ')}` : ''}`);
   });
   for (const b of boxes) out.push(`  box    ${nodeName({ ...b.node, ...b.here })}: ${b.ref.w}×${b.ref.h} at ${b.ref.x},${b.ref.y} in the reference${b.alike ? ` (and ${b.alike} like it)` : ''}`);
@@ -295,26 +339,51 @@ export function report(result, nodes, { reference, diff, unit = 'pt', boxes = []
 
 // ---- the picture --------------------------------------------------------------------------------------------------
 
-/** Three panels a point a pixel: the reference, the screen, and the screen faded with what differs in red and each
- *  region boxed in amber with its number in ticks above its corner. */
+/** The diff picture's panels, left to right, as their labels name them. */
+export const PANELS = ['reference', 'screen', 'differences'];
+
+// A 5×7 capital for each letter the labels use, a row a string ('#' is ink).
+const GLYPHS = {
+  C: ['.###.', '#...#', '#....', '#....', '#....', '#...#', '.###.'],
+  D: ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
+  E: ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
+  F: ['#####', '#....', '#....', '####.', '#....', '#....', '#....'],
+  I: ['.###.', '..#..', '..#..', '..#..', '..#..', '..#..', '.###.'],
+  N: ['#...#', '##..#', '#.#.#', '#..##', '#...#', '#...#', '#...#'],
+  R: ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#'],
+  S: ['.####', '#....', '#....', '.###.', '....#', '....#', '####.'],
+};
+
+/** Three panels a point a pixel under a band naming each (PANELS): the reference, the screen, and the screen faded
+ *  with what differs in red and each region boxed in amber with its number in ticks above its corner. */
 export function diffImage(A, B, result) {
-  const { w, h, mask } = result, W = w * 3 + 8, data = new Uint8Array(W * h * 4).fill(255);
-  const put = (x, y, c) => { if (x < 0 || y < 0 || x >= W || y >= h) return; const i = (y * W + x) * 4; data[i] = c[0]; data[i + 1] = c[1]; data[i + 2] = c[2]; };
-  const ox = 2 * w + 8, amber = [240, 170, 0];
+  const { w, h, mask } = result, W = w * 3 + 8;
+  // The labels at twice the glyphs' size where the widest fits a panel, else at their size.
+  const k = PANELS.every((l) => l.length * 12 + 8 <= w) ? 2 : 1, T = 7 * k + 8, H = h + T;
+  const data = new Uint8Array(W * H * 4).fill(255);
+  const put = (x, y, c) => { y += T; if (x < 0 || y < 0 || x >= W || y >= H) return; const i = (y * W + x) * 4; data[i] = c[0]; data[i + 1] = c[1]; data[i + 2] = c[2]; };
+  const ox = 2 * w + 8, amber = [240, 170, 0], grey = [128, 128, 128];
+  PANELS.forEach((label, p) => {
+    [...label.toUpperCase()].forEach((ch, n) => GLYPHS[ch].forEach((row, gy) => [...row].forEach((c, gx) => {
+      if (c !== '#') return;
+      for (let dy = 0; dy < k; dy++) for (let dx = 0; dx < k; dx++) put(p * (w + 4) + 4 + n * 6 * k + gx * k + dx, 4 - T + gy * k + dy, [0, 0, 0]);
+    })));
+  });
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = (y * w + x) * 3, l = 155 + (0.2126 * B.rgb[i] + 0.7152 * B.rgb[i + 1] + 0.0722 * B.rgb[i + 2]) * 0.39;
     put(x, y, [A.rgb[i], A.rgb[i + 1], A.rgb[i + 2]]);
     put(w + 4 + x, y, [B.rgb[i], B.rgb[i + 1], B.rgb[i + 2]]);
     put(ox + x, y, mask[y * w + x] ? [230, 30, 30] : [l, l, l]);
   }
-  for (let y = 0; y < h; y++) for (let x = 0; x < 4; x++) { put(w + x, y, [128, 128, 128]); put(2 * w + 4 + x, y, [128, 128, 128]); }
+  for (let y = -T; y < h; y++) for (let x = 0; x < 4; x++) { put(w + x, y, grey); put(2 * w + 4 + x, y, grey); }
+  for (let x = 0; x < W; x++) put(x, -1, grey);
   result.regions.forEach((r, n) => {
     const b = r.screen;
     for (let x = b.x - 1; x <= b.x + b.w; x++) { put(ox + x, b.y - 1, amber); put(ox + x, b.y + b.h, amber); }
     for (let y = b.y - 1; y <= b.y + b.h; y++) { put(ox + b.x - 1, y, amber); put(ox + b.x + b.w, y, amber); }
     for (let k = 0; k <= n; k++) for (let y = b.y - 6; y < b.y - 2; y++) { put(ox + b.x + k * 3, y, amber); put(ox + b.x + k * 3 + 1, y, amber); }
   });
-  return { width: W, height: h, data };
+  return { width: W, height: H, data };
 }
 
 // ---- the operation ------------------------------------------------------------------------------------------------

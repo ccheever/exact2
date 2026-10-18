@@ -201,7 +201,9 @@ impl Parser {
                 });
             }
             self.built(self.last, span)?;
-            // `xs.length` is `length(xs)`; a shape declares no field of that name.
+            // `xs.length` is `length(xs)`, which the checker resolves by the
+            // receiver's type: a record's `length` field is read as one
+            // (@ref LLP 1116.015 D2, amended 2026-10-17).
             e = if field == "length" {
                 self.methods.push((field.clone(), span));
                 Expr::Call(field, vec![e], span)

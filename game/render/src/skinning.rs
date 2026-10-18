@@ -17,7 +17,12 @@ pub(crate) fn interpolated_local([a, b]: [exact_game::Transform; 2], alpha: f32)
         a.position.lerp(b.position, alpha),
     )
 }
+struct PoseModel {
+    nodes: Vec<(u64, String, usize)>,
+    diagnostics: crate::world::scene::DiagnosticRegistry,
+}
 struct Template {
+    model: usize,
     meta: u32,
     words: usize,
     fresh: bool,
@@ -26,6 +31,7 @@ struct Template {
     rigid: bool,
 }
 pub(crate) struct Skinning {
+    cache: Option<wgpu::PipelineCache>,
     pub weights: Buffer,
     pub reallocations: u64,
     pub pipeline_creations: u64,
@@ -36,8 +42,14 @@ pub(crate) struct Skinning {
     templates: Vec<Template>,
     metadata: Vec<u32>,
     pub offsets: Vec<u32>,
-    records: Vec<(usize, usize)>,
-    pose_words: Vec<f32>,
+    pub(crate) records: Vec<(usize, usize)>,
+    models: Vec<Option<PoseModel>>,
+    spans: std::collections::BTreeMap<(u32, usize), (usize, usize)>,
+    history: crate::node_poses::Histories,
+    primed: Vec<(Entity, usize, crate::node_poses::Priming)>,
+    assignments: crate::node_poses::Assignments,
+    generation: Option<u64>,
+    pub(crate) pose_words: Vec<f32>,
     jobs_words: Vec<u32>,
     // Each job's record, and the jobs dispatched (levels of detail not drawn
     // this frame skip theirs).
@@ -45,15 +57,15 @@ pub(crate) struct Skinning {
     active_words: Vec<u32>,
     active: u32,
     pipeline: Option<wgpu::ComputePipeline>,
-    joint_capacity: usize,
     layout: Option<wgpu::BindGroupLayout>,
     bind: Option<wgpu::BindGroup>,
     bind_buffers: Option<(wgpu::BindGroupLayout, [wgpu::Buffer; 5])>,
 }
 impl Skinning {
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new(device: &wgpu::Device, cache: Option<&wgpu::PipelineCache>) -> Self {
         let buffer = |label| Buffer::new(device, 64, wgpu::BufferUsages::STORAGE, label);
         Self {
+            cache: cache.cloned(),
             weights: buffer("game vertex joints weights"),
             reallocations: 0,
             pipeline_creations: 0,
@@ -65,13 +77,18 @@ impl Skinning {
             metadata: vec![],
             offsets: vec![],
             records: vec![],
+            models: vec![],
+            spans: Default::default(),
+            history: Default::default(),
+            primed: vec![],
+            assignments: Default::default(),
+            generation: None,
             pose_words: vec![],
             jobs_words: vec![],
             job_records: vec![],
             active_words: vec![],
             active: 0,
             pipeline: None,
-            joint_capacity: 0,
             layout: None,
             bind: None,
             bind_buffers: None,
@@ -90,11 +107,10 @@ impl Skinning {
         model: &Model,
         merged: &[exact_game::asset::Skin],
     ) -> Vec<u32> {
-        if model.skins.is_empty() && model.clips.is_empty() {
+        if !model.requires_palette() {
             return vec![];
         }
-        if model.nodes.len() > self.joint_capacity {
-            self.joint_capacity = model.nodes.len().next_power_of_two();
+        if self.pipeline.is_none() {
             let entries: Vec<_> = (0..5)
                 .map(|binding| wgpu::BindGroupLayoutEntry {
                     binding,
@@ -132,15 +148,32 @@ impl Skinning {
                 ),
                 module: &shader,
                 entry_point: Some("skin"),
-                compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("JOINT_CAPACITY", self.joint_capacity as f64)],
-                    ..Default::default()
-                },
-                cache: None,
+                compilation_options: Default::default(),
+                cache: self.cache.as_ref(),
             });
             self.layout = Some(layout);
             self.pipeline = Some(pipeline);
             self.pipeline_creations += 1;
+        }
+        let model_id = self
+            .models
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.models.len());
+        let pose_model = Some(PoseModel {
+            nodes: model
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.posable)
+                .map(|(i, n)| (exact_game::NodeName::hash_str(&n.name), n.name.clone(), i))
+                .collect(),
+            diagnostics: Default::default(),
+        });
+        if model_id == self.models.len() {
+            self.models.push(pose_model);
+        } else {
+            self.models[model_id] = pose_model;
         }
         let order = animation::node_order(model);
         let rest = animation::bind_pose(model);
@@ -161,6 +194,7 @@ impl Skinning {
         for (index, skin) in model.skins.iter().chain(&rigid).chain(merged).enumerate() {
             ids.push(self.templates.len() as u32);
             self.templates.push(Template {
+                model: model_id,
                 meta: self.metadata.len() as u32,
                 fresh: false,
                 words: 4 + model.nodes.len() * 2 + skin.joints.len() + skin.inverse_binds.len(),
@@ -192,7 +226,12 @@ impl Skinning {
     }
     pub(crate) fn mark_fresh(&mut self, skins: &[u32]) {
         for &id in skins {
-            self.templates[id as usize].fresh = true;
+            let model = self.templates[id as usize].model;
+            for template in &mut self.templates {
+                if template.model == model {
+                    template.fresh = true;
+                }
+            }
         }
     }
     pub(crate) fn retired_bytes(
@@ -251,10 +290,24 @@ impl Skinning {
             .collect();
         for (i, t) in self.templates.iter_mut().enumerate() {
             if !retained.contains(&(i as u32)) {
-                t.rest.clear();
+                t.rest = Vec::new();
                 t.words = 0;
                 t.joints = 0;
             }
+        }
+        let live_models: std::collections::BTreeSet<_> = retained
+            .iter()
+            .map(|&id| self.templates[id as usize].model)
+            .collect();
+        for (id, model) in self.models.iter_mut().enumerate() {
+            if !live_models.contains(&id) {
+                *model = None;
+            }
+        }
+        self.primed
+            .retain(|(_, model, _)| live_models.contains(model));
+        while self.models.last().is_some_and(Option::is_none) {
+            self.models.pop();
         }
         while self.templates.last().is_some_and(|t| t.words == 0) {
             self.templates.pop();
@@ -268,6 +321,7 @@ impl Skinning {
         records: &[DrawInstance],
     ) -> Result<(), RenderError> {
         self.records.clear();
+        self.spans.clear();
         self.offsets.clear();
         self.jobs_words.clear();
         self.job_records.clear();
@@ -282,18 +336,32 @@ impl Skinning {
                     .ok_or_else(|| RenderError::scene("unknown skin template".into()))?;
                 self.offsets
                     .push(palette as u32 | if t.rigid { 1 << 31 } else { 0 });
-                self.records
-                    .push((record.transform as usize, skin as usize));
+                let span = *self
+                    .spans
+                    .entry((record.transform, t.model))
+                    .or_insert_with(|| {
+                        let at = pose;
+                        self.records
+                            .push((record.transform as usize, skin as usize));
+                        pose += t.rest.len() * 2;
+                        (at, skin as usize)
+                    });
                 self.jobs_words
-                    .extend([t.meta, pose as u32, palette as u32, 0]);
-                pose += t.rest.len() * 2;
+                    .extend([t.meta, span.0 as u32, palette as u32, 0]);
                 palette += t.joints;
             } else {
                 self.offsets.push(u32::MAX);
             }
         }
+        // Each job keeps its globals after the output matrices. Workgroup-sized
+        // matrix arrays fail pipeline creation on older Adreno Vulkan drivers.
+        let mut matrices = palette;
+        for job in self.jobs_words.chunks_exact_mut(4) {
+            job[3] = matrices as u32;
+            matrices += self.metadata[job[0] as usize] as usize;
+        }
         let limit = device.limits().max_storage_buffer_binding_size;
-        if (palette * 64) as u64 > limit
+        if (matrices * 64) as u64 > limit
             || (pose * 4) as u64 > limit
             || (self.jobs_words.len() * 4) as u64 > limit
         {
@@ -301,7 +369,7 @@ impl Skinning {
                 "skin palette/pose buffer exceeds device limit".into(),
             ));
         }
-        self.reallocations += u64::from(self.palette.grow(device, queue, (palette * 64) as u64));
+        self.reallocations += u64::from(self.palette.grow(device, queue, (matrices * 64) as u64));
         self.reallocations += u64::from(self.poses.grow(device, queue, (pose * 4) as u64));
         self.pose_words.resize(pose, 0.);
         self.reallocations += u64::from(self.jobs.grow(
@@ -355,7 +423,19 @@ impl Skinning {
         }
         Ok(())
     }
-    fn pack(&mut self, w: &World, entities: &[Entity], initial: bool) {
+    pub(crate) fn retain_primes(&mut self, retain: bool) {
+        for (_, _, state) in &mut self.primed {
+            state.retain_until_draw(retain);
+        }
+    }
+    pub(crate) fn pack(&mut self, w: &World, entities: &[Entity], initial: bool) {
+        let initial = initial || self.generation != Some(w.presentation_generation());
+        if initial {
+            self.primed.clear();
+        }
+        self.generation = Some(w.presentation_generation());
+        self.history.update(w, initial);
+        self.assignments.update(w);
         let mut offset = 0;
         for &(record, template) in &self.records {
             let t = &self.templates[template];
@@ -370,16 +450,90 @@ impl Skinning {
                 .map_or((&t.rest[..], &t.rest[..]), |p| {
                     (&p.previous[..], &p.local[..])
                 });
-            self.pose_words[offset..offset + len].copy_from_slice(
-                if initial || t.fresh || w.is_fresh(e) {
-                    curr
-                } else {
-                    prev
-                },
+            let has_pose = p
+                .as_ref()
+                .is_some_and(|p| p.local.len() == len && p.previous.len() == len);
+            let key = (e, t.model);
+            let i = match self.primed.binary_search_by_key(&key, |p| (p.0, p.1)) {
+                Ok(i) => i,
+                Err(i) => {
+                    self.primed.insert(i, (e, t.model, Default::default()));
+                    i
+                }
+            };
+            let state = &mut self.primed[i].2;
+            let pair = state.begin(
+                w.tick(),
+                (self.assignments.revision(e), t.model as u64),
+                has_pose,
+                initial || t.fresh || w.is_fresh(e),
+                self.history.pair(e, false),
             );
-            self.pose_words[offset + len..offset + 2 * len].copy_from_slice(curr);
+            for node in 0..len / 10 {
+                let at = node * 10;
+                let base = state.pair(
+                    node,
+                    [
+                        crate::node_poses::read(&prev[at..]),
+                        crate::node_poses::read(&curr[at..]),
+                    ],
+                );
+                crate::node_poses::put(
+                    &mut self.pose_words[offset + at..offset + at + 10],
+                    base[0],
+                );
+                crate::node_poses::put(
+                    &mut self.pose_words[offset + len + at..offset + len + at + 10],
+                    base[1],
+                );
+            }
+            let model = self.models[t.model].as_mut().expect("live pose model");
+            for rows in &pair {
+                if rows.overflowed() {
+                    model
+                        .diagnostics
+                        .node_warning(t.model, "", "more than sixteen rows");
+                }
+                for row in rows.rows() {
+                    if !model.nodes.iter().any(|(hash, name, _)| {
+                        *hash == row.node.hash() && name == row.node.as_str()
+                    }) {
+                        model.diagnostics.node_warning(
+                            t.model,
+                            row.node.as_str(),
+                            "node is absent or not posable",
+                        );
+                    }
+                }
+            }
+            for (_, name, node) in &model.nodes {
+                let at = offset + node * 10;
+                let base = [
+                    crate::node_poses::read(&self.pose_words[at..]),
+                    crate::node_poses::read(&self.pose_words[at + len..]),
+                ];
+                if let Some(composed) = crate::node_poses::resolve_pair(base, pair, name) {
+                    crate::node_poses::put(&mut self.pose_words[at..at + 10], composed[0]);
+                    crate::node_poses::put(
+                        &mut self.pose_words[at + len..at + len + 10],
+                        composed[1],
+                    );
+                } else {
+                    let row = pair
+                        .iter()
+                        .flat_map(|rows| rows.rows())
+                        .find(|r| r.node.as_str() == name)
+                        .expect("invalid named row");
+                    model.diagnostics.node_warning(
+                        t.model,
+                        row.node.as_str(),
+                        "non-finite transform or nonpositive scale",
+                    );
+                }
+            }
             offset += 2 * len;
         }
+        self.primed.retain(|(e, _, _)| w.contains(*e));
     }
     /// Dispatch only the jobs of records drawn this frame (`hidden[record]`
     /// false): a crowd's far levels cost no skinning.
@@ -484,7 +638,15 @@ pub(crate) mod tests {
         renderer.prepare_model("rigid.model", &model).unwrap();
         let draw = renderer.models.loaded["rigid.model"].nodes[0];
         assert_eq!(draw.2, Mat4::IDENTITY);
-        let mut w = World::new(60, 0);
+        struct Rigid;
+        impl exact_game::Game for Rigid {
+            const ID: &'static str = "rigid-palette-interpolation";
+            type Args = ();
+            fn setup(_: &mut World, _: &()) {}
+            fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
+        }
+        let mut sim = exact_game::Sim::<Rigid>::new(()).unwrap();
+        let w = sim.world_mut();
         let previous = animation::bind_pose(&model);
         let mut local = previous.clone();
         local[node * 10] += 2.;
@@ -523,7 +685,9 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert_ne!(skin.offsets[0] & (1 << 31), 0);
-        skin.feed(&gpu.queue, &w, &[e], false);
+        skin.pack(w, &[e], true);
+        sim.run(17.);
+        skin.feed(&gpu.queue, sim.world(), &[e], false);
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         skin.encode(&mut encoder, None);
         gpu.queue.submit([encoder.finish()]);
@@ -541,7 +705,7 @@ pub(crate) mod tests {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
-        let mut skin = Skinning::new(&gpu.device);
+        let mut skin = Skinning::new(&gpu.device, None);
         let model = crate::test_model::skinned_model();
         let template = skin.add(&gpu.device, &gpu.queue, &model)[0];
         let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -728,7 +892,7 @@ pub(crate) mod tests {
                 exact_game::SocketFollow::new(e, "tip").offset(offset),
             ));
             w.load(&w.save()).unwrap();
-            let mut skin = Skinning::new(&gpu.device);
+            let mut skin = Skinning::new(&gpu.device, None);
             let template = skin.add(&gpu.device, &gpu.queue, &model)[0];
             let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
@@ -752,6 +916,8 @@ pub(crate) mod tests {
                 }],
             )
             .unwrap();
+            // Admit the instance before testing its interpolation endpoints.
+            skin.pack(w, &[e], true);
             skin.feed(&gpu.queue, w, &[e], false);
             let mut attachments = crate::world::scene::Attachments::default();
             attachments.feed(w, true, true, false, false);
@@ -829,7 +995,7 @@ pub(crate) mod tests {
             }],
             ..Default::default()
         };
-        let mut skin = Skinning::new(&gpu.device);
+        let mut skin = Skinning::new(&gpu.device, None);
         let template = skin.add(&gpu.device, &gpu.queue, &model)[0];
         let previous = animation::bind_pose(&model);
         let mut local = previous.clone();
@@ -883,6 +1049,11 @@ pub(crate) mod tests {
             }],
         )
         .unwrap();
+        skin.pack(w, &[e], true);
+        let mut attachments = crate::world::scene::Attachments::default();
+        attachments.feed(w, true, true, false, false);
+        sim.run(17.);
+        let w = sim.world_mut();
         skin.feed(&gpu.queue, w, &[e], false);
         assert_eq!(
             crate::world::tests::allocations::count(|| {
@@ -908,9 +1079,7 @@ pub(crate) mod tests {
             actual[12] > 0.7,
             "a lerp of composed matrices would give 0.5"
         );
-        let mut attachments = crate::world::scene::Attachments::default();
-        attachments.feed(w, true, true, false, false);
-        attachments.feed(w, false, false, false, false);
+        attachments.feed(w, false, true, false, false);
         attachments.frame(0.5);
         let displayed = attachments
             .output
@@ -983,6 +1152,10 @@ pub(crate) mod tests {
         assert_eq!(&skin.pose_words[..len], &skin.pose_words[len..]);
         assert_eq!(w.save(), saved);
         skin.pack(w, &[e], false);
+        assert_eq!(&skin.pose_words[..len], &skin.pose_words[len..]);
+        sim.run(17.);
+        let w = sim.world_mut();
+        skin.pack(w, &[e], false);
         assert_ne!(&skin.pose_words[..len], &skin.pose_words[len..]);
         w.teleport(e, Transform::at(3., 0., 0.));
         skin.pack(w, &[e], false);
@@ -1005,7 +1178,7 @@ pub(crate) mod tests {
         let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
             .join("Library/Caches/exact2-game/gltf-samples/Fox.glb");
         let model = exact_game_bake::model(path).unwrap();
-        let mut skin = Skinning::new(&gpu.device);
+        let mut skin = Skinning::new(&gpu.device, None);
         let template = skin.add(&gpu.device, &gpu.queue, &model)[0];
         let mut w = World::new(60, 0);
         let entities: Vec<_> = (0..100).map(|_| w.spawn(Transform::default())).collect();
@@ -1082,8 +1255,8 @@ mod normal_tests {
             return;
         };
         // Execute the actual vertex skinning function through a compute entry point.
-        let skin = include_str!("shaders/model.wgsl")
-            .split("struct BakedMaterial")
+        let skin = include_str!("shaders/model_vertex.wgsl")
+            .split("struct ModelVarying")
             .next()
             .unwrap();
         let source = format!("{skin}\n@group(0) @binding(0) var<storage,read_write> output:array<vec4<f32>>;\n@compute @workgroup_size(1) fn test_normal() {{ let z=mat4x4<f32>(); let draw=ModelInstance(0u,0u,0u,0u,z,z,vec4(1.0),vec4(0.0)); output[0]=vec4(normalize(skinned(draw,0u,vec3(0.0),normalize(vec3(1.0,1.0,1.0)))[1]),0.0); }}");
@@ -1189,3 +1362,7 @@ mod normal_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "node_pose_tests.rs"]
+mod node_pose_tests;

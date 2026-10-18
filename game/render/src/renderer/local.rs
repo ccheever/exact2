@@ -5,7 +5,7 @@ use crate::cull::{Cull, KEEP_ALL};
 /// A cull over up to four local shadow views and the scene groups over its lists.
 pub(crate) struct LocalCull {
     pub cull: Cull,
-    binds: Option<([wgpu::BindGroup; 2], (wgpu::Buffer, u64))>,
+    binds: Option<([wgpu::BindGroup; 2], ListsKey)>,
 }
 
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
@@ -32,7 +32,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .write(&self.queue, &self.local_plan.views);
         while self.local_culls.len() < views.div_ceil(crate::cull::VIEWS) as usize {
             self.local_culls.push(LocalCull {
-                cull: Cull::new(&self.device),
+                cull: Cull::new(&self.device, self.pipelines.cache.handle.as_ref()),
                 binds: None,
             });
         }
@@ -109,7 +109,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             local.cull.words.extend_from_slice(words);
             for (index, group) in local.cull.groups.iter().enumerate() {
                 let at = index * crate::cull::GROUP_WORDS + 7;
-                local.cull.words[at] = (local.cull.words[at] & !15) | (group.flags & 15);
+                local.cull.words[at] =
+                    (local.cull.words[at] & !(15 | crate::cull::OUTLINE)) | (group.flags & 15);
             }
             local
                 .cull
@@ -133,7 +134,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.models.skinning.as_ref().map(|s| &s.palette.raw),
                 None,
             );
-            let key = (local.cull.compacted.raw.clone(), local.cull.window);
+            let key = (local.cull.compacted.raw.clone(), local.cull.binding());
             if local.binds.as_ref().is_none_or(|(_, old)| *old != key) {
                 let binds = scene_binds(
                     &self.device,
@@ -141,7 +142,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     &self.uniform,
                     &self.transforms,
                     &self.materials,
-                    (&local.cull.compacted.raw, Some(local.cull.window)),
+                    (&local.cull.compacted.raw, local.cull.binding()),
                     &self.attachment_matrices,
                     &self.environment,
                     &self.lights,
@@ -207,19 +208,20 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             });
             pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
             pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
+            let mut bound = super::passes::Bound::default();
             for (index, group) in local.cull.groups.iter().enumerate() {
                 if group.flags & (1 << view) == 0 {
                     continue;
                 }
-                self.set_depth_pipeline(&mut pass, group, &maps.cameras[layer], custom);
+                self.set_depth_pipeline(&mut pass, &mut bound, group, &maps.cameras[layer], custom);
                 if self.cull.direct {
                     let mesh = &self.meshes[self.batches[group.batch].mesh.0];
-                    pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
+                    bound.scene(&mut pass, &self.scene_binds[self.current], 0);
                     pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, group.range.clone());
                 } else {
-                    let (region, draw) = local.cull.offsets(view, index);
+                    let (offset, draw) = local.cull.draw(view, index);
                     let binds = &local.binds.as_ref().unwrap().0;
-                    pass.set_bind_group(0, &binds[self.current], &[region]);
+                    bound.scene(&mut pass, &binds[self.current], offset);
                     pass.draw_indexed_indirect(&local.cull.indirect.raw, draw);
                 }
                 draws += 1;

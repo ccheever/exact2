@@ -670,6 +670,9 @@ final class SvgHost {
     /// takes it (LLP 1055.000 D17).
     func target(_ id: UInt32, at point: CGPoint) -> UInt32? { scenes[id]?.target(at: point) }
 
+    /// Whether `id`'s view holds CSS animations, which are its layer's.
+    func animatesBox(_ id: UInt32) -> Bool { boxSpecs[id] != nil }
+
     func forget(_ id: UInt32) {
         if let scene = scenes.removeValue(forKey: id) { scene.reset(); scene.root.removeFromSuperlayer() }
         payloads.removeValue(forKey: id)

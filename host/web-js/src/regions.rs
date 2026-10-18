@@ -162,6 +162,13 @@ impl Em<'_> {
                 } else {
                     ""
                 };
+                // A development build names the region, for inspect mode's
+                // instance paths (rt.js `Eaches`, LLP 1122 T2b).
+                let pure = match (self.dev_reload, pure) {
+                    (true, "") => format!(",0,{r}"),
+                    (true, p) => format!("{p},{r}"),
+                    (false, p) => p.to_string(),
+                };
                 let _ = write!(
                     self.out,
                     "{each}({parent},{subject},({item},{index})=>{key},(p,{item},{index})=>{{{built}}}{pure});"

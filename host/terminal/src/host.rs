@@ -205,13 +205,24 @@ pub struct Host<D: DataSource> {
 }
 
 impl<D: DataSource> Host<D> {
-    /// Boot a plan in a `cols` × `rows` terminal.
+    /// Boot a headless plan on the agent clock in a `cols` × `rows` terminal.
     pub fn boot(
         plan: Plan,
         data: D,
         mode: Mode,
         cols: usize,
         rows: usize,
+    ) -> Result<Host<D>, String> {
+        Self::boot_with_clock(plan, data, mode, cols, rows, false)
+    }
+
+    pub(crate) fn boot_with_clock(
+        plan: Plan,
+        data: D,
+        mode: Mode,
+        cols: usize,
+        rows: usize,
+        interactive: bool,
     ) -> Result<Host<D>, String> {
         exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
@@ -235,8 +246,9 @@ impl<D: DataSource> Host<D> {
         };
         kernel.set_env(env).map_err(|e| format!("{e:?}"))?;
         let viewport = Viewport::sized(cols as f64 * COLUMN as f64, rows as f64 * ROW as f64);
-        let runner =
-            Runner::boot(plan, data, kernel, viewport, "/").map_err(|e| match e {
+        let (launch, notes) = crate::zone::launch(interactive, |key| std::env::var(key).ok());
+        let mut runner = exact_runner::time::launching_with(launch, ||
+            Runner::boot(plan, data, kernel, viewport, "/")).map_err(|e| match e {
                 // The data module answered another declaration than the
                 // screen's: most often a binary older than the shapes.
                 RunnerError::Shape { resource, why } => format!(
@@ -244,6 +256,9 @@ impl<D: DataSource> Host<D> {
                 ),
                 e => format!("{e:?}"),
             })?;
+        for note in notes {
+            runner.log(note);
+        }
         let mut host = Host {
             runner,
             cols,

@@ -10,7 +10,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp, open, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
-import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
+import { chromium, DESKTOP_INPUT, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic, serveBuildTree } from '../serve.mjs';
 import { withLook } from '../look.mjs';
@@ -219,6 +219,7 @@ function browser() {
   const started = launched = (async () => {
     const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
     const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
+      DESKTOP_INPUT,
       `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
       '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
     { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
@@ -990,7 +991,9 @@ async function withFocusContract(target, webDist, contract, drive) {
   try {
     const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
     writeFileSync(source, contract);
-    const built = spawnSync(resolve(ROOT, 'target/debug/contract'), ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+    const compiler = resolve(app.target, 'debug/contract');
+    const built = spawnSync(compiler, ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+    if (built.error) throw built.error;
     if (built.status !== 0) throw new Error(built.stderr);
     let server;
     let options = { plan, webDist: target === 'wasm' ? resolve(webDist) : undefined };

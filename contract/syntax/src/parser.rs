@@ -15,11 +15,13 @@ mod keyframes;
 mod media_session;
 mod midi;
 mod names;
+mod params;
 mod parts;
 #[path = "routes.rs"]
 mod routes;
 mod sequence;
 mod sounds;
+mod states;
 mod steps;
 mod theme;
 mod view;
@@ -603,6 +605,8 @@ impl Parser {
         self.block(|p| {
             if p.at_part() {
                 p.part(&format!("`{owner}`"), true, &mut attrs)
+            } else if p.at_state() {
+                p.state_part(&format!("`{owner}`"), true, &mut attrs)
             } else {
                 attrs.extend(p.literal_line(&owner)?);
                 Ok(())
@@ -646,11 +650,23 @@ impl Parser {
             let value = match self.expr()? {
                 // `-0.2` is a literal to anyone writing a style: fold it, so
                 // `letter-spacing=-0.2` is a constant like `0.2`.
+                // Its span the `-` through the number, as an attribute's
+                // (the `-` alone where the number is on another line).
                 Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
-                    let Expr::Number(n, _) = *inner else {
+                    let Expr::Number(n, at) = *inner else {
                         unreachable!()
                     };
-                    Expr::Number(-n, span)
+                    Expr::Number(
+                        -n,
+                        Span {
+                            end_col: if at.line == span.line {
+                                at.end_col
+                            } else {
+                                span.end_col
+                            },
+                            ..span
+                        },
+                    )
                 }
                 other => other,
             };
@@ -681,13 +697,6 @@ impl Parser {
         self.newline()?;
         let fields = self.block(|p| {
             let (name, span) = p.field_name()?;
-            // @ref LLP 1116.015 D2 — `x.length` is the length of a list or text.
-            if name == "length" {
-                return p.err(
-                    "syntax-length-field",
-                    "a field cannot be named `length`: `.length` is a list's or text's length; choose another name (`count`, `size`)",
-                );
-            }
             p.expect_punct(":")?;
             let ty = p.type_expr()?;
             p.newline()?;
@@ -778,6 +787,7 @@ impl Parser {
             tasks: Vec::new(),
             sequences: Vec::new(),
             view: Vec::new(),
+            params: Default::default(),
             span,
         };
         if !matches!(self.peek_kind(), TokenKind::Indent) {
@@ -796,7 +806,10 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) => {
-                    if matches!(w.as_str(), "props" | "inject" | "provide" | "slot" | "view") {
+                    if matches!(
+                        w.as_str(),
+                        "props" | "inject" | "provide" | "slot" | "view" | "params"
+                    ) {
                         let section_span = self.peek().span;
                         if let Some((_, first)) = sections.iter().find(|(name, _)| name == &w) {
                             return duplicate("component section", &w, section_span, *first);
@@ -889,6 +902,7 @@ impl Parser {
                                 c.derives.push(b)
                             }
                         }
+                        "params" => c.params.list = self.params_section()?,
                         "resource" => c.resources.push(self.resource()?),
                         "mutation" => c.mutations.push(self.mutation()?),
                         "action" => c.actions.push(self.action()?),
@@ -1211,6 +1225,12 @@ impl Parser {
     }
 
     fn node_inner(&mut self) -> R<Node> {
+        if self.at_state() {
+            return self.err(
+                "syntax-state",
+                "a state part (`:disabled`) goes under its node, before the node's children",
+            );
+        }
         let (word, span) = match self.peek_kind().clone() {
             TokenKind::Ident(w) => (w, self.peek().span),
             other => {

@@ -6,6 +6,8 @@ Lean elaborates slowly as a term and parses quickly as a string.
   fact <resource> <value>              a host fact, by resource
   stored <state> <value>               the device's store at launch: a
                                        persisted state's value (LLP 1116 D5)
+  every-tab                            the host builds every tab panel
+                                       (`Oracle.everyTab`)
 
 A value: `n` and 16 hex digits of IEEE bits; a quoted string (`\"`, `\\`,
 `\n`, `\r`, `\t`, `\u00xx`); `t`, `f`, `u` (unit); `none`; `some(v)`;
@@ -119,10 +121,14 @@ def parse (text : String) : Option Oracle := Id.run do
   let mut answers : Array (String × List Value × Value) := #[]
   let mut facts : Array (String × Value) := #[]
   let mut stored : Array (String × Value) := #[]
+  let mut everyTab := false
   for line in text.splitOn "\n" do
     let cs := line.toList
     let fuel := cs.length + 1
     if cs.isEmpty then continue
+    if line == "every-tab" then
+      everyTab := true
+      continue
     match literal "answer " cs with
     | .some r =>
       match (do
@@ -152,7 +158,7 @@ def parse (text : String) : Option Oracle := Id.run do
           | .some kept => stored := stored.push kept
           | .none => return .none
         | .none => return .none
-  o := { answers := answers.toList, facts := facts.toList, stored := stored.toList }
+  o := { answers := answers.toList, facts := facts.toList, stored := stored.toList, everyTab }
   return .some o
 
 /-- [`parse`], or an oracle that answers nothing (every call refused,

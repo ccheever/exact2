@@ -26,13 +26,17 @@ fn scale() -> f64 {
 }
 
 impl<D: DataSource> Host<D> {
-    /// The limits for this device: WebKit's iOS area on iOS, a quarter of
+    /// The limits for this device: WebKit's iOS area on iOS, tvOS and watchOS, a quarter of
     /// physical memory everywhere (LLP 1056 D4, r3).
     pub(crate) fn canvas_limits(&mut self) {
         let memory = MEMORY.load(Ordering::Relaxed);
         self.runner.set_canvas_limits(exact_runner::Limits::native(
             memory,
-            cfg!(any(target_os = "ios", target_os = "tvos")),
+            cfg!(any(
+                target_os = "ios",
+                target_os = "tvos",
+                target_os = "watchos"
+            )),
         ));
     }
 

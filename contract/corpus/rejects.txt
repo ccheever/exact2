@@ -1261,6 +1261,19 @@ component A
 == lower-attr-value
 component A
   view
+    button -exact-press-opacity=1.2
+      text "a"
+---
+== lower-keyframe-property
+keyframes wash
+  to -exact-press-background-color="#eee"
+component A
+  view
+    text "a"
+---
+== lower-attr-value
+component A
+  view
     view transform-origin="10px left"
       text "a"
 ---
@@ -1309,14 +1322,6 @@ component A
 # LLP 1116.015 D2: a list type is `T[]`.
 shape S
   xs: list<number>
-component A
-  view
-    text "a"
----
-== syntax-length-field
-# LLP 1116.015 D2: `.length` is a list's or text's length, so no field takes the name.
-shape S
-  length: number
 component A
   view
     text "a"

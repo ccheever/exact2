@@ -139,6 +139,24 @@ one the placeholder keeps the platform's colour. Another property in it is
 is any other part. `placeholder-color` and `-exact-placeholder-color` are
 refused with the block to write.
 
+A state part is a block of one state's rows (LLP 1121 D8): `:active`, `:hover`,
+`:focus-visible`, `:disabled` or `:checked` alone on its line, then rows indented
+beneath it, in a `style` (literal) or under a node before its children (where a
+value may compute). One state a block, once at a place, never nested and never
+combined (`syntax-state`). `:disabled` and `:checked` (when `checked`,
+`aria-checked`, `aria-selected` or `aria-pressed` is true) take
+`background-color`, `color`, `border-color` (each side), `opacity`, `box-shadow`
+and `-exact-tint-color`, and fold into the node's own rows, `:checked` under
+`:disabled`; `:active` takes `background-color`, `color`, `opacity` and
+`-exact-press-scale` and lowers to the press paint (LLP 1061 D7: its `opacity` an
+absolute target), `:hover` and `:focus-visible` take `background-color`,
+`border-color`, `opacity` and `box-shadow`; a host state's row is a literal
+(`lower-state-literal`; a token's name is one). Another row is `lower-state-row`;
+a part on a native control, a list's row, or (for `:active`, `:hover` and
+`:focus-visible`) a run inside a paragraph is `lower-state-target`. An `:active`
+row beside the same paint's `-exact-press-` row is `lower-state-press-paint`.
+The node's block wins over its class's, row by row.
+
 A length attribute's string is CSS's own text, read by the kernel: a px or
 other absolute length, a percentage, a viewport length, `auto`,
 `env(safe-area-inset-*)`, `env(viewport-segment-* x y)`, a layout region's
@@ -479,8 +497,9 @@ expression, `??`, `?.`, or `===`.
 A call on a value, `e.f(args)`, is the roster function `f` with `e` as its first
 argument, for the functions the table below writes that way: the web's string
 and array methods of that name and meaning (`s.trim()`, `xs.filter(x => …)`,
-`n.toFixed(2)`). `e.length` is the count of a list or text, so a shape field
-cannot be named `length` (`syntax-length-field`). The free spelling (`trim(s)`,
+`n.toFixed(2)`). `e.length` is the count of a list or text, or, when `e` is a
+record whose shape declares a field named `length`, that field, as in
+TypeScript; on a record without one it is refused. The free spelling (`trim(s)`,
 `length(xs)`) is refused with the edit (`syntax-method-form`), and so is any
 other method (`xs.reduce(…)`: `syntax-method-call`); the rest of the roster is
 called as a function (`first(xs)`, `round(n)`).
@@ -727,6 +746,7 @@ says. Every roster function has a row and an example, and each example written
 | `sin(rad)` | Number; `Math.sin`, CSS's `sin()`. The native runners' `libm` gives the same bits on every target; the web's `Math.sin` may differ in the last bits | `sin(0)` is `0` |
 | `cos(rad)` | Number; `Math.cos`, CSS's `cos()`, computed as `sin` is (a point on a ring is `cx + r * cos(a)`, `cy + r * sin(a)`) | `cos(0)` is `1` |
 | `sum(xs)` | Number; a list of numbers added left to right from 0, as `xs.reduce((a, x) => a + x, 0)` (`sum([])` is `0`), a list step an item; `sum(xs.map(x => …))` totals a field | `sum([1, 2, 3])` is `6` |
+| `range(n)` | `number[]`; Exact's own, not the web's: the whole numbers from 0 to `n - 1` in order (`range(0)` is `[]`), a list step an item. `n` is a whole number at least 0: another literal is refused, and another computed value traps (`TypeMismatch`), refusing the commit that made it. `range(a, b)` is refused: the numbers from `a` are `range(b).slice(a)`, a window `range(n).slice(a, b)` | `range(4)` is `[0, 1, 2, 3]` |
 | `text.includes(substring)` | Boolean, case-sensitive literal substring | `"grocery".includes("roc")` is `true` |
 | `xs.includes(item)` | Boolean; `T` a string, number or bool, compared by SameValueZero (`NaN` is found, `-0` is `0`) | `["a", "b"].includes("b")` is `true` |
 | `text.startsWith(prefix)` | Boolean, case-sensitive | `"/settings".startsWith("/")` is `true` |
@@ -735,21 +755,24 @@ says. Every roster function has a row and an example, and each example written
 | `text.slice(start, end?)` | String; JavaScript's `slice` over UTF-16 code units: fractions truncate, NaN is 0, a negative index counts from the end, an omitted `end` is the end; a cut surrogate half is U+FFFD | `"Tuesday".slice(0, 3)` is `"Tue"` |
 | `xs.slice(start, end?)` | `T[]`; the items, the indices clamped as text's are | `[1, 2, 3, 4].slice(1)` is `[2, 3, 4]` |
 | `xs.concat(T[])` | `T[]`; both lists' items in order (`[...xs, x]` is `xs.concat([x])`) | `[1, 2].concat([3])` is `[1, 2, 3]` |
+| `xs.flat()` | `T[]`; a list of lists' items in order, one level, as the web's `flat()`. It takes no depth (`flat(2)` is refused): two levels are `xs.flat().flat()`, and the web's `flatMap` is `xs.map(x => …).flat()` when the callback returns a list (`xs.map(x => …)` when it returns one value) | `[[1], [2, 3]].flat()` is `[1, 2, 3]` |
 | `text.indexOf(substring)` | Number; the first match's position in UTF-16 code units, `-1` for none, `0` for `""` | `"a,b".indexOf(",")` is `1` |
 | `xs.indexOf(item)` | Number; `T` a string, number or bool, compared by `===` (`NaN` is never found, `-0` is `0`); `-1` for none | `["a", "b"].indexOf("c")` is `-1` |
 | `text.split(separator)` | `string[]`; the pieces between the separator's matches, left to right; `""` splits into UTF-16 code units (a cut surrogate half is U+FFFD), and `"".split("")` is `[]` | `"a,b,c".split(",")` is `["a", "b", "c"]` |
 | `text.replaceAll(find, with)` | String; every match of the string `find`, left to right; `$$`, `$&`, `` $` ``, `$'` in `with` (`$1` is literal); an empty `find` inserts at every code-unit boundary; no regular expressions | `"a-b-c".replaceAll("-", " ")` is `"a b c"` |
 | `text.toLowerCase()` | String; Unicode's default lowercase, final sigma kept, no locale (the web core links the case tables by use) | `"Milk".toLowerCase()` is `"milk"` |
+| `text.toUpperCase()` | String; Unicode's default uppercase through the same tables, its full mappings included (`"ß"` is `"SS"`), no locale. Text on screen is uppercased by `text-transform="uppercase"`, which each platform applies as it draws; `toUpperCase` is for a string handed elsewhere: a native view's argument, `share`, a value stored or sent | `"Straße".toUpperCase()` is `"STRASSE"` |
 | `first(T[])` | `option<T>` | `first([4, 5])` is `some(4)` |
 | `xs.at(index)` | `option<T>`; truncates index toward zero, negative from end | `[4, 5, 6].at(-1)` is `some(6)` |
 | `xs.map(callback)` | `U[]`; callback returns one value | `[1, 2].map(x => x * 10)` is `[10, 20]` |
 | `xs.filter(callback)` | `T[]`; callback returns boolean | `[1, 2, 3].filter(x => x > 1)` is `[2, 3]` |
 | `xs.join(separator)` | String; `xs` a list of strings, numbers or bools, each printed | `["a", "b"].join(", ")` is `"a, b"` |
+| `sortBy(xs, x => key)`, `sortBy(xs, x => key, "desc")` | `T[]`; the items in a stable order of one key, a number or a string, computed once an item (the callback is `map`'s, item and index). Numbers ascend by `<` with `NaN` counted as `0` (so `NaN`, `-0` and `0` tie); strings by UTF-16 code units as `<` compares them, no locale. `"desc"` (a literal, as is `"asc"`, the default) reverses the order of the keys, not of ties: equal keys keep their input order in both directions, so a second key is an earlier sort (`sortBy(sortBy(xs, x => x.created), x => x.bpm)` is by bpm, ties oldest first). Exact's own function, not TypeScript's `toSorted`, whose comparator is refused; a locale's collation, a stored order and rows the view has not loaded are the data module's (LLP 1116.016 §5) | `sortBy([3, 1, 2], x => x)` is `[1, 2, 3]` |
 | `encodeURIComponent(text)` | String | `encodeURIComponent("a b&c")` is `"a%20b%26c"` |
 | `encodeRouteSegment(text)` | String; routing's checked segment encoding | `encodeRouteSegment("a b")` is `"a%20b"` |
 | `open(router, location)` | Router | `top(open(nav, "/item/7")).name` is `"item"` |
 | `push(router, location)` | Router; same top URL does not add a visit | `depth(push(nav, "/item/7"))` is `2` |
-| `replace(router, location)` | Router | `depth(replace(nav, "/item/7"))` is `1` |
+| `replace(router, location)` | Router; the top visit takes the location and keeps its id. A stack's first visit keeps its root route: a location matching another route is refused and the router is unchanged (a first-launch screen: docs/recipes/first-launch.md) | `top(replace(push(nav, "/item/7"), "/item/8")).url` is `"/item/8"` |
 | `back(router)` | Router | `depth(back(push(nav, "/item/7")))` is `1` |
 | `select(router, tabName)` | Router | `nav = select(nav, "search")`, in an action, shows the `search` tab |
 | `go(router, location)` | Router | `top(go(nav, "/item/7")).name` is `"item"` |
@@ -790,17 +813,22 @@ locale (`"09:30" < "10:00"`, `"Z" < "a"`). `slice` and `replaceAll` work on code
 units as JavaScript does and make the whole result well formed once: a lone
 surrogate half is U+FFFD, since the native runners hold Unicode scalar values.
 A result past the runner's string bound (64 MiB of UTF-8) traps on every
-executor. `toUpperCase`, `padStart` and number parsing are not in Contract;
+executor. `padStart` is not in Contract;
 the refusals say what to write instead. Neither `indexOf` nor `split` takes
 the web's second argument (a start position, a limit), and `split` takes no
 regular expression.
 
-`concat`, `split`, `sum`, and `slice`, `includes` and `indexOf` over a list, take
+`concat`, `split`, `sum`, `range`, `flat`, and `slice`, `includes` and `indexOf` over a list, take
 list steps on the evaluation's budget as `map` and `join` do (LLP 1090): one
-for each item `concat`, `slice` or `split` keeps, taken before the list is
+for each item `concat`, `slice`, `split`, `range` or `flat` makes (and `flat` one for each list it reads), taken before the list is
 built, one for each item `sum` adds, and one for each item `includes` or
 `indexOf` scans up to its match. A
-list they build is bounded as any built value is.
+list they build is bounded as any built value is. `sortBy` takes one step an
+item, as its key is computed, and none for its comparisons: a stable merge sort
+makes at most n·⌈log₂ n⌉ of them, which is the cost the budget does not count.
+So 5,000 rows filtered and then sorted take 10,000 of the 65,536 steps, and
+the sort of 30,000 is about 450,000 comparisons on every evaluation that reads
+it, which a `derive` makes once per change of what it reads.
 
 Compiler intrinsics and special forms additionally include:
 
@@ -1101,6 +1129,13 @@ host.
 | Zero or one `MIDIMessageEvent` (the action takes it or leaves it) | `midimessage`, on an element with `midiinputs=` ([MIDI](#midi-exactmidi-sendmidi-midimessage)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
 | None | `beforeunload`, `cancel`, `close`, `scrollend`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
+
+On text fields and textareas, `input` reports every edit. An `input` handler
+should update raw draft state so live search, validation and button enablement
+follow typing. `change` reports a committed value: Enter or blur for a text
+field, the end of editing for a textarea. Its handler should normalize the
+draft. Use `submit` for explicit submission. Checkboxes, switches and selects
+use `change` when a value is chosen.
 
 A dialog's `close=action` runs after dismissal and focus restoration on the web,
 macOS and iOS, whether an action, an invoker button or Escape closed it. It takes
@@ -1799,6 +1834,11 @@ A new Mac window puts the caret in its first stop, as AppKit does: with Keyboard
 navigation off the first text field, and with no stop nothing. An `autofocus` you wrote
 elsewhere wins, and a window whose first stop is in a `canvas` that takes input opens
 with nothing focused. The web and iOS focus nothing on load unless `autofocus` says so.
+An `autofocus` mounted later takes the focus only when nothing holds it, as in Chrome: a
+`tabindex` button a tap focused keeps it when a timer remounts an `autofocus` element.
+The tap's own work is the exception on the web and iOS: a field it shows, or the
+`autofocus` field of a sheet, dialog or popover it opens, takes the focus from the control
+tapped ([LLP 1035.000](../llp/1035.000-dependable-host-semantics.rfc.md) D9).
 
 `aria-disabled=true` (or `aria-disabled="true"`) reports an unavailable control
 to accessibility while keeping its focus and Tab behavior. It accepts a bound
@@ -1835,7 +1875,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `setRangeText(id, text[, start, end[, selectionMode]])`: plain-field range replacement, one `input`, preserve selection by default, no undo step ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
-| `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
+| `setScheme(scheme)`: the app's scheme, `"light"`, `"dark"` or `"system"` (follow the system's appearance) | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
 | `share(title=, text=, url=, files=)`: the system share sheet by the Web Share API's names, at least one of `text`, `url` and `files`; `url` absolute `http(s)`. `files=` lists `app:/` files, each behind the app's `fs.read` grant (on Apple a regular file of at most 64 MB, reached through no symbolic link), and `"#id"` entries: a PNG of that element as it is drawn now, at the display's scale (iOS and macOS; the web refuses it, `share: refused: a picture of an element is not available on the web`; Android and Linux refuse files). A literal `#id` no element carries is refused here (`lower-share-picture`), a missing one at run time in the journal. Offer it where `exactPage()`'s `canShareFiles` and `canSharePictures` hold (LLP 1125 D12). The outcome is a journal line | [share corpus](../contract/corpus/share.contract), [Metronome](../apps/metronome/app.contract) |
 | `showNotification(title=, body=, tag=, showTrigger=, navigate=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a click opens `navigate=` through the navigation root, cold or warm. A newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |

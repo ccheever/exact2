@@ -181,14 +181,19 @@ array per refusal. Compilation returns the first refusal. Action-interface
 mismatches link the invocation, declaration and caller binding, each with its
 own source file, including forwarded props and injected actions. Locations use the same byte columns as symbols; zero
 means no source range, and a null file means no file is associated. No prose is
-mixed into JSON, including argument and output-write failures. Exit codes are
+mixed into JSON, including argument and output-write failures, and nothing is
+written to stderr: advice the human form prints there (a resource fed by a live
+clock, a game's stale surface arguments) is among the warnings. `bun exact.mjs
+contract build app.contract --json` appends `app.ts`'s type-check errors to the
+same array, one per TypeScript diagnostic (`id` `typescript-TS<n>`). Exit codes are
 0 for success, 1 for compilation/I/O failure, and 2 for invalid arguments.
 `-o <file.plan>` writes the same plan bytes in either output mode.
 
 `build --map -o <file.plan>` also writes `<file.plan>.map.json`, keyed by
 SHA-256 of the plan bytes. Each plan node has its original file and range,
 component call-site chain, and the winning style row's origin (`own`,
-`class:<Name>`, or `tag`). Slots, derives and actions retain their declarations,
+`class:<Name>`, or `tag`); a row an `:active` part lowered to the press paint
+also has `"state": "active"` and `at`, where that row is written (LLP 1121 D8). Slots, derives and actions retain their declarations,
 including state and actions lifted from child components. Maps are separate
 files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
 `compile_path_mapped` and `compile_path_source_mapped` return the map alongside
@@ -321,6 +326,74 @@ app storage is ready and before a TypeScript data module has loaded: a send its
 refused (studio diary R14; notes diary). When nothing takes the path, the
 host says why — no `open-file` field, or the `change` the app refused, and the
 refusal — on stderr and in the journal. `exact uninstall <app>` takes both halves away.
+
+Widget entries are top-level `app.json` `widgets` rows. For example:
+
+```json
+{"kind":"next-trains","families":["systemSmall","systemMedium","accessoryRectangular"],
+ "component":"NextTrains","props":"NextTrainsProps","refresh":"nextTrains",
+ "preview":{"station":"Mountain View","departures":[]}}
+```
+
+Optional `title` and `description` strings supply the widget gallery's labels;
+each defaults to the humanised `kind` when omitted.
+
+`component` and the `props` shape are declared or imported by `app.contract`;
+every component prop must match a field of that shape. `preview` supplies all
+fields, with their declared types. `refresh` names a data-source function taking
+an epoch-millisecond number and returning a timeline: records with `date` (epoch
+milliseconds) and `props` (the declared shape), in that field order. The plan's
+`snapshot_refresh` header selects its typed source row; the render has no resource
+for it. A data bake checks an immediate refresh answer against that signature at epoch
+zero; pending answers are checked by the source declarations. TypeScript checks
+the generated `Sources` type, including async refreshes. Compile entries once
+with `contract::snapshot::entries(app)`, then pass that map to `source_plan`,
+`check_refreshes` and receipt generation. `snapshot::bake_app` takes separate
+data instances for the app and refresh, so refresh state cannot affect the app
+first frame. The TypeScript and replaceable Rust producers use the same check.
+
+The render's props slot is named `snapshot_props`; find it by name, since a
+`path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
+The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
+map indexes these authenticated assets in the app's compatibility cohort.
+Kinds, families and gallery labels are binary compatibility inputs; views and preview props
+are plan contents. A running host refuses a snapshot plan at decode, and a
+snapshot reader requires its exact kind and refresh signature.
+
+The `snapshot` columns on the style and prop rows declare admission. Unsupported
+rows, scrolling, sticky positioning, timers, requests, native modules and handlers
+fail with an edit. A `performanceNow()` call is refused everywhere, including
+inside `time` and `progress`; pass instants from refresh for platform time
+presentation. A variable's name imposes no restriction. A class is a style name
+or `class=(condition ? A : B)`. Only literal font families reached through the
+entry are bundled; a dynamic font string selects installed or generic families.
+Images use a bundle-relative path, an `app:/` path written by refresh, or a
+`symbol:` source. Computed paths need a fixed local prefix; refresh downloads
+remote images. A live `time` (`relative`, `timer`, `countdown`) must own its
+text paragraph, so the widget can reserve its width; calendar formats may be
+inline. Links must be their own elements, not runs among other paragraph text.
+Snapshot handlers are refused; use a link to open the app.
+
+Snapshot accessibility admits labels, roles, hints, heading levels and hidden
+content. Live announcements and control-state accessibility rows are refused.
+
+Snapshot paint uses document order and the system colour scheme. Use a condition
+or `display: none` to hide content; `visibility` and `z-index` are refused.
+Borders have one width, colour and solid, dashed, dotted or `none` style on all sides.
+Radii are px or percentages; percentages on non-square boxes produce ellipses.
+Radius calculations are refused. Overflow is the same on both axes: visible,
+hidden or clip. Raster images author both width and height, and `object-fit` is
+fill, contain, cover or scale-down. An entry declaring
+any small or accessory family has at most one link; entries declaring only
+medium, large and extra large families may have several.
+
+Text aligns start, center or end; use `line-clamp` for truncation. Give an inline
+highlight its own box. Colours are sRGB, system roles or named assets; wide-gamut
+and profiled colours are refused. Gradients are nonrepeating linear or radial,
+interpolated in sRGB or srgb-linear, with strictly increasing stops. Stop order
+must hold at every box size; use a single unit when mixed units could cross.
+Restricted paint values are literals or choices of literals, so their admission
+is checked at bake.
 
 App icons come from `app.json`'s Web App Manifest `icons` array: Apple uses
 the first square raster of at least 512 px. To select an
@@ -592,7 +665,8 @@ statements, and batch transactions. Declare grants such as `fs.read app:/data`,
 if no storage grants are declared. Once storage is available, ungranted
 operations reject with `Unavailable` and code `denied`, without loading the
 browser storage adapters. A drive without a scratch store still gets `agent`
-for app-storage operations; `doc:/` handles do not need that store.
+for app-storage writes and SQLite, and `ENOENT` for a file read, as an empty store
+answers; `doc:/` handles do not need that store.
 Generated declarations export Ibex2's `Storage` and related types; Rust sources
 can use the same implementations through `ibex2::host`.
 
@@ -634,12 +708,13 @@ store: files under the named tree on Apple and Linux, `localStorage` in the name
 web profile. Apple native modules receive the same named data, cache and temporary
 roots across launches. A fresh drive clears them; the picker's temporary documents
 alone are cleared on each launch. A drive with no `--storage` refuses app storage (`storage is unavailable
-in agent mode unless the drive names a scratch store (--storage <name>)`) and keeps
+in agent mode unless the drive names a scratch store (--storage <name>)`; a file
+read rejects `ENOENT` instead, as an empty store's) and keeps
 no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
 store}`), and the journal says `storage refused (agent): …` the first time
 a read or write is refused (a refused read finds what an empty store would: nothing,
-so a source that catches it falls back silently), which the driver repeats once as a
+code `ENOENT`, so a source that catches it falls back silently), which the driver repeats once as a
 note, after the first op that met it. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
@@ -764,9 +839,10 @@ Call `sendFrame` through a Contract `mutation`, after the feed reports `open`.
 `send` accepts a string, ArrayBuffer or ArrayBufferView; bytes are copied at
 the call. `close(code = 1000, reason = "")` accepts 1000 or 3000–4999 and a
 reason of at most 123 UTF-8 bytes. In a mutation, both methods are allowed
-only during its source's synchronous call. A source that stages socket operations
-must answer now with a value: not a promise, not a stream answer, and with
-no `fetch` in the same mutation. Whichever of a socket operation and a
+during its source's synchronous call, and after it only when the source
+answered with a promise (below). A source that stages socket operations
+answers now with a value or with a promise (then it is an answer in flight,
+below), not a stream answer, and makes no `fetch` in the same source. Whichever of a socket operation and a
 `fetch` comes second throws `a mutation cannot both send on a socket and
 fetch`, and the mutation is refused before either takes effect: no frame is
 sent and no request starts. A thrown source, wrong-shaped answer or refused
@@ -796,7 +872,52 @@ throw, a wrong-shaped snapshot or a refused commit sends none of it, and
 call has a mutation's bounds below; overload throws `QuotaExceededError` and
 fails that frame's snapshot even if the mapper catches it. On `close` and
 `error` the handle is already closed and refuses; so do another socket's
-handle, a continuation the mapper schedules, and a `fetch` in the call.
+handle and a `fetch` in the call. A continuation the mapper schedules is not
+the call's: it runs in a later turn (below).
+
+A resource's answer may also `send` and `close` on a socket a stream
+resource of the same module owns, so it sends its own request and awaits
+the reply, with no timer, and so may a mutation whose source answers with
+a promise (LLP 1016.000 D7, amended 2026-10-18):
+
+```ts
+const waiting = new Map<string, (reply: string) => void>();
+// In `feed`'s mapper, for a reply: waiting.get(reply.id)?.(reply.text)
+if (source === "request") {
+  const socket = feeds.get(id);
+  if (!socket) throw new Error("feed is not open");
+  socket.send(JSON.stringify({ _tag: "Request", id: n }));
+  return new Promise<string>(resolve => waiting.set(n, resolve));
+}
+```
+
+What each turn of an answer sends goes out in the order it sent it once
+the commit that ran the turn stands, as its fetches do; a refused commit
+takes it back and says so, and nothing the answer does afterwards (a
+value, a failure) takes it back. Natively its turns are its source's call
+and each delivery of its own `fetch` or storage step. Code that resumes
+from an `await` runs in the next turn that drains microtasks (its own
+delivery, or the answer's that settled what it awaited) and sends as that
+turn's answer; a mapper's call drains none, so code a mapper resumes runs
+in the next answer asked, or in none (and its send refuses) when that is
+the waiting answer's own re-ask. Send before the first `await`, or settle
+waiters from an answer. An answer asked again sends again, so key a
+request that must not repeat. On the web build only the source's
+synchronous call may send; a continuation refuses, since the page cannot
+tell whose it is. An answer
+the runner lets go (new arguments, `refresh`, a newer send, leaving the
+view) sends nothing more as its own; what it sent stays sent. It may also
+`fetch`, though a mutation's synchronous source still may not do both. A
+refused commit's batches are taken back without telling the code, so a
+protocol that awaits a reply times out. Its bounds are a mutation's, over all its turns (`socket answer
+exceeds 256 operations`, `… 1 MiB`); overload throws without failing the
+answer. A handle that is not open, or whose socket a mutation's stream
+owns, throws `InvalidStateError`, and so does an operation after the
+answer's own `close` of that socket. A batch the host refuses is said in
+`logs` as `answer <resource or mutation> failed: …; socket frames were refused`. Its
+`bufferedAmount` counts the transport's bytes as the turn began and what
+this turn has sent, and natively also what earlier turns sent that the host
+has not yet taken.
 
 A mutation or mapper call stages at most 256 operations and 1 MiB, including
 bytes already buffered by the browser. Overflow throws `QuotaExceededError`; a stale or
@@ -1780,3 +1901,36 @@ the shared native sampler after resize settlement and presented scrolling.
 Native inline runs, moving presentation geometry, rotated roots and SVG clip references remain unqualified;
 percentage margins follow Chrome (LLP 1001). See LLP 1005's intersection
 visibility deviation; other native hosts remain unqualified.
+
+## Live time and progress
+
+`time` is HTML's instant, in epoch milliseconds. `format` names the platform
+presentation: `relative`, `timer`, `countdown`, `date-short`, `date-medium`
+(the default), `date-long`, `date-full`, or `time-short` and `time-medium` (with seconds). Date and time styles use the viewer's locale and
+time zone (Linux desktop currently uses English). Children are fallback text if the host cannot format the instant.
+
+```contract
+component Clock
+  view
+    column
+      time datetime=1792209600000 format="relative"
+        text "Departure"
+      time datetime=1792209600000 format="countdown"
+      progress start=1792209000000 end=1792209600000 aria-label="Trip"
+```
+
+Relative time changes at minute boundaries, timers and countdowns each second.
+A timer counts elapsed or remaining time on either side of its instant; a
+countdown stops at zero. The runner drives them without an app task, including
+under the agent's `clock +60000`. A standalone live `time` reserves its box
+at its font: two localized units for relative time, one extra hour digit
+for a timer, and the first displayed shape for a countdown. Apple timers use
+SwiftUI’s first field (`0:05`, `1:00:00`). A live `time` inside a `text` with other runs reflows as on the web;
+make it its own text node when its width must stay fixed. Changing numeric
+text uses tabular digits by default.
+
+`progress start=… end=…` advances from zero to one over the interval and
+clamps outside it. Supply both instants with `end` after `start`, without
+`value` or `max`. The existing forms remain: `progress value=0.4 max=1` is
+a determinate bar, and `progress` is the platform activity indicator. A
+progress control takes no children; `aria-label` names it.

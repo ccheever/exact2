@@ -36,7 +36,7 @@ pub enum Column {
     /// The web's first look (LLP 1116 D1): what a process reads until its
     /// host says otherwise.
     Web,
-    /// iOS's (and tvOS's and visionOS's, which draw as it does).
+    /// iOS's (and tvOS's, visionOS's and watchOS's, which draw as it does).
     Ios,
     /// The Mac's.
     Mac,

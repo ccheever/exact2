@@ -5,6 +5,7 @@
 // runner's `reorder.rs`). Identities, the token and the collection's exact
 // geometry are checked before any value; no item key crosses from the page:
 // the collection certifies the gap and names the keys the action receives.
+import { inertAncestor } from './navigation.js';
 import { arrangeController } from './motion-glue.js';
 import { groupController } from './group-glue.js';
 import { install } from './reorder.js';
@@ -157,7 +158,7 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
     const dispatched = certified ? L().drop(active.token, geometryOf(f)) : (L().cancel(active.token), false);
     return reply(certified, !!dispatched, [...extra, ...lower()]);
   }
-  const controller = arrangeController({ views, collections: new Proxy({}, { get: (_, k) => L()?.controller()?.[k] }), motion: api, request, applyBatch, now, generation: () => 0, inert: el => !!el.closest('[inert]'),
+  const controller = arrangeController({ views, collections: new Proxy({}, { get: (_, k) => L()?.controller()?.[k] }), motion: api, request, applyBatch, now, generation: () => 0, inert: inertAncestor,
     grouped: groupController, root: document.getElementById('exact-root'), viewOf: viewId,
     log: line => globalThis.exact?.journal?.push(`t=${globalThis.exact.clock?.now ?? 0} ${line}`) });
   // A grip's group, and whether the keys may drive it (LLP 1094 D9: no `press`, `key`, `pan` or `pointerdown` of its own).

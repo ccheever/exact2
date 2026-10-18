@@ -1,27 +1,39 @@
 //! A resource's two-way socket in a TypeScript module, through the runner
 //! (LLP 1016.000 D7): the mapper's handle and its replies, a mutation's
-//! staged frames, and what refuses them.
+//! staged frames, a resource's answer's sends, and what refuses them.
 
 #![cfg(exact_js_engine)]
 
 use exact_js::Module;
 use exact_kernel::Kernel;
 use exact_plan::Value;
-use exact_runner::{Message, Outcome, Runner, SocketOp, SocketOrigin};
+use exact_runner::{
+    Dispatch, Message, Outcome, RequestOut, Response, Runner, SocketOp, SocketOrigin,
+};
 
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/socket.hbc"));
 
 const SRC: &str = r#"
 component App
   state id = "a"
+  state q = ""
   resource feed = feed(id) as shape string
   resource side = feed("side") as shape string
+  resource reply = ask(id, q) as shape string
+  resource deliver = deliver(side) as shape string
   mutation said as shape string
   mutation watched as shape string
   action say(what: string)
     send said = say(id, what)
+  action ask(what: string)
+    q = what
+  action askAndSay(what: string)
+    q = what
+    send said = say(id, what)
   action watch
     send watched = feed("m")
+  action listen
+    send watched = feed("quiet")
   action switch
     id = "b"
   view
@@ -113,6 +125,53 @@ fn journal(r: &Runner<Module>) -> String {
     r.journal().collect::<Vec<_>>().join("\n")
 }
 
+/// Where a handle refuses an operation outside a turn that may send.
+const ONLY: &str = "socket.send is only available in a mutation's synchronous source, its socket's own mapper or an answer in flight";
+
+/// A batch an answer's turn sent: the answer it is named for, and its text frames.
+fn answer(name: &str, frames: &[&str]) -> (SocketOrigin, Vec<SocketOp>) {
+    let ops = frames
+        .iter()
+        .map(|t| SocketOp::Text(t.to_string()))
+        .collect();
+    (SocketOrigin::Answer(name.into()), ops)
+}
+
+/// Ask `reply` with `q`: the requests that commit handed out.
+fn ask(r: &mut Runner<Module>, q: &str) -> Vec<RequestOut> {
+    r.act("ask", vec![Value::str(q)]).unwrap();
+    r.take_requests()
+}
+
+fn reply(r: &Runner<Module>) -> String {
+    r.resource("reply")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+/// `reply`'s answer waits on the module; the reply frame on `side` wakes
+/// it, and it is asked again.
+fn settle_waiting(r: &mut Runner<Module>, waiting: &RequestOut, side: u64, frame_data: &str) {
+    let token = waiting.request.continuation.expect("a waiting answer");
+    assert!(matches!(r.dispatch_work(token), Dispatch::Held));
+    frame(r, side, frame_data);
+    let (woken, Dispatch::Again) = r.release_work().into_iter().next().expect("woken") else {
+        panic!("a waiting answer is asked again");
+    };
+    assert_eq!(woken, token);
+    r.fulfill(waiting.ticket, Dispatch::again_outcome())
+        .unwrap();
+}
+
+fn ok() -> Outcome {
+    Outcome::Response(Response {
+        status: 200,
+        headers: Vec::new(),
+        body: b"ok".to_vec(),
+    })
+}
+
 #[test]
 fn the_mapper_gets_the_handle_and_a_mutation_sends_text_and_bytes_in_order() {
     let (mut r, ticket) = boot();
@@ -149,10 +208,7 @@ fn the_mapper_gets_the_handle_and_a_mutation_sends_text_and_bytes_in_order() {
         was_clean: true,
     };
     r.fulfill(ticket, closed).unwrap();
-    assert_eq!(
-        feed(&r),
-        "close 4001 finished true (socket.send is only available in a mutation's synchronous source or its socket's own mapper)"
-    );
+    assert_eq!(feed(&r), format!("close 4001 finished true ({ONLY})"));
     assert_eq!(
         say(&mut r, "late"),
         ("InvalidStateError: the socket is not open".into(), vec![])
@@ -208,11 +264,11 @@ fn the_mapper_replies_on_its_own_socket_during_open_and_each_message() {
 
 /// What a mapper call may not do sends nothing: a throw, a snapshot
 /// outside its shape, overload (which fails the snapshot even when the
-/// mapper catches it); another socket's handle, an async continuation and
-/// a fetch are refused; so is a resource's source. Each frame that fails
-/// ends the stream, so each case boots afresh.
+/// mapper catches it); another socket's handle and a fetch are refused,
+/// and a continuation is not the call's. Each frame that fails ends the
+/// stream, so each case boots afresh.
 #[test]
-fn what_a_mapper_may_not_do_sends_nothing() {
+fn what_a_mapper_may_not_do() {
     // Whether the call had staged frames before it failed: the journal
     // says they were refused.
     for (data, why, staged) in [
@@ -250,8 +306,6 @@ fn what_a_mapper_may_not_do_sends_nothing() {
     let (mut r, ticket, side) = boot_both();
     open(&mut r, ticket);
     open(&mut r, side);
-    const ONLY: &str =
-        "socket.send is only available in a mutation's synchronous source or its socket's own mapper";
     assert_eq!(
         frame(&mut r, ticket, "mapper other"),
         format!("message mapper other 1 ({ONLY})")
@@ -263,17 +317,21 @@ fn what_a_mapper_may_not_do_sends_nothing() {
         r.take_requests().is_empty(),
         "the mapper's fetch never goes out"
     );
-    // A resource's source asked again cannot send on the handles kept.
+    // The continuation runs in the next turn, `feed`'s ask for "b", and
+    // sends as that answer on the old socket, which this commit releases:
+    // a host refuses the batch at publication.
     r.act("switch", vec![]).unwrap();
     let newer = r.take_requests()[0].ticket;
+    let batches = r.take_socket_sends();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].origin, SocketOrigin::Answer("feed".into()));
+    let never = (ticket, "feed".to_string(), SocketOp::Text("never".into()));
+    assert_eq!(batches[0].ops, [never]);
+    assert!(!r.holds(ticket));
     open(&mut r, newer);
-    // The continuation's, the fetch's, and the resource's two, in the
-    // order the engine ran them.
     let report = frame(&mut r, newer, "report");
-    let mut refusals: Vec<_> = report["message report 1 ".len()..].split("; ").collect();
-    refusals.sort();
     let fetch = "fetch() is unavailable in a socket's mapper: it answers each frame now";
-    assert_eq!(refusals, [fetch, ONLY, ONLY, ONLY], "{report}");
+    assert_eq!(report, format!("message report 1 {fetch}"));
     assert!(sends(&mut r).is_empty());
 }
 
@@ -300,19 +358,9 @@ fn what_the_handle_refuses_sends_nothing_it_refused() {
     let (said, ops) = say(&mut r, "too big");
     assert_eq!(said, "QuotaExceededError: socket mutation exceeds 1 MiB");
     assert!(ops.is_empty());
-    for what in ["throws", "async", "later"] {
-        assert_eq!(say(&mut r, what).1, vec![], "{what}");
-    }
+    assert_eq!(say(&mut r, "throws").1, vec![]);
     let journal = journal(&r);
     assert!(journal.contains("the source threw"), "{journal}");
-    assert!(
-        journal.contains("a socket mutation must answer synchronously"),
-        "{journal}"
-    );
-    assert!(
-        journal.contains("socket.send is only available in a mutation's synchronous source"),
-        "{journal}"
-    );
 }
 
 /// `bufferedAmount` is the transport's count as the turn began plus what
@@ -357,27 +405,24 @@ fn buffered_amount_is_the_turn_s_snapshot_plus_what_it_stages() {
 fn a_mutation_cannot_both_send_and_fetch() {
     let (mut r, ticket) = boot();
     open(&mut r, ticket);
+    // A source that answers with a promise is held to it too, and its
+    // continuation's fetch is refused with it.
     for what in [
         "send then fetch",
         "fetch then send",
         "send then fetch later",
+        "send, fetch, await",
     ] {
         let (said, ops) = say(&mut r, what);
         assert_eq!((said.as_str(), ops), ("", vec![]), "{what}");
         assert!(r.take_requests().is_empty(), "{what}: no fetch goes out");
     }
-    // A refused mutation's continuation fetches nothing either.
-    assert_eq!(say(&mut r, "send, await, fetch"), (String::new(), vec![]));
-    assert!(
-        r.take_requests().is_empty(),
-        "the continuation's fetch never goes out"
-    );
     let journal = journal(&r);
     assert_eq!(
         journal
             .matches("send said failed: a mutation cannot both send on a socket and fetch")
             .count(),
-        3,
+        4,
         "{journal}"
     );
     assert_eq!(say(&mut r, "x").1.len(), 2, "the module goes on");
@@ -428,4 +473,186 @@ fn a_mutation_s_stream_takes_no_mapper_replies() {
         ),
         "{journal}"
     );
+}
+
+/// A resource's answer sends its request in its source's call and awaits
+/// the reply; the code after an await runs in the turn that settled it and
+/// sends as that turn's answer: `deliver`'s, which ran the mapper's queue,
+/// or its own fetch's delivery. What it sent stands though it then throws.
+#[test]
+fn an_answer_sends_its_request_and_awaits_the_reply() {
+    let (mut r, ticket, side) = boot_both();
+    open(&mut r, ticket);
+    open(&mut r, side);
+    let waiting = ask(&mut r, "sync 1");
+    assert_eq!(waiting.len(), 1, "it waits on the module's open streams");
+    assert_eq!(sends(&mut r), [answer("reply", &["request 1"])]);
+    settle_waiting(&mut r, &waiting[0], side, "reply 1 hi");
+    assert_eq!(reply(&r), "got hi");
+    assert!(sends(&mut r).is_empty());
+
+    let waiting = ask(&mut r, "chain 2");
+    assert_eq!(sends(&mut r), [answer("reply", &["request 2"])]);
+    settle_waiting(&mut r, &waiting[0], side, "reply 2 there");
+    assert_eq!(reply(&r), "chained there");
+    assert_eq!(sends(&mut r), [answer("deliver", &["thanks 2"])]);
+
+    let asked = ask(&mut r, "fetch 3");
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].request.url, "https://echo.test/x");
+    assert_eq!(sends(&mut r), [answer("reply", &["request 3"])]);
+    r.fulfill(asked[0].ticket, ok()).unwrap();
+    assert_eq!(reply(&r), "fetched");
+    assert_eq!(sends(&mut r), [answer("reply", &["after fetch 3"])]);
+
+    ask(&mut r, "throws");
+    assert_eq!(sends(&mut r), [answer("reply", &["request throws"])]);
+    assert!(journal(&r).contains("the answer threw"));
+}
+
+/// An answer the runner lets go has no more turns: what it sent stays sent,
+/// and the continuation its rejected fetch runs as it is let go runs in no
+/// answer's turn, so its send refuses.
+#[test]
+fn an_answer_let_go_sends_nothing_more() {
+    let (mut r, ticket) = boot();
+    open(&mut r, ticket);
+    let asked = ask(&mut r, "abandon 1");
+    assert_eq!(asked[0].request.url, "https://echo.test/slow");
+    assert_eq!(sends(&mut r), [answer("reply", &["request 1"])]);
+    assert!(ask(&mut r, "").is_empty());
+    assert!(!r.holds(asked[0].ticket), "new arguments let it go");
+    assert!(sends(&mut r).is_empty(), "its cancel never goes out");
+    assert_eq!(
+        frame(&mut r, ticket, "report"),
+        format!("message report 1 {ONLY}")
+    );
+}
+
+/// D7's bounds hold per answer, over all its turns; past them, after its own
+/// close, or on a socket no resource owns, `send` throws, what went before
+/// stands, and the answer is not failed.
+#[test]
+fn what_an_answer_may_not_send() {
+    let (mut r, ticket) = boot();
+    open(&mut r, ticket);
+    ask(&mut r, "many 1");
+    assert_eq!(
+        reply(&r),
+        "QuotaExceededError: socket answer exceeds 256 operations"
+    );
+    let batches = sends(&mut r);
+    assert_eq!((batches.len(), batches[0].1.len()), (1, 256));
+    let asked = ask(&mut r, "split 1");
+    assert_eq!(sends(&mut r)[0].1.len(), 200);
+    r.fulfill(asked[0].ticket, ok()).unwrap();
+    assert_eq!(
+        reply(&r),
+        "QuotaExceededError: socket answer exceeds 256 operations"
+    );
+    assert_eq!(
+        sends(&mut r)[0].1.len(),
+        56,
+        "its second turn sends what is left of 256"
+    );
+    ask(&mut r, "huge 1");
+    assert_eq!(reply(&r), "QuotaExceededError: socket answer exceeds 1 MiB");
+    assert!(sends(&mut r).is_empty());
+    ask(&mut r, "close 1");
+    assert_eq!(reply(&r), "InvalidStateError: the socket is not open");
+    let close = SocketOp::Close {
+        code: 4001,
+        reason: "done".into(),
+    };
+    assert_eq!(
+        sends(&mut r),
+        [(SocketOrigin::Answer("reply".into()), vec![close])]
+    );
+    // A mutation's stream.
+    r.act("listen", vec![]).unwrap();
+    let quiet = r.take_requests()[0].ticket;
+    open(&mut r, quiet);
+    ask(&mut r, "quiet 1");
+    assert_eq!(reply(&r), "InvalidStateError: the socket is not open");
+    assert!(sends(&mut r).is_empty());
+}
+
+/// An answer's `bufferedAmount` is the transport's bytes as its turn began,
+/// the batches of earlier turns the host has not taken (a mutation's in
+/// the same commit), and what the turn has sent.
+#[test]
+fn an_answer_s_buffered_amount_counts_what_is_not_yet_sent() {
+    let (mut r, ticket) = boot();
+    open(&mut r, ticket);
+    ask(&mut r, "probe 1");
+    assert_eq!(reply(&r), "0:3");
+    sends(&mut r);
+    // `say(id, "probe 2")` stages "probe 2" and "probe 2 again", 20 bytes.
+    r.act("askAndSay", vec![Value::str("probe 2")]).unwrap();
+    assert_eq!(reply(&r), "20:23");
+    sends(&mut r);
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    let transport = std::sync::Arc::new(AtomicU64::new(900_000));
+    let reads = transport.clone();
+    r.set_socket_reader(std::sync::Arc::new(move |t| {
+        (t == ticket).then(|| reads.load(Relaxed))
+    }));
+    ask(&mut r, "big 3");
+    assert_eq!(reply(&r), "QuotaExceededError: socket buffer exceeds 1 MiB");
+    assert!(sends(&mut r).is_empty());
+    transport.store(0, Relaxed);
+    ask(&mut r, "big 4");
+    assert_eq!(reply(&r), "sent");
+    assert_eq!(sends(&mut r)[0].1, [SocketOp::Text("x".repeat(200_000))]);
+}
+
+/// A mutation whose source answered with a promise is an answer in flight
+/// from its source on: what its source staged and what its continuation
+/// sends go out as that answer's, named by the mutation, and it may fetch
+/// too. One whose source answered now has given its answer, so a
+/// continuation it left behind refuses.
+#[test]
+fn a_waiting_mutation_sends_as_an_answer() {
+    let (mut r, ticket) = boot();
+    open(&mut r, ticket);
+    r.act("say", vec![Value::str("later")]).unwrap();
+    assert_eq!(sends(&mut r), [answer("said", &["after"])]);
+    assert_eq!(r.slot("said"), Some(&Value::some(Value::str("sent"))));
+    r.act("say", vec![Value::str("async")]).unwrap();
+    assert_eq!(sends(&mut r), [answer("said", &["early"])]);
+    assert_eq!(r.slot("said"), Some(&Value::some(Value::str("later"))));
+    r.act("say", vec![Value::str("send, await, fetch")])
+        .unwrap();
+    assert_eq!(sends(&mut r), [answer("said", &["a"])]);
+    let fetched = r.take_requests();
+    assert_eq!(fetched.len(), 1);
+    assert_eq!(fetched[0].request.url, "https://echo.test/x");
+    assert_eq!(say(&mut r, "then send"), ("now".into(), vec![]));
+    assert_eq!(
+        frame(&mut r, ticket, "report"),
+        format!("message report 1 {ONLY}")
+    );
+}
+
+/// A promise the mapper settles resumes the code that awaited it in the
+/// next turn the module runs. Here no answer is asked before the waiting
+/// answer's re-ask, which runs with no answer current, so the send after the
+/// await refuses. A let-go answer whose reply another answer's turn settles
+/// resumes in that turn and sends as that answer.
+#[test]
+fn where_an_answer_s_continuation_runs() {
+    let (mut r, ticket, side) = boot_both();
+    open(&mut r, ticket);
+    open(&mut r, side);
+    let waiting = ask(&mut r, "chain 5");
+    assert_eq!(sends(&mut r), [answer("reply", &["request 5"])]);
+    settle_waiting(&mut r, &waiting[0], ticket, "direct 5 hi");
+    assert_eq!(reply(&r), format!("Error: {ONLY}"));
+    assert!(sends(&mut r).is_empty());
+
+    ask(&mut r, "chain 6");
+    assert_eq!(sends(&mut r), [answer("reply", &["request 6"])]);
+    assert!(ask(&mut r, "").is_empty(), "new arguments let it go");
+    frame(&mut r, side, "reply 6 late");
+    assert_eq!(sends(&mut r), [answer("deliver", &["thanks 6"])]);
 }

@@ -224,6 +224,14 @@ impl SourceMap {
                 quote(&mut out, row.name());
                 out.extend_from_slice(b",\"origin\":");
                 quote(&mut out, &origin.label());
+                // A state part's row: its state and where it is written (LLP 1121 D8).
+                if let contract_lower::Origin::State { state, span, .. } = origin {
+                    out.extend_from_slice(b",\"state\":");
+                    quote(&mut out, state);
+                    out.extend_from_slice(b",\"at\":{");
+                    self.at(&mut out, *span);
+                    out.push(b'}');
+                }
                 out.push(b'}');
             }
             out.extend_from_slice(b"]}");

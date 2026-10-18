@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "digest": "75c9a2405f6f0c70",
+  "name": "components",
+  "tuples": 1,
+  "axes": [],
+  "dials": [],
+  "tokens": [
+    {"name": "accent.fill", "kind": "color", "role": null, "values": ["#1083feff"], "entries": null, "dials": [], "fallback": ["#1083feff", "#1083feff"]}
+  ],
+  "exports": null
+}

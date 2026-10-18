@@ -189,32 +189,6 @@ impl Ty {
     }
 }
 
-/// Whether a roster parameter admits `t`. The roster table spells three
-/// parameters `any`; each is held to the values its runner entry reads, so a
-/// call that would fail at runtime (`length(5)`) is refused here instead.
-fn roster_accepts(f: Stdlib, spec: &str, t: &Ty) -> bool {
-    match (f, spec) {
-        (Stdlib::Length | Stdlib::IsEmpty, "any") => {
-            matches!(t, Ty::String | Ty::Enum(_) | Ty::List(_))
-        }
-        (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool),
-        (Stdlib::First | Stdlib::At, "any") => matches!(t, Ty::List(_)),
-        _ => t.matches_roster(spec),
-    }
-}
-
-/// A roster parameter as a refusal spells it.
-fn roster_spelling(f: Stdlib, spec: &str) -> &str {
-    match (f, spec) {
-        (Stdlib::Length | Stdlib::IsEmpty, "any") => "string | list",
-        (Stdlib::ToString, "any") => "number | string | bool",
-        (Stdlib::First | Stdlib::At, "any") => "list",
-        // The ISO 4217 codes `"currency"` takes (LLP 1116 D8), too many to spell here.
-        (Stdlib::FormatNumber, code) if code.starts_with("\"USD\"") => "\"USD\" | \"EUR\" | …",
-        _ => spec,
-    }
-}
-
 /// A typed rejection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeError {
@@ -319,6 +293,8 @@ pub struct Shapes {
     /// The sounds the app declares, by path (LLP 1096 D1): a literal
     /// `playSound` source names one.
     pub sounds: std::collections::BTreeSet<String>,
+    /// Where `x.length` reads a record's field (`lists::LengthReads`).
+    pub(crate) lengths: Arc<std::sync::Mutex<lists::LengthReads>>,
 }
 
 impl Shapes {
@@ -918,7 +894,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                             args.len(),
                             f.params().iter().enumerate().map(|(i, spec)| {
                                 let optional = if i >= f.min_arity() { "?" } else { "" };
-                                format!("{}{optional}", roster_spelling(f, spec))
+                                format!("{}{optional}", checks::roster_spelling(f, spec))
                             }),
                         ),
                         *span,
@@ -938,7 +914,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     }
                     let t = infer(arg, scope, shapes)?;
                     given.push(t.clone());
-                    if !roster_accepts(f, spec, &t) {
+                    if !checks::roster_accepts(f, spec, &t) {
                         // @ref LLP 1116.016 D5 — the web's `String.prototype.at`.
                         let text = if f == Stdlib::At && i == 0 && t.is_string() {
                             ": for text, `s.slice(i, i + 1)`, `\"\"` past the end"
@@ -950,7 +926,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                             format!(
                                 "{} expects `{}`, given `{t}`{text}",
                                 contract_syntax::idioms::argument(name, i),
-                                roster_spelling(f, spec)
+                                checks::roster_spelling(f, spec)
                             ),
                             arg.span(),
                         );
@@ -1089,7 +1065,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
         Expr::Arrow { span, .. } => {
             return err(
                 "type-arrow-position",
-                "an arrow function is only the argument of `map` or `filter`: `xs.map((item, index) => …)`",
+                "an arrow function is only the callback of `map`, `filter` or `sortBy`: `xs.map((item, index) => …)`, `sortBy(xs, item => key)`",
                 *span,
             )
         }

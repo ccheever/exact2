@@ -4,11 +4,11 @@ import { dirname, resolve } from 'node:path';
 import { webCompiler } from './module.mjs';
 import { createDocument } from './dom.js';
 
-async function renderedPages(source, check, files = {}) {
+async function renderedPages(source, check, files = {}, manifest = {}) {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/head-render-test-'));
   try {
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head Render Test', app: { id: 'test.heads', name: 'Head Render Test' }, host: { web: {} } }));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head Render Test', app: { id: 'test.heads', name: 'Head Render Test' }, host: { web: {} }, ...manifest }));
     writeFileSync(resolve(dir, 'app.contract'), source);
     for (const [name, text] of Object.entries(files)) {
       mkdirSync(dirname(resolve(dir, name)), { recursive: true });
@@ -26,6 +26,110 @@ async function renderedPages(source, check, files = {}) {
     }, html);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
+
+test('JavaScript-rendered strings use the document language with an English translation available', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+
+component Greeting
+  view
+    main
+      head title=t("hello")
+      text t("hello")
+`, (page, html) => {
+    expect(page('')[0]).toBe('Bonjour');
+    expect(html('')).toContain('<html lang="fr" dir="ltr">');
+    expect(html('')).toContain('>Bonjour<');
+  }, { 'strings/fr.json': '{"hello":"Bonjour"}', 'strings/en.json': '{"hello":"Hello"}' }, { lang: 'fr', strings: { base: 'fr' } });
+}, 30000);
+
+test('the render context reports UTC independently of the machine zone', async () => {
+  const dir = mkdtempSync(resolve(import.meta.dir, '../../target/place-render-test-'));
+  try {
+    mkdirSync(resolve(dir, '.gen'));
+    writeFileSync(resolve(dir, 'shell.html'), '<html><head><title>Place</title><meta name="viewport" content="width=device-width">\n</head><body><div id="exact-root"></div><script type="module" src="./app.js"></script></body></html>');
+    const entry = resolve(dir, 'probe.js');
+    writeFileSync(entry, `import { placeReporter } from ${JSON.stringify(resolve(import.meta.dir, '../web/navigation.js'))};
+globalThis.__start = () => ({ activate: 'eager' });
+globalThis.__render = () => {
+  const [language, zone] = placeReporter(new URLSearchParams())().split('\\0');
+  const explicit = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Tokyo' }).resolvedOptions().timeZone;
+  const inherited = new Intl.DateTimeFormat('en', Object.create({ hour: '2-digit', hourCycle: 'h23' })).resolvedOptions();
+  const caught = [Intl.NumberFormat, Intl.DateTimeFormat, Intl.Collator].map(C => {
+    try { new C('bad_locale'); } catch (error) { return error instanceof RangeError; }
+  });
+  const counts = [Intl.NumberFormat, Intl.DateTimeFormat, Intl.Collator].map(C => {
+    C.renderCount = (C.renderCount ?? 0) + 1;
+    C.prototype.renderCount = (C.prototype.renderCount ?? 0) + 1;
+    return C.renderCount + ':' + C.prototype.renderCount;
+  });
+  return { root: '', title: [language, zone, explicit, inherited.timeZone, inherited.hour, typeof Intl.DateTimeFormat.supportedLocalesOf].join('/'), description: caught.join(',') + '/' + counts.join(','), time: 0, answers: '[]', pending: [] };
+};`);
+    const bundle = await Bun.build({ entrypoints: [entry], target: 'browser', format: 'iife' });
+    expect(bundle.success).toBe(true);
+    writeFileSync(resolve(dir, '.gen/server.js'), await bundle.outputs[0].text());
+    const render = Bun.spawn([process.execPath, resolve(import.meta.dir, 'render.mjs'), dir, '/', '/'], {
+      env: { ...process.env, TZ: 'Pacific/Honolulu' }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, html, stderr] = await Promise.all([render.exited, new Response(render.stdout).text(), new Response(render.stderr).text()]);
+    expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
+    expect(html).toContain('<title>en-US/UTC/Asia/Tokyo/UTC/2-digit/function</title>');
+    expect(html).toContain('<html lang="en-US" dir="ltr">');
+    expect([...html.matchAll(/<meta name="description" content="([^"]*)">/g)].map(m => m[1]))
+      .toEqual(['true,true,true/1:1,1:1,1:1', 'true,true,true/1:1,1:1,1:1']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 30000);
+
+test('rendered TypeScript sources catch Intl errors in their own realm and keep prototypes local', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+  next "/next" render=build
+
+component IntlFacts
+  resource facts = facts() as shape string
+  view
+    main
+      head title=facts
+      text facts
+`, page => {
+    expect([page('')[0], page('next')[0]]).toEqual(['true,true,true/1', 'true,true,true/1']);
+  }, { 'app.ts': `import type { Answer } from './app.contract.d.ts';
+export const appId = 'test.heads', grants = '';
+export const answer: Answer = () => {
+  const caught = [() => new Intl.NumberFormat('bad_locale'), () => new Intl.DateTimeFormat('bad_locale'), () => new Intl.Collator('bad_locale')].map(make => {
+    try { make(); } catch (error) { return error instanceof RangeError; }
+    return false;
+  });
+  const count = Number(Reflect.get(Intl.NumberFormat.prototype, 'renderCount') ?? 0) + 1;
+  Reflect.set(Intl.NumberFormat.prototype, 'renderCount', count);
+  return caught.join(',') + '/' + count;
+};` });
+}, 30000);
+
+test('JavaScript-rendered page uses server facts without a reader’s device', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+
+shape Page
+  visibilityState: string
+  onLine: bool
+  canShare: bool
+  canShareFiles: bool
+  canSharePictures: bool
+  canOpenFiles: bool
+  hasFocus: bool
+  navigationType: string
+
+component PageFacts
+  resource page = exactPage() as shape Page
+  view
+    main
+      head title=\`\${page.visibilityState}/\${page.onLine}/\${page.canShare}/\${page.canShareFiles}/\${page.canSharePictures}/\${page.canOpenFiles}/\${page.hasFocus}/\${page.navigationType}\`
+      text "Page facts"
+`, page => {
+    expect(page('')[0]).toBe('visible/true/false/false/false/false/true/navigate');
+  });
+}, 30000);
 
 test('JavaScript-rendered viewport uses default media facts without a reader’s device', async () => {
   await renderedPages(`routes nav
