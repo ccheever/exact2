@@ -1,8 +1,6 @@
-//! A recursive-descent parser over the lexer's tokens.
-//!
-//! Every rejection carries a stable id (`syntax-…`), a message, and a span.
-//! A refused top-level declaration is skipped to the next line that starts
-//! in the first column, so one run reports each declaration's first error.
+//! Recursive-descent parser over lexer tokens. Rejections carry a stable `syntax-…` id, message and span.
+//! Refused declarations skip to the next first-column declaration,
+//! so one run reports each declaration's first error.
 
 use crate::ast::*;
 use crate::lexer::{escape, template_expr_end, LexError, Lexer, Token, TokenKind};
@@ -69,10 +67,8 @@ pub fn parse_source(src: &str, source_id: u32) -> Result<File, SyntaxError> {
     parse_source_all(src, source_id).map_err(|mut all| all.swap_remove(0))
 }
 
-/// Parse a file and report every refusal (at most [`MAX_REFUSALS`]): each
-/// line that does not lex, else each top-level declaration that does not
-/// parse — a refused declaration is skipped to the next line that starts in
-/// the first column, and parsing goes on from there.
+/// Report every refused lexer line or top-level declaration (at most [`MAX_REFUSALS`]).
+/// Parsing continues at the next first-column declaration after a refusal.
 pub fn parse_source_all(src: &str, source_id: u32) -> Result<File, Vec<SyntaxError>> {
     let (tokens, lexed) = Lexer::tokenize_recovering(
         src,
