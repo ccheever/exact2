@@ -492,7 +492,7 @@ fn beforeinput_cancels_paste_and_selectionchange_hears_a_caret_move() {
     .unwrap();
     assert!(error.is_none());
     let editor = id(&p, "editor");
-    p.press_field(editor);
+    p.press_field(editor, 10000., 10000.);
     p.field_key(editor, "ArrowLeft", 0.);
     p.run_commands(<()>::default);
     assert_eq!(text(&p, "result"), "abc:2:");
@@ -1123,7 +1123,7 @@ fn unmarked_and_stale_marks_compare_against_the_reported_caret() {
     );
     p.fields.remove(&editor);
     assert_eq!(p.field_selection(editor), FieldSelection::caret(5));
-    p.press_field(editor);
+    p.press_field(editor, 10000., 10000.);
     assert!(
         p.field_change_tasks.is_empty(),
         "pressing at the end did not move it"
@@ -1149,7 +1149,7 @@ fn unmarked_and_stale_marks_compare_against_the_reported_caret() {
 
     p.note_field(editor, "old value", FieldSelection::caret(0));
     assert_eq!(p.field_selection(editor), FieldSelection::caret(5));
-    p.press_field(editor);
+    p.press_field(editor, 10000., 10000.);
     assert!(
         p.field_change_tasks.is_empty(),
         "the stale mark was not the reported caret"

@@ -5,7 +5,9 @@
 //! without moving the focus; each `input` and `change` reports it, and the
 //! field's `select` fires as the person or a command makes one.
 use super::*;
+use crate::text::field::Cursor;
 use exact_runner::{ControlValue, FieldSelection, InputDetails, SelectionDirection};
+use unicode_segmentation::UnicodeSegmentation;
 
 /// A field's selection as this host keeps it, beside the value it indexes.
 #[derive(Debug, Clone)]
@@ -18,6 +20,8 @@ pub(crate) struct FieldMark {
     /// Set by `setSelectionRange` or `select()`: a command that sets that
     /// same selection again fires no `select`.
     by_command: bool,
+    upstream: bool,
+    preferred_x: Option<f32>,
 }
 
 /// A string's length in UTF-16 code units, the DOM's offsets' unit.
@@ -160,6 +164,55 @@ pub(super) fn moved(
     })
 }
 
+fn toward(s: FieldSelection, focus: u32, extend: bool) -> FieldSelection {
+    if !extend {
+        return FieldSelection::caret(focus);
+    }
+    let anchor = if s.direction == SelectionDirection::Backward {
+        s.end
+    } else {
+        s.start
+    };
+    FieldSelection {
+        start: anchor.min(focus),
+        end: anchor.max(focus),
+        direction: match focus.cmp(&anchor) {
+            std::cmp::Ordering::Less => SelectionDirection::Backward,
+            std::cmp::Ordering::Greater => SelectionDirection::Forward,
+            std::cmp::Ordering::Equal => SelectionDirection::None,
+        },
+    }
+}
+
+/// Linux word arrows skip whitespace, then cross one word or punctuation group.
+fn word_step(text: &str, at: u32, forward: bool) -> u32 {
+    let mut words: Vec<(usize, usize, bool)> = Vec::new();
+    for (start, part) in text.split_word_bound_indices() {
+        if part.chars().all(char::is_whitespace) {
+            continue;
+        }
+        let punctuation = part.unicode_words().next().is_none();
+        if let Some(last) = words
+            .last_mut()
+            .filter(|last| punctuation && last.2 && last.1 == start)
+        {
+            last.1 += part.len();
+        } else {
+            words.push((start, start + part.len(), punctuation));
+        }
+    }
+    let byte = byte_at(text, at);
+    let next = if forward {
+        words
+            .iter()
+            .find(|w| w.1 > byte)
+            .map_or(text.len(), |w| w.1)
+    } else {
+        words.iter().rev().find(|w| w.0 < byte).map_or(0, |w| w.0)
+    };
+    utf16_len(&text[..next])
+}
+
 impl<D: DataSource> Presenter<D> {
     /// What `id` shows: typed text kept against its bound value, else that
     /// value (LLP 1069.001 D4). A selection indexes this, not the prop a
@@ -257,6 +310,8 @@ impl<D: DataSource> Presenter<D> {
                 selection,
                 value: value.to_owned(),
                 by_command,
+                upstream: false,
+                preferred_x: None,
             },
         );
         self.dirty = true;
@@ -274,21 +329,96 @@ impl<D: DataSource> Presenter<D> {
             selection,
             value: value.to_owned(),
             by_command: false,
+            upstream: false,
+            preferred_x: None,
         };
         self.fields.insert(id, mark);
     }
 
-    /// A press puts the caret at a text field's end: this host finds no
-    /// character under the pointer, and typing there appends as before.
-    pub(crate) fn press_field(&mut self, id: ViewId) {
-        if self
+    pub(crate) fn field_cursor(&self, id: ViewId) -> Cursor {
+        let selection = self.field_selection(id);
+        Cursor {
+            offset: if selection.direction == SelectionDirection::Backward {
+                selection.start
+            } else {
+                selection.end
+            },
+            upstream: self
+                .fields
+                .get(&id)
+                .is_some_and(|m| m.value == self.field_value(id) && m.upstream),
+        }
+    }
+
+    /// A press indexes the same paragraph and placement that paint the value.
+    pub(crate) fn press_field(&mut self, id: ViewId, x: f32, y: f32) {
+        if !self
             .host
             .kernel()
             .node(id)
-            .is_some_and(|n| n.node_type == NodeType::TextInput)
+            .is_some_and(|n| n.node_type == NodeType::TextInput && !crate::fields::hosts(&n))
         {
+            return;
+        }
+        self.boxes();
+        let (x, y) = self
+            .boxes
+            .iter()
+            .find(|b| b.id == id)
+            .map_or((x, y), |b| b.field_point(x, y));
+        if let Some(cursor) = self.brush.field_text.get(&id).and_then(|f| f.hit(x, y)) {
             let value = self.field_value(id);
-            self.mark_field(id, &value, FieldSelection::at_end(&value), false);
+            self.mark_field(id, &value, FieldSelection::caret(cursor.offset), false);
+            if let Some(mark) = self.fields.get_mut(&id) {
+                mark.upstream = cursor.upstream;
+            }
+        }
+    }
+
+    fn move_field(
+        &mut self,
+        id: ViewId,
+        key: &str,
+        value: &str,
+        selection: FieldSelection,
+        textarea: bool,
+    ) {
+        let modifiers = self.modifiers();
+        let cursor = self.field_cursor(id);
+        let mut preferred_x = None;
+        let (to, upstream) = if modifiers.ctrl {
+            let at = word_step(value, cursor.offset, key == "ArrowRight");
+            (toward(selection, at, modifiers.shift), false)
+        } else if textarea && matches!(key, "ArrowUp" | "ArrowDown" | "Home" | "End") {
+            self.boxes();
+            let Some(field) = self.brush.field_text.get(&id) else {
+                return;
+            };
+            let to = if matches!(key, "ArrowUp" | "ArrowDown") {
+                let x = self
+                    .fields
+                    .get(&id)
+                    .and_then(|m| m.preferred_x)
+                    .unwrap_or_else(|| field.geometry.caret(cursor).0);
+                preferred_x = Some(x);
+                field.geometry.vertical(cursor, x, key == "ArrowDown")
+            } else {
+                field.geometry.edge(cursor, key == "End")
+            };
+            (toward(selection, to.offset, modifiers.shift), to.upstream)
+        } else {
+            let Some(to) = moved(value, selection, key, modifiers.shift, textarea) else {
+                return;
+            };
+            (to, false)
+        };
+        self.mark_field(id, value, to, false);
+        if let Some(mark) = self.fields.get_mut(&id) {
+            mark.upstream = upstream;
+            mark.preferred_x = preferred_x;
+        }
+        if modifiers.shift && to.start != to.end && to != selection {
+            self.field_select(id, value, to, self.host.now());
         }
     }
 
@@ -724,15 +854,13 @@ impl<D: DataSource> Presenter<D> {
                 }
                 return;
             }
-            "ArrowLeft" | "ArrowRight" | "Home" | "End" if !chord => {
-                let extend = self.modifiers().shift;
-                let Some(to) = moved(&value, selection, name, extend, textarea) else {
-                    return;
-                };
-                self.mark_field(id, &value, to, false);
-                if extend && to.start != to.end && to != selection {
-                    self.field_select(id, &value, to, now_ms);
-                }
+            "ArrowLeft" | "ArrowRight" | "Home" | "End" | "ArrowUp" | "ArrowDown"
+                if !chord
+                    || (self.modifiers().ctrl
+                        && !self.modifiers().meta
+                        && matches!(name, "ArrowLeft" | "ArrowRight")) =>
+            {
+                self.move_field(id, name, &value, selection, textarea);
                 return;
             }
             "Enter" => replace(&value, selection, "\n"),
@@ -809,3 +937,7 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "field_geometry_tests.rs"]
+mod field_geometry_tests;

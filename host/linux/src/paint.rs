@@ -470,6 +470,8 @@ pub struct Scene<'a> {
     pub focus: Option<ViewId>,
     /// The focused text field's selection (x2apps codeedit #2).
     pub selection: Option<exact_runner::FieldSelection>,
+    /// At a wrap, a click or visual-line End can choose the preceding line.
+    pub caret_upstream: bool,
     /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
     pub controls: &'a BTreeMap<ViewId, bool>,
     /// Values chosen in a date, range or select, or typed into a field, since
@@ -525,9 +527,9 @@ pub struct Painter {
     cpu_ms: Option<f64>,
     /// What a reorder lifts: a row in its list, or a ghost over everything.
     pub(crate) lift: Lift,
-    // One lease per actually accepted owner, not one global width per string.
-    // Retained while a subsequent backend frame fails.
+    // Accepted owners retain their paragraph leases while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    pub(crate) field_text: HashMap<ViewId, Rc<field::PaintedField>>,
     region_picture: Option<Rc<region::Picture>>,
     region_frame: Option<region::Published>,
     damage: damage::Retained,
@@ -566,6 +568,7 @@ pub struct Painter {
 #[cfg(any(target_os = "linux", target_os = "android", test))]
 pub(crate) struct Presentation {
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    fields: HashMap<ViewId, Rc<field::PaintedField>>,
     picture: Option<Rc<region::Picture>>,
     frame: Option<region::Published>,
 }
@@ -574,6 +577,7 @@ struct Walk<'a, 'b> {
     scene: &'b Scene<'a>,
     boxes: Vec<PaintedBox>,
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    fields: HashMap<ViewId, Rc<field::PaintedField>>,
     skip: Option<exact_kernel::NodeKey>,
     replay: Option<&'b region::Replay<'b>>,
     /// Each node's rank among its siblings (LLP 1083.000 §2.4), twice its
@@ -611,6 +615,7 @@ impl Painter {
     pub(crate) fn presentation(&self) -> Presentation {
         Presentation {
             text: self.accepted_text.clone(),
+            fields: self.field_text.clone(),
             picture: self.region_picture.clone(),
             frame: self.region_frame.as_ref().map(|f| region::Published {
                 incarnation: f.incarnation.clone(),
@@ -621,6 +626,7 @@ impl Painter {
     #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn replace_presentation(&mut self, mut state: Presentation) -> Presentation {
         std::mem::swap(&mut self.accepted_text, &mut state.text);
+        std::mem::swap(&mut self.field_text, &mut state.fields);
         std::mem::swap(&mut self.region_picture, &mut state.picture);
         std::mem::swap(&mut self.region_frame, &mut state.frame);
         state
@@ -659,6 +665,7 @@ impl Painter {
             feedback: (None, None),
             clipped: None,
             field_content: HashMap::new(),
+            field_text: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
             svg_layers: Vec::new(),
@@ -862,6 +869,7 @@ impl Painter {
             scene,
             boxes: Vec::with_capacity(self.boxes_hint),
             text: BTreeMap::new(),
+            fields: HashMap::new(),
             skip,
             replay,
             ranks: self.ranks.clone(),
@@ -892,6 +900,7 @@ impl Painter {
         self.labels.painted();
         if finished.is_ok() {
             self.accepted_text = walk.text;
+            self.field_text = walk.fields;
         } else {
             drop(walk.text);
         }

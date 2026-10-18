@@ -1388,6 +1388,7 @@ dependencies = [
  "skrifa",
  "swash",
  "tiny-skia",
+ "unicode-segmentation",
  "url",
  "vello",
  "wgpu 29.0.4",

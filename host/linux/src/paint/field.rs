@@ -9,6 +9,37 @@
 //! the clips around it, and keeps where that box is in the field's own
 //! (`Painter::field_content`), which the shell's field is placed by.
 use super::*;
+use crate::text::field::{line_left, Cursor, Geometry};
+
+pub(crate) struct PaintedField {
+    pub(crate) geometry: Geometry,
+    origin: (f32, f32),
+    pub(super) transform: Transform,
+}
+
+impl PaintedField {
+    pub(crate) fn hit(&self, x: f32, y: f32) -> Option<Cursor> {
+        let mut point = tiny_skia::Point::from_xy(x, y);
+        self.transform.invert()?.map_point(&mut point);
+        Some(
+            self.geometry
+                .hit(point.x - self.origin.0, point.y - self.origin.1),
+        )
+    }
+
+    pub(super) fn place(&self, r: Rect4) -> Rect4 {
+        (r.0 + self.origin.0, r.1 + self.origin.1, r.2, r.3)
+    }
+}
+
+impl PaintedBox {
+    /// A viewport point in the island where the field was painted. Its
+    /// affine transform is inverted by `PaintedField::hit` afterwards.
+    pub(crate) fn field_point(&self, x: f32, y: f32) -> (f32, f32) {
+        self.projective
+            .map_or((x, y), |(inv, ..)| crate::placement::map(&inv, x, y))
+    }
+}
 
 impl Painter {
     /// Paint `node`, a text field, in `rect`: `surface` is its box as
@@ -116,16 +147,6 @@ impl Painter {
         {
             ink = look::role("GrayText", self.dark);
         }
-        // The focused field's selection (x2apps codeedit #2).
-        let field = caret::FieldText {
-            node: node.id,
-            style: &computed,
-            value,
-            masked: node.props.str(PropId::Type) == Some("password"),
-            origin: (content.0, oy),
-            width: content.2,
-            multiline,
-        };
         // A single line is shaped unconstrained, so `text-align` places
         // it here; a textarea's paragraph is laid out at the field's
         // width and aligns its own lines.
@@ -133,11 +154,29 @@ impl Painter {
             + if multiline {
                 0.0
             } else {
-                caret::line_left(&computed, content.2, paragraph.width)
+                line_left(&computed, content.2, paragraph.width)
             };
+        let empty_x = line_left(&computed, content.2, 0.);
+        let field = PaintedField {
+            geometry: Geometry::new(
+                &paragraph,
+                value,
+                node.props.str(PropId::Type) == Some("password"),
+                if multiline { empty_x } else { 0. },
+            ),
+            origin: (
+                if value.is_empty() && !multiline {
+                    content.0 + empty_x
+                } else {
+                    ox
+                },
+                oy,
+            ),
+            transform: ts,
+        };
         let selection = walk.scene.selection.filter(|_| focused);
         if let Some(s) = selection {
-            self.field_highlight(&field, s, ts);
+            self.field_highlight(&field, s);
         }
         {
             let mut engine = self.text.borrow_mut();
@@ -160,12 +199,18 @@ impl Painter {
                     .resolve(self.dark),
             );
             let at_end = || exact_runner::FieldSelection::at_end(value);
-            self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
+            self.field_caret(
+                &field,
+                caret,
+                selection.unwrap_or_else(at_end),
+                walk.scene.caret_upstream,
+            );
             // LLP 1104 D6: `outline: none` (the row's one value) draws no ring.
             if ringed {
                 let accent = control::ring(node, self.dark);
                 self.field_ring(field_shape.as_ref().unwrap_or(outer), accent, ts);
             }
         }
+        walk.fields.insert(node.id, Rc::new(field));
     }
 }

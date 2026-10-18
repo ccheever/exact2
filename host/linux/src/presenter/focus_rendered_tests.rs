@@ -151,6 +151,7 @@ fn alert_focus_stops_at_the_presented_root_for_hidden_placements() {
         images: &p.images.bitmaps,
         focus: None,
         selection: None,
+        caret_upstream: false,
         pointer: None,
         controls: &p.controls,
         chosen: &p.chosen,
