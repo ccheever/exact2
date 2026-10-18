@@ -1129,6 +1129,7 @@ impl World {
             w.end_struct();
         }
         self.assets.write_identity(w);
+        self.write_tables(w);
         if !self.messages.borrow().is_empty() {
             w.field("messages");
             self.messages.borrow().write(w);
@@ -1158,7 +1159,9 @@ impl World {
             .expect("presentation generation exhausted");
         next.epoch.set(self.epoch.get().wrapping_add(1));
         // Delivery ownership is not saved state; transfer it only after validation.
+        let tables = next.assets.tables.clone();
         next.assets = std::mem::take(&mut self.assets);
+        next.assets.tables = tables;
         *self = next;
         Ok(())
     }
@@ -1213,6 +1216,7 @@ impl World {
                 "components" => 4,
                 "resources" => 8,
                 "assetIdentity" => 16,
+                "tableInputs" => 32,
                 _ => 0,
             };
             match field.as_str() {
@@ -1229,6 +1233,7 @@ impl World {
                     }
                 }
                 "assetIdentity" => self.assets.read_identity(r)?,
+                "tableInputs" => self.read_tables(r)?,
                 "rng" => self.rng().read(r)?,
                 "messages" => self.messages.borrow_mut().read(r)?,
                 "components" | "resources" => {
@@ -1294,6 +1299,7 @@ impl World {
             }
         }
         self.assets.require_identity(seen & 16 != 0)?;
+        self.validate_tables_restore(seen & 32 != 0)?;
         if seen & 15 != 15 {
             return Err(DataError::new("incomplete world save"));
         }

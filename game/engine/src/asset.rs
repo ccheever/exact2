@@ -13,7 +13,9 @@ pub(crate) mod level;
 mod map;
 mod sound;
 pub use level::{Level, LevelValue};
+pub(crate) mod table;
 pub use sound::{SoundAsset, SoundData, SOUND_BYTE_BUDGET, SOUND_RATES};
+pub use table::{validate_tables, Curve, Table, TableInput, TableValue, TABLE_ASSET};
 /// Renderer-neutral pose records and rig geometry.
 pub mod pose;
 
@@ -598,6 +600,7 @@ pub(crate) struct Assets {
     pub models: map::AssetMap<ModelAsset>,
     pub identities: std::collections::BTreeMap<String, u64>,
     pub levels: map::AssetMap<Arc<LevelValue>>,
+    pub tables: Option<Arc<table::TableStore>>,
     pub sounds: map::AssetMap<Arc<SoundAsset>>,
     pub states: map::AssetMap<AssetState>,
     pub declared: BTreeSet<String>,
@@ -634,6 +637,7 @@ impl std::ops::Deref for AssetStore {
             models: map::AssetMap::EMPTY,
             identities: std::collections::BTreeMap::new(),
             levels: map::AssetMap::EMPTY,
+            tables: None,
             sounds: map::AssetMap::EMPTY,
             states: map::AssetMap::EMPTY,
             declared: BTreeSet::new(),
@@ -859,6 +863,8 @@ pub enum Content {
     Texture(TextureData),
     /// JSON is typed by the game declaration when it crosses the barrier.
     Level(String),
+    /// A complete tuning transaction, validated by the game declaration.
+    Tables(String),
     /// Baked 16-bit PCM; decoded in primitive and model modules alike.
     Sound(SoundData),
 }
@@ -870,7 +876,13 @@ impl Content {
         if bytes.len() > 64 * 1024 * 1024 {
             return Err("exceeds 64 MiB".into());
         }
-        if name.ends_with(".level.json") {
+        if name == TABLE_ASSET {
+            Ok(Self::Tables(
+                std::str::from_utf8(bytes)
+                    .map_err(|e| e.to_string())?
+                    .into(),
+            ))
+        } else if name.ends_with(".level.json") {
             Ok(Self::Level(
                 std::str::from_utf8(bytes)
                     .map_err(|e| e.to_string())?
@@ -896,7 +908,9 @@ impl Content {
 /// Whether a module without model support still receives deliveries: a declared
 /// JSON level or declared `.sound` assets.
 pub fn delivers_without_models<G: crate::Game>() -> bool {
-    G::LEVEL.is_some() || G::ASSETS.iter().any(|name| name.ends_with(".sound"))
+    !G::TABLES.is_empty()
+        || G::LEVEL.is_some()
+        || G::ASSETS.iter().any(|name| name.ends_with(".sound"))
 }
 impl<G: crate::Game> crate::Sim<G> {
     /// Headless model decoder. Primitive surfaces never link this adapter.

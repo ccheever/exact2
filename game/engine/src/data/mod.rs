@@ -277,6 +277,10 @@ pub trait Writer {
 
 /// An object-safe cursor. End markers are consumed by `item` and `field`.
 pub trait Reader {
+    /// Complete tuning records require every non-transient named field.
+    fn complete(&self) -> bool {
+        false
+    }
     /// Account decoded allocations before reserving input-controlled storage.
     fn claim(&mut self, _bytes: usize) -> Result<(), DataError> {
         Ok(())

@@ -337,6 +337,12 @@ fn read_body(b: &Body, access: &[String]) -> String {
     {
         s += &format!("{a} = ::core::default::Default::default();");
     }
+    if named && b.fields.iter().any(|f| !f.skip) {
+        s += &format!(
+            "let mut seen = [false; {}];",
+            b.fields.iter().filter(|f| !f.skip).count()
+        );
+    }
     s += if named {
         "r.begin_struct()?; while let ::core::option::Option::Some(field) = r.field()? { match field.as_str() {"
     } else {
@@ -354,9 +360,10 @@ fn read_body(b: &Body, access: &[String]) -> String {
         } else {
             index.to_string()
         };
-        s += &format!(
-            "{key} => ::exact_game::Data::read(&mut {a}, r).map_err(|e| e.at({:?}))?,",
-            clean(&f.name)
+        s +=
+            &format!(
+            "{key} => {{ {} ::exact_game::Data::read(&mut {a}, r).map_err(|e| e.at({:?}))?; }},",
+            if named { format!("seen[{index}] = true;") } else { String::new() }, clean(&f.name)
         );
     }
     s += if named {
@@ -368,6 +375,11 @@ fn read_body(b: &Body, access: &[String]) -> String {
         s += "index += 1;";
     }
     s += "}";
+    if named {
+        for (index, f) in b.fields.iter().filter(|f| !f.skip).enumerate() {
+            s += &format!("if r.complete() && !seen[{index}] {{ return ::core::result::Result::Err(::exact_game::DataError::new(\"missing field\").at({:?})); }}", clean(&f.name));
+        }
+    }
     s
 }
 

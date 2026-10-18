@@ -66,6 +66,7 @@ impl<G: Game> Sim<G> {
                 );
             }
             self.world.assets = assets;
+            self.world.redecode_tables();
         }
         self.restore(&bytes)
             .unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID));

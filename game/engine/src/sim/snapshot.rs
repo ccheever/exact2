@@ -142,7 +142,9 @@ impl<G: Game> Sim<G> {
         input.restore_dynamic(s.input);
         let mut next =
             Self::from_world(bound, validated, input, s.queue.into()).map_err(DataError::new)?;
+        let tables = next.world.assets.tables.clone();
         next.world.assets = self.world.assets.clone();
+        next.world.assets.tables = tables;
         next.defer_assets = self.defer_assets;
         crate::scene::place_followers(&next.world);
         next.world.propagate();
