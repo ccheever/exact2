@@ -95,8 +95,45 @@ fn exact_compat() -> &'static str {
 }
 "#;
 
+/// The pair over an entry that declares `const PLAN` and `const COMPAT`
+/// itself, as `exact new` wrote it before the plan was linked: such an app
+/// builds as it did, its plan in the archive, until `bun exact.mjs update`
+/// drops the two (`names_its_plan`).
+const NAMED: &str = r#"#[allow(dead_code)]
+fn exact_plan() -> &'static [u8] {
+    PLAN
+}
+#[allow(dead_code)]
+fn exact_compat() -> &'static str {
+    COMPAT
+}
+"#;
+
+/// Whether the crate's `src/lib.rs` declares the plan and compatibility
+/// constants itself (see `NAMED`); watched, so `update` dropping them is
+/// noticed. Outside a build script, or in a crate with no `src/lib.rs`, no.
+fn names_its_plan() -> bool {
+    let Some(dir) = std::env::var_os("CARGO_MANIFEST_DIR") else {
+        return false;
+    };
+    let entry = Path::new(&dir).join("src/lib.rs");
+    let Ok(source) = std::fs::read_to_string(&entry) else {
+        return false;
+    };
+    println!("cargo:rerun-if-changed={}", entry.display());
+    let declares = |name: &str| {
+        source
+            .lines()
+            .any(|line| line.starts_with(&format!("const {name}:")))
+    };
+    declares("PLAN") && declares("COMPAT")
+}
+
 /// `build` over a bake made outside Cargo into `baked`, for OUT_DIR `out`.
 fn take_baked(baked: &Path, out: &Path) -> Result<(), String> {
+    if names_its_plan() {
+        return Err("src/lib.rs declares `const PLAN` and `const COMPAT`, which read a plan this build links instead: run `bun exact.mjs update`, which drops them".into());
+    }
     for name in COMPILED {
         let from = baked.join(name);
         println!("cargo:rerun-if-changed={}", from.display());
@@ -498,7 +535,8 @@ fn build_sources(
             replace_changed(&out.join("linked.rs"), linked.as_bytes())?;
             // `exact_plan()` and `exact_compat()`, for an entry that names
             // its host itself too; `take_baked` writes the linked pair.
-            replace_changed(&out.join("baked.rs"), EMBEDDED.as_bytes())?;
+            let pair = if names_its_plan() { NAMED } else { EMBEDDED };
+            replace_changed(&out.join("baked.rs"), pair.as_bytes())?;
             // `include!(concat!(env!("OUT_DIR"), "/host.rs"))` instantiates
             // the host this compatibility id names.
             let new = if updating {

@@ -31,8 +31,16 @@ export const bakeTool = { command: 'cargo', args: ['build', '-q', '--profile', '
 
 /** Whether `app`'s plan can be baked before Cargo: a TypeScript app with no
  * Rust data crate, whose bake runs no Rust of the app's (`build_mixed`). An
- * embedding archive carries its plan (`--embed`: no link of ours adds it). */
-export const linkable = (app) => existsSync(resolve(app.dir, 'app.ts')) && !existsSync(resolve(app.dir, 'data/Cargo.toml'));
+ * embedding archive carries its plan (`--embed`: no link of ours adds it).
+ * An entry that declares `const PLAN` and `const COMPAT` itself (an outside
+ * app from before) reads the plan from the archive, and builds as it did. */
+export function linkable(app) {
+  if (!existsSync(resolve(app.dir, 'app.ts')) || existsSync(resolve(app.dir, 'data/Cargo.toml'))) return false;
+  let entry = ''; try { entry = readFileSync(resolve(app.dir, 'apple/src/lib.rs'), 'utf8'); } catch { /* none */ }
+  if (!/^const PLAN:/m.test(entry) || !/^const COMPAT:/m.test(entry)) return true;
+  console.error(`host/apple: apple/src/lib.rs declares PLAN and COMPAT, so the plan is compiled into the archive and a Contract edit compiles it again; \`bun exact.mjs update\` drops them, and the link then carries the plan`);
+  return false;
+}
 
 /** Where an Apple build for `target` keeps the bake it links. */
 export const linkedBakeDir = (env, platform, target) => resolve(env.EXACT_BAKE_OUTPUT, `${platform}-${target}.baked`);
