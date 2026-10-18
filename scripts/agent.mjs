@@ -1414,10 +1414,10 @@ export async function main(argv, injected = {}) {
       // A target of several words is quoted inside the op: `tap "Sky off"`.
       const named = trimmed.match(/^(tap|tree|state|layout|perf)\s+"((?:[^"\\]|\\.)*)"(?:\s+([\s\S]*))?$/);
       const [op, ...args] = named ? [named[1], inputJSON(`"${named[2]}"`), ...(named[3] ? named[3].split(/\s+/) : [])] : trimmed.split(/\s+/);
-      let r;
+      let r, how;
       switch (op) {
         case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
-        case 'state': r = await stateOp(s, args); break;
+        case 'state': { const words = args.filter((a) => a !== '--full'); how = { full: words.length < args.length, name: words[0] }; r = await stateOp(s, words); break; } // over STATE_CAP, its sections' sizes unless --full
         case 'reload': if (args.length) throw new MalformedOperation('reload takes no arguments'); r = await reloadWeb(s); break;
         case 'logs': r = await s.logs(); break;
         case 'layout': r = await s.layout(...layoutArgs(args)); break;
@@ -1472,7 +1472,7 @@ export async function main(argv, injected = {}) {
         case 'check': r = await checkOp(s, args); break; // LLP 1116.003 D8: the presented screen, judged in text
         default: throw new MalformedOperation(`unknown op: ${op} (tree, layout, state, logs, check, screenshot, sample, tap, type, pick, reload, clock, resize, close, back, prefer, perf, fail fetch, pass fetch)`);
       }
-      return [op, r];
+      return [op, r, how];
   };
   // What the replies leave out, on stderr, which a --json reader's stdout never carries (agent-test.mjs `driveNotes`).
   const notes = driveNotes(s, { host, storage: flags.storage, origins: flags.url ? [] : loopbackOrigins(resolve(flags.webDist ?? defaultWebDist())) });
@@ -1480,7 +1480,7 @@ export async function main(argv, injected = {}) {
     for (const [k, line] of ops.entries()) {
       at = k + 1;
       const done = await step(line);
-      for (const [op, r] of [...(s.heldReads?.splice(0) ?? []), ...(done ? [done] : [])]) { console.log(flags.json ? JSON.stringify(r) : render(op, r)); await notes(op); }
+      for (const [op, r, how] of [...(s.heldReads?.splice(0) ?? []), ...(done ? [done] : [])]) { console.log(flags.json ? JSON.stringify(r) : render(op, r, how)); await notes(op); }
     }
     if (s.contact?.whole?.queue.some((q) => q.line)) throw new Error('the steps after tap <target> down run inside the touch at its tap up, and the drive ended before it');
     await notes('end');

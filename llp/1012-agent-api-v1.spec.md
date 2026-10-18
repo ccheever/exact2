@@ -614,13 +614,20 @@ logs     "(N earlier lines dropped by the journal ring)" when dropped > 0;
          exception, the app's message and the crashing thread's top eight frames;
          "(nothing new)" when there is nothing at all
 state    [epoch E · incarnation I · clock C ms], then one line per other section:
-         {name} {its JSON on one line}; an app's state without its empty sections
+         {name} {its JSON on one line}; an app's state without its empty sections.
+         Over 8 KB (`STATE_CAP`; `state … --full` lifts it), in its place:
+         state [{name}] is {size}, over the 8.0 KB printed whole [· the tags]
+         {section} {its JSON on one line}: slots, derives, then the smallest, up to 2 KB between them (`STATE_SHOWN`)
+         not shown: {section} {size} · … (largest first)
+         one section: "state {largest}" … | one key: "state {name}.{key}" | one item: "state {name}.0"; all of it: "state [{name}] --full", or --json
 tap      [ERROR {error} · ]tapped #{id} "{target}" [· at X,Y] · delivery D · epoch E
          [· incarnation I, when not 1] · clock C ms [· key=JSON for each other field but carrier and mode]
 type     the same, `typed`; a reply with an error or `delivery: unsupported` reads `tap`｜`type`, a contact's phase `tap {phase}`,
          a held request's answer `answered @{ticket} "{choice}"`; `at` shows for a phase and a drag only, and an
          input delivered whose answers did not land keeps its verb and adds `landing failed: …` (`landError`)
-others   the JSON on one line
+clock    clock C ms [· settled | NOT settled (reason)] [· epoch E] [· incarnation I] [· key=JSON …]
+screenshot  screenshot {path} · W×H [· epoch E] [· clock C ms] [· key=JSON …]; a comparison its text
+others   {op} [· epoch E] [· incarnation I, when not 1] [· clock C ms] [· key=JSON for each other field but carrier and mode]
 ```
 
 **What an agent pays to read (2026-10-08, revised 2026-10-09; measured while

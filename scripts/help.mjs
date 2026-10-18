@@ -150,7 +150,7 @@ No --storage, no storage; --reset-storage empties a native store, --keep-storage
 An app's server.ts runs for the drive, its database per --storage.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
-  state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done
+  state [<name>] [--full]  a state, resource or field, dotted: groceries.0.done; >8 KB: sizes
   tap <target> [contextmenu|hover|drag <dx> <dy>|…] · held: "tap <t> down" "screenshot <png>" "tap up"
   type <target> <text>|key <Name>   (a select, date or checkbox: its value)
   clock data|settle|+<ms> [real]    land in-flight work · end transitions
