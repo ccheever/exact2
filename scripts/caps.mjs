@@ -219,7 +219,9 @@ function harnesses(root, files) {
   if (!existsSync(resolve(root, 'Cargo.toml'))) return;
   const result = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   if (result.status !== 0) {
-    fail('tests:metadata', 'cargo metadata failed, so no test harness was checked.', result.stderr.trim().split('\n').slice(-3).join(' '));
+    // A cargo that never started (not on PATH) leaves an error and no stderr
+    fail('tests:metadata', 'cargo metadata failed, so no test harness was checked.',
+      result.error ? result.error.message : result.stderr.trim().split('\n').slice(-3).join(' '));
     return;
   }
   const metadata = JSON.parse(result.stdout);
