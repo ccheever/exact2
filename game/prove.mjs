@@ -87,7 +87,7 @@ const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') 
   record.legs[key] = {...record.legs[key], state:[0,3].includes(code) && summary ? 'complete' : 'failed', exitCode:code, verdict:summary?.status ?? 'FAIL', pins:summary?.pins, summaryPath:relative(root, summaryPath), summaryDigest:summary ? digest(readFileSync(summaryPath)) : null};
   writeJSON(resolve(root, 'legs.json'), record);
   if (args.includes('--report') && (!build || code !== 0) && summary) for (const hint of summary.facilities ?? []) console.log(`REPORT ${host} ${mode}: ${hint}`);
-  if (code !== 0) throw Object.assign(new Error(`${host} mode ${mode} ${build ? 'build' : index} failed: ${out}/run.log\n${log.slice(-2500)}`), {summary, webUnavailable:host === 'web' && webUnavailable(log)});
+  if (![0,3].includes(code)) throw Object.assign(new Error(`${host} mode ${mode} ${build ? 'build' : index} failed: ${out}/run.log\n${log.slice(-2500)}`), {summary, webUnavailable:host === 'web' && webUnavailable(log)});
   return summary;
 };
 if (repin) {
@@ -168,6 +168,6 @@ const status = failed ? 'FAIL' : rows.length && rows.every(row => row.status ===
 console.log(`PROOF ${status} ${name}`);
 if (status === 'UNVERIFIED') console.log(`No complete tick/save baseline was checked. Generate it with ${proofCommand(import.meta.path, local ? sourceApp : name, '--repin')}`);
 writeFileSync(resolve(root, 'summary.json'), JSON.stringify({status, rows}, null, 2)+'\n');
-process.exitCode = status === 'PASS' ? 0 : 1;
+process.exitCode = status === 'PASS' ? 0 : status === 'FAIL' ? 1 : 3;
 
 }

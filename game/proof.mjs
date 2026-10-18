@@ -457,6 +457,14 @@ export function proofStatus({failures, expected, pins, collecting = false, parti
     !Object.keys(expected[section] ?? {}).length || !equal(expected[section], pins[section]))) return 'UNVERIFIED';
   return 'PASS';
 }
+export function proofVerdict(options, args = []) {
+  const status = proofStatus({...options, partial:args.some(a => ['--build-only','--screenshot-only','--capture40'].includes(a))});
+  const reason = status === 'FAIL' ? 'assertions failed' : status === 'PASS' ? 'complete baseline checked'
+    : args.includes('--build-only') ? 'build only' : args.includes('--screenshot-only') || args.includes('--capture40') ? 'pixels only'
+    : options.collecting ? 'collecting baseline' : !Object.keys(options.expected.ticks ?? {}).length || !Object.keys(options.expected.saves ?? {}).length
+      ? 'no baseline yet (expected before the first prove)' : 'incomplete baseline observations';
+  return {status, reason, code:status === 'PASS' ? 0 : status === 'FAIL' ? 1 : 3};
+}
 // A report describes only recorded failures/stalls, never guesses from successful calls.
 export function facilityReport(replies) {
   const success = (r, method) => r.method === method && r.reply != null && !r.error && !r.reply.error;
@@ -640,12 +648,13 @@ export async function proof(meta, script) {
       });
       const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
       console.log(`PARANOID ${name} ${host} ${mode}: ${((performance.now()-started)/1000).toFixed(3)} s (including build)`);
-      return code;
+      return code === 3 ? 0 : code;
     }, async () => {
       const child = spawn(process.execPath, [fileURLToPath(meta.url), host, '--build-only'], {
         env:{...process.env, EXACT_GAME_PARANOID:'0'}, stdio:'inherit',
       });
-      return await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
+      const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
+      return code === 3 ? 0 : code;
     }, host);
     process.exit(failed ? 1 : 0);
   }
@@ -849,17 +858,16 @@ export async function proof(meta, script) {
       const name = basename(path), bytes = readFileSync(path);
       return {name, bytes:bytes.length, sha256:createHash('sha256').update(bytes).digest('hex')};
     });
-    const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg));
-    const status = proofStatus({failures, expected:previousPins, pins, collecting, partial});
+    const {status, reason} = proofVerdict({failures, expected:previousPins, pins, collecting}, process.argv);
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
     writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
-    say(`PROOF ${status} ${name} ${destination}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
+    say(`PROOF ${status} ${name} ${destination}: ${failures.length} failures; ${reason}; ${((performance.now()-started)/1000).toFixed(3)} s`);
     if (status === 'PASS' && host === 'linux') say(`Capture the PNG: ${proofCommand(fileURLToPath(meta.url), 'web')}`);
-    if (status === 'UNVERIFIED' && !collecting && !partial)
+    if (status === 'UNVERIFIED' && !collecting)
       say(`UNVERIFIED: no pins — run ${proofCommand(resolve(import.meta.dir, 'prove.mjs'), app)}`);
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');
   }
-  process.exit(failures.length || (!collecting && !process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg)) && proofStatus({failures, expected:previousPins, pins}) !== 'PASS') ? 1 : 0);
+  process.exit(proofVerdict({failures, expected:previousPins, pins, collecting}, process.argv).code);
 }

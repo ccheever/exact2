@@ -594,7 +594,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       if(process.env.R15_DRIFT==='1' && process.env.EXACT_GAME_PROOF_PROFILE==='release') row.pins.ticks[1]='0x'+'d'.repeat(16);
       writeFileSync(out+'/summary.json',JSON.stringify(row));
       if(host==='web' && process.env.R8B_PASS_WEB!=='1') console.error('web carrier unavailable: /missing/chrome: ENOENT; set CHROME');
-      process.exit(failed?1:0);
+      process.exit(failed?1:status==='UNVERIFIED'?3:0);
       }
     `);
     const run=async(args,extra={},current=false)=>{
@@ -635,7 +635,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     }
     for (const status of ['UNVERIFIED','PASS'].filter(selected)) {
       const completed=await run(['--hosts','linux','--report','--compare-saves'],{R8B_UNVERIFIED:status==='UNVERIFIED'?'1':'0'});
-      expect(completed.code).toBe(status === 'PASS' ? 0 : 1);
+      expect(completed.code).toBe(status === 'PASS' ? 0 : 3);
       expect(completed.text).toContain(`| identical | ${status} |`);
       expect(completed.text).toContain(`PROOF ${status} ${name}`);
       expect(JSON.parse(readFileSync(resolve(completed.root,'summary.json'),'utf8')).status).toBe(status);
@@ -655,7 +655,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       expect(mixed.calls.slice(0,2)).toEqual([{host:'linux',build:true,mode:'0'},{host:'web',build:true,mode:'0'}]);
       expect(mixed.calls.slice(2).map(call=>call.host).sort()).toEqual(['linux','web']);
       expect(mixed.calls.slice(2).every(call=>!call.build)).toBe(true);
-      expect(mixed.code).toBe(1);
+      expect(mixed.code).toBe(3);
       const summary=JSON.parse(readFileSync(resolve(mixed.root,'summary.json'),'utf8'));
       expect(summary.rows.map(row=>row.status)).toEqual(['PASS','UNVERIFIED']);
       expect(summary.status).toBe('UNVERIFIED');

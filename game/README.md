@@ -428,7 +428,12 @@ seek's length is not bounded by a host's answer window (Chrome's 15 s).
 
 `PASS` means the complete saved baseline was checked. Partial/build-only runs and
 baseline collection report `UNVERIFIED`; failed assertions report `FAIL`. A
-screenshot alone is not a verified simulation. `prove.mjs` prints its unique
+screenshot alone is not a verified simulation. Proof exits are **0 PASS**, **1 FAIL**
+and **3 UNVERIFIED**, including build-only, pixel-only and baseline-collection legs.
+Each verdict names its reason. `prove` accepts exit 3 from a collecting leg; it writes
+pins only after the complete matrix agrees. Callers that treated UNVERIFIED as exit 1,
+or build/collection runs as exit 0, must handle 3 explicitly. `diff` retains exit 2
+for a refused capture. `prove.mjs` prints its unique
 `ARTIFACTS` directory. Its `src/` copy supplies the game inputs and proof program;
 edits to the original game do not change a running proof. `legs.json` records each
 host/mode/profile result. Resume with `bun game/prove.mjs <game> --continue <run-directory>`;
