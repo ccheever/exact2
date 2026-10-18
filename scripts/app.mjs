@@ -235,7 +235,7 @@ function checkOutsideLock(workspace) {
     if (resolved.status !== 0) throw new Error(`cargo metadata in ${workspace}:\n${resolved.stderr}`);
     result = lockedMetadata(workspace);
   }
-  const fix = `\`cargo metadata --offline --format-version 1\` in ${workspace} re-resolves it offline, changing only what the manifests changed (without --offline when Cargo's cache lacks a crate, as after an offline \`exact new\`)`, stale = existsSync(lock) && (result.stderr ?? '').split('\n').find(line => /^error: .*(?:cannot update the lock file|needs to be updated).*--locked/.test(line));
+  const fix = `\`bun exact.mjs lock\` in the app re-resolves it, changing only what the manifests changed (or \`cargo metadata --offline --format-version 1\` in ${workspace})`, stale = existsSync(lock) && (result.stderr ?? '').split('\n').find(line => /^error: .*(?:cannot update the lock file|needs to be updated).*--locked/.test(line));
   if (result.status !== 0) throw new Error(stale ? `${workspace}/Cargo.lock does not match its Cargo.toml files (a workspace member, dependency or patch changed since it was resolved), and a build never changes the lock: ${fix}.\n${stale}` : `cargo metadata --locked --offline in ${workspace}:\n${result.stderr || result.error?.message}\nTo update the lock explicitly: ${fix}.`);
 }
 

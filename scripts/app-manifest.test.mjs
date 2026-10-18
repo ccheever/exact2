@@ -134,3 +134,21 @@ test('the manifest orientation locks the iPhone, and an unknown one is refused',
     assert.throws(() => readManifest(dir, 'o'), /is not one of/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('document handlers and TypeScript source mounts accept their manifest shapes and reject guessed ones', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-author-shapes-'));
+  const base = { name: 'Reader', app: { id: 'dev.exact.reader', name: 'Reader' } };
+  const read = extra => { writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...base, ...extra })); return readManifest(dir, 'reader'); };
+  const file_handlers = [{ action: '/', accept: { 'text/markdown': ['.md'] } }];
+  const sources = { backend: '../generated', snapback4: '../runtime' };
+  try {
+    const manifest = read({ file_handlers, typescript: { sources } });
+    assert.deepEqual(manifest.file_handlers, file_handlers);
+    assert.deepEqual(manifest.typescript.sources, sources);
+    assert.throws(() => read({ file_handlers: { 'text/markdown': ['.md'] } }), /file_handlers:.*array/);
+    assert.throws(() => read({ file_handlers: [{ action: '/', accept: ['text/markdown'] }] }), /file_handlers\[0\].accept:.*object/);
+    assert.throws(() => read({ typescript: { sources: ['../generated'] } }), /typescript.sources:.*object/);
+    assert.throws(() => read({ typescript: { sources: { backend: { path: '../generated' } } } }), /typescript.sources.backend:.*string/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

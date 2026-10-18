@@ -5,7 +5,7 @@ import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, read
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
 import { readDeviceStamp } from '../snapback4/web/device-build.mjs';
-import { cargoEnvironment, pathFrom, patchLines } from '../scripts/app.mjs';
+import { cargoEnvironment, lockedMetadata, pathFrom, patchLines } from '../scripts/app.mjs';
 
 /** Type names a game's generated type may not take: the engine's public items
  * (what `use exact_game::*` brings in) and the template's own. */
@@ -140,18 +140,28 @@ export function createApp(destination, options = {}) {
   }
   // The app stands; what wiring could not do (no server installed yet, a cold device build that failed) it says.
   const wired = wireSnapback(dir, { build: options.snapback.build ?? true, port, online: options.snapback.online ?? false });
-  const roster = seedRoster(dir);
-  return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app until generated operations are available; online wiring replaces it with one query and mutation. No guestbook was substituted.' : ''}\n${wired}${roster ? '\nseed.json: sample roster rows; review the persona, role and field values before testing. app.test.contract uses fresh "seed.json".' : ''}`;
+  try {
+    const roster = seedRoster(dir);
+    return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app until generated operations are available; online wiring replaces it with one query and mutation. No guestbook was substituted.' : ''}\n${wired}${roster ? '\nseed.json: sample roster rows; review the persona, role and field values before testing. app.test.contract uses fresh "seed.json".' : ''}`;
+  } catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
-const rosterRule = /^[ \t]+insert[ \t]*<-[ \t]*deny[ \t]*(?:--[^\n]*)?$/m;
+const rosterRule = body => {
+  const insert = /^[ \t]+insert[ \t]*<-[ \t]*([^\n]*)/m.exec(body);
+  return !insert || insert[1].replace(/--.*$/, '').trim() === 'deny';
+};
+const rosterTables = schema => [...schema.replace(/\r\n?/g, '\n').replace(/^[ \t]*--[^\n]*$/gm, '').concat('\n')
+  .matchAll(/^table[ \t]+(\w+):[ \t]*(?:--[^\n]*)?\n((?:[ \t]+[^\n]*\n|\n)*)/gm)]
+  .filter(m => rosterRule(m[2]));
 
 /** Development fixtures are examples: schema types cannot determine an app's intended privileges. */
 export function rosterSeeds(schema) {
   schema = schema.replace(/\r\n?/g, '\n').replace(/^[ \t]*--[^\n]*$/gm, '') + '\n';
   const persona = /^use personas\s+([\w-]+)/m.exec(schema)?.[1];
-  const tables = [...schema.matchAll(/^table[ \t]+(\w+):[ \t]*(?:--[^\n]*)?\n((?:[ \t]+[^\n]*\n|\n)*)/gm)]
-    .filter(m => rosterRule.test(m[2]));
+  const tables = rosterTables(schema);
   return tables.map(([, table, body]) => {
     let bits = BigInt(`0x${createHash('sha256').update(table).digest('hex').slice(0,32)}`), id = '';
     const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -176,7 +186,7 @@ export function rosterSeeds(schema) {
 
 function seedRoster(dir) {
   const schema = readFileSync(resolve(dir, '../snapback/schema.q'), 'utf8');
-  if (!rosterRule.test(schema.replace(/\r\n?/g, '\n'))) return false;
+  if (!rosterTables(schema).length) return false;
   const fixture = resolve(dir, '../seed.json');
   const rows = existsSync(fixture) ? JSON.parse(readFileSync(fixture, 'utf8')) : rosterSeeds(schema);
   if (!Array.isArray(rows) || rows.some(r => typeof r?.table !== 'string' || !r.row || Array.isArray(r.row) || typeof r.row !== 'object')) throw new Error('backend seed.json must be a list of {table,row}');
@@ -986,6 +996,8 @@ the only required reading (LLP 1115 D7). When a name is in question, \`bun exact
 vocab <name>\` answers it (no name: the card, which ${doc('card.md')} holds too). Run
 \`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
 app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
+\`bun exact.mjs update\` refreshes generated files and reports Cargo lock drift; \`bun exact.mjs lock\`
+resolves the app lock after a dependency or checkout change. Builds never change an existing lock.
 \`bun exact.mjs update --without linux\` stops shipping Linux.
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
 ${DIARY_LINE}
@@ -1348,8 +1360,9 @@ test "the app opens"
       crates.has(crate) ? `${crate}${head}${JSON.stringify(pathFrom(dirname(path), crates.get(crate)))}` : line);
     if (next !== text) { writeFileSync(path, next); changed.push(file); }
   }
-  resolveOffline(dir);
-  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${dropped ? `, ${dropped}, Cargo.lock` : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
+  const checked = lockedMetadata(dir);
+  const drift = checked.status !== 0 ? `\n${dir}/Cargo.lock: ${/cannot update the lock file|needs to be updated/.test(checked.stderr ?? '') ? 'does not match the app manifests; run `bun exact.mjs lock`' : `could not check lock: ${checked.stderr || checked.error?.message}`}` : '';
+  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${dropped ? `, ${dropped}, Cargo.lock` : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}${drift}`;
 }
 
 if (import.meta.main) {
