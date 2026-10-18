@@ -29,6 +29,10 @@
 //! stretch is checked down to one 1/64px layout unit.
 //! `Chrome 151 stretched ratio snapped` compares frames in layout units:
 //! these constraints differ within a unit, while kernel geometry stays f32.
+//! `Chrome 151 ratio minimum` uses that version and date for widths derived
+//! from definite heights in shrinking rows and an absolute block. Controls
+//! cover explicit minima, overflow, stretch, columns, wider content, height
+//! bounds, and padding and borders under both box-sizing modes.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),
