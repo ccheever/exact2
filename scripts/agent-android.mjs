@@ -23,6 +23,7 @@
 // EXACT_FONTS. The painter is the CPU one unless EXACT_PAINTER says
 // otherwise: the GPU painter needs a real GPU's Vulkan (an emulator's
 // SwiftShader crashes it).
+import { writeTamberNames } from './tamber-names.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { createConnection } from 'node:net';
@@ -34,7 +35,7 @@ import { guardFlags } from './help.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
-const API = 30;
+const API = 29;
 /** What a drive runs: the app's Linux host built for the phone, or with `--reader` (EXACT_ANDROID_READER) its APK. */
 export const androidBinary = (app, bin) => process.env.EXACT_ANDROID_READER ? readerApk(app)
   : resolve(app.target, ANDROID_TARGET, HOST_DEV, bin ?? app.crate('linux'));
@@ -135,10 +136,16 @@ const readerApk = (app) => resolve(READER, 'app/build', app.name, 'outputs/apk/r
  * launches the app under a driver and relays the agent protocol's lines between its stdio and the app (`relay`).
  * The package is the app's id with the suffix the APK was built with (ORG_GRADLE_PROJECT_idSuffix, as the build
  * reads it). The app boots its own baked plan with its own assets, at the phone's size, in the phone's fonts: a
- * drive's `--plan`, `--world`, `--size` and launch URL do not reach it, and all but the size are refused. */
+ * drive's `--plan`, `--world`, `--size` and launch URL do not reach it, and all but the size are refused. A dev
+ * loop's `--url` does: the reader polls it (LLP 1122 D4), through `adb reverse` when it is this Mac's loopback. */
 function readerDeploy(app, apk, env) {
-  for (const [name, flag] of [['EXACT_PLAN', '--plan'], ['EXACT_DEV_PLAN', 'a development plan'], ['EXACT_WORLD', '--world'], ['EXACT_LAUNCH_URL', 'a launch URL']])
+  for (const [name, flag] of [['EXACT_PLAN', '--plan'], ['EXACT_WORLD', '--world'], ['EXACT_LAUNCH_URL', 'a launch URL']])
     if (env[name]) throw new Error(`android --reader: ${flag} does not reach the reader, which boots the plan its APK bakes`);
+  // A dev loop's URL (`--url`, LLP 1122 D4): the reader polls it, as the Linux display does, through
+  // `adb reverse` when it is this Mac's loopback; a file path is no URL a phone reads.
+  const devUrl = env.EXACT_DEV_PLAN ? URL.parse(env.EXACT_DEV_PLAN) : null;
+  if (env.EXACT_DEV_PLAN && !['http:', 'https:'].includes(devUrl?.protocol)) throw new Error('android --reader: a development plan is a dev loop\'s http(s) URL (--url), not a file');
+  if (devUrl) env = { ...env, EXACT_DEV_PLAN: devUrl.href };
   const serial = androidDevice(env), tool = adb(env), id = app.id.replaceAll('-', '_') + (env.ORG_GRADLE_PROJECT_idSuffix ?? ''); // as the Gradle shell names the package
   const dir = `/data/local/tmp/exact/${id}`, shot = `${dir}/reader-shot-${process.pid}.png`;
   const run = (args, what) => {
@@ -147,9 +154,13 @@ function readerDeploy(app, apk, env) {
   };
   run(['install', '-r', apk], `install ${apk}`);
   run(['shell', `mkdir -p ${quote(dir)}`], 'prepare');
+  if (devUrl && ['127.0.0.1', 'localhost', '[::1]'].includes(devUrl.hostname)) {
+    const port = devUrl.port || (devUrl.protocol === 'https:' ? '443' : '80');
+    run(['reverse', `tcp:${port}`, `tcp:${port}`], `reverse tcp:${port}`);
+  }
   // What the app reads of the drive: EXACT_AGENT and every EXACT_AGENT_* (the store, the epoch, the locale, the
-  // seed, the fetch faults), which reach it as the reader's `x_<name>` launch extras.
-  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_')));
+  // seed, the fetch faults), and a dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
+  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || k === 'EXACT_DEV_PLAN'));
   return {
     serial, dir, shot,
     spawn: () => spawn(process.execPath, [import.meta.path, 'relay', serial, id, JSON.stringify(vars)], { env, stdio: ['pipe', 'pipe', 'pipe'] }),
@@ -182,7 +193,10 @@ async function relay([serial, id, vars]) {
   if (!port) throw new Error('adb forward gave no port');
   const logs = spawn(tool, ['-s', serial, 'logcat', '-v', 'raw', 'exact:V', 'AndroidRuntime:E', '*:S'], { stdio: ['ignore', 'pipe', 'ignore'] });
   logs.stdout.pipe(process.stderr);
-  const done = (code) => { logs.kill(); sh('forward', '--remove', `tcp:${port}`); sh('shell', 'am', 'force-stop', id); process.exit(code); };
+  // A dev loop's port the deploy reversed (`readerDeploy`) goes with the drive.
+  const dev = URL.parse(JSON.parse(vars).EXACT_DEV_PLAN ?? '');
+  const reversed = dev && ['127.0.0.1', 'localhost', '[::1]'].includes(dev.hostname) ? dev.port || (dev.protocol === 'https:' ? '443' : '80') : null;
+  const done = (code) => { logs.kill(); sh('forward', '--remove', `tcp:${port}`); if (reversed) sh('reverse', '--remove', `tcp:${reversed}`); sh('shell', 'am', 'force-stop', id); process.exit(code); };
   // The app opens its socket as its activity is made; the forward connects when it is there.
   let socket;
   for (let tries = 0; !socket; tries++) {
@@ -279,6 +293,8 @@ function buildApk(app, env, profile) {
   // A game's resolved manifest (with its `app` identity) is the one its shells were generated with.
   // A date or time control's picker is Compose Material 3's, linked only for a plan that has one (LLP 1115.001.000 D2).
   const compose = uses.includes('dates') ? ['-Pcompose=1'] : [];
+  // The token names its hatches read (LLP 1121 D12), beside them in the build.
+  if (existsSync(resolve(app.dir, 'modules/android'))) writeTamberNames(app, 'kotlin');
   const gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
   return gradle.status === 0 ? resolve(READER, 'app/build', app.name, 'outputs/apk/release/app-release.apk') : null;
 }

@@ -36,6 +36,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package override func selectAll(_ sender: Any?) { presenter?.selection.selectAll() }
 
     package let id: UInt32
+    /// Bumped whenever it moves to another superview or window: a captured
+    /// bubbled press (`PressNode`) does not survive one, even undone.
     var pressMoves: UInt64 = 0
     // Twice the kernel rank; transients never overwrite the authored answer.
     var rank: Int64 = 0
@@ -202,6 +204,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var loadGeneration = 0
     package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
     var press = PressFeedback() // LLP 1061: the feedback `pressed` drives
+    var pressPaint = PressPaint() // LLP 1061 D7: the author's pressed paint
     var presentedAlpha: CGFloat = 1, disabledShown = false // the opacity presented, and whether the disabled look halves it (PressLookMac.swift)
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
     var routeInert = false { didSet { presenter?.mouseChain.bubbledPress?.validate() } }
@@ -239,7 +242,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
     var pressable: Bool { handlers.contains("press") || defaultLink != nil || presenter?.invocation(of: self) != nil }
     /// Whether the focus here matches `:focus-visible`, so its ring shows (`FocusMac.swift`).
-    var focusVisible = false { didSet { if focusVisible != oldValue { noteFocusRingMaskChanged() } } }
+    var focusVisible = false { didSet { if focusVisible != oldValue { noteFocusRingMaskChanged(); lookState(focus: focusVisible) } } }
     /// A focused field whose ring Exact draws (LLP 1104 D6; `showFieldFocus`).
     var fieldFocused = false { didSet { if fieldFocused != oldValue { applyBoxLayer(); needsDisplay = true } } }
     /// A key down's default action at a focused node; its `key` handlers
@@ -1011,12 +1014,12 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if presenter?.views[id] === self { firstDraw() }
     }
 
-    /// Whether the style clips the children (`overflow: hidden`; a paragraph's
+    /// Whether the style clips the children (`overflow: hidden` or `clip`; a paragraph's
     /// any overflow but `visible`; line-clamp, LLP 1054 P3). Without a clip box
     /// it is `clipsToBounds` (`applyStyle`; a landing flight, `FlightsMac`).
     var overflowClips: Bool {
         let over = [style["overflow_x"]?.string ?? "visible", style["overflow_y"]?.string ?? "visible"]
-        return kind == "text" ? over.contains { $0 != "visible" } || number("line_clamp") > 0 : over.contains("hidden")
+        return kind == "text" ? over.contains { $0 != "visible" } || number("line_clamp") > 0 : over.contains { $0 == "hidden" || $0 == "clip" }
     }
 
     func applyStyle(_ s: NodeStyle) {
@@ -1236,6 +1239,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     package override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // A plain container's detachment moves no NodeView's superview.
+        pressMoves &+= 1
+        if window == nil { holdPresenter?.mouseChain.bubbledPress?.cancel(in: self) }
         if window != nil { retint() }
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
@@ -1395,7 +1401,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // menu opens.
         pointerPressed(event)
         let canvas = canvasInput?.pointer(event, phase: "down") == true
-        if inlineContextMenu(event) || dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event)) { return }
+        if inlineContextMenu(event) || dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event), click: event) { return }
         if !canvas, !bubbleContextMenu(event) { super.rightMouseDown(with: event) }
     }
     package override func scrollWheel(with event: NSEvent) {

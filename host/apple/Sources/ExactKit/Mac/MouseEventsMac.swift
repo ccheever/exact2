@@ -96,7 +96,7 @@ extension Presenter {
 
     /// `node`'s `contextmenu` and `contextPopover` at `point` in the source's
     /// window (the node's when omitted), with no button held.
-    func contextMenu(_ node: NodeView, at point: NSPoint, from source: NSView? = nil) -> Bool {
+    func contextMenu(_ node: NodeView, at point: NSPoint, from source: NSView? = nil, click: NSEvent? = nil) -> Bool {
         func converted(to window: NSWindow?) -> NSPoint {
             guard let from = source?.window ?? node.window, let window, from !== window else { return point }
             return window.convertPoint(fromScreen: from.convertPoint(toScreen: point))
@@ -107,7 +107,7 @@ extension Presenter {
                                    buttons: 0, pressure: 0, type: "mouse", id: 1,
                                    clientX: Double(client.x), clientY: Double(client.y))
         return node.dispatchContextMenu(at: node.convert(windowPoint, from: nil), sample: sample,
-                                        bubbled: source.map { $0 !== node } ?? false)
+                                        bubbled: source.map { $0 !== node } ?? false, click: click)
     }
 }
 
@@ -231,7 +231,7 @@ extension NodeView {
     /// The context action runs before the menu is read, for pointer and
     /// keyboard alike. A context action cannot leak its preventDefault to
     /// another input; keydown cancellation was handled before this default.
-    func dispatchContextMenu(at point: NSPoint, sample: PointerSample, bubbled: Bool = false) -> Bool {
+    func dispatchContextMenu(at point: NSPoint, sample: PointerSample, bubbled: Bool = false, click: NSEvent? = nil) -> Bool {
         guard let presenter, presenter.views[id] === self, !formDisabled, !(bubbled ? authoredInert : inert) else { return false }
         let action = handlers.contains("contextmenu"), menu = props["contextPopover"]?.isEmpty == false
         let outer = presenter.defaultPrevented
@@ -239,7 +239,7 @@ extension NodeView {
         defer { presenter.defaultPrevented = outer }
         if action { presenter.mouseEvent(id, 10, sample.line) }
         // In the browser this ancestor's popover opens behind the modal, inert.
-        if menu, !inert { presenter.menus.context(self, at: point) }
+        if menu, !inert { presenter.menus.context(self, at: point, click: click) }
         return action || menu
     }
 
@@ -251,7 +251,7 @@ extension NodeView {
         while let view = next {
             if let node = view as? NodeView,
                node.dispatchContextMenu(at: node.convert(Self.point(event, in: node.window), from: nil),
-                                        sample: node.pointerSample(event), bubbled: true) { return true }
+                                        sample: node.pointerSample(event), bubbled: true, click: event) { return true }
             next = presenter.eventParent(of: view)
         }
         return false
@@ -309,7 +309,7 @@ extension NodeView {
         guard let run = inlineContextTarget(at: point), let line = inlineRects(run).first else { return false }
         var sample = pointerSample(event)
         sample.x = Double(point.x - line.minX); sample.y = Double(point.y - line.minY)
-        return dispatchInlineContextMenu(run, at: convert(event.locationInWindow, from: nil), sample: sample)
+        return dispatchInlineContextMenu(run, at: convert(event.locationInWindow, from: nil), sample: sample, click: event)
     }
 
     /// A request from the keyboard at run `id` (VoiceOver's show menu, X84;
@@ -342,13 +342,13 @@ extension NodeView {
 
     /// `run`'s `contextmenu`, then its `contextPopover`'s menu at `point`
     /// (this view's space), as `dispatchContextMenu` sends a node's.
-    private func dispatchInlineContextMenu(_ run: InlineText, at point: NSPoint, sample: PointerSample) -> Bool {
+    private func dispatchInlineContextMenu(_ run: InlineText, at point: NSPoint, sample: PointerSample, click: NSEvent? = nil) -> Bool {
         guard let presenter, presenter.views[id] === self, inlineAnswersContextMenu(run.id) else { return false }
         let outer = presenter.defaultPrevented
         presenter.defaultPrevented = false
         defer { presenter.defaultPrevented = outer }
         if run.handlers.contains("contextmenu") { presenter.mouseEvent(run.id, 10, sample.line) }
-        if run.props["contextPopover"]?.isEmpty == false { presenter.menus.context(self, at: point, run: run.id) }
+        if run.props["contextPopover"]?.isEmpty == false { presenter.menus.context(self, at: point, run: run.id, click: click) }
         return true
     }
 

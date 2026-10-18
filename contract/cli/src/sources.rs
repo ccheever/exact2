@@ -44,6 +44,11 @@ impl Sources {
     /// first `(captured, original)` pair whose captured directory holds it
     /// (a bake's stage, and each package mirrored into the stage's
     /// `node_modules`, listed first; LLP 1091 D10).
+    /// Each source's path, by source id.
+    pub(crate) fn paths(&self) -> &[PathBuf] {
+        &self.paths
+    }
+
     pub(crate) fn relocate(&mut self, moves: &[(PathBuf, PathBuf)]) -> Result<(), String> {
         let moves = moves
             .iter()
@@ -141,19 +146,118 @@ pub(crate) fn load(
     if let Err(all) = loader.load_source(&root_key, src, 0) {
         return Err(resolve(&loader.sources, all));
     }
-    // The design, read before scoping: its motion tokens are written into
-    // the views first (`contract_lower::motion`).
+    // Each component's `param.` names, as their tokens (LLP 1121 D15),
+    // before anything reads a row.
+    let mut refused: Vec<CompileError> = Vec::new();
+    for unit in &mut loader.units {
+        refused.extend(
+            contract_lower::params::rewrite(&mut unit.file)
+                .into_iter()
+                .map(CompileError::from),
+        );
+        // Read by a row, before a motion param is written into it.
+        refused.extend(
+            contract_lower::params::unused(&unit.file)
+                .into_iter()
+                .map(CompileError::from),
+        );
+    }
+    let params: Vec<_> = loader
+        .units
+        .iter()
+        .flat_map(|u| contract_lower::params::tokens(&u.file))
+        .collect();
+    refused.extend(
+        contract_lower::params::collisions(&params)
+            .into_iter()
+            .map(CompileError::from),
+    );
+    if !refused.is_empty() {
+        return Err(resolve(&loader.sources, refused));
+    }
+    // The design, read before scoping: its motion tokens, and the params of
+    // those kinds, are written into the views first (`contract_lower::motion`).
     let design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
-    loader.motion = design
-        .as_ref()
-        .map(|d| contract_lower::motion::tokens(&d.text))
-        .unwrap_or_default();
+    // The design's components that aren't Contract, named and checked as
+    // Contract params are (D15).
+    if let Some(d) = &design {
+        let (designed, mut refused) = contract_lower::params::design_tokens(d);
+        let all: Vec<_> = params.iter().chain(&designed).cloned().collect();
+        refused.extend(contract_lower::params::collisions(&all));
+        if !refused.is_empty() {
+            return Err(resolve(
+                &loader.sources,
+                refused.into_iter().map(CompileError::from).collect(),
+            ));
+        }
+    }
+    let identities: Vec<String> = loader
+        .units
+        .iter()
+        .flat_map(|u| contract_lower::params::identities(&u.file))
+        .collect();
+    loader.motion = contract_lower::motion::tokens(
+        design.as_ref().map(|d| d.text.as_str()),
+        &params,
+        &identities,
+    );
     match loader.scope() {
         Ok(mut file) => {
             file.design = design;
             Ok((file, loader.sources))
         }
         Err(all) => Err(resolve(&loader.sources, all)),
+    }
+}
+
+/// A source's file as a component's identity names it (LLP 1121 D15),
+/// from where the file is alone, never the route a `use` reached it by: a
+/// file in a package (the nearest directory above it, below the app's own,
+/// whose `package.json` has a name: under `node_modules`, linked from
+/// elsewhere, or vendored) under the package's name, else the file relative
+/// to the app's directory.
+fn home(path: &Path, origin: &Origin, app_root: &Path) -> String {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let app = app_root
+        .canonicalize()
+        .unwrap_or_else(|_| app_root.to_path_buf());
+    let relative = |root: &Path| {
+        path.strip_prefix(root)
+            .ok()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+    };
+    let named = |root: &Path| {
+        std::fs::read_to_string(root.join("package.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|m| m["name"].as_str().map(str::to_string))
+    };
+    for dir in path.ancestors().skip(1) {
+        // The app's own directory and those above it are no package of it.
+        if app.starts_with(dir) {
+            break;
+        }
+        if let (Some(name), Some(rest)) = (named(dir), relative(dir)) {
+            return format!("{name}/{rest}");
+        }
+    }
+    if let Some(rest) = relative(&app) {
+        return rest;
+    }
+    match origin {
+        Origin::Builtin => path.to_string_lossy().into_owned(),
+        // Outside the app, in no named package: by its place from the app
+        // (`../libs/a/index.contract`), never its file name alone.
+        _ => {
+            let (a, p): (Vec<_>, Vec<_>) =
+                (app.components().collect(), path.components().collect());
+            let common = a.iter().zip(&p).take_while(|(x, y)| x == y).count();
+            let up = std::iter::repeat_n("..".to_string(), a.len() - common);
+            let down = p[common..]
+                .iter()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned());
+            up.chain(down).collect::<Vec<_>>().join("/")
+        }
     }
 }
 
@@ -176,6 +280,43 @@ std::thread_local! {
     /// place of the file's while [`with_design_text`] runs.
     static DESIGN_TEXT: std::cell::RefCell<Option<(PathBuf, String)>> =
         const { std::cell::RefCell::new(None) };
+}
+
+std::thread_local! {
+    /// The design server's planned `.contract` texts (LLP 1121 stage 8 D),
+    /// compiled in place of the files' while [`with_contract_texts`] runs.
+    static CONTRACT_TEXT: std::cell::RefCell<Vec<(PathBuf, String)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Run `f` with each `(path, text)` read as that Contract source, written
+/// to no file: a write the server checks before it commits.
+pub fn with_contract_texts<R>(texts: Vec<(PathBuf, String)>, f: impl FnOnce() -> R) -> R {
+    /// Puts the texts before back however `f` ends, a panic included.
+    struct Restore(Vec<(PathBuf, String)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let before = std::mem::take(&mut self.0);
+            CONTRACT_TEXT.with(|t| *t.borrow_mut() = before);
+        }
+    }
+    let keyed = texts
+        .into_iter()
+        .map(|(p, t)| (p.canonicalize().unwrap_or(p), t))
+        .collect();
+    let _restore = Restore(CONTRACT_TEXT.with(|t| t.replace(keyed)));
+    f()
+}
+
+/// The text the server planned for Contract source `path`, if any.
+pub(crate) fn contract_text(path: &Path) -> Option<String> {
+    let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    CONTRACT_TEXT.with(|t| {
+        t.borrow()
+            .iter()
+            .find(|(p, _)| *p == key)
+            .map(|(_, s)| s.clone())
+    })
 }
 
 /// Run `f` with `text` read as the design at `path`, written to no file:
@@ -221,8 +362,19 @@ fn design(
     sources.paths.push(path.clone());
     sources.origins.push(Origin::App);
     sources.digests.push(digest(&text));
+    let home = root
+        .parent()
+        .and_then(|dir| path.strip_prefix(dir).ok())
+        .map_or_else(
+            || {
+                path.file_name()
+                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+            },
+            |p| p.to_string_lossy().replace('\\', "/"),
+        );
     Ok(Some(contract_syntax::DesignSource {
         path: path.display().to_string(),
+        home,
         text,
         source_id: (sources.paths.len() - 1) as u32,
         bindable: code_beside(root),
@@ -362,7 +514,18 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         declared: Vec::new(),
         motion: Vec::new(),
     };
-    let errors = match loader.load_source(&root_key, src, 0) {
+    let loaded = loader.load_source(&root_key, src, 0);
+    // The components' params (LLP 1121 D15), named as the build names them
+    // (an icon param naming another): an icon param's SVG is read too.
+    for unit in &mut loader.units {
+        let _ = contract_lower::params::rewrite(&mut unit.file);
+    }
+    let params: Vec<_> = loader
+        .units
+        .iter()
+        .flat_map(|u| contract_lower::params::tokens(&u.file))
+        .collect();
+    let errors = match loaded {
         Err(all) => all,
         Ok(()) => loader.scope().err().unwrap_or_default(),
     };
@@ -384,10 +547,24 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     // watches it (LLP 1121 D2).
     let design = design_path(&root_key);
     // An icon token's SVG too, which the build reads (LLP 1121 D10).
-    let icons: Vec<PathBuf> = design
+    let text = match design
         .as_ref()
         .and_then(|d| std::fs::read_to_string(d).ok())
-        .and_then(|text| exact_tamber::check(&text, &contract_lower::tamber_vocab()).ok())
+    {
+        Some(text) => Some(text),
+        None => (!params.is_empty()).then(|| "tamber app\n".to_string()),
+    };
+    let icons: Vec<PathBuf> = text
+        .and_then(|text| exact_tamber::parse(&text).ok())
+        .and_then(|mut d| {
+            let identities: Vec<String> = loader
+                .units
+                .iter()
+                .flat_map(|u| contract_lower::params::identities(&u.file))
+                .collect();
+            contract_lower::params::add_to(&mut d, &params, &identities);
+            exact_tamber::check_design(d, &contract_lower::tamber_vocab()).ok()
+        })
         .map(|folding| {
             let assets = root_key.parent().unwrap_or(Path::new(".")).join("assets");
             folding
@@ -458,8 +635,18 @@ impl Loader<'_> {
         source_id: u32,
     ) -> Result<(), Vec<CompileError>> {
         // Every syntax refusal in this file, not only its first.
-        let file = contract_syntax::parse_source_all(src, source_id)
+        let mut file = contract_syntax::parse_source_all(src, source_id)
             .map_err(|all| all.into_iter().map(CompileError::from).collect::<Vec<_>>())?;
+        // Each component's identity, its file relative to its root and its
+        // name (LLP 1121 D15): what its params are named by.
+        let home = home(
+            path,
+            &self.sources.origins[source_id as usize],
+            self.app_root,
+        );
+        for c in &mut file.components {
+            c.params.identity = Some(format!("{home}#{}", c.name));
+        }
         contract_analyze::check_routes_root(&file, self.active.len() == 1)
             .map_err(|e| vec![CompileError::from(e)])?;
         let uses = file.uses.clone();
@@ -511,13 +698,15 @@ impl Loader<'_> {
                 None => {
                     let used_src = match resolved.builtin {
                         Some(text) => text.to_owned(),
-                        None => std::fs::read_to_string(&key).map_err(|e| {
-                            vec![use_error(
-                                "contract-use-unreadable",
-                                format!("{}: {}: {e}", described(u), key.display()),
-                                u,
-                            )]
-                        })?,
+                        None => contract_text(&key)
+                            .map_or_else(|| std::fs::read_to_string(&key), Ok)
+                            .map_err(|e| {
+                                vec![use_error(
+                                    "contract-use-unreadable",
+                                    format!("{}: {}: {e}", described(u), key.display()),
+                                    u,
+                                )]
+                            })?,
                     };
                     let used = self.sources.paths.len();
                     self.sources.paths.push(key.clone());

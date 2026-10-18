@@ -1058,7 +1058,7 @@ fn another_name_no_bar_or_a_sections_own_name_is_not_named() {
         // A section's own name: inside a `section`, or after a heading
         // always shown before it (expense-tracker's "Expenses" list under
         // "By category").
-        "list\n  section\n    header\n      text \"Notes\" role=\"heading\" aria-level=3\n    text \"a\"",
+        "list appearance=\"auto\"\n  section\n    header\n      text \"Notes\" role=\"heading\" aria-level=3\n    text \"a\"",
         "column\n  text \"By folder\" role=\"heading\" aria-level=2\ncolumn\n  text \"Notes\" role=\"heading\" aria-level=2",
         // Not shown with the bar: hidden, in a popover or another route.
         "text \"Notes\" role=\"heading\" display=\"none\"\ncolumn id=\"m\" popover=\"auto\"\n  text \"Notes\" role=\"heading\"",
@@ -1435,6 +1435,8 @@ const NESTED: &str = "lower-header-nested";
 #[test]
 fn a_header_a_box_below_its_route_is_named_with_the_repair() {
     let src = |root: &str, route: &str| {
+        // The root's `min-height=0` keeps its scroller scrolling (`lower-scroll-grows`).
+        let root = root.replacen("column flex=1", "column flex=1 min-height=0", 1);
         format!("routes nav\n  home \"/\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` width=\"100%\" height=\"100%\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}` position=\"absolute\" inset=0{route}\n          Home()\ncomponent Home\n  view\n    {root}\n      header\n        text \"Home\" role=\"heading\" aria-level=1\n      scroll flex=1\n        text \"body\"\n")
     };
     let nested = src("column flex=1", "");

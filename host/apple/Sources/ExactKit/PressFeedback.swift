@@ -31,14 +31,21 @@ struct PressFeedback {
     #endif
     /// In and back alike: a fast settle that reads as a physical give.
     static let duration: CFTimeInterval = 0.12
-    #if os(iOS) || os(tvOS)
     /// `ease` as Core Animation's curve, for the render server's ease.
     static let timing = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
-    #endif
     /// Shorter than one 60 Hz frame: a press this young was never presented.
     static let unseen: CFTimeInterval = 1.0 / 60
 
     var idle: Bool { from == 1 && to == 1 }
+    /// As a node that was never pressed holds it.
+    var atRest: Bool { rests(at: 1) }
+    /// Held at `value` since time 0, with nothing pending.
+    func rests(at value: CGFloat) -> Bool {
+        #if os(iOS) || os(tvOS)
+        if easedAbout != nil || dimmedAt != nil { return false }
+        #endif
+        return from == value && to == value && start == 0 && !releaseHeld
+    }
     func factor(at t: CFTimeInterval) -> CGFloat {
         let p = min(1, max(0, (t - start) / Self.duration))
         return from + (to - from) * CGFloat(Self.ease(p))
@@ -91,12 +98,16 @@ extension NodeView {
         #endif
     }
 
-    /// `pressed` changed: ease toward the pressed scale, or back to 1; a
-    /// node that declares none shows the platform's press instead: iOS's dim
-    /// (LLP 1115, `dimPress`), the Mac's pressed effect (LLP 1115.000 D6,
-    /// `tintPress`, Mac/PressLookMac.swift).
+    /// `pressed` changed: ease toward the pressed scale and paint (LLP 1061
+    /// D7, PressPaint.swift), or back; a node that declares neither shows
+    /// the platform's press instead: iOS's dim (LLP 1115, `dimPress`), the
+    /// Mac's pressed effect (LLP 1115.000 D6, `tintPress`,
+    /// Mac/PressLookMac.swift).
     func pressChanged() {
         if pressed { pressHaptic() }
+        // What a press shows goes at its release whatever the style says now:
+        // an authored look the style dropped while held included.
+        if !pressed { paintPress(false); aimPress(false, release: true) }
         #if os(iOS)
         // A list's row is its cell: the cell's ground, not the dim (LLP 1115.000 D16).
         if platformPressDims, presenter?.rowCells.press(self, pressed) == true { return }
@@ -106,19 +117,24 @@ extension NodeView {
         if platformPressTints { tintPress(pressed); return }
         if !pressed { tintPress(false) }
         #endif
-        aimPress(pressed, release: !pressed)
+        guard pressed else { return }
+        paintPress(true)
+        aimPress(true)
     }
     /// The pointer moved while pressed: the feedback follows whether it is
     /// still inside, as the tap's own acceptance does on release.
     func pressFollows(inside: Bool) {
         guard pressed else { return }
+        if !inside { paintPress(false); aimPress(false) }
         #if os(iOS)
         if platformPressDims, presenter?.rowCells.press(self, inside) == true { return }
         if platformPressDims { dimPress(inside); return }
         #elseif os(macOS)
         if platformPressTints { tintPress(inside); return }
         #endif
-        aimPress(inside)
+        guard inside else { return }
+        paintPress(true)
+        aimPress(true)
     }
 
     private func aimPress(_ down: Bool, release: Bool = false) {
@@ -299,8 +315,10 @@ extension NodeView {
     /// between the two edges, which re-grows the box under it, which presses
     /// again: a flicker. The unpressed point is the pressed one scaled back
     /// out about the origin.
-    func pressInside(_ touch: UITouch) -> Bool {
-        let p = local(touch.location(in: nil)), f = pressModelFactor, o = transformOriginPoint
+    func pressInside(_ touch: UITouch) -> Bool { pressInside(at: touch.location(in: nil)) }
+    /// The same for a point in the window (the agent's recognized finger).
+    func pressInside(at windowPoint: CGPoint) -> Bool {
+        let p = local(windowPoint), f = pressModelFactor, o = transformOriginPoint
         return bounds.contains(CGPoint(x: o.x + (p.x - o.x) * f, y: o.y + (p.y - o.y) * f))
     }
     #else
@@ -376,13 +394,14 @@ extension NodeView {
     static let dimHold: CFTimeInterval = 0.1
 
     /// Whether a press shows the platform's dim: a node the host presses
-    /// (a `press` handler or a link), with no `-exact-press-scale` written
-    /// (any value, 1 included, is the author's), no `pointerdown` or
-    /// `pointerup` of its own (the author paints its pressed state), and not
-    /// a scrim covering the window (a backdrop that closes a sheet shows
-    /// nothing in UIKit). A native button is UIKit's own and never comes here.
+    /// (a `press` handler or a link), with no pressed look written (a
+    /// `-exact-press-scale` or pressed paint, any value, 1 included, is the
+    /// author's: `authorsPress`), no `pointerdown` or `pointerup` of its own
+    /// (the author paints its pressed state), and not a scrim covering the
+    /// window (a backdrop that closes a sheet shows nothing in UIKit). A
+    /// native button is UIKit's own and never comes here.
     var platformPressDims: Bool {
-        guard style["press_scale"] == nil, !isNativeButton, !isSurfaceControl,
+        guard !authorsPress, !isNativeButton, !isSurfaceControl,
               handlers.contains("press") || defaultLink != nil,
               !handlers.contains("pointerdown"), !handlers.contains("pointerup") else { return false }
         if let w = window {

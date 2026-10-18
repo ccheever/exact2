@@ -235,7 +235,8 @@ function checkOutsideLock(workspace) {
     if (resolved.status !== 0) throw new Error(`cargo metadata in ${workspace}:\n${resolved.stderr}`);
     result = lockedMetadata(workspace);
   }
-  if (result.status !== 0) throw new Error(`cargo metadata --locked --offline in ${workspace}:\n${result.stderr || result.error?.message}\nTo update the lock explicitly, run \`cargo metadata --offline --format-version 1\` in ${workspace} (without --offline when Cargo's cache lacks a crate, as after an offline \`exact new\`).`);
+  const fix = `\`cargo metadata --offline --format-version 1\` in ${workspace} re-resolves it offline, changing only what the manifests changed (without --offline when Cargo's cache lacks a crate, as after an offline \`exact new\`)`, stale = existsSync(lock) && (result.stderr ?? '').split('\n').find(line => /^error: .*(?:cannot update the lock file|needs to be updated).*--locked/.test(line));
+  if (result.status !== 0) throw new Error(stale ? `${workspace}/Cargo.lock does not match its Cargo.toml files (a workspace member, dependency or patch changed since it was resolved), and a build never changes the lock: ${fix}.\n${stale}` : `cargo metadata --locked --offline in ${workspace}:\n${result.stderr || result.error?.message}\nTo update the lock explicitly: ${fix}.`);
 }
 
 export const hatchWords = (manifest, platform, h = manifest?.hatches ?? []) => (Array.isArray(h) ? [...h] : Object.keys(h).filter(w => h[w].includes(platform))).sort(); // the hatch words `platform`'s module handles (LLP 1075.003.000.001 §5; the bake's `hatches_on`): a plain list is every platform's
@@ -859,7 +860,6 @@ export function hermesTarget(os = process.platform, cpu = process.arch) {
   const suffix = os === 'darwin' ? 'apple-darwin' : os === 'linux' ? 'unknown-linux-gnu' : os === 'win32' && arch === 'x86_64' ? 'pc-windows-msvc' : null;
   return arch && suffix ? `${arch}-${suffix}` : null;
 }
-
 /** The selected digest-addressed bundle; acquisition is installer-only. */
 export function hermesBundle(target = hermesTarget(), env = process.env) {
   if (!target) throw new Error(`no pinned Hermes bundle target for ${process.platform}/${process.arch}`);
@@ -1165,7 +1165,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
       for(const resource of unit.resources??[])add(resolve(packageRoot,resource.path));
       if(unit.type==='system-target')add(resolve(packageRoot,unit.path));pending.push(...(unit.target_dependencies??[]));
     }
-    add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'build.mjs'));add(resolve(packageRoot,'assets.mjs'));
+    add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'build.mjs'));add(resolve(packageRoot,'assets.mjs'));add(resolve(packageRoot,'bundle.mjs'));add(resolve(packageRoot,'widgets.mjs'));
+    if(platform==='ios'&&app.manifest.widgets?.length){add(resolve(packageRoot,'widget'),true);add(resolve(packageRoot,'Sources/ExactSnapshot'),true);}
   }
   if(platform==='web') {
     for(const path of [...Object.values(webHostFiles('base','rust','gpu',...(gpuModules(app.manifest).length?['gpuModules']:[]))),'scripts/app.mjs','scripts/rust.mjs',...SHELL_SOURCES,'host/web/build.mjs','package.json','bun.lock']) add(resolve(ROOT,path));

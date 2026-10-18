@@ -52,7 +52,11 @@ impl ControlKind {
         }
         Some(match props.str(PropId::Type) {
             Some("button") => ControlKind::Button,
-            Some("progress") if props.get(PropId::Value).is_some() => ControlKind::ProgressBar,
+            Some("progress")
+                if props.get(PropId::Value).is_some() || props.get(PropId::Start).is_some() =>
+            {
+                ControlKind::ProgressBar
+            }
             Some("progress") => ControlKind::Progress,
             Some("file") => ControlKind::File,
             Some("select") => ControlKind::Select,

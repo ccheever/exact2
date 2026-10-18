@@ -21,6 +21,8 @@ use exact_plan::{BindingKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
 mod row;
+/// A row's value as `node` prints it: the JS target's inspect table (LLP 1122 T2b) writes the same words.
+pub use row::row_json;
 mod schedule;
 mod sound;
 mod source;

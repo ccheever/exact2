@@ -1100,7 +1100,7 @@ the iOS simulator and the Mac.
   browser runs it in its own process. The dev loops also answer on `[::1]`.
 - **Known limits:**
   - the server keeps one map, the running generation's, so a build on another plan gets no outline
-    and a read-only selection (T2c needs a map per plan);
+    and a read-only selection (lifted by T2c's maps per plan);
   - a popover's light dismiss happens before inspect can stop it;
   - a gesture already under way isn't cancelled.
 
@@ -1113,4 +1113,138 @@ the iOS simulator and the Mac.
 | Inherited, dynamic and boundary rows are read-only, with their reason | **Met** for inherited and dynamic on the clone. Boundary rows are met on the theme fixture by tests, since the clone's signed-out screens have no boundary. |
 | Taps don't reach the app while inspect is on | **Met.** |
 
-The JS target's half follows, with the same gate on the clone's JS loop.
+The JS target's half followed (below, after T2c), with the same gate on the clone's JS loop.
+
+### T2c: native inspect, maps per plan (`abc6490e9`, `9d24e4ebc`, `efd03e95a`; optional *1.9* fields, no bump)
+
+T2c went before T2b's JS half (the lead's order, 2026-10-17).
+
+- **One source map per plan digest** (step 1).
+  - The server resolves each build through the map of the plan it says it runs (`planDigest`).
+  - The JS loop's resident producer announces each published plan's map on a pipe (fd 3), and the
+    loop pulls the bytes by their hash. A native on the JS loop therefore has its own plan's map.
+  - A selection on one plan outlines the matching sites on every inspecting build, each from its
+    own map. A build whose plan has no map here gets none, and is said so.
+  - A build the server skips is sent `{clear}` for the outlines it drew for that client.
+- **iOS and the Mac inspect** (steps 2–3). They answer `inspect` and `outline` as the wasm page
+  does, compiled into development builds only: Swift's `EXACT_INSPECT` from the trust policy, plus
+  the runtime gate. `host/apple/inspect-gate.test.mjs` checks the define, the `#if` cover, and a
+  production bake's strings and symbols.
+  - Input: iOS's window takes every touch and press. The Mac's event monitor takes every mouse,
+    wheel, hover, gesture, key and modifier event in every window of the app, and menus close.
+    Each sequence is owned to its end, entering or leaving inspect mode included.
+  - The report is the runner's own `node` op, so its rows are the kernel's. Status and report
+    name one plan digest: the runner's.
+  - The walk goes up from the platform's own hit view to the nearest plan node and stops at a
+    system bar or the title bar. A node the bar hosts is selected: the title, a bar or toolbar
+    item, a tab, title segments, the search field. The bar's own parts select nothing, and the
+    banner says why.
+  - Outlines follow where each copy shows, a native bar's stand-in included, in its own window.
+    The copy just tapped never scrolls (the click token, *1.7*).
+- **Linux answers `inspect` unsupported** (step 4), as do tvOS and a development JS page.
+- **Known limits:**
+  - an AppKit control's tracking loop already running when inspect mode comes on is not cancelled;
+  - a grouped list's cell, a Mac toolbar segment and the collapsed segments menu are not boxed;
+  - two sessions in one build running different plans give one status digest;
+  - no tests send synthesized UIEvents (UIKit has no public way to make one): iOS interception is
+    checked end to end on the simulator. The Mac's tests send constructed NSEvents.
+
+### T2c's gate: met for the simulator and the Mac; the phone pending (2026-10-17; the run is `~/x2theme/t2c-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| A tap selects the node the platform hit-tests, with source, rows and token chain | **Met** on iOS and the Mac. "Feeds ✨" gives `home.contract:203`, the same as the wasm page. On the JS loop the native's selection is editable: text colour offers "Edit text". |
+| Every copy is outlined | **Met,** across builds too: a Mac click outlined the tab on the iOS simulator. |
+| Inherited, dynamic, initial and boundary rows are read-only, with their reason | **Met** on both for inherited, dynamic and initial. A boundary row is host-independent: the server's join decides it from the kernel's rows, whichever host reports them. It is met for T2b by the theme fixture's test, and the clone's signed-out screens have no boundary. |
+| Taps don't reach the app while inspect is on | **Met** on both, with real touches on iOS. |
+| A tap on platform chrome selects nothing; a node a bar hosts is selected | **Met by the host tests on real bars** (UINavigationBar's title and Back, UITabBar's items and space, the Mac title bar and close button). The clone draws its own chrome, and its back glyph is correctly selected as the app's view. |
+| A real phone | **Pending:** it needs Charlie's device. |
+
+### T2b, the JS target's half (`b19d1e1a2`, `316744fc3`, `731357ac2`; optional *1.9* field `computed`)
+
+- **The page says its plan** (`planDigest`, the SHA-256 of dist's app.plan). The JS loop keeps
+  each plan's map by that digest, so a selection on the JS page is joined to, and outlined from,
+  the JS plan's own map. `designServed` is set only for a design the builds take: a value-only
+  edit, a kept build, or a reload whose shape held.
+- **The inspect table** (host/web-js/src/inspect.rs, `exact-web-js inspect-table`) says of each
+  site what the runner's `node` op says of each view made from it. That is the type, the
+  regions above it (arms; an `each` row's key is the page's), and every own row: its value in
+  each app tuple in `node`'s words, read from per-tuple static trees, plus dynamic or heading,
+  the tokens it reads and its text. It also gives the text-style sources, the initial values
+  (a control's start included), the boundaries and their implied rows, and each row's CSS
+  property.
+  - The dev loop makes the table when a page first asks for it (1.8 s on the Bluesky clone),
+    keyed by plan. No build makes it, so release bytes are unchanged: production builds of
+    theme-fixture, realworld and the clone, and all 88 conformance contracts, were compared
+    against main byte for byte.
+  - rt.js itself has no hook. A `--dev` copy gains two lines (module.mjs `withInspectHooks`):
+    the view id, and every `each` region with its rows and key function.
+- **The page's inspect mode** (host/web-js/inspect-dev.js, served by the dev loop) works as the
+  wasm page's does.
+  - Its gate is the dev client's, on the window before the app's module runs, with a cover, a
+    guest-frame shield and Escape while the module loads.
+  - Each report is row for row `node`'s. Static and token rows are in the kernel's format; a
+    token's row follows the page's current design after a live edit (theme2's ruling).
+  - A row an expression binds is own only while the page has it set, and its value is the
+    computed CSS, marked `computed: true`.
+- **Known limits:**
+  - a text style's size (a heading's too) is its ramp at the 16 px root, so a pinned root moves
+    it in `node` and not on the page;
+  - a text style or heading chosen by an expression is not a style source the table knows;
+  - a control start or a style fallback under an ancestor row that only an expression sets is
+    not recorded;
+  - tokens an expression names are recovered only through custom properties, so not family,
+    type or inline tokens, and not the exact text of an expression that mixes them with other
+    text;
+  - an expression row's ownership is read from what the page wrote: an animation's `none`, a
+    tint's `unset`, and SVG geometry written as attributes disagree with `node`;
+  - `css_property` misses a few rows the emitter writes elsewhere (the press scale, the control
+    size, legacy line clamps, timelines);
+  - a row root a host replaces (the markup editor's textarea) loses its key;
+  - outline marks follow document order, and `from` and `node` are the page's own view ids.
+
+### T2b's gate, the JS half: met (2026-10-17; the run is `~/x2theme/t2b-js-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| The same node on the clone answers the same on the JS and wasm loops | **Met** for five nodes: both tabs, the hamburger, the wordmark and a post's avatar. Identity, rows, sources, tokens, joins and editability match. Static and token values match exactly; expression rows match by source and token (theme2's ruling). Seven theme-fixture nodes, two of them boundaries, are compared on every test run. |
+| A live token edit, then the node inspected → the new value | **Met** on the theme fixture's JS loop. On this machine the loop served the edit by a rebuild and reload, so the value came from the new plan's table; the value-only batch path was not driven. |
+
+### Stage 6's kinds in the tool (`b436b529b`; `cf00a0d47`..`bbc26d770`, `f16377fd6`; reads `76efb7f0a`, `5443e977b`, `0beb826a9`, `904db0513`)
+
+- **Each kind loads and shows as `resolve` gives it.** Before this, a design with any non-colour token
+  failed to load. A cell shows a length in px (with its rem, em or named value labelled by its px),
+  a number, a shadow (a small preview on its column's ground, plus its text), a type's longhands
+  (the unsaid ones named), a family, a duration or an easing. A length dial's slider and stepper
+  write `Npx`.
+- **Typed fields by kind** (`parts.ts`, a byte-exact cut of the value as written): a length's amount
+  and unit, a number, each shadow's x, y, blur, spread, inset and colour, and a type's longhands.
+  Each field edits only its own part, and the edit is still the one `set-token` line. Words it
+  doesn't touch stay as written: token colours, an unsaid spread, a family's quoting. A draft goes
+  stale when its branch's value moves under it, whichever field typed it.
+- **Kinds that rebuild say so before the gesture** (D6): a motion token reads "Rebuilds", Apply
+  writes it, and it has no scrub. On the JS target's dev loop, `propose` answers `rebuild` for an
+  edit that moves a token the pages write inline (a `font-weight` number, an SVG attribute's length
+  or number), as the loop's design reader marks it (theme2's 18:00 ruling). Without the reader, the
+  session's class stands.
+- **Icons** are listed read only, with their sources, since no operation writes one.
+- **Reads on a big design** (found by the gate): the design and axes reads follow the files (a
+  `changed` event, a gap, a new run), not every event. A read asks four resolves at a time and
+  stops once a newer read overtakes it. A proposal is asked again on each poll answer, except while
+  a scrub is shown. Before this, the clone's 73 resolves (about 207 ms each while the serve process
+  parsed `app.contract` per request) were reread on every build status and overran their 15 s.
+- **Known limits:**
+  - the design reader getting ready sends no event, so a proposal shown before then can stay
+    Live until the next poll answer (25 s at most);
+  - Expose's lengths are an inline Contract theme, which no design server serves;
+  - a batch `resolve` would make a read one request (QUEUE).
+
+### Stage 6 kinds' gate: met (2026-10-18; the run is `~/x2theme/kinds-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| A length scrubs live on the web and the natives; Keep writes one line | **Met** on a clone copy's `space.header`: the JS loop, the wasm loop, the iOS simulator and the Mac. Each native build's design digest followed every frame, with no reload. |
+| A shadow list (inset, token colours) scrubs live; Keep writes one line | **Met** on `shadow.header`. A blur and an unsaid spread were edited; the untouched words were kept as written. |
+| A motion edit rebuilds | **Met**: "Rebuilds" before the gesture, no scrub, Apply only. |
+| Icons read only | **Met**: the clone's 64 icons, listed with their sources. |
+| theme-fixture's JS-loop e2e | **Met** (`kindsOnTheJsLoop`, every run of scripts/design-tool.test.mjs). |

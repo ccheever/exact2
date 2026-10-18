@@ -39,6 +39,17 @@ fn a_row_that_searches_another_table_is_named_with_the_join() {
         "{}",
         w.message
     );
+    // A function the roster writes as a call is named as one (LLP 1116.016 §5).
+    let sorted =
+        app("for p in posts key=p.id\n  text sortBy(users, u => u.name).length.toString()");
+    let (_, warnings) = contract::compile_warned(&sorted);
+    let w = warnings.iter().find(|w| w.id == ROW_LOOKUP).unwrap();
+    assert!(
+        w.message
+            .starts_with("each row of `posts` searches `users` (`sortBy(…)`)"),
+        "{}",
+        w.message
+    );
     // A nested `for` over the other table walks it in every row too.
     let nested = app("for p in posts key=p.id\n  for u in users key=u.id\n    text u.name");
     assert_eq!(lookups(&nested), [15]);

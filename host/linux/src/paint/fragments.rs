@@ -68,7 +68,7 @@ impl Painter {
         };
         let mut palette = Vec::new();
         text_palette(kernel, node, self.dark, walk.reveal, &mut palette);
-        presented_text_colors(walk, node, &paragraph, &mut palette);
+        presented_text_colors(walk, node, &paragraph, &mut palette, self.dark);
         let shown_before = self.accepted_text.get(&node.key);
         let roll = (self.numerals)
             .roll(node.key, s.content_transition, shown_before, &paragraph)

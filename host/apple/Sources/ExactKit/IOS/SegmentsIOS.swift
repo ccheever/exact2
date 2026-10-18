@@ -330,7 +330,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let natural = natural(owner.id, control as! UISegmentedControl)
             size = CGSize(width: 1, height: natural.height)
             // The padding and border around the content box layout sent
-            if owner.style["box_sizing"]?.string == "border-box" { size.height += owner.bounds.height - owner.contentBox().height }
+            if owner.style["box_sizing"]?.string == "border-box" { size.height += owner.layoutBounds.height - owner.contentBox().height }
         } else {
             guard owner.bounds.width > 0 else { return }
             // A tab bar lays its items out in any width: none is its narrowest.

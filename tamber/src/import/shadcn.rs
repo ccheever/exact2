@@ -11,9 +11,13 @@
 //! - A further theme class (`.theme-blue`, `[data-theme=blue]`, and its dark
 //!   block `.dark .theme-blue`) is a proposed axis, `theme = default | blue`,
 //!   with `when theme=blue` lines; `.theme-default` is the default theme.
-//! - `--radius` and other lengths are `kind pending (stage 6)`, with the
-//!   tokens they would become (`radius`, and `radius.sm/md/lg/xl` as shadcn
-//!   derives them).
+//! - A length (`--radius: 0.625rem`), and a shadow or a family by its name
+//!   (`--shadow-sm`, `--font-sans`), is its kind's token (stage 6 H), a
+//!   theme's value its `when` line; one with two values on the scheme's
+//!   sides, or that does not fold, is reported. `--radius`'s sizes as
+//!   shadcn derives them (`radius.sm/md/lg/xl`) are proposed with it, each
+//!   that folds (a `rem` radius in `calc()` does not yet), the rest
+//!   reported outside the count.
 //! - Role overrides are offered apart: `--background` as
 //!   `-exact-background`, `--foreground` as `-exact-label`, `--card` as
 //!   `-exact-secondary-background`, `--border` as `-exact-separator`, and
@@ -231,7 +235,12 @@ pub fn import(
         Some(tamber_name(prefix, &refs))
     });
     let names = &named.names;
-    let (tokens, fates) = engine::assemble(&decls, &named, &themes, &literal);
+    let (mut tokens, fates) = engine::assemble(&decls, &named, &themes, &literal);
+    // The declarations of the kinds besides colour, each made a token or
+    // reported there (stage 6 H).
+    let mut others: Vec<(usize, &'static str)> = Vec::new();
+    // Each token's source declarations, for a token refused where it lands.
+    let mut sources: Vec<(String, Vec<Unmapped>)> = Vec::new();
     // Each declaration mapped, or reported once with why.
     let mut mapped = 0;
     // A variable that makes no token is no token's to name.
@@ -241,8 +250,26 @@ pub fn import(
         .filter(|(_, f)| matches!(f, Fate::Unresolved(_)))
         .map(|((_, var, _, _), _)| var)
         .collect();
-    for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
+    for (i, ((label, var, value, _), fate)) in decls.iter().zip(&fates).enumerate() {
         let token = names.get(var).filter(|_| !dropped.contains(&var)).cloned();
+        // One other kind in every block it wins (a colour in one, or a
+        // value of no kind, is no token of either kind).
+        let own = || {
+            decls
+                .iter()
+                .zip(&fates)
+                .filter(|((_, v, _, _), _)| v == var)
+        };
+        let coloured = own().any(|(_, f)| !matches!(f, Fate::NotColour | Fate::Superseded));
+        let kind = other_kind(&decls, var, value);
+        let one_kind = !coloured
+            && own()
+                .filter(|(_, f)| matches!(f, Fate::NotColour))
+                .all(|((_, v, x, _), _)| other_kind(&decls, v, x) == kind);
+        if let (Fate::NotColour, Some(kind), true) = (fate, kind, one_kind) {
+            others.push((i, kind));
+            continue;
+        }
         let (why, token) = match fate {
             Fate::Mapped => {
                 mapped += 1;
@@ -272,37 +299,28 @@ pub fn import(
                     let why = super::unfolded(value).unwrap_or_default();
                     (format!("a colour Tamber does not fold yet: {why}"), token)
                 }
-                None if looks_like_length(value) => {
-                    ("kind pending (stage 6): length".to_string(), token)
-                }
+                None if kind.is_some() => (
+                    match coloured {
+                        true => format!(
+                            "a {} here and a colour in another block: a token is one kind",
+                            kind.unwrap_or_default()
+                        ),
+                        false => format!(
+                            "a {} here, and another block's value is no {}: a token is one kind",
+                            kind.unwrap_or_default(),
+                            kind.unwrap_or_default()
+                        ),
+                    },
+                    token,
+                ),
                 None => (
-                    "not a colour, and no other kind is built yet (stage 6)".to_string(),
+                    "not a colour, nor a length, shadow or family by its name and value"
+                        .to_string(),
                     token,
                 ),
             },
         };
         report(&mut unmapped, label, var, value, why, token);
-    }
-    // `--radius`'s derived sizes, as shadcn computes them: reported with it.
-    if names.contains_key("--radius") {
-        for (size, expr) in [
-            ("sm", "- 4px"),
-            ("md", "- 2px"),
-            ("lg", ""),
-            ("xl", "+ 4px"),
-        ] {
-            unmapped.push(Unmapped {
-                block: "(derived)".into(),
-                name: format!("--radius-{size}"),
-                value: if expr.is_empty() {
-                    "var(--radius)".into()
-                } else {
-                    format!("calc(var(--radius) {expr})")
-                },
-                why: "kind pending (stage 6): length, derived from --radius".into(),
-                token: Some(tamber_name(prefix, &["radius", size])),
-            });
-        }
     }
     let axes = if themes.is_empty() {
         Vec::new()
@@ -311,6 +329,44 @@ pub fn import(
         values.extend(themes.iter().cloned());
         vec![("theme".to_string(), values)]
     };
+    mapped += other_kinds(
+        prefix,
+        &decls,
+        &others,
+        names,
+        &themes,
+        &axes,
+        (design, vocab),
+        &mut tokens,
+        &mut unmapped,
+        &mut sources,
+    );
+    // Each colour's declarations mapped, by its token.
+    for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
+        let Some(name) = names.get(var).filter(|_| *fate == Fate::Mapped) else {
+            continue;
+        };
+        let record = Unmapped {
+            block: label.clone(),
+            name: var.clone(),
+            value: value.clone(),
+            why: String::new(),
+            token: Some(name.clone()),
+        };
+        match sources.iter_mut().find(|(n, _)| n == name) {
+            Some((_, from)) => from.push(record),
+            None => sources.push((name.clone(), vec![record])),
+        }
+    }
+    // What would not hold where it lands: its declarations reported.
+    mapped -= super::landing::settle(
+        &mut tokens,
+        &sources,
+        (&axes, OWNED),
+        design,
+        vocab,
+        &mut unmapped,
+    )?;
     let ops = reconcile(design, &axes, OWNED, &tokens);
     let offers = offers(prefix, design, vocab, &axes, &tokens);
     let derived = unmapped.iter().filter(|u| u.block == "(derived)").count();
@@ -323,8 +379,260 @@ pub fn import(
     })
 }
 
+/// The kind besides colour a declaration that is no colour is: a length by
+/// its value (`--radius: 0.625rem`), else a shadow or a family by its name
+/// (`--shadow-sm`, `--font-sans`); a reference the kind of what it names.
+fn other_kind(decls: &[Decl], var: &str, value: &str) -> Option<&'static str> {
+    kind_through(decls, var, value, &mut Vec::new())
+}
+
+/// [`other_kind`] through a chain of references (a cycle is none).
+fn kind_through<'a>(
+    decls: &'a [Decl],
+    var: &'a str,
+    value: &str,
+    seen: &mut Vec<&'a str>,
+) -> Option<&'static str> {
+    let named = || {
+        if var == "--shadow" || var.starts_with("--shadow-") {
+            Some("box-shadow")
+        } else if var.starts_with("--font-") {
+            Some("family")
+        } else {
+            None
+        }
+    };
+    // A reference: the kind of what it names, by its last declaration (the
+    // one that wins), else this variable's by its name.
+    if let Some(r) = engine::reference(value) {
+        if seen.contains(&var) || r == var {
+            return None;
+        }
+        seen.push(var);
+        let last = decls.iter().rev().find(|(_, v, _, _)| v == r);
+        return last
+            .and_then(|(_, v, value, _)| kind_through(decls, v, value, seen))
+            .or_else(named);
+    }
+    if looks_like_length(value) {
+        Some("length")
+    } else {
+        named()
+    }
+}
+
+/// The declarations of the kinds besides colour (`others`, each a
+/// declaration's index and its kind) as tokens beside the colour `tokens`:
+/// each block's winner as CSS reads it, a theme's value its `when` line,
+/// `var()` the token it names; one whose value differs between the
+/// scheme's sides, or that does not fold, is reported. `--radius`'s
+/// derived sizes, as shadcn computes them, are proposed with it (each that
+/// folds; the rest reported outside the count). The count mapped.
+#[allow(clippy::too_many_arguments)]
+fn other_kinds(
+    prefix: &str,
+    decls: &[Decl],
+    others: &[(usize, &'static str)],
+    names: &std::collections::BTreeMap<String, String>,
+    themes: &[String],
+    axes: &[(String, Vec<String>)],
+    (design, vocab): (&Design, &Vocab),
+    tokens: &mut Vec<Mapped>,
+    unmapped: &mut Vec<Unmapped>,
+    sources: &mut Vec<(String, Vec<Unmapped>)>,
+) -> usize {
+    use super::kinds;
+    let report = |unmapped: &mut Vec<Unmapped>, i: usize, why: String| {
+        let (label, var, value, _) = &decls[i];
+        unmapped.push(Unmapped {
+            block: label.clone(),
+            name: var.clone(),
+            value: value.clone(),
+            why,
+            token: names.get(var).cloned(),
+        });
+    };
+    let mut vars: Vec<&str> = Vec::new();
+    for (i, _) in others {
+        if !vars.contains(&decls[*i].1.as_str()) {
+            vars.push(&decls[*i].1);
+        }
+    }
+    let start = tokens.len();
+    // A token made: a colour, or one of these.
+    let colours: Vec<String> = tokens.iter().map(|t| t.name.clone()).collect();
+    let token_of = |var: &str| {
+        names
+            .get(var)
+            .filter(|n| colours.contains(n) || vars.contains(&var))
+            .cloned()
+    };
+    // Each token made: its kind, and the declarations it carries.
+    let mut made: Vec<(&'static str, Vec<usize>)> = Vec::new();
+    for &var in &vars {
+        let own: Vec<(usize, &'static str)> = others
+            .iter()
+            .filter(|(i, _)| decls[*i].1 == var)
+            .copied()
+            .collect();
+        let kind = own[0].1;
+        // Each block's winner: the last that sets it.
+        let mut winner: std::collections::BTreeMap<&Target, &str> = Default::default();
+        for (i, _) in &own {
+            for t in &decls[*i].3 {
+                winner.insert(t, &decls[*i].2);
+            }
+        }
+        let get = |theme: &Option<String>, dark: bool| {
+            winner.get(&(theme.clone(), dark)).map(|v| v.trim())
+        };
+        // A theme's sides as CSS reads them, as the colours' are.
+        let side = |theme: &Option<String>| {
+            let light = get(theme, false).or_else(|| get(&None, false));
+            let dark = get(theme, true)
+                .or_else(|| get(theme, false))
+                .or_else(|| get(&None, true));
+            (light.or(dark), dark.or(light))
+        };
+        let all: Vec<usize> = own.iter().map(|(i, _)| *i).collect();
+        let mut values: Vec<(Option<String>, &str)> = Vec::new();
+        let mut sided = false;
+        for theme in std::iter::once(None).chain(themes.iter().cloned().map(Some)) {
+            match side(&theme) {
+                (Some(l), Some(d)) if l == d => values.push((theme, l)),
+                (Some(_), Some(_)) => sided = true,
+                _ => {}
+            }
+        }
+        if sided {
+            for i in &all {
+                report(unmapped, *i, kinds::SIDED.to_string());
+            }
+            continue;
+        }
+        let made_value = (|| {
+            let (_, default) = values.first().ok_or("no value")?;
+            let default = kinds::bare(default, token_of)?;
+            let mut whens = Vec::new();
+            for (theme, v) in &values[1..] {
+                let v = kinds::bare(v, token_of)?;
+                if v != default {
+                    let t = theme.clone().unwrap_or_default();
+                    whens.push((vec![("theme".to_string(), t)], v));
+                }
+            }
+            Ok::<_, String>((default, whens))
+        })();
+        match made_value {
+            Ok((value, whens)) => {
+                tokens.push(Mapped {
+                    name: names[var].clone(),
+                    value,
+                    whens,
+                    kind: Some(kinds::written(kind)),
+                });
+                made.push((kind, all));
+            }
+            Err(why) => {
+                for i in &all {
+                    report(unmapped, *i, why.clone());
+                }
+            }
+        }
+    }
+    // `--radius`'s derived sizes.
+    let radius = names
+        .get("--radius")
+        .filter(|r| tokens[start..].iter().any(|t| t.name == **r));
+    let mut derived = Vec::new();
+    if let Some(radius) = radius {
+        for (size, expr) in [
+            ("sm", "- 4px"),
+            ("md", "- 2px"),
+            ("lg", ""),
+            ("xl", "+ 4px"),
+        ] {
+            let name = tamber_name(prefix, &["radius", size]);
+            if tokens.iter().any(|t| t.name == name) {
+                continue;
+            }
+            let (written, value) = match expr {
+                "" => ("var(--radius)".to_string(), radius.clone()),
+                e => (
+                    format!("calc(var(--radius) {e})"),
+                    format!("calc({radius} {e})"),
+                ),
+            };
+            derived.push((format!("--radius-{size}"), written, tokens.len()));
+            tokens.push(Mapped {
+                name,
+                value,
+                whens: Vec::new(),
+                kind: Some("length"),
+            });
+        }
+    }
+    let why = kinds::unfolded(tokens, axes, design, vocab);
+    let mut mapped = 0;
+    let record = |i: usize| {
+        let (label, var, value, _) = &decls[i];
+        Unmapped {
+            block: label.clone(),
+            name: var.clone(),
+            value: value.clone(),
+            why: String::new(),
+            token: names.get(var).cloned(),
+        }
+    };
+    for (k, (kind, carried)) in made.iter().enumerate() {
+        match &why[start + k] {
+            None => {
+                mapped += carried.len();
+                let from = carried.iter().map(|&i| record(i)).collect();
+                sources.push((tokens[start + k].name.clone(), from));
+            }
+            Some(why) => {
+                for i in carried {
+                    report(unmapped, *i, format!("not a {kind} Tamber folds: {why}"));
+                }
+            }
+        }
+    }
+    for (name, value, at) in &derived {
+        if why[*at].is_none() {
+            let derived = Unmapped {
+                block: "(derived)".into(),
+                name: name.clone(),
+                value: value.clone(),
+                why: String::new(),
+                token: None,
+            };
+            sources.push((tokens[*at].name.clone(), vec![derived]));
+        }
+        if let Some(why) = &why[*at] {
+            unmapped.push(Unmapped {
+                block: "(derived)".into(),
+                name: name.clone(),
+                value: value.clone(),
+                why: format!("derived from --radius, and not a length Tamber folds: {why}"),
+                token: Some(tokens[*at].name.clone()),
+            });
+        }
+    }
+    let mut at = 0;
+    tokens.retain(|_| {
+        at += 1;
+        why[at - 1].is_none()
+    });
+    mapped
+}
+
 fn looks_like_length(v: &str) -> bool {
     let v = v.trim();
+    // A bare zero is a length (`0px`).
+    if v.parse::<f64>().is_ok_and(|n| n == 0.0) {
+        return true;
+    }
     ["px", "rem", "em", "%"].iter().any(|u| {
         v.strip_suffix(u)
             .is_some_and(|n| n.trim().parse::<f64>().is_ok())
@@ -344,7 +652,8 @@ fn offers(
     axes: &[(String, Vec<String>)],
     tokens: &[Mapped],
 ) -> Vec<Offer> {
-    let has = |name: &str| tokens.iter().any(|t| t.name == name);
+    // A colour token: a role is a colour.
+    let has = |name: &str| tokens.iter().any(|t| t.name == name && t.kind.is_none());
     let roles: Vec<(String, bool)> = vocab
         .roles
         .iter()

@@ -81,9 +81,30 @@ final class MenuHost: NSObject {
         if nativeTracking > 0 { afterTracking.append(work) }
         else { DispatchQueue.main.async(execute: work) }
     }
-    private func track(_ menu: NSMenu, positioning item: NSMenuItem? = nil, at point: NSPoint, in source: NodeView, closed: () -> Void) {
+    /// `click`, a pointer's press that asked for a context menu, pops it up as
+    /// AppKit pops up a view's `menu(for:)`: its top left at the pointer, the
+    /// pointer just outside it, so no row is highlighted and the press's
+    /// release chooses nothing (a quick one leaves the menu open, a held one
+    /// closes it). `popUp(positioning:at:in:)` is a pop-up button's
+    /// presentation: it puts the pointer in the first row, where a release half
+    /// a second after the press chooses it. The press is restated at `point`
+    /// in `source`'s window, which one bubbled from a popover's own window is
+    /// not in.
+    private func track(_ menu: NSMenu, positioning item: NSMenuItem? = nil, at point: NSPoint, in source: NodeView,
+                       click: NSEvent? = nil, closed: () -> Void) {
         nativeTracking += 1
-        menu.popUp(positioning: item, at: point, in: source)
+        if let click, [.rightMouseDown, .leftMouseDown].contains(click.type), let window = source.window,
+           let press = NSEvent.mouseEvent(with: click.type, location: source.convert(point, to: nil), modifierFlags: click.modifierFlags,
+                                          timestamp: click.timestamp, windowNumber: window.windowNumber, context: nil,
+                                          eventNumber: click.eventNumber, clickCount: click.clickCount, pressure: click.pressure) {
+            // The author's rows alone: AppKit appends Services to a contextual
+            // menu whose view can send them (`validRequestor`), as a paragraph
+            // can while the page has a selection.
+            menu.allowsContextMenuPlugIns = false
+            NSMenu.popUpContextMenu(menu, with: press, for: source)
+        } else {
+            menu.popUp(positioning: item, at: point, in: source)
+        }
         nativeTracking -= 1
         // A menu that opens while the button that opened it is down takes
         // that button's release (a right press's context menu; a click's
@@ -346,8 +367,10 @@ final class MenuHost: NSObject {
     /// (both fire), on the next turn as a button menu's. Its preview row is
     /// not an item: a Mac's context menu has no preview. Under the agent the
     /// popover opens painted, anchored to the node (D4). `run` names a run
-    /// of `source` whose own `contextPopover` it is (X77).
-    func context(_ source: NodeView, at point: NSPoint, run: UInt32? = nil) {
+    /// of `source` whose own `contextPopover` it is (X77). `click` is the
+    /// pointer's press that asked for it (`track`); a request from the
+    /// keyboard has none, and its menu's top left is at `point`.
+    func context(_ source: NodeView, at point: NSPoint, run: UInt32? = nil, click: NSEvent? = nil) {
         guard let name = contextPopover(source, run: run) else { return }
         RunLoop.main.perform(inModes: [.common]) { [weak self, weak source] in
             guard let self, let presenter = self.presenter, let source, self.live(source), self.contextPopover(source, run: run) == name,
@@ -368,7 +391,7 @@ final class MenuHost: NSObject {
             entry.menu = menu; entry.tracking = true
             self.entries.append(entry)
             presenter.popoverEvents.changed(pop, open: true)
-            self.track(menu, at: point, in: source) {
+            self.track(menu, at: point, in: source, click: click) {
                 entry.tracking = false
                 if self.entries.contains(where: { $0 === entry }) { self.close(pop, cancelling: false) }
             }

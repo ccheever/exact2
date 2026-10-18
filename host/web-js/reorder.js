@@ -5,6 +5,7 @@
 // with the keys the collection names), installed on list.js's collections
 // by the motion piece when a plan has a reorder drag, so a list without one
 // carries none of it.
+import { inertAncestor } from './navigation.js';
 import { clock, every, commit, journal } from "./rt.js";
 import { dragTarget } from './drag-target.js';
 
@@ -246,7 +247,7 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
    * every box on the way live. */
   function reorderBinding(handle) {
     const el = Views.get(handle), list = dragTarget(el, 'reorderfor'), c = list?.$list;
-    if (!c || !list.$reorderdrop || !el.isConnected || el.closest("[inert],[disabled]") || !el.getClientRects().length) return null;
+    if (!c || !list.$reorderdrop || !el.isConnected || inertAncestor(el) || el.closest("[disabled]") || !el.getClientRects().length) return null;
     return c.reorderBinding(handle);
   }
   const sameBinding = (a, b) => !!a && !!b && ["handle", "list", "wrapper", "root", "rowEpoch"].every(k => a[k] === b[k]);

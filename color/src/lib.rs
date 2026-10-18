@@ -1,6 +1,10 @@
 //! CSS colour values (LLP 1100 D1, D2): CSS Color 4 and CSS Color HDR's
 //! forms, their arithmetic and serialisation. Legacy forms parse to
 //! [`Rgba8`]; the rest keep their space ([`Wide`]). No ICC conversion.
+//!
+//! Transcendentals use the locked `libm` kernels, shared by folding and runtime
+//! colour arithmetic, so host libm rounding cannot change Tamber's IR or digests.
+//! Cubes use explicit multiplication rather than `powi`'s unspecified precision.
 
 mod mix;
 mod named;
@@ -419,7 +423,7 @@ impl Wide {
             Space::DisplayP3Linear => mul(&P3_TO_XYZ, v),
             Space::A98Rgb => mul(
                 &A98_TO_XYZ,
-                v.map(|c| (c.abs()).powf(563.0 / 256.0).copysign(c)),
+                v.map(|c| libm::pow(c.abs(), 563.0 / 256.0).copysign(c)),
             ),
             Space::ProphotoRgb => mul(
                 &D50_TO_D65,
@@ -430,7 +434,7 @@ impl Wide {
                         (if a <= 16.0 / 512.0 {
                             a / 16.0
                         } else {
-                            a.powf(1.8)
+                            libm::pow(a, 1.8)
                         })
                         .copysign(c)
                     }),
@@ -444,13 +448,13 @@ impl Wide {
                 let h = v[2].to_radians();
                 mul(
                     &D50_TO_D65,
-                    lab_to_xyz_d50(v[0], v[1] * h.cos(), v[1] * h.sin()),
+                    lab_to_xyz_d50(v[0], v[1] * libm::cos(h), v[1] * libm::sin(h)),
                 )
             }
             Space::Oklab => return oklab_to_linear(v[0], v[1], v[2]),
             Space::Oklch => {
                 let h = v[2].to_radians();
-                return oklab_to_linear(v[0], v[1] * h.cos(), v[1] * h.sin());
+                return oklab_to_linear(v[0], v[1] * libm::cos(h), v[1] * libm::sin(h));
             }
             Space::Rec2100Pq => mul(&REC2020_TO_XYZ, v.map(|e| pq_nits(e) / 203.0)),
             Space::Rec2100Hlg => mul(
@@ -593,7 +597,7 @@ pub fn srgb_to_linear(c: f64) -> f64 {
     let v = if a <= 0.04045 {
         a / 12.92
     } else {
-        ((a + 0.055) / 1.055).powf(2.4)
+        libm::pow((a + 0.055) / 1.055, 2.4)
     };
     v.copysign(c)
 }
@@ -604,7 +608,7 @@ pub fn linear_to_srgb(c: f64) -> f64 {
     let v = if a <= 0.0031308 {
         12.92 * a
     } else {
-        1.055 * a.powf(1.0 / 2.4) - 0.055
+        1.055 * libm::pow(a, 1.0 / 2.4) - 0.055
     };
     v.copysign(c)
 }
@@ -617,7 +621,7 @@ fn rec2020_to_linear(c: f64) -> f64 {
     let v = if a < BETA * 4.5 {
         a / 4.5
     } else {
-        ((a + ALPHA - 1.0) / ALPHA).powf(1.0 / 0.45)
+        libm::pow((a + ALPHA - 1.0) / ALPHA, 1.0 / 0.45)
     };
     v.copysign(c)
 }
@@ -630,8 +634,8 @@ fn pq_nits(e: f64) -> f64 {
         2413.0 / 4096.0 * 32.0,
         2392.0 / 4096.0 * 32.0,
     );
-    let p = e.max(0.0).powf(1.0 / m2);
-    10000.0 * ((p - c1).max(0.0) / (c2 - c3 * p)).powf(1.0 / m1)
+    let p = libm::pow(e.max(0.0), 1.0 / m2);
+    10000.0 * libm::pow((p - c1).max(0.0) / (c2 - c3 * p), 1.0 / m1)
 }
 
 /// Extended linear sRGB in a Rec. 2100 space's components, the inverse of
@@ -648,17 +652,17 @@ pub fn rec2100_from_linear_srgb(space: Space, v: [f64; 3]) -> Option<[f64; 3]> {
                 2413.0 / 4096.0 * 32.0,
                 2392.0 / 4096.0 * 32.0,
             );
-            let y = (l * 203.0 / 10000.0).max(0.0).powf(m1);
-            ((c1 + c2 * y) / (1.0 + c3 * y)).powf(m2)
+            let y = libm::pow((l * 203.0 / 10000.0).max(0.0), m1);
+            libm::pow((c1 + c2 * y) / (1.0 + c3 * y), m2)
         }),
         // Signed, as the decode is: an extended component keeps its sign.
         Space::Rec2100Hlg => linear.map(|l| {
             let (a, b, c) = (0.17883277, 0.28466892, 0.55991073);
             let scene = (l * hlg_linear(0.75)).abs();
             let e = if scene <= 1.0 / 12.0 {
-                (3.0 * scene).sqrt()
+                libm::sqrt(3.0 * scene)
             } else {
-                a * (12.0 * scene - b).ln() + c
+                a * libm::log(12.0 * scene - b) + c
             };
             e.copysign(l)
         }),
@@ -672,8 +676,12 @@ fn hlg_linear(e: f64) -> f64 {
     if e <= 0.5 {
         e * e / 3.0
     } else {
-        (((e - c) / a).exp() + b) / 12.0
+        (libm::exp((e - c) / a) + b) / 12.0
     }
+}
+
+fn cube(v: f64) -> f64 {
+    v * v * v
 }
 
 fn lab_to_xyz_d50(l: f64, a: f64, b: f64) -> [f64; 3] {
@@ -682,14 +690,14 @@ fn lab_to_xyz_d50(l: f64, a: f64, b: f64) -> [f64; 3] {
     let f1 = (l + 16.0) / 116.0;
     let f0 = a / 500.0 + f1;
     let f2 = f1 - b / 200.0;
-    let x = if f0.powi(3) > E {
-        f0.powi(3)
+    let x = if cube(f0) > E {
+        cube(f0)
     } else {
         (116.0 * f0 - 16.0) / K
     };
-    let y = if l > K * E { f1.powi(3) } else { l / K };
-    let z = if f2.powi(3) > E {
-        f2.powi(3)
+    let y = if l > K * E { cube(f1) } else { l / K };
+    let z = if cube(f2) > E {
+        cube(f2)
     } else {
         (116.0 * f2 - 16.0) / K
     };
@@ -697,9 +705,9 @@ fn lab_to_xyz_d50(l: f64, a: f64, b: f64) -> [f64; 3] {
 }
 
 fn oklab_to_linear(l: f64, a: f64, b: f64) -> [f64; 3] {
-    let l_ = (l + 0.3963377774 * a + 0.2158037573 * b).powi(3);
-    let m_ = (l - 0.1055613458 * a - 0.0638541728 * b).powi(3);
-    let s_ = (l - 0.0894841775 * a - 1.2914855480 * b).powi(3);
+    let l_ = cube(l + 0.3963377774 * a + 0.2158037573 * b);
+    let m_ = cube(l - 0.1055613458 * a - 0.0638541728 * b);
+    let s_ = cube(l - 0.0894841775 * a - 1.2914855480 * b);
     [
         4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
         -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
@@ -752,7 +760,7 @@ pub(crate) fn linear_to_rec2020(c: f64) -> f64 {
     let v = if a < BETA {
         4.5 * a
     } else {
-        ALPHA * a.powf(0.45) - (ALPHA - 1.0)
+        ALPHA * libm::pow(a, 0.45) - (ALPHA - 1.0)
     };
     v.copysign(c)
 }
@@ -763,7 +771,7 @@ pub(crate) fn xyz_d50_to_lab(xyz: [f64; 3]) -> [f64; 3] {
     let white = [0.3457 / 0.3585, 1.0, (1.0 - 0.3457 - 0.3585) / 0.3585];
     let f = |v: f64| {
         if v > E {
-            v.cbrt()
+            libm::cbrt(v)
         } else {
             (K * v + 16.0) / 116.0
         }
@@ -778,9 +786,9 @@ pub(crate) fn xyz_d50_to_lab(xyz: [f64; 3]) -> [f64; 3] {
 
 /// Extended linear sRGB as Oklab `[L, a, b]`, unclipped.
 pub fn linear_to_oklab([r, g, b]: [f64; 3]) -> [f64; 3] {
-    let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
-    let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
-    let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+    let l = libm::cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    let m = libm::cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    let s = libm::cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
     [
         0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
         1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,

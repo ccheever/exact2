@@ -79,6 +79,19 @@ fn appearance_vocab_explains_authored_bars() {
         .contains("root tablist"));
 }
 
+/// `range` is a standard function (2026-10-17) and, on the web, a slider's
+/// `type`: its entry says both.
+#[test]
+fn range_is_the_function_and_names_the_slider() {
+    let out = stdout(&vocab(&["range"]));
+    assert!(out.contains("range: standard function"), "{out}");
+    assert!(out.contains("`range(4)` is `[0, 1, 2, 3]`"), "{out}");
+    assert!(out.contains("a slider is `input type=\"range\""), "{out}");
+    let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json", "range"]))).unwrap();
+    let means = doc["function"]["means"].as_str().unwrap_or_default();
+    assert!(means.contains("input type=\"range\""), "{doc}");
+}
+
 #[test]
 fn navigation_detent_vocab_names_its_validated_forms() {
     let out = stdout(&vocab(&["navigationDetent"]));
@@ -239,6 +252,10 @@ fn json_lists_everything_and_one_entry() {
 #[test]
 fn contextual_attributes_are_refused_elsewhere() {
     let cases = [
+        ("datetime", "view", "datetime=0"),
+        ("format", "view", "format=\"relative\""),
+        ("start", "view", "start=0"),
+        ("end", "view", "end=1"),
         ("sandbox", "view", "sandbox=\"allow-scripts\""),
         ("src", "view", "src=\"https://example.com\""),
         ("load", "view", "load=done"),
@@ -388,8 +405,8 @@ fn a_name_that_is_an_attribute_and_a_function_shows_both() {
 #[test]
 fn a_function_the_web_has_and_contract_refuses_says_what_to_write() {
     for (name, says) in [
-        ("sort", "name the order where the view reads it"),
-        ("sortBy", "name the order where the view reads it"),
+        ("sort", "write `sortBy(xs, x => x.name)`"),
+        ("toSorted", "name the order where the view reads it"),
         ("pow", "`x * x` is a square"),
         ("now", "performanceNow()"),
         ("padStart", "pad in the data module"),
@@ -433,6 +450,11 @@ fn the_functions_are_listed_and_in_the_json() {
             .count(),
         count
     );
+    // `sortBy`'s roster row is its lowered call; vocab shows what an author writes.
+    let sort = "sortBy(list, (item, index) => key[, \"asc\" | \"desc\"]) -> list";
+    assert!(all.contains(&format!("  {sort}\n")), "{all}");
+    let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", "sortBy"]))).unwrap();
+    assert_eq!(one["function"]["signature"], sort, "{one}");
     let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", "formatDate"]))).unwrap();
     assert_eq!(one["function"]["kind"], "standard function");
     assert!(one["function"]["rules"][0]["example"]
@@ -825,6 +847,9 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
         "menu",
         "menubar",
         "::placeholder",
+        "glass",
+        "haptics",
+        "toast",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", name]))).unwrap();
         let blocks = one["concept"]["contract"].as_array().unwrap();
@@ -909,6 +934,9 @@ fn text_width_vocabulary_names_the_accessibility_warning_and_rem_repair() {
         let out = stdout(&vocab(&[name]));
         assert!(
             out.contains("lower-text-px-width")
+                && out.contains("fixed ceiling")
+                && out.contains("max-width=\"3rem\"")
+                && out.contains("width and its bounds")
                 && out.contains("rem")
                 && out.contains("Apple")
                 && out.contains("web controls inherit")
@@ -980,7 +1008,41 @@ fn a_recipe_name_prints_the_recipe_in_its_place() {
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8(output.stderr)
         .unwrap()
-        .contains("did you mean the recipe `tabs`?"));
+        .contains("try `contract vocab tabs` (a recipe)"));
+}
+
+/// LLP 1116.021, round 20: a builder's missed lookup sent them to the long
+/// guides, so a miss names what it is written as and the recipes, patterns and
+/// concepts named like it, and the grammar's `state` and the segmented
+/// control's `segment` answer outright.
+#[test]
+fn a_miss_points_at_what_it_means() {
+    let refused = |name: &str| {
+        let output = vocab(&[name]);
+        assert_eq!(output.status.code(), Some(1), "{name}");
+        String::from_utf8(output.stderr).unwrap()
+    };
+    let err = refused("shuffle");
+    assert!(
+        err.contains("try `contract vocab random-and-shuffle` (a recipe)"),
+        "{err}"
+    );
+    // `random` is a refused idiom, whose refusal names the recipe's section.
+    let err = refused("random");
+    assert!(err.contains("docs/recipes/random-rolls.md"), "{err}");
+    assert!(refused("dates").contains("`contract vocab date` (a concept)"));
+    assert!(refused("storage").contains("`contract vocab persist` (a concept)"));
+    assert!(refused("checkbox").contains("`input type=\"checkbox\""));
+    assert!(refused("strikethrough").contains("`text-decoration=\"line-through\"`"));
+    assert!(!refused("month").contains("try"));
+    assert!(stdout(&vocab(&["segment"])).contains("choice (a concept)"));
+    assert!(stdout(&vocab(&["state"])).contains("action (a concept)"));
+    // What a miss names is itself an answer.
+    let named = refused("checkbox") + &refused("strikethrough") + &refused("shuffle");
+    for name in ["input", "text-decoration", "random-and-shuffle"] {
+        assert!(named.contains(&format!("contract vocab {name}`")));
+        stdout(&vocab(&[name]));
+    }
 }
 
 /// LLP 1116.021 D3: a symbol the compiler refuses points to `contract vocab

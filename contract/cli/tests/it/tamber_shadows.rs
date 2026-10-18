@@ -120,6 +120,7 @@ fn a_colour_inside_a_shadow_follows_its_own_live_edit() {
         file: "app.tamber",
         exprs: &none,
         retention: None,
+        params: &exact_tamber::params::NONE,
     };
     let ops = vec![(
         "app.tamber".to_string(),

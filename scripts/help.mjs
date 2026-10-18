@@ -27,7 +27,7 @@ const DRIVE = [
   ['--port <n>', 'web: the page’s port (or EXACT_PORT); backend origins remain those app.ts grants'],
   ['--backend <url>', 'web: select the backend origin for this build'],
   ['--storage <name>', 'a scratch store, kept on native hosts; Chrome\'s starts empty'],
-  ['--keep-storage · --reset-storage', 'Chrome: reopen a named store · empty a named store first, on any host'],
+  ['--keep-storage · --reset-storage', 'reopen a named store (Chrome, or a compare) · empty a named store first, on any host'],
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
   ['--scale <n>', 'screenshots at n pixels per point (exact.mjs agent on ios, macos: 1; an iPhone\'s own: 3)'],
   ['--chrome platform|agent', 'UIKit\'s bars (exact.mjs on iOS); agent paints the header'],
@@ -57,7 +57,7 @@ const APPLE = ['--ios', '--tvos', '--device', '--run', '--no-install', '--prebui
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
-const RELEASE = ['--release', 'the build that ships, as EXACT_UPDATE_TRUST=production (set, agent drives it); a first is minutes: --prebuild --release early'];
+const RELEASE = ['--release', 'the build that ships, as EXACT_UPDATE_TRUST=production (set, agent drives it); a first is minutes: --prebuild --release early; an iOS agent drive installs over it, saying how to put it back'];
 
 export const HELP = {
   backend: {
@@ -146,12 +146,12 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
     body: `Builds if stale, launches, runs each quoted op on the agent's clock and closes.
-Without --storage, storage is refused; --reset-storage empties a native store, --keep-storage keeps a web one.
+No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's.
 An app's server.ts runs for the drive, its database per --storage.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
-  state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done
-  tap <target> [contextmenu|hover|drag <dx> <dy>|…] · hold: "tap <t> down" "tap hold <ms>" "tap up"
+  state [<name>] [--full]  a state, resource or field, dotted: groceries.0.done; >8 KB: sizes
+  tap <target> [contextmenu|hover|drag <dx> <dy>|…] · held: "tap <t> down" "screenshot <png>" "tap up"
   type <target> <text>|key <Name>   (a select, date or checkbox: its value)
   clock data|settle|+<ms> [real]    land in-flight work · end transitions
   check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
@@ -268,7 +268,8 @@ Ports    none. Runs to completion.`,
     usage: 'bun exact.mjs contract <subcommand> …      (paths from where you run it)',
     common: ['contract build <file> --json · contract vocab <name>…    diagnostics · any tag, property, colour role or recipe (no name: the card)'],
     flags: [],
-    body: `  build <file.contract> [-o <file.plan>] [--json] [--map]   --json: [] or each diagnostic with its range
+    body: `  build <file.contract> [-o <file.plan>] [--json] [--map]   --json: [] or each diagnostic with its range;
+                                          app.contract: app.ts type-checked too, as every host's build does
   types <file.contract> [-o <app.d.ts>]   the types app.ts imports (build app.contract, test, web refresh them)
   vocab [--json] [--all] [<name> …]       no name: the card, what an app writes, in one read (--all: every
                                           tag, attribute, CSS property and function); each name's entry in
@@ -341,11 +342,14 @@ Ports    none. Runs to completion.`,
   },
   update: {
     line: 'after exact2 moves or changes: rewrite exact.mjs, patches, toolchain and exact2 paths',
-    usage: 'bun exact.mjs update',
-    flags: [],
+    usage: 'bun exact.mjs update [--without linux]',
+    flags: [
+      ['--without <platform>', 'stop building and shipping linux (which Android builds too) or android: removes its crate, workspace member and app.json keys, and re-resolves Cargo.lock'],
+    ],
     internal: ['--update'],
     body: `Also rewrites AGENTS.md's generated block and adds the use lines the app's files lack;
 app.json commands and your files are kept. EXACT2=<path> names another exact2 checkout.
+An app without app.json deploy.store.linux gets no linux/ crate back.
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs update',
   },
@@ -409,19 +413,24 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
   // exact2's own verb that makes an app (scripts/exact.mjs new), not one of an app's.
   new: {
     line: 'a new app outside this repo, using this checkout',
-    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--game [--assets]]',
+    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--name <name>] [--bundle-id <id>] [--game [--assets]]',
     flags: [
+      ['--name <name>', 'the name people see (app.json app.name); default: the path\'s last part, capitalised'],
+      ['--bundle-id <id>', 'the reverse-DNS id (app.json app.id, app.ts appId); default: com.example.<name>-<hex>'],
       ['--online', 'use the server without a local device'],
       ['--snapback', 'write a guestbook wired to the Snapback backend above the app'],
       ['--port <n>', 'the Snapback origin’s port with --snapback (default 4400)'],
       ['--game', 'a game (game/README.md): a Rust world under Contract\'s menus'],
       ['--assets', 'with --game: declare game.assets'],
       ['--update', 'rewrite an existing app\'s generated files (its exact.mjs update runs this)'],
+      ['--without <platform>', 'with --update: stop building and shipping linux or android'],
     ],
-    body: `The path's last part names the app. Then cd there: its exact.mjs runs everything, and
-bun exact.mjs help lists its verbs. Read docs/start-here.md first.
+    body: `The path's last part names the app's crates. Give --name and --bundle-id here, before the
+first build: a later change to the id makes the next build cold and leaves the old app installed.
+Then cd there: its exact.mjs runs everything, and bun exact.mjs help lists its verbs. Read
+docs/start-here.md first.
 Ports    none. Runs to completion.`,
-    example: 'bun scripts/exact.mjs new ~/notes && cd ~/notes && bun exact.mjs test web',
+    example: 'bun scripts/exact.mjs new ~/notes --name Notes --bundle-id com.yourcompany.notes && cd ~/notes && bun exact.mjs test web',
   },
 };
 

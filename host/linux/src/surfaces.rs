@@ -19,8 +19,12 @@ use std::{
 #[cfg(target_os = "android")]
 #[path = "surfaces/android.rs"]
 mod android;
+#[cfg(any(target_os = "android", test))]
+mod retry;
 #[cfg(target_os = "android")]
-pub use android::buffer_frame;
+pub(crate) use android::acquire_fd;
+#[cfg(target_os = "android")]
+pub use android::{buffer_frame, window_ready};
 #[cfg(target_os = "android")]
 pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu};
 #[path = "surface_controls.rs"]
@@ -119,6 +123,7 @@ impl Abi {
                 "gpu_agent",
                 "gpu_input",
                 "gpu_wants_input",
+                "gpu_presentation_flags",
                 "gpu_published",
                 "gpu_assets",
                 "gpu_asset",
@@ -1111,6 +1116,12 @@ impl Surfaces {
                 }
             }
         }
+    }
+    #[cfg(target_os = "android")]
+    pub(crate) fn opaque(&self, view: u32) -> bool {
+        self.canvases.get(&view).is_some_and(|c| unsafe {
+            self.abis[&c.artifact].symbol::<Read>(b"gpu_presentation_flags")(c.id) == 3
+        })
     }
     pub(crate) fn wants_input(&self, view: u32) -> bool {
         self.canvases.get(&view).is_some_and(|c| unsafe {

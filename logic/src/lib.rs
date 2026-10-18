@@ -40,9 +40,11 @@ pub const MAX_MODULE: usize = 32 << 20;
 
 trait Executor {
     fn call(&mut self, bytes: &[u8]) -> Result<Vec<u8>, String>;
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        not(any(target_os = "ios", target_os = "tvos"))
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "android"
     ))]
     fn stateless(&self) -> bool {
         false
@@ -127,7 +129,7 @@ impl<D: DataSource> Swappable<D> {
             Self::browser(embedded)
         }
     }
-    /// Load the native target's data-only shared library (unavailable on iOS).
+    /// Load a data-only shared library on macOS, Linux, Windows or Android.
     pub fn native(embedded: D) -> Self {
         #[cfg(any(
             target_os = "macos",

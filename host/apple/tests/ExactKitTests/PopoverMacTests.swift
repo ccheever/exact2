@@ -504,6 +504,37 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertFalse(ancestor.pressed)
     }
 
+    /// No NodeView between the target and the container changes superview.
+    func testDetachingTheTargetsPlainContainerCancelsTheBubbledClick() throws {
+        let p = fixture(), ancestor = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[3])
+        defer { p.menus.reset() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "frame", "id": 9, "x": 110, "y": 80, "w": 120, "h": 30],
+            ["op": "children", "id": 3, "ids": [4, 5, 9]],
+        ]))
+        let source = try XCTUnwrap(p.views[9]), parent = try XCTUnwrap(ancestor.superview)
+        let container = NSView(frame: parent.bounds)
+        parent.addSubview(container, positioned: .below, relativeTo: nil)
+        container.addSubview(ancestor)
+        ancestor.handlers = ["press"]
+        p.press(2)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertFalse(pop.isDescendant(of: container), "the popover is lifted out of the container")
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        source.mouseDown(with: mouse(p, .leftMouseDown, source))
+        XCTAssertTrue(ancestor.pressed)
+        container.removeFromSuperview()
+        parent.addSubview(container, positioned: .below, relativeTo: nil)
+        XCTAssertTrue(ancestor.superview === container)
+        XCTAssertNotNil(ancestor.window)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertFalse(ancestor.pressed, "leaving the window cancels feedback immediately")
+        source.mouseUp(with: mouse(p, .leftMouseUp, source))
+        XCTAssertEqual(presses, [], "reattaching the container cannot revive the click")
+    }
+
     func testNativeBubbledPressRechecksItsSourceAndOpeningAfterChange() throws {
         for mutation in ["reopen", "remove", "detach", "reattach-button", "reattach-wrapper", "disabled", "inert"] {
             let p = fixture(), ancestor = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[3])

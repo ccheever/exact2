@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.9`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.11`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.9"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.11"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -60,6 +60,15 @@ on macOS and Linux.
   changes only a type token's style, weight, size or line height is `live`.
   Stage 6 F added under the same version: the IR's `icons` and `resolve`'s icon tuples. A
   transaction or `propose` that changes an icon is `rebuild`; an operation does not write one.
+- `tamber/1.10` (LLP 1121 stage 7, commit A) added component params: `describe`'s
+  `ir.components` (and `contract tamber ir`'s), each component's params by full name. Stage 7's
+  later wire changes add under the same version.
+- `tamber/1.11` (LLP 1121 stage 8, commit D) added the app's own Contract sources to the design's
+  files (`hello`, every reply's `files`, the journal, `commit`, `history` and `revert`) and the
+  state part operations `set-state` and `unset-state`; real-time scrubs added a scrub frame's mark
+  (`scrub` on a batch and the snapshot), the `mismatch` end of a scrub, and the build channel's
+  long poll (`wait` on `/__dev/commands`). The window's later additive changes (stage 8) add under
+  the same version.
 
 ## Where it runs
 
@@ -140,8 +149,11 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 ### Files and digests
 
 - **The design's files** are the app's design (`app.tamber`, or the file `app.json`'s `"tamber"`
-  names) and every other `*.tamber` file directly in the app's directory. Paths are relative to
-  the app's directory.
+  names) and every other `*.tamber` file directly in the app's directory, then the app's own
+  Contract sources (*1.11*, LLP 1121 stage 8 D: each `.contract` file its `app.contract` reads
+  from inside the app; a package's are read-only and not among them), whose state parts
+  `set-state` writes. Paths are relative to the app's directory. A hand edit of either kind is
+  announced, `commit` takes either, and the journal recovers either.
 - **`files`** in a read or write reply is `{path: digest}`, where a digest is SHA-256 hex of the
   file's bytes. It covers every design file. `commit` is the exception: there, `files` is a list
   of paths.
@@ -183,6 +195,23 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
   - `exports`;
   - `icons` (*1.9*), when the design has any: each `{name, sf, material, svg}`, its sources as
     written, null where unwritten (D10).
+  - `components` (*1.10*, LLP 1121 D15), when the app's Contract or its design declares params: each
+    component `{identity, name, params}`, its identity its declaring file and name
+    (`post.contract#PostButton`); each param `{name, short, param, token, kind, default, values,
+    range, step, control, options, label, help, group, priority}`. `name` is its full name
+    (`post.contract#PostButton.radius`), `short` the `Component.param` form or null where the app has
+    another component of that name (with params or none), `token` its name below the IR
+    (`param.f<hash>.…`, which no author or tool writes), `default` as written and
+    `options` each with a param named in full, and `values` per tuple, folded with the design and
+    the app's value. `control` defaults to `token`, `priority` to 2. `set` is the app's value,
+    `{value, line, whens}` of its `params` line, or null; `pinned` names the tokens the default
+    reads that a literal `set` no longer follows (D14's mark). Moving the declaring file is a new
+    identity, so a value keyed by the old one no longer applies.
+    A component that isn't Contract, declared in the design (`component MapCard` over
+    `params`, stage 7 D), is listed the same way, its identity the design file and its name
+    (`app.tamber#MapCard`).
+  - `resolve`, `explain` and `uses` take a param's full or short name as `token` and answer by its
+    full name (*1.10*); an icon param, like an icon, is read through `describe` and `resolve`.
 
   The IR has no `when` lines. A token's source lines come from `explain`; an icon is read through
   `describe` and `resolve` only.
@@ -277,7 +306,7 @@ The app's build failing is an error (`the app does not build: …`).
 ### Operations
 
 `ops` is a list of objects, each `{"op": "…", "file"?, …}`, where `file` defaults to the app's
-design.
+design (a `set-state` or `unset-state`: the Contract source that declares its `style`).
 
 | `op` | Fields | Edits |
 |---|---|---|
@@ -290,18 +319,45 @@ design.
 | `add-axis` | `name`, `values`, `under?: "scheme=dark"` | structure |
 | `add-axis-value` | `axis`, `value`, `before?` | structure |
 | `remove-axis-value` | `axis`, `value` | structure |
+| `set-param` (*1.10*) | `name`, `when?: [{axis, value}]`, `value` | the app's value of a component's param (LLP 1121 D15): its line in the design's `params` block, or one `when` line of it |
+| `unset-param` (*1.10*) | `name`, `when?` | removes the param's line (the component's default applies again), or one `when` line |
+| `set-state` | `style`, `state` (`active`, `hover`, `focus-visible`, `disabled`, `checked`, a `:` allowed), `row`, `value` (a string, written as a Contract string, or a number), `file?` | a row of a `style`'s state part in a `.contract` file (*1.11*, stage 8 D): the block and the row made if not there; `rebuild`, no scrub |
+| `unset-state` | `style`, `state`, `row`, `file?` | that row removed, and its block when it empties |
 
 - **Values are source text**, as the file writes them: `"light-dark(#fff, #000)"`, `"accent"`,
   `"oklch(from accent calc(l + 0.1) c h)"`.
-- **An edit splices only the lines it touches,** laid out as `tamber fmt` would, and leaves every
-  other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
+- **A `.contract` write** (`set-state`, `unset-state`) finds its `style` in the app's own Contract
+  sources when it names no `file` (refused where none or two declare it, naming them), goes
+  through `contract fmt`, and is refused, writing nothing, unless the whole app then builds (the
+  build's diagnostics answer it). Its inverse restores the file's bytes as they were, an
+  unformatted file's included.
+- **A design edit splices only the lines it touches,** laid out as `tamber fmt` would, and leaves
+  every other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
+  A `.contract` write is laid out whole by `contract fmt` (above): one line only in a file
+  already formatted, and in one that isn't, its other lines laid out too.
+- **A state part written under a node** is `set-row`'s (LLP 1122 T5): a `set-state` naming a
+  `node` is refused, pointing there. A row written over more than one line is the author's to
+  edit, and refused.
 - **The limits are the checker's:**
-  - a token's `kind` is `color` until LLP 1121 stage 6;
+  - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
+    `text-shadow`, `duration`, `easing`, `type`, `family`);
   - the axes may make at most 64 tuples;
   - naming a dial, token, `when` or axis value the design doesn't have is refused.
+- **A param's value** (*1.10*): `name` is a param's full name (`post.contract#PostButton.radius`)
+  or its short one (`PostButton.radius`); a name no param of the app answers, or a short name two
+  components share (whichever has the param, or neither), is refused (`tamber-param-unknown`,
+  `tamber-param-ambiguous`). The line is written by the name the design's line already has, or an
+  earlier op of the transaction wrote, or the name given, so a transaction never gives one param
+  two lines; the `params` block is made at the end when there is none, indented as its lines are,
+  and goes when its last line does. A `when` line needs the param's own line first. After any
+  write to an app with params, every param folds with the design and is inside its range, each
+  value written (a `when`'s too) at its own line (`tamber-param-range`, `tamber-range-unit`), so an
+  unset that unmasks a default out of range is refused. The inverse is the preimage, so undoing
+  the first `set-param` restores absence. A param's value is `live` where the plan folds it, as a
+  token's is, `rebuild` for a duration or easing param (a motion param is written into its rows at
+  build, wherever its component is used), and a live one can be scrubbed. A token's rename renames
+  the `params` values naming it.
 - **Not yet built:**
-  - the component-param operations (`set-param`, `unset-param`; stage 7);
-  - state parts (`set-state`; stage 8);
   - `set-row` (LLP 1122 T5);
   - `preview` as an operation (it is a request instead: see the build channel).
 
@@ -320,7 +376,13 @@ design.
   other (stage 5). It is `rebuild` for structure (a role override gained or lost among it), a
   synthetic token gained, lost or left unfoldable, a profile colour, or an unknown closure (the
   app's build stops before its design). A `live` edit reaches running development builds as a batch, with
-  no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads;
+  no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads.
+  `propose` through the JS target's dev loop is also `rebuild` when the edit moves a token its pages
+  write inline, which the loop's design read marks (a `font-weight` number, an SVG attribute's
+  length or number: LLP 1121 stage 6). Such a token has no property to change in place, and the
+  class is the serving loop's answer (D13): where builds disagree, `rebuild` wins. This holds
+  while the loop's design reader is built; without the reader the session's class stands, and
+  the release rebuilds;
 - `synthetic: [{expr, values}]` (*1.2*): each synthetic token whose value the edit changes, its new
   value as CSS text per app tuple, for the live batch;
 - `files`: the digests it planned against;
@@ -341,14 +403,34 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
   (`scrub` its id). It needs `write` scope and a present client (a subscription or long poll that
   names it), and the dev loop's wire: a server no dev loop runs answers 501.
   - **One at a time:** another client's scrub open is 409.
-  - **Each update is the whole gesture's edit,** planned (`propose` with `texts`) on the files as
-    the scrub opened on them (`files`, the digests its client read, given when it opens). The dev
-    loop compiles the texts in place of the design file and sends every build the batch from the
-    design it runs, as a value-only edit sends one; the snapshot it serves (`/__dev/design`) is the
-    scrub's while it lasts.
-  - **Updates that come while one previews** wait; only the latest is previewed, and the others
-    are answered `{scrub, superseded: true}`. An update back to the committed value previews the
-    committed design, and the scrub stays open.
+  - **Each update is the whole gesture's edit,** folded on the files as the scrub opened on them
+    (`files`, the digests its client read, given when it opens). The design server takes what the
+    fold reads once, when the scrub opens, and folds the whole design per update, reading no file;
+    the dev loop sets the rows that changed on the design it committed and sends every build the
+    batch from the design it runs, as a value-only edit sends one, compiling nothing. A frame it
+    cannot set so (a row that would gain or lose its per-tuple values, a design it has not built
+    yet) is planned (`propose` with `texts`) and compiled in place of the design file, as before.
+    The snapshot it serves (`/__dev/design`) is the scrub's while it lasts.
+  - **Updates that come while one previews** wait; only the latest is previewed next, and the
+    others are answered `{scrub, superseded: true}`. Nothing else paces them: a build shows the
+    latest frame it has at its next display frame. An update back to the
+    committed value previews the committed design, and the scrub stays open.
+  - **Each frame a scrub sends is marked** (*1.11*): its batch and the snapshot carry `scrub`
+    `{id, rev, run}`, the scrub's id, a revision that rises over every frame of every scrub the
+    design server sends, ends included, and the server's run (a name per start: a restarted
+    server's revisions start again). A build drops a frame or snapshot of the run it last applied
+    a frame of (with no `run`, of the scrub) whose `rev` is not above that one's, so a polled
+    host's late fetch of an earlier scrub's frame never shows over a later scrub or its end. A
+    build that has applied a frame of a later run drops any frame of an earlier one; a frame with
+    a `run` after a mark with none is a new run's. A notice that stands for a scrub frame (one over
+    a stream's bound, a polled queue collapsed) keeps its mark, and the build of what a release
+    wrote carries a mark above the scrub's frames. A build applies a scrub's frames with no
+    transition: an authored
+    `transition` on a row the frame sets neither starts nor goes on (a development preview that
+    follows the tool's gesture; any other edit moves as authored).
+  - **A frame set without compiling is checked** once the gesture rests (150 ms with no update):
+    the frame shown, planned and compiled in full, must be the design set. Where it is not, or the
+    full check refuses it, the scrub ends (`mismatch`).
   - **The dev loop's builds and a preview.** Any write other than the scrub's own release, and
     any hand edit, ends the scrub first (below); that write is never previewed over. What the
     loop does with a value-only build that lands while a preview is still showing is only about
@@ -362,11 +444,13 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
     names, or a length or number an SVG attribute row names, has no property the page sets in
     place, so its edit rebuilds and the JS dev loop refuses its scrub, the refusal naming why (the
     design entry says `inline`).
-    So does every type and family token (stage 6 C, under *1.9*): the JS target writes each as
-    the kernel resolves its longhands, a literal, so an edit to one rebuilds there and has no
-    scrub, whatever `propose` classes it for the native and wasm builds (`live` for a value-only
-    edit is no promise for the JS target); and one that varies by an app axis is refused at build
-    when the app ships the JS target.
+    A type or family token is no longer one (stage 6 C's follow-up): the JS target declares each
+    row such a token writes as a property per tuple (`--x-type-body-size`, `--x-family-mono`),
+    one that varies by an app axis always and every one in a development build, so an edit that
+    changes only a type token's style, weight, size or line height is live and scrubbable there
+    too; one that changes the rows it writes or a family rebuilds, as `propose` classes it. The
+    design entry of such a token lists each row's property and its CSS per tuple (`parts`) in
+    place of `prop` and `css`.
 - **`scrub-release`** `{client, scrub}` writes once: one transaction checked against the digests
   the scrub opened with, its reply a transaction's. A file moved since is a conflict naming who
   moved it (`by`): nothing is written, and the builds get the committed design back. While a
@@ -379,7 +463,8 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
   gesture's first, and a build that connects later gets the committed snapshot.
 - **The `scrub` event** `{scrub, client, reason}` says each opening (`opened`, at its first
   preview; one that ends before it previews is never announced) and each end
-  (`released`, `refused`, `cancelled`, `competing write`, `disconnected`, `server lost`, `idle`).
+  (`released`, `refused`, `cancelled`, `competing write`, `disconnected`, `server lost`, `idle`,
+  and `mismatch`, *1.11*).
   While one is open the files and the running builds differ: the tool says "previewing".
 - **Scope:** the local tool's token writes. A paired client's scoped token (LLP 1122 D6) names
   its scope, and a `propose`-scope client's scrub is 403.
@@ -495,22 +580,40 @@ with.
   - each file is `{file, status, diff, edits, refused?}`, and a rename shows as a deletion plus an
     addition.
 - **Each edit** is `{what, name, when: [{axis, value}], before, after}`:
-  - `what` is `token`, `dial`, `axis` or `other`;
+  - `what` is `token`, `dial`, `axis`, `other`, or `state` (a `.contract` file's, below);
   - `before` and `after` are source text, or null;
   - they come from comparing the two versions' parsed declarations, so a version the checker
     would refuse still gives edits.
 - **`edits` is null, with `refused`,** when a side doesn't parse, declares a name or `when` twice,
   or the two versions together are over 1 MiB.
+- **The app's own Contract sources** (*1.11*, stage 8 D) are among the design's files: their
+  state parts are the design's. A `.contract` file's edits are its styles' state rows, each
+  `{what: "state", name: <style>, state, row, when: [], before, after}`, the values as Contract
+  writes them (`"#000000"` quoted, `0.5`); a block whose border colours change order is one
+  edit with `row` `border-*-color order`. The file says `code: true` where the commit changed
+  its other lines too. A `.contract` change with no state row is the app's code, not the
+  design's: it is left out, and a commit with nothing else is not listed (so a page may hold
+  fewer than `limit`). History reads the Contract sources the server has now; a revert reads
+  every one in the app outside `node_modules`, and refuses by name one the app no longer reads.
 
 ### `revert` (*1.1*)
 
 `{commit, client}` holds, as a proposal, the inverse of a past commit's design-file changes.
 - **Planned on today's files** as operations, never a byte restore. Its `review.revert` is
-  `{commit, subject, moved, already, only?}`. `moved` lists the files whose bytes differ from
-  the commit's result.
+  `{commit, subject, moved, already, code?, only?}`. `moved` lists the files whose bytes differ
+  from the commit's result. A `.contract` file's state rows are set back with `set-state` or
+  `unset-state`; its other lines are left as they are, and `code` lists the files where the
+  commit changed some (*1.11*).
 - **Refused (409)** with `refused: [{file, edit, now, why}]` when an edit can't be inverted:
   - the file has moved on it since;
-  - the commit created or removed a design file;
+  - the commit created or removed a design file (a `.contract` file's state rows included; one
+    whose code alone changed is left alone);
+  - a `.contract` row put back last would paint over a border row of its block it came before,
+    or the commit changed their order;
+  - a `.contract` row's style is gone, it is written over more than one line, its value before
+    is no string or number, or `unset-state` would take a comment (on its line, or its emptied
+    block's header);
+  - the `.contract` file is not one of the app's own Contract sources now;
   - it added or removed a dial;
   - it added an axis, reordered an axis's values, or changed an axis's `under`;
   - it changed a kind, a range, metadata, the design's name or its exports.
@@ -518,7 +621,7 @@ with.
   A removed axis is restored with `add-axis`.
 - **Other refusals:**
   - everything is undone already: 409 with `already`;
-  - a commit that touched no design file: 400;
+  - a commit that touched no design file, or only a Contract source's code: 400;
   - an unknown commit: 404.
 - **Accepted after the files move,** it is planned again from the commit. A partial accept keeps
   its selection when planned again.
@@ -531,6 +634,13 @@ with.
   `dtcg`: a stylesheet's importer reads one sheet, and several are refused (400, *1.1*).
 - **`kind`** is `shadcn`, `tailwind` or `dtcg`. `prefix` is the token prefix, by default
   `shadcn`, `tw` or `dtcg`.
+- **Every kind** (stage 6 H): a length, number, type, family, shadow, duration or easing
+  is proposed as its kind's token, the `add-token` naming its `kind`, when it folds as that
+  kind beside the import's other tokens; one that does not, or that has a value per side of
+  the scheme (only a colour has a dark side), is in `unmapped` with why. Every token, a colour
+  too, is checked where it lands, against the app's vocabulary: one the design has of another
+  kind, one that would leave a design token reading it (or a dial) unfolded, and one naming a
+  token so refused, is in `unmapped` instead of `ops`.
 - **Astryx is refused here** and keeps its CLI (`bun exact.mjs tamber import astryx …`), since
   resolving its package needs a Bun install.
 - **The import is held as a proposal** whose `review` is `{importer, counted, unmapped, offers,
@@ -698,6 +808,8 @@ A write reaches every running development build at once. Release builds take non
     `AccentColor` is the app's tint) and each node's rows; the web rewrites its role sheet
     (`{"op": "theme"}`) in the batch's one style update; Linux re-targets its paint and paints
     again; the JS target's development build sets the role's sheet property (below).
+  - `scrub` (*1.11*), on a scrub's batch and on the snapshot it leaves: `{id, rev, run}`, the frame's
+    mark (see [Scrub sessions](#scrub-sessions-12-llp-1121-d13-llp-1122-d6)).
   - `base` is the design digest it applies to, and `design` the new one. The JS target's batches
     add each token's custom property and its CSS per tuple (`prop`, `css`). A role override's
     `prop` is its role's property in the theme's sheet (`--exact-accent`, `--exact-canvas-text`,
@@ -727,7 +839,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
 
 - **Registration.** A build's dev stream hello (`/__dev`; the JS target's `/__dev/page`) carries
   a `nonce` when the loop has a design. The build answers with one `POST /__dev/report`:
-  `{nonce, kind: "register", id, host, capabilities, plan, planDigest?, design}`. `planDigest`
+  `{nonce, kind: "register", id, host, capabilities, plan, planDigest?, design}` (`host`: `web`,
+  `web-js`, `ios` (tvOS too), `macos`, `linux`, or `android` for the Android reader, *1.9*). `planDigest`
   (*1.9*) is the SHA-256 of the plan the build runs, the digest its source map names; the server
   joins and outlines that build from that plan's map.
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
@@ -757,6 +870,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
       under `seq + 1`. The first answer's `seq` is 1.
     - An answer holds at most 32 KiB of frames (the rest wait for the next poll, and a batch
       larger alone goes as its notice).
+    - **A long poll** (*1.11*): `&wait=<ms>` holds a poll with nothing to answer until a frame
+      is queued for its stream or the wait passes (at most 4 s), so a frame reaches the build at
+      once. One is held per stream: a newer poll answers the older at once. The JS loop's resident
+      producer holds each poll 4 s; Linux holds 250 ms, so a report it queues waits at most that
+      for the poll before it to end.
     - **Bounded.** Only the latest `pin` waits in a stream's queue. Past 64 frames or 128 KiB
       queued, the live-table frames waiting collapse into one notice of the latest design, and
       the build fetches the snapshot.
@@ -805,12 +923,14 @@ The tool drives no input into an app; a command changes only what `prefer` would
     own hit view, that stands for a plan node, a walk that stops at a system bar or the title bar
     (a plan node the bar hosts, its title, a bar or toolbar item, a tab, is selected; UIKit's and
     AppKit's own parts, Back, a window button, the bar, select nothing, and the banner says so);
-    a finger down (the pointer over a view, on the Mac) highlights what it would select. tvOS,
-    the Linux host and a development JS page (until the JS target names the capability) answer
-    `inspect` unsupported. A build that registers again
+    a finger down (the pointer over a view, on the Mac) highlights what it would select. The JS target's
+    development page does as the wasm page does (T2b): it has no runner, so it builds each row from
+    the plan's inspect table (`/dev-inspect.json`, which the JS dev loop makes when first asked) and the page, and a
+    row bound by an expression is the element's computed CSS, said `computed: true` (*1.9*). tvOS and
+    the Linux host answer `inspect` unsupported. A build that registers again
     is told inspect mode as the server holds it. A build that can says
-    `inspect` among its `capabilities` (the wasm web page, and the iOS and Mac hosts; the JS
-    target later). Development builds only.
+    `inspect` among its `capabilities` (the wasm and JS web pages, and the iOS and Mac hosts).
+    Development builds only.
   - `outline` (*1.3*) `{sites, plan, click?}`: the sites of plan `plan` (its digest) to outline while
     inspect mode is on, every copy of a node; an empty list clears the outlines, and so does
     `{clear: true}`. Each build is sent its own plan's sites, from that plan's map (*1.9*: by the

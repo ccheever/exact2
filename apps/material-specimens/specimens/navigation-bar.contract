@@ -1,0 +1,26 @@
+routes nav
+  tab home "/"
+  tab starred "/starred"
+  tab settings "/settings"
+component App
+  action back
+    nav = back(nav)
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%" display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        for t in nav.tabs key = t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            for e in t.stack key = e.id
+              column navigationKey=`${e.id}` position="absolute" inset=0
+      row role="tablist" testId="specimen"
+        button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home") flex=1
+          image "symbol:home"
+          text "Home"
+        button role="tab" aria-controls="panel-starred" aria-selected=(nav.tab == "starred") press=pick("starred") flex=1
+          image "symbol:star"
+          text "Starred"
+        button role="tab" aria-controls="panel-settings" aria-selected=(nav.tab == "settings") press=pick("settings") flex=1
+          image "symbol:settings"
+          text "Settings"

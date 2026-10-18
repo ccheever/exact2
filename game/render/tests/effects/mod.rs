@@ -348,6 +348,7 @@ fn sky_gradient_sun_disc_and_height_fog() {
         density: 0.02,
         height_falloff: 0.3,
         color: None,
+        linear: None,
     });
     let foggy = render(&gpu, &mut r, &texture, &f);
     foggy.save("fog-near-far");
@@ -381,6 +382,9 @@ fn sky_gradient_sun_disc_and_height_fog() {
     assert!(seen.abs_diff(tone(0.02)) <= 3, "{seen} vs {}", tone(0.02));
 }
 
+pub(super) mod direct;
+pub(super) mod first_instance;
+pub(super) mod half;
 pub(super) mod shadow_quality;
 
 /// Occlusion culling (occlusion.rs) drops only what nothing would show: a wall
@@ -523,4 +527,59 @@ fn occlusion_leaves_a_turned_grid_as_it_was() {
         "occlusion dropped little: {shown} of {all}"
     );
     assert_eq!(differing, 0, "occlusion dropped a cube a pixel showed");
+}
+
+#[test]
+fn pcf_soft_strength_and_cascade_switch_preserve_unshadowed_light() {
+    let Some(gpu) = gpu() else { return };
+    let (mut r, mut f, _) = shadow_scene(&gpu, 5.);
+    f.environment.tone_mapping = exact_game::ToneMapping::None;
+    let texture = target(&gpu, (512, 512), wgpu::TextureFormat::Rgba8Unorm);
+    f.sun.as_mut().unwrap().shadows = None;
+    let lit = render(&gpu, &mut r, &texture, &f);
+    let probe = Vec3::new(0.78, 0., -4.9);
+    let bright = at_world(&lit, &f, probe);
+    for (cascades, resolution, bilinear) in [1, 3]
+        .into_iter()
+        .flat_map(|c| [1024, 2048].map(|r| (c, r)))
+        .flat_map(|(c, r)| [false, true].map(|b| (c, r, b)))
+    {
+        let settings = Shadows {
+            cascades,
+            resolution,
+            filter: if bilinear {
+                exact_game_render::ShadowFilter::Bilinear {
+                    depth_bias: 0.0004,
+                    normal_bias: 0.035,
+                }
+            } else {
+                exact_game_render::ShadowFilter::PcfSoft {
+                    depth_bias: 0.0004,
+                    normal_bias: 0.035,
+                }
+            },
+            ..Default::default()
+        };
+        f.sun.as_mut().unwrap().shadows = Some(settings);
+        let dark = at_world(&render(&gpu, &mut r, &texture, &f), &f, probe);
+        f.sun.as_mut().unwrap().shadows = Some(Shadows {
+            strength: 0.5,
+            ..settings
+        });
+        let half = at_world(&render(&gpu, &mut r, &texture, &f), &f, probe);
+        assert!(
+            bright > half + 10 && half > dark + 10,
+            "{cascades}: {dark}/{half}/{bright}"
+        );
+        f.sun.as_mut().unwrap().shadows = Some(Shadows {
+            strength: 0.,
+            ..settings
+        });
+        let zero = render(&gpu, &mut r, &texture, &f);
+        assert!(lit
+            .data
+            .iter()
+            .zip(&zero.data)
+            .all(|(a, b)| a.abs_diff(*b) <= 2));
+    }
 }

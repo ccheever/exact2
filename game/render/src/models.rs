@@ -27,6 +27,7 @@ pub(crate) struct Material {
     bytes: u64,
     pub alpha: AlphaMode,
     pub double_sided: bool,
+    pub untextured: bool,
     data: MaterialData,
     names: [Option<String>; 5],
 }
@@ -34,6 +35,12 @@ pub(crate) struct Material {
 pub(crate) const INSTANCE_WORDS: usize = 44;
 /// A record's look word flag: its tint replaces the material's base colour factor.
 pub(crate) const REPLACE: u32 = 1 << 31;
+/// A record's look word flag: its draw has parts of several materials, which
+/// its vertices number in `uv.x` (merge.rs).
+pub(crate) const NUMBERED: u32 = 1 << 30;
+/// A merged part's entry: tint, glow, its first vertex as bits; then, in a
+/// draw of several materials, its material (merge.rs `PartMaterial`).
+pub(crate) type PartLook = [f32; 16];
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
 /// What the feed batches one loaded model from.
 pub(crate) struct Draws<'a> {
@@ -44,6 +51,8 @@ pub(crate) struct Draws<'a> {
     pub merged: &'a [ModelNode],
     pub members: &'a [Vec<String>],
     pub starts: &'a [Vec<u32>],
+    /// Each merged draw's part materials when it has several, else empty.
+    pub parts: &'a [Vec<merge::PartMaterial>],
     /// Renderer materials, by model material index.
     pub materials: &'a [MaterialId],
     /// Materials a game's `CustomMaterial` shades: a model with any of them in
@@ -60,6 +69,7 @@ pub(crate) struct Uploaded {
     /// part's vertices start in its mesh.
     pub members: Vec<Vec<String>>,
     pub starts: Vec<Vec<u32>>,
+    pub parts: Vec<Vec<merge::PartMaterial>>,
     pub(crate) digest: u64,
     pub active: bool,
     pub meshes: Vec<MeshId>,
@@ -116,11 +126,11 @@ pub(crate) struct Models {
     /// Per record, 1 + the first of its merged parts' looks (0: none), and
     /// those looks (tint, glow, then the part's first vertex as bits; a
     /// `u32::MAX` start ends each record's run), appended after the records.
-    pub(crate) part_looks: (Vec<u32>, Vec<[f32; 8]>),
+    pub(crate) part_looks: (Vec<u32>, Vec<PartLook>),
     /// Materials a game's `CustomMaterial` shades (never merged).
     pub(crate) custom: std::collections::BTreeSet<MaterialId>,
     /// The feed's looks for the next `set_draw_instances`, part starts relative.
-    pub(crate) pending_looks: (Vec<u32>, Vec<[f32; 8]>),
+    pub(crate) pending_looks: (Vec<u32>, Vec<PartLook>),
 }
 impl Models {
     pub fn custom_data(&mut self, queue: &wgpu::Queue, data: impl Fn(u32) -> u32) {
@@ -194,7 +204,7 @@ impl Models {
             wgpu::BufferUsages::STORAGE,
             "game model instances",
         );
-        let skinning = crate::skinning::Skinning::new(device);
+        let skinning = crate::skinning::Skinning::new(device, family.cache.as_ref());
         self.bind = Some(instance_bind(
             device,
             &family.instance,
@@ -245,20 +255,23 @@ impl Models {
             words.extend(normal);
             words.extend(record.tint.map(f32::to_bits));
             words.extend(record.glow.map(f32::to_bits));
-            // Low 31 bits: 1 + the record's first part look; top bit: replace.
+            // Low 30 bits: 1 + the record's first part look; then the flags.
             let look = self.part_looks.0.get(index).copied().unwrap_or(0);
-            let base = look & !REPLACE;
+            let base = look & !(REPLACE | NUMBERED);
             let at = if base == 0 {
                 0
             } else {
                 records.len() as u32 + base
             };
-            words.push(at | (look & REPLACE));
+            words.push(at | (look & (REPLACE | NUMBERED)));
         }
-        // A merged part's look is one record-sized entry: its tint and glow.
+        // A merged part's look is one record-sized entry: its tint and glow,
+        // and in `local`'s first two columns its material, when it has one.
         for look in &self.part_looks.1 {
-            words.extend([0; 36]);
-            words.extend(look.map(f32::to_bits));
+            words.extend([0; 4]);
+            words.extend(look[8..].iter().map(|v| v.to_bits()));
+            words.extend([0; 24]);
+            words.extend(look[..8].iter().map(|v| v.to_bits()));
         }
         if words.len() as u64 * 4 > device.limits().max_storage_buffer_binding_size {
             return Err(RenderError::scene(
@@ -328,7 +341,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         model: &Model,
     ) -> Result<(Vec<MeshId>, Vec<MaterialId>), RenderError> {
         model.validate().map_err(RenderError::scene)?;
-        self.pipelines.prepare_model(&self.device, model);
+        self.pipelines.prepare_model(&self.device);
         self.models
             .prepare(&self.device, self.pipelines.models.as_ref().unwrap());
         for (name, pixel, srgb) in [
@@ -367,6 +380,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     })
                     .collect();
                 let id = self.add_mesh(&vertices, &mesh.indices);
+                if let Some(outline) = &mesh.outline {
+                    self.add_outline(id, outline, None);
+                }
 
                 if !mesh.joints.is_empty() {
                     let start = self.meshes[id.0].base_vertex as u64 * 32;
@@ -404,9 +420,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 &self.device,
                 &self.queue,
                 &self.pipelines.models.as_ref().unwrap().material,
-                material,
-                &names,
+                (material, &names),
                 &self.models.textures,
+                self.untextured_twin(material, &names),
             );
             if slot == self.models.materials.len() {
                 self.models.materials.push(material);
@@ -415,6 +431,29 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             }
         }
         Ok((meshes, materials))
+    }
+    /// A live group with the contents of `m`'s when `m` has no textures:
+    /// untextured materials with the same factors share one, so neighbouring
+    /// draws of them bind it once.
+    pub(crate) fn untextured_twin(
+        &self,
+        m: &MaterialData,
+        names: &[Option<String>; 5],
+    ) -> Option<&wgpu::BindGroup> {
+        if names.iter().any(Option::is_some) {
+            return None;
+        }
+        let values = baked(m);
+        let bits = |values: &[f32]| values.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+        self.models
+            .materials
+            .iter()
+            .find(|t| {
+                t.bind.is_some()
+                    && t.names.iter().all(Option::is_none)
+                    && bits(&baked(&t.data)) == bits(&values)
+            })
+            .and_then(|t| t.bind.as_ref())
     }
     /// Prepare a named model inside its Pending window. Later feeds only read handles.
     pub fn prepare_model(&mut self, name: &str, model: &Model) -> Result<(), RenderError> {
@@ -438,7 +477,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             }
             return Ok(());
         }
-        model.validate().map_err(RenderError::scene)?;
+        model
+            .validate()
+            .map_err(|e| RenderError::scene(format!("{name}: {e}")))?;
         let replaced = self.models.loaded.remove(name).is_some();
         if replaced {
             self.reclaim_orphan_slots();
@@ -452,7 +493,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             &self.device,
             &self.queue,
             model,
-            &animated.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>(),
+            &animated,
         );
         if replaced {
             self.models.skinning.as_mut().unwrap().mark_fresh(&skins);
@@ -475,7 +516,11 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                         .map(|s| skins[s as usize])
                         .or_else(|| rigid.next().copied());
                     (
-                        meshes[m as usize],
+                        if skin.is_some() && n.skin.is_none() && local.determinant() < 0. {
+                            self.mirrored_rigid_mesh(&model.meshes[m as usize])
+                        } else {
+                            meshes[m as usize]
+                        },
                         materials[model.meshes[m as usize].material as usize],
                         if skin.is_some() {
                             Mat4::IDENTITY
@@ -489,18 +534,26 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             .collect::<Vec<ModelNode>>();
         let drawn: Vec<u32> = model.nodes.iter().filter_map(|n| n.mesh).collect();
         let first = skins.len() - animated.len();
-        let (merged, members, starts, merged_meshes) =
-            self.merge_static(model, &nodes, &drawn, &animated, &skins[first..]);
+        let merged = self.merge_static(model, &nodes, &drawn, &animated, &skins[first..]);
         let mut meshes = meshes;
-        meshes.extend(merged_meshes);
+        for node in &nodes {
+            if !meshes.contains(&node.0) {
+                meshes.push(node.0);
+            }
+        }
+        meshes.extend(merged.meshes);
+        // Shared materials follow the model's own: indices stay its materials'.
+        let mut materials = materials;
+        materials.extend(merged.materials);
         self.models.loaded.insert(
             name.into(),
             Uploaded {
                 nodes,
                 names,
-                merged,
-                members,
-                starts,
+                merged: merged.draws,
+                members: merged.members,
+                starts: merged.starts,
+                parts: merged.parts,
                 digest,
                 active: true,
                 meshes,
@@ -530,6 +583,13 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         // Shared arenas are charged at their actual buffer capacity. Unused tails
         // and orphan spans remain retired until a GPU-to-GPU packing pass.
         self.mesh_buffer_bytes().saturating_sub(live_mesh_bytes)
+            + self
+                .meshes
+                .iter()
+                .enumerate()
+                .filter(|(i, m)| m.asset && !retained.contains(i))
+                .map(|(_, m)| m.outline.as_ref().map_or(0, |h| h.bytes))
+                .sum::<u64>()
             + self
                 .models
                 .loaded
@@ -613,6 +673,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             if m.asset && !meshes.contains(&i) {
                 m.indices = 0..0;
                 m.vertex_bytes = 0;
+                m.outline = None;
             }
         }
         for (i, m) in self.models.materials.iter_mut().enumerate() {
@@ -686,9 +747,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     &self.device,
                     &self.queue,
                     &self.pipelines.models.as_ref().unwrap().material,
-                    &material.data,
-                    &material.names,
+                    (&material.data, &material.names),
                     &self.models.textures,
+                    None,
                 );
             }
         }
@@ -698,8 +759,11 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     pub fn asset_work(&self) -> (usize, u64) {
         (
             self.pipelines.models.as_ref().map_or(0, |m| {
-                m.forward.iter().filter(|p| p.is_some()).count()
-                    + m.shadow.iter().filter(|p| p.is_some()).count()
+                m.forward.iter().filter(|p| p.get().is_some()).count()
+                    + m.shadow.iter().filter(|p| p.get().is_some()).count()
+                    + m.camera_depth.iter().filter(|p| p.get().is_some()).count()
+                    + m.fallback.iter().filter(|p| p.get().is_some()).count()
+                    + self.outlines.as_ref().map_or(0, |o| o.count())
             }),
             self.models.uploads,
         )
@@ -715,6 +779,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             texture_uploads: textures,
             mesh_uploads: self.mesh_uploads,
             pipeline_creations: crate::pipeline::STARTUP_PIPELINES
+                + self.pipelines.variant_count()
                 + pipelines as u64
                 + skin.map_or(0, |s| s.pipeline_creations)
                 + self.quads.work_pipelines(),
@@ -727,6 +792,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     /// Replace additional draw records. Primitive batches retain their compact identity
     /// record: slot = transform = material, geometry in the batch, local = identity.
     pub fn set_draw_instances(&mut self, records: &[DrawInstance]) -> Result<(), RenderError> {
+        self.model_poses_current = false;
         self.cull.epoch += 1;
         let Some(family) = &self.pipelines.models else {
             assert!(records.is_empty(), "model instances need prepared assets");
@@ -735,7 +801,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         // Part starts become absolute vertices; direct callers bring no looks.
         let (bases, mut looks) = std::mem::take(&mut self.models.pending_looks);
         for (record, &base) in records.iter().zip(&bases) {
-            let base = base & !REPLACE;
+            let base = base & !(REPLACE | NUMBERED);
             if base == 0 {
                 continue;
             }
@@ -759,20 +825,43 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     }
 }
 
+/// `m`'s group over its uniform and named textures, or `twin`, a live group
+/// with the same contents, which allocates nothing.
 fn material_bind(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     layout: &wgpu::BindGroupLayout,
-    m: &MaterialData,
-    names: &[Option<String>; 5],
+    (m, names): (&MaterialData, &[Option<String>; 5]),
     textures: &BTreeMap<String, Texture>,
+    twin: Option<&wgpu::BindGroup>,
 ) -> Material {
+    let (bind, bytes) = match twin {
+        Some(bind) => (bind.clone(), 0),
+        None => new_material_bind(device, queue, layout, m, names, textures),
+    };
+    Material {
+        bytes,
+        bind: Some(bind),
+        alpha: m.alpha_mode,
+        double_sided: m.double_sided,
+        untextured: crate::model_pipeline::untextured(m),
+        data: m.clone(),
+        names: names.clone(),
+    }
+}
+
+/// The material's uniform (model.wgsl `BakedMaterial`).
+fn baked(m: &MaterialData) -> Vec<f32> {
     let mut values = Vec::new();
     values.extend(m.base_color);
     values.extend([
         m.metallic,
         m.roughness,
-        m.normal_scale,
+        if m.normal_texture.is_some() {
+            m.normal_scale
+        } else {
+            0.
+        },
         m.occlusion_strength,
     ]);
     values.extend(m.emissive);
@@ -783,13 +872,25 @@ fn material_bind(
             AlphaMode::Mask => 1.,
             AlphaMode::Blend => 2.,
         },
-        0.,
+        m.rim,
         0.,
         0.,
     ]);
     for uv in m.uv_transforms {
         values.extend([uv[0], uv[1], uv[2], uv[3], uv[4], uv[5], 0., 0.]);
     }
+    values
+}
+
+fn new_material_bind(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    m: &MaterialData,
+    names: &[Option<String>; 5],
+    textures: &BTreeMap<String, Texture>,
+) -> (wgpu::BindGroup, u64) {
+    let values = baked(m);
     let uniform = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("game baked material"),
         size: (values.len() * 4) as u64,
@@ -826,18 +927,12 @@ fn material_bind(
             resource: wgpu::BindingResource::Sampler(&texture.sampler),
         });
     }
-    Material {
-        bytes: uniform.size(),
-        bind: Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("game material textures"),
-            layout,
-            entries: &entries,
-        })),
-        alpha: m.alpha_mode,
-        double_sided: m.double_sided,
-        data: m.clone(),
-        names: names.clone(),
-    }
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("game material textures"),
+        layout,
+        entries: &entries,
+    });
+    (bind, uniform.size())
 }
 
 fn texture_names(m: &MaterialData, names: &[String]) -> [Option<String>; 5] {

@@ -159,6 +159,9 @@ pub(crate) fn specs_in(
     underlying: &dyn Fn(Property) -> (Value, f64),
     size: Option<(f64, f64)>,
 ) -> String {
+    if !crate::host::svg::render_server() {
+        return "[]".into();
+    }
     let mut s = String::from("[");
     let mut first = true;
     for (i, play) in engine.animation_plays(key).iter().enumerate() {
@@ -366,6 +369,9 @@ pub(crate) fn eligibility(
             // A glass group ignores the opacity Core Animation plays between
             // it and its glass; the host isolates on what it is told.
             || (props.contains(&Property::Opacity) && in_glass_group(kernel, &n))
+            // What the host paints over the node's own (a press, a look: LLP
+            // 1061 D7, LLP 1121 D8) composes on the engine's sample.
+            || props.iter().any(|p| crate::looks::paints_over(&n, *p))
             // Drawn into an island's pixels, which Core Animation does not
             // animate (except a live filter picture on iOS).
             || (svg && in_picture(kernel, &n, box_motion))
@@ -428,6 +434,9 @@ pub(crate) fn eligibility(
 /// runs on while the area under it is sampled (the chart's).
 pub(crate) fn hand_over_paths(kernel: &Kernel, engine: &mut Engine, live: bool) {
     use exact_kernel::svg::Paint;
+    if !crate::host::svg::render_server() {
+        return;
+    }
     let moving: Vec<u64> = engine
         .running_transitions()
         .filter(|(_, p)| *p == Property::D)

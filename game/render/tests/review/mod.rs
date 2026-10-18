@@ -290,6 +290,7 @@ fn vertical_sun_sweep_keeps_shadow_edge_within_one_texel() {
         cascades: 1,
         distance: 60.0,
         softness: 1.5,
+        ..Default::default()
     };
     f.sun = Some(Sun {
         direction: -Vec3::Y,
@@ -336,4 +337,56 @@ fn vertical_sun_sweep_keeps_shadow_edge_within_one_texel() {
         previous = Some(edge);
     }
     eprintln!("vertical sun: maximum world edge step {largest:.6} m; shadow texel {texel:.6} m");
+}
+
+#[test]
+fn primitive_camera_depth_preserves_the_far_clip_boundary() {
+    let Some(gpu) = gpu() else { return };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let texture = target(&gpu, (64, 64), format);
+    let mut f = frame();
+    f.view = glam::Mat4::IDENTITY;
+    f.proj = glam::Mat4::IDENTITY;
+    f.environment.background = Some([0.; 3]);
+    for z in [0.999, f32::from_bits(1f32.to_bits() - 1), 1., 1.001] {
+        let mut images = Vec::new();
+        for prepass in [false, true] {
+            let mut r = Renderer::configured(
+                &gpu.device,
+                &gpu.queue,
+                format,
+                exact_game::SceneSamples::One,
+                prepass,
+            );
+            let vertices = [
+                [-0.8, -0.8, z],
+                [0.8, -0.8, z],
+                [0.8, 0.8, z],
+                [-0.8, 0.8, z],
+            ]
+            .map(|position| exact_game_render::Vertex {
+                position,
+                normal: [0., 0., 1.],
+                uv: [0.; 2],
+                color: [1.; 4],
+            });
+            let mesh = r.add_mesh(&vertices, &[0, 1, 2, 0, 2, 3]);
+            r.write_transforms_both(0, &transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE))
+                .unwrap();
+            r.write_materials(0, &material([0.5; 3], 1.)).unwrap();
+            r.set_batches(&[Batch::new(mesh, 0..1)], &[0]).unwrap();
+            r.draw(&texture.create_view(&Default::default()), (64, 64), &f);
+            images.push(fixture::read(&gpu, &texture).unwrap());
+        }
+        for y in 0..64 {
+            for x in 0..64 {
+                assert_eq!(
+                    images[0].at(x, y),
+                    images[1].at(x, y),
+                    "depth {z} ({x},{y})"
+                );
+            }
+        }
+        assert_eq!(images[1].at(32, 32)[0] > 0, z < 1., "depth {z}");
+    }
 }

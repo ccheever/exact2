@@ -686,6 +686,8 @@ pub struct Component {
     pub sequences: Vec<crate::sequence::Sequence>,
     /// The view's top-level nodes.
     pub view: Vec<Node>,
+    /// The `params` section and the component's identity (LLP 1121 D15).
+    pub params: crate::params::Params,
     /// Where.
     pub span: Span,
 }
@@ -1337,8 +1339,8 @@ pub enum Expr {
         span: Span,
     },
     /// `(item, index) => body`: a callback, only ever the second argument
-    /// of `map` or `filter` (LLP 1017.003 D1). Its zero to two parameters
-    /// are the item and its index.
+    /// of `map`, `filter` or `sortBy` (LLP 1017.003 D1, LLP 1116.016 §5). Its
+    /// zero to two parameters are the item and its index.
     Arrow {
         /// Parameter names, in order.
         params: Vec<String>,

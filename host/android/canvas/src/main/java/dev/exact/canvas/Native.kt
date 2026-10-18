@@ -38,6 +38,8 @@ object Native {
     @JvmStatic external fun chrome(): IntArray?
     @JvmStatic external fun frame(): ByteBuffer?
     @JvmStatic external fun poll(): Boolean
+    @JvmStatic external fun acquired(running: Boolean)
+    @JvmStatic external fun displayFrame()
     @JvmStatic external fun animating(): Boolean
     @JvmStatic external fun owed(): Boolean
     /** The collection pass a scroll left; `limit` >= 0 slices it (rows past what shows per list), the scrolled list
@@ -146,6 +148,8 @@ object Native {
     /** A buffered canvas's newest frame (any thread): generation (24 bits), slot (8), serial (32); -1 none yet, -2 no
      * buffers on this device. */
     @JvmStatic external fun canvasFrame(view: Int): Long
+    /** -1 attachment refused, 0 waiting, 1 first window frame submitted to the compositor. Any thread. */
+    @JvmStatic external fun canvasReady(view: Int): Int
     /** That frame's buffer, or null. */
     @JvmStatic external fun canvasBuffer(view: Int): android.hardware.HardwareBuffer?
     /** A key at the focused node when no hosted field holds the focus: a character (or '\n' for Enter), or

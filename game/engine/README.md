@@ -235,6 +235,26 @@ the blended stride, and above the fastest it plays faster. Zero or negative spee
 mark each footfall `step`. Every number comes from the engine's portable math, so
 the generated model's identity is the same on every host and saves restore.
 
+### Environment and scene sampling
+
+The saved `Environment` resource controls linear sky colours, exposure, fog, bloom
+and the output curve. `Environment::default()` retains height fog, bloom and ACES.
+`Fog::new(density, height_falloff)` integrates exponential height fog;
+`Fog::linear(near, far)` uses smoothstep between camera-space forward depths in
+metres, as three.js `Fog`. `Fog.color = None` uses the horizon; use `Some(clear)`
+when fog should match a flat `Environment.background`.
+`Environment.tone_mapping = ToneMapping::None` preserves linear colour before
+sRGB encoding. Use exposure 1 and `bloom: None` to avoid those effects too.
+
+`Game::SAMPLES` selects scene sampling for the renderer's lifetime: override it
+with `const SAMPLES: SceneSamples = SceneSamples::One` for 1×, or leave the 4×
+MSAA default. It is a renderer construction choice, not saved simulation state.
+At 1×, `Game::DEPTH_PREPASS = true` can reduce opaque overdraw. It adds a depth
+pass and uses equal-depth colour testing; coplanar ties follow draw order. It is
+off by default. See [the renderer](../render/README.md) for coverage and measurement.
+See [toon rendering and parity options](../render/README.md#toon-models) for
+`MeshData.outline`, `MaterialData.rim` and their glTF import names.
+
 ## Saves and assets
 
 `Sim::save` captures the simulation; `Sim::restore` validates format, game identity,
@@ -309,6 +329,44 @@ of a hidden ancestor), `Tint` (a primitive's colour multiply and added emission)
 for models, `NodeMaterials`/`MaterialOverrides`. `World::drawn(e)` is the displayed
 pose and opacity, in the same walk as `World::is_visible`. Picking, layout, physics
 and gameplay use the simulated pose.
+
+`NodeOffsets` moves marked model nodes after clips, layers and IK. Save a gait's
+phase and amplitude, then derive its rows without collecting entities:
+
+```rust
+# use exact_game::*;
+# #[derive(Default, Component)] struct Gait { phase: f32, swing: f32 }
+fn present(p: &mut Present<'_>, _: &()) {
+    p.insert_each::<Gait, NodeOffsets>(|reads, _, gait| {
+        let angle = math::sin(gait.phase) * gait.swing;
+        let _tick = reads.tick();
+        Some(NodeOffsets::default().with(NodeName::new("armL"), Transform {
+            rotation: Quat::from_rotation_x(angle), ..Transform::default()
+        }))
+    });
+}
+```
+
+The closure receives a read-only `PresentRead`, the entity and its source row;
+there is no live query guard during insertion. Names are string-authoritative,
+with cached hashes for lookup; their diagnostic `Data` output is write-only.
+Sixteen distinct names fit; replacing a name costs no extra row, and overflow
+is dropped with bounded renderer diagnostics. Each node must have glTF
+`extras.posable: true` (or `asset::Node.posable` for generated models).
+Offsets compose in node-frame TRS: `p + r*(s*p′)`, `r*r′`, `s*s′`.
+Nonuniform scale drops the shear an affine product would produce. Rows with
+non-finite values or nonpositive scale are ignored; zero quaternions mean identity.
+Rest mirrors keep their winding. Clip scale tracks must retain each rest-axis sign;
+validation names the clip and node on refusal. Cubic Bezier controls must also
+retain those signs, conservatively excluding tangent overshoot through zero.
+Presentation payload pages are reused, then reclaimed after two consecutive
+empty presents. `World::presentation_bytes()` reports retained payload and index
+metadata, whose capacity is bounded by the highest entity index used.
+
+Node offsets are invisible to IK and `animation::socket`, as well as picking and
+physics. An IK target on an offset chain will therefore miss in the drawn picture;
+a simulated socket returns the unswung hand. Displayed `SocketFollow` props do
+follow the offsets. Keep any pose gameplay needs in simulation state.
 
 **The authoring rule: save the cause, derive the appearance.** Anything later
 gameplay reads stays simulation state; only its look is presentation. Examples:

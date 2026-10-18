@@ -186,7 +186,7 @@ stub('admission.js', 'export const createSecretFacade = () => ({ read: false });
 stub('admission-data.js', 'export const tsGrantSet = {};');
 stub('ts-fetch.js', "export const answering = { call: null }; export const files = { appId: null }; export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';");
 stub('names.js', 'export const sourceTypes = {};');
-stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store';");
+stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => [];");
 // A write lands a task later; a read answers at once: unqueued, it would overtake.
 stub('storage-fs.js', `const files = new Map(); export const createFileSystem = () => ({
   atomicWriteFile: (p, v) => new Promise((ok, no) => setTimeout(() => p.includes('absent/') ? no(Object.assign(new Error('filesystem: No such file'), { code: 'ENOENT' })) : ok(files.set(p, v)), 5)),
@@ -351,9 +351,9 @@ test('a mutation answered at once forces the async read it refreshes', async () 
   expect([doc(), doc.p()]).toEqual([1, false]);
 });
 
-// `sin` and `cos` are `Math`'s; `sum` is `reduce((a, x) => a + x, 0)`, a list step an item on the caller's budget, as
-// the runner's `list_call` counts it.
-test('sin, cos and sum compute as the runner does, and sum steps on the budget', async () => {
+// `sin` and `cos` are `Math`'s; `sum` is `reduce((a, x) => a + x, 0)`, `range(n)` 0 to n - 1 and `flat()` depth 1, each a
+// list step an item (`flat` an outer item too) on the caller's budget, as the runner's `list_call` counts it.
+test('sin, cos, sum, range and flat compute as the runner does, and the lists step on the budget', async () => {
   const { x_sin, x_cos } = await import(resolve(dir, 'roster.js'));
   const budget = await import(resolve(dir, 'budget.js'));
   expect([x_sin(0), x_cos(0), x_sin(1), x_cos(1)]).toEqual([0, 1, 0.8414709848078965, 0.5403023058681398]);
@@ -362,6 +362,34 @@ test('sin, cos and sum compute as the runner does, and sum steps on the budget',
   expect(Object.is(budget.x_sum([-0], 0, 7), 0)).toBe(true);
   expect(budget.x_sum([], 0, 7)).toBe(0);
   expect(() => budget.x_sum([1, 2], 65535, 7)).toThrow('IterationLimit');
+  expect([budget.x_range(3, 0, 7), budget.ST]).toEqual([[0, 1, 2], 3]);
+  expect([budget.x_range(0, 0, 7), budget.x_range(-0, 0, 7)]).toEqual([[], []]);
+  for (const n of [2.5, -1, NaN, Infinity]) expect(() => budget.x_range(n, 0, 7)).toThrow('Trap(TypeMismatch { pc: 7 })');
+  expect(() => budget.x_range(2, 65535, 7)).toThrow('IterationLimit');
+  expect(() => budget.x_range(1e300, 0, 7)).toThrow('IterationLimit');
+  expect([budget.x_flat([[1, 2], [], [3]], 0, 7), budget.ST]).toEqual([[1, 2, 3], 6]);
+  expect(budget.x_flat([[[1]], [[2]]], 0, 7)).toEqual([[1], [2]]);
+  expect(() => budget.x_flat([[1], [2]], 65533, 7)).toThrow('IterationLimit');
+});
+
+// `sortBy` (LLP 1116.016 §5): the runner's stable merge sort on precomputed keys, taking no step of its own; against a
+// stable `toSorted` on the decorated key with NaN read as 0, at every length to 40 and both directions.
+test('sortBy orders by key, stably both ways, as a reference stable sort does', async () => {
+  const { x_sortBy } = await import(resolve(dir, 'budget.js'));
+  const ids = (xs, keys, desc) => x_sortBy(xs, keys, desc, 7);
+  expect(ids([0, 1, 2, 3, 4, 5, 6], [3, NaN, -0, 1, 0, -1, 3], false)).toEqual([5, 1, 2, 4, 3, 0, 6]);
+  expect(ids([0, 1, 2, 3, 4, 5, 6], [3, NaN, -0, 1, 0, -1, 3], true)).toEqual([0, 6, 3, 1, 2, 4, 5]);
+  const words = ['～', '😀', 'a', 'ab', '', 'a'];
+  expect(ids(words, words, false)).toEqual(['', 'a', 'a', 'ab', '😀', '～']);
+  expect(ids([], [], true)).toEqual([]);
+  for (let n = 0; n < 40; n++) {
+    const xs = Array.from({ length: n }, (_, i) => i), keys = xs.map(i => [NaN, 2, -0, 1, 0][(i * 7) % 5]);
+    for (const desc of [false, true]) {
+      const k = i => (keys[i] !== keys[i] ? 0 : keys[i]);
+      const want = xs.toSorted((a, b) => (desc ? (k(b) < k(a) ? -1 : k(a) < k(b) ? 1 : 0) : k(a) < k(b) ? -1 : k(b) < k(a) ? 1 : 0));
+      expect(ids(xs, keys, desc)).toEqual(want);
+    }
+  }
 });
 
 
@@ -757,8 +785,8 @@ test('capture stop ends Exact key handlers but leaves Enter submission and the b
 
 // LLP 1088 D2: the roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
 // runner's MAX_STRING as it builds (a quadratic `$\`` stops there), throwing the runner's trap at the call's pc (budget.js).
-test('slice, replaceAll and toLowerCase are the web methods, well formed and bounded', async () => {
-  const { x_slice: slice, x_replaceAll: replaceAll, x_toLowerCase: toLowerCase } = await import(resolve(dir, 'budget.js'));
+test('slice, replaceAll, toLowerCase and toUpperCase are the web methods, well formed and bounded', async () => {
+  const { x_slice: slice, x_replaceAll: replaceAll, x_toLowerCase: toLowerCase, x_toUpperCase: toUpperCase } = await import(resolve(dir, 'budget.js'));
   const x_slice = (s, a, b) => slice(s, a, b, 0, 4);
   const x_replaceAll = (s, f, w) => replaceAll(s, f, w, 4), x_toLowerCase = s => toLowerCase(s, 4);
   expect([x_slice('calc', 0, -1), x_slice('hello', -3, Infinity), x_slice('a😀b', 1, 2), x_slice('hello', NaN, 2.9)]).toEqual(['cal', 'llo', '�', 'he']);
@@ -766,6 +794,7 @@ test('slice, replaceAll and toLowerCase are the web methods, well formed and bou
     expect(x_replaceAll(s, f, w)).toBe(s.replaceAll(f, w).toWellFormed());
   expect(x_replaceAll('😀', '', '-')).toBe('-�-�-');
   expect([x_toLowerCase('ΟΣ'), x_toLowerCase('İ'), x_toLowerCase('ABC')]).toEqual(['ος', 'i̇', 'abc']);
+  expect([toUpperCase('straße', 4), toUpperCase('ﬃ', 4), toUpperCase('\ud800a', 4)]).toEqual(['STRASSE', 'FFI', '\ufffdA']);
   expect(() => x_replaceAll('x'.repeat(10000), '', "$`$'")).toThrow('Trap(StringTooLong { pc: 4 })');
   // The bound at a smaller limit, as the runner's own tests take it (strings.rs `replace_all(…, max)`): a result
   // that ends on a completed surrogate pair past it traps too (review b5-a 1: "xxx" → three emoji is 12 bytes).
@@ -1127,6 +1156,11 @@ test('string builders check expanded size before calling their builders', async 
   String.prototype.toLowerCase = function () { if (this.length > 65536) throw new Error('lowercase built before its bound'); return lower.call(this); };
   try { expect(() => B.x_toLowerCase('İ'.repeat(22369622), 56)).toThrow('Trap(StringTooLong { pc: 56 })'); }
   finally { String.prototype.toLowerCase = lower; }
+  // `ŉ` is 2 bytes and `ʼN` 3: 22,369,622 of them pass the bound only once uppercased.
+  const upper = String.prototype.toUpperCase;
+  String.prototype.toUpperCase = function () { if (this.length > 65536) throw new Error('uppercase built before its bound'); return upper.call(this); };
+  try { expect(() => B.x_toUpperCase('ŉ'.repeat(22369622), 57)).toThrow('Trap(StringTooLong { pc: 57 })'); }
+  finally { String.prototype.toUpperCase = upper; }
 });
 
 test('translation expansion stops when its output exceeds the byte budget', async () => {

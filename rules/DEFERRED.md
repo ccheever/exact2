@@ -290,6 +290,13 @@ drawn as written in its bar item; swipe actions whose controls all say
 `appearance="none"` keep their paint. Take: none offered; waived by that
 instruction. Still out: an arbitrary subtree as a bar item, a prompt with
 several fields.
+**Expanded (Charlie, 2026-10-17: "Exact should allow the developer to
+configure this on platforms that support it"):** a sheet route's
+`navigationInitialDetent` names the `navigationDetent` word it opens at
+(UIKit's `selectedDetentIdentifier`). Lexy's Last Parked sheet, which opens
+tall over a half-height stop, is the consumer. Take: none offered; waived by
+Charlie's approval. Still out: reading or binding the detent a person drags
+the sheet to.
 **Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
 UICollectionView list layout"):** `list appearance="auto"` is a grouped list
 (LLP 1084): sections with a header and footer, rows read by shape, UIKit's
@@ -359,10 +366,22 @@ platforms UIKit covers are in-tree surfaces: tvOS (Doug Lowder's port,
 visionOS when someone ports it. Each is a variant of the iOS presenter, not a
 new one: shared Swift admits it beside `os(iOS)`, Rust cfgs beside
 `target_os = "ios"`, and its own code compiles into its own binary alone.
-Unblocks Caltrain on an Apple TV. watchOS, which has no UIKit, stays out. A
+Unblocks Caltrain on an Apple TV. watchOS, which has no UIKit, stays out (reversed
+2026-10-17, below). A
 platform with its own UI stack (Amazon's Vega OS) is a host outside this
 repository, on the plan, runner and agent seams; its RFC is owed. The take is
 waived.
+
+**Expanded (Charlie, 2026-10-17, LLP 1126 §7: "reopen yes"; "admit watchos
+now. let's try to hit full apple platform support for launch"):** system
+surfaces and watchOS are in-tree. An app's widgets, Live Activities and
+complications are entries of the one app, drawn on Apple by a SwiftUI
+renderer whose snapshot driver WidgetKit archives (LLP 1126). watchOS is an
+Apple platform like the others; it has no UIKit presenter, so its app is
+drawn by that renderer's live driver. Unblocks an app's content outside its
+window (the Home Screen, the Lock Screen, StandBy, CarPlay, HomeView, the
+Mac) and Exact apps on the watch. Templates (CarPlay apps, controls) await
+their own RFC. The take is waived.
 
 **Admitted (Charlie, 2026-10-06: "this is pretty great. commit and push this
 and document that TUI is now an officially supported platform for Exact2";
@@ -447,7 +466,9 @@ sends ordered, never-coalesced protocol frames (LLP 1016.000 D7). T3 Code's
 subscribe/Ack/Ping protocol and queued Supabase/Convex consumers justify the
 expansion. No take named; the approved feature ruling admits it. Ambient
 WebSocket globals remain refused. TypeScript on the web JS target and the
-native hosts has it; D7 lists the host deviations and what remains.
+native hosts has it; D7 lists the host deviations and what remains. D7's
+amendments let the mapper answer its own frames (2026-10-16) and an answer
+in flight send its own requests (2026-10-18).
 
 
 **Expanded (Charlie, 2026-10-08, issue #283; focus lane, 2026-10-12):**
@@ -530,6 +551,16 @@ names no take; `:focus-within` remains out.
   This admits the body click only; action buttons and replies, badges, push,
   repeats, and permission facts remain refused. Take: none named; Charlie's
   scoped ruling admits this expansion.
+  **Expanded (Charlie, 2026-10-17, "approve", on LLP 1126 §7 question 5):**
+  ActivityKit update tokens for an app's own Live Activities. The app reads an
+  activity's push token and gives it to its own backend, which sends to APNs;
+  exact2 sends nothing and relays nothing (LLP 1030.000 D6), and no app code
+  runs when an update arrives (the system replaces the activity's state and
+  the extension redraws it). Consumer: Interview's AI answer being written,
+  which only its server can advance. Unblocks a Live Activity that stays true
+  while its app is suspended. Still refused: push-to-start, remote
+  notifications, and everything the click ruling left refused. Take: none
+  named; the ruling stands as its own waiver.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 

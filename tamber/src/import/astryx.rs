@@ -13,8 +13,9 @@
 //!   variants) whole; light and dark values one `light-dark()`.
 //! - Spacing, radii, sizes, borders and focus widths are lengths; shadows
 //!   (rings as `inset`) box shadows; the three durations durations; easings
-//!   easings; families, sizes, weights and text styles type: all
-//!   `kind pending (stage 6)`, each with its token.
+//!   easings; families families, font sizes lengths, weights numbers, and a
+//!   text style's size, weight and leading one type token (stage 6 H). One
+//!   whose sides differ or that does not fold is reported.
 //! - A duration's `-min` and `-max` tiers are reported: Tamber has one value
 //!   per duration token.
 //! - The theme's own tokens (`localTokens`, which `resolveThemeTokens()`
@@ -32,8 +33,8 @@ use serde_json::Value;
 enum Kind {
     /// A colour token, by these segments.
     Colour(Vec<String>),
-    /// A kind stage 6 builds, and the token's segments.
-    Pending(&'static str, Vec<String>),
+    /// Another kind, and the token's segments.
+    Other(&'static str, Vec<String>),
     /// Not mapped: why.
     Reported(String),
 }
@@ -86,7 +87,7 @@ fn kind(var: &str) -> Kind {
                 "a duration's min or max tier: Tamber has one value per duration token".into(),
             );
         }
-        return Kind::Pending("duration", one("duration", rest));
+        return Kind::Other("duration", one("duration", rest));
     }
     for (prefix, kind, group) in [
         ("--spacing-", "length", "space"),
@@ -100,7 +101,7 @@ fn kind(var: &str) -> Kind {
         ("--font-weight-", "number", "weight"),
     ] {
         if let Some(rest) = var.strip_prefix(prefix) {
-            return Kind::Pending(kind, one(group, rest));
+            return Kind::Other(kind, one(group, rest));
         }
     }
     // `--text-heading-1-size` and its weight and leading: one text style.
@@ -109,12 +110,12 @@ fn kind(var: &str) -> Kind {
             .rsplit_once('-')
             .filter(|(_, part)| matches!(*part, "size" | "weight" | "leading"))
             .map_or(rest, |(s, _)| s);
-        return Kind::Pending("type", one("type", style));
+        return Kind::Other("type", one("type", style));
     }
     match var {
-        "--border-width" => Kind::Pending("length", one("border", "width")),
-        "--focus-outline-width" => Kind::Pending("length", one("focus", "outline-width")),
-        "--focus-outline-offset" => Kind::Pending("length", one("focus", "outline-offset")),
+        "--border-width" => Kind::Other("length", one("border", "width")),
+        "--focus-outline-width" => Kind::Other("length", one("focus", "outline-width")),
+        "--focus-outline-offset" => Kind::Other("length", one("focus", "outline-offset")),
         "--focus-outline-style" => Kind::Reported("no Tamber kind: a line style".into()),
         _ => Kind::Reported("a token Tamber's Astryx mapping does not name".into()),
     }
@@ -142,6 +143,7 @@ pub fn import(
     // Each token made, by the variable that made it: a second variable to
     // one token is reported.
     let mut made: std::collections::BTreeMap<String, String> = Default::default();
+    let mut others: Vec<Other> = Vec::new();
     let mut names: Vec<String> = light.keys().cloned().collect();
     names.extend(dark.keys().filter(|k| !light.contains_key(*k)).cloned());
     for var in &names {
@@ -183,6 +185,7 @@ pub fn import(
                             name,
                             value,
                             whens: Vec::new(),
+                            kind: None,
                         });
                     }
                     _ => unmapped.push(report(
@@ -191,12 +194,15 @@ pub fn import(
                     )),
                 }
             }
-            Kind::Pending(k, segs) => {
+            Kind::Other(k, segs) => {
                 let refs: Vec<&str> = segs.iter().map(String::as_str).collect();
-                unmapped.push(report(
-                    format!("kind pending (stage 6): {k}"),
-                    Some(tamber_name(prefix, &refs)),
-                ));
+                others.push(Other {
+                    var: var.clone(),
+                    sides: (l, d),
+                    shown: shown.clone(),
+                    kind: k,
+                    token: tamber_name(prefix, &refs),
+                });
             }
             Kind::Reported(why) => unmapped.push(report(why, None)),
         }
@@ -237,11 +243,51 @@ pub fn import(
                     name,
                     value: shown.split_whitespace().collect::<Vec<_>>().join(" "),
                     whens: Vec::new(),
+                    kind: None,
                 });
             }
             false => unmapped.push(report("not a colour Tamber folds".into(), Some(name))),
         }
     }
+    // Each token's source variables, for a token refused where it lands.
+    let mut sources: Vec<(String, Vec<Unmapped>)> = Vec::new();
+    mapped += other_kinds(
+        &others,
+        &mut made,
+        (&mut tokens, &mut unmapped, &mut sources),
+        design,
+        vocab,
+    );
+    for t in tokens.iter().filter(|t| t.kind.is_none()) {
+        let Some(var) = made.get(&t.name) else {
+            continue;
+        };
+        let side = |m: &serde_json::Map<String, Value>| {
+            m.get(var).and_then(Value::as_str).map(str::to_string)
+        };
+        let (block, value) = match (side(light), side(dark)) {
+            (Some(l), Some(d)) if l != d => ("light | dark", format!("{l} | {d}")),
+            (Some(v), _) | (None, Some(v)) => ("light | dark", v),
+            (None, None) => ("localTokens", side(&local).unwrap_or_default()),
+        };
+        let record = Unmapped {
+            block: block.into(),
+            name: var.clone(),
+            value,
+            why: String::new(),
+            token: Some(t.name.clone()),
+        };
+        sources.push((t.name.clone(), vec![record]));
+    }
+    // What would not hold where it lands: its variables reported.
+    mapped -= super::landing::settle(
+        &mut tokens,
+        &sources,
+        (&[], &[]),
+        design,
+        vocab,
+        &mut unmapped,
+    )?;
     let ops = reconcile(design, &[], &[], &tokens);
     let offers = offers(prefix, design, vocab, &tokens);
     let counted = counted(names.len() + local.len(), mapped, unmapped.len())?;
@@ -251,6 +297,171 @@ pub fn import(
         unmapped,
         counted,
     })
+}
+
+/// An Astryx token of a kind besides colour, as resolved.
+struct Other {
+    var: String,
+    /// Its light and dark values.
+    sides: (Option<String>, Option<String>),
+    shown: String,
+    kind: &'static str,
+    token: String,
+}
+
+/// The tokens of the kinds besides colour, beside the colour `tokens`
+/// (`made` holds each token's variable): a text style's size, weight and
+/// leading one type token, the rest one each. One whose sides differ, whose
+/// name another variable has, or that does not fold is reported. The count
+/// mapped.
+fn other_kinds(
+    others: &[Other],
+    made: &mut std::collections::BTreeMap<String, String>,
+    (tokens, unmapped, sources): super::Written<'_>,
+    design: &Design,
+    vocab: &Vocab,
+) -> usize {
+    use super::kinds;
+    let report = |unmapped: &mut Vec<Unmapped>, o: &Other, why: String| {
+        unmapped.push(Unmapped {
+            block: "light | dark".into(),
+            name: o.var.clone(),
+            value: o.shown.clone(),
+            why,
+            token: Some(o.token.clone()),
+        });
+    };
+    // `--text-body-leading` → `leading`.
+    let part = |o: &Other| o.var.rsplit_once('-').map_or("", |(_, p)| p).to_string();
+    let start = tokens.len();
+    let mut carried: Vec<(&'static str, Vec<&Other>)> = Vec::new();
+    let mut seen: Vec<&str> = Vec::new();
+    for o in others {
+        if seen.contains(&o.token.as_str()) {
+            continue;
+        }
+        seen.push(&o.token);
+        // The variables one token carries: a text style's size, weight and
+        // leading, the first of each; any other to its name is reported.
+        let mut group: Vec<&Other> = Vec::new();
+        for x in others.iter().filter(|x| x.token == o.token) {
+            // A text style's parts share its variables' stem
+            // (`--text-body-`): another style whose name becomes this
+            // token's is a collision.
+            let stem = |o: &Other| o.var.rsplit_once('-').map_or("", |(s, _)| s).to_string();
+            let fits = match o.kind {
+                "type" => {
+                    matches!(part(x).as_str(), "size" | "weight" | "leading")
+                        && !group.iter().any(|g| part(g) == part(x))
+                        && group.first().is_none_or(|g| stem(g) == stem(x))
+                }
+                _ => group.is_empty(),
+            };
+            match (fits, group.first()) {
+                (true, _) => group.push(x),
+                (false, Some(first)) => report(
+                    unmapped,
+                    x,
+                    format!("its token is `{}`'s ({})", first.var, o.token),
+                ),
+                (false, None) => report(
+                    unmapped,
+                    x,
+                    "a text style's part Tamber's type token does not name".into(),
+                ),
+            }
+        }
+        if group.is_empty() {
+            continue;
+        }
+        if let Some(first) = made.get(&o.token) {
+            for x in &group {
+                report(
+                    unmapped,
+                    x,
+                    format!("its token is `{first}`'s ({})", o.token),
+                );
+            }
+            continue;
+        }
+        // Each one's value: its sides' one value, on both.
+        let value = |x: &Other| match &x.sides {
+            (Some(l), Some(d)) if l.trim() != d.trim() => Err(kinds::SIDED.to_string()),
+            (Some(v), Some(_)) => kinds::bare(v, |_| None),
+            _ => Err("not a value Tamber reads on both sides".to_string()),
+        };
+        let text = if o.kind == "type" {
+            let find = |p: &str| group.iter().find(|x| part(x) == p).copied();
+            let Some(size) = find("size") else {
+                for x in &group {
+                    report(unmapped, x, "a text style with no size".into());
+                }
+                continue;
+            };
+            (|| {
+                let mut out = match find("weight") {
+                    Some(w) => format!("{} ", value(w)?),
+                    None => String::new(),
+                };
+                out.push_str(&value(size)?);
+                if let Some(l) = find("leading") {
+                    out.push_str(&format!("/{}", value(l)?));
+                }
+                Ok(out)
+            })()
+        } else {
+            value(o)
+        };
+        match text {
+            Ok(text) => {
+                made.insert(o.token.clone(), o.var.clone());
+                tokens.push(Mapped {
+                    name: o.token.clone(),
+                    value: text,
+                    whens: Vec::new(),
+                    kind: Some(kinds::written(o.kind)),
+                });
+                carried.push((o.kind, group));
+            }
+            Err(why) => {
+                for x in &group {
+                    report(unmapped, x, why.clone());
+                }
+            }
+        }
+    }
+    let why = kinds::unfolded(tokens, &[], design, vocab);
+    let mut mapped = 0;
+    for (k, (kind, group)) in carried.iter().enumerate() {
+        match &why[start + k] {
+            None => {
+                mapped += group.len();
+                let from = group
+                    .iter()
+                    .map(|x| Unmapped {
+                        block: "light | dark".into(),
+                        name: x.var.clone(),
+                        value: x.shown.clone(),
+                        why: String::new(),
+                        token: Some(x.token.clone()),
+                    })
+                    .collect();
+                sources.push((tokens[start + k].name.clone(), from));
+            }
+            Some(why) => {
+                made.remove(&group[0].token);
+                for x in group {
+                    report(unmapped, x, format!("not a {kind} Tamber folds: {why}"));
+                }
+            }
+        }
+    }
+    let mut at = 0;
+    tokens.retain(|_| {
+        at += 1;
+        why[at - 1].is_none()
+    });
+    mapped
 }
 
 /// The body surface as the platform's background and the accent as the

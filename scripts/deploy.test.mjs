@@ -16,7 +16,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSy
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { copyStaticTreeIfPresent, webEnvelope } from '../host/web/serve.mjs';
+import { captureAssets, assetCards, copyStaticTreeIfPresent, webEnvelope, publicFileCards, listAssets, readStaticFile, readDevGeneration, retainDevGeneration } from '../host/web/serve.mjs';
 import { resolveApp, withAppFixture } from './app.mjs';
 import { appdropPlan, renderAppdrop, writeLink } from './deploy-appdrop.mjs';
 import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishStream, renderTable, snapshotOf as capturedSnapshotOf, streamHead } from './deploy.mjs';
@@ -1002,3 +1002,37 @@ async function rejects(action, matches) {
       && refused.includes('share link'),
     JSON.stringify({ first, create, adopted, again, written, refused }));
 }
+
+{
+  const card = { name: 'plans/trains.plan', sha256: 'a'.repeat(64), bytes: Buffer.from('snapshot') };
+  const app = { id: 'test.widgets', displayName: 'Widgets' };
+  const bundle = { plan: { bytes: Buffer.from('app'), sha256: 'b'.repeat(64), formatVersion: 5, kernelSchema: '0'.repeat(16) }, assets: [card] };
+  const head = streamHead({ app, bundle, stream: { channel: 'prod', compatibilityId: 'c'.repeat(32) }, seq: 1, release: 'widgets' });
+  result('entry plans index the signed asset cards in the same stream',
+    JSON.stringify(head.plans.trains) === JSON.stringify(head.assets[0]) && head.plan.sha256 === bundle.plan.sha256);
+}
+
+
+test('snapshot plans are public files and authenticated dev generation assets', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-public-plans-'));
+  try {
+    const body = Buffer.from('snapshot'), name = 'plans/card.plan';
+    mkdirSync(join(dir, 'plans'));
+    writeFileSync(join(dir, name), body);
+    const files = await publicFileCards(dir);
+    if (!files.some(file => file.name === name && file.bytes === body.length)) throw new Error('entry absent from public cards');
+    if (readStaticFile(dir, '/' + name)?.body.toString() !== 'snapshot') throw new Error('entry not served');
+    const epoch = 'b'.repeat(32), captured = captureAssets(dir), cache = join(dir, 'cache');
+    const id = 'test.widget', plan = Buffer.alloc(36 + id.length);
+    plan.write('EXPL'); plan.writeUInt32LE(4, 4); plan.writeBigUInt64LE(1n, 16);
+    plan.writeUInt32LE(id.length, 32); plan.write(id, 36);
+    const published = webEnvelope({id,displayName:'Widget'}, plan, assetCards(captured));
+    published.dev = {epoch,seq:1};
+    for (const card of published.assets) card.url = `/__dev/generation/${epoch}/1/${card.name}`;
+    captured.set('exact.json', Buffer.from(JSON.stringify(published)));
+    retainDevGeneration(cache, epoch, 1, captured);
+    const envelope = JSON.parse(readDevGeneration(cache, `/__dev/generation/${epoch}/1/exact.json`).body);
+    if (envelope.plans.card.name !== name || envelope.plans.card.sha256 !== sha256(body) || envelope.plans.card.url !== envelope.assets[0].url) throw new Error('published envelope omitted the captured entry');
+    if (readDevGeneration(cache, `/__dev/generation/${epoch}/1/${name}`)?.body.toString() !== 'snapshot') throw new Error('entry absent from dev generation');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});

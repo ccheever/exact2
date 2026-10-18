@@ -53,11 +53,19 @@ fn the_launch_place_is_the_last_valid_one_told() {
     let mut bridge = Bridge::<StorageModule>::new();
     let told = |bridge: &mut Bridge<StorageModule>, text: &str| {
         bridge.input_write(text.as_bytes());
-        bridge.set_launch_place(text.len());
+        bridge.set_launch_place(text.len())
     };
-    told(&mut bridge, "fr-FR\0Europe/Paris\x007");
-    told(&mut bridge, "\0Europe/Paris\x007");
-    told(&mut bridge, "de-DE\0Europe/Berlin");
+    assert_eq!(told(&mut bridge, "fr-FR\0Europe/Paris\x007"), 0);
+    for invalid in [
+        "\0Europe/Paris\x007",
+        "de-DE\0Europe/Berlin",
+        "en-US\0UTC\x004294967296",
+    ] {
+        assert!(told(&mut bridge, invalid) > 0);
+        assert!(std::str::from_utf8(&bridge.output)
+            .unwrap()
+            .contains("invalid launch place"));
+    }
     let place = bridge.launch_facts.place.clone().unwrap();
     assert_eq!(
         (place.locale.as_str(), place.time_zone.as_str(), place.seed),

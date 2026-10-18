@@ -40,12 +40,14 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     private var detentValue: String?, cornerRadius: CGFloat?, grabberValue: String?
     func updateSheet(detent value: String?, cornerRadius radius: CGFloat?, grabber: String?) {
         #if !os(tvOS)
+        // No detent selected yet: UIKit's own (`large`), never set here, as
+        // when the sheet is made; a selection is set with every detent list.
         guard modalPresentationStyle == .pageSheet,
               let sheet = sheetPresentationController,
-              detentValue != value || cornerRadius != radius || grabberValue != grabber || sheet.detents.isEmpty else { return }
+              detentValue != value || cornerRadius != radius || grabberValue != grabber || sheet.selectedDetentIdentifier == nil else { return }
         // A grabber or radius alone changes only itself: the detents and the
         // one the person dragged the sheet to stay.
-        let newDetents = detentValue != value || sheet.detents.isEmpty
+        let newDetents = detentValue != value || sheet.selectedDetentIdentifier == nil
         detentValue = value
         cornerRadius = radius
         grabberValue = grabber
@@ -69,7 +71,13 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
                 let detents = ModalHost.detents(value, refused: { refused.append(($0, $1)) }, content: content)
                 sheet.detents = detents.isEmpty ? [.large()] : detents
                 if !refused.isEmpty, let route = self.route { self.host?.presenter.session?.log(ModalHost.refusal(detent: value ?? "", words: refused, route: route.props["navigationKey"] ?? "", kept: !detents.isEmpty)) }
-                sheet.selectedDetentIdentifier = sheet.detents.first?.identifier
+                // It opens at the one `navigationInitialDetent` names, else
+                // (unsaid or empty) at the first, as UIKit opens a sheet at
+                // its smallest.
+                let initial = self.route?.props["navigationInitialDetent"] ?? ""
+                let opening = ModalHost.identifier(of: initial, in: detents.isEmpty ? "large" : value)
+                if !initial.isEmpty, opening == nil, let route = self.route { self.host?.presenter.session?.log("navigationInitialDetent \"\(initial)\" on route \"\(route.props["navigationKey"] ?? "")\" names none of the detents the sheet kept from navigationDetent \"\(value ?? "")\"; the sheet opens at its first") }
+                sheet.selectedDetentIdentifier = opening ?? sheet.detents.first?.identifier
             }
             // `navigationGrabber` says; unsaid, a sheet that resizes has
             // one, as the HIG puts it on a resizable sheet.
@@ -339,11 +347,52 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     /// ascends on any screen; `100%` is `large`. `content` is the route's
     /// laid-out content height, nil or zero before it is measured.
     static func detents(_ value: String?, refused: ((Substring, DetentRefusal) -> Void)? = nil, content: @escaping () -> CGFloat?) -> [UISheetPresentationController.Detent] {
-        enum Kind: Equatable { case points, share, content, large }
-        // The words kept, each with its kind and its height within the kind.
-        var kept: [(index: Int, word: Substring, kind: Kind, height: Double)] = []
+        let kept = keptDetents(value, refused: refused)
+        return kept.enumerated().map { place, word in
+            let followed = place < kept.count - 1
+            switch word.kind {
+            case .large: return .large()
+            case .share where word.word == "medium": return .medium()
+            case .share:
+                // @ref LLP 1075.003 §9.13 — a share of the sheet's maximum,
+                // as `.custom { $0.maximumDetentValue * 0.45 }` is in UIKit.
+                let share = CGFloat(word.height)
+                return .custom(identifier: identifier(word)) { context in context.maximumDetentValue * share / 100 }
+            case .points:
+                // Stopped at the maximum; where a taller detent follows, a
+                // height the maximum reaches is inactive (nil), as UIKit's
+                // resolver allows, so no two rests tie on a small screen.
+                let points = CGFloat(word.height)
+                return .custom(identifier: identifier(word)) { context in
+                    followed && points >= context.maximumDetentValue ? nil : min(points, context.maximumDetentValue)
+                }
+            case .content:
+                // @ref LLP 1075.003 §9.11 — the route's content, which its
+                // box (the sheet) does not change; before it is measured,
+                // the sheet's maximum.
+                return .custom(identifier: identifier(word)) { context in
+                    guard let height = content(), height > 0 else { return context.maximumDetentValue }
+                    return min(height.rounded(.up), context.maximumDetentValue)
+                }
+            }
+        }
+    }
+
+    /// The identifier of the detent `word` names among `value`'s words, as
+    /// `detents` makes it; nil when it is none of the words kept.
+    static func identifier(of word: String, in value: String?) -> UISheetPresentationController.Detent.Identifier? {
+        keptDetents(value, refused: nil).first { $0.word == word }.map(identifier)
+    }
+
+    private enum DetentKind { case points, share, content, large }
+    /// A word `detents` keeps: its place among the words, its kind, and its
+    /// height within the kind.
+    private typealias KeptDetent = (index: Int, word: Substring, kind: DetentKind, height: Double)
+
+    private static func keptDetents(_ value: String?, refused: ((Substring, DetentRefusal) -> Void)?) -> [KeptDetent] {
+        var kept: [KeptDetent] = []
         for (index, word) in (value ?? "").split(separator: " ").enumerated() {
-            let kind: Kind, height: Double
+            let kind: DetentKind, height: Double
             switch word {
             case "large": (kind, height) = (.large, 100)
             case "medium": (kind, height) = (.share, 50)
@@ -363,33 +412,15 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             }
             kept.append((index, word, kind, height))
         }
-        return kept.enumerated().map { place, word in
-            let followed = place < kept.count - 1
-            switch word.kind {
-            case .large: return .large()
-            case .share where word.word == "medium": return .medium()
-            case .share:
-                // @ref LLP 1075.003 §9.13 — a share of the sheet's maximum,
-                // as `.custom { $0.maximumDetentValue * 0.45 }` is in UIKit.
-                let share = CGFloat(word.height)
-                return .custom(identifier: .init("authored-\(word.index)")) { context in context.maximumDetentValue * share / 100 }
-            case .points:
-                // Stopped at the maximum; where a taller detent follows, a
-                // height the maximum reaches is inactive (nil), as UIKit's
-                // resolver allows, so no two rests tie on a small screen.
-                let points = CGFloat(word.height)
-                return .custom(identifier: .init("authored-\(word.index)")) { context in
-                    followed && points >= context.maximumDetentValue ? nil : min(points, context.maximumDetentValue)
-                }
-            case .content:
-                // @ref LLP 1075.003 §9.11 — the route's content, which its
-                // box (the sheet) does not change; before it is measured,
-                // the sheet's maximum.
-                return .custom(identifier: .init("fit-content-\(word.index)")) { context in
-                    guard let height = content(), height > 0 else { return context.maximumDetentValue }
-                    return min(height.rounded(.up), context.maximumDetentValue)
-                }
-            }
+        return kept
+    }
+
+    private static func identifier(_ word: KeptDetent) -> UISheetPresentationController.Detent.Identifier {
+        switch word.kind {
+        case .large: return .large
+        case .share where word.word == "medium": return .medium
+        case .content: return .init("fit-content-\(word.index)")
+        case .share, .points: return .init("authored-\(word.index)")
         }
     }
 
@@ -544,6 +575,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                  preceding: NodeView?, owner: UIViewController) {
         let layer = Presentation(host: self, route: route, navigation: navigation,
                                  background: background)
+        // The press that opened the sheet may hand its control's focus to the
+        // route's first autofocus until the route goes (PressHandoffIOS).
+        presenter.pressShows(route)
         // The presenting screen stays where it is, inert (HTML modal dialogs)
         background.view.isUserInteractionEnabled = false
         background.view.accessibilityElementsHidden = true
@@ -612,6 +646,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         controller.presentationController?.delegate = self
         let guarded = zoomGuard === controller
         zoomGuard = nil
+        defer { if owner.presentedViewController !== controller { endPress(layer) } } // UIKit refused it
         owner.present(controller, animated: !ExactEnv.agentFreezes) { [weak self, weak layer, weak controller] in
             if guarded { UIView.performWithoutAnimation { controller?.view.alpha = 1 } }
             guard let self, let layer else { return }
@@ -660,6 +695,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         let controller = layer.controller
         presenter.navigation.retireNavigation(layer.navigation, preserving: controller.retiringNavigation != nil)
         layers.removeLast()
+        endPress(layer)
         releaseBackground(layer)
         layer.animated = animated
         retiring.append(layer)
@@ -720,6 +756,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         presenter.cancelPendingFocus()
         layer.presenting = false
         layer.alreadyDismissed = true
+        endPress(layer)
         // UIKit still uses this hierarchy on its callback stack. Remove its
         // owner before dispatch, so an action may safely keep the same route.
         DispatchQueue.main.async { [weak self, layer] in
@@ -732,6 +769,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     }
 
     func unmounted() { reset() }
+
+    /// The sheet went, or never came: its press hands nothing on through it.
+    private func endPress(_ layer: Presentation) { presenter.pressHandoff?.drop(layer.route) }
 
     func reset() {
         // Dismiss native owners from the top down, each keeping what it shows

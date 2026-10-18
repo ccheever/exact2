@@ -102,6 +102,8 @@ const here = process.cwd(), appDir = dir, source = (arg) => /\.(contract|ts|json
 const inApp = (arg) => {
   if (!source(arg) || isAbsolute(arg) || existsSync(resolve(arg))) return null;
   const top = `${basename(appDir)}/`, found = [arg, ...(arg.startsWith(top) ? [arg.slice(top.length)] : [])].map((a) => resolve(appDir, a)).find((p) => existsSync(p));
+  // `build --json` says nothing on stderr: its diagnostics carry the path taken, or the file it could not read.
+  if (rest[0] === 'build' && rest.includes('--json')) return found ?? null;
   if (found) console.error(`exact.mjs: ${arg} is ${found} (the app is ${appDir}; this shell is in ${here})`);
   else console.error(`exact.mjs: no ${arg} in ${here} or in the app, ${appDir}`);
   return found ?? null;
@@ -146,11 +148,10 @@ if (verb === 'contract') {
     // A server entry that does not read DB is refused before the build too, not after it (verify.mjs `withAppServer`, LLP 1116.008 D1).
     const refusal = verb === 'test' ? (await import(resolve(exact2, 'scripts/verify.mjs'))).appServer(dir)?.refusal : null;
     if (refusal) { console.error(`test: ${refusal}`); return log(1); }
-    const sim = rest.includes('--sim') ? ['--sim', rest[rest.indexOf('--sim') + 1]] : [];
     // An `agent` drive's check hashes the build's inputs, and the driver need not again (LLP 1012.001.000 D1: once a drive).
     const checked = verb === 'agent' && drivesNative ? resolve(tmpdir(), `exact-build-check-${process.pid}`) : null;
     if (checked) process.env.EXACT_BUILD_CHECK_OUT = checked;
-    const built = await script(drivesWeb ? verbs['web-build'] : ['scripts/agent-build.mjs', host, '--app', name, ...sim], [], [0, 2, 2]);
+    const built = await script(drivesWeb ? verbs['web-build'] : ['scripts/agent-build.mjs', host, '--app', name], [], [0, 2, 2]);
     if (checked) { delete process.env.EXACT_BUILD_CHECK_OUT; try { process.env.EXACT_BUILD_CHECKED = readFileSync(checked, 'utf8'); rmSync(checked); } catch {} }
     if (built) return log(built);
   }

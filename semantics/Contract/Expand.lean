@@ -21,6 +21,7 @@ component-level semantics (`Contract.CompSem`).
     renames them.
 -/
 import Contract.Components
+import Contract.Tabs
 
 namespace Contract.Expand
 
@@ -286,6 +287,7 @@ structure Ctx where
   fill : Option Fill := .none
   /-- The region arms around the site, innermost first. -/
   arms : List Owner := []
+  tabs : Bool := false
   extraStates : List StateDecl := []
   extraActions : List ActionDecl := []
   deriving Inhabited
@@ -877,8 +879,20 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
       let hs ← hs.mapM fun (ev, a, args) => do
         let (a, args) ← substHandler s a args
         pure (ev, a, args)
-      let kids ← inlineNodes p fuel s kids
-      pure [Node.element tag (substList s pos) (substFields s props) hs kids]
+      let props := substFields s props
+      let tabs := (← get).tabs
+      let panel := tabs && !kids.isEmpty &&
+        ((lookupField "role" props).map tabLiteral matches .some (.str "tabpanel")) &&
+        props.all (fun (name, e) => name != "virtualized" || (tabLiteral e matches .bool false))
+      if (lookupField "navigationKey" props).isSome then
+        modify fun ctx => { ctx with tabs := (lookupField "navigationBack" props).isSome }
+      let kids ← if panel then do
+          let arm ← freshTag
+          let body ← inArm arm 0 (inlineNodes p fuel s kids)
+          pure [Node.when arm (.bool true) body []]
+        else inlineNodes p fuel s kids
+      modify fun ctx => { ctx with tabs }
+      pure [Node.element tag (substList s pos) props hs kids]
     | .when _ c a b => do
       let tag ← freshTag
       let a ← inArm tag 0 (inlineNodes p fuel s a)

@@ -51,7 +51,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
   </main>
 </div>
 <script type="module">
-  import { navigation } from './navigation.js';
+  import { navigation, inertAncestor } from './navigation.js';
   import { createInputHandlers } from './input-glue.js';
   const root = document.getElementById('exact-root'), nav = document.getElementById('nav'), panel = document.getElementById('p1');
   const stack = window.stack = [['list', '/']];
@@ -87,7 +87,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
   document.getElementById('tab-2').addEventListener('click', () => show('other'));
   document.getElementById('tab-1').addEventListener('click', () => show());
   show();
-  input = createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: el => el.closest('[inert]'), dispatch() {} });
+  input = createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor, dispatch() {} });
   input.arrive(); // the stack as it stands when the piece arrives, as each target calls it
   // Where the focus is: the element's id, whether the browser draws its ring, and the page's and the list's scroll.
   window.focus = () => { const a = document.activeElement; return [a === document.body ? 'body' : a.id, a.matches(':focus-visible'), document.scrollingElement.scrollTop, document.getElementById('scroller').scrollTop]; };
@@ -312,4 +312,18 @@ check('the agent\'s reveal leaves what a tap refuses where it is', () => inChrom
   expect(await evaluate(`pop(); document.getElementById('row-far').style.visibility = 'hidden'; ${reveal}`)).toEqual([false, false]);
   // A row a person could reach is scrolled to, as before.
   expect(await evaluate(`document.getElementById('row-far').style.visibility = ''; ${reveal}`)).toEqual([true, true]);
+}), 60000);
+
+check('Back returns focus inside a modal beneath an inert ancestor', () => inChrome(async (evaluate, press) => {
+  await evaluate(`
+    const dialog = document.createElement('dialog');
+    dialog.style.cssText = 'width:500px;height:700px';
+    nav.before(dialog); dialog.append(nav); dialog.showModal();
+    document.getElementById('exact-root').inert = true;
+  `);
+  await press('row-1');
+  expect(await evaluate('focus()[0]')).toBe('title-1');
+  expect(await evaluate('pop(); focus()[0]')).toBe('row-1');
+  await press('row-1');
+  expect(await evaluate(`document.getElementById('row-1').inert = true; pop(); focus()[0]`)).toBe('list-title');
 }), 60000);

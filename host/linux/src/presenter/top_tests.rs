@@ -1112,6 +1112,13 @@ fn focus_after_show_selects_the_shell_menu_row_and_escape_restores_the_trigger()
     let second = id(&p, "menu-share");
     p.set_focus(Some(trigger), 0.0);
     p.popover_command("showPopover", &[Value::str("menu"), Value::str("trigger")]);
+    assert_eq!(p.focus_command(&[Value::str("trigger")]), None);
+    assert_eq!(p.focus(), None);
+    let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
+    assert!(
+        journal.contains(r#"focus \"trigger\" refused: page under surface is inert"#),
+        "{journal}"
+    );
     assert_eq!(p.focus_command(&[Value::str("second")]), Some(second));
     assert_eq!(p.top.open.as_ref().unwrap().focused, Some(1));
     assert_eq!(p.focus(), None, "the menu owns focus, not the page");

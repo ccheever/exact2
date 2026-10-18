@@ -244,3 +244,46 @@ fn sun_fill_and_hook_frame_fallback_skip_hidden_ancestors_but_camera_does_not() 
         200. * scene::PHOTOMETRIC_SCALE
     );
 }
+
+#[test]
+fn sun_shadow_settings_survive_save_and_reach_the_renderer() {
+    let mut w = World::new(60, 0);
+    w.spawn((Transform::default(), DirectionalLight::default()));
+    let mut feed = Feed::default();
+    let mut recording = Recording::default();
+    feed.feed_to(&w, &mut recording).unwrap();
+    assert_eq!(
+        feed.frame(&w, 1., 1.)
+            .sun
+            .unwrap()
+            .shadows
+            .unwrap()
+            .cascades,
+        3
+    );
+    let settings = crate::Shadows {
+        fixed_box: Some(crate::ShadowBox {
+            center: Vec3::new(1., 2., 3.),
+            half_width: 40.,
+            half_depth: 80.,
+        }),
+        cache_static: true,
+        resolution: 1024,
+        cascades: 1,
+        distance: 40.,
+        softness: 2.,
+        filter: crate::ShadowFilter::PcfSoft {
+            depth_bias: 0.0004,
+            normal_bias: 0.6,
+        },
+        strength: 0.65,
+    };
+    w.insert_resource(settings);
+    let mut restored = World::new(60, 0);
+    restored.load(&w.save()).unwrap();
+    feed.feed_to(&restored, &mut recording).unwrap();
+    assert_eq!(
+        feed.frame(&restored, 1., 1.).sun.unwrap().shadows,
+        Some(settings)
+    );
+}

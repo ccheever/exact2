@@ -340,6 +340,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
             // Its layout box, set under whatever transform it carries.
             row.bounds.size = owner.home.size
             row.center = CGPoint(x: owner.home.midX, y: owner.home.midY)
+            presenter?.regrid(row) // a frame op while it was lifted was placed from the preview
         }
     }
 

@@ -179,7 +179,11 @@ fn part(name: &str) -> Option<Part> {
 
 fn entry(name: &str) -> Option<Entry> {
     let tag = tags::tag(name).map(|t| tag_json(name, &t));
-    let attr = tags::attr(name).map(|a| attr_json(name, &a));
+    // Lowering's own row for `:active`'s opacity is no attribute (LLP 1121 D8).
+    let attr = (name != contract_lower::PRESS_OPACITY_TO)
+        .then(|| tags::attr(name))
+        .flatten()
+        .map(|a| attr_json(name, &a));
     let value_of: Vec<&'static str> = vocab::attrs()
         .into_iter()
         .filter(|(n, a)| rows_of(n, a).iter().any(|r| r.enum_names().contains(&name)))
@@ -393,6 +397,9 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         if name == "navigationDetent" {
             println!("  {DETENT}");
         }
+        if name == "navigationInitialDetent" {
+            println!("  on a sheet route (`navigationPresentation=\"modal\"`), the word of its `navigationDetent` the sheet opens at: `navigationDetent=\"medium large\" navigationInitialDetent=\"large\"` opens tall with a half-height stop below, React Navigation's `sheetInitialDetentIndex`. Unsaid or empty (as `navigationDetent=\"\"` is), the sheet opens at its first, the shortest, as UIKit does. It is read when the sheet's detents are set (when it opens, and when `navigationDetent` changes), so a change to it alone leaves the sheet where it is. Off a route, or as a literal that is not one of the route's words, it is refused; a bound one that names none of the detents iOS kept is journaled (`logs`), and the sheet opens at its first. UIKit's `selectedDetentIdentifier`; hosts whose sheets have one height ignore it");
+        }
         if name == "navigationGrabber" {
             println!("  on a sheet route (`navigationPresentation=\"modal\"`). \"visible\" shows the sheet's grabber, the short bar at its top edge, \"hidden\" hides it; \"auto\", the default, is the platform's: iOS shows one on a sheet with several detents (`navigationDetent=\"medium large\"`), which the grabber resizes, and none on a sheet of one height. UIKit's `prefersGrabberVisible`. Draw no grabber of your own: say this. Hosts whose sheets have none ignore it");
         }
@@ -493,7 +500,10 @@ fn idiom(name: &str) -> Option<String> {
     contract_syntax::idioms::refusal(name)
 }
 
-/// A name nothing admits: the lookups' hints, and a function one edit away.
+/// A name nothing admits: the lookups' hints, a function one edit away, what
+/// a common name from elsewhere is written as, and the recipes, patterns and
+/// concepts named like it. A builder whose lookup missed read the long guides
+/// instead (LLP 1116.021, round 20).
 fn refused(name: &str) -> String {
     let refusal = vocab::refusal(name);
     let head = format!("`{name}` is not a tag or an attribute");
@@ -506,10 +516,87 @@ fn refused(name: &str) -> String {
         .find(|f| one_edit(name, &f.name))
     {
         out += &format!("; did you mean the function `{}`?", near.name);
-    } else if let Some((near, _)) = recipes::RECIPES.iter().find(|(r, _)| one_edit(name, r)) {
-        out += &format!("; did you mean the recipe `{near}`?");
+    }
+    if let Some(means) = means(name) {
+        out += &format!("; {means}");
+    }
+    let near = named_like(name);
+    if !near.is_empty() {
+        out += &format!("; try {}", near.join(", "));
     }
     out
+}
+
+/// Names from other platforms that no entry answers to, and what is written.
+const MEANS: &[(&[&str], &str)] = &[
+    (
+        &["checkbox", "check-box", "UISwitch"],
+        "a checkbox is `input type=\"checkbox\" checked=… change=…`, a switch the same with `switch` (`contract vocab input`)",
+    ),
+    (
+        &["switch", "Toggle"],
+        "a switch is `input type=\"checkbox\" switch checked=… change=…` (`contract vocab input`)",
+    ),
+    (
+        &["range", "slider", "Slider", "UISlider"],
+        "a slider is `input type=\"range\" min=… max=… value=… input=…` (`contract vocab input`)",
+    ),
+    (
+        &["strikethrough", "strike", "strike-through", "textDecorationLine"],
+        "struck-through text is `text-decoration=\"line-through\"` (`contract vocab text-decoration`)",
+    ),
+    (
+        &["picker", "Picker", "UIPickerView"],
+        "a menu of values is a `select`, two to five side by side the concept `choice`, a date `input type=\"date\"`",
+    ),
+    (
+        &["tablist", "tabbar", "tab-bar", "UITabBar", "TabView"],
+        "a tab bar is the recipe `tabs`",
+    ),
+    (
+        &["clipboard", "pasteboard", "UIPasteboard"],
+        "copying is the host command `copyText(text)` (`contract vocab copyText`)",
+    ),
+];
+
+/// The recipes, patterns and concepts whose name is one edit from the name or
+/// has it as a word (`random`, `shuffle`: `random-and-shuffle`; `dates`: the
+/// concept `date`); a concept is also found by the names it answers to.
+fn named_like(name: &str) -> Vec<String> {
+    let q = name.to_lowercase();
+    let like = |candidate: &str| {
+        let whole = candidate.to_lowercase();
+        one_edit(&whole, &q)
+            || (q.len() >= 5 && whole.contains(&q))
+            || whole.split(['-', ':']).any(|w| {
+                !matches!(w, "and" | "that" | "the")
+                    && (w == q
+                        || (q.len() >= 5 && one_edit(w, &q))
+                        || (q.len() >= 4 && w.starts_with(&q))
+                        || (w.len() >= 4 && q.len() <= w.len() + 2 && q.starts_with(w)))
+            })
+    };
+    let recipes = recipes::RECIPES.iter().map(|(r, _)| (*r, "a recipe"));
+    let patterns = recipes::PATTERNS.iter().map(|(p, _)| (*p, "a pattern"));
+    let concepts = concepts::concepts()
+        .into_iter()
+        .filter(|c| like(c.name) || c.names.iter().any(|n| like(n)))
+        .map(|c| (c.name, "a concept"));
+    let mut found: Vec<(&str, &str)> = Vec::new();
+    for (name, kind) in recipes
+        .chain(patterns)
+        .filter(|(n, _)| like(n))
+        .chain(concepts)
+    {
+        // `tabs` is a recipe and a pattern, and one lookup prints both.
+        if !found.iter().any(|(n, _)| *n == name) && found.len() < 4 {
+            found.push((name, kind));
+        }
+    }
+    found
+        .into_iter()
+        .map(|(name, kind)| format!("`contract vocab {name}` ({kind})"))
+        .collect()
 }
 
 /// Whether two names differ by one insertion, deletion, substitution or
@@ -545,10 +632,22 @@ fn function_json(f: &Function) -> Value {
     if let Some(note) = idiom(&f.name) {
         doc["note"] = note.into();
     }
+    if let Some(means) = means(&f.name) {
+        doc["means"] = means.into();
+    }
     if routed(f) {
         doc["routes"] = true.into();
     }
     doc
+}
+
+/// What a name from elsewhere is written as, from [`MEANS`]: said beside a
+/// function of the same name (`range`, the slider's `type`).
+fn means(name: &str) -> Option<&'static str> {
+    MEANS
+        .iter()
+        .find(|(names, _)| names.contains(&name))
+        .map(|(_, means)| *means)
 }
 
 /// Whether the function exists only in an app with a `routes` declaration.
@@ -574,6 +673,9 @@ fn function_text(f: &Function) -> String {
     }
     if let Some(note) = idiom(&f.name) {
         out += &format!("  the web's `{}`: {note}\n", f.name);
+    }
+    if let Some(means) = means(&f.name) {
+        out += &format!("  `{}` elsewhere: {means}\n", f.name);
     }
     out += "  docs/contract-grammar.md#standard-functions-and-intrinsics\n";
     out
@@ -631,7 +733,7 @@ const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a
 
 /// `border-radius` on a sheet route (ModalIOS.swift `cornerRadius(of:)`).
 const SHEET_RADIUS: &str = "on iOS a sheet route's (`navigationPresentation=\"modal\"`) top-left radius is also its sheet's corner radius (`preferredCornerRadius`), which seats a large sheet flat on the bottom edge. Unsaid, the sheet is UIKit's: on iOS 26 and later rounded like the display and inset from the bottom edge, as Apple's own sheets are";
-const DETENT: &str = "on a sheet route (`navigationPresentation=\"modal\"`), its resting heights, the first to start: `\"45%\"` is that share of the sheet's maximum (UIKit's maximumDetentValue; React Native's `sheetAllowedDetents: [0.45]`), so a share of the screen needs no measure. A point height and fit-content stop at that maximum. UIKit takes detents shortest to tallest, and a point height and a share cross on some screen, so the words before large are one kind (points, or shares with medium as half), each taller than the one before. A bound value iOS cannot use is journaled (`logs`) with the route, and the sheet keeps its other detents or opens large. iOS alone sizes a sheet; other hosts ignore it (LLP 1075.003 §9.11, §9.13)";
+const DETENT: &str = "on a sheet route (`navigationPresentation=\"modal\"`), its resting heights; it opens at the first, the shortest, unless `navigationInitialDetent` names another: `\"45%\"` is that share of the sheet's maximum (UIKit's maximumDetentValue; React Native's `sheetAllowedDetents: [0.45]`), so a share of the screen needs no measure. A point height and fit-content stop at that maximum. UIKit takes detents shortest to tallest, and a point height and a share cross on some screen, so the words before large are one kind (points, or shares with medium as half), each taller than the one before. A bound value iOS cannot use is journaled (`logs`) with the route, and the sheet keeps its other detents or opens large. iOS alone sizes a sheet; other hosts ignore it (LLP 1075.003 §9.11, §9.13)";
 /// LLP 1116.020 D3: round 18's builders drew search as a field and a Search
 /// button in the content; the bar's search field is one attribute away.
 const SEARCH_TYPE: &str = "on an `input`, HTML's (`number`, `date`, `checkbox`, …); `type=\"search\"` in a route's `header` is the bar's search field, filtering as you type (iOS: UIKit's search controller; `contract vocab search`)";
@@ -685,7 +787,7 @@ fn tag_json(name: &str, t: &Tag) -> Value {
     doc
 }
 
-const TEXT_PX_WIDTH: &str = "An absolute width (a number, px, pt or absolute calc()) containing scalable text stays fixed at accessibility sizes (lower-text-px-width). Use rem for the width (width=\"3rem\"), or let content determine it. The lint is deliberately conservative: it stays silent for unresolved classes, uncertain visibility or sizing, flex sizing that can supersede width, and min/max-width bounds that may change it. Text in absolute or fixed positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; inherit and unset use the parent font even on controls. The warning checks layout boxes containing text runs or text fields, including HTML inside SVG foreignObject. It reads lowering’s grouped-list typography and known styles; computed widths and fonts remain unknown.";
+const TEXT_PX_WIDTH: &str = "A fixed ceiling from width or max-width (a number, px, pt, absolute calc(), or em against an authored absolute font), after min-width wins any conflict, can constrain scalable text at accessibility sizes (lower-text-px-width). Express the width and its bounds in rem (width=\"3rem\" or max-width=\"3rem\"), or let content determine the width. A minimum alone supplies no ceiling. The lint is deliberately conservative: it stays silent for unresolved classes, uncertain visibility or sizing, flex sizing that can supersede width without a fixed maximum, and minimum bounds that may grow past the ceiling. Text in absolute or fixed positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; inherit and unset use the parent font even on controls. The warning checks layout boxes containing text runs or text fields, including HTML inside SVG foreignObject. It reads lowering’s parent layout, grouped-list typography and known styles. A computed width can still have a fixed maximum; computed fonts remain unknown.";
 
 fn attr_json(name: &str, a: &AttrTarget) -> Value {
     let mut doc = json!({ "name": name, "kind": kind(a) });

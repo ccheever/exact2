@@ -61,6 +61,7 @@ pub mod sorted;
 pub mod style;
 pub mod svg;
 pub mod text;
+pub mod time;
 pub mod timeline;
 pub mod transform;
 pub mod txn;
@@ -77,7 +78,9 @@ pub use error::{
     ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
 };
 pub use generated::*;
-pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection, TextFont, TextLook};
+pub use grouped::{
+    Accessory, GroupedList, GroupedMargins, GroupedRow, GroupedSection, TextFont, TextLook,
+};
 pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
 pub use invocation::Invocation;
@@ -97,14 +100,16 @@ pub use style::{
     SegmentVar, StyleValue, Transitions, Vec2, ViewportUnit,
 };
 pub use text::case::link as link_text_transform;
-pub use text::case::{linked_lowercase, lowercase_bounded, Lowercase};
+pub use text::case::{
+    linked_lowercase, linked_uppercase, lowercase_bounded, uppercase_bounded, CaseMapping,
+};
 pub use text::{
     Markup, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
     TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,
 };
 pub use transform::TransformDragBinding;
 pub use txn::{CommitReceipt, Exit, MAX_DEPTH};
-pub use wire::{FrameBuilder, Op};
+pub use wire::{look_rows, FrameBuilder, Op, LOOK_FOCUS_VISIBLE, LOOK_HOVER};
 
 pub use region::{
     ContentRegion, RegionArtifact, RegionFrame, RegionInputs, RegionLayoutReceipt,

@@ -386,6 +386,9 @@ impl Gen<'_> {
                 2,
                 2,
                 if **elem == Ty::Str { 2 } else { 0 },
+                3,
+                if **elem == Ty::Num { 2 } else { 0 },
+                2,
             ]) {
                 0 => {
                     let src_ty = self.held(env, false);
@@ -422,10 +425,44 @@ impl Gen<'_> {
                 }
                 // `split` over code units: an empty separator cuts an astral
                 // character into two U+FFFD (LLP 1088 §9.1).
-                _ => {
+                6 => {
                     let s = self.expr(env, &Ty::Str, d, false);
                     let sep = self.expr(env, &Ty::Str, d, false);
                     format!("({s}).split({sep})")
+                }
+                // LLP 1116.016 §5: a stable sort by a number or string key,
+                // in either direction.
+                7 => {
+                    let src = self.expr(env, t, d, false);
+                    let (head, inner) = self.arrow_head(env, elem);
+                    let key_ty = if self.rng.chance(1, 2) {
+                        Ty::Num
+                    } else {
+                        Ty::Str
+                    };
+                    let key = self.expr(&inner, &key_ty, d, false);
+                    let dir = *self
+                        .rng
+                        .pick(&["", "", ", \"asc\"", ", \"desc\"", ", \"desc\""]);
+                    format!("sortBy({src}, {head} {key}{dir})")
+                }
+                // `range(n)`: mostly a small count or a length; now and then
+                // any number floored, which a negative or non-finite one
+                // refuses at run time (a literal one, at compile time). The
+                // `min` keeps a count clear of the list bound, which the
+                // runner traps and the semantics does not model.
+                8 => match self.rng.weighted(&[3, 1, 1]) {
+                    0 => format!("range({})", self.rng.range(0, 5)),
+                    1 => format!("range(({}).length)", self.sized(env, d)),
+                    _ => format!(
+                        "range(min(floor({}), 8))",
+                        self.expr(env, &Ty::Num, d, false)
+                    ),
+                },
+                // `flat()`: a list of lists' items, one level (LLP 1017.003).
+                _ => {
+                    let xss = self.expr(env, &Ty::list(t.clone()), d, pinned);
+                    format!("({xss}).flat()")
                 }
             },
             Ty::Rec(i) => {
@@ -453,7 +490,7 @@ impl Gen<'_> {
     }
 
     fn num_expr(&mut self, env: &Env, d: usize) -> String {
-        match self.rng.weighted(&[8, 1, 3, 1, 2, 1]) {
+        match self.rng.weighted(&[8, 1, 3, 2, 2, 1, 1]) {
             0 => {
                 let op = *self.rng.pick(&["+", "-", "*", "/", "%", "+", "-", "*"]);
                 let a = self.expr(env, &Ty::Num, d, false);
@@ -464,8 +501,12 @@ impl Gen<'_> {
             2 => format!("({}).length", self.sized(env, d)),
             // `round` is JavaScript's `Math.round` (LLP 1102 §3.2).
             3 => {
-                let f = *self.rng.pick(&["floor", "ceil", "round"]);
+                let f = *self.rng.pick(&["floor", "ceil", "round", "sin", "cos"]);
                 format!("{f}({})", self.expr(env, &Ty::Num, d, false))
+            }
+            6 => {
+                let xs = self.expr(env, &Ty::list(Ty::Num), d, false);
+                format!("sum({xs})")
             }
             // `indexOf` over a list of strings, numbers or bools by strict
             // equality, or over text in code units (LLP 1088 §9.1).
@@ -536,8 +577,8 @@ impl Gen<'_> {
             }
             5 => self.format_expr(env, d),
             // LLP 1088 D2: over UTF-16 code units, an astral string cut or
-            // split by an empty pattern; `toLowerCase` is left out, as the
-            // semantics leaves it out.
+            // split by an empty pattern; `toLowerCase` and `toUpperCase` are
+            // left out, as the semantics leaves them out.
             6 => {
                 let s = self.expr(env, &Ty::Str, d, false);
                 if self.rng.chance(1, 2) {

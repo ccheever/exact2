@@ -14,6 +14,8 @@ use crate::{Design, Diagnostic};
 pub mod astryx;
 pub mod dtcg;
 mod engine;
+mod kinds;
+mod landing;
 pub mod shadcn;
 pub mod tailwind;
 
@@ -55,7 +57,7 @@ pub struct Unmapped {
     pub name: String,
     /// Its value as written.
     pub value: String,
-    /// Why (`kind pending (stage 6)` …).
+    /// Why (`no Tamber kind: a breakpoint …`).
     pub why: String,
     /// The token it would become, when there is one.
     pub token: Option<String>,
@@ -85,6 +87,14 @@ pub fn tamber_name(prefix: &str, segments: &[&str]) -> String {
         .join(".")
 }
 
+/// Each token's source values, by its name: what is reported when the
+/// token is refused where it lands (`landing::settle`).
+pub(super) type Sources = Vec<(String, Vec<Unmapped>)>;
+
+/// What an importer's pass for the kinds besides colour writes: the tokens,
+/// the report, and each token's sources.
+pub(super) type Written<'a> = (&'a mut Vec<Mapped>, &'a mut Vec<Unmapped>, &'a mut Sources);
+
 /// A token an importer maps a source to: its default value and `when` lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mapped {
@@ -94,6 +104,9 @@ pub struct Mapped {
     pub value: String,
     /// Its `when` lines: conditions and value.
     pub whens: Vec<(Vec<(String, String)>, String)>,
+    /// Its kind as `add-token` writes it (`length`), or `None` for a
+    /// colour, which its value says.
+    pub kind: Option<&'static str>,
 }
 
 /// The operations that bring `design` to carry each of `tokens` (and each
@@ -129,7 +142,7 @@ pub fn reconcile(
         let Some(have) = design.tokens.iter().find(|d| d.name.value == t.name) else {
             ops.push(Op::AddToken {
                 name: t.name.clone(),
-                kind: None,
+                kind: t.kind.map(str::to_string),
                 value: t.value.clone(),
                 meta: Vec::new(),
                 whens: t
@@ -181,10 +194,38 @@ pub fn reconcile(
     ops
 }
 
-/// Two values the same, as written (spacing aside).
+/// Two values the same, as written (spacing aside, but a string's own).
 fn same(a: &str, b: &str) -> bool {
-    let squash = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
     squash(a) == squash(b)
+}
+
+/// `v` with each run of spaces outside a string one space.
+pub(crate) fn squash(v: &str) -> String {
+    let (mut out, mut quote, mut space) = (String::new(), None, false);
+    let mut chars = v.trim().chars();
+    while let Some(c) = chars.next() {
+        match quote {
+            Some(q) => {
+                out.push(c);
+                if c == '\\' {
+                    out.extend(chars.next());
+                } else if c == q {
+                    quote = None;
+                }
+            }
+            None if c.is_whitespace() => space = true,
+            None => {
+                if std::mem::take(&mut space) {
+                    out.push(' ');
+                }
+                if c == '"' || c == '\'' {
+                    quote = Some(c);
+                }
+                out.push(c);
+            }
+        }
+    }
+    out
 }
 
 fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {

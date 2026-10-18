@@ -23,40 +23,8 @@ use exact_runner::{
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::rc::Rc;
-/// What the presenter hands the library at boot: the text measurer (LLP
-/// 1008 §3) and the wake for a request's reply (LLP 1016 D2), each with an
-/// opaque context the library passes back untouched.
-#[derive(Clone, Copy)]
-pub struct Hooks {
-    /// Measures a paragraph; `None` for the monospace reference measurer.
-    pub measure: Option<MeasureFn>,
-    /// Passed back to `measure` and `lines`.
-    pub ctx: *mut c_void,
-    /// A paragraph's line boxes (LLP 1093 D6); `None` keeps paragraphs whole.
-    pub lines: Option<crate::measure::LinesFn>,
-    /// Called on the executor's thread when a reply is queued; `None`: replies wait for `exact_pump`.
-    pub wake: Option<crate::executor::WakeFn>,
-    /// Passed back to `wake`.
-    pub wake_ctx: *mut c_void,
-    /// Measures a Canvas 2D run with Core Text (LLP 1056 D8), with `ctx`.
-    pub canvas_text: Option<crate::canvas_text::CanvasTextFn>,
-    /// Measures a system symbol (`TextMeasurer::symbol_size`), with `ctx`.
-    pub symbol: Option<crate::measure::SymbolFn>,
-}
-impl Hooks {
-    /// No callbacks: the reference measurer, and replies on `pump` only.
-    pub const fn none() -> Hooks {
-        Hooks {
-            measure: None,
-            ctx: std::ptr::null_mut(),
-            lines: None,
-            wake: None,
-            wake_ctx: std::ptr::null_mut(),
-            canvas_text: None,
-            symbol: None,
-        }
-    }
-}
+mod hooks;
+pub use hooks::Hooks;
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     document_owner: u64,
@@ -100,6 +68,7 @@ pub struct Bridge<D: DataSource> {
     /// boots: a runner booted later lays out its first frame with them, not
     /// with a mouse's defaults and then again.
     preferences: exact_runner::Preferences,
+    launch_layout: crate::host::LaunchLayout,
     /// The date and place last told before a boot (`set_launch_time`,
     /// `set_launch_place`): a runner booted later reads them from its first settle.
     launch_facts: exact_runner::time::Launch,
@@ -156,6 +125,7 @@ impl<D: DataSource> Bridge<D> {
             pan: crate::pan_velocity::PanVelocity::new(),
             canvas_deferred: false,
             preferences: exact_runner::Preferences::NONE,
+            launch_layout: crate::host::LaunchLayout::NONE,
             launch_facts: exact_runner::time::Launch::NONE,
             live_clock: None,
             input: Vec::new(),
@@ -513,6 +483,7 @@ impl<D: DataSource> Bridge<D> {
             Some(f) => Box::new(
                 CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
                     .with_symbol(hooks.symbol)
+                    .with_time_format(hooks.time_format)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
@@ -549,6 +520,7 @@ impl<D: DataSource> Bridge<D> {
                 plan,
                 data,
                 measurer,
+                self.launch_layout,
                 self.boot_viewport(width, height),
                 None,
                 snapshot,
@@ -756,8 +728,9 @@ impl<D: DataSource> Bridge<D> {
         // The real candidate remains deferred through all-session acceptance.
         // After commit, its paint receipt configures storage before activation
         // and data_ready refreshes its baked/kept external-reading resources.
-        let length =
-            self.prepare_plan_carried(plan_len, data, hooks, width, height, delivery, validated);
+        let length = self.prepare_plan_carried(
+            plan_len, data, hooks, width, height, delivery, validated, None,
+        );
         if let Some(prepared) = &mut self.prepared {
             prepared.module = true;
             prepared.let_go = let_go;
@@ -788,11 +761,11 @@ impl<D: DataSource> Bridge<D> {
         height: f32,
         delivery: Option<exact_runner::Delivery>,
     ) -> u32 {
-        self.prepare_plan_carried(len, data, hooks, width, height, delivery, None)
+        self.prepare_plan_carried(len, data, hooks, width, height, delivery, None, None)
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn prepare_plan_carried(
+    pub(super) fn prepare_plan_carried(
         &mut self,
         len: usize,
         mut data: D,
@@ -801,6 +774,7 @@ impl<D: DataSource> Bridge<D> {
         height: f32,
         delivery: Option<exact_runner::Delivery>,
         carried: Option<exact_runner::Carried>,
+        entry: Option<&str>,
     ) -> u32 {
         if let Some(refusal) = self.refuse_analysis() {
             return refusal;
@@ -815,6 +789,7 @@ impl<D: DataSource> Bridge<D> {
             Some(f) => Box::new(
                 CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
                     .with_symbol(hooks.symbol)
+                    .with_time_format(hooks.time_format)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
@@ -844,9 +819,10 @@ impl<D: DataSource> Bridge<D> {
         let launch = self.launch_facts.clone();
         match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
-                PlanBytes::Copied(&plan),
+                PlanBytes::input(&plan, entry),
                 data,
                 measurer,
+                self.launch_layout,
                 self.boot_viewport(width, height),
                 carried.as_ref(),
                 snapshot,
@@ -884,16 +860,6 @@ impl<D: DataSource> Bridge<D> {
                 self.output.len() as u32
             }
             Err(e) => self.prepare_error(&format!("boot: {e:?}")),
-        }
-    }
-
-    /// Prepare and commit a single session's plan replacement.
-    pub fn boot_plan(&mut self, len: usize, data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
-        let len = self.prepare_plan(len, data, hooks, width, height);
-        if self.prepared.is_some() {
-            self.commit_plan()
-        } else {
-            len
         }
     }
 
@@ -1277,25 +1243,6 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The root font size in points (LLP 1069.000 D3): a relayout.
-    pub fn set_root_font_size(&mut self, px: f64) -> u32 {
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_root_font_size(px));
-        self.emit(out)
-    }
-
-    /// The display's scale (LLP 1115.000 D10.3): a relayout where a row is a
-    /// hairline.
-    pub fn set_display_scale(&mut self, scale: f64) -> u32 {
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_display_scale(scale));
-        self.emit(out)
-    }
-
     /// The page's facts changed or became known (LLP 1069.000 D2): bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet.
     pub fn set_page(&mut self, bits: u32) -> u32 {
@@ -1468,8 +1415,10 @@ fn escape(s: &str) -> String {
 /// A thread-local bridge cell, for the exports.
 pub type Cell<D> = RefCell<Bridge<D>>;
 
+mod boot;
 mod colors;
 mod registry;
+mod snapshot;
 #[cfg(test)]
 use registry::REFUSAL;
 pub use registry::{refusal_ptr, with_entry, with_runtime, Entry, Registry};

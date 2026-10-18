@@ -215,8 +215,13 @@ final class ControlHost: NSObject {
 
     @objc private func changed(_ sender: NSControl) {
         let id = UInt32(sender.tag)
-        guard presenter.views[id] != nil else { return }
-        presenter.checked(id, isOn(sender))
+        guard let node = presenter.views[id] else { return }
+        // Read first: the press's batch syncs a bound control back to `checked`.
+        let on = isOn(sender)
+        // A click on a checkbox is heard before its `input` and `change` (HTML
+        // dispatches `click`, then fires those as its activation behaviour).
+        if node.handlers.contains("press") { presenter.press(id) }
+        presenter.checked(id, on)
         // The committed state is authoritative: an action that refused the
         // toggle snaps the control back (D4).
         if let committed = presenter.views[id]?.props["checked"].map({ $0 == "true" }) { setOn(sender, committed) }

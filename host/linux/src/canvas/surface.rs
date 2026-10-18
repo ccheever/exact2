@@ -86,3 +86,21 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.force = true;
     }
 }
+
+#[cfg(target_os = "android")]
+impl<D: DataSource + Default> CanvasHost<D> {
+    /// The descriptor used only for drawable arrivals.
+    pub fn acquire_fd(&self) -> i32 {
+        crate::surfaces::acquire_fd()
+    }
+
+    /// Drain drawable arrivals and finish owed canvases while the reader runs.
+    pub fn acquired(&mut self, running: bool) {
+        self.p.render_starved(running);
+    }
+
+    /// Begin a display tick; successful canvases cannot retry within this tick.
+    pub fn display_frame(&mut self) {
+        self.p.begin_display_frame();
+    }
+}

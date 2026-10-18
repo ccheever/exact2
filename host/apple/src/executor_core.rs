@@ -162,9 +162,9 @@ struct State {
 struct Shared {
     state: Mutex<State>,
     ready: Condvar,
-    /// How often a worker's wait returned: a test counts an idle pool's.
+    /// Notifications issued by the executor, independent of wait scheduling.
     #[cfg(test)]
-    wakes: AtomicUsize,
+    worker_notifications: AtomicUsize,
     abort: AbortController,
     /// Where the app's files are, as the host names them; unset on a host or
     /// drive that has none.
@@ -288,7 +288,7 @@ impl Core {
             }),
             ready: Condvar::new(),
             #[cfg(test)]
-            wakes: AtomicUsize::new(0),
+            worker_notifications: AtomicUsize::new(0),
             abort: AbortController::new(),
             root_paths: std::sync::OnceLock::new(),
             roots: std::sync::OnceLock::new(),
@@ -348,13 +348,29 @@ impl Core {
         }
     }
 
-    /// Start the workers, once, when the first request is admitted. False
-    /// when a thread could not be made: no job is admitted then, and the
-    /// workers that did start retire with the core.
-    fn start_workers(&self, state: &mut State) -> bool {
-        let Some(idle) = self.idle.lock().unwrap().take() else {
+    /// Start `lane`'s workers, once, when the first request for it is
+    /// admitted: the ordered owner, or the independent lane's six, which an
+    /// app that reads only its own files never needs. False when a thread
+    /// could not be made: no job is admitted then, and the workers that did
+    /// start retire with the core.
+    fn start_workers(&self, state: &mut State, lane: usize) -> bool {
+        let mut waiting = self.idle.lock().unwrap();
+        let Some(starters) = waiting.as_mut() else {
             return !self.failed.load(Ordering::Acquire);
         };
+        let idle = if self.machine.is_some() {
+            std::mem::take(starters)
+        } else {
+            let (now, later) = std::mem::take(starters)
+                .into_iter()
+                .partition(|(index, _, _)| usize::from(*index != 0) == lane);
+            *starters = later;
+            now
+        };
+        if starters.is_empty() {
+            *waiting = None;
+        }
+        drop(waiting);
         if let Some(machine) = &self.machine {
             // The base set holds the slots the workers would have.
             let guards: Vec<_> = idle.into_iter().map(|(_, _, guard)| guard).collect();
@@ -363,6 +379,10 @@ impl Core {
                 // takes no work.
                 self.failed.store(true, Ordering::Release);
                 state.retired = true;
+                #[cfg(test)]
+                self.shared
+                    .worker_notifications
+                    .fetch_add(1, Ordering::Relaxed);
                 self.shared.ready.notify_all();
                 machine.stop(state);
             }
@@ -383,6 +403,16 @@ impl Core {
             }
         }
         !self.failed.load(Ordering::Acquire)
+    }
+
+    /// Hand work that will not run to a worker to destroy. The ordered owner
+    /// may be busy with a held request, so the independent lane starts too:
+    /// its idle workers destroy it now.
+    fn discard(&self, state: &mut State, work: Option<OwnedWork>) {
+        if work.is_some() {
+            self.start_workers(state, 1);
+        }
+        discard(&self.shared, state, work);
     }
 
     /// Where `app:/data`, `app:/cache` and `app:/tmp` are, for a request
@@ -422,7 +452,8 @@ impl Core {
             .or(r.request.body_from_refusal())
             .map_or_else(|| reservation(&r.request), Err)
             .and_then(|charge| state.book.reserve_inline_copy(&r.request, charge));
-        if self.disabled || !self.start_workers(&mut state) {
+        let lane = checked.as_ref().map_or(0, |(lane, _, _)| *lane);
+        if self.disabled || !self.start_workers(&mut state, lane) {
             return Err(("native executor worker limit reached", work));
         }
         if state.retired {
@@ -457,7 +488,7 @@ impl Core {
                 }
                 Err(why) => {
                     state.fenced.push_back(Fenced::Refused(r.ticket, why));
-                    discard(&self.shared, &mut state, work);
+                    self.discard(&mut state, work);
                 }
             }
             return Ok(());
@@ -564,6 +595,10 @@ impl Core {
             limit,
             forgotten: false,
         });
+        #[cfg(test)]
+        self.shared
+            .worker_notifications
+            .fetch_add(1, Ordering::Relaxed);
         self.shared.ready.notify_all();
         Ok(())
     }
@@ -697,7 +732,7 @@ impl Core {
             state.fenced_bytes = fenced_bytes(&state.fenced);
             for f in gone {
                 if let Fenced::Held(_, work, _) = f {
-                    discard(&self.shared, state, work);
+                    self.discard(state, work);
                 }
             }
             rouse(&self.shared, state);
@@ -740,7 +775,7 @@ impl Core {
                     if let Err((reason, work)) = self.admit(*r, work) {
                         refused.push((ticket, reason));
                         let mut state = self.shared.state.lock().unwrap();
-                        discard(&self.shared, &mut state, work);
+                        self.discard(&mut state, work);
                     }
                 }
                 Fenced::Refused(ticket, reason) => {
@@ -829,6 +864,10 @@ impl Core {
             state.waiting.clear();
             state.waiting_set.clear();
         }
+        #[cfg(test)]
+        self.shared
+            .worker_notifications
+            .fetch_add(1, Ordering::Relaxed);
         self.shared.ready.notify_all();
         if let Some(machine) = &self.machine {
             machine.retire();
@@ -860,6 +899,8 @@ impl Drop for WorkerSlot {
 /// Retirement wakes them itself.
 fn rouse(shared: &Shared, state: &State) {
     if !state.discard.is_empty() || state.jobs.iter().any(|lane| !lane.is_empty()) {
+        #[cfg(test)]
+        shared.worker_notifications.fetch_add(1, Ordering::Relaxed);
         shared.ready.notify_all();
     }
 }
@@ -869,6 +910,8 @@ fn rouse(shared: &Shared, state: &State) {
 fn discard(shared: &Shared, state: &mut State, work: Option<OwnedWork>) {
     if let Some(work) = work {
         state.discard.push(work);
+        #[cfg(test)]
+        shared.worker_notifications.fetch_add(1, Ordering::Relaxed);
         shared.ready.notify_all();
     }
 }
@@ -1159,8 +1202,6 @@ fn worker(
                     break next;
                 }
                 state = shared.ready.wait(state).unwrap();
-                #[cfg(test)]
-                shared.wakes.fetch_add(1, Ordering::Relaxed);
             }
         };
         let Job {

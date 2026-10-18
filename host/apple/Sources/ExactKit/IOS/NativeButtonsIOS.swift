@@ -15,6 +15,10 @@ import UIKit
 /// (the node is the focus owner, D4).
 final class NativeButtonIOS: UIButton {
     weak var owner: NodeView?
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if ExactEnv.agentMode { TouchLog.reach(touches) }
+        super.touchesBegan(touches, with: event)
+    }
     /// What was last written, so a batch that changes nothing writes nothing.
     struct Written: Equatable {
         var face: ButtonFace
@@ -92,6 +96,7 @@ final class NativeButtonIOS: UIButton {
         super.didUpdateFocus(in: context, with: coordinator)
         guard let owner, let presenter = owner.presenter else { return }
         if context.nextFocusedItem === self {
+            presenter.supersedePress() // the remote moved the focus (PressHandoffIOS)
             presenter.focusKey = owner.props["testId"]
             presenter.focusGuides.focused(owner)
             presenter.focus(owner.id)
@@ -130,10 +135,22 @@ extension NodeView {
         let bubbled = target.map { presenter.pressBox(of: $0, from: self) !== $0 } ?? false
         let path = target.map { PressPath(from: self, to: $0, presenter: presenter) }, heldTarget = target.map(HeldNode.init)
         let lifetimes = bubbled ? [] : presenter.pressLifetimes(from: self, to: target)
-        focusForPress(target: target)
+        // No press target: the nearest invoker still activates, as on the web.
+        let invocation = target == nil ? presenter.menus.invoker(from: self).map { PressPath(from: self, to: $0, presenter: presenter) } : nil
+        let handoff = focusForPress(target: target)
+        defer { handoff?.dispatched() }
+        #if os(tvOS)
+        presenter.supersedePress() // Select is a key's activation: it hands no focus on (PressHandoffIOS)
+        #endif
+        if target == nil {
+            if invocation?.isLive(in: presenter) == true { presenter.menus.activating(from: self, pressing: nil) {} }
+            return
+        }
         guard !bubbled || path?.isLive(in: presenter) == true,
               lifetimes.allSatisfy({ $0() }), let target = heldTarget?.live(in: presenter), target.takesPress(bubbled: bubbled) else { return }
-        presenter.press(target.id, bubbled: bubbled)
+        presenter.menus.activating(from: self, pressing: target) {
+            presenter.press(target.id, bubbled: bubbled)
+        }
     }
 }
 

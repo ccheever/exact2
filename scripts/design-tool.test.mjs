@@ -79,8 +79,8 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(drive.exitCode, driveSaid).toBe(0);
     const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const { hello, changes } = replies.findLast(r => r.resources).resources;
-    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.9', app });
-    expect(hello.files.map(f => f.path)).toEqual(['app.tamber']);
+    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.11', app });
+    expect(hello.files.map(f => f.path)).toEqual(['app.contract', 'app.tamber']);
     expect(changes.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
     // One tool per machine: while it runs, another app's is refused, naming
     // the design the port serves, and this app's reuses it (its build is
@@ -172,11 +172,14 @@ test('every control on the dials panel comes from the design as describe gives i
       'type name Ada', 'tap save-name', 'clock data', 'tap more-Colour', 'tap more-Tone', 'tree dials',
       // The sliders' own range and step, which the page keeps a value to:
       // a step of 0.001 to 0.005, a value past the end held at it.
-      'type dial-fine-slider 0.004', 'state', 'type dial-fine-slider 1', 'state', 'type dial-lift-slider 0.374', 'state', 'type dial-chroma-slider -1', 'state'], { cwd: ROOT, encoding: 'utf8' });
+      'type dial-fine-slider 0.004', 'state', 'type dial-fine-slider 1', 'state', 'type dial-lift-slider 0.374', 'state', 'type dial-chroma-slider -1', 'state',
+      // A length dial's value, written in px, which the real server takes (stage 6).
+      'type dial-gap-slider 10', 'clock data', 'tap apply', 'clock data'], { cwd: ROOT, encoding: 'utf8' });
     expect(drive.status, drive.stderr).toBe(0);
     const out = drive.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const tree = out.find(r => r.nodes);
     expect(out.filter(r => r.slots).map(r => [r.slots.editTarget, r.slots.editValue])).toEqual([['fine', '0.004'], ['fine', '0.005'], ['lift', '0.37'], ['chroma', '0']]);
+    expect(readFileSync(join(app, 'app.tamber'), 'utf8')).toContain('gap: length = 10px');
     // The panel as drawn: each group's dials in screen order, "More"'s
     // after its button, and each one's control (its testId's last word),
     // label, value, range and step, options and help, all read off the
@@ -213,6 +216,11 @@ test('every control on the dials panel comes from the design as describe gives i
         // A range in scientific notation, its step fine enough for it.
         dial('fine', 'slider', 'fine', '0.001', '0 – 0.005 · step 0.001'),
         dial('warmth', 'slider', 'Warmth', '20', '0 – 60 · step 1'),
+      ] },
+      { group: 'Space', dials: [
+        // A length dial: its value, range and step in px (LLP 1121 D15).
+        dial('gap', 'slider', 'Gap', '8px', '0px – 24px · step 2px'),
+        dial('inset', 'stepper', 'inset', '4px', '0px – 16px · step 1px'),
       ] },
     ]);
     // And the panel describe gives, by the tool's own reading of each
@@ -604,15 +612,16 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
     ]);
     const states = replies.filter(r => r.resources);
     const review = states[0].resources.changes.held.find(h => h.importer === 'shadcn');
-    expect(review.counted).toBe('47 source values = 46 mapped + 1 reported');
+    expect(review.counted).toBe('47 source values = 47 mapped + 0 reported');
     expect(review.countOk).toBe(true);
-    expect(review.mapped).toHaveLength(23);
+    // 23 colours, `--radius` a length and its derived `lg` (stage 6 H).
+    expect(review.mapped).toHaveLength(25);
     expect(review.mapped[0]).toMatchObject({ name: 'shadcn.background', modes: [{ label: 'default', light: 'oklch(1 0 0)', dark: 'oklch(0.145 0 0)' }] });
     // Every override off until ticked, every unmapped value with its reason.
     expect(review.offers.map(o => [o.role, o.on])).toEqual([['-exact-background', false], ['-exact-label', false], ['-exact-secondary-background', false], ['-exact-separator', false], ['AccentColor', false]]);
     expect(states[0].slots.picked).toEqual([]);
-    expect(review.unmapped.map(u => u.name)).toEqual(['--radius', '--radius-sm', '--radius-md', '--radius-lg', '--radius-xl']);
-    expect(review.unmapped[0].why).toBe('kind pending (stage 6): length');
+    expect(review.unmapped.map(u => u.name)).toEqual(['--radius-sm', '--radius-md', '--radius-xl']);
+    expect(review.unmapped.every(u => u.derived && u.why.startsWith('derived from --radius, and not a length Tamber folds'))).toBe(true);
     const id = review.proposal, nth = k => id.replace(/-(\d+)$/, (_, n) => `-${Number(n) + k}`);
     const [edited, kept] = [nth(1), nth(2)];
     // Tick AccentColor, leave shadcn.foreground out, and edit one value: the
@@ -655,16 +664,18 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
     expect(tailwind.countOk).toBe(true);
     expect(tailwind.mapped.length).toBeGreaterThan(200);
     const dtcg = later[5].resources.changes.held.find(h => h.importer === 'dtcg');
-    expect(dtcg.counted).toBe('104 source values = 40 mapped + 64 reported');
-    expect(dtcg.unmapped).toHaveLength(64);
+    // Its numbers are tokens too (stage 6 H): only the strings and booleans
+    // are reported.
+    expect(dtcg.counted).toBe('104 source values = 101 mapped + 3 reported');
+    expect(dtcg.unmapped).toHaveLength(3);
     // Its axis is said as an axis; a reference is painted as the token it
     // names, in the same mode.
     expect(dtcg.mapped[0]).toMatchObject({ kind: 'axis', modes: [] });
     const byName = new Map(dtcg.mapped.map(m => [m.name, m]));
     const ref = dtcg.mapped.find(m => m.kind === 'token' && byName.has(m.modes[0].value));
     expect(ref.modes[0].light).toBe(byName.get(ref.modes[0].value).modes[0].light);
-    // A token's other mode, edited and accepted, is written.
-    const moded = dtcg.mapped.find(m => m.modes.length > 1);
+    // A colour token's other mode, edited and accepted, is written.
+    const moded = dtcg.mapped.find(m => m.modes.length > 1 && m.modes[1].light);
     const figmaId = dtcg.proposal, figmaEdited = figmaId.replace(/-(\d+)$/, (_, n) => `-${Number(n) + 1}`);
     const last = await drive(tool.url, `design-tool-import-${process.pid}`, [
       'clock data', 'clock +1', 'clock data',
@@ -721,7 +732,7 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-dist-'));
   const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
-  let tool, other;
+  let tool, other, driving = true, saidPlan = null;
   try {
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
@@ -731,6 +742,16 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     other = await polledBuild(base, 'linux-1');
     // A build's report reaches the tool on its long poll.
     const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
+    // The frame's build says the plan it runs (LLP 1122 T2b, the JS target), read while the drive has it open.
+    saidPlan = (async () => {
+      while (driving) {
+        const listed = await fetch(`${TOOL_ORIGIN}/__tamber/token`).then(r => r.json()).then(({ token }) => fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).then(r => r.json()).catch(() => null);
+        const page = listed?.ok?.builds?.find(b => b.host === 'web-js' && b.planDigest);
+        if (page) return page.planDigest;
+        await Bun.sleep(300);
+      }
+      return null;
+    })();
     const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout', 'clock +2000 real',
       ...wait, 'state',
       // Dark and Black pinned on the other build only.
@@ -767,6 +788,11 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     const builds = states[0].resources.changes.builds;
     const frame = builds.find(b => b.host === 'web-js');
     expect(frame).toMatchObject({ pin: '', caughtUp: true });
+    // It said the plan it runs: dist's app.plan, whose map the loop keeps.
+    driving = false;
+    const plan = createHash('sha256').update(readFileSync(join(dist, 'app.plan'))).digest('hex');
+    expect(await saidPlan).toBe(plan);
+    expect(JSON.parse(readFileSync(join(dist, 'app.plan.map.json'), 'utf8')).digest).toBe(plan);
     expect(['light', 'dark']).toContain(frame.scheme);
     expect(builds.find(b => b.id === 'linux-1')).toMatchObject({ host: 'linux', scheme: 'light', mode: 'dark-style=dim', pin: '' });
     expect(states[1].slots.pinned).toMatchObject({ ok: true, note: 'Pinned on 1 build(s).' });
@@ -792,6 +818,9 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     expect(closed - pinnedAt).toBeGreaterThan(36_000);
     expect(other.frames.filter(f => !f.pin && f.at > pinnedAt && f.at < closed)).toEqual([]);
   } finally {
+    // The poll beside the drive ends before the tool goes.
+    driving = false;
+    await saidPlan?.catch(() => null);
     await other?.stop();
     if (tool) await stop(tool);
     await stop(dev);
@@ -924,6 +953,128 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
   }
 }, 900_000);
 
+/** Stage 6's kinds in the tool on the JS target's dev loop: a theme-fixture
+ * copy whose card reads a length, a shadow, a font-weight number and a
+ * duration token, with an icon. A typed length field's scrub previews on the
+ * frame's build with no reload and no file written, and Keep writes one
+ * line; a motion token says Rebuilds before the gesture and offers no scrub;
+ * a font-weight token rebuilds, since the JS target writes it inline; the
+ * icon is listed. (The wasm loop builds only a workspace app's crate, so a
+ * copy can't run there: the natives' half is the clone's gate.) */
+async function kindsOnTheJsLoop() {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-kinds-'));
+  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+  const contract = readFileSync(join(app, 'app.contract'), 'utf8');
+  const card = contract
+    .replace('transition="background-color 400ms" padding=12', 'transition="background-color duration.card" padding="space.card"')
+    .replace('box-shadow="0 2px 8px color-mix(in srgb, border.hairline 60%, transparent)"', 'box-shadow="shadow.card"')
+    .replace('text "A card" color="text.label"', 'text "A card" color="text.label" font-weight="weight.title"');
+  expect(card.match(/space\.card|shadow\.card|weight\.title|duration\.card/g)?.length).toBe(4);
+  writeFileSync(join(app, 'app.contract'), card);
+  writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('  AccentColor = #1d9bf0\n', [
+    '  AccentColor = #1d9bf0',
+    '  space.card = 12px',
+    '  shadow.card: box-shadow = 0px 2px 8px border.hairline, inset 0px 0px 0px 1px border.hairline',
+    '  weight.title = 600',
+    '  duration.card = 400ms',
+    '',
+    'icons',
+    '  icon.star = icon(sf "star", material "star")',
+    '',
+  ].join('\n')));
+  const original = readFileSync(join(app, 'app.tamber'), 'utf8');
+  const listener = (await import('node:http')).createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  await new Promise(ok => listener.close(ok));
+  const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-kinds-dist-'));
+  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let tool;
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    const devSaid = lines(dev);
+    await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
+    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+    const seen = [];
+    const connects = () => devSaid.seen.filter(l => l.startsWith('page connected')).length;
+    // The frame's build and the file, once the frame runs the design the
+    // loop serves (or after 5 s).
+    const look = async () => {
+      const end = Date.now() + 5000;
+      for (;;) {
+        const design = await fetch(`${base}/__dev/design`);
+        const snapshot = design.status === 200 ? await design.json() : null;
+        const builds = (await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': (await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json()).token }, body: '{"method":"hello"}' })).json()).ok.builds;
+        const frame = builds.find(b => b.host === 'web-js');
+        // Before any edit the loop has no snapshot to give (204): the frame runs the build's own design.
+        const synced = !!frame && (snapshot ? frame.design === snapshot.design : design.status === 204 && !!frame.design);
+        if (synced || Date.now() > end) {
+          seen.push({ synced, connects: connects(), snapshot, frame, file: readFileSync(join(app, 'app.tamber'), 'utf8') });
+          return;
+        }
+        await Bun.sleep(100);
+      }
+    };
+    const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
+    const drive = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-kinds-${process.pid}`, '--json',
+      'type name Ada', 'tap save-name', 'clock data', ...wait,
+      // The length, by its amount field: proposed live, then scrubbed.
+      'tap cell-space.card-0-light', 'clock data', 'type part-amount-field 14', 'clock data', 'state', 'tree typed', 'clock +6000 real',
+      'tap scrub-start', 'clock data', 'type part-amount-field 16', 'clock data', 'state', 'tree scrub', 'clock +6000 real',
+      'tap scrub-keep', 'clock data', ...wait, 'state', 'tree undo-bar', 'clock +2000 real',
+      // The motion token: Rebuilds before the gesture, and no scrub.
+      'tap cell-duration.card-0-light', 'clock data', 'type branch-value 300ms', 'type branch-value key Enter', 'clock data', 'state', 'tree branch', 'clock +2000 real',
+      // The font-weight token: inline on the JS target.
+      'tap cell-weight.title-0-light', 'clock data', 'type part-amount-field 700', 'clock data', 'state', 'tree icons', 'clock +2000 real',
+    ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    let driveSaid = '';
+    drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
+    const out = lines(drive);
+    // Looked at each `tree` op: before the scrub, during it, after Keep.
+    for (const n of [1, 2, 3]) {
+      await out.until(() => out.seen.filter(l => l.startsWith('{"nodes"')).length >= n, 600_000).catch(e => { throw new Error(`${e.message}\n${driveSaid}`); });
+      await look();
+    }
+    await new Promise(ok => drive.once('exit', ok));
+    expect(drive.exitCode, driveSaid).toBe(0);
+    const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
+    const states = replies.filter(r => r.resources);
+    const trees = replies.filter(r => r.nodes);
+    const [before, during, kept] = seen;
+    // Each look found the frame running the design the loop serves.
+    expect(seen.map(l => l.synced)).toEqual([true, true, true]);
+    expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true, chip: 'live' });
+    expect(trees[0].nodes.some(n => n.props.testId === 'part-amount-field')).toBe(true);
+    expect(states[1].resources.scrub).toMatchObject({ ok: true, live: true, ready: true });
+    // While it previews: the frame runs the scrubbed design, the same build,
+    // no reload, the file untouched.
+    expect(during.frame.id).toBe(before.frame.id);
+    expect(during.connects).toBe(before.connects);
+    expect(during.frame.design).not.toBe(before.frame.design);
+    expect(JSON.stringify(during.snapshot)).toContain('16px');
+    expect(during.file).toBe(original);
+    // Keep: one line, the value previewed; the same build, no reload.
+    const line = '  space.card = 12px';
+    expect(edit(original, kept.file)).toEqual({ at: original.split('\n').indexOf(line), removed: [line], added: ['  space.card = 16px'] });
+    expect([kept.frame.id, kept.connects]).toEqual([before.frame.id, before.connects]);
+    // Motion: said before the gesture, proposed as a rebuild, no scrub.
+    expect(trees[3].nodes.some(n => n.props.testId === 'branch-rebuilds')).toBe(true);
+    expect(states[3].resources.proposal).toMatchObject({ ok: true, chip: 'rebuild' });
+    // A font-weight number: the JS target writes it inline, so it rebuilds.
+    expect(states[4].resources.proposal).toMatchObject({ ok: true, active: true, chip: 'rebuild' });
+    // The icon, read only.
+    expect(trees[4].nodes.some(n => n.props.testId === 'icon-icon.star-sources' && n.props.text === 'sf star · material star')).toBe(true);
+  } finally {
+    if (tool) await stop(tool);
+    await stop(dev);
+    rmSync(app, { recursive: true, force: true });
+    rmSync(dist, { recursive: true, force: true });
+  }
+}
+
+test('stage 6 kinds on the JS loop: a typed length scrubs live and Keep writes one line, motion says Rebuilds first, an inline font-weight token rebuilds, icons listed', () => kindsOnTheJsLoop(), 900_000);
+
 test('T2b: inspect from the tool selects a view in the canvas frame, shows its source and rows, and opens its token on the branch that won', async () => {
   const listener = (await import('node:http')).createServer();
   await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
@@ -985,7 +1136,19 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
 }, 900_000);
 
 test('controls from metadata that does not fit, steps, select values, column labels, branches, inputs and contrast over a background', async () => {
-  const { controlOf, columnsOf, contrast, branchOf, inputsOf } = await import('../apps/design-tool/app.ts');
+  const { controlOf, columnsOf, contrast, branchOf, inputsOf, cellText } = await import('../apps/design-tool/app.ts');
+  // A cell's text for each stage 6 kind, from `resolve`'s tuples as the server gives them (tamber/tests/corpus).
+  expect(cellText('length', { amount: 12, kind: 'length', unit: 'px', value: '12px' })).toBe('12px');
+  expect(cellText('length', { amount: 1.5, kind: 'length', unit: 'rem', value: '1.5rem' })).toBe('1.5rem');
+  expect(cellText('number', { amount: 0.5, kind: 'number', value: '0.5' })).toBe('0.5');
+  // The server's spelling, not JavaScript's (measures.tamber's `tiny`).
+  expect(cellText('number', { amount: 0.0000004, kind: 'number', value: '0.0000004' })).toBe('0.0000004');
+  expect(cellText('box-shadow', { kind: 'box-shadow', shadows: [], value: 'inset 0px 2px 4px -1px #000000ff' })).toBe('inset 0px 2px 4px -1px #000000ff');
+  expect(cellText('type', { family: '"InterVariable"', kind: 'type', leading: '1.35', size: '-exact-body', style: null, value: '-exact-body/1.35 "InterVariable"', weight: null })).toBe('-exact-body/1.35 · weight unsaid · style unsaid · "InterVariable"');
+  expect(cellText('type', { family: null, kind: 'type', leading: null, size: '-exact-subheadline', style: 'italic', value: '', weight: 600 })).toBe('-exact-subheadline · weight 600 · italic · family unsaid');
+  expect(cellText('family', { family: 'ui-monospace', kind: 'family', value: 'ui-monospace' })).toBe('ui-monospace');
+  expect(cellText('duration', { kind: 'duration', ms: 400, value: '400ms' })).toBe('400 ms');
+  expect(cellText('easing', { kind: 'easing', value: 'cubic-bezier(0.2, 0, 0, 1)' })).toBe('cubic-bezier(0.2, 0, 0, 1)');
   const dial = (kind, meta, value = kind === 'color' ? '#1083feff' : '0.001', range = kind === 'color' ? null : ['0', '0.005']) => controlOf({ name: 'd', kind, value, range, meta });
   // A control that does not fit its kind is the kind's own, said so.
   expect(dial('color', { control: 'stepper' })).toMatchObject({ control: 'color', help: 'control=stepper does not fit this color dial; its own control is shown.' });
@@ -1001,7 +1164,7 @@ test('controls from metadata that does not fit, steps, select values, column lab
   expect(dial('color', { control: 'select', options: '#ff0000' })).toMatchObject({ value: '#1083feff', options: ['#1083feff', '#ff0000'] });
   // A step fine enough for a range in scientific notation; a length's range in px.
   expect(dial('number', {}, '0', ['0', '5e-3']).step).toBe(0.001);
-  expect(controlOf({ name: 'gap', kind: 'length', value: '12px', range: ['0px', '24px'], meta: {} })).toMatchObject({ control: 'slider', number: 12, min: 0, max: 24, step: 1, bounds: '0 – 24 · step 1' });
+  expect(controlOf({ name: 'gap', kind: 'length', value: '12px', range: ['0px', '24px'], meta: {} })).toMatchObject({ control: 'slider', number: 12, min: 0, max: 24, step: 1, bounds: '0px – 24px · step 1px', unit: 'px' });
   // A select's colours folded as the server folds them; an option naming a
   // token (no literal) is left out, said so; with none left, the kind's own.
   expect(dial('color', { control: 'select', options: '#f00|rgb(16, 131, 254)' })).toMatchObject({ value: 'rgb(16, 131, 254)', options: ['#f00', 'rgb(16, 131, 254)'] });
@@ -1022,6 +1185,10 @@ test('controls from metadata that does not fit, steps, select values, column lab
   const whens = [{ when: [{ axis: 'dark-style', value: 'black' }, { axis: 'density', value: 'compact' }], value: 'a' }, { when: [{ axis: 'density', value: 'compact' }], value: 'b' }];
   expect(branchOf(axes, light1, whens)).toMatchObject({ when: 'density=compact', index: 1, own: '', tie: '' });
   expect(branchOf(axes, dark3, whens)).toMatchObject({ when: 'density=compact', own: 'dark-style=dim density=compact' });
+  // A length's own branch names no under-dark axis (it has no sides); a duration has none.
+  expect(branchOf(axes, dark3, whens, 'length').own).toBe('density=compact');
+  expect(branchOf(axes, light1, whens, 'length').own).toBe('density=compact');
+  expect(branchOf(axes, dark3, whens, 'duration').own).toBe('');
   expect(branchOf(axes, dark3, [...whens, { when: [{ axis: 'dark-style', value: 'dim' }], value: 'c' }]).tie).toBe('when density=compact and when dark-style=dim');
   // A value's names as the checker reads them: a role by its bare name in
   // any case; no word inside a hex colour.
@@ -1040,3 +1207,101 @@ test('controls from metadata that does not fit, steps, select values, column lab
   expect(contrast('#000000', '#ffffff80')).toBe('translucent background');
   expect(contrast('oklch(0.5 0 0)', '#ffffff')).toBe('not a colour');
 });
+
+test('typed fields: every value joins back byte for byte, and a field edits only its part', async () => {
+  const { partsOf, joined, missing } = await import('../apps/design-tool/app.ts');
+  const kinds = new Map([['space.blur', 'length'], ['border.subtle', 'color'], ['type.body', 'type'], ['family.body', 'family']]);
+  const isLength = name => kinds.get(name);
+  const values = [
+    ['length', '12px'], ['length', ' 1.5rem '], ['length', '0'], ['number', '0.5'],
+    ['box-shadow', '0 1px 2px rgb(0 0 0 / 0.2), inset 0 0 0 1px border.subtle'], ['box-shadow', '0  1px space.blur #000'],
+    ['box-shadow', '0 1px 2px 3px red inset'], ['box-shadow', 'inset 0 1px light-dark(#000, #fff),0 0 1px  2px accent'],
+    ['text-shadow', '1px 1px'], ['text-shadow', '0 1px 2px rgba(0,0,0,.5)'],
+    ['type', 'italic 600 1.25rem/1.4 family.body'], ['type', 'bold -exact-title3 / 1.2 "Inter", sans-serif'], ['type', '1rem'], ['type', '600.0 16px'],
+    ['text-shadow', '0 1px +2px'], ['box-shadow', '0 1e0px 2px INSET red'],
+  ];
+  for (const [kind, v] of values) {
+    const p = partsOf(kind, v, isLength);
+    expect(p).not.toBeNull();
+    expect(joined(p.parts, p.tail)).toBe(v);
+  }
+  // No field where none fits: a function, a named length, an expression, a kind with none.
+  for (const [kind, v] of [['length', 'calc(1px + 2px)'], ['length', '-exact-hairline'], ['number', 'lift'], ['box-shadow', '0 red'], ['box-shadow', '0 1px 2px red blue'], ['text-shadow', 'inset 0 1px red'], ['text-shadow', '1px 1px red, 0 0 blue'], ['type', 'type.body'], ['type', 'normal 16px'], ['type', 'oblique 16px'], ['type', 'italic 600 normal'], ['box-shadow', '0 1px 2px#000'], ['box-shadow', 'red.0 1px 2px'], ['duration', '200ms'], ['color', '#fff']]) expect(partsOf(kind, v, isLength)).toBeNull();
+  // Each word read as the server reads it: a signed or exponent length is a
+  // length, not the colour; a weight with a fraction is the weight; a weight
+  // before `italic` leaves `italic` the size, as typeface.rs refuses it.
+  const fields = (kind, v) => Object.fromEntries(partsOf(kind, v, isLength).parts.filter(x => x.control !== 'fixed').map(x => [x.key, x.text]));
+  expect(fields('text-shadow', '0 1px +2px')).toEqual({ '0.x': '0', '0.y': '1px', '0.blur': '+2px', '0.color': '' });
+  expect(fields('box-shadow', '0 1e0px 2px INSET red')).toMatchObject({ '0.y': '1e0px', '0.inset': 'INSET', '0.color': 'red' });
+  expect(fields('type', '600.0 16px')).toMatchObject({ weight: '600.0', size: '16px', family: '' });
+  expect(fields('type', '600 italic 16px')).toMatchObject({ weight: '600', size: 'italic', style: '' });
+  // `normal` as the line height is the line height.
+  expect(fields('type', '16px / normal')).toMatchObject({ size: '16px', leading: 'normal' });
+  // A blur holds its place while a spread is written after it; a unit may
+  // be none (the server judges a bare amount).
+  const set = (kind, v, edits) => { const p = partsOf(kind, v, isLength); return p.parts.map(x => (x.key in edits ? { ...x, text: edits[x.key] } : x)); };
+  expect(missing(set('box-shadow', '0 1px 2px red', { '0.spread': '1px', '0.blur': '' })).map(x => x.label)).toEqual(['blur']);
+  expect(missing(set('box-shadow', '0 1px 2px red', { '0.blur': '' }))).toEqual([]);
+  expect(missing(set('box-shadow', '0 1px 2px 3px red', { '0.spread': '', '0.blur': '' }))).toEqual([]);
+  expect(missing(set('box-shadow', '0 1px 2px 3px red', { '0.y': '' })).map(x => x.label)).toEqual(['y']);
+  expect(missing(set('length', '0', { unit: '' }))).toEqual([]);
+  // A text style is a size; a type token's name is its whole value.
+  expect(fields('type', '-exact-body')).toMatchObject({ size: '-exact-body' });
+  const edit = (kind, v, key, text) => { const p = partsOf(kind, v, isLength); return joined(p.parts.map(x => (x.key === key ? { ...x, text } : x)), p.tail); };
+  const ring = '0 1px 2px rgb(0 0 0 / 0.2), inset 0 0 0 1px border.subtle';
+  expect(edit('box-shadow', ring, '1.inset', '')).toBe('0 1px 2px rgb(0 0 0 / 0.2), 0 0 0 1px border.subtle');
+  expect(edit('box-shadow', ring, '0.inset', 'inset')).toBe('inset 0 1px 2px rgb(0 0 0 / 0.2), inset 0 0 0 1px border.subtle');
+  expect(edit('box-shadow', ring, '0.spread', '4px')).toBe('0 1px 2px 4px rgb(0 0 0 / 0.2), inset 0 0 0 1px border.subtle');
+  expect(edit('box-shadow', ring, '1.color', 'accent')).toBe('0 1px 2px rgb(0 0 0 / 0.2), inset 0 0 0 1px accent');
+  expect(edit('box-shadow', ring, '1.spread', '')).toBe('0 1px 2px rgb(0 0 0 / 0.2), inset 0 0 0 border.subtle');
+  expect(edit('box-shadow', '0 1px 2px 3px red inset', '0.inset', '')).toBe('0 1px 2px 3px red');
+  expect(edit('text-shadow', '1px 1px', '0.color', 'red')).toBe('1px 1px red');
+  expect(edit('text-shadow', '0 1px 2px rgba(0,0,0,.5)', '0.color', '')).toBe('0 1px 2px');
+  expect(edit('type', 'italic 600 1.25rem/1.4 family.body', 'style', '')).toBe('600 1.25rem/1.4 family.body');
+  expect(edit('type', 'italic 600 1.25rem/1.4 family.body', 'leading', '')).toBe('italic 600 1.25rem family.body');
+  expect(edit('type', '1rem', 'weight', '700')).toBe('700 1rem');
+  expect(edit('type', '1rem', 'style', 'italic')).toBe('italic 1rem');
+  expect(edit('type', '1rem', 'leading', '1.5')).toBe('1rem/1.5');
+  expect(edit('type', '1rem', 'family', 'family.mono')).toBe('1rem family.mono');
+  expect(edit('length', '12px', 'unit', 'rem')).toBe('12rem');
+  // Labels name the shadow in a list, for aria.
+  expect(partsOf('box-shadow', ring, isLength).parts.filter(x => x.control !== 'fixed').map(x => x.label)).toEqual([
+    'shadow 1 inset', 'shadow 1 x', 'shadow 1 y', 'shadow 1 blur', 'shadow 1 spread', 'shadow 1 colour',
+    'shadow 2 inset', 'shadow 2 x', 'shadow 2 y', 'shadow 2 blur', 'shadow 2 spread', 'shadow 2 colour',
+  ]);
+});
+
+test('typed fields write one line through set-token for each kind: a length, a number, a shadow list with inset and a token colour, a text shadow, a type longhand', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-typed-'));
+  const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
+  writeFileSync(join(app, 'app.tamber'), original);
+  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
+  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
+  // Each: the cell, its field edits, the line before and after.
+  const edits = [
+    ['space.edge', ['type part-amount-field 16'], '  space.edge = 12px', '  space.edge = 16px'],
+    ['opacity.muted', ['type part-amount-field 0.25'], '  opacity.muted = 0.5', '  opacity.muted = 0.25'],
+    ['shadow.ring', ['type part-0.spread-field 1px', 'type part-0.inset-field inset'], '  shadow.ring: box-shadow = 0px 1px 2px #00000033, inset 0px 0px 0px 1px surface.inset', '  shadow.ring: box-shadow = inset 0px 1px 2px 1px #00000033, inset 0px 0px 0px 1px surface.inset'],
+    ['shadow.text', ['type part-0.blur-field 3px'], '  shadow.text: text-shadow = 0px 1px 2px #00000080', '  shadow.text: text-shadow = 0px 1px 3px #00000080'],
+    ['type.title', ['type part-style-field italic'], '  type.title: type = 600 1.25rem/1.25', '  type.title: type = italic 600 1.25rem/1.25'],
+  ];
+  const tool = await proxied(app, () => {});
+  try {
+    const replies = await drive(tool.url, `design-tool-typed-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      ...edits.flatMap(([cell, ops]) => ['clock +1', 'clock data', `tap cell-${cell}-0-light`, 'clock data', ...ops.flatMap(o => [o, 'clock data']), 'state', 'tap apply', 'clock data']),
+    ]);
+    const states = replies.filter(r => r.resources);
+    for (const st of states) expect(st.resources.proposal).toMatchObject({ ok: true, active: true });
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual(edits.map(() => ['transaction', true]));
+    let before = original;
+    for (const [k, [, , from, to]] of edits.entries()) {
+      expect(edit(before, tool.writes[k].after)).toEqual({ at: original.split('\n').indexOf(from), removed: [from], added: [to] });
+      before = tool.writes[k].after;
+    }
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);

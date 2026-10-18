@@ -10,6 +10,7 @@ mod compress;
 mod ecdsa;
 mod entropy;
 mod forget;
+mod heap;
 mod inputs;
 mod interrupt;
 mod overlay;

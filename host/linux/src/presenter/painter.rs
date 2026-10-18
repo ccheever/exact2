@@ -12,7 +12,7 @@ pub enum PainterChoice {
     /// tiny-skia.
     Cpu,
     /// Recorded for Android's Canvas (`canvas.rs`).
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", test))]
     Canvas,
     /// The painter an app registered with [`set_custom_painter`]
     /// (`EXACT_PAINTER=custom`): an experiment's backend kept out of this crate.
@@ -35,7 +35,7 @@ impl PainterChoice {
             Ok("gpu") => PainterChoice::Gpu,
             Ok("cpu") => PainterChoice::Cpu,
             Ok("custom") => PainterChoice::Custom,
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", test))]
             Ok("canvas") => PainterChoice::Canvas,
             _ => PainterChoice::Auto,
         }
@@ -102,7 +102,7 @@ impl PainterBoot {
     }
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 fn open_canvas(_: PainterChoice) -> OpenedPainter {
     Ok((
         Box::new(crate::canvas::Recorder::new()),
@@ -125,7 +125,7 @@ pub(super) fn open_backend(
                 .ok_or("EXACT_PAINTER=custom: no painter registered")?;
             Ok((make()?, PainterInfo { name, ..cpu_info() }))
         }
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", test))]
         PainterChoice::Canvas => open_canvas(choice),
         PainterChoice::Gpu | PainterChoice::Auto => match Gpu::new() {
             Ok(g) => {
@@ -230,44 +230,61 @@ mod tests {
     }
 
     #[test]
-    fn fetched_plan_refusal_keeps_the_carrier_constructor_for_the_baked_plan() {
-        OPENED.with(|n| n.set(0));
-        let mut config = crate::app::Config {
-            content_region: None,
-            launch: "/".into(),
-            plan: b"invalid plan"[..].to_vec().into(),
-            fallback_plan: Some(plan()),
-            assets: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
-            scale: 1.,
-            size: (8., 8.),
-            agent: false,
-            smoke: false,
-            shot: None,
-            dev_plan: None,
-            dev_url: None,
-            dev_identity: None,
-            card: String::new(),
-            vnc: None,
-            compat: "{}".into(),
-            explicit: true,
-            entry: None,
-            selected_assets: None,
-            module: Ok(None),
-            updates: None,
-            hatches: None,
-        };
-        let (mut presenter, error) = crate::app::boot_presenter_with_painter::<()>(
-            &mut config,
-            (8., 8.),
-            PainterBoot {
-                choice: PainterChoice::Gpu,
-                open: counted,
-            },
-        )
-        .expect("the baked plan uses the direct painter");
-        assert!(error.is_none(), "{error:?}");
-        assert_eq!(presenter.painter.name, "carrier-cpu");
-        assert_eq!(&presenter.frame().data()[..4], &[0x22, 0x44, 0x66, 255]);
-        assert_eq!(OPENED.with(Cell::get), 1);
+    fn boot_keeps_the_carrier_constructor_and_only_the_running_generation_identity() {
+        for (selected, development, identity) in [
+            (plan(), true, Some("A")),
+            (b"invalid plan".to_vec(), true, None),
+            (b"invalid plan".to_vec(), false, None),
+        ] {
+            OPENED.with(|n| n.set(0));
+            let mut config = crate::app::Config {
+                content_region: None,
+                launch: "/".into(),
+                plan: selected.into(),
+                fallback_plan: Some(plan()),
+                assets: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+                scale: 1.,
+                size: (8., 8.),
+                agent: false,
+                smoke: false,
+                shot: None,
+                dev_plan: None,
+                dev_url: development.then(|| "http://127.0.0.1:1/".into()),
+                dev_identity: development.then(|| "A".into()),
+                card: String::new(),
+                vnc: None,
+                compat: "{}".into(),
+                explicit: true,
+                entry: None,
+                selected_assets: None,
+                module: Ok(None),
+                updates: None,
+                hatches: None,
+            };
+            let (mut presenter, error) = crate::app::boot_presenter_with_painter::<()>(
+                &mut config,
+                (8., 8.),
+                PainterBoot {
+                    choice: PainterChoice::Gpu,
+                    open: counted,
+                },
+            )
+            .expect("the baked plan uses the direct painter");
+            assert!(error.is_none(), "{error:?}");
+            assert_eq!(presenter.painter.name, "carrier-cpu");
+            assert!(!presenter.painted);
+            if development {
+                let dev = presenter
+                    .dev
+                    .as_ref()
+                    .expect("fallback keeps polling the URL");
+                assert_eq!(dev.identity.as_deref(), identity);
+                assert_eq!(dev.link.as_ref().unwrap().plan.as_deref(), identity);
+            } else {
+                assert!(presenter.dev.is_none());
+            }
+            assert_eq!(&presenter.frame().data()[..4], &[0x22, 0x44, 0x66, 255]);
+            assert_eq!(OPENED.with(Cell::get), 1);
+        }
     }
 }

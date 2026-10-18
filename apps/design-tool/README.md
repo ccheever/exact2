@@ -64,11 +64,38 @@ whose design the port serves.
 - `app.ts` is the `tamber/1` client: the token from `GET /__tamber/token`
   once, every request a `POST /__tamber`, and changes followed by the long
   poll, `POST /__tamber/events`. Its grants name the tool's one origin.
+  The design is read again only when the files move (a `changed` event, a
+  gap, a new server run), not on a build's status or a scrub's frame: a
+  read is `describe`, a `resolve` per token (four at a time, stopped once
+  a newer read starts) and `hello`, which on a big design takes seconds. A
+  proposal is asked again on every poll answer but while a scrub is shown,
+  since its class can move with no file moving.
 - Every write is `design-tool:<person>`, the person asked once and kept.
 - The dials panel and the token grid are drawn from `describe` and
   `resolve`; a cell edits the branch it shows, and every edit is proposed
   (its diff and "live" or "rebuilds") before Apply writes it. Undo and redo
   are this run of the server's inverses: a new run starts them again.
+- A cell's value has typed fields by its kind (`parts.ts`): a length's
+  amount and unit, a number, each shadow's inset, offsets, blur, spread
+  and colour (a literal or a token's name), a type's style, weight, size,
+  line height and family. A part the value leaves out is offered empty. A
+  field edits only its own part, and the rest of the line stays exactly as
+  written, so the one line `set-token` writes changes only there. A value
+  that no field fits (an expression, a `calc()`, a named length) has only
+  the text field, which every value keeps. Fields keep their cut while you
+  type, so a part on its way (`1` before `1px`) leaves every field where it
+  is. A required part left empty drafts nothing and says so, since a later
+  part would be read in its place. A value that names a token (a shadow's
+  colour) keeps the name and links to it. A length, number or shadow edit
+  can be scrubbed live; a type edit only where `propose` says it is live.
+- Kinds that rebuild say so before the gesture. A motion token (duration,
+  easing) says "Rebuilds" when it is chosen, and Apply writes it with no
+  scrub. On the JS target's dev loop, `propose` answers `rebuild` for a
+  token the page writes inline (its design read says which: a
+  `font-weight` number, an SVG attribute's), so the chip says so before a
+  scrub is tried.
+  Icons are listed read only, with their sources, since no operation
+  writes one.
 - Changes lists every write since the tool opened, the tool's own and
   others' (agents, hand edits), with the token values before and after.
   Commit commits what the session wrote, with a message naming each change

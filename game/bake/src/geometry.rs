@@ -18,16 +18,18 @@ pub fn primitive(
         ));
     }
     for (semantic, _) in p.attributes() {
-        if !matches!(
-            semantic,
-            gltf::Semantic::Positions
-                | gltf::Semantic::Normals
-                | gltf::Semantic::Tangents
-                | gltf::Semantic::TexCoords(0)
-                | gltf::Semantic::Joints(0)
-                | gltf::Semantic::Weights(0)
-                | gltf::Semantic::Colors(0)
-        ) {
+        if !matches!(&semantic, gltf::Semantic::Extras(name) if matches!(name.as_str(), "OUTLINE_NORMAL" | "OUTLINE_REACH"))
+            && !matches!(
+                semantic,
+                gltf::Semantic::Positions
+                    | gltf::Semantic::Normals
+                    | gltf::Semantic::Tangents
+                    | gltf::Semantic::TexCoords(0)
+                    | gltf::Semantic::Joints(0)
+                    | gltf::Semantic::Weights(0)
+                    | gltf::Semantic::Colors(0)
+            )
+        {
             return Err(format!("primitive {}: {semantic:?} unsupported", p.index()));
         }
     }
@@ -70,6 +72,7 @@ pub fn primitive(
         .map(|v| v.flatten().collect())
         .unwrap_or_else(|| normals(&positions, &indices));
     let mut mesh = MeshData {
+        outline: crate::toon::outline(p, buffers)?,
         positions,
         colors: r
             .read_colors(0)
@@ -122,6 +125,10 @@ pub fn merge(a: &mut MeshData, b: MeshData) {
         } else {
             a.colors.extend(b.colors);
         }
+    }
+    if let (Some(a), Some(b)) = (&mut a.outline, b.outline) {
+        a.normals.extend(b.normals);
+        a.reach.extend(b.reach);
     }
     a.positions.extend(b.positions);
     a.normals.extend(b.normals);

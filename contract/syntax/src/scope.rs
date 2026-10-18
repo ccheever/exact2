@@ -159,11 +159,19 @@ pub fn calls(file: &mut File) -> std::collections::HashSet<String> {
     seen.called
 }
 
+/// Every named type referenced by annotations in `file`.
+pub fn type_names(file: &mut File) -> std::collections::HashSet<String> {
+    let mut seen = Seen::default();
+    walk(file, &Scope::default(), Some(&mut seen)).expect("an empty scope refuses nothing");
+    seen.typed
+}
+
 /// What a collecting walk records.
 #[derive(Default)]
 struct Seen {
     bound: std::collections::HashSet<String>,
     called: std::collections::HashSet<String>,
+    typed: std::collections::HashSet<String>,
 }
 
 fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), SyntaxError> {
@@ -281,6 +289,7 @@ impl Rewriter<'_> {
             tasks,
             sequences,
             view,
+            params: _,
             span,
         } = c;
         self.scope.rename(Kind::Component, name, *span)?;
@@ -390,6 +399,11 @@ impl Rewriter<'_> {
     }
 
     fn ty(&mut self, ty: &mut TypeExpr) -> R {
+        if let TypeExpr::Named(name, _) = ty {
+            if let Some(seen) = self.seen.as_deref_mut() {
+                seen.typed.insert(name.clone());
+            }
+        }
         match ty {
             TypeExpr::Named(name, _) if PRIMITIVES.contains(&name.as_str()) => Ok(()),
             // A type is a shape, never a `fn`: a shape this file sees, else

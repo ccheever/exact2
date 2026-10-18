@@ -51,6 +51,7 @@ At 07fdd0ff4, on the fleet. Both machines ran the pinned Rust (1.97.0) and Bun
   colour emoji face installed; this box has none, so it fails there. It passes
   with `fonts-noto-color-emoji` named through a private `FONTCONFIG_FILE`. The
   Linux app crates have no tests (`test = false`).
+  Resolved 2026-10-18: the emoji, Shelf accessibility and neutral-tabs tests use fixture fonts; Shelf checks row intersections in page coordinates and accessibility bounds in window coordinates, and neutral tabs sample background above the label.
 - `cargo build --profile host-dev -p caltrain-linux`, then
   `bun scripts/smoke.mjs linux`: ok in 52 s (boot 32 ms, canvas readback
   0.00% off its reference, motion, deck, precedence, 3/3 Contract tests).
@@ -87,7 +88,9 @@ At 07fdd0ff4, on the fleet. Both machines ran the pinned Rust (1.97.0) and Bun
   `answer_paths`; the web, Apple and driver parsers do the same). That is a
   real bug for any absolute path that contains a space. In 1 of 3 full runs,
   `executor::core::idle_tests::an_idle_pool_is_not_woken` counted 87 worker
-  wakes while idle. Its "every worker back in its wait" is a fixed 100 ms sleep.
+  wakes while idle. The test now counts executor notification calls
+  synchronously, without sleeps. The cause of those 87 wait returns was not
+  established.
 
 Fixed here: `a_request_runs_on_the_executor_and_its_reply_commits` read one
 packet of the request and then closed. The reset lost the reply in 6 of 240

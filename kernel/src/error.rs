@@ -159,6 +159,10 @@ pub enum DecodeError {
     ReservedMaskBits,
     /// A child list exceeds the bound.
     TooManyChildren(u32),
+    /// A `SetLooks` carried more than one look a state.
+    TooManyLooks(u8),
+    /// A look's state is unknown, repeated or out of order.
+    LookState(u8),
     /// A string field is not UTF-8.
     InvalidUtf8,
     /// A string field exceeds the bound.
@@ -267,6 +271,9 @@ pub enum ApplyError {
     },
     /// A style row carried an infinite or NaN number.
     NonFiniteStyle { op_index: usize, style: StyleId },
+    /// A state look set a row no look may (LLP 1121 D8), or a look's
+    /// state is unknown or repeated.
+    LookRow { op_index: usize, state: u8 },
     /// `auto` was supplied for a dimension row whose grammar does not admit it.
     AutoNotAdmitted { op_index: usize, style: StyleId },
     /// A percentage, alone or in a calculation, was supplied for a row CSS

@@ -225,7 +225,7 @@ component A
 }
 
 #[test]
-fn macos_samples_them() {
+fn hosts_without_box_lowering_sample_them() {
     let plan = contract::compile(APP).unwrap().encode();
     let (mut host, _) = Host::boot(
         &plan,
@@ -235,6 +235,7 @@ fn macos_samples_them() {
         844.0,
     )
     .unwrap();
+    // LLP 1126 D10: watchOS samples box motion; it has no Core Animation presenter.
     assert!(!host.svg.box_motion || cfg!(any(target_os = "ios", target_os = "tvos")));
     let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
     if !cfg!(any(target_os = "ios", target_os = "tvos")) {
@@ -375,4 +376,57 @@ fn a_percentage_translate_lowers_against_the_box_and_follows_a_resize() {
     assert_eq!(v["motion"], false, "Core Animation plays it: {on}");
     let grown = host.dispatch_at(id(&host, "grow"), Event::Press, 200.0);
     assert_eq!(y(&grown), [120.0, 0.0], "{grown}");
+}
+
+/// @ref LLP 1121 D8 — an opacity animation on a node whose press (`:active`
+/// lowered to the press paint) or `:hover` look paints its opacity stays
+/// sampled by the engine on both platforms (Core Animation would add the
+/// host's opacity layers to its own sample); one on a node without either
+/// is Core Animation's.
+#[test]
+fn a_press_or_a_look_keeps_an_opacity_animation_sampled() {
+    let app = r##"keyframes blink
+  from opacity=1
+  to opacity=0.4
+component A
+  state on = false
+  action go
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      box testId="pressed" press=go width=20 height=20 animation=(on ? "blink 1s linear infinite" : "none")
+        :active
+          opacity = 0.6
+      box testId="hovered" width=20 height=20 animation=(on ? "blink 1s linear infinite" : "none")
+        :hover
+          opacity = 0.8
+      box testId="plain" width=20 height=20 animation=(on ? "blink 1s linear infinite" : "none")
+"##;
+    for ios_motion in [false, true] {
+        let plan = contract::compile(app).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            844.0,
+        )
+        .unwrap();
+        if ios_motion {
+            ios(&mut host);
+        }
+        host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+        let sampled = |name: &str| {
+            host.engine.node_sampled(exact_kernel::motion::motion_node(
+                host.runner.kernel().node(id(&host, name)).unwrap().key,
+            ))
+        };
+        assert!(
+            sampled("pressed") && sampled("hovered"),
+            "ios: {ios_motion}"
+        );
+        assert!(!sampled("plain"), "ios: {ios_motion}");
+    }
 }

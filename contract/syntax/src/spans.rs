@@ -1,5 +1,6 @@
 //! Exhaustive source-range traversal for compiler-owned AST transformations.
 
+use crate::params::{ComponentParam, ParamAttr, ParamValue, Params};
 use crate::{ast::*, sequence::Sequence, Span};
 
 /// Visit every source range, without changing the AST's non-location fields.
@@ -67,7 +68,7 @@ macro_rules! leaves {
         }
     )* };
 }
-leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind, TapForm);
+leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind, TapForm, ParamValue);
 
 macro_rules! structs {
     ($($ty:ident { $($field:ident),* $(,)? })*) => { $(
@@ -86,7 +87,7 @@ structs! {
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
     ThemeDecl { entries, span }
-    DesignSource { path, text, source_id, bindable }
+    DesignSource { path, home, text, source_id, bindable }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
@@ -101,7 +102,10 @@ structs! {
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
     Component { name, props, injects, provides, slot, states, persist, derives, resources,
-        mutations, actions, tasks, sequences, view, span }
+        mutations, actions, tasks, sequences, view, params, span }
+    Params { identity, list }
+    ComponentParam { name, kind, default, default_span, attrs, span }
+    ParamAttr { name, value, span }
     Sequence { name, gate, key, tracks, options, ended, span }
     Persist { name, span }
     Binding { name, expr, span }

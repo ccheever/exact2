@@ -552,3 +552,19 @@ fn wav() -> Vec<u8> {
     b.resize(b.len() + data as usize, 0);
     b
 }
+
+#[test]
+fn content_design_readout_has_no_width_ceiling_warning() {
+    let block = blocks()
+        .into_iter()
+        .find(|b| b.doc.ends_with("recipes/content-design.md") && b.info == "contract")
+        .expect("content design readout");
+    let dir = std::env::temp_dir().join(format!("exact-content-design-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(&path, block.body).unwrap();
+    let (result, warnings) = contract::compile_path_all_warned(&path, false);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(result.is_ok(), "{:?}", result.err());
+    assert!(warnings.is_empty(), "{warnings:?}");
+}

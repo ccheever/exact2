@@ -269,6 +269,17 @@ impl Navigation {
     /// [`Navigation::visibility`], and whether what a shell's bar stands
     /// for counts as gone from the page (`lifted`).
     pub(crate) fn visibility_of(&self, kernel: &Kernel, id: ViewId, lifted: bool) -> (bool, bool) {
+        self.visibility_to(kernel, id, lifted, None)
+    }
+
+    /// A separately presented subtree inherits visibility only through its root.
+    pub(crate) fn visibility_to(
+        &self,
+        kernel: &Kernel,
+        id: ViewId,
+        lifted: bool,
+        root: Option<ViewId>,
+    ) -> (bool, bool) {
         // No route, popover or inert node anywhere: nothing to climb for.
         if self.routes.is_empty()
             && (self.lifted.is_empty() || !lifted)
@@ -289,6 +300,9 @@ impl Navigation {
             let gone = closed || lifted && self.lifted.contains(&id);
             result.0 |= hidden || gone;
             result.1 |= inert || gone || node.props.bool(PropId::Inert) == Some(true);
+            if Some(id) == root {
+                break;
+            }
             at = node.parent;
         }
         result

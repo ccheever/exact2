@@ -142,7 +142,7 @@ package final class SwipeActionsHost {
             // left its content half a point short, and the refusal said only
             // what a row needs).
             let broken: String? = {
-                let size = { (v: NodeView) in String(format: "%gx%g", v.bounds.width, v.bounds.height) }
+                let size = { (v: NodeView) in String(format: "%gx%g", v.layoutBounds.width, v.layoutBounds.height) }
                 if owner.scroll == nil && !owner.scrollDormant { return "it is not a scroll container (overflow-x)" }
                 guard let body else { return "swipeContent \"\(content)\" names no one descendant of it" }
                 if names.isEmpty { return "it names no swipeLeading or swipeTrailing control" }
@@ -153,7 +153,7 @@ package final class SwipeActionsHost {
                     if control === body || control.isDescendant(of: body) { return "\"\(name)\" is inside swipeContent \"\(content)\"" }
                     if label(control).isEmpty { return "\"\(name)\" has no accessible name (aria-label or text)" }
                 }
-                if !grouped, abs(body.bounds.width - owner.bounds.width) >= 0.5 || abs(body.bounds.height - owner.bounds.height) >= 0.5 {
+                if !grouped, abs(body.layoutBounds.width - owner.layoutBounds.width) >= 0.5 || abs(body.layoutBounds.height - owner.layoutBounds.height) >= 0.5 {
                     return "swipeContent \"\(content)\" is \(size(body)), not the row's \(size(owner)) border box (a border or padding on the row shrinks it)"
                 }
                 if claimed.contains(body.id) { return "swipeContent \"\(content)\" is another row's too" }
@@ -419,7 +419,10 @@ package final class SwipeActionsHost {
             return (table, cell)
         }
         func restore() {
-            if let parent = logicalParent, let carrier { parent.addSubview(carrier); carrier.frame = logicalFrame }
+            if let parent = logicalParent, let carrier {
+                parent.addSubview(carrier); carrier.frame = logicalFrame
+                if let node = carrier as? NodeView { owner.presenter?.regrid(node) } // placed from the cell while projected
+            }
             for (control, hidden) in hiddenControls { control.isHidden = hidden }
             hiddenControls.removeAll()
             if stilled { owner.scroll?.isScrollEnabled = true; stilled = false }

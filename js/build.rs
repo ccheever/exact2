@@ -162,6 +162,7 @@ fn main() {
         "shared-load",
         "overlay",
         "socket",
+        "heap",
     ] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());

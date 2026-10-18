@@ -114,8 +114,8 @@ impl<D: DataSource> Presenter<D> {
             .node(target)
             .and_then(|n| exact_kernel::control::text_maxlength(n.props));
         // `beforeinput` carries the whole text; what is inserted, and what
-        // `input` carries, is cut to the room left, and with none there is no
-        // edit and no `input` (Chrome's insertText).
+        // `input` carries, is cut to the room left. An empty insertion still
+        // deletes a selected range (Chrome's insertText).
         let bound = self.bound_text(target);
         let mut edit = InputDetails {
             input_type: "insertText".into(),
@@ -124,14 +124,43 @@ impl<D: DataSource> Presenter<D> {
             is_composing: false,
         };
         if self.before_input(target, &edit, now)? {
+            // Chromium advances an endpoint inside a surrogate pair past
+            // the character before fitting or replacing the selection.
+            let boundary = |offset| {
+                let mut at = 0;
+                for ch in value.chars() {
+                    if at >= offset {
+                        break;
+                    }
+                    at += ch.len_utf16() as u32;
+                }
+                at
+            };
+            let selection = FieldSelection {
+                start: boundary(selection.start),
+                end: boundary(selection.end),
+                ..selection
+            };
             let fitted = field::fit(text, &value, selection, limit);
-            if !fitted.is_empty() || text.is_empty() {
-                let (next, caret) = field::replace(&value, selection, fitted);
+            let removes =
+                field::byte_at(&value, selection.start) != field::byte_at(&value, selection.end);
+            let (next, _) = field::replace(&value, selection, fitted);
+            // Even a rejected insertion advances by the original text's
+            // UTF-16 length, clamped to the remaining value.
+            let caret = FieldSelection::caret(
+                selection
+                    .start
+                    .saturating_add(field::utf16_len(text))
+                    .min(field::utf16_len(&next)),
+            );
+            if !fitted.is_empty() || text.is_empty() || removes {
                 edit.data = Some(fitted.to_owned());
                 edit.cancelable = false;
                 if let Some(e) = self.apply_field_edit(target, next, caret, bound, now, edit) {
                     return Err(e);
                 }
+            } else if caret != self.field_selection(target) {
+                self.mark_field(target, &value, caret, false);
             }
         }
         let value = self.field_text(target);
@@ -447,11 +476,10 @@ impl<D: DataSource> Presenter<D> {
             .kernel()
             .node(id)
             .and_then(|n| n.props.get(PropId::TabIndex).and_then(|v| v.as_int()));
-        self.alert_allows(id)
+        self.focus_refusal(id).is_none()
             && explicit.is_none_or(|i| i >= 0)
             && self.focusable(id)
             && self.radio_tab_stop(id)
-            && self.host.route_visibility(id) == (false, false)
             && boxed.contains(&id)
     }
 

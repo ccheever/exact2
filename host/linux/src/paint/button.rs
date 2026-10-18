@@ -529,6 +529,22 @@ impl Painter {
         });
         let shape = Shape::new(rect, radii);
         let ink = match look {
+            "glass" | "glass-fill" if neutral && disabled => {
+                // The look merges clear and ordinary glass; the authored name
+                // retains which material replaces a disabled prominent fill.
+                let material = exact_kernel::generated::material(if name.contains("clear") {
+                    "glass-clear"
+                } else {
+                    "glass"
+                })
+                .unwrap();
+                self.backend.fill(
+                    &shape,
+                    if dark { material.dark } else { material.light },
+                    ts,
+                );
+                look::role("GrayText", dark)
+            }
             _ if neutral && !look.contains("glass") => {
                 self.neutral_face(node, &shape, look, name == "gray", ts)
             }

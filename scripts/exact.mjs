@@ -37,7 +37,7 @@ import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, r
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
-import { basename, delimiter, dirname, resolve } from 'node:path';
+import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { applyPattern, createApp, createGame, patternList, wireSnapback } from '../game/new.mjs';
@@ -537,12 +537,52 @@ function prebuildCompiler() {
 export function contract(args, env = process.env) {
   const cargo = compilerCargo('run', env), binary = COMPILER;
   if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (about a minute on a cold checkout; `exact new` starts it in the background)…');
-  const result = spawnSync('cargo', [...cargo.args, '--', ...args], {stdio: 'inherit', env: cargo.env});
+  // `build --json` is one JSON array on stdout and nothing on stderr: the compiler's diagnostics, then app.ts's.
+  const json = args[0] === 'build' && args.includes('--json');
+  const result = spawnSync('cargo', [...cargo.args, '--', ...args], {stdio: ['inherit', json ? 'pipe' : 'inherit', 'inherit'], env: cargo.env, encoding: 'utf8', maxBuffer: 1 << 26});
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
   // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5).
   const input = args[0] === 'build' ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
-  if (result.status === 0 && input && basename(input) === 'app.contract') refreshTypes(dirname(resolve(input)), binary);
+  if (result.status === 0 && input && basename(input) === 'app.contract') {
+    const dir = dirname(resolve(input));
+    refreshTypes(dir, binary, {quiet: json});
+    const checked = checkTypes(dir, {capture: json});
+    if (!json) return checked.status;
+    const diagnostics = JSON.parse(result.stdout);
+    if (checked.status) diagnostics.push(...typeDiagnostics(checked.report, dir));
+    process.stdout.write(`${JSON.stringify(diagnostics)}\n`);
+    return checked.status;
+  }
+  if (json) process.stdout.write(result.stdout ?? '');
   return result.status ?? 1;
+}
+
+/** `app.ts` against the plan just built, by the type check every host's build runs (the web JS
+ * target's `--check`), so a TypeScript error surfaces at the build an author runs most, not at an
+ * iOS build. Its report goes to stderr, or is returned as `report` when `capture` (`--json`). */
+function checkTypes(dir, {capture = false} = {}) {
+  // An app's directory alone: the check is the app build's, which reads its app.json.
+  if (!existsSync(resolve(dir, 'app.ts')) || !existsSync(resolve(dir, 'app.json'))) return {status: 0, report: ''};
+  const out = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
+  try {
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web-js/build.mjs'), basename(dir), '--check', '--out', out], { stdio: ['ignore', capture ? 'pipe' : 2, capture ? 'pipe' : 2], encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, EXACT_APP_DIR: dir } });
+    return {status: r.status ?? 1, report: `${r.stdout ?? ''}${r.stderr ?? ''}`};
+  } finally { rmSync(out, { recursive: true, force: true }); }
+}
+
+/** The type check's report as `build --json` diagnostics: one per tsc `file(line,col): error TSn: message`
+ * line, with the indented lines and notes after it; a report with none is one diagnostic on app.ts. */
+export function typeDiagnostics(report, dir) {
+  const found = [], at = (file) => relative(process.cwd(), resolve(dir, file));
+  for (const line of report.split(/\r?\n/)) {
+    const m = /^(.+?)\((\d+),(\d+)\): error (TS\d+): (.*)$/.exec(line);
+    if (m) found.push({id: `typescript-${m[4]}`, severity: 'error', message: m[5], file: at(m[1]), line: Number(m[2]), col: Number(m[3]), end_col: Number(m[3]), related: []});
+    else if (line.trim() && !/^error: .*: app\.ts failed the type check/.test(line)) {
+      if (found.length) found.at(-1).message += `\n${line}`;
+      else found.push({id: 'typescript-check', severity: 'error', message: line, file: at('app.ts'), line: 0, col: 0, end_col: 0, related: []});
+    }
+  }
+  return found.length ? found : [{id: 'typescript-check', severity: 'error', message: 'app.ts failed the type check every host\'s build runs', file: at('app.ts'), line: 0, col: 0, end_col: 0, related: []}];
 }
 
 /** The types `app.ts` imports, `contract types app.contract -o app.contract.d.ts`, rewritten
@@ -550,7 +590,7 @@ export function contract(args, env = process.env) {
  * the native development bake write the same file the same way, so a builder never runs the
  * step. A drawing app's carry the canvas seam, as both add it. Says so in one line on stderr,
  * so `--json` stays the build's reply; returns whether it wrote. */
-export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract')) {
+export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract'), {quiet = false} = {}) {
   const ts = resolve(dir, 'app.ts'), out = resolve(dir, 'app.contract.d.ts');
   if (!existsSync(ts) || !existsSync(binary)) return false;
   const types = spawnSync(binary, ['types', resolve(dir, 'app.contract')], {encoding: 'utf8', maxBuffer: 1 << 26});
@@ -560,15 +600,15 @@ export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process
   const before = existsSync(out) ? readFileSync(out, 'utf8') : null;
   if (before === text) return false;
   writeFileSync(out, text);
-  console.error(`app.contract.d.ts: ${before === null ? 'written' : 'regenerated, since a source\'s signature changed'} (the types app.ts imports)`);
+  if (!quiet) console.error(`app.contract.d.ts: ${before === null ? 'written' : 'regenerated, since a source\'s signature changed'} (the types app.ts imports)`);
   return true;
 }
 
 /** `exact new`: check the machine first, since a missing Cargo fails the
  * scaffold itself; then write the app and say what its builds will still need. */
-function newApp(path, {update = false, game = false, assets = false, snapback = null} = {}) {
+function newApp(path, {update = false, without = null, game = false, assets = false, snapback = null, title, id} = {}) {
   if (update) {
-    console.log(createApp(path, {update}));
+    console.log(createApp(path, {update, without}));
     const manifest = resolve(path, 'app.json');
     if (existsSync(manifest) && Object.values(JSON.parse(readFileSync(manifest, 'utf8')).typescript?.sources ?? {}).some(p => /(?:^|\/)snapback4\/ts\/?$/.test(p)))
       console.log(wireSnapback(path, {artifactOnly:true}));
@@ -585,7 +625,7 @@ function newApp(path, {update = false, game = false, assets = false, snapback = 
     throw new Error('exact new needs Cargo (rustup) to resolve the new app; install it, then run exact new again');
   }
   // A game is a path here, as an app is: `game/new.mjs` alone takes a bare name for game/games.
-  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path, {snapback}));
+  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path, {snapback, title, id}));
   prebuildCompiler();
   if (report.some(row => !row.ok)) {
     // Builders read a bare "still needs" list as the reason a later command failed (bench diaries,
@@ -612,6 +652,9 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch
+  exact new <path> --name <name> --bundle-id <id>
+                               the same, named: the name people see and the
+                               reverse-DNS bundle id (set both before a build)
   exact new <path> --snapback [--port <n>] [--online]
                                a new app wired to a Snapback backend in the
                                directory above (a guestbook to start from; the
@@ -990,11 +1033,18 @@ async function main(argv) {
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
-    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), path = args.find((arg, i) => !arg.startsWith('--') && (port < 0 || i !== port + 1));
+    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), without = args.indexOf('--without');
+    const titled = args.indexOf('--name'), bundle = args.indexOf('--bundle-id');
+    const values = new Set([port, without, titled, bundle].filter(i => i >= 0).map(i => i + 1));
+    const path = args.find((arg, i) => !arg.startsWith('--') && !values.has(i));
+    for (const [at, flag, example] of [[titled, '--name', '"Field Log"'], [bundle, '--bundle-id', 'com.yourcompany.fieldlog']])
+      if (at >= 0 && (!args[at + 1] || args[at + 1].startsWith('--'))) throw new Error(`exact new: ${flag} takes a value, as in ${flag} ${example}`);
+    if ((titled >= 0 || bundle >= 0) && args.includes('--game')) throw new Error('exact new: --name and --bundle-id name an app; a game takes its name and id from its app.json');
     if (args.includes('--online') && !args.includes('--snapback')) throw new Error('exact new: --online requires --snapback and an existing backend schema');
     if (port >= 0 && !args.includes('--snapback')) throw new Error('exact new: --port is the Snapback origin’s, with --snapback');
+    if (without >= 0 && !args[without + 1]) throw new Error('update --without: name the platform, as in --without linux');
     const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined, online: args.includes('--online') } : null;
-    return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets'), snapback});
+    return newApp(path, {update: args.includes('--update'), without: without >= 0 ? args[without + 1] : null, game: args.includes('--game'), assets: args.includes('--assets'), snapback, title: titled >= 0 ? args[titled + 1] : undefined, id: bundle >= 0 ? args[bundle + 1] : undefined});
   }
   if (verb === 'backend') {
     const dir = resolve(name), parent = resolve(dir, '..');

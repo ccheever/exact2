@@ -583,8 +583,11 @@ fn main() {
     }
     let _ = writeln!(w, "    /// Interned strings.");
     let _ = writeln!(w, "    pub strings: Vec<String>,");
-    let _ = writeln!(w, "    /// Bytecode pool.");
-    let _ = writeln!(w, "    pub code: Vec<u8>,");
+    let _ = writeln!(
+        w,
+        "    /// Bytecode pool: borrowed from a static plan's bytes, else owned."
+    );
+    let _ = writeln!(w, "    pub code: std::borrow::Cow<'static, [u8]>,");
     let _ = writeln!(
         w,
         "    /// Data pool (compiled values): borrowed from a static plan's bytes, else owned."
@@ -827,19 +830,21 @@ fn main() {
     let _ = writeln!(w, "    }}");
 
     // decode
+    let _ = writeln!(w, "    /// Decode only the named snapshot entry (LLP 1126 D2); running app plans are refused.");
+    let _ = writeln!(w, "    pub fn decode_snapshot(bytes: &[u8], kind: &str) -> Result<Plan, PlanError> {{ if kind.is_empty() {{ return Err(PlanError::WrongEntry); }} Self::decode_from(bytes, None, Some(kind)) }}");
     let _ = writeln!(w, "    /// Decode and validate whole. Every index, range, code, and data reference is checked before the plan is returned; a failure names the row.");
     let _ = writeln!(
         w,
-        "    pub fn decode(bytes: &[u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, None) }}"
+        "    pub fn decode(bytes: &[u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, None, None) }}"
     );
     let _ = writeln!(w, "    /// [`Plan::decode`] of bytes that live as long as the program (a plan linked into it): the data pool, a baked app's largest part, stays in those bytes instead of a copy.");
     let _ = writeln!(
         w,
-        "    pub fn decode_static(bytes: &'static [u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, Some(bytes)) }}"
+        "    pub fn decode_static(bytes: &'static [u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, Some(bytes), None) }}"
     );
     let _ = writeln!(
         w,
-        "    fn decode_from(bytes: &[u8], lent: Option<&'static [u8]>) -> Result<Plan, PlanError> {{"
+        "    fn decode_from(bytes: &[u8], lent: Option<&'static [u8]>, snapshot: Option<&str>) -> Result<Plan, PlanError> {{"
     );
     let _ = writeln!(w, "        let mut r = Reader::new(bytes);");
     let _ = writeln!(
@@ -866,23 +871,36 @@ fn main() {
         };
         let _ = writeln!(w, "        let {} = {expr};", f.name);
     }
-    let _ = writeln!(w, "        let n = r.count()?; let mut strings = Vec::with_capacity(n.min(crate::bytes::RESERVE)); for _ in 0..n {{ strings.push(r.string()?); }}");
+    let _ = writeln!(w, "        if snapshot_entry != snapshot.unwrap_or(\"\") || snapshot_entry.is_empty() != snapshot_refresh.is_none() {{ return Err(PlanError::WrongEntry); }}");
+    // A string is its 4-byte length and its bytes.
+    let _ = writeln!(w, "        let n = r.count()?; let mut strings = Vec::with_capacity(r.reserve(n, 4)); for _ in 0..n {{ strings.push(r.string()?); }}");
+    // The bytecode and data pools stay in a static plan's bytes.
     let _ = writeln!(
         w,
-        "        let n = r.count()?; let code = r.bytes(n)?.to_vec();"
+        "        let lend = |r: &mut Reader| -> Result<std::borrow::Cow<'static, [u8]>, PlanError> {{ let n = r.count()?; let at = bytes.len() - r.remaining(); let pool = r.bytes(n)?; Ok(match lent {{ Some(lent) => std::borrow::Cow::Borrowed(&lent[at..at + n]), None => std::borrow::Cow::Owned(pool.to_vec()) }}) }};"
     );
-    let _ = writeln!(
-        w,
-        "        let n = r.count()?; let at = bytes.len() - r.remaining(); let pool = r.bytes(n)?; let data: std::borrow::Cow<'static, [u8]> = match lent {{ Some(lent) => std::borrow::Cow::Borrowed(&lent[at..at + n]), None => std::borrow::Cow::Owned(pool.to_vec()) }};"
-    );
+    let _ = writeln!(w, "        let code = lend(&mut r)?;");
+    let _ = writeln!(w, "        let data = lend(&mut r)?;");
     // The rows read through a sticky reader: no branch per field, and the
     // first failing read's error, as an early return would give it.
     let _ = writeln!(w, "        let mut s = crate::bytes::Sticky::new(r);");
     for t in &schema.tables {
         let p = pascal(&t.name);
+        // A row's encoded size, every field fixed-width: the rows the bytes
+        // left can hold bound the reservation.
+        let row: usize = t
+            .fields
+            .iter()
+            .map(|f| match parse_codec(&f.codec) {
+                Codec::U8 | Codec::Bool | Codec::Enum(_) => 1,
+                Codec::U16 => 2,
+                Codec::U32 | Codec::I32 | Codec::Str | Codec::Idx(_) | Codec::Opt(_) => 4,
+                Codec::F64 | Codec::Range(_) | Codec::Code | Codec::Bytes => 8,
+            })
+            .sum();
         let _ = writeln!(
             w,
-            "        let n = s.count(); let mut {} = Vec::with_capacity(n.min(crate::bytes::RESERVE)); for _ in 0..n {{ if s.failed() {{ break; }}",
+            "        let n = s.count(); let mut {} = Vec::with_capacity(s.reserve(n, {row})); for _ in 0..n {{ if s.failed() {{ break; }}",
             t.name
         );
         let _ = writeln!(w, "            {} .push({p}Row {{", t.name);

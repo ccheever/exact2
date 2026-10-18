@@ -200,7 +200,7 @@ function pressBack(nav) {
   if (!route) return "no route is selected";
   if (closedNone(route)) return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
   if (!control) return `route ${route.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control`;
-  if (control.matches(":disabled") || control.closest("[inert]") || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
+  if (control.matches(":disabled") || inertAncestor(control) || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
     return `its id="${control.id}" control is disabled, inert or not shown`;
   control.click();
 }
@@ -827,6 +827,27 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
     el.focus();
     if (selectText && document.activeElement === el) el.select();
   }
+}
+const opened = new WeakMap(), opening = [];
+let order = 0;
+// Stamp the inner opening, then its still-dispatching callers, innermost first.
+// An outer target already open aborts its opening, so keeps its existing stamp.
+globalThis.addEventListener?.('beforetoggle', e => {
+  for (let i = opening.length - 1; i >= 0; i--) if (opening[i].eventPhase === Event.NONE) opening.splice(i, 1);
+  if (e.newState !== 'open' || (e.target.localName !== 'dialog' && !e.target.hasAttribute('popover'))) return;
+  opened.set(e.target, ++order);
+  for (let i = opening.length - 1; i >= 0; i--) {
+    const target = opening[i].target;
+    if (!target.matches('dialog:modal,:popover-open')) opened.set(target, ++order);
+  }
+  opening.push(e);
+}, true);
+// Structural reads retain the front modal and presentations opened after it.
+export function modalLayers() {
+  const top = [...document.querySelectorAll('dialog:modal,:popover-open')];
+  const modals = top.filter(el => el.matches('dialog:modal'));
+  const front = Math.max(0, ...modals.map(el => opened.get(el) ?? 0));
+  return modals.length ? top.filter(el => (opened.get(el) ?? 0) >= front) : null;
 }
 // The nearest inert ancestor (a modal dialog ends the search: its subtree is live).
 export function inertAncestor(el) {

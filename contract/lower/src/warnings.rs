@@ -21,29 +21,36 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod counts;
 mod launch;
-mod line_height;
+pub(crate) mod line_height;
 mod miswiring;
 mod nested_header;
 mod parts;
 mod roles;
+mod root_replace;
 mod rows;
 mod screens;
+mod scroll_bound;
+mod states;
+mod svg;
 mod title;
 mod width;
 
-/// At most this many warnings from one compile, before the colours that
-/// stay one scheme: those name every site, each in a short line, since a
-/// repair of the first twenty would only show the next (rules/RULES.md,
-/// "Every check reports all failures in one run").
+pub(crate) use width::horizontal_flex;
+
+/// At most this many warnings from one compile, before `tamber-unreachable`
+/// and the colours that stay one scheme: those name every site, briefly,
+/// since a repair of the first twenty would only show the next
+/// (rules/RULES.md, "Every check reports all failures in one run").
 pub const MAX_WARNINGS: usize = 20;
 
 /// Every warning the checked file earns, in source order of its checks.
 pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
+    crate::control_roles::unlowered();
     with_text_styles(checked, &TextStyles::new())
 }
 
 /// Effective text sizing and native control boundaries from lowering. A reused
-/// source site whose lowering differs between instances stays unknown. The tag
+/// source site whose own style differs between instances stays unknown. The tag
 /// distinguishes a button from the title synthesized at the same source span.
 pub(crate) type TextStyles = std::collections::BTreeMap<(Span, u32, String), Option<TextStyle>>;
 
@@ -52,6 +59,8 @@ pub(crate) struct TextStyle {
     pub(crate) native: Option<bool>,
     pub(crate) font: Option<Attr>,
     pub(crate) layout: Vec<Attr>,
+    /// The lowered parent includes list cards and swipe scrollers absent from the source.
+    pub(crate) parent_horizontal_flex: Option<bool>,
 }
 
 pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> Vec<LowerError> {
@@ -135,22 +144,31 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
         line_height::multiplier(&style.attrs, &mut out);
     }
     out.extend(screens::screen_by_state(checked));
+    // A `replace` the router refuses on a root route's screen.
+    out.extend(root_replace::root_replace(checked));
     out.extend(counts::count_plural(checked));
     // @ref LLP 1116.016 D4 — a row that searches another data list.
     out.extend(rows::row_lookup(checked));
     // @ref LLP 1116.020 D1 — a `delete=` no list row holds.
-    out.extend(crate::swipe_rows::unplaced(&root.view));
+    out.extend(crate::swipe_rows::unplaced(
+        &root.view,
+        &checked.file.styles,
+    ));
     // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
     out.extend(parts::round_button_label(checked));
     // @ref LLP 1116.020 D5 — an empty state drawn as a list's row.
     out.extend(parts::empty_state_in_list(checked));
     // @ref LLP 1116.021 D7 — a summary card in a grouped list's card.
     out.extend(parts::summary_card_in_list(checked));
+    // @ref LLP 1121 D8 — a node's own state part it never meets.
+    states::dead(&root.view, &mut out);
     performance_now(root, &checked.file.fns, &mut out);
     // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
     launch::launch_identity(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);
+    scroll_bound::scroll_grows(&root.view, &checked.file.styles, &mut out);
     width::text_px_width(&root.view, &checked.file.styles, lowered, &mut out);
+    svg::use_foreign_object(&root.view, &mut out);
     out.extend(
         contract_analyze::read_after_assign(checked)
             .into_iter()
@@ -160,7 +178,20 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 span: e.span,
             }),
     );
+    // @ref LLP 1121 D15 — the design's values of params the app no longer has.
+    if let Some(source) = &checked.file.design {
+        if let Ok(design) = exact_tamber::parse(&source.text) {
+            let params = crate::params::tokens(checked.file);
+            out.extend(crate::params::unknown(
+                &design,
+                &params,
+                &crate::params::identities(checked.file),
+                source.source_id,
+            ));
+        }
+    }
     out.truncate(MAX_WARNINGS);
+    crate::control_roles::unreachable(&root.view, &checked.file.styles, &mut out);
     one_scheme(
         root,
         &checked.file.styles,

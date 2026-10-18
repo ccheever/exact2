@@ -2,12 +2,12 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, statSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, statSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
 import { appVerbs } from '../scripts/app-cli.mjs';
-import { applyPattern, createApp, createGame, patternFiles, patterns, rosterSeeds, wireSnapback } from './new.mjs';
+import { applyPattern, createApp, createGame, patternFiles, patterns, rosterSeeds, wireSnapback, withoutMember } from './new.mjs';
 
 /** A fake exact2 at `sdk` runs the real app-cli.mjs that an app's exact.mjs hands its verb to (LLP 1116.006 D7), and the
  * verify.mjs whose server `test` runs for an app that has one (LLP 1116.007 D2). */
@@ -27,8 +27,9 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.match(agents(), /<!-- exact:begin[^]*`bun exact\.mjs feedback status` says whether this project keeps one\.[^]*<!-- exact:end -->/);
     assert.doesNotMatch(agents(), /first;|before writing code|Read the card|Run `bun exact\.mjs feedback/, 'no ordered preface');
     assert.doesNotMatch(agents(), /## The authoring diary|### Needed/);
-    // 1.5 KB, read at step one and carried to the end (LLP 1116.007 D2), and the three paths of a long temp dir
-    assert.ok(Buffer.byteLength(agents()) <= 1536 + 3 * resolve(import.meta.dir, '..').length, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`);
+    // 1.5 KB, read at step one and carried to the end (LLP 1116.007 D2), besides the checkout's path in each path it names
+    const checkout = realpathSync(resolve(import.meta.dir, '..')), text = Buffer.byteLength(agents()) - (agents().split(checkout).length - 1) * checkout.length;
+    assert.ok(text <= 1536, `AGENTS.md is ${text} bytes besides the checkout's paths`);
     assert.match(agents(), /exact\.mjs setup --check/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // The runner is a few lines a builder can read (LLP 1116.006 D7): where the verbs are, and the checkout's app-cli.mjs.
@@ -58,7 +59,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       [['test', 'macos', '--size', '800x600'], [...testArgs('macos'), '--size', '800x600'], ['macos', '--app', 'field-log']],
       [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces'], webBuild],
       [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state', '--chrome', 'platform', '--scale', '1'], ios],
-      [['agent', 'ios', '--sim', 'lane', '--scale', '3', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', '--scale', '3', 'tree', '--chrome', 'platform'], [...ios, '--sim', 'lane']],
+      [['agent', 'ios', '--sim', 'lane', '--scale', '3', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', '--scale', '3', 'tree', '--chrome', 'platform'], ios],
       [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree', '--chrome', 'platform', '--scale', '1']],
       [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', resolve(realpathSync(dir), 'app.contract'), '--json']],
       [['contract', 'types', 'app.contract', '-o', 'app.contract.d.ts'], ['contract', 'types', resolve(realpathSync(dir), 'app.contract'), '-o', resolve(realpathSync(dir), 'app.contract.d.ts')]],
@@ -275,6 +276,34 @@ test('a new app refuses a name no host crate can carry, and a directory that is 
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
+test('exact new names the app and its bundle id before any build, and refuses an id no platform takes', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    assert.throws(() => createApp(dir, { id: 'com.yourcompany.field_log' }), /^Error: exact new --bundle-id com\.yourcompany\.field_log: not a reverse-DNS id;.* as com\.yourcompany\.fieldlog$/);
+    assert.throws(() => createApp(dir, { id: 'fieldlog' }), /not a reverse-DNS id/);
+    assert.throws(() => createApp(dir, { title: 'Field\nLog' }), /--name: give the name people see, on one line/);
+    assert.ok(!existsSync(dir), 'a refused name writes nothing');
+    createApp(dir, { title: 'Field "Log" $5', id: 'com.yourcompany.fieldlog' });
+    const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    assert.deepEqual([manifest.app, manifest.name, manifest.short_name, manifest.id], [{ id: 'com.yourcompany.fieldlog', name: 'Field "Log" $5' }, 'Field "Log" $5', 'Field "Log" $5', 'com.yourcompany.fieldlog']);
+    assert.match(readFileSync(resolve(dir, 'app.ts'), 'utf8'), /^export const appId = 'com\.yourcompany\.fieldlog';$/m);
+    const view = readFileSync(resolve(dir, 'app.contract'), 'utf8');
+    assert.match(view, /^component FieldLog$/m, 'the component keeps the folder\'s name, which is always an identifier');
+    assert.ok(view.includes('text "Field \\"Log\\" \\$5" role="heading"'), view);
+    // A pattern still sees the named app's files as exact new's, untouched.
+    assert.match(applyPattern(dir, 'one-screen').said, /as Field "Log" \$5 \(com\.yourcompany\.fieldlog\)$/);
+    // The flags name a new app: the CLI refuses them on --update and --game before touching anything.
+    const cli = (...args) => spawnSync(process.execPath, [resolve(import.meta.dir, '../scripts/exact.mjs'), 'new', ...args], { encoding: 'utf8' });
+    const update = cli(dir, '--update', '--bundle-id', 'com.yourcompany.other');
+    assert.deepEqual([update.status, /^update: unknown flag --bundle-id/.test(update.stderr)], [2, true], update.stderr);
+    const game = cli(resolve(parent, 'field-game'), '--game', '--bundle-id', 'com.yourcompany.other');
+    assert.deepEqual([game.status, /--name and --bundle-id name an app; a game/.test(game.stderr)], [1, true], game.stderr);
+    const bare = cli(dir, '--name');
+    assert.deepEqual([bare.status, /--name takes a value, as in --name "Field Log"/.test(bare.stderr)], [1, true], bare.stderr);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
 test('paths into the checkout are relative only when the two share a tree', () => {
   const root = resolve(import.meta.dir, '..');
   assert.equal(pathFrom(resolve(root, 'apps/caltrain'), resolve(root, 'vendor/taffy')), '../../vendor/taffy');
@@ -385,6 +414,66 @@ test('a new app has a Linux host crate, and update adds one to an older app', ()
     assert.ok(readFileSync(resolve(dir, 'linux/Cargo.toml'), 'utf8').includes('name = "field-log-linux"'));
     assert.match(readFileSync(manifest, 'utf8'), /^members = \["apple", "linux", "web"\]$/m);
     assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/, 'a second update leaves it');
+    // `update --without linux` (the euxy port: an SF Symbol warned for Linux, and removing it by hand took
+    // app.json, the workspace and Cargo.lock): one step, which the next update keeps.
+    assert.match(createApp(dir, { update: true, without: 'linux' }), /without linux \(removed its workspace member, app\.json deploy\.store\.linux, linux\/\)/);
+    assert.ok(!existsSync(resolve(dir, 'linux')));
+    assert.match(readFileSync(manifest, 'utf8'), /^members = \["apple", "web"\]$/m);
+    assert.ok(!('linux' in JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).deploy.store));
+    assert.doesNotMatch(readFileSync(resolve(dir, 'Cargo.lock'), 'utf8'), /name = "field-log-linux"/);
+    const locked = spawnSync('cargo', ['metadata', '--locked', '--offline', '--no-deps', '--format-version', '1'], { cwd: dir, encoding: 'utf8' });
+    assert.equal(locked.status, 0, locked.stderr);
+    assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/);
+    assert.ok(!existsSync(resolve(dir, 'linux')));
+    assert.throws(() => createApp(dir, { update: true, without: 'web' }), /the web host is the dev loop's/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000);
+
+test('update --without edits any spelling of the workspace member, and a refusal changes nothing', () => {
+  for (const [text, want] of [
+    ['[workspace]\nmembers = [\'apple\', \'linux\', \'web\']\n', '[workspace]\nmembers = [\'apple\', \'web\']\n'],
+    ['[workspace]\nmembers = ["apple", "./linux/", "web"]\nresolver = "2"\n', '[workspace]\nmembers = ["apple", "web"]\nresolver = "2"\n'],
+    ['[workspace]\nmembers = [\n  "apple", # the Apple host\n  "linux", # Linux, and Android\n  "web",\n]\n', '[workspace]\nmembers = [\n  "apple", # the Apple host\n  "web",\n]\n'],
+    ['[workspace]\nmembers = ["apple", "web", "linux"]\ndefault-members = ["linux", "web"]\n', '[workspace]\nmembers = ["apple", "web"]\ndefault-members = ["web"]\n'],
+    ['[workspace]\nmembers = ["apple", "web"]\n', '[workspace]\nmembers = ["apple", "web"]\n'],
+  ]) assert.equal(withoutMember(text, 'linux'), want, text);
+  assert.equal(withoutMember('[workspace]\nmembers = ["linux-tools", "linux"]\n', 'linux'), '[workspace]\nmembers = ["linux-tools"]\n');
+  // Only the [workspace] table's own keys: another table's `members` is left as written.
+  const metadata = '[workspace.metadata.hosts]\nmembers = ["linux"]\n\n[workspace]\nmembers = ["apple", "linux"]\n\n[package.metadata]\nmembers = ["linux"]\n';
+  assert.equal(withoutMember(metadata, 'linux'), metadata.replace('members = ["apple", "linux"]', 'members = ["apple"]'));
+  // A form it does not read with certainty is refused, naming the edit by hand.
+  for (const [text, why] of [
+    ['[workspace]\n"members" = ["apple", "linux"]\n', /a quoted members key/],
+    ['[workspace]\nmembers = ["apple", "li\\u006eux"]\n', /an escaped string/],
+    ['workspace.members = ["apple", "linux"]\n', /no \[workspace\] header/],
+    ['workspace = { members = ["apple", "linux"] }\n', /no \[workspace\] header/],
+    ['[workspace]\nmembers = ["apple"]\ndefault-members = ["linux"]\n', /default-members would be empty/],
+  ]) assert.throws(() => withoutMember(text, 'linux'), err => why.test(err.message) && /remove "linux" from \[workspace\] members and default-members by hand/.test(err.message), text);
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    // The last native store: deploy would read none as every platform, Linux included.
+    const dir = resolve(parent, 'web-log');
+    createApp(dir);
+    const manifest = resolve(dir, 'app.json'), workspace = resolve(dir, 'Cargo.toml'), lock = resolve(dir, 'Cargo.lock');
+    const app = JSON.parse(readFileSync(manifest, 'utf8'));
+    app.deploy.store = { web: '0', linux: '0' };
+    writeFileSync(manifest, JSON.stringify(app, null, 2) + '\n');
+    const state = () => [manifest, workspace, lock].map(p => readFileSync(p, 'utf8'));
+    const before = state();
+    assert.throws(() => createApp(dir, { update: true, without: 'linux' }), /would name no native platform.*as they were/s);
+    assert.deepEqual(state(), before);
+    assert.ok(existsSync(resolve(dir, 'linux/Cargo.toml')));
+    // A resolve that fails once the crate is aside (a member depends on it): the files, the
+    // lock and the crate all come back, and nothing is left beside them.
+    app.deploy.store = { web: '0', ios: '0', linux: '0' };
+    writeFileSync(manifest, JSON.stringify(app, null, 2) + '\n');
+    const apple = resolve(dir, 'apple/Cargo.toml');
+    writeFileSync(apple, readFileSync(apple, 'utf8').replace('[dependencies]\n', '[dependencies]\nweb-log-linux = { path = "../linux" }\n'));
+    const again = state();
+    assert.throws(() => createApp(dir, { update: true, without: 'linux' }), /Cargo\.toml, app\.json, Cargo\.lock and linux\/ are as they were/);
+    assert.deepEqual(state(), again);
+    assert.ok(existsSync(resolve(dir, 'linux/Cargo.toml')));
+    assert.deepEqual(readdirSync(dir).filter(f => f.startsWith('.linux')), []);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
 

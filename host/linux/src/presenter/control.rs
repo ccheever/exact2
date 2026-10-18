@@ -94,6 +94,25 @@ impl<D: DataSource> Presenter<D> {
         }
         self.dirty = true;
         let mut dispatched = false;
+        // A click on a checkbox is heard before its `input` and `change` (HTML
+        // dispatches `click`, then fires those as its activation behaviour).
+        if self
+            .host
+            .runner()
+            .handlers_of(id)
+            .contains(&EventKind::Press)
+        {
+            let held = self.modifiers();
+            let press = if held == Default::default() {
+                Event::Press
+            } else {
+                Event::PressWith(held)
+            };
+            if let Some(e) = self.host.dispatch_at(id, press, now_ms) {
+                eprintln!("exact: {e}");
+            }
+            dispatched = true;
+        }
         for (event, kind) in [
             (Event::Input(on.into()), EventKind::Input),
             (Event::Change(on.into()), EventKind::Change),

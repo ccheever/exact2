@@ -1,10 +1,12 @@
 // Clustered point and spot lights (lights.rs): records of 16 words, then a
 // 16 x 9 x 24 grid of (first index word, count), then the clusters' light lists.
 @group(0) @binding(8) var<storage, read> light_words: array<u32>;
-const PI: f32 = 3.141592653589793;
-fn brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<f32>, metallic: f32,
-        roughness: f32) -> vec3<f32> {
+const PI = 3.141592653589793;
+// Directions and the lobes' scalars in f32; colour in `shading` (frame.wgsl).
+fn brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<shading>, metallic: f32,
+        roughness: f32) -> vec3<shading> {
     let nl = max(dot(n, l), 0.0);
+    if MATTE { return base * shading(nl) / PI; }
     let nv = max(dot(n, v), 0.0001);
     let sum = v + l;
     let h = sum * inverseSqrt(max(dot(sum, sum), 0.000001));
@@ -18,13 +20,14 @@ fn brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<f32>, metallic: f32
     let gv = nl * sqrt(nv * nv * (1.0 - a2) + a2);
     let gl = nv * sqrt(nl * nl * (1.0 - a2) + a2);
     let visibility = 0.5 / max(gv + gl, 0.00001);
-    let f0 = mix(vec3(0.04), base, metallic);
+    let f0 = mix(vec3<shading>(0.04), base, shading(metallic));
     // (1 - vh)^5 by multiplication: pow is two transcendental operations.
     let f = 1.0 - vh;
     let f2 = f * f;
-    let fresnel = f0 + (vec3(1.0) - f0) * (f2 * f2 * f);
-    let diffuse = (vec3(1.0) - fresnel) * (1.0 - metallic) * base / PI;
-    return (diffuse + distribution * visibility * fresnel) * nl;
+    let fresnel = f0 + (vec3<shading>(1.0) - f0) * shading(f2 * f2 * f);
+    let diffuse = (vec3<shading>(1.0) - fresnel) * shading(1.0 - metallic) * base / PI;
+    let peak = shading(min(distribution * visibility, SHADING_LIMIT));
+    return (diffuse + peak * fresnel) * shading(nl);
 }
 fn light_f(at: u32) -> f32 { return bitcast<f32>(light_words[at]); }
 fn light_v(at: u32) -> vec3<f32> { return vec3(light_f(at), light_f(at + 1u), light_f(at + 2u)); }
@@ -43,8 +46,8 @@ fn light_cone(at: u32, l: vec3<f32>) -> f32 {
 }
 // Add each of the fragment's cluster lights to `color`, in frame order. The
 // model shader's historical evaluation order is kept for its pixels.
-fn add_local_lights(color: ptr<function, vec3<f32>>, frag: vec2<f32>, world: vec3<f32>,
-        n: vec3<f32>, v: vec3<f32>, base: vec3<f32>, metallic: f32, roughness: f32, model: bool) {
+fn add_local_lights(color: ptr<function, vec3<shading>>, frag: vec2<f32>, world: vec3<f32>,
+        n: vec3<f32>, v: vec3<f32>, base: vec3<shading>, metallic: f32, roughness: f32, model: bool) {
     if frame.lights_info.x == 0.0 { return; }
     let cell = u32(frame.lights_info.w) + light_cluster(frag, world) * 2u;
     let first = light_words[cell];
@@ -62,18 +65,25 @@ fn add_local_lights(color: ptr<function, vec3<f32>>, frag: vec2<f32>, world: vec
         if window > 0.0 && cone > 0.0 && dot(n, l) > 0.0 {
             cone *= light_visibility(at, world, n, l);
         }
-        let tint = light_v(at + 4u);
-        let intensity = light_f(at + 7u);
+        // Nothing to add where the window or cone is zero (in f16 an
+        // overflowed product times zero would not be zero).
+        if window <= 0.0 || cone <= 0.0 { continue; }
+        let tint = vec3<shading>(light_v(at + 4u));
+        let intensity = shading(light_f(at + 7u));
+        let w = shading(window);
+        let d2 = shading(distance2);
+        let c = shading(cone);
         if model {
-            *color += brdf(n, v, l, base, metallic, roughness) * tint * intensity * window * window / distance2 * cone;
+            *color += brdf(n, v, l, base, metallic, roughness) * tint * intensity * w * w / d2 * c;
         } else {
-            let radiance = tint * intensity * window * window / distance2;
-            *color += brdf(n, v, l, base, metallic, roughness) * radiance * cone;
+            let radiance = tint * intensity * w * w / d2;
+            *color += brdf(n, v, l, base, metallic, roughness) * radiance * c;
         }
     }
 }
 // The second directional light, unshadowed.
-fn fill_light(n: vec3<f32>, v: vec3<f32>, base: vec3<f32>, metallic: f32, roughness: f32) -> vec3<f32> {
-    let l = normalize(-frame.fill_direction_illuminance.xyz);
-    return brdf(n, v, l, base, metallic, roughness) * frame.fill_color.xyz * frame.fill_direction_illuminance.w;
+fn fill_light(n: vec3<f32>, v: vec3<f32>, base: vec3<shading>, metallic: f32, roughness: f32) -> vec3<shading> {
+    let l = (-frame.fill_direction_illuminance.xyz);
+    return brdf(n, v, l, base, metallic, roughness) * vec3<shading>(frame.fill_color.xyz)
+        * shading(frame.fill_direction_illuminance.w);
 }

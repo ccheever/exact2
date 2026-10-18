@@ -20,7 +20,10 @@ impl Ssao {
     pub fn new(device: &wgpu::Device, targets: &Targets, scale: u32) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("game SSAO"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/ssao.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                crate::pipeline::depth_source(include_str!("shaders/ssao.wgsl"), targets.samples)
+                    .into(),
+            ),
         });
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("game SSAO"),
@@ -65,7 +68,7 @@ impl Ssao {
             },
             count: None,
         };
-        let depth = texture(1, wgpu::TextureSampleType::Depth, true);
+        let depth = texture(1, wgpu::TextureSampleType::Depth, targets.samples > 1);
         let occlusion_entry = texture(
             2,
             wgpu::TextureSampleType::Float { filterable: false },
@@ -115,6 +118,7 @@ impl Ssao {
         let pipeline = |layout, entry, format, blend| {
             crate::pipeline::make_pipeline(
                 device,
+                None,
                 &shader,
                 "game SSAO",
                 "vs",
@@ -127,6 +131,7 @@ impl Ssao {
                 blend,
                 &[],
                 false,
+                true,
             )
         };
         // destination × source: the blurred occlusion darkens the HDR colour.

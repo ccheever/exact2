@@ -42,13 +42,20 @@ pub(crate) trait Writes {
     fn opacity(&mut self, _: &[(u32, f32)]) {}
     /// Per record, 1 + its first merged part look (0: none), and those looks;
     /// set before `instances`.
-    fn part_looks(&mut self, _: &[u32], _: &[[f32; 8]]) {}
+    fn part_looks(&mut self, _: &[u32], _: &[crate::models::PartLook]) {}
     /// Each record's level of detail and the `ModelLod` entities; set before
     /// `instances`.
     fn levels(&mut self, _: &[u8], _: &[crate::lod::Lod]) {}
     /// Rewrite records `first..` looks in place (tint and glow), and part looks
     /// `part_first..` (starts relative to their meshes).
-    fn patch_looks(&mut self, _: usize, _: &[crate::DrawInstance], _: usize, _: &[[f32; 8]]) {}
+    fn patch_looks(
+        &mut self,
+        _: usize,
+        _: &[crate::DrawInstance],
+        _: usize,
+        _: &[crate::models::PartLook],
+    ) {
+    }
     fn model_poses(
         &mut self,
         _: &World,
@@ -116,6 +123,7 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
                     merged: &m.merged,
                     members: &m.members,
                     starts: &m.starts,
+                    parts: &m.parts,
                     materials: &m.materials,
                     custom: &self.models.custom,
                 })
@@ -131,7 +139,7 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
             self.rebind();
         }
     }
-    fn part_looks(&mut self, bases: &[u32], looks: &[[f32; 8]]) {
+    fn part_looks(&mut self, bases: &[u32], looks: &[crate::models::PartLook]) {
         let part_looks = &mut self.models.pending_looks;
         part_looks.0.clear();
         part_looks.0.extend_from_slice(bases);
@@ -143,7 +151,7 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         first: usize,
         records: &[crate::DrawInstance],
         part_first: usize,
-        looks: &[[f32; 8]],
+        looks: &[crate::models::PartLook],
     ) {
         if ASSETS {
             self.patch_draw_looks(first, records, part_first, looks);
@@ -311,6 +319,7 @@ struct Versions {
     pose: u64,
     // Presentation offsets (exact_game::Offset) patch drawn poses like parents do.
     offset: u64,
+    node_offsets: u64,
     // Presentation tints (exact_game::Tint), by content for the same reason.
     tint: u64,
     live: u64,
@@ -413,6 +422,7 @@ impl Versions {
             lod: w.revision::<exact_game::ModelLod>(),
             pose: w.revision::<exact_game::Pose>(),
             offset: offsets(w),
+            node_offsets: w.revision::<exact_game::NodeOffsets>(),
             tint: tints(w),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
@@ -510,6 +520,9 @@ impl Default for Feed {
     }
 }
 impl Feed {
+    pub(crate) fn retain_primes(&mut self, retain: bool) {
+        self.scene.attachments.retain_primes(retain);
+    }
     #[cfg(test)]
     pub(crate) fn attachment_diagnostics(&self) -> &scene::AttachmentDiagnostics {
         &self.scene.attachments.diagnostics
@@ -603,6 +616,7 @@ impl Feed {
             || next.parent != old.parent
             || next.pose != old.pose
             || next.offset != old.offset;
+        let node_offsets_changed = next.node_offsets != old.node_offsets;
         let material = initial
             || next.material != old.material
             || next.tint != old.tint
@@ -1054,7 +1068,7 @@ impl Feed {
             }
             r.batches(&self.batches, &self.slots)?;
         }
-        if !self.assets.records.is_empty() && (moved || batches || self.tick != w.tick()) {
+        if moved || node_offsets_changed || batches || self.tick != w.tick() {
             // Static instances cost nothing, parented or not: only blocks whose
             // local or propagated poses changed since the last pose step.
             changed_blocks(w, self.model_cursor, &mut self.changed_blocks);

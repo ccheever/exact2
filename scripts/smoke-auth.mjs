@@ -12,6 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from './agent.mjs';
+import { DESKTOP_INPUT } from './agent-launch.mjs';
 import { jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -110,7 +111,7 @@ export async function authPopupWeb({ webDist, check: record }) {
   const origin = `http://127.0.0.1:${server.address().port}`;
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-auth-popup-'));
   const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=500,700', `--user-data-dir=${profile}`,
+  const child = spawn(chrome, ['--headless=new', DESKTOP_INPUT, '--remote-debugging-pipe', '--window-size=500,700', `--user-data-dir=${profile}`,
     '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
   const cdp = new Cdp(child.stdio[3], child.stdio[4]);
   const popups = [];

@@ -915,7 +915,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
           if(Math.abs(dx)<=slop||Math.abs(dx)<=Math.abs(dy))return false;
           if(dx<0 && !(sample(el,'translate')?.[0]>0)){stop();return false;}
           const h=api.begin(id,'translate'); if(!h){stop();return false;}
-          contacts().set(e.pointerId,'claimed');
+          contacts().set(e.pointerId,'claimed'); globalThis.exact?.pressClaimed?.(e.pointerId);
           drag.holds=[h]; drag.origin=e.clientX; drag.base=[...h.value]; drag.raw=inverse(h.value[0]);
           // One authored companion, at most two additional property holds.
           const indicator=[...el.children].find(n=>n.getAttribute('swipeIndicator')==='true');

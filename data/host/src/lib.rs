@@ -399,7 +399,7 @@ impl<D: DataSource> DataSource for Storage<D> {
                 let alive = self.alive.clone();
                 let refused =
                     paths.is_none() && self.agent && !native::independent_storage(&payload);
-                if refused && !self.told_agent && native::writes(&payload) {
+                if refused && !self.told_agent {
                     self.told_agent = true;
                     self.logs.push(format!(
                         "storage refused (agent): {}",

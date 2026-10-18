@@ -175,12 +175,14 @@
     {
       "id": 0,
       "name": "text",
+      "snapshot": "admit",
       "kind": "str",
       "measure": true
     },
     {
       "id": 1,
       "name": "imageSource",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -192,6 +194,7 @@
     {
       "id": 3,
       "name": "accessibilityLabel",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -217,6 +220,7 @@
     {
       "id": 9,
       "name": "lang",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -227,11 +231,13 @@
     {
       "id": 11,
       "name": "testId",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
       "id": 12,
       "name": "nativeId",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -242,6 +248,7 @@
     {
       "id": 14,
       "name": "href",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -257,6 +264,7 @@
     {
       "id": 17,
       "name": "value",
+      "snapshot": "admit",
       "kind": "str",
       "measure": true
     },
@@ -278,11 +286,13 @@
     {
       "id": 21,
       "name": "accessibilityRole",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
       "id": 22,
       "name": "accessibilityHint",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -323,11 +333,13 @@
     {
       "id": 30,
       "name": "accessibilityHeadingLevel",
+      "snapshot": "admit",
       "kind": "int"
     },
     {
       "id": 31,
       "name": "accessibilityElementsHidden",
+      "snapshot": "admit",
       "kind": "bool"
     },
     {
@@ -380,6 +392,7 @@
     {
       "id": 42,
       "name": "src",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -390,6 +403,7 @@
     {
       "id": 44,
       "name": "id",
+      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -1279,6 +1293,7 @@
     {
       "id": 212,
       "name": "max",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1069.001 D1: HTML's `max`, as `min`."
     },
@@ -1384,6 +1399,7 @@
     {
       "id": 237,
       "name": "title",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "HTML's global `title` attribute on any element but `head` (whose `title` is `headTitle`): advisory text, the platform's tooltip (studio diary R24). The browser's own on the web, `NSView.toolTip` on macOS; touch hosts show none."
     },
@@ -1572,6 +1588,47 @@
       "name": "fontShorthand",
       "kind": "bool",
       "_comment": "@ref LLP 1115.000 D12.2: the node's text style was named through the `font` shorthand (or a type token), which resets the weight and the leading as CSS's shorthand does, so the style's beat an inherited `font-weight` and `line-height`; a bare `font-size` naming a style fills only what nothing above says. Set by Contract, never written by an author (`contract/lower/src/shorthands.rs`)."
+    },
+    {
+      "id": 271,
+      "name": "navigationInitialDetent",
+      "kind": "str",
+      "_comment": "@ref LLP 1115 §2 (what the author writes wins): the word of a sheet route's `navigationDetent` the sheet opens at; unsaid, the first (the shortest), as UIKit opens a sheet at its smallest detent. UIKit's `selectedDetentIdentifier`, React Navigation's `sheetInitialDetentIndex`; iOS reads it when the detents are set, hosts whose sheets have one height ignore it."
+    },
+    {
+      "id": 272,
+      "name": "datetime",
+      "snapshot": "admit",
+      "kind": "float",
+      "_comment": "@ref LLP 1126 D6: the time element’s instant in epoch milliseconds."
+    },
+    {
+      "id": 273,
+      "name": "timeFormat",
+      "snapshot": "admit",
+      "kind": "str",
+      "_comment": "@ref LLP 1126 D6: the time element’s named presentation."
+    },
+    {
+      "id": 274,
+      "name": "start",
+      "snapshot": "admit",
+      "kind": "float",
+      "_comment": "@ref LLP 1126 D6: the progress interval’s start instant in epoch milliseconds."
+    },
+    {
+      "id": 275,
+      "name": "end",
+      "snapshot": "admit",
+      "kind": "float",
+      "_comment": "@ref LLP 1126 D6: the progress interval’s end instant in epoch milliseconds."
+    },
+    {
+      "id": 276,
+      "name": "textReservation",
+      "kind": "str",
+      "measure": true,
+      "_comment": "@ref LLP 1126 D6: newline-separated host-formatted width candidates written by the runner, never an author."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1781,7 +1838,8 @@
         "visible",
         "hidden",
         "scroll",
-        "auto"
+        "auto",
+        "clip"
       ],
       "default": "visible"
     },
@@ -2396,6 +2454,7 @@
     {
       "bit": 0,
       "field": "width",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2405,6 +2464,7 @@
     {
       "bit": 1,
       "field": "height",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2414,6 +2474,7 @@
     {
       "bit": 2,
       "field": "min_width",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2423,6 +2484,7 @@
     {
       "bit": 3,
       "field": "min_height",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2432,6 +2494,7 @@
     {
       "bit": 4,
       "field": "max_width",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2441,6 +2504,7 @@
     {
       "bit": 5,
       "field": "max_height",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2450,6 +2514,7 @@
     {
       "bit": 6,
       "field": "padding_top",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2459,6 +2524,7 @@
     {
       "bit": 7,
       "field": "padding_right",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2468,6 +2534,7 @@
     {
       "bit": 8,
       "field": "padding_bottom",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2477,6 +2544,7 @@
     {
       "bit": 9,
       "field": "padding_left",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2486,6 +2554,7 @@
     {
       "bit": 10,
       "field": "margin_top",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2495,6 +2564,7 @@
     {
       "bit": 11,
       "field": "margin_right",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2504,6 +2574,7 @@
     {
       "bit": 12,
       "field": "margin_bottom",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2513,6 +2584,7 @@
     {
       "bit": 13,
       "field": "margin_left",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2522,6 +2594,7 @@
     {
       "bit": 14,
       "field": "flex_direction",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:FlexDirection",
       "layout": true
@@ -2529,6 +2602,7 @@
     {
       "bit": 15,
       "field": "flex_wrap",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:FlexWrap",
       "layout": true
@@ -2536,6 +2610,7 @@
     {
       "bit": 16,
       "field": "justify_content",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:JustifyContent",
       "layout": true
@@ -2543,6 +2618,7 @@
     {
       "bit": 17,
       "field": "align_items",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:AlignItems",
       "layout": true
@@ -2550,6 +2626,7 @@
     {
       "bit": 18,
       "field": "align_self",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:AlignSelf",
       "layout": true
@@ -2557,6 +2634,7 @@
     {
       "bit": 19,
       "field": "align_content",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:AlignContent",
       "layout": true
@@ -2564,6 +2642,7 @@
     {
       "bit": 20,
       "field": "flex_grow",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "f32",
       "layout": true,
@@ -2572,6 +2651,7 @@
     {
       "bit": 21,
       "field": "flex_shrink",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "f32",
       "layout": true,
@@ -2580,6 +2660,7 @@
     {
       "bit": 22,
       "field": "flex_basis",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2589,6 +2670,7 @@
     {
       "bit": 23,
       "field": "position_type",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:PositionType",
       "layout": true
@@ -2596,6 +2678,7 @@
     {
       "bit": 24,
       "field": "top",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2605,6 +2688,7 @@
     {
       "bit": 25,
       "field": "right",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2614,6 +2698,7 @@
     {
       "bit": 26,
       "field": "bottom",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2623,6 +2708,7 @@
     {
       "bit": 27,
       "field": "left",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2632,6 +2718,7 @@
     {
       "bit": 28,
       "field": "row_gap",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "f32",
       "layout": true,
@@ -2640,6 +2727,7 @@
     {
       "bit": 29,
       "field": "column_gap",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "f32",
       "layout": true,
@@ -2648,6 +2736,7 @@
     {
       "bit": 30,
       "field": "aspect_ratio",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "aspect-ratio",
       "layout": true,
@@ -2656,6 +2745,7 @@
     {
       "bit": 31,
       "field": "display",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:Display",
       "layout": true
@@ -2663,6 +2753,7 @@
     {
       "bit": 32,
       "field": "box_sizing",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:BoxSizing",
       "layout": true
@@ -2670,6 +2761,7 @@
     {
       "bit": 33,
       "field": "overflow_x",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:Overflow",
       "layout": true
@@ -2677,6 +2769,7 @@
     {
       "bit": 34,
       "field": "overflow_y",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:Overflow",
       "layout": true
@@ -2692,6 +2785,7 @@
     {
       "bit": 36,
       "field": "grid_auto_flow",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:GridAutoFlow",
       "layout": true
@@ -2699,6 +2793,7 @@
     {
       "bit": 37,
       "field": "grid_template_columns",
+      "snapshot": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "tracks",
@@ -2707,6 +2802,7 @@
     {
       "bit": 38,
       "field": "grid_template_rows",
+      "snapshot": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "tracks",
@@ -2715,6 +2811,7 @@
     {
       "bit": 39,
       "field": "grid_column",
+      "snapshot": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "placement",
@@ -2723,6 +2820,7 @@
     {
       "bit": 40,
       "field": "grid_row",
+      "snapshot": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "placement",
@@ -2731,6 +2829,7 @@
     {
       "bit": 41,
       "field": "justify_items",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:JustifyItems",
       "layout": true
@@ -2738,6 +2837,7 @@
     {
       "bit": 42,
       "field": "direction",
+      "snapshot": "admit",
       "codec": "enum:Direction",
       "inherited": true,
       "layout": true,
@@ -2746,6 +2846,7 @@
     {
       "bit": 43,
       "field": "border_width_top",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2754,6 +2855,7 @@
     {
       "bit": 44,
       "field": "border_width_right",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2762,6 +2864,7 @@
     {
       "bit": 45,
       "field": "border_width_bottom",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2770,6 +2873,7 @@
     {
       "bit": 46,
       "field": "border_width_left",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2778,6 +2882,7 @@
     {
       "bit": 47,
       "field": "background_color",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": 0
@@ -2785,12 +2890,14 @@
     {
       "bit": 48,
       "field": "opacity",
+      "snapshot": "admit",
       "codec": "f32",
       "default": 1
     },
     {
       "bit": 49,
       "field": "border_radius_top_left",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2798,6 +2905,7 @@
     {
       "bit": 50,
       "field": "border_radius_top_right",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2805,6 +2913,7 @@
     {
       "bit": 51,
       "field": "border_radius_bottom_right",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2812,6 +2921,7 @@
     {
       "bit": 52,
       "field": "border_radius_bottom_left",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2819,6 +2929,7 @@
     {
       "bit": 53,
       "field": "border_color_top",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -2827,6 +2938,7 @@
     {
       "bit": 54,
       "field": "border_color_right",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -2835,6 +2947,7 @@
     {
       "bit": 55,
       "field": "border_color_bottom",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -2843,6 +2956,7 @@
     {
       "bit": 56,
       "field": "border_color_left",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -2895,12 +3009,14 @@
     {
       "bit": 63,
       "field": "object_fit",
+      "snapshot": "admit",
       "codec": "enum:ObjectFit",
       "cold": true
     },
     {
       "bit": 64,
       "field": "font_size",
+      "snapshot": "admit",
       "codec": "f32",
       "inherited": true,
       "text": true,
@@ -2910,6 +3026,7 @@
     {
       "bit": 65,
       "field": "font_weight",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "u16",
       "inherited": true,
@@ -2920,6 +3037,7 @@
     {
       "bit": 66,
       "field": "font_style",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:FontStyle",
       "inherited": true,
@@ -2929,6 +3047,7 @@
     {
       "bit": 67,
       "field": "font_family",
+      "snapshot": "admit",
       "codec": "u16",
       "inherited": true,
       "text": true,
@@ -2938,6 +3057,7 @@
     {
       "bit": 68,
       "field": "text_align",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:TextAlign",
       "inherited": true,
@@ -2946,6 +3066,7 @@
     {
       "bit": 69,
       "field": "line_height",
+      "snapshot": "admit",
       "codec": "line-height",
       "inherited": true,
       "text": true,
@@ -2955,6 +3076,7 @@
     {
       "bit": 70,
       "field": "letter_spacing",
+      "snapshot": "admit",
       "codec": "f32",
       "inherited": true,
       "text": true,
@@ -2964,12 +3086,14 @@
     {
       "bit": 71,
       "field": "text_decoration_line",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:TextDecorationLine"
     },
     {
       "bit": 72,
       "field": "font_variant_numeric",
+      "snapshot": "admit",
       "codec": "u8",
       "keywords": "FontVariantNumeric",
       "inherited": true,
@@ -2980,6 +3104,7 @@
     {
       "bit": 73,
       "field": "line_clamp",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "u32",
       "text": true,
@@ -2989,6 +3114,7 @@
     {
       "bit": 74,
       "field": "text_overflow",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:TextOverflow",
       "text": true,
@@ -2997,6 +3123,7 @@
     {
       "bit": 75,
       "field": "text_color",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "color",
       "inherited": true,
@@ -3012,6 +3139,7 @@
     {
       "bit": 77,
       "field": "white_space",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:WhiteSpace",
       "inherited": true,
@@ -3058,6 +3186,7 @@
     {
       "bit": 84,
       "field": "clip_path",
+      "snapshot": "admit",
       "rare": true,
       "codec": "clip-path"
     },
@@ -3079,6 +3208,7 @@
     {
       "bit": 87,
       "field": "overflow_wrap",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:OverflowWrap",
       "inherited": true,
@@ -3088,6 +3218,7 @@
     {
       "bit": 88,
       "field": "border_style_top",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3095,6 +3226,7 @@
     {
       "bit": 89,
       "field": "border_style_right",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3102,6 +3234,7 @@
     {
       "bit": 90,
       "field": "border_style_bottom",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3109,6 +3242,7 @@
     {
       "bit": 91,
       "field": "border_style_left",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3452,6 +3586,7 @@
     {
       "bit": 140,
       "field": "text_transform",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:TextTransform",
       "inherited": true,
@@ -3461,6 +3596,7 @@
     {
       "bit": 141,
       "field": "background_image",
+      "snapshot": "admit",
       "codec": "background-image",
       "_comment": "@ref LLP 1066: CSS `background-image` — `none`, or up to four linear/radial/conic/repeating-linear gradients; linear/radial stops take px or %. Painted over background-color, clipped as the background is.",
       "cold": true
@@ -3706,6 +3842,7 @@
     {
       "bit": 175,
       "field": "order",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "i32",
       "layout": true,
@@ -3722,6 +3859,7 @@
     {
       "bit": 177,
       "field": "text_indent",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "f32",
       "inherited": true,
@@ -3733,6 +3871,7 @@
     {
       "bit": 178,
       "field": "hyphens",
+      "snapshot": "admit",
       "codec": "enum:Hyphens",
       "inherited": true,
       "text": true,
@@ -3909,6 +4048,7 @@
     {
       "bit": 201,
       "field": "text_box_trim",
+      "snapshot": "admit",
       "codec": "enum:TextBoxTrim",
       "text": true,
       "layout": true
@@ -3916,6 +4056,7 @@
     {
       "bit": 202,
       "field": "text_box_edge",
+      "snapshot": "admit",
       "codec": "enum:TextBoxEdge",
       "inherited": true,
       "text": true,
@@ -3931,6 +4072,7 @@
     {
       "bit": 204,
       "field": "text_wrap_style",
+      "snapshot": "admit",
       "codec": "enum:TextWrapStyle",
       "inherited": true,
       "text": true,
@@ -3991,6 +4133,38 @@
       "inherited": true,
       "default": 0,
       "_comment": "@ref LLP 1121 D5, D7: not CSS. `-exact-mode`, the app tuple of a subtree: the author writes `axis=value` pins (`dark-style=black`), which the runner resolves against the plan's axes over the tuple around the node, and the row holds that full tuple plus one (0, the initial, is the window's, `setMode`'s). Inherited, so a host reads any node's tuple; a node holding it is a mode boundary."
+    },
+    {
+      "bit": 212,
+      "field": "press_opacity",
+      "codec": "f32",
+      "default": 1,
+      "_comment": "@ref LLP 1061 D7: not CSS. The opacity a node shows, as a fraction of its own, while a pointer holds it pressed; 1 is none. Host-owned as `-exact-press-scale` is (no runner round trip; eased in 120 ms, at once under the agent's clock), and any written value replaces the platform's unsaid press. Not a motion target; paint only.",
+      "cold": true
+    },
+    {
+      "bit": 213,
+      "field": "press_background_color",
+      "codec": "color",
+      "default": 0,
+      "_comment": "@ref LLP 1061 D7: not CSS. The background colour a node shows in place of its own while a pointer holds it pressed; unset is none. Host-owned as `-exact-press-scale` is, and it replaces the platform's unsaid press. Paint only.",
+      "cold": true
+    },
+    {
+      "bit": 214,
+      "field": "press_color",
+      "codec": "color",
+      "default": 0,
+      "_comment": "@ref LLP 1061 D7: not CSS. The text colour a node shows while a pointer holds it pressed, given to its subtree as `color` is (a descendant that writes its own `color` keeps it); unset is none. Host-owned as `-exact-press-scale` is, and it replaces the platform's unsaid press. Paint only.",
+      "cold": true
+    },
+    {
+      "bit": 215,
+      "field": "press_opacity_to",
+      "codec": "f32",
+      "default": 1,
+      "_comment": "@ref LLP 1121 D8 (stage 8 B): not CSS, and lowering's alone (an author's is refused): an `:active` part's `opacity`, the absolute opacity a node shows while a pointer holds it pressed, eased from the opacity shown at the press (a hover or focus look's included). Replaces `-exact-press-opacity`'s share for the node; it replaces the platform's unsaid press as the pressed paint does. Not a motion target; paint only.",
+      "cold": true
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
@@ -4029,6 +4203,11 @@
     {
       "id": 8,
       "name": "AttachRoot"
+    },
+    {
+      "id": 9,
+      "name": "SetLooks",
+      "_comment": "@ref LLP 1121 D8 (stage 8 B): a node's `:hover` and `:focus-visible` looks, resolved by the producer as a static row is: payload a u8 count (at most 2), then per look its state (1 :hover, 2 :focus-visible; ascending, each once; 0, once `:active`, is retired: `:active` lowers to the press paint) and a style patch of the look rows only (background-color, a side's border colour, opacity, box-shadow), set or cleared. Replaces the node's looks whole; a count of 0 clears them. A host composes them over the base on its own tracking, under the press paint."
     }
   ],
   "symbols": [
@@ -5729,6 +5908,28 @@
     ["modal-shadow-blur", "length", 48],
     ["modal-shadow-alpha", "number", 0.24],
     ["scrim-alpha", "number", 0.4]
+  ],
+  "_controls": "LLP 1121 D9 (stage 8 C): each native control's parameters a design can set (accent-color, or a colour role it reads) and how each host Exact ships honours one: [control (a `:state` after it: that state's), parameter, ios, macos, web, linux, windows, terminal, android], each host `exact`, `best-effort` (the platform alters it) or `none` (the platform's own stands), `: why` after it saying so. Measured by scripts/measure-controls.mjs, recorded with provenance in docs/control-roles-measured.md, which a test holds this table to; the compiler's tamber-unreachable lint reads it. A new parameter is a role first (LLP 1095 §3).",
+  "controls": [
+    ["switch", "accent-color", "exact", "none: NSSwitch draws the system accent", "exact", "exact", "exact", "none: the terminal draws no colour", "exact"],
+    ["switch:disabled", "accent-color", "best-effort: dimmed, as the platform draws a disabled control", "none: NSSwitch draws the system accent", "best-effort: dimmed, as the platform draws a disabled control", "best-effort: dimmed, as the platform draws a disabled control", "best-effort: dimmed, as the platform draws a disabled control", "none: the terminal draws no colour", "best-effort: dimmed, as the platform draws a disabled control"],
+    ["checkbox", "accent-color", "exact", "best-effort: contentTintColor, in a key window only (not yet measured)", "exact", "exact", "exact", "none: the terminal draws no colour", "exact"],
+    ["checkbox:disabled", "accent-color", "best-effort: dimmed, as the platform draws a disabled control", "best-effort: contentTintColor under AppKit's disabled look, in a key window only (not yet measured)", "best-effort: dimmed, as the platform draws a disabled control", "best-effort: dimmed, as the platform draws a disabled control", "best-effort: dimmed, as the platform draws a disabled control", "none: the terminal draws no colour", "best-effort: dimmed, as the platform draws a disabled control"],
+    ["radio", "accent-color", "exact", "best-effort: contentTintColor, in a key window only (not yet measured)", "exact", "exact", "exact", "none: the terminal draws no colour", "exact"],
+    ["radio:disabled", "accent-color", "best-effort: dimmed, as the platform draws a disabled control", "best-effort: contentTintColor under AppKit's disabled look, in a key window only (not yet measured)", "best-effort: dimmed, as the platform draws a disabled control", "best-effort: dimmed, as the platform draws a disabled control", "best-effort: dimmed, as the platform draws a disabled control", "none: the terminal draws no colour", "best-effort: dimmed, as the platform draws a disabled control"],
+    ["range", "accent-color", "exact", "none: NSSlider draws the system accent", "exact", "exact", "exact", "none: the terminal draws no colour", "exact"],
+    ["range:disabled", "accent-color", "best-effort: dimmed, as the platform draws a disabled control", "none: NSSlider draws the system accent", "best-effort: dimmed, as the platform draws a disabled control", "best-effort: dimmed, as the platform draws a disabled control", "best-effort: dimmed, as the platform draws a disabled control", "none: the terminal draws no colour", "best-effort: dimmed, as the platform draws a disabled control"],
+    ["progress", "accent-color", "exact", "none: NSProgressIndicator takes no tint", "exact", "exact", "exact", "none: the terminal draws no colour", "exact"],
+    ["spinner", "accent-color", "none: the iOS host does not tint its activity indicator yet", "none: NSProgressIndicator takes no tint", "none: the web host draws its spinner in currentColor, not accent-color, yet", "none: the Linux host's spinner does not read accent-color yet", "none: the Windows host's spinner does not read accent-color yet", "none: the terminal draws no colour", "none: the Android host's spinner does not read accent-color yet"],
+    ["select", "accent-color", "exact", "none: NSPopUpButton takes no tint", "none: a browser's select takes no accent-color", "none: the Linux host's menu button does not read accent-color yet", "none: the Windows host's menu button does not read accent-color yet", "none: the terminal draws no colour", "none: the Android host's menu button does not read accent-color yet"],
+    ["button-prominent", "accent-color", "exact", "best-effort: bezelColor, in a key window only (not yet measured)", "exact", "exact", "exact", "none: the terminal draws no colour", "exact"],
+    ["button-prominent:disabled", "accent-color", "none: iOS draws a disabled prominent glass button grey; style a pressable instead (LLP 1121 D8)", "best-effort: bezelColor under AppKit's disabled tint, in a key window only (not yet measured)", "none: the neutral look draws a disabled button grey; style a pressable instead (LLP 1121 D8)", "none: the neutral look draws a disabled button grey; style a pressable instead (LLP 1121 D8)", "none: the neutral look draws a disabled button grey; style a pressable instead (LLP 1121 D8)", "none: the terminal draws no colour", "exact"],
+    ["field", "Field", "none: the iOS host does not read Field yet (Exact paints the field's box: its background-color is the author's)", "none: the macOS host does not read Field yet (Exact paints the field's box: its background-color is the author's)", "none: the web host does not read Field yet (Exact paints the field's box: its background-color is the author's)", "none: the Linux host does not read Field yet (Exact paints the field's box: its background-color is the author's)", "none: the Windows host does not read Field yet (Exact paints the field's box: its background-color is the author's)", "none: the terminal draws no colour", "exact"],
+    ["field", "FieldText", "exact", "exact", "none: the web host does not read FieldText yet", "none: the Linux host does not read FieldText yet", "none: the Windows host does not read FieldText yet", "none: the terminal draws no colour", "exact"],
+    ["field", "placeholder", "exact", "exact", "exact", "exact", "exact", "none: the terminal draws no colour", "none: the Android host does not read placeholder yet"],
+    ["textarea", "Field", "none: the iOS host does not read Field yet (Exact paints the field's box: its background-color is the author's)", "exact", "none: the web host does not read Field yet (Exact paints the field's box: its background-color is the author's)", "none: the Linux host does not read Field yet (Exact paints the field's box: its background-color is the author's)", "none: the Windows host does not read Field yet (Exact paints the field's box: its background-color is the author's)", "none: the terminal draws no colour", "exact"],
+    ["textarea", "FieldText", "exact", "exact", "none: the web host does not read FieldText yet", "none: the Linux host does not read FieldText yet", "none: the Windows host does not read FieldText yet", "none: the terminal draws no colour", "exact"],
+    ["textarea", "placeholder", "exact", "exact", "exact", "exact", "exact", "none: the terminal draws no colour", "none: the Android host does not read placeholder yet"]
   ],
   "_textStyles": "@ref LLP 1115 D3: the platform's text styles, written `-exact-<name>` (or the WebKit alias) as a `font-size` and lowered from a heading's level. Each row: the name, WebKit's `-apple-system-*` alias or empty, UIFont's and NSFont's TextStyle, its weight in each column of the metric table (web, iOS, the Mac, neutral: the Mac's `headline` is bold, its `caption2` medium), the size at each body size in `textStyleBodies` (the root font size the host sets), and its leading in each column, a line height over the size, or null for `normal`, the face's own (LLP 1115.000 D12.2, measured with NSFont.preferredFont on macOS and UIFont.preferredFont on an iOS 27 simulator, where every style's line height is the face's natural one). The ramp is Apple's: 13 is the Mac's (NSFont.preferredFont, macOS 11), 14 to 53 iOS Dynamic Type's categories xSmall to AX5 (17 is Large, the default; the web's 16 reads Small's row). A root between two bodies interpolates; outside, the nearest row scales.",
   "textStyleBodies": [

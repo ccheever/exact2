@@ -27,12 +27,14 @@ pub mod inline;
 pub mod lexer;
 mod midi;
 mod notfound;
+pub mod params;
 pub mod parser;
 mod part;
 pub mod scope;
 pub mod sequence;
 mod share;
 mod spans;
+pub mod state;
 
 pub use ast::*;
 pub use clock::{resolve_clock_timelines, resolve_clock_timelines_in};

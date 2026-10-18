@@ -1,9 +1,16 @@
 //! A model's rigid parts that share a material draw as one mesh: static parts
 //! pre-transformed into model space, animated parts as a mesh whose vertices
 //! each follow their node's palette matrix, as a skin with weight one.
-use super::ModelNode;
+//!
+//! Parts of different materials share a draw too when the materials differ
+//! only in factors a vertex can carry: opaque, untextured, a base colour factor
+//! of one (the colour in the vertices) and the same sidedness. The draw's
+//! material has factors of one, each vertex numbers its part in `uv.x` (no
+//! texture reads it), and each instance's part entries carry the part's
+//! metallic, roughness, rim and emission (model_vertex.wgsl `model_transform`).
+use super::{MaterialId, ModelNode};
 use crate::{MeshId, Vertex};
-use exact_game::asset::{AlphaMode, MeshData, Model, Skin};
+use exact_game::asset::{AlphaMode, MaterialData, MeshData, MeshOutline, Model, Skin};
 use glam::{Mat3, Mat4, Vec3};
 use std::collections::BTreeMap;
 
@@ -11,43 +18,129 @@ fn mergeable(model: &Model, mesh: u32) -> bool {
     let mesh = &model.meshes[mesh as usize];
     mesh.joints.is_empty() && model.materials[mesh.material as usize].alpha_mode != AlphaMode::Blend
 }
-/// Animated rigid parts (a model with clips or skins) sharing a material, two or
-/// more: the material and a skin over those nodes, in node order.
-pub(super) fn animated_groups(model: &Model) -> Vec<(u32, Skin)> {
-    if model.skins.is_empty() && model.clips.is_empty() {
+fn outline_key(mesh: &MeshData) -> Option<[u32; 5]> {
+    mesh.outline
+        .as_ref()
+        .map(|o| [o.width, o.min_pixels, o.color[0], o.color[1], o.color[2]].map(f32::to_bits))
+}
+/// Which parts may share a draw: those of one material, or of any materials
+/// whose differences a part entry carries (`None`, then their sidedness).
+type Key = (Option<u32>, bool, Option<[u32; 5]>);
+fn shared(m: &MaterialData) -> bool {
+    m.alpha_mode == AlphaMode::Opaque
+        && m.base_color == [1.; 4]
+        && crate::model_pipeline::untextured(m)
+}
+fn key(model: &Model, mesh: u32) -> Key {
+    let data = &model.meshes[mesh as usize];
+    let material = &model.materials[data.material as usize];
+    if shared(material) {
+        (None, material.double_sided, outline_key(data))
+    } else {
+        (Some(data.material), false, outline_key(data))
+    }
+}
+/// A part's entry for a draw of several materials: metallic, roughness, rim,
+/// one (the run's mark), then emission.
+pub(crate) type PartMaterial = [f32; 8];
+fn part_material(m: &MaterialData) -> PartMaterial {
+    [
+        m.metallic,
+        m.roughness,
+        m.rim,
+        1.,
+        m.emissive[0],
+        m.emissive[1],
+        m.emissive[2],
+        0.,
+    ]
+}
+/// The draw's own material: factors of one, which its parts' entries scale,
+/// with rim and emission on only when some part has them.
+fn shared_material(parts: &[&MaterialData]) -> MaterialData {
+    MaterialData {
+        metallic: 1.,
+        roughness: 1.,
+        rim: if parts.iter().any(|m| m.rim > 0.) {
+            1.
+        } else {
+            0.
+        },
+        emissive: if parts.iter().any(|m| m.emissive != [0.; 3]) {
+            [1.; 3]
+        } else {
+            [0.; 3]
+        },
+        double_sided: parts[0].double_sided,
+        ..Default::default()
+    }
+}
+fn append_outline(
+    out: &mut Option<MeshOutline>,
+    reach_vectors: &mut Vec<Vec3>,
+    mesh: &MeshData,
+    local: Mat4,
+) {
+    let Some(source) = &mesh.outline else {
+        return;
+    };
+    let target = out.get_or_insert_with(|| MeshOutline {
+        width: source.width,
+        min_pixels: source.min_pixels,
+        color: source.color,
+        ..Default::default()
+    });
+    let normal = Mat3::from_mat4(local).inverse().transpose();
+    for (n, &r) in source.normals.chunks_exact(3).zip(&source.reach) {
+        let n = Vec3::from_slice(n);
+        let transformed = normal * n;
+        target.normals.extend(transformed.to_array());
+        let reach = local.transform_vector3(n * r);
+        reach_vectors.push(reach);
+        target.reach.push(reach.length() / transformed.length());
+    }
+}
+/// Animated rigid parts (a model with clips or skins) that may share a draw,
+/// two or more: a skin over those nodes, in node order.
+pub(super) fn animated_groups(model: &Model) -> Vec<Skin> {
+    if !model.requires_palette() {
         return Vec::new();
     }
-    let mut groups: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    let mut groups: BTreeMap<Key, Vec<u32>> = BTreeMap::new();
     for (i, node) in model.nodes.iter().enumerate() {
         if let (Some(mesh), None) = (node.mesh, node.skin) {
             if mergeable(model, mesh) {
-                let material = model.meshes[mesh as usize].material;
-                groups.entry(material).or_default().push(i as u32);
+                groups.entry(key(model, mesh)).or_default().push(i as u32);
             }
         }
     }
     groups
-        .into_iter()
-        .filter(|(_, joints)| joints.len() > 1)
-        .map(|(material, joints)| {
+        .into_values()
+        .filter(|joints| joints.len() > 1)
+        .map(|joints| {
             let inverse_binds = Mat4::IDENTITY.to_cols_array().repeat(joints.len());
-            (
-                material,
-                Skin {
-                    joints,
-                    inverse_binds,
-                    ..Default::default()
-                },
-            )
+            Skin {
+                joints,
+                inverse_binds,
+                ..Default::default()
+            }
         })
         .collect()
+}
+/// A vertex of a draw of several materials names its part in `uv.x`.
+fn numbered(mut v: Vertex, several: bool, part: usize) -> Vertex {
+    if several {
+        v.uv = [part as f32, 0.];
+    }
+    v
 }
 fn vertex(mesh: &MeshData, v: usize, local: Mat4, normal: Mat3) -> Vertex {
     let p = Vec3::from_slice(&mesh.positions[v * 3..v * 3 + 3]);
     let n = Vec3::from_slice(&mesh.normals[v * 3..v * 3 + 3]);
     Vertex {
         position: local.transform_point3(p).to_array(),
-        normal: (normal * n).normalize_or_zero().to_array(),
+        // Normalize after interpolation, just as the unmerged surface shader does.
+        normal: (normal * n).to_array(),
         uv: mesh.uvs[v * 2..v * 2 + 2].try_into().unwrap(),
         color: if mesh.colors.is_empty() {
             [1.; 4]
@@ -57,49 +150,93 @@ fn vertex(mesh: &MeshData, v: usize, local: Mat4, normal: Mat3) -> Vertex {
     }
 }
 
-/// A model's draw list, each draw's part names and part first vertices, and the
-/// merged meshes.
-pub(super) type Merged = (Vec<ModelNode>, Vec<Vec<String>>, Vec<Vec<u32>>, Vec<MeshId>);
+/// A model's draw list with its merges.
+#[derive(Default)]
+pub(super) struct Merged {
+    pub draws: Vec<ModelNode>,
+    /// Each draw's part names, and where each part's vertices start.
+    pub members: Vec<Vec<String>>,
+    pub starts: Vec<Vec<u32>>,
+    /// Each draw's part entries when its parts have several materials, else empty.
+    pub parts: Vec<Vec<PartMaterial>>,
+    pub meshes: Vec<MeshId>,
+    /// The materials of draws of several materials.
+    pub materials: Vec<MaterialId>,
+}
 
 impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
-    /// The model's draw list with each merged group at its first member's place,
-    /// each draw's part names, and the merged meshes; empty when nothing merges.
-    /// `meshes[i]` is drawn node `i`'s mesh; `animated` and `skins` are the
-    /// animated groups and their skin templates.
+    /// The model's draw list with each merged group at its first member's place;
+    /// empty when nothing merges. `meshes[i]` is drawn node `i`'s mesh;
+    /// `animated` and `skins` are the animated groups and their skin templates.
     pub(super) fn merge_static(
         &mut self,
         model: &Model,
         nodes: &[ModelNode],
         meshes: &[u32],
-        animated: &[(u32, Skin)],
+        animated: &[Skin],
         skins: &[u32],
     ) -> Merged {
-        // Static: unskinned, unanimated nodes sharing a material.
-        let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        // Static: unskinned, unanimated nodes that may share a draw.
+        let mut groups: BTreeMap<Key, Vec<usize>> = BTreeMap::new();
         for (i, node) in nodes.iter().enumerate() {
             if node.3.is_none() && mergeable(model, meshes[i]) {
-                groups.entry(node.1 .0).or_default().push(i);
+                groups.entry(key(model, meshes[i])).or_default().push(i);
             }
         }
         groups.retain(|_, members| members.len() > 1);
         if groups.is_empty() && animated.is_empty() {
-            return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            return Merged::default();
         }
         let drawn: Vec<usize> = (0..model.nodes.len())
             .filter(|&n| model.nodes[n].mesh.is_some())
             .collect();
         let mut first = BTreeMap::new();
         let mut merged = Vec::new();
+        let mut shared_materials = Vec::new();
+        // Of several materials: the draw's material and each part's entry; the
+        // parts' vertices number them in `uv.x`.
+        let mut share = |this: &mut Self, members: &[usize]| {
+            let parts: Vec<&MaterialData> = members
+                .iter()
+                .map(|&i| &model.materials[model.meshes[meshes[i] as usize].material as usize])
+                .collect();
+            let first = model.meshes[meshes[members[0]] as usize].material;
+            if members
+                .iter()
+                .all(|&i| model.meshes[meshes[i] as usize].material == first)
+            {
+                return None;
+            }
+            let material = this.add_shared_material(&shared_material(&parts));
+            shared_materials.push(material);
+            Some((
+                material,
+                parts.into_iter().map(part_material).collect::<Vec<_>>(),
+            ))
+        };
         for members in groups.values() {
+            let several = share(self, members);
+            let mut outline = None;
+            let mut reach_vectors = Vec::new();
             let (mut vertices, mut indices, mut starts) = (Vec::new(), Vec::new(), Vec::new());
             for &i in members {
                 let local = nodes[i].2;
+                append_outline(
+                    &mut outline,
+                    &mut reach_vectors,
+                    &model.meshes[meshes[i] as usize],
+                    local,
+                );
                 let normal = Mat3::from_mat4(local).inverse().transpose();
                 let mesh = &model.meshes[meshes[i] as usize];
                 let base = vertices.len() as u32;
                 starts.push(base);
                 let count = mesh.positions.len() / 3;
-                vertices.extend((0..count).map(|v| vertex(mesh, v, local, normal)));
+                let part = starts.len() - 1;
+                vertices
+                    .extend((0..count).map(|v| {
+                        numbered(vertex(mesh, v, local, normal), several.is_some(), part)
+                    }));
                 // A mirrored node keeps its front faces by reversing its winding.
                 let mirrored = local.determinant() < 0.;
                 for t in mesh.indices.chunks_exact(3) {
@@ -114,51 +251,127 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             // Static parts carry no per-vertex part: looks find it by vertex range.
             let id = self.add_mesh(&vertices, &indices);
             self.meshes[id.0].asset = true;
+            if let Some(outline) = &outline {
+                self.add_outline(id, outline, Some(&reach_vectors));
+            }
             merged.push(id);
-            let draw = (id, nodes[members[0]].1, Mat4::IDENTITY, None);
-            first.insert(members[0], (draw, members.clone(), starts));
+            let material = several.as_ref().map_or(nodes[members[0]].1, |s| s.0);
+            let draw = (id, material, Mat4::IDENTITY, None);
+            let parts = several.map_or_else(Vec::new, |s| s.1);
+            first.insert(members[0], (draw, members.clone(), starts, parts));
         }
-        for ((_, skin), &template) in animated.iter().zip(skins) {
+        let rest = model.offsets().expect("validated model");
+        for (skin, &template) in animated.iter().zip(skins) {
+            let mut outline = None;
+            let mut reach_vectors = Vec::new();
             let members: Vec<usize> = skin
                 .joints
                 .iter()
                 .map(|&n| drawn.binary_search(&(n as usize)).unwrap())
                 .collect();
+            let several = share(self, &members);
             let (mut vertices, mut indices, mut parts) = (Vec::new(), Vec::new(), Vec::new());
             let mut starts = Vec::new();
             for (joint, &i) in members.iter().enumerate() {
+                append_outline(
+                    &mut outline,
+                    &mut reach_vectors,
+                    &model.meshes[meshes[i] as usize],
+                    Mat4::IDENTITY,
+                );
                 let mesh = &model.meshes[meshes[i] as usize];
                 let base = vertices.len() as u32;
                 starts.push(base);
                 let count = mesh.positions.len() / 3;
-                vertices
-                    .extend((0..count).map(|v| vertex(mesh, v, Mat4::IDENTITY, Mat3::IDENTITY)));
+                vertices.extend((0..count).map(|v| {
+                    let v = vertex(mesh, v, Mat4::IDENTITY, Mat3::IDENTITY);
+                    numbered(v, several.is_some(), joint)
+                }));
                 parts.extend(std::iter::repeat_n(joint as u32, count));
-                indices.extend(mesh.indices.iter().map(|i| base + i));
+                let mirrored = rest[skin.joints[joint] as usize].determinant() < 0.;
+                for t in mesh.indices.chunks_exact(3) {
+                    let t = if mirrored {
+                        [t[0], t[2], t[1]]
+                    } else {
+                        [t[0], t[1], t[2]]
+                    };
+                    indices.extend(t.map(|i| base + i));
+                }
             }
             let id = self.merged_mesh(&vertices, &indices, &parts);
+            if let Some(outline) = &outline {
+                self.add_outline(id, outline, Some(&reach_vectors));
+            }
             merged.push(id);
-            let draw = (id, nodes[members[0]].1, Mat4::IDENTITY, Some(template));
-            first.insert(members[0], (draw, members, starts));
+            let material = several.as_ref().map_or(nodes[members[0]].1, |s| s.0);
+            let draw = (id, material, Mat4::IDENTITY, Some(template));
+            let parts = several.map_or_else(Vec::new, |s| s.1);
+            first.insert(members[0], (draw, members, starts, parts));
         }
         let grouped: std::collections::BTreeSet<usize> = first
             .values()
-            .flat_map(|(_, m, _)| m.iter().copied())
+            .flat_map(|(_, m, _, _)| m.iter().copied())
             .collect();
         let name = |i: usize| model.nodes[drawn[i]].name.clone();
-        let (mut draws, mut parts, mut ranges) = (Vec::new(), Vec::new(), Vec::new());
+        let mut out = Merged {
+            meshes: merged,
+            materials: shared_materials,
+            ..Default::default()
+        };
         for (i, &node) in nodes.iter().enumerate() {
-            if let Some((draw, members, starts)) = first.get(&i) {
-                draws.push(*draw);
-                parts.push(members.iter().map(|&m| name(m)).collect());
-                ranges.push(starts.clone());
+            if let Some((draw, members, starts, parts)) = first.get(&i) {
+                out.draws.push(*draw);
+                out.members.push(members.iter().map(|&m| name(m)).collect());
+                out.starts.push(starts.clone());
+                out.parts.push(parts.clone());
             } else if !grouped.contains(&i) {
-                draws.push(node);
-                parts.push(vec![name(i)]);
-                ranges.push(vec![0]);
+                out.draws.push(node);
+                out.members.push(vec![name(i)]);
+                out.starts.push(vec![0]);
+                out.parts.push(Vec::new());
             }
         }
-        (draws, parts, ranges, merged)
+        out
+    }
+    /// A renderer material for a draw of several materials.
+    fn add_shared_material(&mut self, data: &MaterialData) -> MaterialId {
+        let slot = self
+            .models
+            .materials
+            .iter()
+            .position(|m| m.bind.is_none())
+            .unwrap_or(self.models.materials.len());
+        let names = Default::default();
+        let material = super::material_bind(
+            &self.device,
+            &self.queue,
+            &self.pipelines.models.as_ref().unwrap().material,
+            (data, &names),
+            &self.models.textures,
+            self.untextured_twin(data, &names),
+        );
+        if slot == self.models.materials.len() {
+            self.models.materials.push(material);
+        } else {
+            self.models.materials[slot] = material;
+        }
+        MaterialId(slot)
+    }
+    pub(super) fn mirrored_rigid_mesh(&mut self, mesh: &MeshData) -> MeshId {
+        let vertices: Vec<_> = (0..mesh.positions.len() / 3)
+            .map(|v| vertex(mesh, v, Mat4::IDENTITY, Mat3::IDENTITY))
+            .collect();
+        let indices: Vec<_> = mesh
+            .indices
+            .chunks_exact(3)
+            .flat_map(|t| [t[0], t[2], t[1]])
+            .collect();
+        let id = self.add_mesh(&vertices, &indices);
+        self.meshes[id.0].asset = true;
+        if let Some(outline) = &mesh.outline {
+            self.add_outline(id, outline, None);
+        }
+        id
     }
     /// An animated merged mesh: each vertex follows its part's node as a
     /// weight-one joint.

@@ -137,15 +137,7 @@ package enum PageFacts {
 
     /// The body size at the platform's default settings: a text's size when
     /// its style names none.
-    package static let defaultRootFontSize: CGFloat = {
-        #if os(macOS)
-        return 13
-        #elseif os(tvOS)
-        return 16
-        #else
-        return 17
-        #endif
-    }()
+    package static let defaultRootFontSize = SessionFacts.defaultRootFontSize
 
     /// What an agent's `prefer display-scale` set in place of the display's
     /// own; nil reads the display.
@@ -235,6 +227,10 @@ extension ExactSession {
     /// notification, in the same turn.
     func tellPage() {
         guard booted, state != .destroyed else { return }
+        #if canImport(UIKit)
+        // Out of the foreground, a press hands nothing on (PressHandoffIOS).
+        if view?.window?.windowScene?.activationState != .foregroundActive { presenter.supersedePress() }
+        #endif
         apply(runtime.setPage(PageFacts.bits(pageWindow, readsOnLine: runtime.readsOnLine())))
         apply(runtime.setRootFontSize(PageFacts.rootFontSize))
         tellDisplayScale()

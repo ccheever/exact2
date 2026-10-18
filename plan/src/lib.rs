@@ -27,6 +27,8 @@
 pub mod asm;
 pub mod builder;
 pub mod bytes;
+mod entry;
+pub use entry::entry_identifier;
 pub mod shared;
 pub mod strings;
 pub mod value;
@@ -72,6 +74,8 @@ pub enum PlanError {
         available: usize,
     },
     BadMagic,
+    /// A running host received a snapshot, or the snapshot reader received another entry.
+    WrongEntry,
     UnsupportedVersion(u32),
     FormatDigestMismatch {
         expected: u64,
@@ -452,6 +456,28 @@ impl Plan {
             })
         {
             return Err(PlanError::GenericStacks);
+        }
+        // @ref LLP 1121 D8 — looks by node, then state, one a state a node
+        // (hosts binary-search by node).
+        if let Some(i) = self
+            .looks
+            .windows(2)
+            .position(|pair| (pair[0].node.0, pair[0].state) >= (pair[1].node.0, pair[1].state))
+        {
+            return Err(PlanError::BadReference {
+                table: "looks",
+                row: i as u32 + 1,
+                field: "node",
+            });
+        }
+        // A look is `:hover` (1) or `:focus-visible` (2): `:active` (0) lowers
+        // to the press paint (LLP 1121 D8 as amended 2026-10-18).
+        if let Some(i) = self.looks.iter().position(|l| !(1..=2).contains(&l.state)) {
+            return Err(PlanError::BadReference {
+                table: "looks",
+                row: i as u32,
+                field: "state",
+            });
         }
         self.validate_texts()?;
         self.validate_site_depth()?;

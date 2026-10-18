@@ -3,6 +3,7 @@
 //! plan boots, and every other test of this host holds the look of a process
 //! that said none, which is Android's reader's. One test, so nothing here
 //! reads a colour or a metric while the switch is moving.
+mod fields;
 mod tabs;
 
 use exact_kernel::ViewId;
@@ -185,7 +186,20 @@ fn route_headers_keep_the_page_tree_and_take_the_neutral_defaults() {
 
 #[test]
 fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
+    // This binary has one test; pin before any engine reads installed fonts.
+    std::env::set_var(
+        "EXACT_FONTS",
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/fixtures/fonts/assets"
+        ),
+    );
+    std::env::set_var("EXACT_FONT", "DejaVu Sans");
     exact_linux::app::show_neutral_look();
+    fields::focus_changes_during_flow_damage();
+    fields::select_and_date_focus();
+    invalid_non_fields_keep_their_accent_ring();
+    disabled_glass_and_invalid_fields_follow_the_neutral_look();
     let plan = contract::compile(APP).unwrap();
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
@@ -1233,4 +1247,185 @@ fn route_header_padding_is_the_containing_width_of_a_windowed_list() {
         outcomes[0], outcomes[1],
         "unsaid and authored header padding report the same list origin and end"
     );
+}
+
+fn disabled_glass_and_invalid_fields_follow_the_neutral_look() {
+    let mut failures = Vec::new();
+    for scheme in ["light", "dark"] {
+        for style in [
+            "glass",
+            "clear-glass",
+            "prominent-glass",
+            "prominent-clear-glass",
+        ] {
+            let material = if style.contains("clear") {
+                "light-dark(#ffffff26, #ffffff1a)"
+            } else {
+                "light-dark(#ffffffb3, #262629b3)"
+            };
+            let source = format!(
+                r##"component App
+  state disabled = false
+  action toggle
+    disabled = !disabled
+  view
+    column width=300 height=180 padding=20 gap=10 align-items="flex-start" color-scheme="{scheme}" background-color="#204060"
+      button "MMMM" buttonStyle="{style}" disabled=disabled accent-color="#008800" width=160 height=40 testId="glass"
+      row width=160 height=40 background-color="{material}" testId="material"
+      row width=10 height=10 background-color="GrayText" testId="gray"
+      button "Toggle" press=toggle testId="toggle"
+"##
+            );
+            let plan = contract::compile(&source).unwrap();
+            let (mut p, error) = Presenter::boot_with(
+                &plan.encode(),
+                (),
+                (300.0, 180.0),
+                1.0,
+                std::path::PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            let _roles = p.host().runner().bind_roles();
+            assert!(error.is_none(), "{error:?}");
+            let enabled = text_pixels(&mut p, "glass");
+            if style.starts_with("prominent") {
+                assert_eq!(pixel(&mut p, "glass", 8.0, 20.0), [0, 136, 0]);
+            }
+            p.tap(id(&p, "toggle")).unwrap();
+            let actual = pixel(&mut p, "glass", 8.0, 20.0);
+            let expected = pixel(&mut p, "material", 8.0, 20.0);
+            if actual != expected {
+                failures.push(format!(
+                    "{scheme} disabled {style} fill: {actual:?} != {expected:?}"
+                ));
+            }
+            let gray = pixel(&mut p, "gray", 5.0, 5.0);
+            if !text_pixels(&mut p, "glass").contains(&gray) {
+                failures.push(format!(
+                    "{scheme} disabled {style} has no GrayText ink {gray:?}"
+                ));
+            }
+            p.tap(id(&p, "toggle")).unwrap();
+            assert_eq!(
+                text_pixels(&mut p, "glass"),
+                enabled,
+                "{scheme} {style} re-enabled"
+            );
+        }
+        for tag in ["input", "textarea"] {
+            for (chrome, expected_invalid) in [
+                ("", "-exact-system-red"),
+                ("appearance=\"none\"", "#008800"),
+                ("outline=\"none\"", "-exact-secondary-grouped-background"),
+            ] {
+                let source = format!(
+                    r##"component App
+  state invalid = false
+  action change
+    invalid = !invalid
+    focus("field")
+  action focusField
+    focus("field")
+  view
+    column width=300 height=200 padding=20 gap=10 align-items="flex-start" color-scheme="{scheme}" background-color="#204060"
+      {tag} id="field" testId="field" value="Ada" width=160 height=40 accent-color="#008800" aria-invalid=(invalid ? "true" : "false") {chrome}
+      row width=20 height=20 background-color="{expected_invalid}" testId="reference"
+      button "Focus" press=focusField testId="focus"
+      button "Change" press=change testId="change"
+"##
+                );
+                let plan = contract::compile(&source).unwrap();
+                let (mut p, error) = Presenter::boot_with(
+                    &plan.encode(),
+                    (),
+                    (300.0, 200.0),
+                    1.0,
+                    std::path::PathBuf::new(),
+                    PainterChoice::Cpu,
+                )
+                .unwrap();
+                let _roles = p.host().runner().bind_roles();
+                assert!(error.is_none(), "{error:?}");
+                p.tap(id(&p, "focus")).unwrap();
+                p.run_commands(<()>::default);
+                // The border is one pixel; the focus ring occupies the next pixel too.
+                let valid = pixel(&mut p, "field", 80.0, 1.0);
+                if !chrome.starts_with("outline") {
+                    assert_eq!(valid, [0, 136, 0], "{scheme} {tag} {chrome}");
+                }
+                let outline = pixel(&mut p, "field", 80.0, -1.0);
+                p.tap(id(&p, "change")).unwrap();
+                p.run_commands(<()>::default);
+                let actual = pixel(&mut p, "field", 80.0, 1.0);
+                let expected = pixel(&mut p, "reference", 10.0, 10.0);
+                if actual != expected {
+                    failures.push(format!(
+                        "{scheme} invalid {tag} {chrome} ring: {actual:?} != {expected:?}"
+                    ));
+                }
+                if chrome.starts_with("outline") {
+                    assert_eq!(
+                        pixel(&mut p, "field", 80.0, -1.0),
+                        outline,
+                        "authored outline"
+                    );
+                }
+                p.tap(id(&p, "change")).unwrap();
+                p.run_commands(<()>::default);
+                assert_eq!(pixel(&mut p, "field", 80.0, 1.0), valid, "valid again");
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+fn invalid_non_fields_keep_their_accent_ring() {
+    let mut failures = Vec::new();
+    for scheme in ["light", "dark"] {
+        for (tag, chrome) in [
+            ("link", ""),
+            ("link", "appearance=\"none\""),
+            ("button", "appearance=\"auto\""),
+            ("button", "appearance=\"none\""),
+        ] {
+            let source = format!(
+                r##"component App
+  state invalid = false
+  action change
+    invalid = !invalid
+  view
+    column width=300 height=240 padding=20 gap=10 align-items="flex-start" color-scheme="{scheme}"
+      button "Before" testId="before"
+      {tag} testId="control" tabindex=0 aria-invalid=(invalid ? "true" : "false") accent-color="#008800" width=160 height=40 {chrome}
+        text "Control"
+      button "Change validity" press=change testId="change"
+"##
+            );
+            let plan = contract::compile(&source).unwrap();
+            let (mut p, error) = Presenter::boot_with(
+                &plan.encode(),
+                (),
+                (300.0, 240.0),
+                1.0,
+                std::path::PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            let _roles = p.host().runner().bind_roles();
+            assert!(error.is_none(), "{error:?}");
+            for invalid in [false, true, false] {
+                let before = id(&p, "before");
+                p.type_key(before, "Tab", "Tab", true, false).unwrap();
+                p.type_key(before, "Tab", "Tab", false, false).unwrap();
+                assert_eq!(p.focus(), Some(id(&p, "control")));
+                let ring = pixel(&mut p, "control", 80.0, 1.0);
+                if ring != [0, 136, 0] {
+                    failures.push(format!("{scheme} {tag} {chrome}, invalid={invalid}: ring {ring:?} is not the authored green accent"));
+                }
+                p.tap(id(&p, "change")).unwrap();
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

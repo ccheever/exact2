@@ -48,6 +48,12 @@ impl Lights {
         }
     }
 
+    pub fn slot_fading(&self, slot: u32) -> bool {
+        self.opacity_words
+            .get(slot as usize)
+            .is_some_and(|&fade| fade > 0.)
+    }
+
     /// Replace the per-slot opacities; true when the buffer was replaced and the
     /// scene groups must rebind. The table holds `1 - opacity`, so zeroed and
     /// unwritten slots draw opaque; it never shrinks, so a cleared fade is rewritten.

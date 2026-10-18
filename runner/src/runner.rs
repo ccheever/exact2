@@ -51,6 +51,7 @@ pub use canvas2d::{
 mod carry;
 mod checkpoint;
 mod collection;
+mod snapshot;
 mod source;
 mod tabs;
 pub use source::{
@@ -88,6 +89,8 @@ pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
 mod sockets;
 pub use sockets::{SocketReader, SocketState};
+mod apply;
+mod live_time;
 pub mod midi;
 mod split;
 mod surface_record;
@@ -376,8 +379,8 @@ pub struct Runner<D: DataSource> {
     reorder_kept: exact_kernel::style::wide::Keep,
     /// The design digest a live batch left (LLP 1121 stage 4); `None`: its plan's own.
     design: Option<String>,
-    /// A development build, admitting live batches ([`Runner::admit_live`], from its compat).
-    live: bool,
+    /// A development build admitting live batches ([`Runner::admit_live`]), and its last scrub frame.
+    live: live::Live,
     /// What a binding was told of this plan's tokens (a name it lacks), each said once (LLP 1121 D12).
     tamber_said: Vec<String>,
     /// How many times a token's value moved (`set_tokens`): a binding's input.
@@ -521,6 +524,7 @@ pub struct Runner<D: DataSource> {
     page: crate::page::Page,
     // @ref LLP 1027.000.000 — the date, once the host says it.
     time: crate::time::WallTime,
+    live_times: live_time::LiveTimes,
     place: crate::time::Place,
     surface_records: exact_kernel::SortedMap<String, String>,
     surface_refusals: exact_kernel::SortedMap<String, String>,
@@ -692,6 +696,7 @@ impl<D: DataSource> Runner<D> {
             store: self.store.snapshot(),
             forgot_waiting: self.queued(),
             faults: (!self.faults.is_empty()).then(|| self.faults.spec()),
+            modes: self.modes(),
         }
     }
 
@@ -850,7 +855,7 @@ impl<D: DataSource> Runner<D> {
             reorder_ops: Vec::new(),
             reorder_kept: Default::default(),
             design: None,
-            live: false,
+            live: Default::default(),
             tamber_said: Vec::new(),
             design_moves: 0,
             roles: exact_kernel::style::roles::Installed::new(roles.clone()),
@@ -913,6 +918,7 @@ impl<D: DataSource> Runner<D> {
             viewport,
             page: Default::default(),
             time: crate::time::launch_time(),
+            live_times: Default::default(),
             place: launched_place.clone().unwrap_or_default(),
             surface_records: Default::default(),
             surface_refusals: Default::default(),
@@ -940,6 +946,7 @@ impl<D: DataSource> Runner<D> {
             conformed: Default::default(),
         };
         runner.init_slots(carried, launch)?;
+        runner.carry_modes(carried.map_or(&[], |c| &c.modes));
         runner.derives = vec![None; runner.plan.derives.len()];
         // Resources: carry only the same named source and a value that still
         // fits the declared shape; a carried value can refuse nothing.
@@ -1406,64 +1413,6 @@ impl<D: DataSource> Runner<D> {
     /// [`RunnerError::Poisoned`]).
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
-    }
-    fn apply(&mut self, mut ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
-        let _roles = self.bind_roles(); // Its own (LLP 1121 stage 5).
-                                        // The queued patches' colours stay kept until this commit marks them.
-        let (mut prefix, _queued) = self.take_reorder_ops();
-        if !prefix.is_empty() {
-            prefix.append(&mut ops);
-            ops = prefix;
-        }
-        let change = self.router_change()?;
-        self.batch += 1;
-        let (language, direction) = self.document_facts();
-        let shown = std::mem::take(&mut self.shown);
-        let mut receipt =
-            match self
-                .kernel
-                .apply_document(0, self.batch, &ops, Some((&language, direction)))
-            {
-                Ok(receipt) => receipt,
-                Err(e) => {
-                    self.notes.clear();
-                    return Err(e.into());
-                }
-            };
-        let renewed = self.settle_shown(shown, &mut receipt);
-        self.tally(&ops, &receipt.touched);
-        for note in std::mem::take(&mut self.notes) {
-            self.log(note);
-        }
-        let arena = self.kernel.arena();
-        receipt.renewed = renewed
-            .into_iter()
-            .filter_map(|view| arena.key_of(view))
-            .collect();
-        // Forget destroyed views once they outnumber the live ones (a
-        // detached kernel holds none, and its runner asks for none).
-        if !self.kernel.is_detached() && self.ids.remembered() > 2 * self.kernel.live_count() + 256
-        {
-            let kernel = &self.kernel;
-            self.ids.retain(|view| kernel.node(view).is_some());
-        }
-        let cleanup = self.reconcile_reorder()?;
-        if !cleanup.is_empty() {
-            self.batch += 1;
-            let tail = self.kernel.apply(0, self.batch, &cleanup)?;
-            self.tally(&cleanup, &tail.touched);
-            receipt.batch = tail.batch;
-            receipt.epoch = tail.epoch;
-            for key in tail.touched {
-                if !receipt.created.contains(&key) && !receipt.touched.contains(&key) {
-                    receipt.touched.push(key);
-                }
-            }
-            receipt.layout_invalidated |= tail.layout_invalidated;
-        }
-        self.commit_router(change);
-        self.retire_holds();
-        Ok(receipt)
     }
     fn env<'a>(&'a self, params: &'a [Value], frames: &'a [Frame]) -> Env<'a> {
         Env {

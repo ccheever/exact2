@@ -83,6 +83,8 @@
      is text (they underline, below). */
   @media (hover: hover) {
     #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
+    /* A button its author filled (LLP 1129 D1): the filled button's hover, a wash of its own ink, which shows over any fill. */
+    #exact-root :is(button, a[data-view][href], [data-exact-on~="press"])[data-exact-said~="background-color"]:hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
     /* A grouped list's row starts at its text: the wash reaches the card's edge before it. */
     #exact-root [data-liststyle] > section > div > :is(button, a[href], [data-exact-on~="press"]):hover:not(:disabled, [data-native], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { box-shadow: -64px 0 0 var(--exact-quaternary-fill); }
   }
@@ -104,7 +106,7 @@
   @media (hover: hover) {
     #exact-root :where([data-listrows], [data-listrows] > [data-listitemkey]) > a[data-view][href]:hover:not([data-button-style], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
   }
-  #exact-root [data-listrows] :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [style*="--exact-press:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"], [data-exact-surface], [data-exact-text] a, :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):is(:active, [data-pressed]))) { background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
+  #exact-root [data-listrows] :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"], [data-exact-surface], [data-exact-text] a, :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):is(:active, [data-pressed]))) { background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
   #exact-root [data-listrows] :is(button:not([data-native]), a[data-view][href], [data-exact-on~="press"]):focus-visible { outline-offset: -2px; }
 
   /* Fields and `select`: 36 px in every engine (a said line height again), the control's line, the field's own ground

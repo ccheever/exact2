@@ -18,12 +18,15 @@ struct Cull {
     // followed by `sort_chunks`'s histograms: word offsets into `scratch`;
     // items start at zero
     scratch_sections: vec4<u32>,
-    // Nonzero: the camera's occlusion pyramid is this frame's (`occluded`).
-    occlusion: vec4<u32>,
+    // x nonzero: the camera's occlusion pyramid is this frame's (`occluded`);
+    // y nonzero: a draw's first instance is its region (INDIRECT_FIRST_INSTANCE)
+    options: vec4<u32>,
 }
 @group(0) @binding(6) var<uniform> cull: Cull;
 @group(0) @binding(7) var<storage, read> setup: array<u32>;
-@group(0) @binding(8) var<storage, read> palette: array<mat4x4<f32>>;
+// Four explicit columns preserve the 64-byte matrix ABI. Adreno 620 misaddresses
+// storage array<mat4x4<f32>> columns, even without dependent dispatches.
+@group(0) @binding(8) var<storage, read> palette: array<vec4<f32>>;
 @group(0) @binding(9) var<storage, read_write> scratch: array<u32>;
 @group(0) @binding(12) var pyramid: texture_2d<f32>;
 @group(0) @binding(10) var<storage, read_write> compacted: array<u32>;
@@ -33,6 +36,7 @@ const KEEP_ALL: u32 = 16u;   // group flag: GPU deformation, never culled
 const CAPSULE: u32 = 64u;    // group flag: some vertices use the capsule scale
 const PLAIN: u32 = 128u;     // group flag: some vertices use per-axis dimensions
 const EXEMPT: u32 = 32u;     // group flag: never occluded (a view model's own depth range)
+const OUTLINE: u32 = 256u; // camera-only hull expansion
 const GROUP_WORDS: u32 = 16u;
 var<workgroup> lanes: array<u32, 64>;
 var<workgroup> sums: array<vec4<u32>, 64>;
@@ -40,6 +44,7 @@ var<workgroup> nearest: array<f32, 64>;
 // The camera's chunks sort by depth in BUCKETS steps (`test`).
 const BUCKETS: u32 = 256u;
 
+fn palette_matrix(i:u32)->mat4x4<f32> {let b=i*4u; return mat4x4(palette[b],palette[b+1u],palette[b+2u],palette[b+3u]);}
 fn f(word: u32) -> f32 { return bitcast<f32>(word); }
 fn fv(at: u32) -> vec3<f32> { return vec3(f(setup[at]), f(setup[at + 1u]), f(setup[at + 2u])); }
 fn group_at(chunk: u32) -> u32 { return cull.sections.x + setup[cull.sections.y + chunk] * GROUP_WORDS; }
@@ -75,7 +80,7 @@ fn local_sphere(value: u32, transform: u32, g: u32) -> vec4<f32> {
     var lo = vec3(3.0e38);
     var hi = vec3(-3.0e38);
     for (var j = 0u; j < setup[at + 1u]; j++) {
-        let joint = palette[first + j];
+        let joint = palette_matrix(first + j);
         let c = (joint * vec4(sphere.xyz, 1.0)).xyz;
         let r = sphere.w * norm(joint);
         lo = min(lo, c - r);
@@ -124,6 +129,37 @@ fn world_sphere(value: u32, g: u32) -> vec4<f32> {
     let radius = distance(p0, p1) * 0.5 + distance(e0, e1) * 0.5 + distance(u0, u1) * 0.5
         + max(max3(abs(s0)), max3(abs(s1))) * local.w;
     return vec4(centre, radius);
+}
+
+// Reach is only a cap. World width and the CSS floor bound the requested push.
+// Use the far end of the surface's depth interval: metres per pixel grow with
+// depth, so the nearest depth would under-bound vertices on the far side.
+fn hull_sphere(value: u32, g: u32, sphere: vec4<f32>) -> vec4<f32> {
+    if (setup[g + 7u] & OUTLINE) == 0u { return sphere; }
+    let record = cull.sections.z + (value - 2147483648u) * 8u;
+    var reach = f(setup[record + 3u]);
+    let skin = setup[record + 1u];
+    if skin != 0u {
+        let at = cull.sections.w + (skin - 1u) * 20u;
+        var stretch = 0.0;
+        for (var j = 0u; j < setup[at + 1u]; j++) { stretch = max(stretch, norm(palette_matrix(setup[at] + j))); }
+        let local = mat4x4(bitcast<vec4<f32>>(vec4(setup[at + 4u], setup[at + 5u], setup[at + 6u], setup[at + 7u])),
+            bitcast<vec4<f32>>(vec4(setup[at + 8u], setup[at + 9u], setup[at + 10u], setup[at + 11u])),
+            bitcast<vec4<f32>>(vec4(setup[at + 12u], setup[at + 13u], setup[at + 14u], setup[at + 15u])),
+            bitcast<vec4<f32>>(vec4(setup[at + 16u], setup[at + 17u], setup[at + 18u], setup[at + 19u])));
+        reach *= stretch * norm(local);
+    }
+    let transform = setup[record];
+    if attached(transform) { reach *= norm(attachment_matrices[transform]); }
+    else {
+        let i = transform * 10u;
+        reach *= max(max3(abs(vec3(prev[i+7u], prev[i+8u], prev[i+9u]))),
+            max3(abs(vec3(curr[i+7u], curr[i+8u], curr[i+9u]))));
+    }
+    let depth = max(dot(frame.view_depth, vec4(sphere.xyz, 1.0)) + sphere.w, 0.0);
+    let pixel = frame.toon.z * select(depth, 1.0, frame.toon.w > 0.5);
+    let width = min(max(f(setup[g + 9u]), f(setup[g + 10u]) * pixel), reach);
+    return vec4(sphere.xyz, sphere.w + width);
 }
 
 // Whether `sphere` lies behind the occlusion pyramid wherever it can cover the
@@ -200,11 +236,13 @@ fn test(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_index) l
     if local < setup[g + 1u] {
         mask = flags & 15u;
         if (flags & KEEP_ALL) == 0u {
-            let sphere = world_sphere(slots[setup[g] + local], g);
+            let value = slots[setup[g] + local];
+            let sphere = world_sphere(value, g);
+            let camera = hull_sphere(value, g, sphere);
             for (var v = 0u; v < cull.counts.x; v++) {
-                if (mask & (1u << v)) != 0u && !visible(v, sphere) { mask &= ~(1u << v); }
+                if (mask & (1u << v)) != 0u && !visible(v, select(sphere, camera, v == 0u)) { mask &= ~(1u << v); }
             }
-            if (mask & 1u) != 0u && cull.occlusion.x != 0u && (flags & EXEMPT) == 0u && occluded(sphere) {
+            if (mask & 1u) != 0u && cull.options.x != 0u && (flags & EXEMPT) == 0u && occluded(camera) {
                 mask &= ~1u;
             }
             let near = max(dot(cull.planes[4].xyz, sphere.xyz) + cull.planes[4].w - sphere.w, 0.0);
@@ -364,7 +402,17 @@ fn scan(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_index) l
             indirect[at + 1u] = total[v];
             indirect[at + 2u] = setup[g + 5u];
             indirect[at + 3u] = setup[g + 6u];
-            indirect[at + 4u] = 0u;
+            indirect[at + 4u] = select(0u, v * cull.counts.w + setup[g + 8u], cull.options.y != 0u);
+        }
+        // An outlined group's hull draws the camera's instances again from a
+        // stream of its own, which starts at vertex zero.
+        if (setup[g + 7u] & OUTLINE) != 0u {
+            let at = (4u * cull.counts.z + group) * 5u;
+            indirect[at] = setup[g + 4u];
+            indirect[at + 1u] = total[0];
+            indirect[at + 2u] = setup[g + 5u];
+            indirect[at + 3u] = 0u;
+            indirect[at + 4u] = select(0u, setup[g + 8u], cull.options.y != 0u);
         }
     }
 }

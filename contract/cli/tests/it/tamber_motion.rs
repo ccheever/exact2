@@ -82,6 +82,7 @@ fn a_motion_edit_proposes_a_rebuild() {
         file: "app.tamber",
         exprs: &none,
         retention: None,
+        params: &exact_tamber::params::NONE,
     };
     let ops = vec![(
         "app.tamber".to_string(),

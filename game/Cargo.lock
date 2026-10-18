@@ -497,6 +497,7 @@ name = "exact-color"
 version = "0.1.0"
 dependencies = [
  "exact-num",
+ "libm",
 ]
 
 [[package]]
@@ -588,6 +589,7 @@ dependencies = [
  "exact-gpu-reflect",
  "flate2",
  "glam 0.33.7",
+ "naga",
  "serde_json",
  "sha2",
  "wasm-bindgen",
@@ -699,6 +701,7 @@ name = "exact-tamber"
 version = "0.1.0"
 dependencies = [
  "exact-color",
+ "exact-motion",
  "exact-num",
  "serde_json",
 ]

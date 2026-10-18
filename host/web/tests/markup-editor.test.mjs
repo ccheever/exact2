@@ -18,7 +18,7 @@ const wasm = engines.some(e => !missing[e]) ? readFileSync(await buildEditor()) 
 async function editor(engine, source, drive, runtime = false) {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === '/markup-editor.js') return new Response(Bun.file(resolve(WEB, 'markup-editor.js')), { headers: { 'content-type': 'text/javascript' } });
+    if (['/markup-editor.js', '/navigation.js'].includes(path)) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
     if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } }); // no data sources in this fixture
     if (runtime && path.endsWith('.js')) {
@@ -239,3 +239,26 @@ for (const engine of engines) {
     });
   }, 60000);
 }
+
+engineTest.chromium('chromium: Markdown editing escapes an inert ancestor at an open modal', async () => {
+  await editor('chromium', 'hello', async (page, field) => {
+    await field.evaluate(el => {
+      const ancestor = document.createElement('div'), dialog = document.createElement('dialog');
+      el.before(ancestor); ancestor.append(dialog); dialog.append(el); dialog.showModal(); ancestor.inert = true;
+      el.focus(); getSelection().selectAllChildren(el);
+    });
+    await page.keyboard.insertText('edited');
+    expect(await field.evaluate(el => el.value)).toBe('edited');
+    await page.keyboard.press('ControlOrMeta+Z');
+    expect(await field.evaluate(el => el.value)).toBe('hello');
+    for (const target of ['editor', 'dialog']) {
+      expect(await field.evaluate((el, target) => {
+        const blocked = target === 'editor' ? el : el.closest('dialog');
+        blocked.inert = true;
+        const accepted = el.exactMarkup.format('bold');
+        blocked.inert = false;
+        return [accepted, el.value];
+      }, target)).toEqual([false, 'hello']);
+    }
+  }, true);
+}, 60000);

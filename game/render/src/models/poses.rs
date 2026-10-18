@@ -79,6 +79,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             }
         }
         models.touched = touched;
+        self.model_poses_current = true;
     }
 }
 /// Which model instances a completed tick may have moved.

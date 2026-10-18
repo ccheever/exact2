@@ -509,7 +509,7 @@ impl Painter {
     pub(crate) fn region_blocks_action(&self, view: ViewId) -> bool {
         self.region_picture
             .as_ref()
-            .is_some_and(|p| p.owner == view || p.nodes.iter().any(|n| n.id == view))
+            .is_some_and(|p| p.owner == view || p.by_id.contains_key(&view))
     }
 }
 fn finite_rect(rect: Rect4) -> bool {

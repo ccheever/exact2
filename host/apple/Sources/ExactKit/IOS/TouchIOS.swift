@@ -4,7 +4,8 @@
 // coordinate space, refusing by name, and changes nothing (D4). The dispatch
 // log records each touch the window dispatched, after UIKit dispatched it
 // (D5): window dispatch only — never a recognizer's outcome, a cancellation
-// or a handled press, which `state` and `tree` answer.
+// or a handled press, which `state` and `tree` answer — and beside it which
+// touches down have reached the view they landed on (`reached`).
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -22,6 +23,14 @@ public final class ExactWindow: UIWindow {
             return
         }
         #endif
+        // A contact going down, a native control's included, ends the live
+        // press's focus handoff of the session it lands in before anything
+        // hears it (PressHandoffIOS); one landing in none, every session's.
+        for touch in event.allTouches ?? [] where event.type == .touches && touch.phase == .began {
+            let sessions = ExactApp.shared.sessions
+            let owners = touch.view.map { view in sessions.filter { $0.presenter.mounts(view) } } ?? []
+            for session in owners.isEmpty ? sessions : owners { session.presenter.supersedePress() }
+        }
         super.sendEvent(event)
         if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self) }
     }
@@ -35,7 +44,27 @@ enum TouchLog {
     nonisolated(unsafe) static var dropped = 0
     nonisolated(unsafe) static var ids: [ObjectIdentifier: Int] = [:]
     nonisolated(unsafe) static var nextTouch = 1
+    /// The touches down whose view's `touchesBegan` has had them, for the
+    /// views that say so (a node, a native button: `reports`). UIKit hands a
+    /// touch to its view after the window dispatched it, in a scroll view
+    /// only once `delaysContentTouches` lets it go (about 150 ms), and a
+    /// read inside a held touch waits for that (`touches.mjs`).
+    nonisolated(unsafe) static var reached: Set<Int> = []
     static let capacity = 256
+
+    /// Outside a scroll view a view's `touchesBegan` runs inside the
+    /// window's `sendEvent`, before `record` sees the touch: either names it.
+    static func reach(_ touches: Set<UITouch>) {
+        for touch in touches { reached.insert(number(touch)) }
+    }
+
+    private static func number(_ touch: UITouch) -> Int {
+        let key = ObjectIdentifier(touch)
+        if let id = ids[key] { return id }
+        defer { nextTouch += 1 }
+        ids[key] = nextTouch
+        return nextTouch
+    }
 
     static func record(_ event: UIEvent, in window: UIWindow) {
         for touch in event.allTouches ?? [] {
@@ -47,8 +76,8 @@ enum TouchLog {
             default: continue // stationary, and cancelled, which reaches views and not this window
             }
             let key = ObjectIdentifier(touch)
-            let id = ids[key] ?? { defer { nextTouch += 1 }; ids[key] = nextTouch; return nextTouch }()
-            if phase == "ended" { ids[key] = nil }
+            let id = number(touch)
+            if phase == "ended" { ids[key] = nil; reached.remove(id) }
             let p = touch.location(in: window)
             seq += 1
             var entry: [String: Any] = ["seq": seq, "touch": id, "phase": phase, "t": touch.timestamp,
@@ -68,6 +97,8 @@ enum TouchLog {
         var at = view
         while let v = at, !(v is NodeView) { at = v.superview }
         out["node"] = (at as? NodeView).map { Int($0.id) } ?? NSNull()
+        // Whether the view says when the touch reaches it (`reach`).
+        out["reports"] = view is NodeView || view is NativeButtonIOS
         // In a grouped list's cell, which row and which part of it: the
         // node alone is the list's for every row (LLP 1084).
         if let projected = GroupedListsLink.part?(view) { out["projected"] = projected }
@@ -86,7 +117,7 @@ enum TouchLog {
         let oldest = entries.first.map { $0["seq"] as! Int } ?? seq + 1
         let after = entries.filter { ($0["seq"] as! Int) > s }
         // `lost`: entries after `s` fell out of the ring before this read.
-        return ["log": Array(after.prefix(32)), "next": seq, "dropped": dropped,
+        return ["log": Array(after.prefix(32)), "next": seq, "dropped": dropped, "reached": reached.sorted(),
                 "lost": s + 1 < oldest, "truncated": after.count > 32]
     }
 }

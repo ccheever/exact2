@@ -14,6 +14,15 @@ const IDLE_FALLBACK_MS = 200;
 // A keydown or keyup as kind 6's or 43's payload, as glue.js's `keyChord` writes it (#140).
 const keyChord = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat;
 
+// Twin of navigation.js's inertAncestor: this boot entry must stay import-free.
+function inertAncestor(el) {
+  for (let node = el; node; node = node.parentElement) {
+    if (node.hasAttribute("inert")) return node;
+    if (node.localName === "dialog" && node.matches(":modal")) return null;
+  }
+  return null;
+}
+
 // The runtime's first loads after it boots, fetched beside its wasm: each
 // would otherwise wait for the one before it, a round trip apiece (0.45 s of
 // RealWorld's first press on a slow phone). A checkpoint whose logic answered
@@ -68,7 +77,7 @@ function documentBoot(options) {
     && el.getAttribute("data-testid") === at.test && el.getAttribute("type") === at.type
     && (sameDispatch || at.text === null || el.textContent === at.text);
   const usable = target => target instanceof Element && root.contains(target)
-    && !target.closest("[inert],:disabled,[disabled='true']");
+    && !inertAncestor(target) && !target.closest(":disabled,[disabled='true']");
   const enqueue = (el, kind, value = "", scope = null) => {
     const event = { at: identity(el), kind, value, scope };
     const previous = events.at(-1);

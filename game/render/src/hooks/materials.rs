@@ -109,7 +109,7 @@ impl MaterialGpu<'_> {
                     bias: Default::default(),
                 }),
                 multisample: wgpu::MultisampleState {
-                    count: if shadow { 1 } else { 4 },
+                    count: if shadow { 1 } else { self.pipelines.samples },
                     ..Default::default()
                 },
                 multiview_mask: None,
@@ -123,7 +123,8 @@ impl MaterialGpu<'_> {
 pub struct CustomMaterial {
     /// Renderer material from MaterialGpu::material.
     pub material: MaterialId,
-    /// Double-sided, depth-writing 4× HDR pipeline from MaterialGpu::pipeline.
+    /// Double-sided HDR pipeline from MaterialGpu::pipeline, with the scene sample count.
+    /// Writes depth.
     pub forward: wgpu::RenderPipeline,
     /// Matching 1× depth-only pipeline; uses the same vertex deformation.
     pub shadow: wgpu::RenderPipeline,

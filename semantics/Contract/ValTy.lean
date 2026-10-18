@@ -163,6 +163,18 @@ theorem ValTys.of_mem {p : Program} {t : Ty} : ∀ {xs : List Value}, (∀ x ∈
   | [], _ => trivial
   | y :: ys, h => ⟨h y (by simp), ValTys.of_mem fun x hx => h x (by simp [hx])⟩
 
+/-- `Value.sum` of a list of numbers answers. -/
+theorem sum_ok {p : Program} {xs : List Value} (h : ValTys p xs .number) (a : F64) :
+    ∃ n, Value.sum xs a = .some n := by
+  induction xs generalizing a with
+  | nil => exact ⟨a, rfl⟩
+  | cons x xs ih => cases x <;> simp only [ValTys, ValTy] at h <;> first | exact ih h.2 _ | exact h.1.elim
+
+/-- `range`'s list is of numbers. -/
+theorem range_vals {p : Program} (n : Nat) :
+    ValTys p ((List.range n).map fun i => Value.num (F64.ofNat i)) .number :=
+  ValTys.of_mem fun x hx => by obtain ⟨i, _, rfl⟩ := List.mem_map.mp hx; trivial
+
 theorem ValTys.iff {p : Program} {t : Ty} {xs : List Value} : ValTys p xs t ↔ ∀ x ∈ xs, ValTy p x t :=
   ⟨fun h => h.mem, ValTys.of_mem⟩
 
@@ -400,5 +412,21 @@ theorem argOk_valTy {p : Program} (hs : ShapesComplete p) {x : String} {t : Ty} 
   by_cases hx : hiddenParam x = true
   · simp only [hx, ↓reduceIte] at h; exact typed_valTy hs _ h hc
   · simp only [hx, Bool.false_eq_true, ↓reduceIte] at h; exact conforms_valTy hs _ h hc
+
+/-- `Value.flat` of a list of lists of `a` answers a list of `a`. -/
+theorem flat_ok {p : Program} {a : Ty} : ∀ {xss : List Value}, ValTys p xss (.list a) →
+    ∃ ys, Value.flat xss = .some ys ∧ ValTys p ys a
+  | [], _ => ⟨[], rfl, trivial⟩
+  | .list ys :: _, h => by
+    obtain ⟨zs, hz, hzs⟩ := flat_ok h.2
+    exact ⟨ys ++ zs, by simp [Value.flat, hz], ValTys.of_mem fun v hv =>
+      (List.mem_append.mp hv).elim (h.1.mem v) (hzs.mem v)⟩
+  | .num _ :: _, h | .bool _ :: _, h | .str _ :: _, h | .unit :: _, h | .none :: _, h
+  | .some _ :: _, h | .record _ _ :: _, h => by simp [ValTys, ValTy] at h
+
+/-- No value is of `?`, so a list of them is empty, and `flat` of it too. -/
+theorem flat_unknown {p : Program} : ∀ {xss : List Value}, ValTys p xss .unknown → Value.flat xss = .some []
+  | [], _ => rfl
+  | x :: _, h => by cases x <;> simp [ValTys, ValTy] at h
 
 end Contract

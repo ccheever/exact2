@@ -229,9 +229,13 @@ function storageOf(grants) {
     return k;
   });
   // The first refused read or write is said once in the journal, as on every host (trivia F7).
-  const refusedFor = op => e => (e?.code !== 'agent' || toldAgent ? Promise.resolve() : import('./storage-environment.js').then(({ agentStorageRefusal }) => {
-    if (!toldAgent) { toldAgent = true; journal.push(`t=${clock.now} storage refused (agent): ${agentStorageRefusal}`); }
-  })).then(() => coded(e));
+  const tell = () => import('./storage-environment.js').then(env => {
+    if (!toldAgent) { toldAgent = true; journal.push(`t=${clock.now} storage refused (agent): ${env.agentStorageRefusal}`); }
+    return env;
+  });
+  const refused = e => (e?.code === 'agent' ? tell() : Promise.resolve()).then(() => coded(e));
+  // A refused read answers as an empty store would (storage-environment.js `emptyRead`).
+  const orEmpty = (m, path) => e => e?.code === 'agent' ? tell().then(env => { if (!env.agentReads.includes(m)) throw e; return env.emptyRead(m, path); }) : Promise.reject(e);
   const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => m.createFileSystem(k, grants)));
   // A document the person chose (`doc:/`, LLP 1069.010 D1) is the page's
   // handle, not app storage: no store key, so a drive without a scratch
@@ -268,7 +272,7 @@ function storageOf(grants) {
     if (!Number.isInteger(d) || d < 1 || d > 8192) return Promise.reject(new TypeError(`${api}: maxDimension must be an integer from 1 to 8192`));
     if (!Number.isInteger(b) || b < 1 || b > 67108864) return Promise.reject(new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`));
     const limits = { maxDimension: d, maxBytes: b };
-    return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(refusedFor('compressImage'));
+    return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(refused);
   };
   // `fs.watch(path, {recursive})` (LLP 1069.010.000 D1): the answer depends
   // on a document the person chose; the page's FileSystemObserver announces
@@ -290,10 +294,10 @@ function storageOf(grants) {
         // A write's `expect` (LLP 1069.010.000 D2a) is the glue's, documents only.
         if (expecting(m, args) && !isDocument(args)) return Promise.reject(new TypeError(`storage.fs.${m}(): expect is for doc:/ paths`));
         const captured = structuredClone(args);
-        const run = () => (isDocument(captured) ? documents() : files()).then(f => f[m](...captured));
-        return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(refusedFor(m));
+        const run = () => isDocument(captured) ? documents().then(f => f[m](...captured)) : files().then(f => f[m](...captured), orEmpty(m, captured[0]));
+        return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(refused);
       }])) }),
-    sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied(`sqlite.open ${path}: no grant covers it; grant \`sqlite.open ${path}\`, or \`sqlite.open ${String(path).slice(0, String(path).lastIndexOf('/'))}\` for every file there (a grant covers its path and what is below it, by whole names)`)).catch(refusedFor('open')); } }),
+    sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied(`sqlite.open ${path}: no grant covers it; grant \`sqlite.open ${path}\`, or \`sqlite.open ${String(path).slice(0, String(path).lastIndexOf('/'))}\` for every file there (a grant covers its path and what is below it, by whole names)`)).catch(refused); } }),
     work: promise => Promise.resolve(promise),
   });
 }
@@ -318,7 +322,7 @@ export function install(data, mixed = false, modules = null) {
   // paint (rt.js `painted`), whether or not anything asks `later`.
   load = modules && (() => painted().then(modules));
   if (modules && typeof requestAnimationFrame === 'function') pageModule().catch(e => journal.push(`t=${clock.now} native: ${e.message}`));
-  let keys = null, asking = '';
+  let keys = null, asking = '', thrown = null;
   const kept = () => keys ??= import('./storage-environment.js').then(({ keyStore, storageKey }) =>
     keyStore(typeof location === 'object' && source.appId ? storageKey(source.appId) : null, globalThis.indexedDB));
   __AUTH_INSTALL__
@@ -340,10 +344,16 @@ export function install(data, mixed = false, modules = null) {
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
-    const call = answering.call = { stream: null, mutation };
+    const call = answering.call = { stream: null, mutation, name: target ?? name }, target_ = target ?? name;
+    // What the source sent goes once the commit that asked it stands: an answer in flight's (a resource's, or a mutation's that
+    // answers with a promise) whatever it then answers, a refused commit saying so (LLP 1016.000 D7, amended 2026-10-18).
+    const effectsOf = answer => {
+      const said = why => journal.push(`t=${clock.now} ${answer ? 'answer' : 'send'} ${target_} failed: ${why}; socket frames were refused`);
+      return call.effects?.map(effect => Object.assign(() => { try { effect(); } catch (e) { said(e?.message ?? e); } }, answer ? { refused: said } : {}));
+    };
     let r;
-    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; throw e; } finally { asking = ''; watching = null; answering.call = null; }
-    const target_ = target ?? name;
+    thrown = null;
+    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; if (!mutation) thrown = effectsOf(true); throw e; } finally { asking = ''; watching = null; answering.call = null; }
     const shaped = types ? v => checked(name, v, result) : v => v;
     // A stream's answer has replied once it returns (LLP 1016.000): what runs on is background work.
     // Socket operations go out only with a value given now: not with a
@@ -352,22 +362,15 @@ export function install(data, mixed = false, modules = null) {
       call.socketConflict = true; Promise.resolve(r).catch(() => {}); call.settled = true;
       throw new Error(SOCKET_AND_FETCH);
     }
-    if (call.effects?.length && r && typeof r.then === 'function') {
-      // A fetch its continuation makes is the module's, not the mutation's:
-      // the page has no turn to tie it to (LLP 1016.000 D7).
-      Promise.resolve(r).catch(() => {}); call.settled = true;
-      throw new Error('a socket mutation must answer synchronously');
-    }
-    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read }; }
+    const effects = effectsOf(!mutation || !!(r && typeof r.then === 'function'));
+    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read, effects }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
       const settle = () => { call.settled = true; pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
-      return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read };
+      return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read, effects };
     }
     call.settled = true;
-    return { v: conv(shaped(r), result, target_), store: seen.read, effects: call.effects?.map(effect => () => {
-      try { effect(); } catch (e) { journal.push(`t=${clock.now} send ${target_} failed: ${e?.message ?? e}; socket frames were refused`); }
-    }) };
+    return { v: conv(shaped(r), result, target_), store: seen.read, effects };
   };
   // Beside a Rust source (LLP 1027.002): a source this module does not
   // answer is the Rust module's, not ready until it loads; rust-data.js
@@ -387,5 +390,7 @@ export function install(data, mixed = false, modules = null) {
     } finally { overlaying.on = false; }
   });
   data.ts = ts;
+  // A resource's source that sent and then threw: what it sent, which rt.js `ask` queues with the commit.
+  data.thrown = () => { const t = thrown ?? []; thrown = null; return t; };
   for (const f of data.q.splice(0)) f();
 }

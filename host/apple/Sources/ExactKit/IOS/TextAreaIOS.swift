@@ -108,16 +108,19 @@ final class TextField: UITextField {
         return ok
     }
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        owner?.presenter?.supersedePress() // composed text, as typed text
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
     override func insertText(_ text: String) {
+        owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
         } else { super.insertText(text) }
     }
     override func deleteBackward() {
+        owner?.presenter?.supersedePress()
         if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
@@ -153,11 +156,13 @@ package final class TextArea: UITextView {
     package var markup: MarkdownEditing?
 
     package override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        owner?.presenter?.supersedePress() // composed text, as typed text
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
     package override func insertText(_ text: String) {
+        owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
         // UIKeyInput (including the software keyboard) need not ask the
         // text-view delegate before insertion. Handle a plain Return here;
         // the command's own native insertion bypasses through `applying`.
@@ -169,6 +174,7 @@ package final class TextArea: UITextView {
     }
 
     package override func deleteBackward() {
+        owner?.presenter?.supersedePress()
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
         } else { super.deleteBackward() }
@@ -413,7 +419,10 @@ extension NodeView {
         if isNativeTextControl {
             area.frame = bounds
             if let r = kernelContentBox {
-                area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, bounds.height - r.maxY), right: max(0, bounds.width - r.maxX))
+                // Layout's inset less what the drawn box lost to the pixel
+                // grid, so the text keeps layout's width (`PixelGridIOS.swift`).
+                area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, layoutBounds.height - r.maxY) + bounds.height - layoutBounds.height,
+                                                       right: max(0, layoutBounds.width - r.maxX) + bounds.width - layoutBounds.width)
             }
         } else { area.frame = contentBox() }
         #endif

@@ -1,3 +1,4 @@
+import { inertAncestor } from './navigation.js';
 import { carryRouter, clock, launchLocation, res, sig } from './rt.js';
 import { offerAll } from './focus.js';
 
@@ -77,6 +78,6 @@ export function prepareDev() {
     const children = e => [...(e?.children ?? [])].filter(x => x.hasAttribute('data-carry-type') || x.hasAttribute('data-listitemkey'));
     let el = document.getElementById('exact-root');
     for (const at of cp.focus.path) el = children(el)[at];
-    if (el?.getAttribute('data-carry-type') === cp.focus.type && el.getClientRects().length && !el.matches(':disabled') && !el.closest('[inert]')) focus.call(el, { preventScroll: true });
+    if (el?.getAttribute('data-carry-type') === cp.focus.type && el.getClientRects().length && !el.matches(':disabled') && !inertAncestor(el)) focus.call(el, { preventScroll: true });
   };
 }

@@ -70,7 +70,8 @@ impl HookTargets {
                     dimension: wgpu::TextureDimension::D2,
                     format,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_SRC,
                     view_formats: &[],
                 })
                 .create_view(&Default::default())
@@ -105,9 +106,26 @@ impl HookTargets {
         let depth = (scene.is_some() || final_depth.is_some()).then(|| {
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("game depth resolve"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/depth.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(
+                    crate::pipeline::depth_source(
+                        include_str!("../shaders/depth.wgsl"),
+                        targets.samples,
+                    )
+                    .into(),
+                ),
             });
-            let layout = device.create_bind_group_layout(&depth_interface::depth::GROUP_0);
+            let mut entries = depth_interface::depth::GROUP_0.entries.to_vec();
+            if let wgpu::BindingType::Texture {
+                ref mut multisampled,
+                ..
+            } = entries[1].ty
+            {
+                *multisampled = targets.samples > 1;
+            }
+            let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("game sampled depth"),
+                entries: &entries,
+            });
             let uniform = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("game depth inverse projection"),
                 size: 80,
@@ -130,6 +148,7 @@ impl HookTargets {
             });
             let pipeline = crate::pipeline::make_pipeline(
                 device,
+                None,
                 &shader,
                 "game depth resolve",
                 "vs",
@@ -142,6 +161,7 @@ impl HookTargets {
                 None,
                 &[],
                 false,
+                true,
             );
             Depth {
                 uniform,

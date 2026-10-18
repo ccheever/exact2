@@ -6,6 +6,7 @@
 // and this file is the runner's half between them: the kernel's motion seam
 // (each registered node's targets and `transition` at every commit, rt.js
 // `mo`), the holds `motion-glue.js` asks for, and the actions they end in.
+import { inertAncestor } from './navigation.js';
 import { motionController } from './motion-glue.js';
 import { transformDrags } from './transform.js';
 import { arrangeDrags } from './arrange.js';
@@ -131,7 +132,7 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
   // first valid target, never stolen by a second).
   const handles = new Map(), heights = new Map();
   let owner = null;
-  const eligible = el => el?.isConnected && !el.closest('[inert],[disabled]') && el.getClientRects().length > 0;
+  const eligible = el => el?.isConnected && !inertAncestor(el) && !el.closest('[disabled]') && el.getClientRects().length > 0;
   function reconcileHeights() {
     for (const b of handles.values()) {
       const target = dragTarget(b.el, 'heightdragfor');
@@ -157,7 +158,7 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
     if (n.transition !== transition) { n.transition = transition; w.m_transitions(id, put(transition ?? '')); }
     w.m_height(id, h, now() / 1000);
   }
-  const api = motionController({ views, now, generation: () => 0, request, applyBatch, inert: el => !!el.closest('[inert]') });
+  const api = motionController({ views, now, generation: () => 0, request, applyBatch, inert: inertAncestor });
   const T = transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight, say });
   const A = arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatch, authored, holds, held, hooks, After: globalThis.exact.After });
   // A list's wrappers during a preview are motion nodes too (list.js).

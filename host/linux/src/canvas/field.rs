@@ -106,6 +106,7 @@ const MEASURE: (&std::ffi::CStr, &std::ffi::CStr) =
 /// # Safety
 /// `env` is the JNI call's.
 pub unsafe fn attach(env: *mut JNIEnv, scale: f32) {
+    super::time::attach(env);
     let found = READER.get_or_init(|| {
         let mut vm: *mut JavaVM = std::ptr::null_mut();
         if ((**env).GetJavaVM.expect("jni"))(env, &mut vm) != JNI_OK {

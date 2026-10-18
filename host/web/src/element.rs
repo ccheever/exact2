@@ -109,6 +109,7 @@ fn lays_out_as_block(b: &NodeFacts<'_>) -> bool {
 /// [`folds`] for a node of `kernel`, as its tree stands.
 pub(super) fn folded(kernel: &Kernel, node: &NodeRef<'_>, handled: bool) -> bool {
     node.node_type == NodeType::Text
+        && node.looks().is_empty() // a look paints its own box (LLP 1121 D8)
         && node.parent.and_then(|p| kernel.node(p)).is_some_and(|p| {
             let outer = p.parent.and_then(|o| kernel.node(o)).map(|o| o.facts());
             folds(
@@ -132,6 +133,7 @@ pub(super) fn holds_folded(
     children.len() == 1
         && kernel.node(children[0]).is_some_and(|c| {
             c.node_type == NodeType::Text
+                && c.looks().is_empty()
                 && folds(
                     &c.facts(),
                     &node.facts(),
@@ -217,6 +219,9 @@ pub fn host_css_of(
 ) -> String {
     if tag == "span" && !node.is_inline_run() && !css.split(';').any(|d| d.starts_with("display:"))
     {
+        css.push_str("display:block;");
+    }
+    if tag == "time" && !node.is_inline_run() && !node.style.mask.has(StyleId::Display) {
         css.push_str("display:block;");
     }
     css = button_css::face(node, css);
@@ -455,6 +460,7 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
     }
     if let Some(t) = node.props.str(PropId::SemanticTag) {
         match t {
+            "time" => return "time",
             "main" => return "main",
             "header" => return "header",
             "nav" => return "nav",
@@ -883,12 +889,19 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             }
             continue;
         }
+        if id == PropId::Datetime {
+            if let Some(text) = value.as_float().and_then(datetime_text) {
+                out.insert("datetime".into(), text);
+            }
+            continue;
+        }
         let text = match value {
             PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
             // LLP 1053.000.000.000 D3: the reserved `-1` is written as `auto`.
             PropValue::Float(f) if id == PropId::GlassGroup && *f == -1.0 => "auto".into(),
+            PropValue::Float(f) if matches!(id, PropId::Start | PropId::End) => exact_num::js(*f),
             PropValue::Float(f) => crate::css::num(*f as f32),
         };
         let name = match id {
@@ -968,6 +981,11 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Disabled => "disabled",
             PropId::Min => "min",
             PropId::Max => "max",
+            PropId::Datetime => "datetime",
+            PropId::TimeFormat => "data-time-format",
+            PropId::Start => "data-time-start",
+            PropId::End => "data-time-end",
+            PropId::TextReservation => "data-time-reservation",
             PropId::Step => "step",
             PropId::Inert => "inert",
             PropId::Lang => "lang",
@@ -1163,7 +1181,9 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     // marked, as a switch and a date field are above: `appearance="none"`
     // hands the box to the author. And a row the author wrote where the
     // sheet would draw over an inherited or implied one (D2's bit) is named:
-    // a spinner's own `color`, a grouped list's own ground.
+    // a spinner's own `color`, a grouped list's own ground, and a button's
+    // fill, which hovers in its own ink (LLP 1129 D1; a fill computed at run
+    // time is not seen here).
     use exact_kernel::{ControlKind, StyleId};
     let kind = ControlKind::of(node.node_type, node.props);
     if node.style.appearance == exact_kernel::Appearance::Auto
@@ -1179,6 +1199,13 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let said = match kind {
         Some(ControlKind::Progress) => Some((StyleId::TextColor, "color")),
         _ if node.props.get(PropId::ListStyle).is_some() => {
+            Some((StyleId::BackgroundColor, "background-color"))
+        }
+        _ if element(node) == "button"
+            && node.node_type == NodeType::Pressable
+            && (node.style.background_color)
+                .is_some_and(|c| c.resolve(false).a() != 0 || c.resolve(true).a() != 0) =>
+        {
             Some((StyleId::BackgroundColor, "background-color"))
         }
         _ => None,
@@ -1450,3 +1477,19 @@ impl<D: exact_runner::DataSource> super::Host<D> {
 #[cfg(test)]
 #[path = "element_tests.rs"]
 mod dataset_tests;
+
+fn datetime_text(n: f64) -> Option<String> {
+    if !exact_kernel::time::instant(n) {
+        return None;
+    }
+    let n = n.trunc();
+    let (year, month, day) = exact_num::date::civil((n / 86_400_000.0).floor() as i64);
+    let ms = n.rem_euclid(86_400_000.0) as u64;
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        ms / 3_600_000,
+        ms / 60_000 % 60,
+        ms / 1000 % 60,
+        ms % 1000
+    ))
+}

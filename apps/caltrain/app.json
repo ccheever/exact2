@@ -19,6 +19,40 @@
     "name": "Caltrain",
     "origin": "https://caltrain.exact.invalid"
   },
+  "widgets": [
+    {
+      "kind": "next-trains",
+      "title": "Next Trains",
+      "description": "See the next departures from your station at a glance.",
+      "families": [
+        "systemSmall",
+        "systemMedium",
+        "accessoryRectangular"
+      ],
+      "component": "NextTrains",
+      "props": "NextTrainsProps",
+      "refresh": "nextTrains",
+      "preview": {
+        "station": "Mountain View",
+        "departures": [
+          {
+            "id": "mv-north-101",
+            "train": 101,
+            "service": "Local",
+            "headsign": "San Francisco",
+            "at": 1787915700000
+          },
+          {
+            "id": "mv-south-102",
+            "train": 102,
+            "service": "Local",
+            "headsign": "San Jose",
+            "at": 1787916300000
+          }
+        ]
+      }
+    }
+  ],
   "rust": { "module": { "package": "caltrain-logic" } },
   "host": {
     "ios": {

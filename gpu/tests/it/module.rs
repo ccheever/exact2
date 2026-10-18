@@ -230,6 +230,9 @@ mod seams {
         fn take_error(&mut self) -> Option<SurfaceError> {
             self.1.take()
         }
+        fn opaque(&self) -> bool {
+            true
+        }
         fn wants_input(&self) -> bool {
             true
         }
@@ -311,6 +314,8 @@ mod seams {
         };
         assert_ne!(id, 0, "{}", exact_gpu::native::error());
         assert_eq!(gpu_wants_input(id), 1);
+        assert_eq!(gpu_presentation_flags(id), 3);
+        assert_eq!(gpu_presentation_flags(u32::MAX), 0);
         assert_eq!(exact_gpu::native::bind(id, "[]"), 0);
         assert_eq!(unsafe { gpu_bind_at(id, b"[]".as_ptr(), 2, 500.0) }, 0);
         BINDS.with(|b| assert_eq!(*b.borrow(), [None, Some(500.0)]));
@@ -732,7 +737,7 @@ fn lifecycle_and_clock_reach_surfaces_without_a_device() {
     );
     m.set_seekable(false);
     assert!(m.agent(agent, "").unwrap().ends_with("clock:false"));
-    exact_gpu::native::load_headless(&REGISTRY);
+    exact_gpu::native::load_headless(&REGISTRY, "test-gpu");
     let id = exact_gpu::native::create_headless("probe");
     assert_eq!(exact_gpu::native::agent(id, ""), "clock:true");
     exact_gpu::native::unload();

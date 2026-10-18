@@ -91,6 +91,152 @@ test "the dials panel is drawn from each dial's declared metadata"
   expect text "dial-paint-value" == "#f00"
   expect text "dial-paint-help" == "brand.red is not a value a dial can take (a dial is a literal), so it is not offered."
 
+test "a length dial's slider and stepper write a px length, as a length dial takes"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "group-Space"
+  expect text "dial-gap-value" == "8px"
+  type "dial-gap-slider" "10"
+  expect state editTarget == "gap"
+  expect state editValue == "10px"
+  type "dial-inset-stepper" "6"
+  expect state editTarget == "inset"
+  expect state editValue == "6px"
+
+test "typed fields by kind: each edits its part of the value and leaves the rest as written"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  // A length: its amount and unit.
+  tap "cell-space.edge-0-light"
+  clock data
+  expect tree has "typed"
+  type "part-amount-field" "16"
+  expect state editTarget == "space.edge"
+  expect state editValue == "16px"
+  type "part-unit-field" "rem"
+  expect state editValue == "16rem"
+  // Another edit replaces the draft: the fields are the value's again.
+  type "dial-gap-slider" "10"
+  expect state editTarget == "gap"
+  type "part-unit-field" "em"
+  expect state editTarget == "space.edge"
+  expect state editValue == "12em"
+  // So does Only this mode starting a fresh draft after another edit, and
+  // after a whole-value edit.
+  type "part-amount-field" "20"
+  type "branch-value" "24px"
+  type "branch-value" key "Enter"
+  type "dial-gap-slider" "12"
+  tap "only-this-mode"
+  expect state editValue == "12px"
+  type "part-unit-field" "rem"
+  expect state editValue == "12rem"
+  tap "cancel-edit"
+  // A shadow list: per shadow, inset, its lengths and its colour (a token's
+  // name, which it keeps: no pin), every other shadow as written.
+  tap "cell-shadow.ring-0-light"
+  clock data
+  expect tree has "branch-names"
+  expect tree has "input-surface.inset"
+  expect tree missing "pinned"
+  expect tree has "part-1.color-field"
+  // Typed a character at a time, with no answer between: the fields stay.
+  type "part-0.spread-field" "1"
+  expect state editValue == "0px 1px 2px 1 #00000033, inset 0px 0px 0px 1px surface.inset"
+  type "part-0.spread-field" "1px"
+  expect tree has "part-0.spread-field"
+  expect state editValue == "0px 1px 2px 1px #00000033, inset 0px 0px 0px 1px surface.inset"
+  // The blur holds its place while a spread is written after it.
+  type "part-0.blur-field" ""
+  expect text "typed-missing" == "Give shadow 1 blur a value: emptied, the part after it would be read in its place."
+  expect state editValue == ""
+  type "part-0.blur-field" "2px"
+  type "part-1.inset-field" ""
+  expect state editValue == "0px 1px 2px 1px #00000033, 0px 0px 0px 1px surface.inset"
+  clock data
+  expect text "proposal-tokens" == "shadow.ring"
+  // A required part emptied drafts nothing, and says so.
+  type "part-1.blur-field" ""
+  expect text "typed-missing" == "Give shadow 2 blur a value: emptied, the part after it would be read in its place."
+  expect state editValue == ""
+  type "part-1.blur-field" "2px"
+  expect tree missing "typed-missing"
+  expect state editValue == "0px 1px 2px 1px #00000033, 0px 0px 2px 1px surface.inset"
+  // A type: each longhand, one it leaves out offered empty.
+  tap "cell-type.title-0-light"
+  clock data
+  type "part-style-field" "italic"
+  expect state editValue == "italic 600 1.25rem/1.25"
+  type "part-family-field" "system-ui"
+  expect state editValue == "italic 600 1.25rem/1.25 system-ui"
+  // Only this mode: a field's edit is for its own branch.
+  tap "cell-opacity.muted-0-light"
+  clock data
+  tap "only-this-mode"
+  type "part-amount-field" "0.25"
+  expect state editValue == "0.25"
+  expect state editWhen == "density=regular"
+  // An expression has no typed fields.
+  tap "cell-space.gap-0-light"
+  clock data
+  expect tree missing "typed"
+
+test "a typed field's edit scrubs live, each value previewed, and Keep writes the last"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  tap "cell-shadow.ring-0-light"
+  clock data
+  type "part-0.blur-field" "3px"
+  clock data
+  expect text "chip" == "Live"
+  tap "scrub-start"
+  clock data
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  type "part-0.blur-field" "4px"
+  clock data
+  expect state editValue == "0px 1px 4px #00000033, inset 0px 0px 0px 1px surface.inset"
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  tap "scrub-keep"
+  clock data
+  expect tree missing "scrub"
+  expect text "undo" == "Undo (1)"
+  // A scrub cancelled keeps the draft and its fields: the next field edit
+  // composes from both.
+  type "part-0.blur-field" "5px"
+  clock data
+  tap "scrub-start"
+  clock data
+  tap "scrub-cancel"
+  clock data
+  type "part-0.x-field" "1px"
+  expect state editValue == "1px 1px 5px #00000033, inset 0px 0px 0px 1px surface.inset"
+  // The stub's live table off again, as the tests after this one expect.
+  request POST "/__stub/live" {"live": false} as ada
+
+test "a motion token says it rebuilds before the gesture, with no scrub; icons are listed read only"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-duration.fast-0-light"
+  clock data
+  expect text "branch-rebuilds" == "Rebuilds: an edit to a motion token rebuilds the app, so Apply writes it, with no scrub."
+  expect tree missing "typed"
+  type "branch-value" "200ms"
+  type "branch-value" key "Enter"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect disabled "scrub-start"
+  expect text "icon-icon.star-sources" == "sf star · material star"
+  tap "cell-space.edge-0-light"
+  clock data
+  expect tree missing "branch-rebuilds"
+
 test "the token grid: every mode tuple light and dark, swatches, residuals, what each follows"
   type "name" "Ada"
   tap "save-name"
@@ -103,6 +249,13 @@ test "the token grid: every mode tuple light and dark, swatches, residuals, what
   expect text "cell-text-surface.page-0-dark" == "#000000ff"
   expect text "cell-text-surface.inset-1-light" == "#eef0f2ff"
   expect text "cell-text-text.system-0-light" == "-exact-secondary-label"
+  // A length token (LLP 1121 stage 6): its value, no swatch, no sides.
+  expect text "cell-text-space.gap-0-light" == "8px"
+  expect text "cell-text-space.gap-0-dark" == "8px"
+  // A shadow, previewed in each column's scheme.
+  expect tree has "cell-shadow-shadow.card-0-light"
+  expect tree has "cell-shadow-shadow.card-0-dark"
+  expect text "cell-text-shadow.card-0-light" == "0px 1px 3px light-dark(#000000ff, #ffffffff)"
   expect tree has "cell-fallback-text.system-0-light"
   expect tree missing "cell-fallback-surface.page-0-light"
   expect text "follows-accent.soft" == "follows accent, lift"
@@ -221,6 +374,47 @@ test "a dial an expression follows opens its control, not a token"
   expect tree has "dial-paint-select"
   expect tree missing "branch-error"
   expect text "branch-label" == "paint.pick · default (Light)"
+
+test "a build's status and a scrub's event read no design again"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  expect tree has "dial-accent-color"
+  // Describe refused from here: a read of the design again would show its error.
+  request POST "/__stub/event" {"refuseDescribe": "describe refused: read again", "events": [{"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}, {"event": "build-status", "build": {"id": "web-1", "host": "web", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 1}, "pin": null, "pinRevision": 0}}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-9", "reason": "opened"}]} as ada
+  clock +1
+  clock data
+  clock +3000
+  clock data
+  expect text "build-status-web-1" == "dark · dark-style=black · 16px"
+  expect tree missing "design-error"
+  expect tree has "dial-accent-color"
+  // The stub as the next test expects it: describe answered, no events.
+  request POST "/__stub/restart" {} as ada
+
+test "a proposal is asked again on the poll, not only when files move: a token the JS loop writes inline turns Rebuilds when a web-js build arrives"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  clock +1
+  clock data
+  tap "cell-opacity.muted-0-light"
+  clock data
+  type "part-amount-field" "0.25"
+  clock data
+  expect text "chip" == "Live"
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-js-1", "host": "web-js", "planDigest": "p1", "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "chip" == "Rebuilds"
+  request POST "/__stub/restart" {} as ada
 
 test "another design file is read when chosen, and a refused one shows its error and a retry"
   type "name" "Ada"

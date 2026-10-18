@@ -824,6 +824,48 @@ fn set_mode_takes_one_axis_and_value_and_the_last_of_an_action_wins() {
     assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#111111"));
 }
 
+/// A reload keeps the window's modes the new design still has (LLP 1007
+/// §6): an axis whose value is gone starts again, the others hold.
+#[test]
+fn a_reload_carries_the_windows_modes_the_new_design_has() {
+    let view = "component App\n  view\n    text \"a\" testId=\"text\" color=\"ink\"\n";
+    let path = app(
+        "set-mode-carry",
+        &[("app.tamber", TWO_AXES), ("app.contract", view)],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    r.set_modes(&[("dark-style", "dim"), ("density", "compact")])
+        .unwrap();
+    let reload = |r: &Runner<NoData>, tamber: &str| {
+        std::fs::write(path.with_file_name("app.tamber"), tamber).unwrap();
+        let plan = contract::bake(contract::compile_path(&path).unwrap(), NoData).unwrap();
+        let carried = r.carry();
+        Runner::boot_carrying(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            &carried,
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let r = reload(&r, &TWO_AXES.replace("#111111", "#101010"));
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#444444"));
+    let r = reload(
+        &r,
+        &TWO_AXES
+            .replace("cozy | compact", "cozy | loose")
+            .replace("density=compact", "density=loose"),
+    );
+    let mode = |a: &str, v: &str| (a.to_string(), v.to_string());
+    assert_eq!(
+        r.modes(),
+        [mode("dark-style", "dim"), mode("density", "cozy")]
+    );
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#222222"));
+}
+
 /// LLP 1121 stage 2's gate line: a `setMode` that changes only colour
 /// tokens on a 1,000-row list moves no geometry.
 #[test]

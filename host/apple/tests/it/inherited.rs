@@ -1005,3 +1005,42 @@ fn explicit_clears_export_computed_values_and_own_declaration_intent() {
         assert!(batch.contains("\"written\":[\"text_color\"]"), "{batch}");
     }
 }
+
+/// LLP 1061 D7: a pressed paint cleared by its expression is no pressed
+/// look, so the presenter is sent no row (an initial transparent would
+/// erase the background while held and keep the platform's press away).
+#[test]
+fn a_cleared_pressed_paint_sends_no_row() {
+    let plan = contract::compile(
+        r##"component App
+  state on = true
+  action flip
+    on = not on
+  view
+    button press=flip background-color="#ffffff" -exact-press-background-color=(on ? "#abcdef" : "unset") -exact-press-opacity=(on ? 0.5 : "unset") testId="b"
+      text "b"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let b = view(&host, "b");
+    let made = op(&first, b);
+    assert!(
+        made.contains("\"press_background_color\":[171,205,239,255]"),
+        "{made}"
+    );
+    assert!(made.contains("\"press_opacity\":0.5"), "{made}");
+    let cleared = op(&host.dispatch(b, Event::Press), b);
+    assert!(
+        !cleared.contains("\"press_background_color\":"),
+        "{cleared}"
+    );
+    assert!(!cleared.contains("\"press_opacity\":"), "{cleared}");
+}

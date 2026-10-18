@@ -150,6 +150,7 @@ final class RouteController: UIViewController {
     func mount() {
         loadViewIfNeeded()
         if node.superview !== view { view.addSubview(node) }
+        host?.presenter.regrid(node) // from the controller's view, a grid origin of its own
     }
     // A button can remove a route before UIKit starts its pop. Preserve its
     // outgoing pixels for that transition; an interactive pop uses live views.
@@ -221,8 +222,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// whether its press navigated.
     var unanimated = false
     /// Whether a reselected tab's scroll to the top (`scrollToTop`) is
-    /// UIKit's animated one: not under the agent's frozen clock, nor in a
-    /// unit test, whose host never moved an animated offset when measured.
+    /// UIKit's animated one: not under the agent's frozen clock, where Exact
+    /// starts no UIKit animation, nor in a test outside an app's scene, where
+    /// UIKit never moves an animated offset.
     var scrollsToTopAnimated = !ExactEnv.agentFreezes
     var activeKey: String? { container?.props["navigationKey"] }
     /// While a push or pop runs: paints what each frame newly reveals.
@@ -240,6 +242,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Whether the session's view last took the whole of its own for a bar.
     var tookWholeView = false
     private var pendingSync = false
+    /// The press whose commit a deferred sync still owes (PressHandoffIOS).
+    private weak var pendingPress: PressHandoff?
     /// A sync was deferred (a transition ran, or there was no window yet)
     /// and is still owed, or UIKit moved a stack itself (its back button, a
     /// swipe) since the last one: the next batch syncs, whatever it holds.
@@ -305,6 +309,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             guard let parent = owner == container?.id ? container : presenter.views[owner] else { continue }
             for (index, node) in ids.compactMap({ presenter.views[$0] }).enumerated() where presenter.views[node.id] === node {
                 parent.container.insertSubview(node, at: index)
+                presenter.regrid(node)
             }
         }
     }
@@ -402,18 +407,22 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             installTabs(p, tabs, first: first, in: parent)
             return
         }
+        // The stack holds its first routes before its view enters the window,
+        // as the tabs' stacks do (`installTabs`): UIKit shows a root's large
+        // title collapsed when the stack was laid out in the window before it
+        // had that root.
         let nav = makeNavigation(first: first.first?.node)
-        parent.addChild(nav)
-        p.root.addSubview(nav.view)
-        nav.view.setPaintForeground(aboveAuthored: false)
-        nav.view.frame = p.root.bounds
-        nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        nav.didMove(toParent: parent)
         primaryNavigation = nav
         prepareRoutes(first, in: nav)
         nav.setViewControllers(first, animated: false)
         recordOwned(nav)
         watchPops(nav)
+        parent.addChild(nav)
+        nav.view.frame = p.root.bounds
+        nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        p.root.addSubview(nav.view)
+        nav.view.setPaintForeground(aboveAuthored: false)
+        nav.didMove(toParent: parent)
     }
 
     /// A hidden navigation bar needs its availability check here. The
@@ -481,8 +490,23 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         if p.tabs != nil { syncTabs(p) }
         // Initial content draws before a presentation covers it.
         if parts.count > 1, let session = presenter.session, session.firstDrawMs == nil { return }
-        guard !changing, !presenter.modals.inTransition else { pendingSync = true; return }
+        guard !changing, !presenter.modals.inTransition else {
+            pendingSync = true
+            owePress()
+            return
+        }
         pendingSync = false
+        // The press a deferred sync is owed to: what this sync presents or
+        // pushes is that press's work, and it is owed again if this defers too.
+        let owed = pendingPress.flatMap { $0 === presenter.pressHandoff ? $0 : nil }
+        pendingPress = nil
+        owed?.syncing = true
+        defer {
+            owed?.syncing = false
+            owed?.pending = false
+            if pendingSync { owePress(owed) }
+            owed?.settle()
+        }
         let boundaries = parts.dropFirst().map { wanted[$0.lowerBound].node }
         let mounted = presenter.modals.routes
         let common = zip(boundaries, mounted).prefix {
@@ -504,6 +528,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                     && !nav.viewControllers.contains { $0 === stack.last }
                 nav.setViewControllers(stack, animated: (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && !unanimated && nav.view.window != nil)
                 recordOwned(nav)
+                // A press that pushed may hand its control's focus to the arriving route's first autofocus (PressHandoffIOS).
+                if pushOrPop || arrives { presenter.pressShows((stack.last as? RouteController)?.node) }
             }
             nav.view.layoutIfNeeded()
         }
@@ -523,6 +549,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             prepareRoutes(Array(wanted[part]), in: nav)
             nav.setViewControllers(Array(wanted[part]), animated: false)
             recordOwned(nav)
+            presenter.pressShows(wanted[part].last?.node) // a route pushed in the sheet as it opens
             watchPops(nav)
             nav.view.layoutIfNeeded()
             pendingSync = boundaries.count > mounted.count + 1
@@ -636,8 +663,19 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             guard let parent = owner == root.id ? root : presenter.views[owner] else { continue }
             for (index, node) in ids.compactMap({ presenter.views[$0] }).enumerated() where presenter.views[node.id] === node {
                 parent.container.insertSubview(node, at: index)
+                presenter.regrid(node)
             }
         }
+    }
+
+    /// A sync deferred behind a running transition is owed to the press
+    /// whose work it is (`owed`, else the live press while its work runs):
+    /// that press's handoff waits for it. A newer press owns it instead.
+    private func owePress(_ owed: PressHandoff? = nil) {
+        guard let press = owed ?? presenter.pressHandoff.flatMap({ $0.working ? $0 : nil }) else { return }
+        if pendingPress !== press { pendingPress?.pending = false; pendingPress?.settle() }
+        press.pending = true
+        pendingPress = press
     }
 
     func modalDidDismiss() {
@@ -1039,11 +1077,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             DispatchQueue.main.async { [weak self, weak navigationController] in
                 if let navigationController { self?.settleTablist(navigationController) }
             }
-            // At rest: a large title's insets are sampled now (§9.10). A
-            // stack's first screen was given its scroller before it had a
-            // window, and UIKit showed its large title collapsed: still at
-            // its start, it opens as a new screen does (`restAtStart`).
-            if let route = viewController as? RouteController { restAtStart(route) }
+            // At rest: a large title's insets are sampled now (§9.10).
             coversChanged()
             #if os(iOS)
             presenter.resolveStatusBar(settled: true)
@@ -1103,9 +1137,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         logicalChildren = [:]
         shownKeys = []; fallbackKey = nil
         refitForBars()
+        for controller in controllers.values { presenter.pressHandoff?.drop(controller.node) } // reset: no route of a press stays
         controllers.removeAll()
         routeIDs = []
         pendingSync = false
+        pendingPress?.pending = false; pendingPress?.settle(); pendingPress = nil
         keyboardDropped = false
         droppedEditor = nil
         lastTransition = "idle"

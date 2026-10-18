@@ -21,7 +21,7 @@ import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolv
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transformSync, parseSync } from 'rolldown/utils';
 import { localImports, stageHostGlue } from './glue.mjs';
-import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withoutDev } from './module.mjs';
+import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withInspectHooks, withoutDev } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
 import { withLook } from '../web/look.mjs';
 
@@ -30,7 +30,7 @@ const root = resolve(here, '../..');
 const args = process.argv.slice(2);
 const app = args[0];
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
-if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js|none]'); process.exit(2); }
+if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js|none] [--check]'); process.exit(2); }
 // An app outside this repo is where `EXACT_APP_DIR` says (scripts/app.mjs).
 const appDir = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : resolve(root, 'apps', app);
 const out = resolve(opt('--out') ?? `/tmp/exact-web-js-dist/${app}`);
@@ -58,6 +58,8 @@ const production = args.includes('--production');
 const devReload = args.includes('--dev');
 if (production && devReload) { console.error('--production and --dev are mutually exclusive'); process.exit(2); }
 if (production && !opt('--plan')) { console.error('--production builds over a wasm bake: name its --plan <dist>/app.plan'); process.exit(2); }
+// `--check` (`exact.mjs contract build app.contract`): app.ts's type check alone, saying nothing else.
+const checkOnly = args.includes('--check');
 // The source revision a development build's install pages name, read while
 // it builds: optional, so no git, no repository, or a git held past 5 s (a
 // held index lock) leaves it unknown rather than failing or hanging the build.
@@ -169,12 +171,14 @@ const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchA
 // changed (module.mjs `fresh`; `cargo run`'s own check costs ~0.4 s an edit),
 // or as the one another checkout of this machine built from these sources.
 const compiler = webCompiler();
-const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, '--app', appDir, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
-if (cargo.status !== 0) process.exit(cargo.status ?? 1);
+const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, '--app', appDir, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: checkOnly ? ['ignore', 'ignore', 'pipe'] : 'inherit', encoding: 'utf8', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
+if (cargo.status !== 0) { if (checkOnly) process.stderr.write(cargo.stderr ?? ''); process.exit(cargo.status ?? 1); }
 compiler.done();
-for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'live-time.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The live table's runtime is the dev loop's build's alone.
 if (!devReload) writeFileSync(resolve(gen, 'modes.js'), withoutDev(readFileSync(resolve(here, 'modes.js'), 'utf8')));
+// Inspect mode's hooks in the runtime are the dev loop's build's alone (module.mjs `withInspectHooks`).
+if (devReload) writeFileSync(resolve(gen, 'rt.js'), withInspectHooks(readFileSync(resolve(here, 'rt.js'), 'utf8')));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
@@ -226,6 +230,11 @@ const captured = ts ? await typecheck(!opt('--data')).catch((error) => {
   console.error(`${error.message ?? error}\nerror: ${app}: app.ts failed the type check every host's build runs`);
   process.exit(1);
 }) : null;
+if (checkOnly) {
+  const typeError = await captured?.typed;
+  if (typeError) { console.error(`${String(typeError.message ?? typeError).trimEnd()}\nerror: ${app}: app.ts failed the type check every host's build runs`); process.exit(1); }
+  process.exit(0);
+}
 async function typecheck(checking) {
   const { configure, check, capturedSources, staticFacts } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
@@ -521,11 +530,18 @@ const scopedModule = (code, id) => {
 };
 // Both bundles take app.ts and its packages from the checked capture alone.
 const replay = ts ? (await import(resolve(root, 'js/bake/src/typescript.mjs'))).replayCaptured(tsStage, [resolve(gen, 'ts-fetch.js'), resolve(realpathSync(gen), 'ts-fetch.js')]) : null;
+// These hooks are optional. Keep their static accesses for tree-shaking,
+// but suppress missing-export warnings only at the generated glue's path.
+const optionalHookWarning = (id, message) => generatedRoots.some(root => id === resolve(root, 'ts-data.js'))
+  && /Import ["`](?:kept|overlay)["`] will always be undefined because there is no matching export/.test(message);
 const bundle = async (options) => {
   const r = await Bun.build({ ...options, plugins: [...(replay ? [{ name: 'captured-replay', setup: replay.bun }] : []), { name: 'exact-mounts', setup: mountResolver }, { name: 'source-grants', setup(build) {
     build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, ({ path }) => { const contents = scopedModule(readFileSync(path, 'utf8'), path); return contents == null ? undefined : { contents, loader: 'js' }; });
   } }] });
-  for (const m of r.logs) console.error(String(m));
+  for (const m of r.logs) {
+    if (m.level === 'warn' && optionalHookWarning(m.position?.file, m.message)) continue;
+    console.error(String(m));
+  }
   if (!r.success) process.exit(1);
 };
 // The renderer uses vm.Script, which cannot parse import.meta.
@@ -537,7 +553,10 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 // bytes a page downloads before its runtime is up.
 {
   const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: bundleOptions.transform, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
+  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: bundleOptions.transform, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => {
+    if (level === 'warn' && log.code === 'IMPORT_IS_UNDEFINED' && optionalHookWarning(log.id, log.message)) return;
+    console.error(log.message);
+  } });
   // In a development reload build, put the TypeScript data module and every
   // helper it imports in one chunk the page really loads. Its emitted bytes,
   // rather than watcher filenames or source mtimes, are the logic revision.
@@ -596,7 +615,7 @@ if (production) {
   const bake = dirname(resolve(opt('--plan')));
   const links = readFileSync(resolve(bake, 'index.html'), 'utf8').match(/^<(?:link rel="(?:alternate|manifest)"|meta name="theme-color")[^>]*>$/gm) ?? [];
   writeFileSync(resolve(out, 'index.html'), readFileSync(resolve(out, 'index.html'), 'utf8').replace(/(<meta name="viewport"[^>]*>\n)/, `$1${links.map(l => l + '\n').join('')}`)); // its `<html lang>` is already the manifest's, as the bake's is
-  for (const f of ['exact.json', 'manifest.json', 'robots.txt', 'sitemap.xml', '.well-known', '.exact', 'rust']) if (existsSync(resolve(bake, f))) cpSync(resolve(bake, f), resolve(out, f), { recursive: true });
+  for (const f of ['exact.json', 'manifest.json', 'robots.txt', 'sitemap.xml', '.well-known', '.exact', 'rust', 'plans']) if (existsSync(resolve(bake, f))) cpSync(resolve(bake, f), resolve(out, f), { recursive: true });
   // What the envelope names beside the plan and assets, for a native client
   // following the page's link (LLP 1023 D1): the Rust module's files (above,
   // the bytes this page loads) and a TypeScript module's, under `module/`,
