@@ -1118,12 +1118,20 @@ fn counts_every_particle_pipeline<const MSAA: bool>() {
 }
 
 /// Particles at the limits of what counts (count.wgsl): `edge`, a white square
-/// visible only through the samples of one pixel column that sample 0 misses
-/// (two boxes in front leave half a pixel open, at four samples); else a dot
-/// whose alpha is 0.002, added over black.
+/// visible only through half of one pixel column, the right half or the
+/// `left`, at four samples (two boxes in front leave the half open); else a
+/// dot whose alpha is 0.002, added over black.
+///
+/// The standard 4-sample pattern (WebGPU's, which Metal's and D3D's defaults
+/// and Vulkan's `standardSampleLocations` share) puts samples 0 to 3 at x
+/// offsets 0.375, 0.875, 0.125 and 0.625: the right half holds samples 1 and
+/// 3, the left samples 0 and 2. Whatever a device's pattern, while each half
+/// holds a sample, one of the two runs shows the square only through samples
+/// that sample 0 misses, so a counter that tests one sample fails one of them.
 #[derive(Default, Args)]
 struct LimitArgs {
     edge: bool,
+    left: bool,
 }
 struct Limits;
 impl Game for Limits {
@@ -1164,10 +1172,13 @@ impl Game for Limits {
                     ..Default::default()
                 },
             );
-            // In front: x < -px / 2 and x > 0. Column [-px, 0) shows the square
-            // at its samples 1 and 3 (x offsets 0.875, 0.625), not at sample 0 (0.375).
-            let left = -px / 2.;
-            for (lo, hi) in [(-3., left), (0., 3.)] {
+            // In front of all but column [-px, 0)'s open half.
+            let (open, shut) = if args.left {
+                (-px, -px / 2.)
+            } else {
+                (-px / 2., 0.)
+            };
+            for (lo, hi) in [(-3., open), (shut, 3.)] {
                 w.spawn((
                     Transform::at((lo + hi) / 2., 0., 1.),
                     Mesh::cuboid(Vec3::new(hi - lo, 6., 0.2)),
@@ -1186,9 +1197,10 @@ impl Game for Limits {
 #[test]
 fn a_particle_counts_where_any_covered_sample_shows_it_and_any_contribution_counts() {
     let Some(gpu) = gpu() else { return };
-    for edge in [true, false] {
+    for (edge, left) in [(true, false), (true, true), (false, false)] {
         let mut s = WorldSurface::<Limits, ModelExecutor, true>::default();
-        s.bind(&[Value::Bool(edge)], None).unwrap();
+        s.bind(&[Value::Bool(edge), Value::Bool(left)], None)
+            .unwrap();
         s.device_ready(exact_gpu::wgpu::Features::empty());
         s.asset(
             "white.tex",
@@ -1207,12 +1219,15 @@ fn a_particle_counts_where_any_covered_sample_shows_it_and_any_contribution_coun
         let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
         let look = &value["look"];
         let draw = &look["particles"][0];
-        assert!(draw["covered"].as_u64() > Some(0), "edge {edge}: {look}");
+        assert!(
+            draw["covered"].as_u64() > Some(0),
+            "edge {edge}, left {left}: {look}"
+        );
         // The dot over black is near black, as it should be; neither is uncovered.
         let tells = look["tells"].as_array().unwrap();
         assert!(
             tells.iter().all(|t| t["name"] != "particles-uncovered"),
-            "edge {edge}: {look}"
+            "edge {edge}, left {left}: {look}"
         );
         // And it shows: some pixel the particle lights is not black.
         let pixels = base64(value["data"].as_str().unwrap());
