@@ -1,4 +1,4 @@
-// Simulator support before the device hub is ready (T3 Code 1e2ecbd975, 5318d054a5;
+// Simulator support before the device hub is ready (T3 Code 9c161462c9, 5318d054a5;
 // MIT, see LICENSE-T3): components/device/DeviceSetup.tsx `localPlatformsUnavailable`
 // (wizard step 0 also shows "Check simulator support") and
 // components/settings/IntegrationsSettings.tsx DeviceIntegrationControls (the
@@ -10,7 +10,7 @@
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
-import { localPlatformsUnavailable, platformSetupStatus, type PlatformStatus } from './device-surface';
+import { deviceHubReadiness, localPlatformsUnavailable, platformSetupStatus, type PlatformStatus } from './device-surface';
 export { localPlatformsUnavailable } from './device-surface';
 import { fleet } from '../connections/settings-b-fleet';
 
@@ -20,7 +20,7 @@ const revealed = new WeakMap<T3Client, Map<string, boolean>>();
 let checks = 0;
 
 /**
- * The Integrations row: revealed when the hub is on and either the host is ready
+ * The Integrations row: revealed when the hub is on and either a device host (this machine's or a remote one) is ready
  * or the local host has no available platform; it stays revealed while the hub
  * stays on (later agent setup and refresh phases), and resets when it turns off.
  * Returns [] while hidden, else one row (the key changes after each Refresh so
@@ -31,10 +31,9 @@ export function simulatorSupportRows(client: T3Client, environmentId: string, en
   if (!map) { map = new Map(); revealed.set(client, map); }
   const key = environmentId || client.environmentId;
   if (!enabled) { map.delete(key); return []; }
-  const hostStatus = str(state?.hostStatus);
-  if (!map.get(key) && (hostStatus === 'ready' || localPlatformsUnavailable(state))) map.set(key, true);
+  const { ready, busy } = deviceHubReadiness(state);
+  if (!map.get(key) && (ready || localPlatformsUnavailable(state))) map.set(key, true);
   if (!map.get(key) || !state) return [];
-  const busy = hostStatus === 'installing' || hostStatus === 'starting';
   const label = str(obj(client.config.environment).label);
   return [{
     key: `${key}:${checks}`,

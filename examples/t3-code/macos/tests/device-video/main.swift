@@ -268,16 +268,120 @@ final class DeviceVideoTests: XCTestCase {
         let frame = view.frameRect
         view.mouseDown(with: mouseEvent(.leftMouseDown, at: NSPoint(x: frame.minX + frame.width * 0.25, y: frame.minY + frame.height * 0.75), in: view))
         view.mouseUp(with: mouseEvent(.leftMouseUp, at: NSPoint(x: frame.minX + frame.width * 0.25, y: frame.minY + frame.height * 0.75), in: view))
-        spin(until: { hub.received("/helper/ws").count >= 8 })
+        spin(until: { hub.received("/helper/ws").count >= 7 })
         let packets = hub.received("/helper/ws")
-        XCTAssertEqual(packets.first, T3DeviceWire.tagged(0x0d, ["enabled": false]))
-        XCTAssertEqual(Array(packets[1...4]), [T3DeviceWire.tagged(0x06, ["type": "down", "usage": 0x0b]), T3DeviceWire.tagged(0x06, ["type": "up", "usage": 0x0b]),
+        XCTAssertEqual(Array(packets[0...3]), [T3DeviceWire.tagged(0x06, ["type": "down", "usage": 0x0b]), T3DeviceWire.tagged(0x06, ["type": "up", "usage": 0x0b]),
                                                T3DeviceWire.tagged(0x06, ["type": "down", "usage": 0xe1]), T3DeviceWire.tagged(0x06, ["type": "down", "usage": 0x15])])
-        XCTAssertEqual(packets[5], T3DeviceWire.tagged(0x04, ["button": "home"]))
-        let touch = json(packets[6].dropFirst())
-        XCTAssertEqual(packets[6].first, 0x03)
+        XCTAssertEqual(packets[4], T3DeviceWire.tagged(0x04, ["button": "home"]))
+        let touch = json(packets[5].dropFirst())
+        XCTAssertEqual(packets[5].first, 0x03)
         XCTAssertEqual(touch["type"] as? String, "begin")
         XCTAssertEqual(touch["x"] as? Double ?? 0, 0.75, accuracy: 0.01); XCTAssertEqual(touch["y"] as? Double ?? 0, 0.75, accuracy: 0.01)
+        view.stop()
+        window.orderOut(nil)
+    }
+
+    /// stream.ts readIosVideo (9c161462c9): an AVCC body that stops producing frames reconnects
+    /// with "… Reconnecting…" instead of failing, the decoded picture stays up meanwhile
+    /// (DeviceStreamView retainingFrame), and a JPEG seed after a decoded frame is not painted.
+    func testIosStalledBodyReconnectsAndKeepsThePicture() throws {
+        let encoded = Encoded.make(width: 390, height: 844, colors: [.systemBlue, .systemBlue])
+        let hub = try iosHub(encoded)
+        let jpeg = NSBitmapImageRep(cgImage: Self.solid(width: 390, height: 844, color: .systemOrange)).representation(using: .jpeg, properties: [:])!
+        // Each subscription: the description and samples, a stale seed half a second later, then silence.
+        hub.http.insert(("/stream.avcc", { _, connection in
+            hub.open(connection, type: "application/octet-stream")
+            var body = T3H264.Demuxer.envelope(.description, encoded.avcC)
+            for sample in encoded.samples { body += T3H264.Demuxer.envelope(sample.key ? .keyframe : .delta, sample.data) }
+            hub.write(connection, body)
+            hub.queue.asyncAfter(deadline: .now() + 0.5) { hub.write(connection, T3H264.Demuxer.envelope(.seed, jpeg)) }
+        }), at: 0)
+        let view = T3DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-9", hostId: "local", access: { done in done(hub.origin, "t") }) {}
+        view.presentation = "flat"
+        let window = window(view)
+        view.start()
+        spin(until: { view.status == "streaming" && view.inputConnected })
+        hub.push("/helper/ws", T3DeviceWire.tagged(0x82, ["width": 390, "height": 844, "orientation": "portrait"]))
+        spin(until: { view.screen != nil })
+        RunLoop.main.run(until: Date().addingTimeInterval(1))
+        let decoded = pixel(try XCTUnwrap(view.image), x: 0.5, y: 0.6)
+        XCTAssertTrue(decoded.b > 180 && decoded.r < 100, "the seed after a decoded frame is not painted, got \(decoded)")
+        let subscriptions = { hub.requests.filter { $0.contains("/stream.avcc") }.count }
+        XCTAssertEqual(subscriptions(), 1)
+        var detail = "", retained = false, failed = false
+        spin(until: {
+            if view.status == "connecting", !view.detail.isEmpty { detail = view.detail; retained = retained || view.reportValue["retaining"] as? Bool == true }
+            if view.status == "error" { failed = true }
+            return subscriptions() >= 2 && view.status == "streaming"
+        }, timeout: 25)
+        XCTAssertFalse(failed, "a stalled body is not an error: \(view.detail)")
+        XCTAssertEqual(detail, "Device stream stopped receiving video. Reconnecting…")
+        XCTAssertTrue(retained, "the decoded picture is retained while the video reconnects")
+        XCTAssertEqual(subscriptions(), 2)
+        XCTAssertEqual(view.status, "streaming")
+        XCTAssertEqual(view.reportValue["mjpeg"] as? Bool, false, "it stays on H.264")
+        view.stop()
+        window.orderOut(nil)
+    }
+
+    /// The helper's screen config `inputUnavailable` (stream.ts, ecfb7342ed): input reads as
+    /// disconnected with the reference's detail and nothing is sent until it clears.
+    func testIosInputUnavailable() throws {
+        let hub = try iosHub(Encoded.make(width: 390, height: 844, colors: [.systemBlue]))
+        let view = T3DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-8", hostId: "local", access: { done in done(hub.origin, "t") }) {}
+        view.presentation = "flat"
+        let window = window(view)
+        view.start()
+        spin(until: { view.status == "streaming" && view.inputConnected })
+        hub.push("/helper/ws", T3DeviceWire.tagged(0x82, ["width": 390, "height": 844, "orientation": "portrait", "inputUnavailable": true]))
+        spin(until: { !view.inputConnected })
+        XCTAssertFalse(view.inputConnected)
+        XCTAssertEqual(view.inputDetail, "Simulator input is unavailable")
+        let sent = hub.received("/helper/ws").count
+        view.press("home")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertEqual(hub.received("/helper/ws").count, sent, "no input while the simulator refuses it")
+        hub.push("/helper/ws", T3DeviceWire.tagged(0x82, ["width": 390, "height": 844, "orientation": "portrait"]))
+        spin(until: { view.inputConnected })
+        view.press("home")
+        spin(until: { hub.received("/helper/ws").count > sent })
+        XCTAssertEqual(hub.received("/helper/ws").last, T3DeviceWire.tagged(0x04, ["button": "home"]))
+        view.stop()
+        window.orderOut(nil)
+    }
+
+    /// Opening the helper socket or receiving a screen config grants no input. The helper must
+    /// admit it explicitly, and admission must not override an unavailable simulator.
+    func testIosInputRequiresAdmission() throws {
+        let hub = try iosHub(Encoded.make(width: 390, height: 844, colors: [.systemBlue]))
+        hub.admitIosInput = false
+        let view = T3DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-admission", hostId: "local", access: { done in done(hub.origin, "t") }) {}
+        view.presentation = "flat"
+        let window = window(view)
+        view.start()
+        spin(until: { view.status == "streaming" && hub.socketCount > 0 })
+        hub.push("/helper/ws", T3DeviceWire.tagged(0x82, ["width": 390, "height": 844, "orientation": "portrait"]))
+        spin(until: { view.screen != nil })
+        XCTAssertFalse(view.inputConnected, "a config does not grant input admission")
+        view.press("home")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        XCTAssertTrue(hub.received("/helper/ws").isEmpty, "no startup command or input before admission")
+        hub.push("/helper/ws", T3DeviceWire.tagged(0x82, ["width": 390, "height": 844, "orientation": "portrait", "inputUnavailable": true]))
+        hub.push("/helper/ws", Data([0x83]))
+        spin(until: { view.inputDetail == "Simulator input is unavailable" })
+        XCTAssertFalse(view.inputConnected, "admission cannot override inputUnavailable")
+        hub.push("/helper/ws", T3DeviceWire.tagged(0x82, ["width": 390, "height": 844, "orientation": "portrait"]))
+        spin(until: { view.inputConnected })
+        XCTAssertTrue(view.inputConnected)
+        view.press("home")
+        spin(until: { !hub.received("/helper/ws").isEmpty })
+        XCTAssertEqual(hub.received("/helper/ws"), [T3DeviceWire.tagged(0x04, ["button": "home"])])
+        hub.admitIosInput = false
+        hub.close("/helper/ws", code: 1001)
+        spin(until: { !view.inputConnected })
+        spin(until: { hub.requests.filter { $0.contains("/helper/ws") }.count == 2 })
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        XCTAssertFalse(view.inputConnected, "a replacement socket needs fresh admission")
         view.stop()
         window.orderOut(nil)
     }
