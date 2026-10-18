@@ -69,7 +69,7 @@ export function loadedDylibs(executable) {
  * instead of costing every launch silently. */
 export function assertCapabilityFrameworks(executable, products) {
   const loaded = loadedDylibs(executable);
-  const stray = CAPABILITY_FRAMEWORKS.filter(([product, framework]) => !products.includes(product) && loaded.some((path) => path.endsWith(`/${framework}.framework/${framework}`)));
+  const stray = CAPABILITY_FRAMEWORKS.filter(([product, framework]) => !products.includes(product) && !(framework === 'SwiftUI' && products.includes('ExactSnapshot')) && loaded.some((path) => path.endsWith(`/${framework}.framework/${framework}`)));
   if (stray.length) throw new Error(`host/apple: ${basename(executable)} links ${stray.map(([product, framework]) => `${framework} (only ${product} may)`).join(', ')}, which its composition does not link: an import outside the capability's module brings it to every launch`);
 }
 

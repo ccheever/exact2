@@ -238,6 +238,19 @@ instance-tree walk; a single-node response uses point lookup. Handler order and
 empty lists are unchanged; no handler map survives the response, so branch and
 collection changes are observed afresh.
 
+Development Apple builds with widgets take an entry address before the operations:
+`bun scripts/agent.mjs ios widget next-trains --family systemMedium --mode accented --scheme dark --size xxxl tree "screenshot widget.png" state`.
+`macos` takes the same address. Family defaults to the entry's first declared family;
+mode to `fullColor`, scheme to `light`, text size to `large` (`xxxl` is the other size).
+This selects the in-process gallery render, using its entry plan and snapshot driver
+(LLP 1126 D14); it does not load a WidgetKit extension. Production builds refuse it.
+
+| Widget read | Result |
+|---|---|
+| `tree` | Snapshot nodes, frames and kernel text lines |
+| `screenshot <png>` | The selected entry alone, at 1 pixel per point; family container and mode stand-ins match WP4's baseline |
+| `state` | Entry props, refresh status and an unavailable refresh's reason; an immediate refresh supplies its first timeline entry, otherwise preview props |
+
 | op | request to the host | reply | who answers |
 |---|---|---|---|
 | `tree` | `{"op":"tree"[,"target":V or "testId"][,"shallow":true]}` | `epoch`, `incarnation`, `clock`, `roots`, `nodes[]` in preorder: `id`, `parent`, `depth`, `type` (schema name), `props` by schema name, `handlers` (`press`/`change`/`hover`/`focus`/`blur`/`key`), `children` | runner (kernel topology + props) |

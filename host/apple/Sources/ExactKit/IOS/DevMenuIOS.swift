@@ -225,6 +225,9 @@ public enum DevMenu {
         let a = UIAlertController(title: "Exact", message: text, preferredStyle: .actionSheet)
         a.addAction(UIAlertAction(title: "Reload", style: .default) { _ in reload() })
         a.addAction(UIAlertAction(title: "Open Project…", style: .default) { _ in openProject() })
+        #if EXACT_WIDGET_GALLERY && os(iOS)
+        if WidgetGallery.available { a.addAction(UIAlertAction(title: "Widgets…", style: .default) { _ in WidgetGallery.show() }) }
+        #endif
         #if !os(tvOS)
         a.addAction(UIAlertAction(title: "Copy Info", style: .default) { _ in UIPasteboard.general.string = text })
         #endif

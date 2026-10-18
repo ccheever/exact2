@@ -24,6 +24,9 @@ public final class Agent {
     /// The held contact on a `pan` node, recognized (LLP 1057 §10.6).
     var panContact: AgentPan?
     #endif
+    #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
+    var widgetPreview: WidgetPreview?
+    #endif
     let session: ExactSession
     init(session: ExactSession) {
         self.session = session
@@ -171,6 +174,14 @@ public final class Agent {
         // 1031 D2): every operation is refused by name, in the API's shape.
         if session.state == .destroyed {
             Agent.reply(["error": "session \(session.label): destroyed (runtime \(session.runtime.rt): no such runtime)"])
+            return
+        }
+        if req["widget"] != nil {
+            #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
+            Agent.reply(WidgetGallery.answer(op, request: req, agent: self))
+            #else
+            Agent.reply(["error": "widget gallery is unavailable in this build"])
+            #endif
             return
         }
         guard session.canvases.waitUntilReady() else {

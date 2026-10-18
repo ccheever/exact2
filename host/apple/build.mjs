@@ -769,6 +769,7 @@ async function main(args) {
   // manifest compile. The target SDK stays in the explicit Swift arguments.
   const swiftEnv = (libDir, composition, link = 'all') => ({
     ...process.env,
+    EXACT_WIDGET_GALLERY: !production && app.manifest.widgets?.length ? '1' : '0',
     EXACT_APPLE_LINK: link, EXACT_UPDATE_TRUST: cargoEnv.EXACT_UPDATE_TRUST ?? 'development', // LLP 1047.001 D4 (link.mjs); a production build compiles no inspect mode (Package.swift)
     ...(tv ? { TVOS_DEPLOYMENT_TARGET: targets.ios } : ios ? { IPHONEOS_DEPLOYMENT_TARGET: targets.ios } : { MACOSX_DEPLOYMENT_TARGET: targets.macos }),
     EXACT_LIB_DIR: libDir,
@@ -891,6 +892,7 @@ async function main(args) {
     copyShaders(app, resolve(capture, 'shaders'));
     if (buildReceipt.rust) copyStaticTreeIfPresent(buildReceipt.rust, resolve(capture, 'rust'));
     verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture, true));
+    if (!production && app.manifest.widgets?.length) writeFileSync(resolve(capture, 'widget-gallery.json'), JSON.stringify(app.manifest.widgets));
     placeAppleArtifact(capture, paths.capture);
     writeFileSync(heldAt, JSON.stringify(holds));
   } }));
@@ -1142,7 +1144,7 @@ async function main(args) {
       copyFileSync(resolve(swiftBinDir, p), executable);
       assertAppleIdentity(app, executable, bakedCompat.id);
       assertLinkedSdk(executable, designCompatible(app, ios ? 'ios' : 'macos') ? COMPATIBLE_SDK[ios ? 'ios' : 'macos'] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
-      assertCapabilityFrameworks(executable, swiftCapabilities);
+      assertCapabilityFrameworks(executable, [...swiftCapabilities, ...(!production && app.manifest.widgets?.length ? ['ExactSnapshot'] : [])]);
       if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
     }
   } finally { releaseSwift(); }

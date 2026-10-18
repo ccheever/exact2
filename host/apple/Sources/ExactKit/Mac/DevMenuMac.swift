@@ -22,6 +22,9 @@
 import AppKit
 
 final class DevMenuTarget: NSObject {
+    #if EXACT_WIDGET_GALLERY
+    @objc func widgets(_ sender: Any?) { WidgetGallery.show() }
+    #endif
     @objc func reload(_ sender: Any?) { DevMenu.reload() }
     @objc func info(_ sender: Any?) { DevMenu.showInfo() }
     @objc func saveTrace(_ sender: Any?) { DevMenu.saveTrace() }
@@ -232,6 +235,9 @@ public enum DevMenu {
             project.target = target
             if documents { project.keyEquivalentModifierMask = [.command, .shift] }
             dev.addItem(withTitle: "App Info…", action: #selector(DevMenuTarget.info(_:)), keyEquivalent: "d").target = target
+            #if EXACT_WIDGET_GALLERY
+            if WidgetGallery.available { dev.addItem(withTitle: "Widgets…", action: #selector(DevMenuTarget.widgets(_:)), keyEquivalent: "").target = target }
+            #endif
             // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
             let trace = dev.addItem(withTitle: "Save Trace", action: #selector(DevMenuTarget.saveTrace(_:)), keyEquivalent: "t")
             trace.keyEquivalentModifierMask = [.command, .option]

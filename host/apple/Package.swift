@@ -40,6 +40,10 @@ let testing = ProcessInfo.processInfo.environment["EXACT_TESTS"] == "1"
 // production one (`EXACT_UPDATE_TRUST=production`) compiles none of it.
 let devTools: [SwiftSetting] = ProcessInfo.processInfo.environment["EXACT_UPDATE_TRUST"] == "production" ? [] : [.define("EXACT_INSPECT")]
 
+let gallery = ProcessInfo.processInfo.environment["EXACT_UPDATE_TRUST"] != "production"
+    && (testing || ProcessInfo.processInfo.environment["EXACT_WIDGET_GALLERY"] == "1")
+let gallerySettings: [SwiftSetting] = gallery ? [.define("EXACT_WIDGET_GALLERY")] : []
+
 let core: [Target] = [
     .systemLibrary(name: "CExact", path: "Sources/CExact"),
     .target(
@@ -53,7 +57,7 @@ let core: [Target] = [
     // session's node model, for WidgetKit's archive. Linked by an app with
     // entries and its extension, never by a presenter.
     .target(name: "ExactSnapshot", dependencies: ["ExactCore", "CExact"], path: "Sources/ExactSnapshot", swiftSettings: [.unsafeFlags(["-application-extension"])]),
-    .target(name: "ExactKit", dependencies: ["ExactCore", "CExact"], path: "Sources/ExactKit", swiftSettings: devTools),
+    .target(name: "ExactKit", dependencies: [.target(name: "ExactCore"), .target(name: "CExact")] + (gallery ? [.target(name: "ExactSnapshot")] : []), path: "Sources/ExactKit", swiftSettings: devTools + gallerySettings),
     .target(name: "ExactUpdates", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactUpdates"),
     .target(name: "ExactGroupedLists", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactGroupedLists"),
     .target(name: "ExactMarkdown", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactMarkdown"),
@@ -87,7 +91,7 @@ let tests: [Target] = [
     // tests over stand-in players; the arm itself is build.mjs's dylib.
     .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),
     .testTarget(name: "ExactKitTests", dependencies: ["ExactCore", "ExactSnapshot", "ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactMediaPicker", "ExactAuthSession", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests",
-                resources: [.copy("ColorFixtures"), .copy("SnapshotFixtures")], swiftSettings: devTools),
+                resources: [.copy("ColorFixtures"), .copy("SnapshotFixtures")], swiftSettings: devTools + gallerySettings),
 ]
 
 let package = Package(

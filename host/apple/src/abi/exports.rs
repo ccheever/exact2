@@ -305,6 +305,14 @@ macro_rules! host {
             }, |n| n)
         }
 
+        /// Refresh a headless entry, retaining preview props when unavailable.
+        #[no_mangle]
+        pub extern "C" fn exact_refresh_entry(rt: u32, now: f64, width: f32, height: f32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
+                b.refresh_entry(($new)(), hooks, now, width, height)
+            }, |n| n)
+        }
+
         /// Prepare one session, optionally using a composition-owned generation.
         #[no_mangle]
         pub extern "C" fn exact_prepare_plan(rt: u32, token: u64, len: usize, width: f32, height: f32) -> u32 {

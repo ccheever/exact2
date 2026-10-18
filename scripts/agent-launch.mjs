@@ -320,6 +320,25 @@ export function chromium(environment = process.env, platform = process.platform)
 
 export function parseFlags(argv) {
   const flags = { json: false };
+  // Widget selection is an address on the existing operations (LLP 1126 D14).
+  const widgetAt = argv.indexOf('widget');
+  if (widgetAt > 0 && !['--app', '--storage', '--sim', '--session'].includes(argv[widgetAt - 1])) {
+    if (!['ios', 'macos', 'mac'].includes(argv[0])) throw new Error('widget: use ios or macos');
+    argv = [...argv];
+    flags.widget = { entry: argv.splice(widgetAt, 2)[1] };
+    if (!flags.widget.entry || flags.widget.entry.startsWith('--')) throw new Error('widget <entry>: name an entry');
+    for (let i = 1; i < argv.length;) {
+      const option = argv[i];
+      if (['--family', '--mode', '--scheme', '--size'].includes(option)) {
+        const value = argv[i + 1];
+        if (!value || value.startsWith('--')) throw new Error(`${option} needs a value`);
+        flags.widget[option.slice(2)] = value;
+        argv.splice(i, 2);
+      } else i++;
+    }
+    if (flags.widget.mode === 'full-color') flags.widget.mode = 'fullColor';
+    if (flags.widget.size === 'l') flags.widget.size = 'large';
+  }
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') flags.json = true;
@@ -355,6 +374,12 @@ export function parseFlags(argv) {
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     else rest.push(argv[i]);
+  }
+  if (flags.widget && !argv.some(arg => arg === '--help' || arg === '-h')) {
+    if (flags.test || flags.plan || flags.url || flags.device) throw new Error('widget: use a development app on macos or an iOS simulator');
+    for (const line of rest.slice(1)) {
+      if (!/^(tree|state|screenshot(?:\s+[^\n]+)?)$/.test(line)) throw new Error('widget: tree, state, or "screenshot <png>"');
+    }
   }
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
   if ((flags.keepStorage || flags.resetStorage) && flags.storage === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');

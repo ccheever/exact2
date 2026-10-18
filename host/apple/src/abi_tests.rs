@@ -4,6 +4,8 @@ use exact_plan::{TypeKind, Value};
 use exact_runner::{Answer, DataError, Store};
 use std::sync::{Arc, Mutex};
 
+#[path = "abi_entry_tests.rs"]
+mod entries;
 #[path = "abi_refusal_tests.rs"]
 mod refusals;
 

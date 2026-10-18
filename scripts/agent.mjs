@@ -14,9 +14,6 @@
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
 //   tap @<id> <choice> | type @<id> <value>   (by the node it answers at, or its capability: files F11)
 //   clock <ms|+ms|+ms real|settle|data> | resize <w>x<h> | close | sample <x> <y> […] (extended linear sRGB under view points, LLP 1100 D12) | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>] | perf hatches [during "<op>" …]
-//   bun scripts/agent.mjs trace <file> | trace --phone <name|udid> | trace --device   (a development session's trace, LLP 1079 D5: no app runs; a phone's last, copied off it)
-// A target is a testId, a view id, or else a view's exact label or text (interactive first; several refuse,
-// naming them; `tap "Sky off"` quotes several words); each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
@@ -1403,18 +1400,21 @@ export async function main(argv, injected = {}) {
     ? await (injected.exclusiveNativeStore ?? exclusiveNativeStore)({ host: host === 'mac' ? 'macos' : host, device, appId, storage: flags.storage }, launch)
     : await launch();
   let at = 0;
-  // One op line; `perf … during "<op>" …` drives its own through here.
+  const widget = flags.widget;
   const step = async (line) => {
       if (heldRead(s, line, () => step(line))) return null; // inside a played contact, answered at its tap up (agent-drag.mjs)
       const trimmed = line.trim();
-      // `type` keeps the text tail, including newlines and \n, which a
-      // whitespace split would flatten (notes: a body typed as one line).
       if (/^pick\s/.test(trimmed)) { const [target, value] = typeCommand(trimmed.replace(/^pick/, 'type')); return ['pick', await s.type(target.startsWith('@') ? target : '@'+target, value+'\n')]; }
       if (/^type(\s|$)/.test(trimmed)) return ['type', await s.type(...typeCommand(trimmed))];
       // A target of several words is quoted inside the op: `tap "Sky off"`.
       const named = trimmed.match(/^(tap|tree|state|layout|perf)\s+"((?:[^"\\]|\\.)*)"(?:\s+([\s\S]*))?$/);
       const [op, ...args] = named ? [named[1], inputJSON(`"${named[2]}"`), ...(named[3] ? named[3].split(/\s+/) : [])] : trimmed.split(/\s+/);
       let r, how;
+      if (widget) {
+        const path = op === 'screenshot' ? resolve(args[0] ?? 'screenshot.png') : undefined;
+        if (path) mkdirSync(dirname(path), { recursive: true });
+        return [op, await s.op({ op, widget, ...(path ? { path } : {}) })];
+      }
       switch (op) {
         case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
         case 'state': { const words = args.filter((a) => a !== '--full'); how = { full: words.length < args.length, name: words[0] }; r = await stateOp(s, words); break; } // over STATE_CAP, its sections' sizes unless --full

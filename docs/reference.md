@@ -1884,3 +1884,20 @@ clamps outside it. Supply both instants with `end` after `start`, without
 `value` or `max`. The existing forms remain: `progress value=0.4 max=1` is
 a determinate bar, and `progress` is the platform activity indicator. A
 progress control takes no children; `aria-label` names it.
+
+### Widget development gallery
+
+A development Apple build with `widgets` has **Widgets…** in its dev menu
+(Develop on macOS). It shows every declared family in full colour, accented and
+vibrant modes, light and dark, at large and XXXL text sizes. It uses the entry's
+headless plan and the extension's snapshot driver. In-process containers and
+mode presentation are stand-ins; archive fidelity needs the real extension.
+
+| Agent address | Reads |
+|---|---|
+| `bun scripts/agent.mjs ios widget next-trains --family systemMedium --mode accented --scheme dark --size xxxl tree "screenshot target/widget.png" state` | Snapshot tree, the entry alone, and its props |
+| `bun scripts/agent.mjs macos widget next-trains tree state` | First declared family, full colour, light, large text |
+
+An immediate refresh answer supplies its first timeline entry. Pending, empty
+or unavailable data keeps the preview; `state` reports which. No gallery code
+or metadata is included in a production build.

@@ -28,7 +28,7 @@ const DRIVE = [
   ['--backend <url>', 'web: select the backend origin for this build'],
   ['--storage <name>', 'a scratch store, kept on native hosts; Chrome\'s starts empty'],
   ['--keep-storage · --reset-storage', 'reopen a named store (Chrome, or a compare) · empty a named store first, on any host'],
-  ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
+  ['--size <w>x<h>|large|xxxl', 'viewport; widget text size: large or xxxl'],
   ['--scale <n>', 'screenshots at n pixels per point (exact.mjs agent on ios, macos: 1; an iPhone\'s own: 3)'],
   ['--chrome platform|agent', 'UIKit\'s bars (exact.mjs on iOS); agent paints the header'],
   ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
@@ -42,9 +42,10 @@ const DRIVE = [
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
+  ['--family <name> · --mode fullColor|accented|vibrant · --scheme light|dark', 'widget variant (ios, macos; development only)'],
   ['--json', 'one compact JSON object per op reply, one per line (default: short text)'],
 ];
-const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json'];
+const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json', '--family <name>', '--mode <name>', '--scheme <name>'];
 // The drive flags a first build reaches for; `--help all` shows the rest.
 const DRIVE_FIRST = ['--storage', '--size', '--chrome', '--epoch', '--sim', '--json'];
 const naming = (names, keep) => ([row]) => specs(row).some((spec) => names.includes(name(spec))) === keep;
@@ -145,9 +146,8 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Builds if stale, launches, runs each quoted op on the agent's clock and closes.
-No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's.
-An app's server.ts runs for the drive, its database per --storage.
+    body: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's.
+Widgets: ios|macos widget <entry> tree screenshot state.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
   state [<name>] [--full]  a state, resource or field, dotted: groceries.0.done; >8 KB: sizes

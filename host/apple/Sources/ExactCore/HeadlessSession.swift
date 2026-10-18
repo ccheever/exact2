@@ -100,6 +100,7 @@ public final class HeadlessSession {
     }
     public struct Failure: Error, CustomStringConvertible {
         public let description: String
+        public init(description: String) { self.description = description }
     }
 
     package let core: SessionCore
@@ -198,6 +199,19 @@ public final class HeadlessSession {
     @discardableResult
     public func press(_ node: UInt32, at now: Double = 0) throws -> Snapshot {
         try turn { core.runtime.press(node, now: now) }
+    }
+
+    /// The refresh's status and typed timeline. Pending or unavailable data
+    /// leaves the preview intact; this does not execute network requests.
+    public func refreshEntry(at date: Date = .now) throws -> [String: Any] {
+        try Owner.shared.sync {
+            Result {
+                let (batch, result) = core.runtime.refreshEntry(at: date, size: size)
+                if let error = batch.error { throw Failure(description: error) }
+                try apply(batch)
+                return result
+            }
+        }.get()
     }
 
     private func turn(size: CGSize? = nil, _ body: () throws -> Batch) throws -> Snapshot {

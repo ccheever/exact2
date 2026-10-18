@@ -519,3 +519,14 @@ test('web freshness tracks backend selection creation, edits and deletion',async
     bake();expect(webChanges(dist,app).all).toEqual([]);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
+
+test('widget variants address the gallery without changing viewport flags', () => {
+  const { flags, rest } = parseFlags(['ios', 'widget', 'next-trains', '--family', 'systemMedium', '--mode', 'accented', '--scheme', 'dark', '--size', 'xxxl', '--sim', 's1126-wp6', 'tree', 'screenshot shot.png', 'state']);
+  expect(flags.widget).toEqual({ entry: 'next-trains', family: 'systemMedium', mode: 'accented', scheme: 'dark', size: 'xxxl' });
+  expect(flags.size).toBeUndefined();
+  expect(flags.sim).toBe('s1126-wp6');
+  expect(rest).toEqual(['ios', 'tree', 'screenshot shot.png', 'state']);
+  expect(parseFlags(['macos', '--size', '420x900', 'tree']).flags.size).toEqual([420, 900]);
+  expect(() => parseFlags(['web', 'widget', 'next-trains', 'tree'])).toThrow('ios or macos');
+  expect(() => parseFlags(['ios', 'widget', '--mode', 'dark'])).toThrow('name an entry');
+});

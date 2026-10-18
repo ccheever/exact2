@@ -244,6 +244,17 @@ package final class Runtime {
         }
         return islands(batch)
     }
+    package func refreshEntry(at date: Date, size: CGSize) -> (Batch, [String: Any]) {
+        on(busy: (Self.busy, [:])) {
+            let len = exact_refresh_entry(rt, date.timeIntervalSince1970 * 1000, Float(size.width), Float(size.height))
+            let bytes = Data(bytes: exact_out(rt), count: Int(len))
+            let result = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
+            // A pending refresh returns metadata alone, with no layout turn.
+            let batch = result["ops"] == nil ? Batch(ops: [], timers: false, motion: false, clock: nil, error: result["error"] as? String) : read(len)
+            return (batch, result)
+        }
+    }
+
     package func preparePlan(_ bytes: Data, width: CGFloat, height: CGFloat, token: UInt64 = 0) -> Batch {
         return on {
             let n = write(bytes)
