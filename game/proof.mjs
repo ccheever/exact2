@@ -352,6 +352,7 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
   const gamePrefix = file.startsWith(appPrefix) ? appPrefix : file.startsWith('game/') ? 'game/' : null;
   const gameParts = gamePrefix === null ? [] : file.slice(gamePrefix.length).split('/').slice(0, -1);
   return /^(issues|\.claude)\//.test(file)
+    || (file.startsWith('.lane/') && !file.startsWith(appPrefix))
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
     || (file.startsWith(appPrefix) && gameNonInput(file.slice(appPrefix.length)))
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css|modulemap)$/.test(file)

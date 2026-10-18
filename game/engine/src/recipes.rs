@@ -30,3 +30,6 @@ pub mod component_values {}
 /// Familiar names and their shipped API spellings.
 #[doc = include_str!("../../names.md")]
 pub mod names {}
+/// Draw rings and batched translucent halos.
+#[doc = include_str!("../../recipes/halo.md")]
+pub mod halo {}

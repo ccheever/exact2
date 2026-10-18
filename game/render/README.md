@@ -906,7 +906,17 @@ agent geometry even at noninteger heights on a 2× display. Integer display scal
 keep texels on whole device pixels; fractional display scales can give uneven
 physical widths with nearest sampling.
 
-Opaque primitive/model rendering is unchanged. Opaque and masked sprites write
+Primitives with `Material.color[3] < 1` join this same sorted quad arena: each
+triangle is one instance (the quad's second triangle is degenerate), compatible
+with untextured straight-alpha particles. One halo and a hundred share one draw;
+triangles still cost derivation, upload and sorting. Their look is flat
+hemisphere/directional diffuse light plus emission and fog; PBR, local-light
+shadows and procedural grids stay on opaque primitives. They depth-test without
+depth writes or refraction and cast no shadows. `Material::alpha(a)` takes [0, 1].
+Ring, torus and cone geometry also works on the opaque path. See the
+[halo recipe](../recipes/halo.md).
+
+Opaque and masked sprites write
 depth; the ordered translucent pass follows the sky, depth-tests and does not
 write depth. Ordering is descending view depth, ascending layer and entity slot,
 then kind rank and stable per-owner ordinal. Models use layer zero. Sprites and particles cast no

@@ -1381,6 +1381,15 @@ screen, 2026-10-16.)
 
 ## Games
 
+- **Append new `Data` enum variants when existing values must keep their hashes.**
+  Saves name variants, but the simulation hash includes their declaration ordinals.
+  Keep existing ordinals, including `Mesh::Asset` at five, to preserve model-world
+  pins when adding primitives.
+- **A handle's `tint` and `offset` change simulation state.** They write the entity's
+  `Material` and local `Transform`; they save and hash. For a cosmetic flash or bob,
+  derive `Tint` or `Offset` in `Game::present` instead. `glow_to` retargets the saved
+  `Glow`; keep authored material emission constant or the intensity is applied twice.
+  [Game pickup recipe](../game/recipes/pickup.md).
 - **Older saves refuse to restore after adding a generated model.** `restore` names it:
   ``asset `…` identity is missing``. Cause: a model registered with `w.generated_model`
   at setup is part of every later save's identity (`game/engine/README.md`, "Saves and

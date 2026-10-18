@@ -1,4 +1,6 @@
 //! Separate sprite/particle arenas and one total order shared with blended models.
+mod primitives;
+
 use crate::{
     buffers::{bytes, Buffer},
     FrameInput, RenderError,
@@ -115,6 +117,7 @@ pub(crate) struct Quads {
     sprite_shader: Option<wgpu::ShaderModule>,
     particle_shader: Option<wgpu::ShaderModule>,
     particles: Vec<Item<Emitter>>,
+    primitives: primitives::Primitives,
     looks: Vec<Item<ParticleLook>>,
     textured_pipelines: Option<[wgpu::RenderPipeline; 2]>,
     sprites: Vec<Item<Sprite>>,
@@ -217,6 +220,7 @@ impl Quads {
             sprite_shader: None,
             particle_shader: None,
             particles: Vec::new(),
+            primitives: Default::default(),
             looks: Vec::new(),
             textured_pipelines: None,
             sprites: Vec::new(),
@@ -261,6 +265,7 @@ impl Quads {
         parent_changed: bool,
     ) -> Result<(), RenderError> {
         self.hz = w.hz();
+        self.primitives.feed(w, initial, next_tick, parent_changed)?;
         feed(w, &mut self.particles, initial, next_tick, parent_changed);
         feed(w, &mut self.looks, initial, next_tick, parent_changed);
         self.particles.retain(|item| match item.value.validate() {
@@ -455,8 +460,8 @@ impl Quads {
                     .saturating_add(u64::from(emitter.state.burst))
             })
             .sum::<u64>()
-            .min(u64::from(exact_game::emitter::PARTICLE_BUDGET)) as usize;
-        if !self.particles.is_empty() {
+            .min(u64::from(exact_game::emitter::PARTICLE_BUDGET)) as usize + self.primitives.len();
+        if particles > 0 {
             let arena = self
                 .particle_arena
                 .get_or_insert_with(|| Arena::new(d, particles));
@@ -486,7 +491,7 @@ impl Quads {
                 )
             }));
         }
-        if !self.particles.is_empty() && self.particle_pipelines.is_none() {
+        if particles > 0 && self.particle_pipelines.is_none() {
             let shader = self.particle_shader(d);
             self.particle_pipelines = Some(std::array::from_fn(|i| {
                 pipeline(
@@ -796,6 +801,7 @@ impl Quads {
                 });
             });
         }
+        self.primitives.frame(f, &camera, cull, &mut self.particle_data, &mut self.order);
         if ASSETS {
             for (index, item) in self.sprites.iter().enumerate() {
                 let s = &item.value;

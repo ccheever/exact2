@@ -33,6 +33,8 @@ mod pipeline;
 mod placed;
 #[cfg(test)]
 mod quad_tests;
+#[cfg(test)]
+mod translucent_tests;
 mod quads;
 mod renderer;
 mod shadows;

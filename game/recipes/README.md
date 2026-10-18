@@ -13,6 +13,7 @@ They are compiled directly from these pages by `engine/src/recipes.rs`.
 | Play on a landing edge | [Sound on contact](sound-on-contact.md) | Audio fixture |
 | Spawn at an interval | [Spawner](spawner.md) | Particle fixture |
 | Answer a command | [Door message](door-message.md) | Engine HUD and events |
+| Draw a ring and a translucent halo | [Halo](halo.md) | Beacons |
 | Save a slot | [Save slot](save-slot.md) | Starter restore tests |
 
 Use the [engine reference](../engine/README.md) for borrowing and registration.

@@ -423,3 +423,26 @@ test('proof summaries record both identities from the completed bake', async () 
     expect(receipt.inputs).toBe(buildInputHash('linux', target, '0', 'release').update(after.all).digest('hex'));
   } finally { rmSync(dir, {recursive:true, force:true}); }
 }, 15000);
+
+
+test('lane apparatus is outside shared proof inputs, while a game inside the lane keeps its own sources', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'proof-lane-')), app = resolve(dir, 'game/games/sample');
+  try {
+    writeFixtureFile(app, 'app.contract', 'plan');
+    writeFixtureFile(dir, 'game/engine/src/lib.rs', 'engine');
+    mkdirSync(resolve(dir, '.lane'), {recursive:true});
+    const read = proofInputReader(dir, app), before = read();
+    writeFixtureFile(dir, '.lane/drive/target/debug/generated.rs', 'not SDK source');
+    expect(proofInputFiles(dir, app)).not.toContain('.lane/drive/target/debug/generated.rs');
+    expect(read()).toMatchObject({all:before.all, authoredState:before.authoredState});
+    writeFixtureFile(dir, 'game/engine/src/lib.rs', 'changed engine');
+    expect(read).toThrow('authored proof inputs changed during build');
+    const own = resolve(dir, '.lane/game');
+    writeFixtureFile(own, 'app.contract', 'plan');
+    writeFixtureFile(own, 'logic/src/lib.rs', 'own game');
+    const ownRead = proofInputReader(dir, own); ownRead();
+    expect(proofInputFiles(dir, own)).toContain('.lane/game/logic/src/lib.rs');
+    writeFixtureFile(own, 'logic/src/lib.rs', 'changed game');
+    expect(ownRead).toThrow('authored proof inputs changed during build');
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});

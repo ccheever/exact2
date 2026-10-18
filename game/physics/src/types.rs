@@ -250,6 +250,9 @@ impl Collider {
             Mesh::Plane { width, depth } => Shape::Box {
                 half: Vec3::new(width * 0.5, 0.005, depth * 0.5),
             },
+            Mesh::Ring { .. } | Mesh::Torus { .. } | Mesh::Cone { .. } => {
+                panic!("Collider::of: {mesh:?} needs an authored collision shape")
+            }
             Mesh::Asset(name) => {
                 panic!("Collider::of: asset {name} needs an authored collision shape")
             }

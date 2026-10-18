@@ -116,6 +116,9 @@ pub(crate) fn extent(mesh: Option<&Mesh>) -> Vec3 {
         Some(Mesh::Capsule { radius, height }) => Vec3::new(*radius, height * 0.5, *radius),
         Some(Mesh::Plane { width, depth }) => Vec3::new(width * 0.5, 0.005, depth * 0.5),
         Some(Mesh::Cylinder { radius, height }) => Vec3::new(*radius, height * 0.5, *radius),
+        Some(Mesh::Ring { outer, .. }) => Vec3::new(*outer, 0.005, *outer),
+        Some(Mesh::Torus { radius, tube }) => Vec3::new(radius + tube, *tube, radius + tube),
+        Some(Mesh::Cone { radius, height }) => Vec3::new(*radius, height * 0.5, *radius),
         Some(Mesh::Box { size }) => *size * 0.5,
         Some(Mesh::Asset(_)) => Vec3::ZERO,
         None => Vec3::ZERO,
@@ -170,6 +173,28 @@ pub(crate) fn corners(pose: Affine3A, half: Vec3, center: Vec3) -> [Vec3; 8] {
         )
     })
 }
+// SDF steps are local distances; dividing by ray speed preserves the world-ray
+// parameter under nonuniform parent scale. The sphere bounds the work even inside.
+fn traced_surface(o: Vec3, d: Vec3, radius: f32, distance: impl Fn(Vec3) -> f32) -> Option<f32> {
+    let [near, far] = sphere_roots(o, d, Vec3::ZERO, radius)?;
+    let mut t = near.max(0.);
+    let speed = d.length();
+    if speed <= 0. {
+        return None;
+    }
+    for _ in 0..256 {
+        let gap = distance(o + d * t).abs();
+        if gap <= radius * 1e-5 {
+            return Some(t);
+        }
+        t += gap / speed;
+        if t > far {
+            break;
+        }
+    }
+    None
+}
+
 fn sphere_roots(o: Vec3, d: Vec3, center: Vec3, radius: f32) -> Option<[f32; 2]> {
     let o = o - center;
     let a = d.length_squared();
@@ -281,6 +306,34 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
         let o = inv.transform_point3(origin);
         let d = inv.transform_vector3(direction);
         let t = match mesh {
+            Mesh::Ring { inner, outer } => {
+                let t = -o.y / d.y;
+                let p = o + d * t;
+                let r2 = p.x * p.x + p.z * p.z;
+                (d.y.abs() > 1e-8 && t >= 0. && r2 >= inner * inner && r2 <= outer * outer)
+                    .then_some(t)
+            }
+            Mesh::Torus { radius, tube } => traced_surface(o, d, radius + tube, |p| {
+                let q = crate::Vec2::new(crate::Vec2::new(p.x, p.z).length() - radius, p.y);
+                q.length() - tube
+            }),
+            Mesh::Cone { radius, height } => traced_surface(
+                o,
+                d,
+                crate::Vec2::new(*radius, height * 0.5).length(),
+                |p| {
+                    let q = crate::Vec2::new(crate::Vec2::new(p.x, p.z).length(), p.y);
+                    let k1 = crate::Vec2::new(0., height * 0.5);
+                    let k2 = crate::Vec2::new(*radius, *height);
+                    let ca = crate::Vec2::new(
+                        q.x - q.x.min(if q.y < 0. { *radius } else { 0. }),
+                        q.y.abs() - height * 0.5,
+                    );
+                    let cb = q - k1 + k2 * ((k1 - q).dot(k2) / k2.length_squared()).clamp(0., 1.);
+                    let sign = if cb.x < 0. && ca.y < 0. { -1. } else { 1. };
+                    sign * crate::math::sqrt(ca.length_squared().min(cb.length_squared()))
+                },
+            ),
             Mesh::Cylinder { radius, height } => cylinder(o, d, *radius, *height),
             Mesh::Sphere { radius } => sphere(o, d, Vec3::ZERO, *radius),
             Mesh::Capsule { radius, height } => capsule(o, d, *radius, *height - 2.0 * radius),

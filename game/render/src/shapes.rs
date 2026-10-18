@@ -154,6 +154,81 @@ pub fn capsule(radius: f32, height: f32, segments: u32) -> (Vec<Vertex>, Vec<u32
     revolve(&profile, segments)
 }
 
+/// Flat annulus facing +Y, with radii in metres.
+pub fn ring(inner: f32, outer: f32, segments: u32) -> (Vec<Vertex>, Vec<u32>) {
+    assert!(inner >= 0. && outer > inner && segments >= 3);
+    revolve(
+        &[
+            Ring {
+                radius: inner,
+                y: 0.,
+                radial_normal: 0.,
+                y_normal: 1.,
+            },
+            Ring {
+                radius: outer,
+                y: 0.,
+                radial_normal: 0.,
+                y_normal: 1.,
+            },
+        ],
+        segments,
+    )
+}
+
+/// Capped Y-axis cone, in metres.
+pub fn cone(radius: f32, height: f32, segments: u32) -> (Vec<Vertex>, Vec<u32>) {
+    assert!(radius > 0. && height > 0. && segments >= 3);
+    let normal = Vec2::new(height, radius).normalize();
+    revolve(
+        &[
+            Ring {
+                radius: 0.,
+                y: height * 0.5,
+                radial_normal: normal.x,
+                y_normal: normal.y,
+            },
+            Ring {
+                radius,
+                y: -height * 0.5,
+                radial_normal: normal.x,
+                y_normal: normal.y,
+            },
+            Ring {
+                radius,
+                y: -height * 0.5,
+                radial_normal: 0.,
+                y_normal: -1.,
+            },
+            Ring {
+                radius: 0.,
+                y: -height * 0.5,
+                radial_normal: 0.,
+                y_normal: -1.,
+            },
+        ],
+        segments,
+    )
+}
+
+/// Torus around Y; radius is to the tube centre, tube its cross-section radius.
+pub fn torus(radius: f32, tube: f32, segments: u32) -> (Vec<Vertex>, Vec<u32>) {
+    assert!(radius > tube && tube > 0. && segments >= 3);
+    let profile: Vec<_> = (0..=12)
+        .map(|i| {
+            let [c, s] = Vec2::from_angle(TAU * i as f32 / 12.).to_array();
+            Ring {
+                radius: radius + tube * c,
+                y: tube * s,
+                radial_normal: c,
+                y_normal: s,
+            }
+        })
+        .collect();
+    // Walk clockwise around the cross section for outward triangles.
+    revolve(&profile.into_iter().rev().collect::<Vec<_>>(), segments)
+}
+
 struct Ring {
     radius: f32,
     y: f32,
@@ -214,6 +289,10 @@ mod tests {
             plane(),
             sphere(24),
             cylinder(24),
+            ring(0.2, 0.5, 32),
+            ring(0., 0.5, 32),
+            cone(0.5, 1., 32),
+            torus(0.5, 0.1, 32),
             capsule(0.3, 1.8, 24),
             capsule(0.5, 1.0, 24),
         ] {
