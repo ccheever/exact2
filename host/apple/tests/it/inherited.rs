@@ -87,7 +87,7 @@ fn symbol_identity_and_inherited_font_cross_the_image_boundary() {
 /// LLP 1121 stage 9 B (D10): a symbol whose `color` its author wrote, on
 /// it or on the nearest ancestor that sets one, says so
 /// (`symbolColorWritten`) beside the colour its style carries; one under no
-/// written colour does not, nor a tab's whole face beside it.
+/// written colour does not.
 #[test]
 fn a_symbol_under_a_written_colour_says_so() {
     let plan = contract::compile(
@@ -99,7 +99,7 @@ fn a_symbol_under_a_written_colour_says_so() {
         image "symbol:star" testId="under"
         row role="tablist"
           button appearance="none" role="tab" aria-label="Library" aria-selected=true press=pick
-            image "symbol:book" testId="segment"
+            image "symbol:book" testId="tab"
         column color="AccentColor"
           image "symbol:star" testId="accent"
       image "symbol:star" testId="bare"
@@ -123,12 +123,10 @@ fn a_symbol_under_a_written_colour_says_so() {
         accent.contains("\"text_color\":{\"sys\":\"@tint\""),
         "{accent}"
     );
-    // A tab's whole face is a segment's on Apple: the control's tint.
-    let segment = op(&first, view(&host, "segment"));
-    assert!(
-        segment.contains("\"symbolName\":\"book\"") && !segment.contains("symbolColorWritten"),
-        "{segment}"
-    );
+    // A tab's image is the page's too: where it is shown as a segment, the
+    // host draws the segment in the control's tint (`faceImage`).
+    let tab = op(&first, view(&host, "tab"));
+    assert!(tab.contains("\"symbolColorWritten\":\"1\""), "{tab}");
     let bare = op(&first, view(&host, "bare"));
     assert!(!bare.contains("symbolColorWritten"), "{bare}");
 }

@@ -366,9 +366,9 @@ pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-justify,start)";
 /// Whether image `i` draws a symbol in its author's `color` (LLP 1121 stage
 /// 9 B; `NodeRef::symbol_color_said`), as far as the static tree says:
 /// `None` where it can't be a symbol (a literal source that is none) or is
-/// a native button's face; else the bound `color`s between it and the
-/// nearest node whose static rows decide (each with whether its author
-/// wrote it), and that decision. A bound source may be a symbol whatever
+/// a native button's face; else the nodes between it and the nearest node
+/// whose static rows decide that decide at run time ([`Ink`]: a bound
+/// `color`, a mode boundary's implied row), and that decision. A bound source may be a symbol whatever
 /// its code names (a state's or a data's role), and the sheet asks for a
 /// symbol's path, so a photo's mark draws nothing. A bound `color` decides
 /// while it has a value: written as its binding is, a CSS-wide clear
@@ -380,7 +380,7 @@ fn symbol_color(
     kernel: &Kernel,
     parents: &[Option<usize>],
     i: usize,
-) -> Option<(Vec<(usize, bool)>, bool)> {
+) -> Option<(Vec<(usize, Ink)>, bool)> {
     let view = |i: usize| -> ViewId { i as u32 + 1 };
     let rows = |i: usize| plan.nodes[i].bindings.iter().map(|b| plan.binding(b));
     let bound = |i: usize, kind: BindingKind, id: u16| {
@@ -400,13 +400,25 @@ fn symbol_color(
     if !symbol || face {
         return None;
     }
+    // A mode boundary (a pin or a scheme, LLP 1121 D7) writes again a row
+    // it does not set when the one around read a token: an implied row, no
+    // author's, which `says` stops at (modes.js `apply`, `$xs`).
+    let modes = crate::modes::active(plan);
     let mut writers = Vec::new();
     let mut at = Some(i);
     while let Some(j) = at {
-        if let Some(row) = bound(j, BindingKind::Style, StyleId::TextColor as u16) {
-            writers.push((j, row.written));
-        }
         let node = kernel.node(view(j)).expect("template node");
+        let boundary = modes
+            && !node.style.mask.has(StyleId::TextColor)
+            && [StyleId::Mode, StyleId::ColorScheme]
+                .iter()
+                .any(|id| rows(j).any(|b| b.kind == BindingKind::Style && b.id == *id as u16));
+        let row = bound(j, BindingKind::Style, StyleId::TextColor as u16);
+        match (row, boundary) {
+            (Some(row), _) => writers.push((j, Ink::Bound(row.written, boundary))),
+            (None, true) => writers.push((j, Ink::Boundary)),
+            (None, false) => {}
+        }
         if node.style.written.has(StyleId::TextColor) {
             return Some((writers, true));
         }
@@ -416,6 +428,17 @@ fn symbol_color(
         at = parents[j];
     }
     Some((writers, false))
+}
+
+/// A node between a symbol and what decides its ink statically, which
+/// decides it at run time.
+#[derive(Clone, Copy)]
+enum Ink {
+    /// A bound `color` (its author wrote it, and whether the node is also a
+    /// mode boundary, whose implied row stands when the binding has none).
+    Bound(bool, bool),
+    /// A mode boundary that sets no `color` of its own.
+    Boundary,
 }
 
 /// The marks of [`symbol_color`]: `data-symbol-color` on an image the
@@ -449,9 +472,14 @@ fn symbol_marks(
             _ => {}
         }
     }
-    for (j, written) in writers {
+    for (j, ink) in writers {
         if let Some(parts) = out[j].as_mut() {
-            let ink = u8::from(written).to_string();
+            let ink = match ink {
+                Ink::Bound(written, boundary) => {
+                    format!("{}{}", u8::from(written), if boundary { "b" } else { "" })
+                }
+                Ink::Boundary => "b".into(),
+            };
             parts.props.insert("data-exact-ink".into(), ink);
         }
     }

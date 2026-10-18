@@ -55,5 +55,54 @@ final class SymbolColorIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 4, "set": [:], "clear": ["symbolColorWritten"]]]))
         XCTAssertEqual(try ink(p, 4), red, "and unwritten again")
     }
+
+    /// LLP 1121 D9: a symbol a native control shows as its face keeps the
+    /// control's tint. Under the same written green, hierarchical (which
+    /// bakes its colour into the image's configuration): a tablist of two
+    /// image tabs and a radio group of two image radios are segmented
+    /// controls, whose images are made without it (`faceImage`); a one-tab
+    /// tablist stays as authored, and its image, like a page symbol beside
+    /// them, takes it.
+    func testAProjectedSegmentKeepsTheControlsTint() throws {
+        let p = presenter([])
+        let style: [String: Any] = ["font_size": 17, "text_color": [0, 200, 0, 255], "symbol_rendering": "hierarchical"]
+        let symbol: [String: Any] = ["imageSource": "symbol:sf/star.fill", "symbolName": "star.fill", "symbolColorWritten": "1"]
+        var ops: [[String: Any]] = []
+        func group(_ id: Int, _ role: String, _ member: String, _ count: Int) {
+            ops.append(["op": "create", "id": id, "kind": "view", "props": ["accessibilityRole": role], "handlers": [], "style": [:]])
+            ops.append(["op": "frame", "id": id, "x": 0.0, "y": Double(id), "w": 300.0, "h": 32.0])
+            var members: [Int] = []
+            for k in 1...count {
+                let tab = id + k * 2, image = tab + 1
+                ops.append(["op": "create", "id": tab, "kind": "button", "props": ["accessibilityRole": member, "accessibilityLabel": "Star \(k)"], "handlers": ["press"], "style": [:]])
+                ops.append(["op": "create", "id": image, "kind": "image", "props": symbol, "handlers": [], "style": style])
+                ops.append(["op": "frame", "id": image, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0])
+                ops.append(["op": "children", "id": tab, "ids": [image]])
+                members.append(tab)
+            }
+            ops.append(["op": "children", "id": id, "ids": members])
+        }
+        group(100, "tablist", "tab", 2); group(200, "radiogroup", "radio", 2); group(300, "tablist", "tab", 1)
+        ops.append(["op": "create", "id": 400, "kind": "image", "props": symbol, "handlers": [], "style": style])
+        ops.append(["op": "frame", "id": 400, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0])
+        ops.append(["op": "children", "id": 1, "ids": [100, 200, 300, 400]])
+        p.apply(wireBatch(ops))
+        let green = [0.0, 200.0, 0.0, 255.0]
+        for id: UInt32 in [400, 303] { XCTAssertEqual(try ink(p, id), green, "\(id): a page symbol takes its written green") }
+        let written = UIImage.SymbolConfiguration(hierarchicalColor: try XCTUnwrap(p.views[400]?.symbolInk))
+        XCTAssertTrue(try XCTUnwrap(p.views[400]?.image?.symbolConfiguration).isEqual(try XCTUnwrap(p.views[400]?.image?.symbolConfiguration).applying(written)), "the page's image bakes it")
+        for owner: UInt32 in [100, 200] {
+            let control = try XCTUnwrap(p.views[owner]?.subviews.first { $0 is UISegmentedControl } as? UISegmentedControl, "\(owner) projects")
+            XCTAssertEqual(control.numberOfSegments, 2)
+            XCTAssertNotNil(control.imageForSegment(at: 0))
+            // What the installed segment was drawn from: not the page's image,
+            // and made without the written green.
+            let icon = try XCTUnwrap(p.views[owner + 3]), drawn = try XCTUnwrap(p.segments.drawn(of: owner, segment: 0))
+            XCTAssertFalse(drawn === icon.image, "\(owner): the segment is drawn from its own image")
+            let face = try XCTUnwrap(drawn.symbolConfiguration)
+            XCTAssertFalse(face.isEqual(face.applying(written)), "\(owner): the segment's image is made without the written green")
+            XCTAssertTrue(try XCTUnwrap(icon.faceImage?.symbolConfiguration).isEqual(face), "\(owner): it is the face's")
+        }
+    }
 }
 #endif

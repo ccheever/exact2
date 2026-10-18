@@ -80,9 +80,70 @@ final class SymbolColorMacTests: XCTestCase {
         assertChannels(try ink(p, 3), [48, 176, 199, 255], "hierarchical, a new colour")
     }
 
+    /// How many of the image's pixels are green, and how many drawn at all,
+    /// as it is drawn.
+    private func pixels(_ image: NSImage?) -> (green: Int, drawn: Int) {
+        guard let image, image.size.width > 0, let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(image.size.width * 2), pixelsHigh: Int(image.size.height * 2),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return (0, 0) }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(x: 0, y: 0, width: rep.pixelsWide, height: rep.pixelsHigh))
+        NSGraphicsContext.restoreGraphicsState()
+        var count = 0, drawn = 0
+        for y in 0..<rep.pixelsHigh { for x in 0..<rep.pixelsWide {
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            if c.alphaComponent > 0.3 { drawn += 1 }
+            if c.alphaComponent > 0.3, c.greenComponent > 0.6, c.redComponent < 0.35, c.blueComponent < 0.35 { count += 1 }
+        } }
+        return (count, drawn)
+    }
+
+    /// LLP 1121 D9: a symbol a native control shows as its face keeps the
+    /// control's tint. Under the same written green, hierarchical (which
+    /// bakes its colour into the image), a tablist of two image tabs and a
+    /// radio group of two image radios are segmented controls whose images
+    /// carry no green; a one-tab tablist stays as authored, and its image,
+    /// like a page symbol beside them, is green.
+    func testAProjectedSegmentKeepsTheControlsTint() throws {
+        let p = presenter([])
+        let style: [String: Any] = ["font_size": 17, "text_color": [0, 200, 0, 255], "symbol_rendering": "hierarchical"]
+        let symbol: [String: Any] = ["imageSource": "symbol:sf/star.fill", "symbolName": "star.fill", "symbolColorWritten": "1"]
+        var ops: [[String: Any]] = []
+        func group(_ id: Int, _ role: String, _ member: String, _ count: Int) {
+            ops.append(["op": "create", "id": id, "kind": "view", "props": ["accessibilityRole": role], "handlers": [], "style": [:]])
+            ops.append(["op": "frame", "id": id, "x": 0.0, "y": Double(id / 4), "w": 280.0, "h": 24.0])
+            var members: [Int] = []
+            for k in 1...count {
+                let tab = id + k * 2, image = tab + 1
+                ops.append(["op": "create", "id": tab, "kind": "button", "props": ["accessibilityRole": member, "accessibilityLabel": "Star \(k)"], "handlers": ["press"], "style": [:]])
+                ops.append(["op": "create", "id": image, "kind": "image", "props": symbol, "handlers": [], "style": style])
+                ops.append(["op": "frame", "id": image, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0])
+                ops.append(["op": "children", "id": tab, "ids": [image]])
+                members.append(tab)
+            }
+            ops.append(["op": "children", "id": id, "ids": members])
+        }
+        group(100, "tablist", "tab", 2); group(200, "radiogroup", "radio", 2); group(300, "tablist", "tab", 1)
+        ops.append(["op": "create", "id": 400, "kind": "image", "props": symbol, "handlers": [], "style": style])
+        ops.append(["op": "frame", "id": 400, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0])
+        ops.append(["op": "children", "id": 1, "ids": [100, 200, 300, 400]])
+        p.apply(wireBatch(ops))
+        XCTAssertGreaterThan(pixels(p.views[400]?.image).green, 0, "a page symbol bakes its written green")
+        XCTAssertGreaterThan(pixels(p.views[303]?.image).green, 0, "a one-tab tablist stays as authored: its image is the page's")
+        for owner: UInt32 in [100, 200] {
+            let control = try XCTUnwrap(p.views[owner]?.subviews.first { $0 is NSSegmentedControl } as? NSSegmentedControl, "\(owner) projects")
+            XCTAssertEqual(control.segmentCount, 2)
+            XCTAssertNotNil(control.image(forSegment: 0))
+            let face = pixels(control.image(forSegment: 0))
+            XCTAssertGreaterThan(face.drawn, 0, "\(owner): the segment draws its symbol")
+            XCTAssertEqual(face.green, 0, "\(owner): the segment keeps the control's tint")
+        }
+    }
+
     /// In a selected table row drawn emphasized, a fixed written colour keeps
     /// its ink, as a fixed tint does; a role's colour, and a symbol nobody
-    /// coloured, take the selected ink.
+    /// coloured, take the selected ink. A fixed colour that comes while the
+    /// row is selected keeps its ink at once.
     func testAnEmphasizedRowKeepsAFixedWrittenColour() throws {
         let role: [String: Any] = ["sys": "labelColor", "c": [[0, 0, 0, 255], [255, 255, 255, 255]]]
         let p = presenter([(2, true, ["text_color": pink]), (3, true, ["text_color": role]), (4, false, ["text_color": pink])])
@@ -91,6 +152,12 @@ final class SymbolColorMacTests: XCTestCase {
         XCTAssertEqual(style(2), .normal, "a fixed written colour")
         XCTAssertEqual(style(3), .emphasized, "a role")
         XCTAssertEqual(style(4), .emphasized, "nobody's")
+        // A fixed colour written while the row is selected takes the
+        // emphasis away at once; deselected, every cell is normal.
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["font_size": 17, "text_color": pink]]]))
+        XCTAssertEqual(style(3), .normal, "a fixed colour that came while selected")
+        try XCTUnwrap(p.views[1]).rowEmphasisChanged(false)
+        XCTAssertEqual([style(2), style(3), style(4)], [.normal, .normal, .normal])
     }
 }
 #endif

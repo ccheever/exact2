@@ -441,10 +441,17 @@ impl Build<'_> {
                             self.sites.keyframes.resolve(&mut patch.rare.exit_animation);
                         }
                         Ok(_) => {}
-                        // A value its row refuses is unset, as on a kernel.
+                        // A value its row refuses is unset, its declaration's
+                        // intent kept, as on a kernel (`ClearStyle`).
                         Err(
                             bridge::BridgeError::Style(_) | bridge::BridgeError::StyleKind { .. },
-                        ) => {}
+                        ) => {
+                            if let (true, Some(style)) =
+                                (binding.written, StyleId::from_bit(binding.id as u32))
+                            {
+                                patch.written.set(style);
+                            }
+                        }
                         Err(e) => return Err(DocTreeError::Refused(format!("{e:?}"))),
                     }
                 }

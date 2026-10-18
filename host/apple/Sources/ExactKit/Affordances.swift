@@ -105,8 +105,9 @@ extension NodeView {
 
     /// The symbol's configuration: its size and weight, then its rendering
     /// mode (D10) — hierarchical in the tint, a palette, or multicolor.
-    func symbolConfiguration(_ base: SymbolConfig) -> SymbolConfig {
-        let tint = symbolTint ?? symbolInk ?? unsaidSymbolTint
+    /// `face`: as a native control's face draws it, without the page's ink.
+    func symbolConfiguration(_ base: SymbolConfig, face: Bool = false) -> SymbolConfig {
+        let tint = symbolTint ?? (face ? nil : symbolInk) ?? unsaidSymbolTint
         switch style["symbol_rendering"]?.string {
         case "hierarchical": return base.applying(SymbolConfig(hierarchicalColor: tint))
         case "multicolor": return base.applying(SymbolConfig.preferringMulticolor())
@@ -117,6 +118,16 @@ extension NodeView {
             return colors.isEmpty ? base : base.applying(SymbolConfig(paletteColors: colors))
         default: return base
         }
+    }
+
+    /// The image as a native control's face shows it (a projected segment):
+    /// in the control's tint, never the page's written colour, which a
+    /// hierarchical glyph bakes into the page's image (LLP 1121 D9, stage 9 B).
+    /// Any other image is the page's own.
+    var faceImage: SymbolImage? {
+        guard symbolInk != nil, style["symbol_rendering"]?.string == "hierarchical", let name = props["symbolName"], !name.isEmpty else { return image }
+        let points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
+        return points > 0 ? symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight), face: true)) : nil
     }
 
     /// A symbol by name in that configuration, at its variable value (D11)

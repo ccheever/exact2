@@ -55,6 +55,15 @@ extension NodeView {
         walk(self)
     }
 
+    /// How a symbol's image cell is drawn in a row emphasized or not: as a
+    /// cell's image, unless a fixed tint or a fixed colour the untinted
+    /// symbol takes (LLP 1121 stage 9 B, `symbolInk`) keeps its ink. Asked
+    /// again whenever the symbol's look is (`updateSymbol`).
+    func symbolBackground(_ emphasized: Bool) -> NSView.BackgroundStyle {
+        let ink = symbolInk != nil ? style["text_color"] : nil
+        return emphasized && style["tint_color"]?.fixesInk != true && ink?.fixesInk != true ? .emphasized : .normal
+    }
+
     /// The row this node is the root view of became, or stopped being, a
     /// selected row drawn emphasized: every paragraph in it resolves its ink
     /// again, and every symbol is drawn as a cell's image is.
@@ -62,12 +71,7 @@ extension NodeView {
         func walk(_ view: NSView) {
             if let node = view as? NodeView {
                 if node.kind == "text" { node.reapplyColors() }
-                // A fixed tint keeps its ink, and so does a fixed colour the
-                // untinted symbol takes (LLP 1121 stage 9 B, `symbolInk`).
-                let ink = node.symbolInk != nil ? node.style["text_color"] : nil
-                if let leaf = node.symbolView, node.style["tint_color"]?.fixesInk != true, ink?.fixesInk != true {
-                    leaf.cell?.backgroundStyle = emphasized ? .emphasized : .normal
-                }
+                if let leaf = node.symbolView { leaf.cell?.backgroundStyle = node.symbolBackground(emphasized) }
             }
             view.subviews.forEach(walk)
         }

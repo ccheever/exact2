@@ -4027,7 +4027,7 @@ LLP 1115 D4).
 - **The JS target.** The same mark and the same sheet (symbols.js). `style::symbol_marks` marks what
   the static tree can't decide alone:
   - any bound source, whatever names its role (a state's, a data's): the sheet asks for a symbol's path, so a photo's mark draws nothing;
-  - under a bound `color`, the image carries `data-symbol-ink` (how many bound colours are above it, and the decision past them) and each such node `data-exact-ink` (written or not). After each commit symbols.js (`inked`) takes the nearest of them that has a value. A `none` takes its colour away, as the runner clears the written bit, and the next one up decides.
+  - under a bound `color` or a mode boundary, the image carries `data-symbol-ink` (how many such nodes are above it, and the decision past them), and each such node `data-exact-ink` (a bound colour written or not, `b` a boundary). After each commit symbols.js (`inked`) takes the nearest that sets the row: a boundary's implied row (modes.js `$xs`), no author's, which stands where the boundary's own binding clears or is refused, as the runner installs it; else a bound colour while its binding has a value, a clear included (`$ink`, which rows.rs records from the binding itself, not from what a boundary leaves inline). A `none` takes a bound colour away, as the runner clears the written bit, and the next one up decides.
 
   Not marked: a colour that only a state look sets (`:hover`).
 - **Apple.** `props_for` sends `symbolColorWritten: "1"`, priced in `content_region.rs` as
@@ -4038,8 +4038,8 @@ LLP 1115 D4).
   - a hierarchical configuration takes the same colour, and `symbolLookKey` holds it when the glyph bakes it.
 
   Only the page image's `updateSymbol` reads it; bar items, tab faces, segments and button faces
-  don't. A tab's whole face (`NodeRef::is_tab_face`, the one child of a `role="tab"`), which iOS and
-  the Mac project as a segment's image, is never sent the word. A props change of the word re-runs `updateSymbol`. An unwritten symbol is unchanged, and
+  don't. Where iOS or the Mac shows a tab's or a radio's one image as a segment, the segment's
+  image is made at that point in the control's tint (`NodeView.faceImage`), never in the page's ink. A props change of the word re-runs `updateSymbol`. An unwritten symbol is unchanged, and
   `PlatformDefaultsMacTests` is unchanged.
 - **Movers** (condition 1). Each app's static tree (the JS target's, every site with its arms
   flattened, a component per use) was walked for symbol images with no tint and a written colour:
@@ -4067,7 +4067,14 @@ LLP 1115 D4).
   - The JS target marks a symbol under a written colour whatever names its source, and decides a bound `color` after each commit (`data-symbol-ink`, `data-exact-ink`, symbols.js `inked`): a conditional colour that goes gives the symbol back to what is past it, and one that comes back takes it again (Astra 1, 2; `emit_tests.rs`, `js-symbols.test.mjs` in Chrome).
   - A document written without a kernel keeps an authored CSS-wide clear's written bit (`color="inherit"`), `none` unwritten, as a kernel's `ClearStyle` does (Astra 3).
   - Its walk stops where `says` does: at the neutral route header, a neutral alert and its children but its buttons; a field holds no image (Grok 1; `tint.rs` adds the clear and an alert, and fails without either).
-  - A tab's whole face takes no page ink on Apple, so a projected segment's image keeps the control's tint (Astra 4; `inherited.rs`).
+  - A tab's whole face takes no page ink on Apple, so a projected segment's image keeps the control's tint (Astra 4; `inherited.rs`). Replaced in round 2.
   - A move that changes whether the colour is said, or takes an image off a native button's face, with the colour equal, sends the moved subtree's symbol images again (`DefaultContext.ink_said`; Astra 5, Grok 4; `symbol_color.rs`, both ways).
   - A standard grouped row on iOS tints its symbol with a written colour where nobody tinted it, destructive and disabled still over it, and reconfigures when it changes (Grok 2; `SymbolColorGroupedIOSTests`).
   - The Mac's emphasized table row keeps a fixed written colour, as it keeps a fixed tint (Grok 3; `SymbolColorMacTests`).
+- **After review round 2 (Astra, Grok):**
+  - The kernel's tab-face guess is gone (`is_tab_face`, its props gate and what it would have needed invalidated): it missed tabs kept as authored (`appearance="none"`, one tab, a face a segment can't show), radio segments and sibling changes. A segment's image is made where iOS and the Mac project it, in the control's tint (`faceImage`); the page image keeps the written colour wherever it is shown as one, an `aria-hidden` tab's glyph included (Astra 1, 4; Grok 1, 2, 4; `SymbolColorIOSTests`, `SymbolColorMacTests`: two image tabs and two image radios as segments with no written ink, a one-tab tablist and a page symbol beside them in it).
+  - The JS target reads a bound colour's provenance from its binding (`$ink`), not from the inline colour, and a mode boundary as an implied setter, as the runner's (`theme.rs`): a symbol under a written token and a boundary is the accent, as on the kernel (Astra 2, 3; Grok 3; `modes_tests.rs` against the kernel, and `js-symbols.test.mjs` in Chrome with `Sx` on `data-x-b`: a clear said, `none`, a value).
+  - The Mac's symbol cell is drawn `.normal` whenever a fixed tint or written colour keeps its ink, set again with each look, so a fixed colour that comes while the row is selected keeps its ink at once (Astra 5).
+  - A document written without a kernel keeps a refused bound colour's written bit, as the runner's `ClearStyle` does (Astra 6; `tint.rs`, which fails without it).
+  - After the re-check: on a boundary under a token colour, an implied row the boundary writes because its own bound colour clears or is refused stands over that binding, as the kernel's unwritten implied row does (`inked` reads `$xs` first; `modes_tests.rs` against the kernel, a clear and then a written value; `js-symbols.test.mjs`, a clear and a refused value).
+  - After re-check 2: a boundary's bound colour that clears or is refused again, with nothing implied changed (`inherit` then `unset`), had its implied row cleared and not set back, so the kernel said written where the JS target did not; the runner now sets it again, unwritten, after each such clear (`NodeInst::unimply`, theme.rs). `modes_tests.rs` steps the kernel through inherit, unset, currentcolor, two refused values, a value, inherit, a value and unset against symbols.js's rule, and `js-symbols.test.mjs` the same in Chrome; iOS's segment test reads the image the installed segment was drawn from (`SegmentHost.drawn`).

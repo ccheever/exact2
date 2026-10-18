@@ -184,6 +184,7 @@ fn the_accent_colour_role_is_the_nearest_accent_color() {
 fn a_symbol_under_a_written_colour_is_marked_to_draw_in_it() {
     let plan = contract::compile(
         r##"component App
+  state ink = "not a colour"
   action noop
   view
     column
@@ -199,6 +200,8 @@ fn a_symbol_under_a_written_colour_is_marked_to_draw_in_it() {
       column color="#ff0000"
         column color="inherit"
           image "symbol:star" testId="cleared"
+        column color=ink
+          image "symbol:star" testId="refused"
         dialog role="alertdialog" aria-label="Alert"
           image "symbol:star" testId="alerted"
           button testId="ok" appearance="none" press=noop
@@ -228,6 +231,8 @@ fn a_symbol_under_a_written_colour_is_marked_to_draw_in_it() {
         ("own", true),
         // An authored clear is written, in a kernel-free document too.
         ("cleared", true),
+        // A bound value its row refuses is unset, its declaration written.
+        ("refused", true),
         // The neutral alert's starts set its colour and its message's
         // (`says` stops there), as the document without a kernel does.
         ("alerted", false),

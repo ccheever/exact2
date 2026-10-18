@@ -240,3 +240,77 @@ test('a symbol under a bound colour follows whether it has a value', async () =>
     try { await browser?.close(); } finally { server.stop(true); }
   }
 }, 30000);
+
+// The same with the app's modes on (modes.js): a mode boundary (`data-x-b`) under a
+// token colour writes it again as its implied row, no author's, so a symbol under it
+// is the accent, and so is one under a boundary whose own bound colour clears (the
+// implied row stands there, as the runner installs it). A bound colour on a boundary
+// (`Sx`) otherwise keeps its binding's provenance (`$ink`, rows.rs), not what the
+// boundary leaves inline: with no token above, a clear is said; `none` gives the
+// decision past it back; a value is said; a refused value is a clear.
+test('a symbol under a mode boundary follows its implied row and its binding', async () => {
+  const root = resolve(import.meta.dir, '../../..');
+  const img = (id, attr) => `<img id="${id}" data-symbol-source="symbol:book" data-symbol-path="M0 0L24 24" ${attr} style="width:16px;height:16px">`;
+  const content = `<div style="--exact-accent:rgb(102, 82, 197)">
+    <div class="c1" style="color:rgb(0, 128, 0)">${img('beside', 'data-symbol-color')}
+      <div id="pin" data-x-b="0" data-exact-ink="b">${img('under', 'data-symbol-ink="11"')}</div>
+      <div id="bound" data-x-b="0" data-exact-ink="1b">${img('cleared', 'data-symbol-ink="11"')}</div></div>
+    <div id="bare" data-x-b="0" data-exact-ink="1b">${img('alone', 'data-symbol-ink="10"')}</div></div>
+    <button id="none">None</button><button id="red">Red</button><button id="bad">Bad</button><button id="paint">Paint</button>`;
+  const boot = `import { symbols } from '/symbols.js';
+    import { modes, Sx } from '/modes.js';
+    import { commit, sig, W, S } from '/rt.js';
+    modes([], { c1: [0] }, ['color:rgb(0, 128, 0)'], {}, [], {});
+    const c = sig('inherit');
+    for (const id of ['bound', 'bare']) { const e = document.getElementById(id); Sx(S, e, 'color', '', () => { const v = c(); e.$ink = v != null; return v; }, 0); }
+    symbols({ book: ['M0 0L24 24', false] });
+    commit(() => {});
+    document.getElementById('none').onclick = () => commit(() => W(c, null));
+    document.getElementById('red').onclick = () => commit(() => W(c, 'rgb(255, 0, 0)'));
+    document.getElementById('bad').onclick = () => commit(() => W(c, 'not a colour'));
+    document.getElementById('paint').onclick = () => commit(() => W(c, document.getElementById('paint').dataset.v));
+    globalThis.ready = true;`;
+  const html = withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8'))
+    .replace('<div id="exact-root"></div>', `<div id="exact-root">${content}</div>`)
+    .replace('<script type="module" src="./glue.js"></script>', `<script type="module">${boot}</script>`);
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const path = new URL(request.url).pathname.slice(1);
+    if (!path) return new Response(html, { headers: { 'content-type': 'text/html' } });
+    if (path === 'names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
+    if (!/^[A-Za-z0-9_.-]+\.js$/.test(path)) return new Response('Not found', { status: 404 });
+    const file = [resolve(root, 'host/web-js', path), resolve(root, 'host/web', path)].find(existsSync);
+    return file ? new Response(Bun.file(file), { headers: { 'content-type': 'text/javascript' } }) : new Response('Not found', { status: 404 });
+  } });
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true, timeout: 10000 });
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(String(error)));
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => globalThis.ready);
+    // Each symbol's ink, and the colour it would take (its own `color`).
+    const ink = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => done(Object.fromEntries(['beside', 'under', 'cleared', 'alone']
+      .map(id => { const s = getComputedStyle(document.getElementById(id)); return [id, s.backgroundColor === s.color ? 'colour' : s.backgroundColor]; })))))));
+    const accent = 'rgb(102, 82, 197)';
+    expect(await ink()).toEqual({ beside: 'colour', under: accent, cleared: accent, alone: 'colour' });
+    await page.locator('#none').click();
+    expect(await ink()).toEqual({ beside: 'colour', under: accent, cleared: accent, alone: accent });
+    await page.locator('#red').click();
+    expect(await ink()).toEqual({ beside: 'colour', under: accent, cleared: 'colour', alone: 'colour' });
+    expect(await page.evaluate(() => getComputedStyle(document.getElementById('cleared')).color)).toBe('rgb(255, 0, 0)');
+    // A value the row refuses is unset as a clear is: the implied row stands.
+    await page.locator('#bad').click();
+    expect((await ink()).cleared).toBe(accent);
+    // One clear or refusal after another keeps the implied row; a value is said
+    // (the kernel's, modes_tests.rs `a_symbol_under_a_mode_boundary_…`).
+    for (const [v, want] of [['inherit', accent], ['unset', accent], ['currentcolor', accent], ['nope', accent], ['nada', accent], ['rgb(255, 0, 0)', 'colour'], ['inherit', accent]]) {
+      await page.evaluate(v => { document.getElementById('paint').dataset.v = v; }, v);
+      await page.locator('#paint').click();
+      expect([v, (await ink()).cleared]).toEqual([v, want]);
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    try { await browser?.close(); } finally { server.stop(true); }
+  }
+}, 30000);
