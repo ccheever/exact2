@@ -82,7 +82,7 @@ export function refuseBuild(host, state, app, { sample = false } = {}) {
 }
 
 /** host/apple/build.mjs's arguments for the build `bun exact.mjs ios|mac` runs before a drive. An iOS build installs
- * nothing: the drive installs it, keeping a Release build it replaces (devices.mjs `keepInstalledRelease`). */
+ * nothing: the drive installs it, copying aside a Release build it replaces (devices.mjs `keepInstalledRelease`). */
 export const buildArgs = (host, app) => [...(host === 'ios' ? ['--ios'] : []), app.crate('apple'), ...(host === 'ios' ? ['--no-install'] : [])];
 
 /** What a failed build said, short: from its first error, at most 30 lines (else

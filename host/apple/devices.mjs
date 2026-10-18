@@ -6,7 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
 import { basename, resolve } from 'node:path';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -235,58 +235,28 @@ export function replacedNote(udid, app, replaced, release) {
   return `host/apple: this development build replaced the simulator's ${replaced.what} of ${app.id} (one bundle id); put it back with ${back}`;
 }
 
-const KEPT_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
-/** Before a drive installs its development build `bundle` of `id` (`executable` its binary's name), run under the
- *  drive's lock on that simulator and app (agent-launch.mjs `exclusiveIOS`): whether to install (`install`: false when
- *  that build is installed already, `installedAlready`), and the build installed now when it is not a development one
- *  (its receipt's `build.trust`: a `--release` or production bake, or one with no receipt), kept so that `restore()`
- *  puts that very build back when the drive ends. Both share the bundle id, so without this a later benchmark or person
- *  finds the development build (euxy port).
- *
- *  The kept build is an APFS clone under `records`/<udid>-<id>, beside a record of the drive (its pid) written before
- *  anything is replaced; a clone that cannot be made throws, and nothing is installed. `restore()` runs at the drive's
- *  close, its exit and its SIGINT, SIGTERM or SIGHUP; a drive killed outright leaves the record, and the next drive on
- *  that simulator and app puts the kept build back first, unless the drive that wrote it is still running. Either puts
- *  it back only over a development build (the drive's own, at its close): one installed since by anything else stays,
- *  and the note says how to put the kept one back by hand. `note` says what was kept. */
+/** Before a drive installs its development build `bundle` of `id` (`executable` its binary's name): whether to install
+ *  (`install`: false when that build is installed already, `installedAlready`), and, when the build installed now is
+ *  not a development one (its receipt's `build.trust`: a `--release` or production bake, or one with no receipt), an
+ *  APFS clone of it under `records`/<udid>-<id>, replacing any older one, and `note`, the one command that puts it back.
+ *  Both share the bundle id, so a later benchmark or person would otherwise find the development build with no way
+ *  back (euxy port). Nothing is reinstalled for the drive: that is the person's call. A clone that cannot be made
+ *  throws, and nothing is installed. A drive's later sessions find the development build and copy nothing. */
 export function keepInstalledRelease(udid, id, bundle, executable, { records = resolve(homedir(), '.cache/exact/simulator-releases') } = {}) {
-  const dir = resolve(records, `${udid}-${id}`), record = resolve(dir, 'record.json');
-  const putBack = (copy, what, over) => {
-    if (!over()) { console.error(`note: ${id}'s kept ${what} was not put back: another build was installed over the drive's since; to put it back: xcrun simctl install ${udid} '${copy}'`); return false; }
-    const r = read('xcrun', ['simctl', 'install', udid, copy]);
-    if (r.status === 0) { rmSync(dir, { recursive: true, force: true }); return true; }
-    console.error(`note: ${id}'s kept ${what} was not put back (${(r.stderr || '').trim().split('\n').pop()}); to put it back: xcrun simctl install ${udid} '${copy}'`);
-    return false;
-  };
-  let left = null;
-  try { left = JSON.parse(readFileSync(record, 'utf8')); } catch {}
-  const running = left && Number.isInteger(left.pid) && left.pid !== process.pid && pidAlive(left.pid);
-  if (left && !running && putBack(left.copy, left.what, () => installedBuild(udid, id)?.trust === 'development')) console.error(`note: put back ${id}'s ${left.what}, which a drive (pid ${left.pid}) ended without restoring`);
-  if (installedAlready(udid, id, bundle, executable)) return { install: false, restore() {} };
+  if (installedAlready(udid, id, bundle, executable)) return { install: false };
   const { installed, trust, what } = installedBuild(udid, id) ?? {};
-  if (!installed || trust === 'development') return { install: true, restore() {} };
-  if (running) throw new Error(`${id}'s ${what} is not kept: ${record} holds the kept build of a drive still running (pid ${left.pid})`);
-  // A dead drive's record left here was not put back over this build, which is not a drive's: this one supersedes it.
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(dir, { recursive: true });
-  const copy = resolve(dir, basename(installed));
-  if (read('cp', ['-cR', installed, copy]).status !== 0) {
-    rmSync(dir, { recursive: true, force: true });
-    throw new Error(`${id}'s ${what} on this simulator could not be kept (cp -cR into ${dir} failed), so the drive's development build was not installed over it`);
+  if (!installed || trust === 'development') return { install: true };
+  // Copied beside the older copy first, which a failed copy leaves in place.
+  const dir = resolve(records, `${udid}-${id}`), next = `${dir}.new`, copy = resolve(dir, basename(installed));
+  rmSync(next, { recursive: true, force: true });
+  mkdirSync(next, { recursive: true });
+  if (read('cp', ['-cR', installed, resolve(next, basename(installed))]).status !== 0) {
+    rmSync(next, { recursive: true, force: true });
+    throw new Error(`${id}'s ${what} on this simulator could not be copied aside (cp -cR into ${next} failed), so the drive's development build was not installed over it`);
   }
-  writeFileSync(record, JSON.stringify({ pid: process.pid, udid, id, copy, what }));
-  let restored = false;
-  const onSignal = (signal) => { restore(); if (!process.listenerCount(signal)) process.kill(process.pid, signal); };
-  const restore = () => {
-    if (restored) return;
-    restored = true;
-    process.off('exit', restore);
-    for (const s of KEPT_SIGNALS) process.off(s, onSignal);
-    putBack(copy, what, () => installedAlready(udid, id, bundle, executable));
-  };
-  process.once('exit', restore);
-  for (const s of KEPT_SIGNALS) process.once(s, onSignal);
-  return { install: true, restore, note: `the simulator had ${id}'s ${what} installed: this drive installed its development build over it (one bundle id) and puts the ${what} back when it ends` };
+  rmSync(dir, { recursive: true, force: true });
+  renameSync(next, dir);
+  return { install: true, note: `the simulator had ${id}'s ${what} installed; this drive installed its development build over it (one bundle id). Put it back with: xcrun simctl install ${udid} '${copy}'` };
 }
 
 /** A simulator's software keyboard for a drive: shown for a focused field, as a person's iPhone shows it. Once a Device

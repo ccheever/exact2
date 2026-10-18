@@ -123,17 +123,21 @@ function mixOf(G, a, i, b) {
   return t !== null;
 }
 
-/** Whether cell i is an edge's anti-aliasing: on a run of up to three cells across or down, between two cells whose
- *  colours are present in the region (`present`), its colour a mix of theirs (`mixOf`). A 1 pt border whose colour is
- *  off the line between its two sides is its own colour; one on it (grey between white and black) reads as a blend,
- *  which the pixels cannot tell apart. */
+/** Whether cell i is an edge's anti-aliasing: on a run of at most three cells across or down, between two cells whose
+ *  colours are present in the region (`present`), every cell of the run, i among them, a mix of theirs (`mixOf`). A
+ *  1 pt border whose colour is off the line between its two sides, or beside a cell that is no mix of them (a strip
+ *  of another colour), is its own colour; one on it (grey between white and black) reads as a blend, which the
+ *  pixels cannot tell apart. */
 export function blended(G, i, present) {
-  const { w, h } = G, x = i % w, y = (i - x) / w;
-  for (const [dx, dy] of [[1, 0], [0, 1]]) for (let d1 = 1; d1 <= 3; d1++) for (let d2 = 1; d2 <= 3; d2++) {
+  const { w, h } = G, x = i % w, y = (i - x) / w, step = (dx, dy) => dy * w + dx;
+  for (const [dx, dy] of [[1, 0], [0, 1]]) for (let d1 = 1; d1 <= 3; d1++) for (let d2 = 1; d1 + d2 - 1 <= 3; d2++) {
     const xa = x - dx * d1, ya = y - dy * d1, xb = x + dx * d2, yb = y + dy * d2;
     if (xa < 0 || ya < 0 || xb >= w || yb >= h) continue;
     const a = ya * w + xa, b = yb * w + xb;
-    if (present(a) && present(b) && mixOf(G, a, i, b)) return true;
+    if (!present(a) || !present(b)) continue;
+    let run = true;
+    for (let k = a + step(dx, dy); k !== b && run; k += step(dx, dy)) run = mixOf(G, a, k, b);
+    if (run) return true;
   }
   return false;
 }

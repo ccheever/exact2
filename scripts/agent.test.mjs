@@ -264,6 +264,18 @@ test('compare: a 1 pt border between a lighter and a darker side keeps its colou
   const { report } = await import('./agent-compare.mjs');
   const text = report({ ...result, regions: [{ ...result.regions[0], hint: null }] }, [], { reference: 'r', diff: 'd' });
   assert.match(text, /here #[cd]00 on #\w{3}, in the reference #666 on #\w{3}/);
+  // White, the border, a 1 pt blue strip, then black: grey is a mix of white and black, but the blue between them is
+  // not, so the run is no blend and the grey stays the reference's colour.
+  const striped = (border) => [[29, 60, 1, 40, border], [30, 60, 1, 40, [0, 0, 255]], [31, 60, 40, 40, [0, 0, 0]]];
+  const strip = (await compared(striped([102, 102, 102]), striped([204, 0, 0]))).result;
+  assert.ok(strip.regions.length > 0);
+  const { reference: ref } = strip.regions[0].colours;
+  assert.equal(ref.ink ?? ref.fill, '#666');
+  assert.equal(ref.edges, undefined);
+  // The same cell judged alone: the run white, grey, blue, black is no blend, nor is white, grey, blue.
+  const { blended, grid } = await import('./agent-compare.mjs');
+  const G = grid(picture(120, 200, striped([102, 102, 102])), 120, 200);
+  assert.equal(blended(G, 70 * 120 + 29, () => true), false);
 });
 
 test('compare: a recoloured row among look-alikes is its colours, with no hint', async () => {

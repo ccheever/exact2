@@ -966,25 +966,25 @@ to each of these.
   default stays, since a plain screenshot that leaves out what is on screen is
   the surprise.
 - **The development build replacing a Release one.** The build a drive runs
-  first installs nothing (`--no-install`); the drive installs. Before it
-  installs its development build over a build whose receipt is not a
-  development one, it keeps that build (an APFS clone under
-  `~/.cache/exact/simulator-releases/`, beside a record of the drive's pid,
-  written first; a clone that cannot be made stops the drive before the
-  install) and reinstalls it at its close, its exit and SIGINT, SIGTERM or
-  SIGHUP; stderr says so once. A drive killed outright leaves the record,
-  and the next drive on that simulator and app puts the kept build back
-  first. Either reinstalls it only over a development build (at the close,
-  only over the drive's own), so a build installed since stays. `build.mjs
-  --ios` says when its development build replaced such a build, with the
-  command that puts it back. Bundle ids are unchanged.
+  first installs nothing (`--no-install`); the drive installs. Before its
+  first install over a build whose receipt is not a development one, it
+  copies that build aside (an APFS clone under
+  `~/.cache/exact/simulator-releases/<udid>-<id>/`, replacing an older copy
+  for that pair; a copy that fails stops the drive before the install), and
+  stderr says it was replaced, with the one command that puts it back:
+  `xcrun simctl install <udid> '<copy>'`. Nothing is reinstalled for the
+  drive: an automatic restore raced other drives and builds, and cost two
+  installs a session. The drive's later sessions find the development build
+  and copy nothing. `build.mjs --ios` says when its development build
+  replaced such a build, with the command that puts it back. Bundle ids are
+  unchanged.
 - **`compare` starts from an empty store.** A drive with a `screenshot …
   compare` and `--storage` empties the store on every host unless
   `--keep-storage` keeps it: what an earlier drive stored (a die rolled) is no
   part of the screen. A region's ink leaves out an edge's anti-aliasing: a
   cell on a run of up to three across or down between two colours present in
-  the region, its colour a mix of theirs (one fraction of the way in every
-  channel). A side whose differing cells are only that reads `#fff, its
+  the region, every cell of the run a mix of theirs (one fraction of the way
+  in every channel). A side whose differing cells are only that reads `#fff, its
   edge's anti-aliasing #bbb beside it`, and both sides' clauses are said. A
   1 pt border off the line between its two sides keeps its colour; one on it
   (grey between white and black) reads as a blend, which the pixels cannot

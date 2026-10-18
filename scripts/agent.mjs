@@ -669,8 +669,8 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
   // Real touches (LLP 1080.000, `--touch platform`; `drag`, an authored test's drag alone): the runner starts first, so its own launch never backgrounds the app.
   const touches = touch !== 'agent' ? await openTouches({ udid: dev.udid, appId: id ?? bundleId(a.crate('apple')) }) : null;
-  // A Release build installed under the bundle id is kept and put back when the drive ends (`keepInstalledRelease`).
-  let kept = null; try { kept = keepInstalledRelease(dev.udid, id, bundle, hostFixture ? 'ExactHostIOS' : executableName(a)); if (kept.install) install(dev, bundle, a, hostFixture, true); } catch (e) { kept?.restore(); await touches?.close(); throw e; }
+  // A Release build installed under the bundle id is copied aside first, and the note says how to put it back (`keepInstalledRelease`).
+  let kept = null; try { kept = keepInstalledRelease(dev.udid, id, bundle, hostFixture ? 'ExactHostIOS' : executableName(a)); if (kept.install) install(dev, bundle, a, hostFixture, true); } catch (e) { await touches?.close(); throw e; }
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
   const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
@@ -700,7 +700,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
       socket = await new Promise((ok) => { const s = connect(sock); s.once('connect', () => ok(s)); s.once('error', () => { s.destroy(); ok(null); }); });
       if (!socket) await sleep(50);
     }
-  }).catch(async (e) => { kept?.restore(); if (!console_) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); } throw e; });
+  }).catch(async (e) => { if (!console_) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); } throw e; });
   socket.on('error', () => {});
   const lines = jsonLines(socket, socket, hostLines);
   const exited = new Promise((r) => socket.on('close', async () => {
@@ -719,7 +719,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
       try { console_.kill('SIGKILL'); } catch {}
       await consoleExited;
     }
-    rmSync(dir, { recursive: true, force: true }); kept?.restore();
+    rmSync(dir, { recursive: true, force: true });
     if (touchFailure) throw touchFailure;
   };
   try {
