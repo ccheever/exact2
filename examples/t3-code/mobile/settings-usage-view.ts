@@ -24,7 +24,7 @@ const reveals=new Set<string>();let detailPrepared:Prepared|null=null;
 export function mobileUsageReveal(key:string){if(reveals.has(key))reveals.delete(key);else reveals.add(key);}
 const masked=(value:string|undefined,key:string)=>!value?'':reveals.has(key)?value:'••••••••';
 const paceLabel=(pace:string|null)=>pace==='ahead'?'Ahead of pace':pace==='under'?'Under pace':pace==='on'?'On pace':'';
-export function mobileUsagePresentation(input:Prepared|null,publish=true){
+export function mobileUsagePresentation(input:Prepared|null,publish=true,pendingCursor:(id:string)=>boolean=()=>false){
   if(publish){detailPrepared=input;if(!input)reveals.clear();}
   const sources=input?.sources??[],summaries=sources.flatMap(source=>source.summary?[{id:source.id,label:source.label,summary:source.summary}]:[]),merged=mergeUsage(summaries),tokens=input?.metric==='tokens',compatible=summaries.filter(item=>Number(item.summary.contractVersion)>=4&&Number(item.summary.contractVersion)<=6),actual=compatible.length>0;
   const accounts=collectLimitAccounts(input?.presentations??new Map()),pools=collectLimitPools(accounts,input?.now??0),periods=input?windowPeriods(input.window):[],byPeriod=new Map((input?.window.resolution==='hour'?merged.hourly:merged.daily).map(period=>[period.key,period]));
@@ -32,17 +32,21 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true){
   const periodAverage=activePeriods===0?0:merged.totalTokens/activePeriods,observedInput=merged.uncachedInputTokens+merged.cachedInputTokens;
   const peak=Math.max(0,...periods.map(key=>{const period=byPeriod.get(key);return period?(tokens?period.totalTokens:period.costUsd):0;}));
   const hasCursorAccount=sources.some(source=>arr(source.summary?.sources).some(item=>obj(item.fingerprint).provider==='cursor'&&obj(item.fingerprint).hostId==='cursor.com'));
+  const cursorSources=hasCursorAccount?[]:sources.filter(source=>arr(source.summary?.sources).some(item=>item.action==='enableCursorKeychain')&&arr(source.config.providers).some(provider=>provider.driver==='cursor'&&provider.status==='ready'));
+  const cursor=cursorSources.map(source=>({id:source.id,label:source.label,usageLabel:sources.length>1?`Cursor · ${source.label}`:'Cursor',
+    buttonLabel:cursorSources.length>1?`Enable on ${source.label}`:'Enable',disabled:!source.connected||!source.canWrite||pendingCursor(source.id)}));
+  const providers=mobileUsageProviderRows(merged.providers,tokens),afterCore=(ids:string[],claude:string)=>Math.max(ids.indexOf('codex'),ids.indexOf(claude))+1;
   return {ready:!!input,error:'',tab:input?.tab??'limits',metric:tokens?'tokens':'cost',hasUsage:actual,canRefresh:(input?.tab??'limits')==='limits'||sources.some(source=>source.canRead),refreshing:false,
     emptyMessage:!input?'':!sources.length?'Select an environment to see usage.':!actual&&input.tab==='usage'?'No usage summary is available for these environments.':'',
     environments:sources.map(source=>({id:source.id,label:source.label,status:source.error||(!source.connected?'Waiting for connection…':''),connected:source.connected})),
     notices:[...collectLimitNotices(input?.presentations??new Map()),...merged.mismatches.map(item=>`${item.environment}: ${item.direction==='serverBehind'?'Update the server to read usage.':'Update this app to read usage.'}`),...sources.flatMap(source=>arr(source.summary?.sources).flatMap(item=>str(item.message)?[`${source.label}: ${str(item.message)}`]:[]))].map((text,index)=>({id:String(index),text})),
     duplicateMessage:merged.duplicates.length?`Counted once across environments sharing a transcript directory: ${merged.duplicates.join(', ')}`:'',
     links:collectExternalUsageLinks(input?.presentations??new Map()).map(link=>({...link,accounts:link.accounts.join(', '),message:link.message??'',disabled:!input?.external})),
-    cursor:hasCursorAccount?[]:sources.filter(source=>arr(source.summary?.sources).some(item=>item.action==='enableCursorKeychain')&&arr(source.config.providers).some(provider=>provider.driver==='cursor'&&provider.status==='ready')).map(source=>({id:source.id,label:source.label,disabled:!source.connected||!source.canWrite})),
+    cursor,cursorInsertAt:afterCore(providers.map(item=>item.id),'claude'),cursorPoolInsertAt:afterCore(pools.map(pool=>pool.driver),'claudeAgent'),
     pools:pools.map(pool=>({id:pool.driver,label:provider(pool.driver).label,light:provider(pool.driver).light,dark:provider(pool.driver).dark,windows:displayLimitWindows(pool).map(window=>({id:`${window.kind}:${window.id}`,windowId:window.id,kind:window.kind,label:window.label,remaining:window.remainingPercent,pace:paceLabel(window.pace),
       columns:window.columns.map(({account,window:own})=>({key:account.key,label:account.displayName||provider(account.driver).label,present:!!own,remaining:own?remainingPercent(own):0,email:masked(account.email,account.key)})),
       resets:window.resets.map(reset=>({key:reset.member.account.key,text:`${reset.member.account.displayName||provider(reset.member.account.driver).label} · ${formatResetsIn(reset.member.window,input?.now??0)} · restores ${reset.restoresPercent}%`}))}))})),
-    limitsEmpty:input?.tab==='limits'&&pools.length===0?'No subscription limits reported.':'',
+    limitsEmpty:input?.tab==='limits'&&pools.length===0&&cursor.length===0?'No subscription limits reported.':'',
     total:actual?(tokens?formatTokens(merged.totalTokens):formatUsd(merged.costUsd)):'',chartTitle:`${input?.window.resolution==='hour'?'Hourly':'Daily'} ${tokens?'processed tokens':'cost'}`,
     chartHasActivity:(input?.window.resolution==='hour'?merged.hourly:merged.daily).some(period=>period.totalTokens>0),
     headlineLabel:actual?(tokens?'Processed tokens':'Raw token cost'):'',
@@ -53,7 +57,7 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true){
     chartLegend:merged.providers.flatMap(total=>{const item=MOBILE_USAGE_PROVIDERS.find(item=>item.id===total.provider);return item?[{id:item.id,label:item.label,light:item.light,dark:item.dark}]:[];}),
     chart:periods.map(key=>{const period=byPeriod.get(key);return {id:key,label:input?.window.resolution==='hour'?formatHourShort(key,input.window.timeZone):formatDayShort(key),
       bands:[...MOBILE_USAGE_PROVIDERS].reverse().map(provider=>{const band=period?.byProvider.get(provider.id),value=band?(tokens?band.totalTokens:band.costUsd):0;return {id:provider.id,light:provider.light,dark:provider.dark,height:peak?value/peak*180:0,value:tokens?formatTokens(value):formatUsd(value)};})};}),
-    providers:mobileUsageProviderRows(merged.providers,tokens),
+    providers,hasProviders:providers.length>0||cursor.length>0,
     totals:[{id:'tokens',label:'Processed tokens',value:formatTokens(merged.totalTokens),detail:`${formatTokens(periodAverage)} per active ${input?.window.resolution==='hour'?'hour':'day'}`},
       {id:'cache-savings',label:'Cache savings',value:formatUsd(merged.cacheSavingsUsd),detail:merged.costUsd>0?`${(merged.cacheSavingsUsd/merged.costUsd).toFixed(1)}x the raw cost`:'vs full input rates'},
       {id:'cache-read',label:'Cached input',value:formatTokens(merged.cachedInputTokens),detail:`${formatPercent(observedInput===0?0:merged.cachedInputTokens/observedInput)} of observed input`},
