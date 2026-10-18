@@ -216,22 +216,35 @@ pub(crate) fn value_edit(
 
 /// The edit for a refused value holding `color-mix()`, which no host parses: a mix of the
 /// design's tokens is folded by the build (a synthetic token, LLP 1121 D3), so one of
-/// colours alone is declared as a token, in a choice's arm or a shadow as anywhere.
+/// colours alone is declared as a token, in a choice's arm or a shadow as anywhere. Only a
+/// mix that folds as that token is named: a mix over a token the fold refused has said why.
 fn mix_edit(name: &str, text: &str) -> Option<String> {
-    let start = text.find("color-mix(")?;
-    let mut depth = 0;
-    let end = text[start..].char_indices().find_map(|(k, c)| {
-        match c {
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            _ => return None,
+    let mut from = 0;
+    let (start, end) = loop {
+        let start = from + text[from..].find("color-mix(")?;
+        let mut depth = 0;
+        let end = text[start..].char_indices().find_map(|(k, c)| {
+            match c {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => return None,
+            }
+            (depth == 0).then_some(start + k + 1)
+        })?;
+        let design = format!("tamber t\n\ntheme\n  mixed = {}\n", &text[start..end]);
+        let folds = exact_tamber::parse(&design)
+            .is_ok_and(|d| exact_tamber::check_design(d, &crate::theme::vocab()).is_ok());
+        if folds {
+            break (start, end);
         }
-        (depth == 0).then_some(start + k + 1)
-    })?;
-    let mix = &text[start..end];
-    let written = format!("{}mixed{}", &text[..start], &text[end..]);
+        from = end;
+    };
+    let (mix, written) = (
+        &text[start..end],
+        format!("{}mixed{}", &text[..start], &text[end..]),
+    );
     Some(format!(
-        "declare the mix as a token in app.tamber's `theme` (a new app.tamber's first line is `tamber <name>`), `mixed = {mix}`, and write `{name}=\"{written}\"`: the build folds `color-mix()` only over the design's tokens, as `color-mix(in srgb, <token> 35%, transparent)`, and a mix of colours alone is no colour a host reads"
+        "declare the mix as a token in app.tamber's `theme` (a new app.tamber's first line is `tamber <name>`), `mixed = {mix}`, and write `\"{written}\"` for `\"{text}\"` in `{name}`: the build folds `color-mix()` only over the design's tokens, as `color-mix(in srgb, <token> 35%, transparent)`, and a mix of colours alone is no colour a host reads"
     ))
 }
 

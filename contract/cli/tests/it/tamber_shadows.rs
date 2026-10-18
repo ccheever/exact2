@@ -250,12 +250,16 @@ fn a_mix_of_colours_alone_names_the_token_to_declare() {
     let lead = "declare the mix as a token in app.tamber's `theme` (a new app.tamber's first line is `tamber <name>`), `mixed = color-mix(in srgb, red 35%, transparent)`, and write";
     assert_eq!(messages.len(), 2, "{messages:#?}");
     assert!(
-        messages[0].starts_with(&format!("{lead} `background-color=\"mixed\"`")),
+        messages[0].starts_with(&format!(
+            "{lead} `\"mixed\"` for `\"{mix}\"` in `background-color`"
+        )),
         "{}",
         messages[0]
     );
     assert!(
-        messages[1].starts_with(&format!("{lead} `box-shadow=\"0 0 8px mixed\"`")),
+        messages[1].starts_with(&format!(
+            "{lead} `\"0 0 8px mixed\"` for `\"0 0 8px {mix}\"` in `box-shadow`"
+        )),
         "{}",
         messages[1]
     );
@@ -268,4 +272,24 @@ fn a_mix_of_colours_alone_names_the_token_to_declare() {
         ],
     );
     contract::compile_path(&path).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// A mix over a token the fold refuses is said where it is written, and the
+/// design and the mixes that folded stay bound: no other line is refused,
+/// and no line is told to declare a mix the fold read.
+#[test]
+fn a_refused_mix_leaves_the_design_and_the_other_mixes_bound() {
+    let view = "component App\n  state on = false\n  view\n    column\n      box background-color=(on ? \"color-mix(in srgb, c.ink 36%, transparent)\" : \"color-mix(in srgb, c.ink 35, nope)\")\n      box background-color=(on ? \"color-mix(in srgb, c.ink 37%, transparent)\" : \"c.ink\")\n      box box-shadow=\"0 0 8px color-mix(in srgb, c.ink 38%, transparent)\"\n";
+    let path = app(
+        "mix-refused",
+        &[("app.tamber", MIXES), ("app.contract", view)],
+    );
+    let errors = contract::compile_path_all(&path, false).err().unwrap();
+    assert_eq!(errors[0].id, "tamber-syntax", "{errors:#?}");
+    assert!(
+        errors
+            .iter()
+            .all(|e| e.span.line == 5 && !e.message.contains("declare the mix")),
+        "{errors:#?}"
+    );
 }
