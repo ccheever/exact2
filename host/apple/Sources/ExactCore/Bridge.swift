@@ -279,6 +279,7 @@ package final class Runtime {
     }
     package func dataReady() -> Batch { on { read(exact_data_ready(rt)) } }
     package func storeChanged() -> Batch { on { read(exact_store_changed(rt)) } }
+    package static var publishedStoreGeneration: UInt64 { exact_store_published() }
     package func discardPlan() { on { exact_discard_plan(rt) } }
     package func trim() { on { exact_trim(rt) } }
 

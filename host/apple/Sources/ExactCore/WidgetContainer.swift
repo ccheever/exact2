@@ -3,13 +3,19 @@ import Foundation
 #if EXACT_WIDGET_RELOAD
 import WidgetKit
 @_cdecl("exact_widget_reload")
-public func exactWidgetReload() { WidgetCenter.shared.reloadAllTimelines() }
+public func exactWidgetReload(_ bytes: UnsafePointer<UInt8>?, _ length: Int) {
+    if let bytes, let kinds = try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: length)) as? [String] {
+        for kind in kinds { WidgetCenter.shared.reloadTimelines(ofKind: kind) }
+    } else { WidgetCenter.shared.reloadAllTimelines() }
+}
 #else
 import CommonCrypto
 
 public enum WidgetContainer {
     public static var appID: String? { Bundle.main.object(forInfoDictionaryKey: "ExactAppIdentifier") as? String }
     public static var root: URL? {
+        if let appID, getenv("EXACT_APP_GROUP_APP").map({ String(cString: $0) }) == appID,
+           let path = getenv("EXACT_APP_GROUP_ROOT") { return URL(fileURLWithPath: String(cString: path)) }
         guard let group = Bundle.main.object(forInfoDictionaryKey: "ExactAppGroup") as? String else { return nil }
         return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
     }
@@ -52,15 +58,16 @@ public enum WidgetContainer {
         statusLock.lock(); lastFailure = error.map(String.init(describing:)); statusLock.unlock()
         if let error { FileHandle.standardError.write(Data("widget generation: \(error)\n".utf8)) }
     }
-    private static var storeObserver: WidgetStoreObserver?
-    /// Installed by the running app, never by the extension.
-    package static func observeStore(foreground: Notification.Name, changed: @escaping () -> Void) {
-        guard storeObserver == nil, let root, let appID,
-              Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") != nil else { return }
-        storeObserver = WidgetStoreObserver(root: root, name: appID + ".widget-store", foreground: foreground, changed: changed)
+    /// Installed by the running app, never by the extension. An explicit
+    /// configuration also lets an embedder supply its own container.
+    package static func observeStore(root: URL? = nil, appID: String? = nil, kinds: [String]? = nil,
+                                     foreground: [Notification.Name], changed: @escaping (Bool, @escaping (Bool) -> Void) -> Void) -> WidgetStoreObserver? {
+        guard let root = root ?? self.root, let appID = appID ?? self.appID,
+              let kinds = kinds ?? Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], !kinds.isEmpty else { return nil }
+        return WidgetStoreObserver(root: root, name: appID + ".widget-store", foreground: foreground, changed: changed)
     }
-    @MainActor package static func reloadAfterStoreChange() {
-        do { try reloadTimelines() } catch { report(error) }
+    @MainActor package static func reloadAfterStoreChange(kinds: [String]?) {
+        do { try reloadTimelines(kinds: kinds) } catch { report(error) }
     }
     /// Copy assets off the first-frame path; first-use framework loading and
     /// WidgetCenter's call run on main. A failed signal stays pending on disk.
@@ -76,9 +83,9 @@ public enum WidgetContainer {
             } catch { report(error) }
         }
     }
-    private typealias Reload = @convention(c) () -> Void
+    private typealias Reload = @convention(c) (UnsafePointer<UInt8>?, Int) -> Void
     @MainActor private static var reloader: (path: String, call: Reload)?
-    @MainActor package static func reloadTimelines(artifact: URL? = Bundle.main.privateFrameworksURL?.appendingPathComponent("ExactWidgetReload.framework/ExactWidgetReload")) throws {
+    @MainActor package static func reloadTimelines(kinds: [String]? = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], artifact: URL? = Bundle.main.privateFrameworksURL?.appendingPathComponent("ExactWidgetReload.framework/ExactWidgetReload")) throws {
         precondition(Thread.isMainThread)
         guard let path = artifact?.path else { throw HeadlessSession.Failure(description: "widget reload: app has no frameworks directory") }
         if reloader?.path != path {
@@ -94,7 +101,10 @@ public enum WidgetContainer {
             }
             reloader = (path, unsafeBitCast(symbol, to: Reload.self))
         }
-        reloader?.call()
+        if let kinds {
+            let bytes = try JSONSerialization.data(withJSONObject: kinds)
+            bytes.withUnsafeBytes { raw in reloader?.call(raw.bindMemory(to: UInt8.self).baseAddress, raw.count) }
+        } else { reloader?.call(nil, 0) }
     }
     @MainActor package static func signal(root: URL, reload: () throws -> Void) throws {
         precondition(Thread.isMainThread)
@@ -153,31 +163,61 @@ public enum WidgetContainer {
 package final class WidgetStoreObserver {
     private let counter: URL
     private let name: String
-    private let changed: () -> Void
+    private let changed: (Bool, @escaping (Bool) -> Void) -> Void
     private var generation: UInt64?
-    private var foregroundToken: NSObjectProtocol?
-    package init(root: URL, name: String, foreground: Notification.Name, changed: @escaping () -> Void) {
+    private var inFlight: UInt64?
+    private var foregroundTokens: [NSObjectProtocol] = []
+    private var token: UInt = 0
+    package init(root: URL, name: String, foreground: [Notification.Name], changed: @escaping (Bool, @escaping (Bool) -> Void) -> Void) {
         counter = root.appendingPathComponent("widget-store-generation")
         self.name = name
         self.changed = changed
-        foregroundToken = NotificationCenter.default.addObserver(forName: foreground, object: nil, queue: .main) { [weak self] _ in self?.check() }
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), { _, observer, _, _, _ in
-            guard let observer else { return }
-            let owner = Unmanaged<WidgetStoreObserver>.fromOpaque(observer).takeUnretainedValue()
-            DispatchQueue.main.async { [weak owner] in owner?.check() }
+        generation = readCounter()
+        token = StoreObservers.insert(self)
+        foregroundTokens = foreground.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.check() }
+        }
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), UnsafeRawPointer(bitPattern: token), { _, observer, _, _, _ in
+            guard let observer, let box = StoreObservers.find(UInt(bitPattern: observer)) else { return }
+            DispatchQueue.main.async { box.observer?.check() }
         }, name as CFString, nil, .deliverImmediately)
     }
     deinit {
-        if let foregroundToken { NotificationCenter.default.removeObserver(foregroundToken) }
-        CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), CFNotificationName(name as CFString), nil)
+        foregroundTokens.forEach(NotificationCenter.default.removeObserver)
+        CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), UnsafeRawPointer(bitPattern: token), CFNotificationName(name as CFString), nil)
+        StoreObservers.remove(token)
+    }
+    private func readCounter() -> UInt64? {
+        (try? String(contentsOf: counter, encoding: .utf8)).flatMap(UInt64.init)
     }
     package func check() {
         precondition(Thread.isMainThread)
-        guard let text = try? String(contentsOf: counter, encoding: .utf8),
-              let next = UInt64(text), next != generation else { return }
-        generation = next
-        changed()
+        guard let next = readCounter(), next != generation, inFlight == nil else { return }
+        inFlight = next
+        changed(next == Runtime.publishedStoreGeneration) { [weak self] success in
+            guard let self else { return }
+            if success { generation = next }
+            inFlight = nil
+            // A write can arrive while sessions are busy. It gets its own turn;
+            // a refusal of this same revision waits for the next foreground.
+            if readCounter() != next { DispatchQueue.main.async { [weak self] in self?.check() } }
+        }
     }
+}
+
+/// CF's token is an integer, never a pointer to a dying observer. A callback
+/// retains the weak box under the lock before hopping to main.
+private enum StoreObservers {
+    final class Box { weak var observer: WidgetStoreObserver?; init(_ observer: WidgetStoreObserver) { self.observer = observer } }
+    static let lock = NSLock()
+    static var next: UInt = 0
+    static var boxes: [UInt: Box] = [:]
+    static func insert(_ observer: WidgetStoreObserver) -> UInt {
+        lock.lock(); defer { lock.unlock() }
+        next += 1; boxes[next] = Box(observer); return next
+    }
+    static func find(_ token: UInt) -> Box? { lock.lock(); defer { lock.unlock() }; return boxes[token] }
+    static func remove(_ token: UInt) { lock.lock(); defer { lock.unlock() }; boxes.removeValue(forKey: token) }
 }
 
 #endif

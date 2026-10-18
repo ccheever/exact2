@@ -1,7 +1,7 @@
 #if EXACT_TEST_WIDGET_RELOAD
 import Foundation
 @_cdecl("exact_widget_reload")
-public func testWidgetReload() { precondition(Thread.isMainThread) }
+public func testWidgetReload(_ bytes: UnsafePointer<UInt8>?, _ length: Int) { precondition(Thread.isMainThread) }
 #else
 import XCTest
 import ExactCore

@@ -150,6 +150,7 @@ public final class ExactApp {
     private(set) var selectedToken: UInt64 = 0
     private var sessionRefs: [WeakSession] = []
     let notificationProcessID = UUID().uuidString
+    let sharedStore = SharedStoreRefresh()
     /// Every live session, in creation order.
     public var sessions: [ExactSession] { sessionRefs.compactMap(\.session) }
     /// The one dev connection (D11): the app URL `dev.mjs` prints, resolved
@@ -423,7 +424,7 @@ public final class ExactSession {
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
     // main instead, and runs after the slice lands, in order.
     private(set) var fillInFlight = false
-    private var afterFill: [(generation: Int, work: () -> Void)] = []
+    private var afterFill: [(generation: Int, work: () -> Void, cancelled: (() -> Void)?)] = []
     private let published = NSLock()
     /// What the owner committed without main waiting.
     private enum Published { case fill(UInt32), tick, canvas }
@@ -585,8 +586,8 @@ public final class ExactSession {
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
     /// Run `work` now, or after the slice in flight lands (LLP 1072 §3).
-    package func whenIdle(_ work: @escaping () -> Void) {
-        if fillInFlight { afterFill.append((generation, work)) } else { work() }
+    package func whenIdle(_ work: @escaping () -> Void, cancelled: (() -> Void)? = nil) {
+        if fillInFlight { afterFill.append((generation, work, cancelled)) } else { work() }
     }
 
     /// Send a build-only slice to the owner; its batch comes back published.
@@ -659,8 +660,12 @@ public final class ExactSession {
             guard state != .destroyed, next.generation == generation else {
                 // A replaced runtime's slice: its waiters go, the current runtime's run
                 guard case .fill = next.kind else { continue }
-                let current = state == .destroyed ? [] : afterFill.filter { $0.generation == generation }
-                afterFill.removeAll(); current.forEach { $0.work() }; continue
+                let waiting = afterFill
+                afterFill.removeAll()
+                for entry in waiting {
+                    if state != .destroyed && entry.generation == generation { entry.work() } else { entry.cancelled?() }
+                }
+                continue
             }
             let batch = next.batch
             if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
@@ -1218,6 +1223,7 @@ public final class ExactSession {
     private func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
         guard state != .destroyed, generation == drawnGeneration else { return }
         if firstDrawMs == nil { firstDrawMs = ExactEnv.wall() }
+        app.sharedStore.firstPixel()
         guard activatedGeneration != drawnGeneration else { return }
         activatedGeneration = drawnGeneration
         DispatchQueue.main.async { [weak self] in
@@ -1454,6 +1460,8 @@ public final class ExactSession {
     public func destroy() {
         guard state != .destroyed else { return }
         state = .destroyed
+        let waiting = afterFill; afterFill.removeAll()
+        waiting.forEach { $0.cancelled?() }
         generation += 1
         cancelAuthSessions()
         clockTimer?.invalidate()
