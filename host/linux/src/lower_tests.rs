@@ -200,6 +200,10 @@ fn a_look_arriving_mid_track_takes_the_readers_track_back() {
         h.engine.is_played(node, Property::Opacity),
         "the reader plays it"
     );
+    // A quarter of the way, still the reader's: the engine presents its target.
+    h.tick(250.);
+    assert!(h.engine.is_played(node, Property::Opacity));
+    assert_eq!(h.presented(target).opacity, 0.2);
     let epoch = h.lowered_epoch;
     let mut look = StyleProps::default();
     look.set_dynamic(StyleId::Opacity, &StyleValue::Number(0.5))
@@ -233,9 +237,19 @@ fn a_look_arriving_mid_track_takes_the_readers_track_back() {
     );
     assert!(!h.played.contains_key(&node));
     assert!(h.lowered_changed[&node] > epoch);
-    let shown = h.presented(target).opacity;
+    let shown = |h: &Host<()>| h.presented(target).opacity;
     assert!(
-        (shown - 0.8).abs() < 0.02,
-        "sampled where the curve is: {shown}"
+        (shown(&h) - 0.8).abs() < 0.02,
+        "sampled where the curve is: {}",
+        shown(&h)
     );
+    // It runs on along its curve, to its target at its own end.
+    h.tick(500.);
+    assert!(
+        (shown(&h) - 0.6).abs() < 0.02,
+        "on its curve: {}",
+        shown(&h)
+    );
+    h.tick(1000.);
+    assert_eq!(shown(&h), 0.2);
 }
