@@ -1,6 +1,7 @@
 //! Chrome 151.0.7922.34, 2026-10-17: two replaced elements, directly in a
 //! 400px flex row or each inside an automatic block item. Columns are 200px
-//! tall with `align-items:flex-start`. Frames are the flex container, block
+//! tall with `align-items:flex-start`; stretch rows are 100px tall and stretch
+//! columns 500px tall. Frames are the flex container, block
 //! items (when present), and leaves, relative to the flow-root (ids 2 onward).
 //! Canvas and loaded images have a natural size of 300×150; video has no metadata.
 use super::{lay_out_held, Frames};
@@ -408,4 +409,187 @@ fn zero_content_minima_transfer_through_the_ratio() {
         failures.join("\n"),
         failures.len()
     );
+}
+
+// Chrome 151.0.7922.34, 2026-10-18: padding and border stay in the box
+// the ratio relates, including intrinsic floors and both flex axes.
+#[test]
+fn intrinsic_padding_floors_preserve_the_replaced_ratio() {
+    let cases: &[(&str, &str, [Frames; 1])] = &[
+        (
+            "row",
+            "max-width:100%;padding:10px;box-sizing:content-box;aspect-ratio:2/1",
+            [&[
+                [0.0, 0.0, 400.0, 20.0],
+                [0.0, 0.0, 20.0, 20.0],
+                [20.0, 0.0, 20.0, 20.0],
+                [0.0, 0.0, 20.0, 20.0],
+                [20.0, 0.0, 20.0, 20.0],
+            ]],
+        ),
+        (
+            "row",
+            "max-width:100%;padding:10px;box-sizing:border-box;aspect-ratio:2/1",
+            [&[
+                [0.0, 0.0, 400.0, 20.0],
+                [0.0, 0.0, 40.0, 20.0],
+                [40.0, 0.0, 40.0, 20.0],
+                [0.0, 0.0, 40.0, 20.0],
+                [40.0, 0.0, 40.0, 20.0],
+            ]],
+        ),
+        (
+            "row",
+            "max-width:100%;padding:5px;padding-left:15px;padding-right:15px;border-width:2px;border-style:solid;box-sizing:border-box;aspect-ratio:3/1",
+            [&[
+                [0.0, 0.0, 400.0, 14.0],
+                [0.0, 0.0, 42.0, 14.0],
+                [42.0, 0.0, 42.0, 14.0],
+                [0.0, 0.0, 42.0, 14.0],
+                [42.0, 0.0, 42.0, 14.0],
+            ]],
+        ),
+    ];
+    check(cases, &[("video", NodeType::Video, 0)]);
+}
+#[test]
+fn flex_ratio_transfers_keep_padding_and_border() {
+    let cases: &[(&str, &str, [Frames; 1])] = &[
+        (
+            "stretch-row",
+            "padding:10px;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 180.0, 100.0],
+                [180.0, 0.0, 180.0, 100.0],
+            ]],
+        ),
+        (
+            "direct",
+            "max-height:50px;padding:10px;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 400.0, 70.0],
+                [0.0, 0.0, 120.0, 70.0],
+                [120.0, 0.0, 120.0, 70.0],
+            ]],
+        ),
+        (
+            "stretch-column",
+            "padding:10px;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 400.0, 500.0],
+                [0.0, 0.0, 400.0, 210.0],
+                [0.0, 210.0, 400.0, 210.0],
+            ]],
+        ),
+        (
+            "column",
+            "max-width:100px;padding:10px;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 400.0, 200.0],
+                [0.0, 0.0, 120.0, 70.0],
+                [0.0, 70.0, 120.0, 70.0],
+            ]],
+        ),
+        (
+            "direct",
+            "max-width:100px;padding:10px;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 400.0, 70.0],
+                [0.0, 0.0, 120.0, 70.0],
+                [120.0, 0.0, 120.0, 70.0],
+            ]],
+        ),
+        (
+            "stretch-row",
+            "padding:10px;box-sizing:border-box",
+            [&[
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 180.0, 100.0],
+                [180.0, 0.0, 180.0, 100.0],
+            ]],
+        ),
+        (
+            "direct",
+            "max-height:50px;padding:10px;box-sizing:border-box",
+            [&[
+                [0.0, 0.0, 400.0, 50.0],
+                [0.0, 0.0, 80.0, 50.0],
+                [80.0, 0.0, 80.0, 50.0],
+            ]],
+        ),
+        (
+            "stretch-column",
+            "padding:10px;box-sizing:border-box",
+            [&[
+                [0.0, 0.0, 400.0, 500.0],
+                [0.0, 0.0, 400.0, 210.0],
+                [0.0, 210.0, 400.0, 210.0],
+            ]],
+        ),
+        (
+            "column",
+            "max-width:100px;padding:10px;box-sizing:border-box",
+            [&[
+                [0.0, 0.0, 400.0, 200.0],
+                [0.0, 0.0, 100.0, 60.0],
+                [0.0, 60.0, 100.0, 60.0],
+            ]],
+        ),
+        (
+            "direct",
+            "max-width:100px;padding:10px;box-sizing:border-box",
+            [&[
+                [0.0, 0.0, 400.0, 60.0],
+                [0.0, 0.0, 100.0, 60.0],
+                [100.0, 0.0, 100.0, 60.0],
+            ]],
+        ),
+        (
+            "stretch-row",
+            "padding:5px;padding-left:15px;padding-right:15px;border-width:2px;border-style:solid;box-sizing:border-box",
+            [&[
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 206.0, 100.0],
+                [206.0, 0.0, 206.0, 100.0],
+            ]],
+        ),
+        (
+            "stretch-row",
+            "padding:10px;box-sizing:border-box;aspect-ratio:2/1",
+            [&[
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+            ]],
+        ),
+        (
+            "stretch-row",
+            "padding:10px;box-sizing:border-box;aspect-ratio:auto 3/1",
+            [&[
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 180.0, 100.0],
+                [180.0, 0.0, 180.0, 100.0],
+            ]],
+        ),
+        (
+            "direct",
+            "max-height:50px;padding:5px;padding-left:15px;padding-right:15px;border-width:2px;border-style:solid;box-sizing:content-box",
+            [&[
+                [0.0, 0.0, 400.0, 64.0],
+                [0.0, 0.0, 134.0, 64.0],
+                [134.0, 0.0, 134.0, 64.0],
+            ]],
+        ),
+        (
+            "direct",
+            "max-height:50px;padding:5px;padding-left:15px;padding-right:15px;border-width:2px;border-style:solid;box-sizing:border-box",
+            [&[
+                [0.0, 0.0, 400.0, 50.0],
+                [0.0, 0.0, 106.0, 50.0],
+                [106.0, 0.0, 106.0, 50.0],
+            ]],
+        ),
+    ];
+    check(cases, &[("canvas", NodeType::Canvas, 0)]);
 }

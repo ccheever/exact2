@@ -939,11 +939,8 @@ fn determine_flex_base_size(
 
     for child in flex_items.iter_mut() {
         let child_style = tree.get_flexbox_child_style(child.node);
-        let replaced_ratio = if child_style.is_compressible_replaced() {
-            Ratio::of(&child_style, (child.padding + child.border).sum_axes())
-        } else {
-            None
-        };
+        let ratio = Ratio::of(&child_style, (child.padding + child.border).sum_axes());
+        let replaced_ratio = ratio.filter(|_| child_style.is_compressible_replaced());
 
         // Parent size for child sizing
         let cross_axis_parent_size = constants.node_inner_size.cross(dir);
@@ -955,8 +952,8 @@ fn determine_flex_base_size(
         let cross_axis_margin_sum = child.margin.cross_axis_sum(dir);
         // EXACT PATCH 12: never into a dimension the item sizes itself.
         let sized = child.size_style.map(|d| !d.is_auto());
-        let transferred_min_size = transfer_into_unsized(child.min_size, child.aspect_ratio, sized);
-        let transferred_max_size = transfer_into_unsized(child.max_size, child.aspect_ratio, sized);
+        let transferred_min_size = transfer_into_unsized(child.min_size, ratio, sized);
+        let transferred_max_size = transfer_into_unsized(child.max_size, ratio, sized);
         let child_min_cross = transferred_min_size.cross(dir).maybe_add(cross_axis_margin_sum);
         let child_max_cross = transferred_max_size.cross(dir).maybe_add(cross_axis_margin_sum);
 
@@ -1155,9 +1152,9 @@ fn determine_flex_base_size(
             // is calculated by transferring that cross size through the aspect ratio (case B
             // above), and is therefore definite.
             if child_cross_size_is_definite {
-                if let (Some(ratio), Some(cross)) = (child.aspect_ratio, child_known_dimensions.cross(dir)) {
+                if let (Some(ratio), Some(cross)) = (ratio, child_known_dimensions.cross(dir)) {
                     child.flex_basis_is_definite = true;
-                    break 'flex_basis if dir.is_row() { cross * ratio } else { cross / ratio };
+                    break 'flex_basis if dir.is_row() { ratio.width(cross) } else { ratio.height(cross) };
                 }
             }
 
@@ -2028,10 +2025,11 @@ fn determine_hypothetical_cross_size(
         // https://github.com/w3c/csswg-drafts/issues/10997
         // EXACT PATCH 12: never into a dimension the item sizes itself.
         let sized = child.size_style.map(|d| !d.is_auto());
+        let ratio = Ratio::of(&tree.get_flexbox_child_style(child.node), (child.padding + child.border).sum_axes());
         let transferred_min_cross =
-            transfer_into_unsized(child.min_size, child.aspect_ratio, sized).cross(constants.dir);
+            transfer_into_unsized(child.min_size, ratio, sized).cross(constants.dir);
         let transferred_max_cross =
-            transfer_into_unsized(child.max_size, child.aspect_ratio, sized).cross(constants.dir);
+            transfer_into_unsized(child.max_size, ratio, sized).cross(constants.dir);
 
         let child_cross = child
             .size

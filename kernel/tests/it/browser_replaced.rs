@@ -892,6 +892,12 @@ fn lay_out_held(layout: &str, item: &str, kind: NodeType, view_box: bool) -> Ker
         ),
         "row" => ("display:flex", &[(3, ""), (4, "")], &[(5, 3), (6, 4)]),
         "direct" => ("display:flex", &[], &[(3, 2), (4, 2)]),
+        "stretch-row" => ("display:flex;height:100px", &[], &[(3, 2), (4, 2)]),
+        "stretch-column" => (
+            "display:flex;flex-direction:column;height:500px",
+            &[],
+            &[(3, 2), (4, 2)],
+        ),
         "column" => (
             "display:flex;flex-direction:column;height:200px;align-items:flex-start",
             &[],

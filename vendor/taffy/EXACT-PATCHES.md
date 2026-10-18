@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37 and 38 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38 and 39 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1149,6 +1149,27 @@ and `zero_content_minima_transfer_through_the_ratio`: literal Chrome 151.0.7922.
 frames for canvas, loaded images, unsized SVG and metadata-free video. Cases cover
 both box-sizing modes, row and column axes, authored ratios, borders and a maximum
 that caps a transferred minimum.
+
+## Patch 39: retain the ratio's inset in flex sizing and intrinsic floors
+
+The definite-cross-size flex basis and min/max transfers into unsized axes use
+`Ratio::width` and `Ratio::height`. Both flex-basis and hypothetical-cross-size
+calculation subtract the source-axis inset and restore the destination-axis
+inset for a content-box ratio. An authored border-box ratio uses zero inset.
+A padded canvas stretched to 100px tall therefore has a 180px flex basis:
+80px of content height at 2:1, plus 20px of horizontal padding.
+
+The kernel's intrinsic measurement of a replaced element without natural size
+also transfers the vertical padding/border floor through an authored border-box
+ratio. Its content height cannot become negative, so its automatic width must
+fit that floor before the leaf applies constraints. An explicitly given width
+still wins; content-box ratios retain their zero content-size contribution.
+
+**Held by** `browser_replaced::constraints::intrinsic_padding_floors_preserve_the_replaced_ratio`
+and `flex_ratio_transfers_keep_padding_and_border`: literal Chrome 151.0.7922.34
+frames measured on 2026-10-18. Cases cover metadata-free videos in block flex
+items, stretched canvases, both flex axes and box-sizing modes, width and height
+maxima, asymmetric padding with borders, and authored and auto ratios.
 
 ## Cargo workspace boundary
 
