@@ -734,9 +734,21 @@ if (es) {
     bindHold(kept.frame);
     command(kept.frame);
   };
+  // How long a hold waits for the input glue before saying it is not loaded; the glue's `hold` once it has loaded
+  // (it says so: `exact-hold`), or null after `ms` or once `stale()`.
+  const HOLD_WAIT = 60_000;
+  const glueHold = (ms, stale) => new Promise((ok) => {
+    if (globalThis.exact?.hold) return ok(globalThis.exact.hold);
+    const until = Date.now() + ms;
+    const end = () => { clearInterval(tick); globalThis.removeEventListener("exact-hold", end); ok(globalThis.exact?.hold ?? null); };
+    const tick = setInterval(() => { if (globalThis.exact?.hold || stale() || Date.now() > until) end(); }, 250);
+    globalThis.addEventListener("exact-hold", end);
+  });
   const hold = async (frame) => {
     const at = holdAt.get(frame) ?? { gen: globalThis.exact.generation ?? null, digest: null, epoch, stream: channel.nonce };
-    for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise((ok) => setTimeout(ok, 50)); // the input glue loads after paint
+    // The input glue loads after paint: waited for (a page restarting after a rebuild, on a loaded machine, takes
+    // far longer than a fixed wait), unless a newer frame comes (as host/web-js/inspect-dev.js's `glueHold`).
+    await glueHold(HOLD_WAIT, () => channel.holdLatest !== frame);
     // Only the latest frame applies (a replay queued before a newer clear does not), and only on the stream it came
     // on (a new one's server knows nothing of it).
     const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
