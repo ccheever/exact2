@@ -143,8 +143,15 @@ pub(crate) fn accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
         .map(|c| rgba(c.resolve(dark)))
 }
 
-/// The colour of a focused node's ring: its accent ([`accents`]).
+/// A field's focus colour: neutral invalid chrome uses system red;
+/// bare fields and Material retain their accent ([`accents`]).
 pub(crate) fn ring(node: &NodeRef<'_>, dark: bool) -> [u8; 4] {
+    if look::neutral()
+        && node.style.appearance != Appearance::None
+        && node.props.str(PropId::AccessibilityInvalid) == Some("true")
+    {
+        return look::role("-exact-system-red", dark);
+    }
     accents(accent(node, dark), dark).0
 }
 
