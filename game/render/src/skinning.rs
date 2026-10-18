@@ -18,6 +18,7 @@ pub(crate) fn interpolated_local([a, b]: [exact_game::Transform; 2], alpha: f32)
     )
 }
 struct PoseModel {
+    /// The posable nodes as (name hash, name, node index), sorted by hash.
     nodes: Vec<(u64, String, usize)>,
     diagnostics: crate::world::scene::DiagnosticRegistry,
 }
@@ -50,6 +51,8 @@ pub(crate) struct Skinning {
     assignments: crate::node_poses::Assignments,
     generation: Option<u64>,
     pub(crate) pose_words: Vec<f32>,
+    /// `pack`'s scratch: indices into a model's `nodes` that rows name.
+    touched: Vec<usize>,
     jobs_words: Vec<u32>,
     // Each job's record, and the jobs dispatched (levels of detail not drawn
     // this frame skip theirs).
@@ -84,6 +87,7 @@ impl Skinning {
             assignments: Default::default(),
             generation: None,
             pose_words: vec![],
+            touched: vec![],
             jobs_words: vec![],
             job_records: vec![],
             active_words: vec![],
@@ -160,14 +164,16 @@ impl Skinning {
             .iter()
             .position(Option::is_none)
             .unwrap_or(self.models.len());
+        let mut nodes: Vec<_> = model
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.posable)
+            .map(|(i, n)| (exact_game::NodeName::hash_str(&n.name), n.name.clone(), i))
+            .collect();
+        nodes.sort_by_key(|n| n.0);
         let pose_model = Some(PoseModel {
-            nodes: model
-                .nodes
-                .iter()
-                .enumerate()
-                .filter(|(_, n)| n.posable)
-                .map(|(i, n)| (exact_game::NodeName::hash_str(&n.name), n.name.clone(), i))
-                .collect(),
+            nodes,
             diagnostics: Default::default(),
         });
         if model_id == self.models.len() {
@@ -466,12 +472,12 @@ impl Skinning {
                 }
             };
             let state = &mut self.primed[i].2;
-            let pair = state.begin(
+            state.begin(
                 w.tick(),
                 (self.assignments.revision(e), t.model as u64),
                 has_pose,
                 initial || t.fresh || w.is_fresh(e),
-                self.history.pair(e, false),
+                self.history.pair(e, false)[1],
             );
             for node in 0..len / 10 {
                 let at = node * 10;
@@ -491,36 +497,44 @@ impl Skinning {
                     base[1],
                 );
             }
+            let pair = self.primed[i].2.rows(self.history.pair(e, false));
             let model = self.models[t.model].as_mut().expect("live pose model");
-            for rows in &pair {
+            // The posable nodes some row names, each once; a node no row names
+            // keeps its base pose. `nodes` is sorted by hash.
+            self.touched.clear();
+            for rows in pair {
                 if rows.overflowed() {
                     model
                         .diagnostics
                         .node_warning(t.model, "", "more than sixteen rows");
                 }
                 for row in rows.rows() {
-                    if !model.nodes.iter().any(|(hash, name, _)| {
-                        *hash == row.node.hash() && name == row.node.as_str()
-                    }) {
-                        model.diagnostics.node_warning(
+                    let hash = row.node.hash();
+                    let from = model.nodes.partition_point(|n| n.0 < hash);
+                    match model.nodes[from..]
+                        .iter()
+                        .take_while(|n| n.0 == hash)
+                        .position(|n| n.1 == row.node.as_str())
+                    {
+                        Some(k) => self.touched.push(from + k),
+                        None => model.diagnostics.node_warning(
                             t.model,
                             row.node.as_str(),
                             "node is absent or not posable",
-                        );
+                        ),
                     }
                 }
             }
-            // With no row at either endpoint every node keeps its base pose.
-            let offsets = pair
-                .iter()
-                .any(|rows| !rows.rows().is_empty() || rows.overflowed());
-            for (hash, name, node) in model.nodes.iter().filter(|_| offsets) {
+            self.touched.sort_unstable();
+            self.touched.dedup();
+            for &k in &self.touched {
+                let (hash, name, node) = &model.nodes[k];
                 let at = offset + node * 10;
                 let base = [
                     crate::node_poses::read(&self.pose_words[at..]),
                     crate::node_poses::read(&self.pose_words[at + len..]),
                 ];
-                if let Some(composed) = crate::node_poses::resolve_pair(base, &pair, name, *hash) {
+                if let Some(composed) = crate::node_poses::resolve_pair(base, pair, name, *hash) {
                     crate::node_poses::put(&mut self.pose_words[at..at + 10], composed[0]);
                     crate::node_poses::put(
                         &mut self.pose_words[at + len..at + len + 10],

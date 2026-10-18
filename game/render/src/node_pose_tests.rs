@@ -202,11 +202,11 @@ fn endpoint_history_same_tick_removal_reset_and_invalid_rows() {
     history.update(sim.world(), true);
     sim.run(50.);
     history.update(sim.world(), false);
-    let first = history.pair(e, false);
+    let first = history.pair(e, false).map(|o| *o);
     sim.world_mut().get_mut::<Gait>(e).unwrap().angle = 0.8;
     sim.run(0.);
     history.update(sim.world(), false);
-    let pair = history.pair(e, false);
+    let pair = history.pair(e, false).map(|o| *o);
     assert_eq!(
         pair[0].rows()[0].transform.rotation,
         first[0].rows()[0].transform.rotation
@@ -218,7 +218,7 @@ fn endpoint_history_same_tick_removal_reset_and_invalid_rows() {
     sim.world_mut().get_mut::<Gait>(e).unwrap().shown = false;
     sim.run(17.);
     history.update(sim.world(), false);
-    let removed = history.pair(e, false);
+    let removed = history.pair(e, false).map(|o| *o);
     assert_eq!(removed[0].rows().len(), 1);
     assert!(removed[1].rows().is_empty());
     sim.run(17.);
@@ -403,7 +403,7 @@ fn hidden_instances_keep_tick_exact_rows_and_same_tick_feed_replaces_current() {
     sim.run(0.);
     feed.feed(sim.world(), &mut renderer).unwrap();
     let skin = renderer.models.skinning.as_ref().unwrap();
-    let before = skin.history.pair(e, false);
+    let before = skin.history.pair(e, false).map(|o| *o);
     assert!(before[0].rows()[0]
         .transform
         .rotation
@@ -421,7 +421,8 @@ fn hidden_instances_keep_tick_exact_rows_and_same_tick_feed_replaces_current() {
         .as_ref()
         .unwrap()
         .history
-        .pair(e, false);
+        .pair(e, false)
+        .map(|o| *o);
     assert_eq!(
         before[0].rows()[0].transform.rotation,
         after[0].rows()[0].transform.rotation
@@ -440,7 +441,8 @@ fn hidden_instances_keep_tick_exact_rows_and_same_tick_feed_replaces_current() {
         .as_ref()
         .unwrap()
         .history
-        .pair(e, false);
+        .pair(e, false)
+        .map(|o| *o);
     assert!(removed[1].rows().is_empty());
     assert_eq!(removed[0].rows()[0].transform, after[0].rows()[0].transform);
 }
@@ -647,12 +649,13 @@ fn retiring_models_reclaims_names_diagnostics_and_priming_but_keeps_hidden_live_
         .as_ref()
         .unwrap()
         .history
-        .pair(hidden, false);
+        .pair(hidden, false)
+        .map(|o| *o);
     sim.world_mut().remove::<Visible>(hidden);
     sim.run(0.);
     feed.feed(sim.world(), &mut renderer).unwrap();
     let skin = renderer.models.skinning.as_ref().unwrap();
-    let after = skin.history.pair(hidden, false);
+    let after = skin.history.pair(hidden, false).map(|o| *o);
     for endpoint in 0..2 {
         assert_eq!(
             before[endpoint].rows()[0].transform,
