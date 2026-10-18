@@ -17,6 +17,7 @@ shape Drink
   id: string
   ml: number
   day: string
+  at: number
 
 shape Log
   total: number
@@ -32,7 +33,8 @@ component App
   resource time = exactTime() as shape Time
   state now = 0
   derive goal = 2000
-  derive today = formatDate(time.epochAtZero + now, time.utcOffset, "iso")
+  derive shown = time.epochAtZero + now
+  derive today = formatDate(shown, time.utcOffset, "iso")
   resource log = loadLog(today) as shape Log else empty()
   mutation saved as shape Reply queue refreshes log
   task tick mount
@@ -43,7 +45,7 @@ component App
   action add(ml: number)
     let at = time.epochAtZero + performanceNow()
     now = performanceNow()
-    send saved = addEntry(ml, formatDate(at, time.utcOffset, "iso"))
+    send saved = addEntry(ml, formatDate(at, time.utcOffset, "iso"), at)
   action undo
     send saved = undoEntry(today)
   action follow(url: string)
@@ -79,8 +81,10 @@ component App
               section testId="history"
                 header
                   text "History"
-                // `RowText` straight in a section is the row: a title, its value at the far edge.
+                // `RowText` straight in a section is the row: a title over its detail. A day's label
+                // is `formatDay` (Today, Yesterday, Mar 12, 2026), never the key or a weekday the
+                // data module writes.
                 for x in log.entries key=x.id
-                  RowText(title=`${x.ml} ml`, detail="", value=some(x.day == today ? "Today" : x.day))
+                  RowText(title=`${x.ml} ml`, detail=formatDay(x.at, shown, time.utcOffset, "day-time"), value=none)
                 footer
                   text (log.entries.length == 0 ? "Nothing yet. Tap an amount to log a drink." : "") testId="history-empty"
