@@ -137,6 +137,7 @@ export class Transport {
     const session = this.sessionAt(slot);
     if (!session || !key || (slot === 0 ? key !== FOCUSED : session.key !== key)) return { attempt, seq: this.seq };
     if (session.wantsFlow(attempt)) await session.connectFlow(attempt);
+    else if (session.flowRunning === attempt) await session.joinFlow(attempt);
     else if (check > 0) await session.checkRoutes(check).catch(() => undefined);
     return { attempt, seq: this.seq };
   }
