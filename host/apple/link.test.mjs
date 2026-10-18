@@ -39,3 +39,36 @@ test('ordinary app executables refuse WidgetKit and ActivityKit load commands', 
     }
   } finally { rmSync(dir, {recursive:true,force:true}); }
 });
+
+// The async iOS step supplies its just-built bundle. Glue has no assembled iOS fixture yet.
+test.skipIf(!process.env.EXACT_ACTIVITY_APP)('the assembled app and extension refuse push-to-start symbols, remote registration and its background mode (LLP 1126.001 WP9)', async () => {
+  const { assertActivityRefusals } = await import('./activities.mjs');
+  const { cpSync, readFileSync, readdirSync } = await import('node:fs');
+  const { spawnSync } = await import('node:child_process');
+  const { resolve } = await import('node:path');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-activity-refusals-'));
+  const runApple = (cmd, args) => {
+    const result = spawnSync(cmd, args, { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result;
+  };
+  try {
+    const app = resolve(process.env.EXACT_ACTIVITY_APP);
+    assert.ok(assertActivityRefusals(app, runApple) >= 3, 'app, extension and ActivityKit arm are scanned');
+    cpSync(app, dir, { recursive: true });
+    const extension = resolve(dir, 'PlugIns', readdirSync(resolve(dir, 'PlugIns')).find(n => n.endsWith('.appex')));
+    for (const directory of [dir, extension]) {
+      const plist = resolve(directory, 'Info.plist'), original = readFileSync(plist);
+      const info = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', plist]).stdout);
+      const binary = resolve(directory, info.CFBundleExecutable), bytes = readFileSync(binary);
+      runApple('plutil', ['-replace', 'UIBackgroundModes', '-json', '["remote-notification"]', plist]);
+      assert.throws(() => assertActivityRefusals(dir, runApple), /remote-notification/);
+      writeFileSync(plist, original);
+      for (const symbol of ['pushToStartTokenUpdates', 'registerForRemoteNotifications']) {
+        writeFileSync(binary, Buffer.concat([bytes, Buffer.from(`\0${symbol}\0`)]));
+        assert.throws(() => assertActivityRefusals(dir, runApple), new RegExp(symbol));
+      }
+      writeFileSync(binary, bytes);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

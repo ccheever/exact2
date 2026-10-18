@@ -352,9 +352,12 @@ impl<D: DataSource> Runner<D> {
         let name = |plan: &Plan| plan.str(plan.mutations[m].name).to_string();
         self.snapshot_sockets();
         self.mutation_requests += 1;
-        let answer = self
-            .data
-            .answer_for(Target::Mutation(m), &mut self.store, source, args);
+        let answer = if Self::activity_send(source) {
+            self.activity_request(source, args)
+        } else {
+            self.data
+                .answer_for(Target::Mutation(m), &mut self.store, source, args)
+        };
         // What its source staged on sockets goes out only with an answer
         // now that conforms (LLP 1016.000 D7); what the turns after its
         // source sent goes whatever it answers (the amendment of 2026-10-18).

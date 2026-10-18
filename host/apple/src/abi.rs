@@ -264,6 +264,12 @@ impl<D: DataSource> Bridge<D> {
                     Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
                     continue;
                 }
+                if r.request.url == "exact-activity:" {
+                    if let Ok(request) = std::str::from_utf8(&r.request.body) {
+                        presenter.activity(r.ticket, request);
+                    }
+                    continue;
+                }
                 if r.request.is_auth() {
                     Self::auth_arm(h, x, &mut presenter, &r);
                     continue;
