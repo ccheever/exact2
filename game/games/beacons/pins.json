@@ -4,16 +4,16 @@
     "90": "0xa4eefb7865f5f042"
   },
   "saves": {
-    "continuation": "0895a5513bd7ca4681a7eef4611852f414d944eb36134e0e00e299f25821b743"
+    "continuation": "d2a39cfa3883b08fd0c0b6c839d7c93865197b053abe56e35662d00f37aea225"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "908694326549f45cff46c94caa296491533f55e23341fd9f6496a2af8ee21098",
-  "sourceInputs": "4376b9224e93127f0b31f3fbb46b9c4b133da1ec9ac3f7083aea93b7a81768ec",
+  "inputs": "fa95503a30fa816878db15f60438d09882bfd3dc9c383802139a4d46227628f6",
+  "sourceInputs": "94d6918a545f37f3293403689cbebfc0852d30681850b5d3b8ae6f1efb2b4eec",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "bc995361ed4c2477ababc3d01755f47609585608",
-  "reason": "EXSIM v8 (LLP 1127.003 D10: InputEvent::Pad and player) moves the continuation save. Ticks 0 and 90 move as origin/main already moved them (the 2026-10-17 engine change): they hash the same with and without this lane's engine."
+  "at": "cf42ef991fd5fc00da1f6f7e50bd4f75f5935acc",
+  "reason": "Gameplay: Beacons gains a 200 ms sprint hold and a beacon input context for light (LLP 1127.003 review round 1, LLP 1128 I12); the continuation save now holds the InputContexts resource. Ticks 0 and 90 are unchanged."
 }
