@@ -143,10 +143,13 @@ final class MenuHost {
         let actions: [Presented]
         /// The alert's buttons for `actions`, in order.
         var buttons: [UIAlertAction] = []
+        /// The hide-only cancel as presented, and the alert's button for it.
+        let cancel: Presented?
+        var cancelButton: UIAlertAction?
         /// A prompt's text fields (`PromptFieldIOS.swift`).
         var fields: [PromptField] = []
-        init(host: MenuHost, source: NodeView?, popover: NodeView, modal: Bool, actions: [Presented], style: Style, title: String?, message: String?) {
-            self.host = host; self.source = source; self.popover = popover; self.modal = modal; self.actions = actions; self.style = style
+        init(host: MenuHost, source: NodeView?, popover: NodeView, modal: Bool, actions: [Presented], cancel: Presented?, style: Style, title: String?, message: String?) {
+            self.host = host; self.source = source; self.popover = popover; self.modal = modal; self.actions = actions; self.cancel = cancel; self.style = style
             sourced = source != nil; invoked = source.map { host.opens($0, popover) } ?? false
             route = host.presenter?.navigation.routeKey(containing: source ?? popover)
             alert = UIAlertController(title: title, message: message, preferredStyle: style == .alert ? .alert : .actionSheet)
@@ -486,13 +489,13 @@ final class MenuHost {
     private func valid(_ owner: Confirmation) -> Bool {
         guard let pop = owner.popover else { return false }
         guard owner.sourced else { return showable(pop) && presenter?.navigation.routeKey(containing: pop) == owner.route
-            && owner.actions.allSatisfy { presented(owner, $0) } }
+            && owner.actions.allSatisfy { presented(owner, $0) } && cancelStands(owner) }
         guard let source = owner.source else { return false }
         let modal = isDialog(pop)
         return eligible(source, inertBoundary: modal ? source : nil) && live(pop) && source.window != nil
             && (!owner.invoked || opens(source, pop)) && isConfirmation(pop)
             && presenter?.navigation.routeKey(containing: source) == owner.route
-            && owner.actions.allSatisfy { presented(owner, $0) }
+            && owner.actions.allSatisfy { presented(owner, $0) } && cancelStands(owner)
     }
     /// A confirmation `showModal` may present: live, in a window, on the
     /// active route, not under a disabled or (for a popover) inert ancestor.
@@ -507,6 +510,13 @@ final class MenuHost {
         guard let action = entry.node, let pop = owner.popover, live(action) else { return false }
         return closes(action, pop, modal: owner.modal) && action.isDescendant(of: pop) && title(of: action) == entry.title
             && choosable(action, in: pop) == entry.enabled
+    }
+    /// The cancel still shows what the alert shows for it: live, in its
+    /// popover, closing it, its title unchanged.
+    private func cancelStands(_ owner: Confirmation) -> Bool {
+        guard let entry = owner.cancel else { return true }
+        guard let cancel = entry.node, let pop = owner.popover, live(cancel) else { return false }
+        return cancel.isDescendant(of: pop) && closes(cancel, pop, modal: owner.modal) && title(of: cancel) == entry.title
     }
     private func choosable(_ action: NodeView, in pop: NodeView) -> Bool {
         eligible(action, inertBoundary: isDialog(pop) ? pop.superview : nil)
@@ -949,16 +959,25 @@ final class MenuHost {
         guard let row = at as? NodeView, row.superview === pop.container, row.props["popover"] == nil else { return nil }
         return (pop, row)
     }
-    /// The title UIKit's alert or action sheet shows for `node`, a button
-    /// (an action or the cancel) of the confirmation it presents: what a
-    /// finger picks under `--touch platform`. Nil for anything else.
-    func shownAction(_ node: NodeView) -> String? {
-        guard let owner = confirmation, !owner.finishing, let pop = owner.popover, node.isDescendant(of: pop) else { return nil }
+    /// For `node`, a row (an action or the cancel) of the confirmation UIKit
+    /// presents, the alert and the `UIAlertAction` it shows for the row, with
+    /// its title as presented: what a finger picks under `--touch platform`
+    /// (`Agent.aim`), or why none can be. Nil for any other node.
+    func shownAction(_ node: NodeView) -> Result<(alert: UIAlertController, action: UIAlertAction, title: String), AimRefusal>? {
+        guard let owner = confirmation, let pop = owner.popover, node.isDescendant(of: pop) else { return nil }
         var at: UIView = node
         while let up = at.superview, up !== pop.container { at = up }
-        guard let row = at as? NodeView else { return nil }
-        if let entry = owner.actions.first(where: { $0.node === row }) { return entry.title }
-        return rows(of: pop, modal: owner.modal).cancels.first === row ? title(of: row) : nil
+        let index = owner.actions.firstIndex { $0.node === at }
+        guard index != nil || owner.cancel.map({ $0.node === at }) == true else { return nil }
+        // UIKit draws no cancel in a popover.
+        if index == nil, owner.style == .popover { return .failure(AimRefusal(why: "it is the cancel of a popover, which shows no cancel button: a tap outside the popover dismisses it")) }
+        if owner.finishing || owner.dismissing || owner.alert.isBeingPresented || owner.alert.isBeingDismissed {
+            return .failure(AimRefusal(why: "the alert is still moving; `clock settle` first"))
+        }
+        guard let action = index.map({ owner.buttons[$0] }) ?? owner.cancelButton, let entry = index.map({ owner.actions[$0] }) ?? owner.cancel else {
+            return .failure(AimRefusal(why: "the alert shows no button for it"))
+        }
+        return .success((owner.alert, action, entry.title))
     }
     /// Under the agent, the rows each popover's menu was last given, in
     /// order, by popover id: where a finger finds a row in the menu UIKit
@@ -1245,7 +1264,8 @@ final class MenuHost {
         // label, its text the message (LLP 1115 D6).
         let words = style == .alert ? ConfirmationShape.alertText(label: label, lines: texts)
             : (title: label, message: texts.isEmpty ? nil : texts.joined(separator: "\n"))
-        let owner = Confirmation(host: self, source: source, popover: pop, modal: modal, actions: presented, style: style,
+        let owner = Confirmation(host: self, source: source, popover: pop, modal: modal, actions: presented,
+                                 cancel: cancels.first.map { Confirmation.Presented($0, title: title(of: $0), enabled: true) }, style: style,
                                  title: words.title, message: words.message)
         // A native action's tint is its accent (LLP 1069.011.000 D5); the
         // alert has one tint, the first action's. Unsaid, it is UIKit's
@@ -1264,10 +1284,12 @@ final class MenuHost {
             owner.alert.addAction(alertAction)
             owner.buttons.append(alertAction)
         }
-        if let cancel = cancels.first {
-            owner.alert.addAction(UIAlertAction(title: title(of: cancel), style: .cancel) { [weak self, weak owner] _ in
+        if let cancel = owner.cancel {
+            let button = UIAlertAction(title: cancel.title, style: .cancel) { [weak self, weak owner] _ in
                 if let owner { self?.select(owner, nil) }
-            })
+            }
+            owner.alert.addAction(button)
+            owner.cancelButton = button
         }
         // A prompt: each field is UIKit's, standing in for the authored one,
         // and Return chooses its first action that is not destructive, as a

@@ -94,52 +94,136 @@ final class AgentPresentedIOSTests: XCTestCase {
         XCTAssertEqual(r["presented"] as? String, "sheet"); XCTAssertEqual(r["h"] as? Double, 800)
     }
 
-    /// A native button that hides the popover `confirm`.
-    private func button(_ id: Int, press: Bool, y: Double) -> [[String: Any]] {
-        [["op": "create", "id": id, "kind": "control", "handlers": press ? ["press"] : [],
-          "props": ["type": "button", "accessibilityRole": "button", "popovertarget": "confirm", "popovertargetaction": "hide"],
-          "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
-         ["op": "frame", "id": id, "x": 0.0, "y": y, "w": 80.0, "h": 40.0]]
+
+    // A real touch (`--touch platform`) on a row of a confirmation aims at
+    // the button UIKit's alert shows for it, never at the hidden authored
+    // node, which every alert covered ("UIView covers its middle": a euxy
+    // row's rename prompt could not be driven).
+
+    private var titles: [UInt32: String] = [:]
+    /// The popover `confirm`, labelled `label`, with the text rows `texts`
+    /// (10…), a native action row per title in `actions` (3…) and a
+    /// hide-only Cancel (9), under the agent `mounted()` made.
+    private func confirmation(label: String, texts: [String], actions: [String]) throws -> Presenter {
+        let p = try XCTUnwrap(session).presenter
+        titles = [9: "Cancel"]
+        for (i, title) in actions.enumerated() { titles[UInt32(3 + i)] = title }
+        p.buttonFace = { [unowned self] id in var f = ButtonFace(); f.title = self.titles[id]; return f }
+        let ink: [String: Any] = ["text_color": [0, 0, 0, 255]]
+        func button(_ id: Int, press: Bool) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": "control", "handlers": press ? ["press"] : [],
+              "props": ["type": "button", "accessibilityRole": "button", "popovertarget": "confirm", "popovertargetaction": "hide"],
+              "style": ink.merging(["appearance": "auto"]) { $1 }],
+             ["op": "frame", "id": id, "x": 0.0, "y": Double(40 * id), "w": 80.0, "h": 40.0]]
+        }
+        var ops: [[String: Any]] = [
+            ["op": "create", "id": 2, "kind": "view", "handlers": [], "style": ink,
+             "props": ["id": "confirm", "popover": "auto", "accessibilityRole": "alertdialog", "accessibilityLabel": label]],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 300.0, "h": 600.0]]
+        let textIds = texts.indices.map { 10 + $0 }, actionIds = actions.indices.map { 3 + $0 }
+        for (id, text) in zip(textIds, texts) { ops.append(["op": "create", "id": id, "kind": "text", "props": ["text": text], "handlers": [], "style": ink]) }
+        for id in actionIds { ops += button(id, press: true) }
+        ops += button(9, press: false)
+        ops += [["op": "children", "id": 2, "ids": textIds + actionIds + [9]], ["op": "roots", "ids": [1, 2]]]
+        p.apply(wireBatch(ops))
+        return p
+    }
+    private func settle(_ p: Presenter) {
+        let end = Date().addingTimeInterval(3)
+        while p.menus.inTransition, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+    }
+    /// The aim's reply for a plain real tap on `id`.
+    private func aim(_ agent: Agent, _ id: Int) throws -> [String: Any] {
+        let reply = agent.aim(["id": id])
+        if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "the test host is in the background: a real touch's aim refuses it") }
+        return reply
+    }
+    /// The `UIAlertAction` whose button a finger at the aim's point presses.
+    private func pressed(_ reply: [String: Any]) throws -> UIAlertAction? {
+        let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
+        let w = try XCTUnwrap(aim["window"] as? [Double])
+        var hit = try XCTUnwrap(window).hitTest(CGPoint(x: w[0], y: w[1]), with: nil)
+        while let view = hit, !NSStringFromClass(type(of: view)).hasPrefix("_UIAlertControllerActionView") { hit = view.superview }
+        return hit?.value(forKey: "action") as? UIAlertAction
     }
 
-    /// A real touch (`--touch platform`) on a button of a confirmation aims
-    /// at the button UIKit's alert shows for it, never at the hidden
-    /// authored node, which every alert covered ("UIView covers its middle":
-    /// a euxy row's rename prompt could not be driven).
-    func testARealTouchAimsAtTheAlertsButtonForAConfirmationsRow() throws {
+    /// Two actions the alert titles alike, and the alert's own title the
+    /// same: each row presses its own button, in the order the rows were given.
+    func testARealTouchPressesTheAlertsOwnButtonForEachRowAlikeTitlesOrNot() throws {
         let agent = mounted()
-        let p = try XCTUnwrap(session).presenter
-        let titles: [UInt32: String] = [3: "Keep", 9: "Cancel"]
-        p.buttonFace = { id in var f = ButtonFace(); f.title = titles[id]; return f }
-        p.apply(wireBatch([
-            ["op": "create", "id": 2, "kind": "view", "handlers": [], "style": ["text_color": [0, 0, 0, 255]],
-             "props": ["id": "confirm", "popover": "auto", "accessibilityRole": "alertdialog", "accessibilityLabel": "Keep?"]],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
-            ["op": "create", "id": 10, "kind": "text", "props": ["text": "A message."], "handlers": [], "style": ["text_color": [0, 0, 0, 255]]],
-        ] + button(3, press: true, y: 40) + button(9, press: false, y: 80) + [
-            ["op": "children", "id": 2, "ids": [10, 3, 9]], ["op": "roots", "ids": [1, 2]],
-        ]))
+        let p = try confirmation(label: "Photos", texts: ["Where should it go?"], actions: ["Photos", "Photos"])
         p.menus.action("showPopover", ["confirm"])
         let alert = try XCTUnwrap(root?.presentedViewController as? UIAlertController)
         guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
             throw missing("scene", "a presentation completes only in a scene's window")
         }
-        let end = Date().addingTimeInterval(3)
-        while p.menus.inTransition, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        settle(p)
         alert.view.layoutIfNeeded()
-        for (id, title) in [(9, "Cancel"), (3, "Keep")] {
-            let reply = agent.aim(["id": id])
-            if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "the test host is in the background: a real touch's aim refuses it") }
-            let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
-            let native = try XCTUnwrap(aim["native"] as? [String: Any], "\(aim)")
+        XCTAssertEqual(alert.preferredStyle, .alert)
+        for (id, index) in [(3, 0), (4, 1), (9, 2)] {
+            let reply = try aim(agent, id)
+            let native = try XCTUnwrap((reply["aim"] as? [String: Any])?["native"] as? [String: Any], "\(reply)")
             XCTAssertEqual(native["kind"] as? String, "alertAction")
-            XCTAssertEqual(native["label"] as? String, title)
-            let w = try XCTUnwrap(aim["window"] as? [Double])
-            var hit = try XCTUnwrap(window).hitTest(CGPoint(x: w[0], y: w[1]), with: nil)
-            while let view = hit, view.accessibilityLabel != title { hit = view.superview }
-            XCTAssertNotNil(hit, "\(title): the point is on UIKit's \(title) button")
-            XCTAssertTrue(hit?.isDescendant(of: alert.view) == true, "\(title): in the alert")
+            XCTAssertEqual(native["label"] as? String, titles[UInt32(id)])
+            XCTAssertTrue(try pressed(reply) === alert.actions[index], "row \(id) presses the alert's button \(index)")
         }
+    }
+
+    /// The cancel's title is the one the alert shows: a cancel that now says
+    /// something else ends the alert, as an action's does.
+    func testACancelRetitledEndsTheAlert() throws {
+        let agent = mounted()
+        let p = try confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"])
+        p.menus.action("showPopover", ["confirm"])
+        let alert = try XCTUnwrap(root?.presentedViewController as? UIAlertController)
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "a presentation completes only in a scene's window")
+        }
+        settle(p)
+        XCTAssertEqual(alert.actions.last?.title, "Cancel")
+        XCTAssertEqual((try aim(agent, 9)["aim"] as? [String: Any]).flatMap { $0["native"] as? [String: Any] }?["label"] as? String, "Cancel")
+        titles[9] = "Close"
+        p.menus.sync()
+        XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[2])), "the alert's Cancel no longer says what the page does")
+        let end = Date().addingTimeInterval(3)
+        while root?.presentedViewController != nil, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        XCTAssertNil(root?.presentedViewController, "and UIKit's alert is gone")
+    }
+
+    /// An alert still arriving or leaving is no place for a finger: the aim
+    /// says so rather than aiming where its button will be, or was.
+    func testAnAlertStillMovingRefusesTheAim() throws {
+        let agent = mounted()
+        let p = try confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"])
+        p.menus.action("showPopover", ["confirm"])
+        let alert = try XCTUnwrap(root?.presentedViewController as? UIAlertController)
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "a presentation completes only in a scene's window")
+        }
+        if alert.isBeingPresented {
+            XCTAssertTrue((try aim(agent, 3)["error"] as? String)?.contains("still moving") == true, "arriving")
+        }
+        settle(p)
+        XCTAssertNotNil(try aim(agent, 3)["aim"], "arrived")
+        p.menus.action("hidePopover", ["confirm"])
+        XCTAssertTrue((try aim(agent, 9)["error"] as? String)?.contains("still moving") == true, "leaving")
+    }
+
+    /// A chooser at regular width is a popover, which UIKit draws without its
+    /// cancel: a tap on the cancel is refused, naming the tap outside.
+    func testAPopoverChoosersCancelIsRefusedNamingTheTapOutside() throws {
+        let agent = mounted()
+        let p = try confirmation(label: "Open in", texts: [], actions: ["Maps", "Waze"])
+        try XCTUnwrap(root).traitOverrides.horizontalSizeClass = .regular
+        p.menus.action("showPopover", ["confirm"])
+        let alert = try XCTUnwrap(root?.presentedViewController as? UIAlertController)
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "a presentation completes only in a scene's window")
+        }
+        try XCTSkipUnless(p.menus.observation()?["presentation"] as? String == "popover", "the regular width took")
+        settle(p)
+        XCTAssertTrue((try aim(agent, 9)["error"] as? String)?.contains("tap outside") == true)
+        XCTAssertTrue(try pressed(try aim(agent, 4)) === alert.actions[1], "an action still aims at its button")
     }
 }
 #endif
