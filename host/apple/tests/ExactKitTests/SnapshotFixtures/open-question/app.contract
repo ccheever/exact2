@@ -1,0 +1,110 @@
+// LLP 1126.000 WP4's fidelity fixture: Interview's open-question widget as
+// the hand-built SwiftUI baseline (`spike/1126-baseline`) has it, one entry
+// per family. It says what that baseline says and no more: text styles,
+// colour roles, the serif the app's headlines use, a heading for the
+// accented group, `aria-label`s, and `data-privacy="public"` on what is not
+// account content. The relative time is a string until WP3's `time` lands.
+
+shape QuestionProps
+  id: string
+  title: string
+  topic: string
+  answerCount: number
+  authorName: string
+  authorInitials: string
+  isAI: bool
+  summary: string
+  score: number
+  answeredAgo: string
+
+component Topic
+  props
+    topic: string
+  view
+    text topic font="-exact-caption2" font-weight=600 letter-spacing=1.2 color="-exact-secondary-label" line-clamp=1 role="heading" aria-level=6 data-privacy="public"
+
+component Byline
+  props
+    name: string
+    initials: string
+    isAI: bool
+    ago: string
+  view
+    column gap=3
+      row gap=6 align-items="center"
+        row width=20 height=20 border-radius=10 background-color="-exact-quaternary-fill" align-items="center" justify-content="center" aria-hidden=true
+          text initials font-size=9 font-weight=600 font-family="ui-rounded"
+        text name font="-exact-caption1" font-weight=600 line-clamp=1
+        if isAI
+          text "AI" font="-exact-caption2" font-weight=600 padding-left=4 padding-right=4 padding-top=1 padding-bottom=1 background-color="-exact-quaternary-fill" border-radius=4 aria-label="AI answer"
+      text `${ago} ago` font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 data-privacy="public"
+
+component QuestionSmall
+  props
+    id: string
+    title: string
+    topic: string
+    answerCount: number
+    authorName: string
+    authorInitials: string
+    isAI: bool
+    summary: string
+    score: number
+    answeredAgo: string
+  view
+    link href=`/prompt/${id}` width="100%" height="100%" display="flex" flex-direction="column" gap=6 color="CanvasText"
+      Topic(topic=topic)
+      text title font="-exact-footnote" font-family="serif" font-weight=600 line-clamp=4
+      view flex=1
+      Byline(name=authorName, initials=authorInitials, isAI=isAI, ago=answeredAgo)
+
+component QuestionMedium
+  props
+    id: string
+    title: string
+    topic: string
+    answerCount: number
+    authorName: string
+    authorInitials: string
+    isAI: bool
+    summary: string
+    score: number
+    answeredAgo: string
+  view
+    link href=`/prompt/${id}` width="100%" height="100%" display="flex" flex-direction="row" gap=14 color="CanvasText"
+      column gap=6 flex=1 min-width=0
+        Topic(topic=topic)
+        text title font="-exact-subheadline" font-family="serif" font-weight=600 line-clamp=4
+        view flex=1
+        text `${answerCount} ${answerCount == 1 ? "perspective" : "perspectives"}` font="-exact-caption2" color="-exact-secondary-label" data-privacy="public"
+      column gap=6 flex=1 min-width=0
+        Byline(name=authorName, initials=authorInitials, isAI=isAI, ago=answeredAgo)
+        text summary font="-exact-footnote" line-clamp=4
+        view flex=1
+        row gap=4 align-items="center" color="-exact-secondary-label" aria-label=`${score} upvotes` data-privacy="public"
+          image "symbol:sf/arrow.up" font="-exact-caption2" font-weight=600 aria-hidden=true
+          text `${score}` font="-exact-caption2" font-weight=600
+
+component QuestionRectangular
+  props
+    id: string
+    title: string
+    topic: string
+    answerCount: number
+    authorName: string
+    authorInitials: string
+    isAI: bool
+    summary: string
+    score: number
+    answeredAgo: string
+  view
+    link href=`/prompt/${id}` width="100%" height="100%" display="flex" flex-direction="column" justify-content="center" gap=2 color="CanvasText"
+      row gap=4 align-items="center"
+        image "symbol:sf/text.bubble" font="-exact-headline" aria-hidden=true
+        text authorName font="-exact-headline" line-clamp=1 role="heading" aria-level=6
+      text title font="-exact-caption1" line-clamp=2
+      text `Answered ${answeredAgo} ago` font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 data-privacy="public"
+
+component App
+  view
+    text "The widget fixture has no app."

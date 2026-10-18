@@ -49,6 +49,10 @@ let core: [Target] = [
         swiftSettings: [.unsafeFlags(["-application-extension"])],
         linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++"), .linkedFramework("ImageIO")]
     ),
+    // The snapshot driver (LLP 1126 D4, D5): SwiftUI over a headless
+    // session's node model, for WidgetKit's archive. Linked by an app with
+    // entries and its extension, never by a presenter.
+    .target(name: "ExactSnapshot", dependencies: ["ExactCore"], path: "Sources/ExactSnapshot", swiftSettings: [.unsafeFlags(["-application-extension"])]),
     .target(name: "ExactKit", dependencies: ["ExactCore", "CExact"], path: "Sources/ExactKit", swiftSettings: devTools),
     .target(name: "ExactUpdates", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactUpdates"),
     .target(name: "ExactGroupedLists", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactGroupedLists"),
@@ -82,14 +86,14 @@ let tests: [Target] = [
     // The video arm's media session coordinator (LLP 1098 D7), driven by the
     // tests over stand-in players; the arm itself is build.mjs's dylib.
     .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),
-    .testTarget(name: "ExactKitTests", dependencies: ["ExactCore", "ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactMediaPicker", "ExactAuthSession", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests",
-                resources: [.copy("ColorFixtures")], swiftSettings: devTools),
+    .testTarget(name: "ExactKitTests", dependencies: ["ExactCore", "ExactSnapshot", "ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactMediaPicker", "ExactAuthSession", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests",
+                resources: [.copy("ColorFixtures"), .copy("SnapshotFixtures")], swiftSettings: devTools),
 ]
 
 let package = Package(
     name: "Exact",
     platforms: [.macOS(.v14), .iOS(.v17), .tvOS(.v17), .watchOS(.v10), .visionOS(.v1)],
-    products: [.library(name: "ExactCore", targets: ["ExactCore"])] + (testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
+    products: [.library(name: "ExactCore", targets: ["ExactCore"]), .library(name: "ExactSnapshot", targets: ["ExactSnapshot"])] + (testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
         .library(name: "ExactKit", targets: ["ExactKit"]),
         .library(name: "ExactUpdates", targets: ["ExactUpdates"]),
         .library(name: "ExactGroupedLists", targets: ["ExactGroupedLists"]),

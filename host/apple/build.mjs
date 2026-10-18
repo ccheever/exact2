@@ -1406,6 +1406,13 @@ async function test(args) {
       const plan = env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`);
       run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, `scripts/fixtures/${name}.contract`), '-o', plan]);
     }
+    // The snapshot driver's entries (LLP 1126.000 WP4): Caltrain's, and the
+    // open-question fixture's three families, each an entry plan of its own.
+    for (const [app, kind, key] of [['apps/caltrain', 'next-trains', 'SNAPSHOT_TRAINS'], ['host/apple/Tests/ExactKitTests/SnapshotFixtures/open-question', 'question-small', 'SNAPSHOT_QUESTION_SMALL'],
+      ['host/apple/Tests/ExactKitTests/SnapshotFixtures/open-question', 'question-medium', 'SNAPSHOT_QUESTION_MEDIUM'], ['host/apple/Tests/ExactKitTests/SnapshotFixtures/open-question', 'question-rectangular', 'SNAPSHOT_QUESTION_RECTANGULAR']]) {
+      const plan = env[`${prefix}_${key}_PLAN`] = resolve(dir, `${kind}.plan`);
+      run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, app, 'app.contract'), '--entry', kind, '-o', plan]);
+    }
   };
   const ios = args.includes('--ios');
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--sim'));
