@@ -2,34 +2,35 @@
 // primary control (Merge with its method, Ready for review, "Auto-merge (method)", Resolve conflicts,
 // the armed badge, the Merged/Closed badge), the More menu's action group (Merge now, Enable/Disable
 // auto-merge, the merge-method radios, Convert to draft, Close, Reopen, Revert changes), the five
-// confirmations, the out-of-date base branch's popover (Update branch / Update with rebase),
+// confirmations in place, the out-of-date base branch's popover (Update branch / Update with rebase),
 // "Approve workflows to run", one runner for all ten actions with the reference's toasts and
 // failure hints, and the overrides the panel writes onto the Pull Requests list as an action goes.
-// Sources: T3 Code (MIT, see LICENSE-T3) apps/web/src/components/pullRequest/PullRequestDetailPanel.tsx
-// (perform/finishAction, the confirmation AlertDialog, PullRequestBaseFreshnessWarning, the header and
-// menu matrix), pullRequestDetail.logic.ts (ported in pr-row-logic.ts), pullRequestList.logic.ts
+// Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3) apps/web/src/components/pullRequest/PullRequestDetailPanel.tsx
+// (perform/finishAction, PullRequestBaseFreshnessWarning, the header and menu matrix), useInlineActionConfirm.ts,
+// pullRequestDetail.logic.ts (ported in pr-row-logic.ts), pullRequestList.logic.ts
 // (pullRequestOverrideAfterAction, applyPullRequestOverrides, settlePullRequestOverrides: ported here
 // with their tests' names) and routes/_chat.pull-requests.tsx onActed (the list's "sent"/"done"/"failed").
 //
-// The menu's choices (a confirmation, a merge method) are chatlocal ops, answered without the command
+// The menu's choices (arming a confirmation, a merge method) are chatlocal ops, answered without the command
 // gate; an action is a pages command (`pageslocal:pr-act-action`) that marks itself pending and wakes
 // the panel's resource (`t3.pr`) so "Merging..." shows while GitHub works, as the reference's
-// pendingAction does. React-only behaviour (Base UI focus return, the dialog's open/close
-// transition) is the framework's: Escape is the Cancel button's `aria-keyshortcuts`.
+// pendingAction does. useInlineActionConfirm: the first press arms its own control ("Confirm merge?"),
+// a second press on that control runs it, and the arming lapses after 3 s (app.contract's task), when
+// the control loses the focus, on Escape, or when the window does.
 import type { T3Client } from '../client/client';
 import { num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
-import { pushToast } from '../shell/toast';
+import { dismissToast, pushToast, updateToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
 import { pagesPrefs } from '../pages/pages-prefs';
 import { composerNow } from '../composer/composer-controls';
 import { prState } from '../details/pr-row-actions';
 import {
-  canDeletePullRequestBranch, ACTION_FAILURE, ACTION_SUCCESS, PULL_REQUEST_ACTIONS, PULL_REQUEST_MERGE_METHOD_LABELS, actionHint, actionPayload, allowedMergeMethods, allowsSinglePullRequestMerge,
+  canDeletePullRequestBranch, ACTION_FAILURE, PULL_REQUEST_ACTIONS, PULL_REQUEST_MERGE_METHOD_LABELS, actionHint, actionPayload, allowedMergeMethods, allowsSinglePullRequestMerge,
   pullRequestActionMenuHasGroup, pullRequestActionNeedsHostRefresh, readableFailure, resolveBaseFreshness, resolvePullRequestMergeMethod, resolvePullRequestPrimaryControl,
   type MergeMethod, type PrimaryControl, type UpdateMethod,
 } from '../details/pr-row-logic';
-import { emptyStack, markStackDue, presentStack, savedPullRequestStack, stackPlan, stackQuery, stackUi, supportsStackActions, type PrStackView } from './pages-pr-stack';
+import { emptyStack, markStackDue, presentStack, pullRequestStackView, savedPullRequestStack, stackPlan, stackQuery, stackUi, supportsStackActions, type PrStackView } from './pages-pr-stack';
 
 // ── List overrides (pullRequestList.logic.ts) ───────────────────────────────
 
@@ -77,12 +78,18 @@ export function settlePullRequestOverrides<Entry extends Obj>(overrides: Readonl
 
 // ── Per-client state ────────────────────────────────────────────────────────
 
-export type ConfirmAction = 'merge' | 'close' | 'enable-auto-merge' | 'revert' | 'approve-workflows' | 'delete-branch';
-const CONFIRMS: readonly ConfirmAction[] = ['merge', 'close', 'enable-auto-merge', 'revert', 'approve-workflows', 'delete-branch'];
+export type ConfirmAction = 'merge' | 'close' | 'enable-auto-merge' | 'revert' | 'approve-workflows';
+const CONFIRMS: readonly ConfirmAction[] = ['merge', 'close', 'enable-auto-merge', 'revert', 'approve-workflows'];
+/** The control a confirmation is armed on: the header's primary button, a More menu row, the Summary bar's approval. */
+export type ConfirmControl = 'primary' | 'menu' | 'approve';
+const CONTROLS: readonly ConfirmControl[] = ['primary', 'menu', 'approve'];
 type State = {
   /** pendingAction: which action is in flight; every control is disabled while any runs. */
   pending: { key: string; action: string } | null;
-  confirm: { key: string; action: ConfirmAction } | null;
+  /** The one armed control (per client, as the reference keeps one per panel); `serial` tells its lapse from a later arming's. */
+  confirm: { key: string; action: ConfirmAction; control: ConfirmControl; serial: number } | null;
+  armSerial: number;
+  deleteBranchConfirm: string;
   /** mergeMethodSelection, per pull request; and the armed method last seen (it becomes the selection). */
   methods: Map<string, MergeMethod>; armed: Map<string, string>;
   overrides: Map<string, ListOverride>; token: number; detailTokens: Map<string, number | null>;
@@ -94,7 +101,7 @@ type State = {
 const states = new WeakMap<object, State>();
 export function actionState(client: object): State {
   let state = states.get(client);
-  if (!state) { state = { pending: null, confirm: null, methods: new Map(), armed: new Map(), overrides: new Map(), token: 0, detailTokens: new Map(), noted: new Map(), relist: 0 }; states.set(client, state); }
+  if (!state) { state = { pending: null, confirm: null, armSerial: 0, deleteBranchConfirm: '', methods: new Map(), armed: new Map(), overrides: new Map(), token: 0, detailTokens: new Map(), noted: new Map(), relist: 0 }; states.set(client, state); }
   return state;
 }
 const MERGE_METHODS: readonly MergeMethod[] = ['merge', 'squash', 'rebase'];
@@ -128,13 +135,16 @@ export function selectedMethod(client: T3Client, ctx: { key: string; detail: Obj
 
 export function emptyActions() {
   return {
-    primary: '', primaryLabel: '', primaryDisabled: false, armedLabel: '', armedTip: '', stateLabel: '', stateKey: '',
+    primary: '', primaryLabel: '', primaryBase: '', primaryIcon: '', primaryDisabled: false, armedLabel: '', armedTip: '', stateLabel: '', stateKey: '',
     refreshing: false, moreLabel: 'More pull request actions', pending: false, open: false,
-    draftToggle: '', mergeNow: false, autoMerge: '', methods: [] as { key: string; method: string; label: string; selected: boolean }[], methodsSeparator: false, groupSeparator: false,
-    closeItem: false, reopenItem: false, revertItem: false, deleteBranchItem: false, deleteBranchDisabled: false, deleteBranchLabel: 'Delete branch',
+    draftToggle: '', mergeNow: false, mergeNowLabel: 'Merge now', autoMerge: '', autoMergeLabel: '', methods: [] as { key: string; method: string; label: string; selected: boolean }[], methodsSeparator: false, groupSeparator: false,
+    closeItem: false, closeLabel: 'Close pull request', reopenItem: false, revertItem: false, revertLabel: 'Revert changes',
+    deleteBranchItem: false, deleteBranchDisabled: false, deleteBranchLabel: 'Delete branch',
+    dialogOpen: false, dialogTitle: '', dialogDescription: '', dialogConfirm: '', dialogDestructive: false, dialogValue: '',
     freshness: false, freshnessSummary: '', freshnessMethods: [] as { key: string; value: string; label: string }[], stacked: false, baseTip: '',
     approveWorkflows: false, approveLabel: 'Approve workflows to run',
-    dialogOpen: false, dialogTitle: '', dialogDescription: '', dialogConfirm: '', dialogDestructive: false, dialogValue: '',
+    // The armed confirmation: its control and action ('' for none) and the serial its 3 s lapse names.
+    armedControl: '', armedAction: '', armedSerial: 0,
     stack: emptyStack(),
   };
 }
@@ -158,19 +168,30 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
   const query = stackQuery(client, input.key), stacks = supportsStackActions(client, detail);
   const saved = savedPullRequestStack(input.threadLinks, { host: str(input.reference.host), repository: str(input.reference.repository), number: num(input.reference.number) });
   const hasStack = (query.isSuccess ? query.data : (query.data ?? saved)) !== null;
-  const single = allowsSinglePullRequestMerge({ supportsStackActions: stacks, hasStack, stackPending: !query.isSuccess || query.isPending, stackError: query.error });
+  const single = allowsSinglePullRequestMerge({ supportsStackActions: stacks, hasStack, stackPending: !pullRequestStackView(query, saved).isFresh, stackError: query.error });
   const primary: PrimaryControl = resolvePullRequestPrimaryControl({ state: str(detail.state), isDraft: draft, mergeability: str(detail.mergeability), checksState: input.checksState,
     autoMergeEnabled: typeof detail.autoMergeEnabled === 'boolean' ? detail.autoMergeEnabled : undefined, hasMergeMethod: allowed.length > 0,
     canMerge: single && can(detail, 'merge'), canMarkReady: can(detail, 'ready'), canEnableAutoMerge: single && can(detail, 'enable-auto-merge') });
   view.pending = actionPending; view.open = open;
   view.primary = primary ?? '';
+  // isArmed follows the action wherever it was armed; a press confirms only on the control that armed it.
+  const armed = state.confirm?.key === input.key ? state.confirm : null;
+  const isArmed = (action: ConfirmAction) => armed?.action === action;
+  if (armed) Object.assign(view, { armedControl: armed.control, armedAction: armed.action, armedSerial: armed.serial });
   const handoff = prState(client).handoff;
   if (primary === 'resolve') { view.primaryLabel = handoff === 'conflicts' ? 'Preparing...' : 'Resolve conflicts'; view.primaryDisabled = handoff !== '' || !str(detail.workspaceRoot); }
   else if (primary === 'ready') { view.primaryLabel = 'Ready for review'; view.primaryDisabled = actionPending; }
-  else if (primary === 'enable-auto-merge') { view.primaryLabel = pendingAction === 'enable-auto-merge' ? 'Enabling...' : `Auto-merge (${methodLabel.toLowerCase()})`; view.primaryDisabled = actionPending; }
-  else if (primary === 'merge') { view.primaryLabel = pendingAction === 'merge' ? 'Merging...' : methodLabel; view.primaryDisabled = actionPending; }
-  else if (primary === 'auto-merge-armed') view.primaryLabel = armedLabel;
+  else if (primary === 'enable-auto-merge') {
+    view.primaryBase = `Auto-merge (${methodLabel.toLowerCase()})`;
+    view.primaryLabel = pendingAction === 'enable-auto-merge' ? 'Enabling...' : isArmed('enable-auto-merge') ? 'Confirm auto-merge?' : view.primaryBase;
+    view.primaryIcon = isArmed('enable-auto-merge') ? 'check' : 'git-merge'; view.primaryDisabled = actionPending;
+  } else if (primary === 'merge') {
+    view.primaryBase = methodLabel;
+    view.primaryLabel = pendingAction === 'merge' ? 'Merging...' : isArmed('merge') ? 'Confirm merge?' : methodLabel;
+    view.primaryIcon = isArmed('merge') ? 'check' : 'git-merge'; view.primaryDisabled = actionPending;
+  } else if (primary === 'auto-merge-armed') view.primaryLabel = armedLabel;
   else if (primary === 'merged' || primary === 'closed') { view.stateKey = primary; view.stateLabel = primary === 'merged' ? 'Merged' : 'Closed'; }
+  if (!view.primaryBase) view.primaryBase = view.primaryLabel;
   // Said where the Merge button is: the merge is already asked for, and the host is holding it.
   if (autoMergeArmed && primary !== 'auto-merge-armed') view.armedLabel = armedLabel;
   view.armedTip = `${armedLabel}: the host will merge this on its own once its requirements are met`;
@@ -182,11 +203,15 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
   const showsMergeMethods = open && can(detail, 'merge') && !draft && !conflicting && allowed.length > 1;
   view.draftToggle = showsDraftToggle ? (draft ? 'ready' : 'draft') : '';
   view.mergeNow = showsMergeNow;
+  view.mergeNowLabel = isArmed('merge') ? 'Confirm merge?' : 'Merge now';
   view.autoMerge = autoMergeArmed && can(detail, 'disable-auto-merge') ? 'disable' : showsAutoMerge ? 'enable' : '';
+  view.autoMergeLabel = view.autoMerge === 'disable' ? 'Disable auto-merge' : isArmed('enable-auto-merge') ? 'Confirm auto-merge?' : 'Enable auto-merge';
   if (showsMergeMethods) view.methods = allowed.map(item => ({ key: item, method: item, label: PULL_REQUEST_MERGE_METHOD_LABELS[item], selected: item === method }));
   view.methodsSeparator = showsMergeMethods && (showsDraftToggle || showsMergeNow || showsAutoMerge);
   view.groupSeparator = open && pullRequestActionMenuHasGroup(showsDraftToggle, showsAutoMerge || showsMergeNow, showsMergeMethods);
   view.closeItem = open && can(detail, 'close');
+  view.closeLabel = isArmed('close') ? 'Confirm close?' : 'Close pull request';
+  view.revertLabel = isArmed('revert') ? 'Confirm revert?' : 'Revert changes';
   view.reopenItem = detail.state === 'closed' && can(detail, 'reopen');
   view.revertItem = detail.state === 'merged' && can(detail, 'revert');
   view.deleteBranchItem = canDeletePullRequestBranch(detail);
@@ -202,23 +227,10 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
     view.freshnessMethods = freshness.methods.map(item => ({ key: item, value: `update-branch:${item}`, label: item === 'rebase' ? 'Update with rebase' : 'Update branch' }));
   }
   view.approveWorkflows = workflows > 0 && !input.checksStale && can(detail, 'approve-workflows');
-  view.approveLabel = pendingAction === 'approve-workflows' ? 'Approving...' : 'Approve workflows to run';
-  // The confirmation AlertDialog.
-  const confirm = state.confirm?.key === input.key ? state.confirm.action : null;
-  if (confirm) {
-    const number = num(detail.number, num(input.reference.number));
-    const text: Record<ConfirmAction, [string, string, string]> = {
-      merge: ['Merge pull request?', `This merges #${number} using ${method}.`, methodLabel],
-      'enable-auto-merge': ['Enable auto-merge?', `This merges #${number} using ${method} as soon as the host considers it ready, which may be immediately.`, 'Enable auto-merge'],
-      revert: ['Revert these changes?', `This opens a new pull request that reverses the changes merged by #${number}.`, 'Create revert PR'],
-      'approve-workflows': ['Approve workflows to run?', `This allows ${workflows} ${workflows === 1 ? 'workflow' : 'workflows'} from #${number} to run. Review the code and workflow changes first.`, 'Approve and run'],
-      'delete-branch': [`Delete branch ${str(detail.headBranch)}?`, `This deletes ${str(detail.headBranch)} from ${str(detail.headRepositoryNameWithOwner, str(detail.repository))}. Local branches and worktrees are not changed.`, 'Delete branch'],
-      close: ['Close pull request?', `This closes #${number} without merging it.`, 'Close'],
-    };
-    const [title, description, label] = text[confirm];
-    Object.assign(view, { dialogOpen: true, dialogTitle: title, dialogDescription: description, dialogConfirm: label, dialogDestructive: confirm === 'close' || confirm === 'delete-branch',
-      dialogValue: confirm === 'merge' || confirm === 'enable-auto-merge' ? `${confirm}:${method}` : confirm });
-  }
+  view.approveLabel = pendingAction === 'approve-workflows' ? 'Approving...' : isArmed('approve-workflows') ? 'Confirm approve?' : 'Approve workflows to run';
+  if (state.deleteBranchConfirm === input.key) Object.assign(view, { dialogOpen: true, dialogTitle: `Delete branch ${str(detail.headBranch)}?`,
+    dialogDescription: `This deletes ${str(detail.headBranch)} from ${str(detail.headRepositoryNameWithOwner, str(detail.repository))}. Local branches and worktrees are not changed.`,
+    dialogConfirm: 'Delete branch', dialogDestructive: true, dialogValue: 'delete-branch' });
   view.stack = presentStack(client, { key: input.key, reference: input.reference, detail, query, saved, supportsStackActions: stacks, canMergeMethod: can(detail, 'merge') && allowed.length > 0, mergeMethod: method }) as PrStackView;
   return view;
 }
@@ -294,6 +306,7 @@ export async function performAction(client: T3Client, native: Native, ctx: Panel
 export async function finishAction(client: T3Client, native: Native, ctx: PanelContext, action: string, method?: MergeMethod, updateMethod?: UpdateMethod): Promise<string> {
   const state = actionState(client);
   if (state.confirm?.key === ctx.key) state.confirm = null;
+  if (state.deleteBranchConfirm === ctx.key) state.deleteBranchConfirm = '';
   noteActed(client, ctx.listEntry, action, 'sent');
   try {
     await wakePanel(native);
@@ -307,7 +320,8 @@ export async function finishAction(client: T3Client, native: Native, ctx: PanelC
     return error instanceof Error ? error.message : 'The host refused it.';
   }
   state.pending = null;
-  pushToast(client, { kind: 'success', title: ACTION_SUCCESS[action] ?? 'Pull request updated' });
+  // Reverting opens another pull request; every other action shows its answer in the panel itself.
+  if (action === 'revert') pushToast(client, { kind: 'success', title: 'Revert pull request opened' });
   // An update moves the head and approved workflows are data the detail omits: around the server's cache.
   ctx.refresh(pullRequestActionNeedsHostRefresh(action));
   markStackDue(client, ctx.key);
@@ -322,33 +336,35 @@ export async function runStackAction(client: T3Client, native: Native, ctx: Pane
   const stack = query.isSuccess ? query.data : null;
   if (!confirm || !stack || !detail || ui.pending) return '';
   const plan = stackPlan(stack, num(ctx.reference.number), false);
-  const supported = supportsStackActions(client, detail), fresh = query.isSuccess && !query.isPending;
+  const supported = supportsStackActions(client, detail), fresh = query.isSuccess;
   const allowedMerge = fresh && supported && can(detail, 'merge') && allowedMergeMethods(detail).length > 0;
   const allowedRebase = fresh && supported && obj(detail.viewerPermissions).stackRebase === true;
   if (confirm === 'merge' ? !allowedMerge || plan.mergeDisabled : !allowedRebase || plan.rebaseDisabled) return '';
   const target = confirm === 'merge' ? plan.selectedLayer : plan.top;
   if (!target?.headSha) return '';
   const heads = plan.heads(confirm === 'merge' ? plan.mergeLayers : plan.unmerged);
-  ui.pending = ctx.key;
+  // The dialog closes as the run starts; a loading toast stands for it until the host answers.
+  ui.pending = ctx.key; ui.confirm = null;
+  const toast = pushToast(client, { kind: 'loading', title: confirm === 'merge' ? 'Merging stack...' : 'Rebasing stack...' });
   let failure: unknown = null;
   try {
     await wakePanel(native);
     await client.rpc(native, 'pullRequests.runAction', actionPayload({ ...ctx.reference, number: target.number }, confirm, confirm === 'merge' ? selectedMethod(client, ctx) : undefined,
       { stackNumber: stack.number, expectedStackHeads: heads, ...(confirm === 'update-branch' ? { updateMethod: 'rebase' as const } : {}) }), true);
   } catch (error) {
-    if (letGo(error)) { ui.pending = ''; throw error; }
+    if (letGo(error)) { ui.pending = ''; dismissToast(client, toast); throw error; }
     failure = error;
   }
-  ui.pending = ''; ui.confirm = null;
+  ui.pending = '';
   ctx.refresh(false); markStackDue(client, ctx.key); noteActed(client, ctx.listEntry, undefined, 'done');
   if (failure !== null) {
     // String(failure): the error's name and its message, as the reference's toast prints it.
     const kind = failure instanceof ClientError && failure.kind ? failure.kind : failure instanceof Error ? failure.name : '';
     const message = failure instanceof Error ? failure.message : String(failure);
-    pushToast(client, { kind: 'error', title: 'Stack operation did not complete', description: kind ? `${kind}: ${message}` : message });
+    updateToast(client, toast, { kind: 'error', title: confirm === 'merge' ? 'Could not merge the stack' : 'Could not rebase the stack', description: kind ? `${kind}: ${message}` : message, timeoutMs: 5000 });
     return message;
   }
-  pushToast(client, confirm === 'merge' ? { kind: 'success', title: 'Stack merge request completed', description: 'GitHub merged the stack or added it to its merge queue.' } : { kind: 'success', title: 'Stack rebased' });
+  updateToast(client, toast, confirm === 'merge' ? { kind: 'success', title: 'Stack merge request completed', description: 'GitHub merged the stack or added it to its merge queue.', timeoutMs: 5000 } : { kind: 'success', title: 'Stack rebased', timeoutMs: 5000 });
   return '';
 }
 
@@ -369,12 +385,23 @@ export const isActionOp = (op: string) => op === 'action' || op === 'stack-run';
 /** `chatlocal:pr-ui-*`: the menu's choices, answered without the command gate. */
 export function prActionUi(client: T3Client, op: string, ctx: { key: string; detail: Obj | null; reference: Obj }, value: string): string {
   const state = actionState(client);
-  if (op === 'ask') {
-    if (!CONFIRMS.includes(value as ConfirmAction)) throw new ClientError(`Unknown confirmation: ${value}`);
-    if (!state.pending) state.confirm = { key: ctx.key, action: value as ConfirmAction };
+  if (op === 'ask' && value === 'delete-branch') { if (!state.pending) state.deleteBranchConfirm = ctx.key; return ''; }
+  if (op === 'cancel') { if (state.deleteBranchConfirm === ctx.key) state.deleteBranchConfirm = ''; return ''; }
+  // `arm`: "<control>|<action>", the first press. `disarm`: '' for whatever is armed, "serial:<n>" for the arming
+  // a lapse was set for, "<control>|<action>" for a control that lost the focus.
+  if (op === 'arm') {
+    const [rawControl = '', rawAction = ''] = value.split('|');
+    const control = CONTROLS.find(item => item === rawControl), action = CONFIRMS.find(item => item === rawAction);
+    if (!control || !action) throw new ClientError(`Unknown confirmation: ${value}`);
+    if (!state.pending) state.confirm = { key: ctx.key, action, control, serial: ++state.armSerial };
     return '';
   }
-  if (op === 'cancel') { if (state.confirm?.key === ctx.key) state.confirm = null; return ''; }
+  if (op === 'disarm') {
+    const armed = state.confirm;
+    if (!armed || armed.key !== ctx.key) return '';
+    if (!value || value === `serial:${armed.serial}` || value === `${armed.control}|${armed.action}`) state.confirm = null;
+    return '';
+  }
   if (op === 'method') {
     const method = asMethod(value);
     if (!method) throw new ClientError(`Unknown merge method: ${value}`);
@@ -384,7 +411,7 @@ export function prActionUi(client: T3Client, op: string, ctx: { key: string; det
   }
   const ui = stackUi(client);
   if (op === 'stack-ask') { if ((value === 'merge' || value === 'update-branch') && !ui.pending) ui.confirm = { key: ctx.key, action: value }; return ''; }
-  if (op === 'stack-cancel') { if (!ui.pending && ui.confirm?.key === ctx.key) ui.confirm = null; return ''; }
+  if (op === 'stack-cancel') { if (ui.confirm?.key === ctx.key) ui.confirm = null; return ''; }
   if (op === 'stack-retry') { markStackDue(client, ctx.key); return ''; }
   throw new ClientError(`Unknown pull request control: ${op}`);
 }

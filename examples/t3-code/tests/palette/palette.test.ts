@@ -16,7 +16,7 @@ function client(): T3Client {
   const c = new T3Client();
   Object.assign(c, { connection: 'connected', configLive: true, shellLive: true, threadLive: true, generation: 1, environmentId: 'env1', origin: 'http://127.0.0.1:14805', scopes: ['orchestration:read', 'orchestration:operate'] });
   c.config = { environment: { label: 'Local', capabilities: { serverResolvedCommandContext: true, threadPullRequests: true } }, newProjectsRoot: '/home/me/projects', availableEditors: ['zed', 'cursor'],
-    keybindings: [binding('k', 'commandPalette.toggle'), binding('p', 'filePicker.toggle'), binding('f', 'projectSearch.toggle', { shiftKey: true }), binding('n', 'chat.new'), binding('o', 'chat.new', { shiftKey: true }),
+    keybindings: [binding('k', 'commandPalette.toggle'), binding('p', 'filePicker.toggle'), binding('f', 'projectSearch.toggle', { shiftKey: true }), binding('n', 'chat.new'), binding('o', 'chat.new', { shiftKey: true }), binding('n', 'chat.newLocal', { shiftKey: true }),
       binding('a', 'theme.select', { altKey: true }), binding('a', 'appearance.cycle', { altKey: true, shiftKey: true }), binding('t', 'themeEditor.toggle', { altKey: true, shiftKey: true }),
       binding('u', 'usage.open'), binding('c', 'thread.copyReference', { shiftKey: true }), binding('[', 'navigation.back'), binding(']', 'navigation.forward'), binding('s', 'thread.settle', { shiftKey: true }),
       binding('1', 'thread.jump.1'), binding('2', 'thread.jump.2')], settings: {} };
@@ -57,7 +57,7 @@ describe('command palette root', () => {
     expect(titles.slice(0, 8)).toEqual(['New thread in Parity fixture', 'New thread in...', 'Copy thread ID', 'Link pull request to thread', 'Show linked pull requests', 'Restart agent session', 'Go to file', 'Search project contents']);
     expect(titles).toContain('Open settings');
     expect(view.rows[0]!.header).toBe('Actions');
-    expect(view.rows[0]!.shortcut).toBe('⇧⌘O');
+    expect(view.rows[0]!.shortcut).toBe('⇧⌘N');
     expect(view.rows[0]!.bold).toBe('Parity fixture');
     expect(view.rows.find(entry => entry.title === 'Show linked pull requests')!.kind).toBe('disabled');
     expect(view.rows.find(entry => entry.title === 'Change theme')!.shortcut).toBe('⌥⌘A');
@@ -215,6 +215,8 @@ describe('add project', () => {
     expect(view.rows.map(entry => entry.title)).toEqual(['Add existing project']);
     expect(view.enterArg).toBe('new-project');
     expect(view.enterLabel).toBe('Create');
+    const highlighted = await addProjectView(c, native, { page: 'new-project', query: 'My App', highlighted: true });
+    expect(highlighted).toMatchObject({ enterLabel: 'Select', accessoryKey: '⌘ Enter', accessoryOp: 'flow', accessoryArg: 'new-project', accessoryArg2: 'My App' });
   });
   test('adding a path creates the project and opens a new thread in it', async () => {
     const c = client(), native = new Fake();
@@ -308,7 +310,7 @@ describe('keyboard dispatch', () => {
     expect(find('usage.open')).toMatchObject({ kind: 'palette-run', target: 'usage', chord: 'Meta+u' });
     expect(find('themeEditor.toggle')).toMatchObject({ kind: 'palette-run', target: 'theme-editor', chord: 'Meta+Alt+Shift+t' });
     expect(find('settings.open')).toMatchObject({ chord: 'Meta+,', kind: 'settings' });
-    expect(find('thread.settle')).toMatchObject({ kind: 'command', target: 'chat:settle', extra: 't2' });
+    expect(find('thread.settle')).toMatchObject({ kind: 'command', target: 'chat:settle-advance', extra: 't2' });
     const open = keyboardDispatch(c, [], '', '', { ...context, modalOpen: true, paletteOpen: true });
     expect(open.map(item => item.command)).toEqual(['commandPalette.toggle', 'filePicker.toggle', 'projectSearch.toggle']);
   });

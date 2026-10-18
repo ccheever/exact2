@@ -15,6 +15,7 @@ use SidebarIcon from "./sidebar-icons.contract"
 use SidebarProjectGlyph from "./sidebar-icons-kit.contract"
 use CnMachineIcon from "../settings/settings-b-kit.contract"
 use SidebarPrBadge from "./sidebar-pr-badge.contract"
+use prdTone from "../pull-requests/pages-pr-detail.contract"
 
 use Tip from "../shell/shell-tip.contract"
 use KmItem from "../shared/menu-keys.contract"
@@ -39,6 +40,24 @@ component TerminalProcessIndicator
     Tip(label=tooltip, side="top", align="center", offset=4)
       TerminalGlyph(label=label, size=size, reduced=reduced, id=id)
 
+// ThreadTerminalStatusButton (ThreadStatusIndicators.tsx): a row's running-terminal glyph is a button that shows
+// the thread's first running terminal where it lives and opens the thread (sidebar `terminal-reveal`).
+fn terminalButtonLabel(count: number): string = count == 1 ? "1 terminal process running. Open terminal" : `${count} terminal processes running. Open terminal`
+component TerminalStatusButton
+  props
+    id: string
+    count: number
+    size: number
+    reduced: bool
+    run: action
+  state over = false
+  action setOver(value: bool)
+    over = value
+  view
+    Tip(label=terminalButtonLabel(count), side="top", align="center", offset=4)
+      button cursor="pointer" press=run("terminal-reveal", id, "") hover=setOver aria-label=terminalButtonLabel(count) testId=`sidebar-terminal-status-${id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" opacity=(over ? 0.8 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+        TerminalPulse(size=size, reduced=reduced)
+
 // The indicator's glyph alone, for a row that wraps it in its own tooltip (legacy-sidebar.contract's LegacyRowTip).
 component TerminalGlyph
   props
@@ -48,8 +67,15 @@ component TerminalGlyph
     id: string
   view
     box display="flex" flex-shrink=0 role="img" aria-label=label testId=id
-      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" fill="none" stroke="light-dark(#009689, #96f7e4e6)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true animation=(reduced ? "none" : "terminalStatusPulse 2s steps(6) infinite")
-        path d="m4 17 6-5-6-5M12 19h8"
+      TerminalPulse(size=size, reduced=reduced)
+
+component TerminalPulse
+  props
+    size: number
+    reduced: bool
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" fill="none" stroke="light-dark(#009689, #96f7e4e6)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true animation=(reduced ? "none" : "terminalStatusPulse 2s steps(6) infinite")
+      path d="m4 17 6-5-6-5M12 19h8"
 
 component ThreadRow
   props
@@ -191,12 +217,15 @@ component ThreadRow
                   if t.worktree
                     SidebarIcon(name="folder-git-2", size=12, color="light-dark(#71717b66, #81818166)")
                   text t.branch font-size="0.75rem" line-height="1rem" color="light-dark(#71717b66, #81818166)" flex=1 min-width=0 line-clamp=1 text-align="left"
+                else if t.scratchMachine != ""
+                  CnMachineIcon(kind=t.scratchMachine, size=12, color="light-dark(#71717b66, #81818166)")
+                  text t.scratchLabel font-size="0.75rem" line-height="1rem" color="light-dark(#71717b66, #81818166)" flex=1 min-width=0 line-clamp=1 text-align="left"
                 else
                   box flex=1
                 if t.badge != ""
                   SidebarPrBadge(t=t, recede=false)
                 if t.terminalCount > 0
-                  TerminalProcessIndicator(label=t.terminalLabel, tooltip="", size=14, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
+                  TerminalStatusButton(id=t.id, count=t.terminalCount, size=14, reduced=reduced, run=run)
                 // A thread on another environment carries its machine glyph (size-3.5, muted/70) before the provider stack.
                 if t.remoteMachine != ""
                   box flex-shrink=0 margin-right="-0.125rem" display="flex" aria-hidden=true testId=`remote-${t.id}`
@@ -222,7 +251,7 @@ component ThreadRow
             button cursor="pointer" id=`thread-${t.id}` press=openPress pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label width="100%" height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" gap="0.625rem"
               // Receding favicon (opacity-40 grayscale), restored on hover.
               if (not isOpen or t.section == "settled") and not hovering
-                box opacity=0.4 flex-shrink=0
+                box opacity=0.4 flex-shrink=0 display="flex" align-items="center"
                   SidebarProjectGlyph(g=t.glyph, size=16, dim=true)
               else
                 SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
@@ -235,7 +264,7 @@ component ThreadRow
               if t.badge != ""
                 SidebarPrBadge(t=t, recede=(t.section == "settled" and not hovering))
               if t.terminalCount > 0
-                TerminalProcessIndicator(label=t.terminalLabel, tooltip="", size=14, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
+                TerminalStatusButton(id=t.id, count=t.terminalCount, size=14, reduced=reduced, run=run)
               if lifted and dragVerb != ""
                 SidebarDropVerb(verb=dragVerb, ink="light-dark(#1b4ed8, #346bf1)")
               else
@@ -464,13 +493,23 @@ component SearchResult
   // full ink; the rest recede until hovered (the row also opens its card).
   derive lit = t.searchFirst or t.selected
   derive hovering = hoverId == t.hoverKey
+  // A settled result keeps the settled row's look: its favicon faded and gray, its title regular in secondary ink,
+  // until it is highlighted, open or hovered. Every other title is medium in full ink.
+  derive settled = t.section == "settled"
+  derive prInk = t.searchPrState == "" or (settled and not hovering) ? "light-dark(#71717b, #818181)" : prdTone(t.searchPrState)
   view
     button cursor="pointer" id=`row-${t.hoverKey}` hover=hoverCard(t.hoverKey) press=open(t.id, "search") testId=`thread-${t.id}` role="option" aria-selected=t.searchFirst aria-label=`${t.title}, ${t.projectName}` width="100%" min-height="2.25rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(lit ? "light-dark(#ffffff, #f1f3f71c)" : hovering ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap="0.625rem"
-      SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
+      if settled and not lit and not hovering
+        box opacity=0.4 flex-shrink=0 display="flex" align-items="center"
+          SidebarProjectGlyph(g=t.glyph, size=16, dim=true)
+      else
+        SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
       column flex=1 min-width=0
         row width="100%" gap="0.625rem" align-items="center"
-          text t.title flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" color=(lit or hovering ? "light-dark(#27272a, #f1f3f7)" : "light-dark(#71717bbf, #a3a3a3bf)") line-clamp=1 text-align="left"
-          text t.age flex-shrink=0 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b8c, #a3a3a38c)" font-variant-numeric="tabular-nums"
+          text t.title flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=(settled ? 400 : 500) color=(settled and not lit and not hovering ? "light-dark(#71717bb3, #818181b3)" : "light-dark(#27272a, #f1f3f7)") opacity=(t.regenerating ? 0.55 : 1) line-clamp=1 text-align="left"
+          if t.searchPr != ""
+            text `#${t.searchPr}` flex-shrink=0 font-size="0.75rem" line-height="1rem" color=prInk font-variant-numeric="tabular-nums" aria-label=t.searchPrLabel testId=`search-pr-${t.id}`
+          text t.age width="2rem" flex-shrink=0 text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b8c, #a3a3a38c)" font-variant-numeric="tabular-nums"
         if t.matchLabel != ""
           text width="100%" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bd9, #a3a3a3d9)" line-clamp=1 text-align="left"
             text `${t.matchLabel} ` color=(t.matchUser ? "light-dark(#1447e6, #50a2ff)" : "light-dark(#007a55, #00d492)")

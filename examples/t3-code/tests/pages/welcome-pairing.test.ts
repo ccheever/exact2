@@ -32,6 +32,19 @@ test('a pairing that never connected is not listed as a computer that is still c
   expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Reconnecting…']);
 });
 
+test('Continue skips selected offline and switched-off computers beside a connected one', async () => {
+  const client = wizardClient('connected');
+  await welcomeView(client, native([]), { step: 'connect', now: 1 });
+  const saved = [
+    { origin: 'http://127.0.0.1:16442', environmentId: 'offline', label: 'Offline Mac', enabled: true },
+    { origin: 'http://127.0.0.1:16443', environmentId: 'off', label: 'Off Mac', enabled: false },
+  ];
+  const view = await welcomeView(client, native(saved), { step: 'connect', now: 1 });
+  expect(view.ready).toBe(true);
+  expect(view.computers.map(computer => computer.status)).toEqual(['Connected', 'Not connected', 'Off']);
+  expect(view.skipped).toBe('Not connected, so setup skips Offline Mac, Off Mac. You can set them up later from Settings.');
+});
+
 // WelcomeWizard ConnectionStep (0ae1091d01): the same rule as Settings, a switched-off computer reads Off.
 test('a switched-off saved computer reads Off, not Not connected', async () => {
   const client = wizardClient('connected');

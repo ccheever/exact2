@@ -7,6 +7,7 @@
 // (pages-pr-detail.ts → pages-pr-actions.ts / pages-pr-stack.ts) against injected host replies: the
 // states, permissions and failures the real-GitHub lane cannot produce on request.
 import { describe, expect, test } from 'bun:test';
+import { contractComponent } from '../support/contract-action-fixture';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import { ClientError, type Native } from '../../src/client/protocol';
@@ -165,7 +166,9 @@ describe('saved stack navigation', () => {
     const query = { data: saved, isSuccess: true, isPending: false, error: null };
     expect(pullRequestStackView(query, null)).toEqual({ data: saved, isFresh: true, notice: null });
     expect(pullRequestStackView({ ...query, data: null }, saved)).toEqual({ data: null, isFresh: true, notice: null });
-    expect(pullRequestStackView({ ...query, isPending: true }, saved).isFresh).toBe(false);
+    // A background refresh keeps the last successful lookup fresh, so the stack's actions stay.
+    expect(pullRequestStackView({ ...query, isPending: true }, saved).isFresh).toBe(true);
+    expect(pullRequestStackView({ ...query, data: null, isPending: true }, saved)).toMatchObject({ data: null, isFresh: true });
   });
 });
 
@@ -319,24 +322,32 @@ describe('permissions (the host and the viewer both have to say yes)', () => {
 });
 
 describe('the actions, their confirmations and their toasts', () => {
-  test('Merge asks first, names the method, sends it, toasts and reads the host again; Cancel sends nothing', async () => {
+  test('Merge confirms in place: the first press arms the button, the second sends the method and reads the host again', async () => {
     const { client, writes, calls } = fakeClient(defaults(base()));
     expect((await panel(client)).actions.primary).toBe('merge');
     prUiLocal(client, 'method', selected, 'squash');
-    prUiLocal(client, 'ask', selected, 'merge');
+    prUiLocal(client, 'arm', selected, 'primary|merge');
     let actions = (await panel(client)).actions;
-    expect([actions.primaryLabel, actions.dialogOpen, actions.dialogTitle, actions.dialogDescription, actions.dialogConfirm, actions.dialogValue])
-      .toEqual(['Squash and merge', true, 'Merge pull request?', 'This merges #7 using squash.', 'Squash and merge', 'merge:squash']);
-    prUiLocal(client, 'cancel', selected, '');
-    expect((await panel(client)).actions.dialogOpen).toBe(false);
-    expect(writes()).toEqual([]);
-    prUiLocal(client, 'ask', selected, 'merge');
-    const detailReads = calls.filter(call => call.method === 'pullRequests.detail').length;
-    expect(await prCommand(client, native, 'action', selected, 'merge:squash')).toBe('');
-    expect(writes()).toEqual([{ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7, action: 'merge', mergeMethod: 'squash' }]);
-    expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Pull request merged' });
+    expect([actions.primaryLabel, actions.primaryBase, actions.primaryIcon, actions.armedControl, actions.armedAction]).toEqual(['Confirm merge?', 'Squash and merge', 'check', 'primary', 'merge']);
+    // A lapse names the arming it was set for; a later arming outlives an older one's lapse.
+    const first = actions.armedSerial;
+    prUiLocal(client, 'arm', selected, 'primary|merge');
+    prUiLocal(client, 'disarm', selected, `serial:${first}`);
+    expect((await panel(client)).actions.armedAction).toBe('merge');
+    prUiLocal(client, 'disarm', selected, 'menu|merge');
+    expect((await panel(client)).actions.armedAction).toBe('merge');
+    prUiLocal(client, 'disarm', selected, 'primary|merge');
     actions = (await panel(client)).actions;
-    expect(actions.dialogOpen).toBe(false);
+    expect([actions.primaryLabel, actions.primaryIcon, actions.armedAction]).toEqual(['Squash and merge', 'git-merge', '']);
+    expect(writes()).toEqual([]);
+    prUiLocal(client, 'arm', selected, 'primary|merge');
+    const detailReads = calls.filter(call => call.method === 'pullRequests.detail').length;
+    expect(await prCommand(client, native, 'action', selected, 'merge')).toBe('');
+    expect(writes()).toEqual([{ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7, action: 'merge', mergeMethod: 'squash' }]);
+    // The panel shows a merge as its own answer: no toast.
+    expect(toasts(client)).toEqual([]);
+    actions = (await panel(client)).actions;
+    expect(actions.armedAction).toBe('');
     expect(calls.filter(call => call.method === 'pullRequests.detail').length).toBe(detailReads + 1);
     // The method chosen is this device's last selection from now on (useUiStateStore).
     expect((client.local as { pages?: { mergeMethod?: string } }).pages?.mergeMethod).toBe('squash');
@@ -353,36 +364,40 @@ describe('the actions, their confirmations and their toasts', () => {
     await running;
     expect((await panel(client, { refresh: ++refresh })).actions.pending).toBe(false);
   });
-  test('each confirmation says the reference\'s words', async () => {
-    const say = async (detail: Obj, action: string) => {
+  test('each control asks "Confirm …?" in place, and an armed action reads so wherever it shows', async () => {
+    const say = async (detail: Obj, control: string, action: string) => {
       const { client } = fakeClient(defaults(detail));
       await panel(client);
-      prUiLocal(client, 'ask', selected, action);
-      const actions = (await panel(client)).actions;
-      return [actions.dialogTitle, actions.dialogDescription, actions.dialogConfirm, actions.dialogDestructive];
+      prUiLocal(client, 'arm', selected, `${control}|${action}`);
+      return (await panel(client)).actions;
     };
-    expect(await say(base(), 'close')).toEqual(['Close pull request?', 'This closes #7 without merging it.', 'Close', true]);
-    expect(await say(base({ state: 'merged' }), 'revert')).toEqual(['Revert these changes?', 'This opens a new pull request that reverses the changes merged by #7.', 'Create revert PR', false]);
-    expect(await say(base({ checks: [{ name: 'ci/build', status: 'pending' }] }), 'enable-auto-merge'))
-      .toEqual(['Enable auto-merge?', 'This merges #7 using merge as soon as the host considers it ready, which may be immediately.', 'Enable auto-merge', false]);
-    expect(await say(base({ workflowApprovalsRequired: 1 }), 'approve-workflows'))
-      .toEqual(['Approve workflows to run?', 'This allows 1 workflow from #7 to run. Review the code and workflow changes first.', 'Approve and run', false]);
+    const close = await say(base(), 'menu', 'close');
+    expect([close.closeLabel, close.armedControl]).toEqual(['Confirm close?', 'menu']);
+    expect((await say(base({ state: 'merged' }), 'menu', 'revert')).revertLabel).toBe('Confirm revert?');
+    const auto = await say(base({ checks: [{ name: 'ci/build', status: 'pending' }] }), 'primary', 'enable-auto-merge');
+    expect([auto.primary, auto.primaryLabel, auto.primaryBase, auto.primaryIcon]).toEqual(['enable-auto-merge', 'Confirm auto-merge?', 'Auto-merge (merge)', 'check']);
+    expect((await say(base({ workflowApprovalsRequired: 1 }), 'approve', 'approve-workflows')).approveLabel).toBe('Confirm approve?');
+    const armedNow = await say(base({ autoMergeEnabled: true, autoMergeMethod: 'merge', checks: [{ name: 'ci/build', status: 'pending' }] }), 'menu', 'merge');
+    expect([armedNow.mergeNow, armedNow.mergeNowLabel]).toEqual([true, 'Confirm merge?']);
+    const { client } = fakeClient(defaults(base()));
+    await panel(client);
+    expect(() => prUiLocal(client, 'arm', selected, 'menu|ready')).toThrow('Unknown confirmation: menu|ready');
   });
-  test('every action sends the verb table\'s payload and toasts its own success', async () => {
-    const cases: [string, Obj, string][] = [
-      ['ready', { action: 'ready' }, 'Marked ready for review'], ['draft', { action: 'draft' }, 'Converted to draft'], ['close', { action: 'close' }, 'Pull request closed'],
-      ['reopen', { action: 'reopen' }, 'Pull request reopened'], ['update-branch:merge', { action: 'update-branch', updateMethod: 'merge' }, 'Branch updated with the base branch'],
-      ['update-branch:rebase', { action: 'update-branch', updateMethod: 'rebase' }, 'Branch updated with the base branch'],
-      ['enable-auto-merge:squash', { action: 'enable-auto-merge', mergeMethod: 'squash' }, 'Auto-merge turned on — merges as soon as this is ready, sooner if it already is'],
-      ['disable-auto-merge', { action: 'disable-auto-merge' }, 'Auto-merge turned off'], ['revert', { action: 'revert' }, 'Revert pull request opened'],
-      ['approve-workflows', { action: 'approve-workflows' }, 'Workflows approved'], ['merge:rebase', { action: 'merge', mergeMethod: 'rebase' }, 'Pull request merged'],
+  test('every action sends the verb table\'s payload; only a revert, which opens another pull request, toasts', async () => {
+    const cases: [string, Obj][] = [
+      ['ready', { action: 'ready' }], ['draft', { action: 'draft' }], ['close', { action: 'close' }],
+      ['reopen', { action: 'reopen' }], ['update-branch:merge', { action: 'update-branch', updateMethod: 'merge' }],
+      ['update-branch:rebase', { action: 'update-branch', updateMethod: 'rebase' }],
+      ['enable-auto-merge:squash', { action: 'enable-auto-merge', mergeMethod: 'squash' }],
+      ['disable-auto-merge', { action: 'disable-auto-merge' }], ['revert', { action: 'revert' }],
+      ['approve-workflows', { action: 'approve-workflows' }], ['merge:rebase', { action: 'merge', mergeMethod: 'rebase' }],
     ];
-    for (const [value, payload, title] of cases) {
+    for (const [value, payload] of cases) {
       const { client, writes, calls } = fakeClient(defaults(base()));
       await panel(client);
       await prCommand(client, native, 'action', selected, value);
       expect(writes()).toEqual([{ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7, ...payload }]);
-      expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title });
+      expect(toasts(client).map(toast => [toast.kind, toast.title])).toEqual(value === 'revert' ? [['success', 'Revert pull request opened']] : []);
       // pullRequestActionNeedsHostRefresh: the update and the approval go around the server's cache.
       await panel(client);
       expect(calls.some(call => call.method === 'pullRequests.invalidate')).toBe(value.startsWith('update-branch') || value === 'approve-workflows');
@@ -418,8 +433,7 @@ describe('the actions, their confirmations and their toasts', () => {
     }));
     expect((await panel(client)).actions.freshnessSummary).toBe('This branch is out-of-date with main by 8 commits.');
     behind = false; cut = 6;
-    await prCommand(client, native, 'action', selected, 'update-branch:rebase');
-    expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Branch updated with the base branch' });
+    expect(await prCommand(client, native, 'action', selected, 'update-branch:rebase')).toBe('');
     const sent = calls.length;
     let view = null;
     for (let ask = 0; ask < 8 && !view; ask++) view = await panel(client).catch(() => null);
@@ -501,17 +515,25 @@ describe('the host stack (PullRequestStackMenu)', () => {
     // allowsSinglePullRequestMerge: a stack exists, so the single Merge is not the primary control.
     expect([actions.primary, actions.autoMerge, actions.stacked, actions.baseTip]).toEqual(['', '', true, 'Stacked on feature/a']);
   });
-  test('Merge stack asks, sends the stack number and the heads it saw, and says what GitHub did', async () => {
-    const { client, writes } = fakeClient(defaults(base(), { 'pullRequests.stack': () => stack }));
+  test('Merge stack asks, closes as it starts, sends the stack number and the heads it saw, and says what GitHub did', async () => {
+    let release: () => void = () => {};
+    let started: () => void = () => {};
+    const sent = new Promise<void>(resolve => { started = resolve; });
+    const { client, writes } = fakeClient(defaults(base(), { 'pullRequests.stack': () => stack, 'pullRequests.runAction': () => new Promise(resolve => { release = () => resolve({}); started(); }) }));
     await panel(client);
     prUiLocal(client, 'stack-ask', selected, 'merge');
     const asked = (await panel(client)).actions.stack;
     expect([asked.dialogOpen, asked.dialogTitle, asked.dialogConfirm, asked.dialogLayers.map(layer => layer.compact)]).toEqual([true, 'Merge 2 pull requests?', 'Merge stack', ['#6 · Open', '#7 · Open']]);
     expect(asked.dialogDescription).toBe('Merge #7 and its unmerged layers below into main using merge. GitHub checks their rules before merging or queueing them and rebases the remaining stack after merging.');
-    await prCommand(client, native, 'stack-run', selected, '');
-    expect(writes()).toEqual([{ stackNumber: 120, expectedStackHeads: [{ number: 6, headSha: 'aaa111' }, { number: 7, headSha: 'bbb222' }], projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7, action: 'merge', mergeMethod: 'merge' }]);
-    expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Stack merge request completed', description: 'GitHub merged the stack or added it to its merge queue.' });
+    const running = prCommand(client, native, 'stack-run', selected, '');
+    await sent;
+    // The dialog is gone the moment the run starts; a loading toast stands for it.
     expect((await panel(client)).actions.stack.dialogOpen).toBe(false);
+    expect(toasts(client).map(toast => [toast.kind, toast.title])).toEqual([['loading', 'Merging stack...']]);
+    release(); await running;
+    expect(writes()).toEqual([{ stackNumber: 120, expectedStackHeads: [{ number: 6, headSha: 'aaa111' }, { number: 7, headSha: 'bbb222' }], projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7, action: 'merge', mergeMethod: 'merge' }]);
+    expect(toasts(client)).toHaveLength(1);
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Stack merge request completed', description: 'GitHub merged the stack or added it to its merge queue.' });
   });
   test('Rebase stack targets the top with every unmerged head; a stale head fails with the host\'s words', async () => {
     const { client, writes } = fakeClient(defaults(base(), { 'pullRequests.stack': () => stack,
@@ -521,7 +543,8 @@ describe('the host stack (PullRequestStackMenu)', () => {
     expect((await panel(client)).actions.stack.dialogTitle).toBe('Rebase 3 pull requests?');
     expect(await prCommand(client, native, 'stack-run', selected, '')).toBe('The stack changed. Refresh it before trying again.');
     expect(writes()[0]).toMatchObject({ number: 8, action: 'update-branch', updateMethod: 'rebase', stackNumber: 120, expectedStackHeads: [{ number: 6, headSha: 'aaa111' }, { number: 7, headSha: 'bbb222' }, { number: 8, headSha: 'ccc333' }] });
-    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Stack operation did not complete', description: 'PullRequestOperationError: The stack changed. Refresh it before trying again.' });
+    expect(toasts(client)).toHaveLength(1);
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not rebase the stack', description: 'PullRequestOperationError: The stack changed. Refresh it before trying again.' });
   });
   test('a draft layer below holds the merge and says why; a failed lookup offers Retry stack lookup', async () => {
     const { client } = fakeClient(defaults(base(), { 'pullRequests.stack': () => ({ ...stack, layers: [{ ...layers[0]!, isDraft: true }, layers[1]!, layers[2]!] }) }));
@@ -535,4 +558,68 @@ describe('the host stack (PullRequestStackMenu)', () => {
     prUiLocal(lookup.client, 'stack-retry', selected, '');
     expect((await panel(lookup.client)).actions.stack).toMatchObject({ retryLookup: false, shown: true, label: '2/3' });
   });
+});
+
+
+describe('inline confirmation input', () => {
+  test('the same primary control confirms its second press; blur disarms', () => {
+    const header = contractComponent('pages-pr-actions.contract', 'PrdHeaderActions');
+    const sent: unknown[][] = [], local: unknown[][] = [];
+    const actions = { primary: 'merge', armedControl: '', armedAction: '' };
+    const scope = { actions, ref: 'pr7', act: (...args: unknown[]) => sent.push(args), local: (...args: unknown[]) => local.push(args) };
+    header.call('confirmPrimary', {}, scope, []);
+    expect(local).toEqual([['pr-ui-arm', 'pr7', 'primary|merge']]);
+    expect(sent).toEqual([]);
+    Object.assign(actions, { armedControl: 'primary', armedAction: 'merge' });
+    header.call('confirmPrimary', {}, scope, []);
+    expect(sent).toEqual([['action', 'merge']]);
+    header.call('primaryBlur', {}, scope, []);
+    expect(local.at(-1)).toEqual(['pr-ui-disarm', 'pr7', 'primary|merge']);
+  });
+  test('Escape belongs to the active confirmation, inside the menu while that menu owns modal shortcuts', () => {
+    const escape = contractComponent('pages-pr-actions.contract', 'PrdConfirmEscape');
+    const actions = { armedAction: 'close', armedControl: 'menu' };
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: true })).toBe(true);
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: false })).toBe(false);
+    actions.armedControl = 'primary';
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: false })).toBe(true);
+    actions.armedAction = '';
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: false })).toBe(false);
+  });
+  test('a pointer on non-focusable content disarms, while the armed button keeps its confirmation', () => {
+    const window = contractComponent('app-window.contract', 'T3Window');
+    const sent: unknown[][] = [];
+    const scope = { prDetail: { ref: 'pr7', actions: { armedAction: 'merge', armedSerial: 9 } }, prConfirmTarget: 'pull-request-primary',
+      frame: () => ({ x: 20, y: 20, width: 80, height: 24 }), prConfirmDisarm: (...args: unknown[]) => sent.push(args), chipShown: false, detailsOpen: false };
+    const state = { outsideDown: false, keybindingField: '', citeFor: '' };
+    window.call('outsidePressDown', state, scope, [{ buttons: 1, clientX: 40, clientY: 30 }]);
+    expect(sent).toEqual([]);
+    window.call('outsidePressDown', state, scope, [{ buttons: 1, clientX: 400, clientY: 300 }]);
+    expect(sent).toEqual([['pr7', 'serial:9']]);
+    const root = contractComponent('app.contract', 'T3Code');
+    const requests: unknown[][] = [];
+    root.call('prConfirmDisarm', {}, { command: (...args: unknown[]) => requests.push(args) }, sent[0]!);
+    expect(requests).toEqual([['chatlocal:pr-ui-disarm', 'pr7', 'serial:9', 0]]);
+  });
+});
+
+
+test('source branch deletion keeps its destructive dialog alongside inline merge confirmations', async () => {
+  const detail = base({ state: 'merged', capabilities: { ...CAPABILITIES, deleteBranch: true, actions: ['delete-branch'] }, viewerPermissions: { actions: ['delete-branch'] } });
+  const { client, writes } = fakeClient(defaults(detail));
+  (client as unknown as Obj).writable = true;
+  await panel(client);
+  prUiLocal(client, 'ask', selected, 'delete-branch');
+  let actions = (await panel(client)).actions;
+  expect(actions).toMatchObject({ dialogOpen: true, dialogDestructive: true, dialogTitle: 'Delete branch feature/changelog?', dialogConfirm: 'Delete branch', dialogValue: 'delete-branch', armedAction: '', armedControl: '' });
+  expect(actions.dialogDescription).toContain('lane/sandbox');
+  expect(writes()).toEqual([]);
+  prUiLocal(client, 'disarm', selected, '');
+  expect((await panel(client)).actions.dialogOpen).toBe(true);
+  prUiLocal(client, 'cancel', selected, '');
+  expect((await panel(client)).actions.dialogOpen).toBe(false);
+  prUiLocal(client, 'ask', selected, 'delete-branch');
+  await prCommand(client, native, 'action', selected, 'delete-branch');
+  expect(writes().map(payload => payload.action)).toEqual(['delete-branch']);
+  expect((await panel(client)).actions.dialogOpen).toBe(false);
 });

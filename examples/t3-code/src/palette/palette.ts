@@ -1,3 +1,4 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // The command palette (⌘K): reference CommandPalette.tsx, CommandPalette.logic.ts,
 // CommandPaletteResults.tsx and ThreadCommandSubtitle.tsx. One view model for every
 // page the overlay can show; Contract (palette.contract) owns the open state, the
@@ -5,6 +6,7 @@
 // the file picker and content search in palette-files.ts.
 import type { T3Client } from '../client/client';
 import { terminalProcessCount } from '../sidebar/sidebar-view';
+import { pullRequestSearchTerms, searchPullRequest } from '../sidebar/search-pull-request';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { projectIdentity } from '../client/presentation';
 import { searchSettings, searchContext, breadcrumbLabel } from '../settings/settings-search';
@@ -23,7 +25,7 @@ export type PaletteRow = {
   /** The chord that runs this row from the field (thread.jump.N on a project pick, aria grammar: `Meta+1`); '' for none. */
   jump: string;
   publishHost: string; publishHostLabel: string; publishHosts: { value: string; label: string; selected: boolean }[];
-  terminalCount: number;
+  terminalCount: number; prNumber: string; prState: string; prLabel: string;
   badge: string; badgeOp: string; checkbox: boolean; checked: boolean; project: string; projectInk: string; projectSurface: string; env: string;
   branch: string; provider: string; current: boolean; matchLabel: string; matchParts: PalettePart[]; titleParts: PalettePart[]; line: string; orbs: Orb[]; top: number; height: number;
 };
@@ -40,7 +42,7 @@ export type PaletteView = {
 
 export const RECENT_THREAD_LIMIT = 12;
 const blankRow: PaletteRow = { key: '', index: -1, header: '', headerGap: false, kind: 'action', op: '', arg: '', arg2: '', icon: '', prefix: '', title: '', bold: '',
-  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '',
+  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, prNumber: '', prState: '', prLabel: '', description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '',
   branch: '', provider: '', current: false, matchLabel: '', matchParts: [], titleParts: [], line: '', orbs: [], top: 0, height: 32 };
 export function row(fields: Partial<PaletteRow>): PaletteRow { return { ...blankRow, ...fields }; }
 
@@ -166,12 +168,17 @@ export function threadItems(client: T3Client, now: number, matches: Map<string, 
     const content = match && (source === 'user' || source === 'assistant') ? contentParts(str(match.snippet), query) : [];
     const stampIso = str(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt);
     return { recency: Date.parse(str(thread.updatedAt ?? thread.createdAt)) || 0,
-      terms: [str(thread.title), ...arr(thread.pullRequests).map(pr => `#${str(pr.number)}`), projectTitle, str(thread.branch), str(match?.snippet), str(thread.id)],
+      terms: [str(thread.title), ...pullRequestSearchTerms(thread), projectTitle, str(thread.branch), str(match?.snippet), str(thread.id)],
       row: row({ key: str(thread.id), op: 'thread', arg: str(thread.id), icon: 'message-square', title: str(thread.title, 'Untitled thread'), timestamp: relativeLabel(stampIso, now),
         project: projectTitle ? identity.projectMark : '', projectInk: identity.projectInk, projectSurface: identity.projectSurface, description: projectTitle, env: projectTitle ? 'Local' : '',
-        terminalCount: terminalProcessCount(client, str(thread.id)), branch: str(thread.branch), provider: str(instance?.driver), current: thread.id === client.threadId,
+        terminalCount: terminalProcessCount(client, str(thread.id)), ...palettePullRequest(client, thread, query), branch: str(thread.branch), provider: str(instance?.driver), current: thread.id === client.threadId,
         matchLabel: content.length ? (source === 'user' ? 'You:' : 'Agent:') : '', matchParts: content }) };
   });
+}
+/** ThreadSearchPullRequestNumber in a thread row: a settled thread's number stays muted (no row hover tints it here). */
+function palettePullRequest(client: T3Client, thread: Obj, query: string): Pick<PaletteRow, 'prNumber' | 'prState' | 'prLabel'> {
+  const pr = searchPullRequest(client, thread, query);
+  return pr ? { prNumber: String(pr.number), prState: thread.settledOverride === 'settled' ? '' : pr.state, prLabel: pr.label } : { prNumber: '', prState: '', prLabel: '' };
 }
 /** ThreadSearchMatchExcerpt: the snippet with every case-folded occurrence of the query marked. */
 export function contentParts(snippet: string, query: string): PalettePart[] {
@@ -206,7 +213,7 @@ export function rootActions(client: T3Client): Item[] {
   const current = projects.find(project => project.id === client.projectId) ?? projects[0];
   const thread = client.threadId ? client.shell.threads.find(candidate => candidate.id === client.threadId) : undefined;
   if (projects.length) {
-    if (current) action('new-thread', ['new thread', 'chat', 'create', 'draft'], { op: 'new-thread', arg: str(current.id), icon: 'square-pen', prefix: 'New thread in ', bold: str(current.title), title: `New thread in ${str(current.title)}`, shortcut: commandShortcut(client, 'chat.new') });
+    if (current) action('new-thread', ['new thread', 'chat', 'create', 'draft'], { op: 'new-thread', arg: str(current.id), icon: 'square-pen', prefix: 'New thread in ', bold: str(current.title), title: `New thread in ${str(current.title)}`, shortcut: commandShortcut(client, 'chat.newLocal') });
     action('new-thread-in', ['new thread', 'project', 'pick', 'choose', 'select'], { kind: 'submenu', op: 'page', arg: 'new-thread-in', icon: 'square-pen', title: 'New thread in...' });
   }
   if (str(client.config.scratchWorkspaceRoot)) action('new-thread-without-project', ['new thread', 'no project', 'without project', 'none', 'chat'],
@@ -239,19 +246,21 @@ export function rootActions(client: T3Client): Item[] {
 
 /**
  * The New thread in... page (projectThreadItems): the sidebar's project order with the
- * current project first (buildSidebarProjectPickerEntries), the Scratch project as a
- * trailing "No project". enumerateCommandPaletteItems numbers the first nine by
- * thread.jump.N, whose rules hold only `isDesktop`: this is the desktop build, so each shows
- * its ⌘N and the field runs it by that chord (CommandPalette.tsx handleKeyDown).
- * "No project" past the ninth row has no shortcut.
+ * current project first (buildSidebarProjectPickerEntries). enumerateCommandPaletteItems numbers the
+ * first nine projects by thread.jump.N, whose rules hold only `isDesktop`: this is the desktop build,
+ * so each shows its ⌘N and the field runs it by that chord (CommandPalette.tsx handleKeyDown).
+ * The Scratch project is "No project", right after the current project (first when the current one
+ * is the Scratch project), with its own chat.newWithoutProject shortcut, so the projects' numbers hold.
  */
 export function newThreadInItems(client: T3Client): Item[] {
-  const root = scratchRoot(client.config);
-  const ordered = pickerProjects(client).filter(project => !isScratchProject(project, root));
-  const items = projectItems({ shell: { ...client.shell, projects: ordered } }, 'new-thread-in', 'new-thread');
-  if (root) items.push({ terms: ['No project', 'no project', 'without project', 'none'],
-    row: row({ key: 'new-thread-in:no-project', op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'No project' }) });
-  return enumerateJumps(client, items);
+  const root = scratchRoot(client.config), picked = pickerProjects(client);
+  const ordered = picked.filter(project => !isScratchProject(project, root));
+  const items = enumerateJumps(client, projectItems({ shell: { ...client.shell, projects: ordered } }, 'new-thread-in', 'new-thread'));
+  if (!root) return items;
+  const at = picked[0] !== undefined && isScratchProject(picked[0], root) ? 0 : 1;
+  items.splice(at, 0, { terms: ['No project', 'no project', 'without project', 'none'],
+    row: row({ key: 'new-thread-in:no-project', op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'No project', shortcut: commandShortcut(client, 'chat.newWithoutProject') }) });
+  return items;
 }
 /**
  * CommandPalette.tsx handleKeyDown: a chord that resolves to a thread.jump.N command is the field's, whether or

@@ -42,6 +42,8 @@ component GitProviderMark
 component PublishDialog
   inject
     linkOpen: action
+    wizardPanel: string
+    wizardSteps: string
   props
     git: GitCard
     cwd: string
@@ -53,12 +55,12 @@ component PublishDialog
       column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
         text "Publish repository" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
         text "Pick where to host it, then point us at a repo to push to." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
-        row gap="0.25rem" padding="0.25rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfc, #ffffff0a)" role="list" aria-label="Setup progress"
+        row gap="0.25rem" padding="0.25rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" background-color=wizardSteps role="list" aria-label="Setup progress"
           PublishStep(index=0, label="Provider", summary=git.publishProviderLabel, current=git.publishStep, local=local)
           PublishStep(index=1, label="Repository", summary=git.publishName, current=git.publishStep, local=local)
           PublishStep(index=2, label="Summary", summary="", current=git.publishStep, local=local)
       // WizardPanel: a band with hairlines, px-6 py-5, space-y-4.
-      column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfccc, #ffffff05)"
+      column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" background-color=wizardPanel
         if git.publishStep == 0
           column gap="0.5rem"
             text "Provider" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"

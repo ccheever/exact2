@@ -1,5 +1,6 @@
 import { arr, obj, str, type Obj } from '../client/domain';
 import { shortcutInput, validShortcut } from '../settings/keybinding-settings';
+import { commandLabel } from '../settings/keybinding-view';
 export function snapshotShortcut(value: string): string {
   const aliases: Record<string, string> = { cmd: 'meta', command: 'meta', control: 'ctrl', option: 'alt', escape: 'esc', arrowleft: 'left', arrowright: 'right', arrowup: 'up', arrowdown: 'down' };
   const input = value.trim().toLowerCase(), tokens = (input.endsWith('++') ? input.slice(0, -1) + 'plus' : input).split('+').map(token => aliases[token] || token);
@@ -58,17 +59,4 @@ export function snapshotSystemConflict(value: string): string {
   return '';
 }
 
-const specialCommands: Record<string, string> = {
-  'composer.sendAlternate': 'Composer: Opposite Queue or Steer Action', 'composer.sendBackground': 'Composer: Start in Background',
-  'composer.sendAndNewThread': 'Composer: Send and Start New Thread',
-  'thread.steerQueuedMessage': 'Queue: Send First Queued Message as Steer', 'thread.editQueuedMessage': 'Queue: Edit Last Queued Message',
-  'thread.copyReference': 'Pull Request: Copy Link or Thread ID', 'usage.cost': 'Usage: Cost', 'usage.tokens': 'Usage: Tokens', 'usage.limits': 'Usage: Limits',
-  'usage.period.day': 'Usage: Period: Past 24h', 'usage.period.week': 'Usage: Period: 7 days', 'usage.period.month': 'Usage: Period: 30 days', 'usage.period.quarter': 'Usage: Period: 90 days',
-};
-const titleCase = (segment: string) => segment.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[-_\s]+/).filter(Boolean).map(part => part.slice(0, 1).toUpperCase() + part.slice(1)).join(' ');
-/** Reference KeybindingsSettings.logic commandLabel. */
-export function commandLabel(command: string): string {
-  if (specialCommands[command]) return specialCommands[command];
-  if (command.startsWith('script.') && command.endsWith('.run')) return `Run Script: ${titleCase(command.slice('script.'.length, -'.run'.length))}`;
-  return command.split('.').map(titleCase).join(': ');
-}
+export { commandLabel };

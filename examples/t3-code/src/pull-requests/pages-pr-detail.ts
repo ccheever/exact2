@@ -30,7 +30,7 @@ import {
   shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
 } from './pages-pr-logic';
 import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
-import { conversationBodies, emptySummary, presentSummary, type RemarkWrites } from './pages-pr-summary';
+import { commentFilter, conversationBodies, emptySummary, presentSummary, toggleCommentFilter, type CommentFilter, type RemarkWrites } from './pages-pr-summary';
 import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
 import { canEditPullRequestChangeRequest } from './pages-pr-writes-logic';
 import { commentEditing, emptyWrites, presentWrites, previewBodies, prWrite, reactionPills, writeReference } from './pages-pr-writes';
@@ -269,7 +269,7 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
   // Each remark's pencil and reactions, this client's presses in flight laid over.
   const reference = writeReference(selection);
   const remark = (comment: Obj): RemarkWrites => ({ ...commentEditing(client, reference, display, comment), ...reactionPills(client, reference, str(comment.id), comment.reactions) });
-  presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry, remark });
+  presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry, remark, filter: commentFilter(client) });
   view.writes = presentWrites(client, reference, display);
   const code = presentCode({ client, reference, detail: display, activity: panel!.activity, now });
   view.codeTab = code.view;
@@ -334,6 +334,7 @@ function contextOf(client: T3Client, selected: string): PanelContext | null {
 }
 /** `chatlocal:pr-ui-*`: the header's menu choices for the selected pull request (pages-pr-actions.ts). */
 export function prUiLocal(client: T3Client, op: string, selected: string, value: string): string {
+  if (op === 'comment-filter') { toggleCommentFilter(client, value); return ''; }
   const ctx = contextOf(client, selected);
   return ctx ? prActionUi(client, op, ctx, value) : '';
 }
@@ -343,7 +344,7 @@ const copies = new WeakMap<object, { value: string; nonce: number }>();
 export function noteCopy(client: object, value: string): void { copies.set(client, { value, nonce: (copies.get(client)?.nonce ?? 0) + 1 }); }
 export function copyNonce(client: object, value: string): number { const copy = copies.get(client); return copy && value && copy.value === value ? copy.nonce : 0; }
 
-export type PresentOptions = { activityPending?: boolean; activityError?: string; listEntry?: Obj | null; remark?: (comment: Obj) => RemarkWrites };
+export type PresentOptions = { activityPending?: boolean; activityError?: string; listEntry?: Obj | null; remark?: (comment: Obj) => RemarkWrites; filter?: CommentFilter };
 export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | null, now: number, options: PresentOptions = {}): PrDetailView {
   const author = person(activity?.author ?? detail.author), state = stateKey(detail), checks = arr(detail.checks);
   const permissions = obj(detail.viewerPermissions), capabilities = obj(detail.capabilities);
@@ -367,7 +368,7 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
   view.commentCount = num(activity?.commentCount, arr(activity?.comments).length);
   view.commentsLabel = `Comments (${view.commentCount})`;
   const shared = { detail, activity, activityPending: view.activityPending, activityError: view.activityError, now, ...(options.remark ? { remark: options.remark } : {}) };
-  view.summary = presentSummary({ ...shared, listEntry: options.listEntry ?? null });
+  view.summary = presentSummary({ ...shared, listEntry: options.listEntry ?? null, ...(options.filter ? { filter: options.filter } : {}) });
   view.timeline = presentTimeline(shared);
   // A newer rollup than the detail's checks: its headline, not a count the detail cannot back.
   if (view.summary.checksStale) { view.checksSummary = view.summary.checksState ? CHECKS_HEADLINE[view.summary.checksState] ?? 'No checks reported' : 'No checks reported'; view.checksTone = view.summary.checksState; }

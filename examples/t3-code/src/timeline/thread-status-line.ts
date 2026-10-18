@@ -11,7 +11,7 @@ import type { T3Client } from '../client/client';
 import { wokeAt, wokeWatermark } from '../composer/composer-controls-commands';
 import { composerSelection } from '../composer/composer-provider-selection';
 import { fanoutSelections } from '../composer/composer-controls-fanout';
-import { triggerModelName } from '../composer/composer-controls-model';
+import { handoffEndpoint } from './timeline-events';
 import { formatRelativeTimeLabel } from '../browser/browser-history';
 
 /** formatRelativeTimeUntilLabel: "Expired", "Soon", "42s left", "5m left", "3h left", "2d left". */
@@ -81,21 +81,15 @@ export function pendingHandoff(projection: Obj, selection: Endpoint | null, prov
   return needsHandoff ? { from: { instanceId: str(from.instanceId), model: str(from.model) }, to: selection } : null;
 }
 
-/** HandoffEndpoint's label: the model's trigger name, else its slug, else the instance's name. */
-function endpointLabel(providers: Obj[], endpoint: Endpoint): string {
-  const provider = providers.find(entry => entry.instanceId === endpoint.instanceId), model = endpoint.model.trim();
-  const known = model ? arr(provider?.models).find(entry => entry.slug === model) : undefined;
-  return known ? triggerModelName(known) : model || str(provider?.displayName, endpoint.instanceId);
-}
-
 /** The timeline's footer rows: the pending handoff ("Context handoff pending"), then the status line. */
 export function threadFooterRows(client: T3Client, now: number): Message[] {
   if (!client.threadId || !client.thread) return [];
   const providers = arr(client.config.providers), chosen = composerSelection(client, !!fanoutSelections(client));
   const instanceId = chosen.instanceId || client.providerId, model = chosen.entry ? chosen.model : client.modelId;
   const handoff = pendingHandoff(client.projection, instanceId ? { instanceId, model } : null, providers);
-  const rows: Message[] = handoff ? [{ id: `pending-handoff:${client.threadId}`, kind: 'event', title: 'Context handoff pending', body: '', tone: 'neutral',
-    icon: 'arrow-right-left', detail: `${endpointLabel(providers, handoff.from)} → ${endpointLabel(providers, handoff.to)}` }] : [];
+  const endpoints = handoff ? [handoffEndpoint(handoff.from, providers, 0), handoffEndpoint(handoff.to, providers, 1)] : [];
+  const rows: Message[] = handoff ? [{ id: `pending-handoff:${client.threadId}`, kind: 'handoff', title: 'Context handoff pending', body: '', tone: 'neutral',
+    icon: 'arrow-right-left', detail: endpoints.map(endpoint => endpoint.label).join(' → '), activities: endpoints }] : [];
   const status = threadStatusLine(client, now);
   return status ? [...rows, status] : rows;
 }

@@ -1,8 +1,8 @@
 // Appearance: colour scheme tiles and the theme library.
 // Reference ThemeSettings.tsx ThemeLibrary, ThemeWireframe.tsx, ThemePreviewCircles.tsx.
 use CoreIcon, CorePaintIcon from "../settings/settings-core.contract"
-use CorePalette from "../settings/settings-core.contract"
-use SettingsGhost from "../settings/settings-core.contract"
+use CorePalette from "../settings/settings-core-shared.contract"
+use SettingsGhost from "../settings/settings-core-shared.contract"
 use SettingsSrHeading from "../settings/settings-kit.contract"
 use ModeTile from "../settings/settings-core.contract"
 use ThemeCard from "../settings/settings-core.contract"
