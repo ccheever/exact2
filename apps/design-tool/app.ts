@@ -11,7 +11,7 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf } from './dials';
 import { componentsOf } from './components';
-import { paramInfoOf, rescopeOf, type ParamInfo, type Rescope } from './rescope';
+import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
 import { partsOf } from './parts';
 export { joined, missing, partsOf } from './parts';
@@ -216,7 +216,7 @@ export function inputsOf(value: string, names: string[], dials: string[]): { tok
 // its answer), so it keeps nothing; the shown one is the newest kept, and
 // what follows it (a cell's branch, contrast) names it.
 type Stored = { css: string; srgb: string; residual: boolean; note: string; value: string };
-type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string; kinds: Map<string, string>; params: Map<string, ParamInfo> };
+type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string; kinds: Map<string, string>; params: Map<string, ParamInfo>; tokenOf: (v: string) => string | null };
 const snapshots = new Map<number, Snapshot>();
 // Design reads, and reads of the app design's axes (either kind): only the
 // newest of the second sets the axes a selection is placed by.
@@ -699,13 +699,15 @@ const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server k
 
 /** The re-scope an edit of the app's design would offer once written (D6),
  * read from the design as it is before the write. */
-async function rescopeFor(file: string, op: Record<string, unknown>, token: string): Promise<Rescope | null> {
-  const snap = snapshots.get(issued);
-  if (file || !snap || snap.file !== '' || (op.op !== 'set-param' && op.op !== 'set-token')) return null;
-  return rescopeOf(op as { op: string; name: string; when: When[]; value: string }, snap.params, async name => {
+async function rescopeFor(file: string, op: Record<string, unknown>, token: string, files: Record<string, string>): Promise<Rescope | null> {
+  // The design read and every explain of the revision the edit was reviewed on.
+  const key = digestKey(files);
+  const snap = [...snapshots.values()].reverse().find(x => x.file === '' && x.digests === key);
+  if (file || !snap || (op.op !== 'set-param' && op.op !== 'set-token')) return null;
+  return rescopeOf(op as { op: string; name: string; when: When[]; value: string }, snap.params, snap.tokenOf, async name => {
     const { error, reply } = await call('/__tamber', { method: 'explain', token: name }, 15000, token);
-    return error ? null : (reply.ok as { value: string; whens: { when: When[]; value: string }[] });
-  });
+    return error ? null : (reply.ok as { value: string; whens: { when: When[]; value: string }[]; files?: Record<string, string> });
+  }, key);
 }
 
 const sources: Sources = {
@@ -795,7 +797,7 @@ const sources: Sources = {
       if (number === issued) {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
-        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir) });
+        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir), tokenOf: tokenOfIn(ir) });
         if (!file || file === designFile) { appParams = snapshots.get(number)!.params; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
@@ -868,7 +870,7 @@ const sources: Sources = {
     // The operations reviewed, as reviewed.
     const ops = read.ops;
     const op = ops.at(-1)!;
-    const move = ops.length === 1 ? await rescopeFor(file, op, read.token) : null;
+    const move = ops.length === 1 ? await rescopeFor(file, op, read.token, read.files) : null;
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
     const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops }, WRITE_WAIT, read.token);
@@ -893,7 +895,8 @@ const sources: Sources = {
     const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files, ops }, WRITE_WAIT, top.token);
     if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
-    if (error) return stacks(false, byWhom(reply) ? `Not moved: ${byWhom(reply)} since the edit, so its inverse would undo theirs.` : error, '');
+    // Refused, it is not offered again: the files are not the edit's any more.
+    if (error) { if (byWhom(reply)) top.rescope = null; return stacks(false, byWhom(reply) ? `Not moved: ${byWhom(reply)} since the edit, so its inverse would undo theirs.` : error, ''); }
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     if (inverse) { undoStack.push({ inverse, ops, label: top.rescope.text.replace(/^Apply to/, 'moved to').replace(/ instead$/, ''), token: top.token }); redoStack.length = 0; wroteMine(reply.ok); }
     return stacks(true, '', 'rescope');
@@ -945,6 +948,8 @@ const sources: Sources = {
     scrubEnded = '';
     const op = kept, [file, kind, target, when] = s.of.split('␟');
     const value = draftValue;
+    // Its re-scope, from the files the scrub opened on (it wrote nothing until now).
+    const move = await rescopeFor(file, op, s.token, s.files);
     const { error, reply, used } = await call('/__tamber', { method: 'scrub-release', client: s.client, scrub: s.id }, WRITE_WAIT, s.token);
     // No answer from the server (not a refusal): the scrub may still be
     // open there, so it stays, to keep or cancel again.
@@ -953,7 +958,8 @@ const sources: Sources = {
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since the scrub opened; the running copies have the committed value back.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
-    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: s.token }); redoStack.length = 0; wroteMine(reply.ok); }
+    const after = (reply.ok as { files?: Record<string, string> }).files;
+    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: s.token, rescope: move && after ? { ...move, files: after } : null }); redoStack.length = 0; wroteMine(reply.ok); }
     return stacks(true, '', kind.split('-')[0], keyOf(file, kind, target, when, value));
   },
   cancelScrub: async ([ask]) => {
@@ -1018,7 +1024,8 @@ const sources: Sources = {
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     // A redo of an accepted proposal is the proposer's write; its row says
     // who redid it.
-    if (inverse) { undoStack.push({ ...top, inverse }); wroteMine(reply.ok, top.client && top.client !== client ? client : ''); }
+    // (A redo offers no re-scope: its move was worked out from the files before the edit, not before the redo.)
+    if (inverse) { undoStack.push({ ...top, inverse, rescope: null }); wroteMine(reply.ok, top.client && top.client !== client ? client : ''); }
     return stacks(true, '', 'redo');
   },
   loadContrast: async ([a, b, answer]) => {

@@ -339,6 +339,47 @@ test('a dial edit and a Dim cell edit each write one line, undo gives the bytes 
   }
 }, 900_000);
 
+test('T3: a re-scope reads the branch it moves: the alias there, the param that aliases a token there, a role by its spelling, none toward a value that names its destination, none from another revision', async () => {
+  const { paramInfoOf, rescopeOf, tokenOfIn } = await import('../apps/design-tool/rescope.ts');
+  const ir = { tokens: [{ name: 'radius.md' }, { name: 'radius.sm' }, { name: '-exact-label', role: 'label' }], components: [{ params: [
+    { name: 'a#Card.radius', short: 'Card.radius', default: 'radius.md', set: { value: 'radius.md', whens: 1 } },
+    { name: 'a#Card.ink', short: 'Card.ink', default: 'Label', set: null },
+    { name: 'a#Chip.radius', short: 'Chip.radius', default: '4px', set: { value: '4px', whens: 1 } },
+  ] }] };
+  const params = paramInfoOf(ir), tokenOf = tokenOfIn(ir);
+  const compact = [{ axis: 'density', value: 'compact' }];
+  const files = { 'app.tamber': 'd1' }, key = JSON.stringify([['app.tamber', 'd1']]);
+  const branches = {
+    'a#Card.radius': { value: 'radius.md', whens: [{ when: compact, value: 'radius.sm' }], files },
+    'a#Card.ink': { value: 'Label', whens: [], files },
+    // Chip's compact branch names radius.sm too.
+    'a#Chip.radius': { value: '4px', whens: [{ when: compact, value: 'radius.sm' }], files },
+    'radius.sm': { value: '2px', whens: [], files },
+    'radius.md': { value: '12px', whens: [], files },
+    '-exact-label': { value: '#000', whens: [], files },
+  };
+  const explain = async name => branches[name] ?? null;
+  // Card.radius's compact branch aliases radius.sm, not radius.md: moved there, on compact.
+  const m = await rescopeOf({ op: 'set-param', name: 'Card.radius', when: compact, value: '8px' }, params, tokenOf, explain, key);
+  expect(m).toEqual({ text: 'Apply to the token radius.sm instead', ops: [
+    { op: 'set-param', name: 'Card.radius', when: compact, value: 'radius.sm' },
+    { op: 'set-token', name: 'radius.sm', when: compact, value: '8px' },
+  ] });
+  // A role override by its role's spelling.
+  expect((await rescopeOf({ op: 'set-param', name: 'Card.ink', when: [], value: '#111' }, params, tokenOf, explain, key)).text).toBe('Apply to the token -exact-label instead');
+  // Toward a value that names the destination: none (an alias loop).
+  expect(await rescopeOf({ op: 'set-param', name: 'Card.radius', when: [], value: 'radius.md' }, params, tokenOf, explain, key)).toBe(null);
+  // radius.sm on compact is aliased by two params there: none.
+  expect(await rescopeOf({ op: 'set-token', name: 'radius.sm', when: compact, value: '3px' }, params, tokenOf, explain, key)).toBe(null);
+  // radius.md, unconditionally, by Card.radius alone: moved to it, its own line kept.
+  expect(await rescopeOf({ op: 'set-token', name: 'radius.md', when: [], value: '10px' }, params, tokenOf, explain, key)).toEqual({ text: 'Apply to Card.radius instead', ops: [
+    { op: 'set-token', name: 'radius.md', when: [], value: '12px' },
+    { op: 'set-param', name: 'Card.radius', when: [], value: '10px' },
+  ] });
+  // An explain of another revision than the edit's: none.
+  expect(await rescopeOf({ op: 'set-param', name: 'Card.ink', when: [], value: '#111' }, params, tokenOf, async n => ({ ...branches[n], files: { 'app.tamber': 'd2' } }), key)).toBe(null);
+});
+
 test('T3: Reset gives a param\'s line back byte for byte in one undo; a param edit re-scoped to the token it aliases is one transaction, undone a level at a time; a re-scope after another write is refused', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-params-'));
   const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
