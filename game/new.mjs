@@ -845,8 +845,6 @@ exact-js-bake = ${dep('apple', 'js/bake')}
     'apple/src/lib.rs': `//! ${title} on Apple: the Contract UI and the TypeScript data module.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
-const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
-const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
@@ -857,7 +855,7 @@ fn embedded_data() -> ExactEmbeddedData {
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
 include!(concat!(env!("OUT_DIR"), "/linked.rs"));
-// The host app.json's deploy.store names: with an update store, signed updates.
+// The host app.json's deploy.store names (with an update store, signed updates), and the plan it boots.
 include!(concat!(env!("OUT_DIR"), "/host.rs"));
 `,
     ...linuxCrate(dir, name, title),
@@ -1337,6 +1335,11 @@ function updateApp(dir, name, { without = null } = {}) {
   if (!existsSync(test)) writeFileSync(test, `// The app boots and its data lands; add this app's own assertions.
 test "the app opens"
 `);
+  // The Apple entry's plan and compatibility document come with its host.rs (`exact_plan()`, `exact_compat()`): an
+  // Apple build links them (`exact_apple::baked`), and the constants an older entry declares read a file it no longer writes.
+  const entry = resolve(dir, 'apple/src/lib.rs'), source = existsSync(entry) ? readFileSync(entry, 'utf8') : '';
+  const entryNow = source.replace(/^const (?:PLAN|COMPAT): [^\n]*"\/(?:app\.plan|compat\.json)"\)\);\n/gm, '');
+  if (entryNow !== source && source.includes('/host.rs"')) { writeFileSync(entry, entryNow); notes.push('apple/src/lib.rs'); }
   // Each exact2 crate is found by name, so a checkout that moved is followed.
   const metadata = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], { cwd: ROOT, env: cargoEnvironment(), encoding: 'utf8', maxBuffer: 1 << 26 });
   if (metadata.status !== 0) throw new Error(`cargo metadata in ${ROOT}:\n${metadata.stderr}`);
