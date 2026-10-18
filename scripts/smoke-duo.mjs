@@ -32,6 +32,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
 const near = (a, b, eps = 0.01) => typeof a === 'number' && Math.abs(a - b) < eps;
+// A box at a segment's edge, which lies on a half point (455.5, 495.5): iOS draws every box on the device's pixel
+// grid, so the edge lands on the nearest third of a point at 3x.
+const onGrid = (a, b) => near(a, b, 1 / 3 + 0.01);
 
 // The matrix, and the Duo's geometry under the 27.1 beta (LLP 1008 §9): the
 // cover panel 466×678, the inner panel 951×669, the division (455.5, 0, 40, 669)
@@ -298,7 +301,7 @@ async function suite({ open: openSession, check: record }, reset) {
     // The panes sit exactly on the two rects, whichever axis the device splits
     // (across: each pane the viewport's height; down: each the viewport's width).
     const list = box(l, 'pane-list'), detail = box(l, 'pane-detail');
-    const on = (pane, r, full) => pane && near(pane.x, r[0]) && near(pane.y, r[1]) && near(pane.w, full ? l.viewport.w : r[2]) && near(pane.h, full ? r[3] : l.viewport.h);
+    const on = (pane, r, full) => pane && (full ? near(pane.x, r[0]) && near(pane.w, l.viewport.w) && onGrid(pane.y, r[1]) && onGrid(pane.h, r[3]) : onGrid(pane.x, r[0]) && onGrid(pane.w, r[2]) && near(pane.y, r[1]) && near(pane.h, l.viewport.h));
     if (segs?.length === 2 && (h === 2 || v === 2)) check(on(list, segs[0], v === 2) && on(detail, segs[1], v === 2), `${tag}: the panes sit on the segments ${JSON.stringify(segs)} (${h}×${v}): list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
     else check(list && detail && near(list.w, l.viewport.w) && near(detail.w, l.viewport.w) && detail.y >= list.y + list.h - 0.01, `${tag}: one pane, the list above the detail: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
     check(text('detail-title') === chosen, `${tag}: the selection survived: ${text('detail-title')} (was ${chosen})`);
@@ -653,7 +656,7 @@ async function suite({ open: openSession, check: record }, reset) {
     await s.tap('open-note'); await settle(s);
     let l = await s.layout();
     const lower = l.env['viewport-segments'][1], sheet = box(l, 'note-sheet');
-    check(sheet && near(sheet.y, lower[1]) && near(sheet.y + sheet.h, l.viewport.h), `${tag}: the note sheet stops at the lower segment's top ${lower[1]}: ${JSON.stringify(sheet)}`);
+    check(sheet && onGrid(sheet.y, lower[1]) && near(sheet.y + sheet.h, l.viewport.h), `${tag}: the note sheet stops at the lower segment's top ${lower[1]}: ${JSON.stringify(sheet)}`);
     await offBand(s, l, `${tag} note`);
     const title = `laptop ${tag}`;
     await s.type('note-title-input', title);
