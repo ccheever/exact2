@@ -291,10 +291,32 @@ impl super::Painter {
             (false, true) => (super::control::ring(node, dark), thick),
             (false, false) => (look::role("-exact-secondary-label", dark), thin),
         };
+        // Compose lays the field out in whole pixels and draws the indicator
+        // up from its foot across its width (`IndicatorLineNode`), so the
+        // line's foot and ends are on the pixel grid: here the field's may
+        // fall between two pixels, and each is moved to the nearer edge.
         let (x, y, w, h) = rect;
-        self.backend
-            .fill(&Shape::rect((x, y + h - thick, w, thick)), line, ts);
+        let (left, right) = (self.on_grid(x, ts, false), self.on_grid(x + w, ts, false));
+        let foot = self.on_grid(y + h, ts, true);
+        let line_box = (left, foot - thick, right - left, thick);
+        self.backend.fill(&Shape::rect(line_box), line, ts);
         shape
+    }
+
+    /// `v`, an x (or with `vertical` a y) in the coordinates `ts` maps,
+    /// moved to the nearest edge between device pixels; as it is where `ts`
+    /// turns or skews.
+    fn on_grid(&self, v: f32, ts: Transform, vertical: bool) -> f32 {
+        let (scale, offset) = if vertical {
+            (ts.sy, ts.ty)
+        } else {
+            (ts.sx, ts.tx)
+        };
+        if ts.kx != 0.0 || ts.ky != 0.0 || scale == 0.0 {
+            return v;
+        }
+        let device = ((v * scale + offset) * self.scale).round();
+        (device / self.scale - offset) / scale
     }
 
     /// `node`'s label in its field's box `rect`, where it has one: resting

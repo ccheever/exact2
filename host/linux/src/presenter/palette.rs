@@ -252,8 +252,10 @@ pub(crate) fn reported_accent(dark: bool) -> Option<([u8; 4], [u8; 4])> {
 /// What a presenter keeps of the reported colours.
 #[derive(Default)]
 pub(super) struct State {
-    /// The reported table's generation this presenter last painted from.
-    seen: Option<u64>,
+    /// The reported table's generation this presenter last painted from,
+    /// and the palette, whose roles past the table's (read by [`material`])
+    /// can change while the table does not.
+    seen: Option<(u64, Palette)>,
 }
 
 impl<D: DataSource> Presenter<D> {
@@ -266,11 +268,11 @@ impl<D: DataSource> Presenter<D> {
     /// from a paint under the old colours stands.
     pub fn set_palette(&mut self, palette: &Palette) {
         let generation = palette.tell();
-        if self.colors.seen == Some(generation) {
+        if self.colors.seen == Some((generation, *palette)) {
             return;
         }
         let first = self.colors.seen.is_none();
-        self.colors.seen = Some(generation);
+        self.colors.seen = Some((generation, *palette));
         self.host.colors_changed(first);
         self.brush.colors_changed();
         self.dirty = true;
