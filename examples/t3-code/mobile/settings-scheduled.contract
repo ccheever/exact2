@@ -109,23 +109,24 @@ component SettingsScheduledTasks
         for section in data.sections key=section.id
           column gap=7
             SettingsSectionLabel(title=section.title, colors=colors, roles=roles)
-            if section.error.length > 0
-              text section.error color=danger role="alert" font-size=roles.footnote.size
-            if section.loading
-              text "Loading scheduled tasks…" color=colors.muted font-size=roles.body.size
-            if section.emptyMessage.length > 0
-              text section.emptyMessage color=colors.muted font-size=roles.body.size padding=14
             column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" overflow="hidden"
-              for task in section.rows key=task.id
-                row align-items="center" border-top-width=(task.first ? 0 : 1) border-top-style="solid" border-top-color=colors.borderSubtle
-                  button press=open(section.id, task.id) flex=1 min-width=0 padding=14 aria-label=task.title
-                    column gap=3.5 align-items="flex-start"
-                      text task.title font-size=roles.headline.size line-height=`${roles.headline.line}px` font-weight=500 line-clamp=1 color=colors.foreground
-                      text task.subtitle font-size=roles.footnote.size line-height=`${roles.footnote.line}px` line-clamp=2 color=colors.muted
-                      if task.error.length > 0
-                        text task.error font-size=roles.footnote.size line-clamp=2 color=danger
-                  button press=menu(section.id, task.id) width=44 height=44 padding=0 aria-label=`Actions for ${task.title}`
-                    t3-symbol symbol-name="ellipsis" symbol-tint=colors.icon width=18 height=18
+              if section.error.length > 0
+                text section.error color=danger role="alert" font-size=roles.body.size line-height=`${roles.body.line}px` padding=14
+              else if section.loading
+                text "Loading tasks…" color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px` padding=14
+              else if section.emptyMessage.length > 0
+                text section.emptyMessage color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px` padding=14
+              else
+                for task in section.rows key=task.id
+                  row align-items="center" border-top-width=(task.first ? 0 : 1) border-top-style="solid" border-top-color=colors.borderSubtle
+                    button press=open(section.id, task.id) flex=1 min-width=0 padding=14 aria-label=task.title
+                      column gap=3.5 align-items="flex-start"
+                        text task.title font-size=roles.headline.size line-height=`${roles.headline.line}px` font-weight=500 line-clamp=1 color=colors.foreground
+                        text task.subtitle font-size=roles.footnote.size line-height=`${roles.footnote.line}px` line-clamp=2 color=colors.muted
+                        if task.error.length > 0
+                          text task.error font-size=roles.footnote.size line-clamp=2 color=danger
+                    button press=menu(section.id, task.id) width=44 height=44 padding=0 aria-label=`Actions for ${task.title}`
+                      t3-symbol symbol-name="ellipsis" symbol-tint=colors.icon width=18 height=18
 component ScheduledSelectRow
   props
     label: string
