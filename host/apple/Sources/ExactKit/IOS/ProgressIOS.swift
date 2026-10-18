@@ -47,8 +47,11 @@ extension ControlHost {
             let own = owner.ownColor("text_color") == nil ? nil : owner.channels("text_color").map { TextEngine.color($0) }
             // An `accent-color` on it or above (not the platform's tint, which
             // `accent-color: AccentColor` names), else the design's AccentColor.
-            let written = owner.style["accent_color"].map { "\($0)".contains("@tint/") || !"\($0)".contains("@tint") } ?? false
-            let accent = (written ? owner.channels("accent_color").map { TextEngine.color($0) } : nil) ?? ThemeRoles.color("AccentColor", in: spinner)
+            let written = Self.authorsAccent(owner)
+            // `accent-color: AccentColor` under an authored accent keeps that one, as the web's
+            // `var(--exact-accent, AccentColor)` does (LLP 1121 D9, stage 9 F1).
+            let kept = written || owner.style["accent_color"] == nil ? nil : Self.authoredAbove(owner)?.channels("accent_color").map { TextEngine.color($0) }
+            let accent = (written ? owner.channels("accent_color").map { TextEngine.color($0) } : nil) ?? kept ?? ThemeRoles.color("AccentColor", in: spinner)
             assign(spinner, \.color, own ?? accent ?? Self.platformInk)
             assign(spinner, \.isHidden, owner.cssVisibilityHidden)
             assign(spinner, \.accessibilityIdentifier, owner.props["testId"])
@@ -62,6 +65,21 @@ extension ControlHost {
         }
         // One leaving with its exit holds too, under the agent's clock.
         if held { for id in leaving { if let s = spinners[id], s.isAnimating { s.stopAnimating() } } }
+    }
+
+    /// Whether `view` authors its `accent-color` (not the platform's tint,
+    /// which `accent-color: AccentColor` names).
+    static func authorsAccent(_ view: NodeView) -> Bool {
+        view.style["accent_color"].map { "\($0)".contains("@tint/") || !"\($0)".contains("@tint") } ?? false
+    }
+    /// The nearest view above `view` that authors an accent, if one does.
+    static func authoredAbove(_ view: NodeView) -> NodeView? {
+        var at = view.superview
+        while let current = at {
+            if let node = current as? NodeView, authorsAccent(node) { return node }
+            at = current.superview
+        }
+        return nil
     }
 
     /// The determinate bars (LLP 1116 D8). A change of value eases, as

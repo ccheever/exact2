@@ -69,3 +69,44 @@ fn a_role_drawn_in_the_accent_reads_the_nearest_authored_one() {
         "a sibling after the authored subtree"
     );
 }
+
+/// A spinner whose `accent-color` is the `AccentColor` role under an authored
+/// accent paints in that accent, as the web's `var(--exact-accent,
+/// AccentColor)` keeps it (LLP 1121 D9, stage 9 F1); with none authored, the
+/// role's own (the design's, else the platform's).
+#[test]
+fn a_spinner_under_an_authored_accent_keeps_it_through_the_role() {
+    let plan = contract::compile(r##"component App
+  view
+    column width=400 height=300 background-color="white" align-items="flex-start" gap=4
+      column accent-color="#00c800"
+        column accent-color="AccentColor"
+          progress width=44 height=44 testId="kept"
+      column accent-color="AccentColor"
+        progress width=44 height=44 testId="role"
+"##)
+    .unwrap();
+    let (mut p, err) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (400., 300.),
+        1.,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(err.is_none(), "{err:?}");
+    let shot = p.frame();
+    let green = |p: &Presenter<()>, name: &str| {
+        let k = p.host().kernel();
+        let f = k.node_by_key(k.find_by_test_id(name)[0]).unwrap().frame;
+        (f.y as u32..(f.y + f.height) as u32).any(|y| {
+            (f.x as u32..(f.x + f.width) as u32).any(|x| {
+                let c = shot.pixel(x, y).unwrap();
+                c.red() < 40 && c.green() > 170 && c.blue() < 40
+            })
+        })
+    };
+    assert!(green(&p, "kept"), "the authored accent, kept through the role");
+    assert!(!green(&p, "role"), "no accent authored: the role's own");
+}

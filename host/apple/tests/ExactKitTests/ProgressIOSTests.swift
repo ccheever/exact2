@@ -56,6 +56,27 @@ final class ProgressIOSTests: XCTestCase {
         for (got, want) in zip([r, g, b, a], [want.0, want.1, want.2, want.3]) { XCTAssertEqual(got, want, accuracy: 0.01, "\([r, g, b, a])") }
     }
 
+    /// `accent-color: AccentColor` under an authored accent keeps that one,
+    /// as the web's `var(--exact-accent, AccentColor)` does (LLP 1121 D9,
+    /// stage 9 F1); with none authored above, the role's own.
+    func testTheAccentRoleUnderAnAuthoredAccentKeepsIt() throws {
+        let tint: [String: Any] = ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]
+        let green: [Double] = [0, 200, 0, 255]
+        var ops = box(1) + box(5) + progress(2) + box(6) + progress(3)
+        ops[0]["style"] = ["text_color": [0, 0, 0, 255], "accent_color": green]
+        ops[2]["style"] = ["text_color": [0, 0, 0, 255], "accent_color": tint]
+        ops[4]["style"] = ["text_color": [255, 0, 0, 255], "accent_color": tint]
+        ops[6]["style"] = ["text_color": [0, 0, 0, 255], "accent_color": tint]
+        ops[8]["style"] = ["text_color": [255, 0, 0, 255], "accent_color": tint]
+        let p = presenter(ops + [["op": "children", "id": 1, "ids": [5]], ["op": "children", "id": 5, "ids": [2]],
+                                 ["op": "children", "id": 6, "ids": [3]], ["op": "roots", "ids": [1, 6]]])
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        try XCTUnwrap(p.controls.spinners[2]).color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        XCTAssertEqual([r, g, b, a].map { ($0 * 255).rounded() }, [0, 200, 0, 255], "the authored accent, kept through the role")
+        try XCTUnwrap(p.controls.spinners[3]).color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        XCTAssertNotEqual([r, g, b, a].map { ($0 * 255).rounded() }, [0, 200, 0, 255], "none authored above: the role's own")
+    }
+
     func testItIsUIKitsActivityIndicatorSizedByItsBox() throws {
         let p = presenter(box(1) + progress(2, ["testId": "busy", "accessibilityLabel": "Loading"], written: true) + progress(3, side: 40, y: 40)
                           + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])
