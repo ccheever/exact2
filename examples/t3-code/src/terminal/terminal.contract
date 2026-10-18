@@ -80,6 +80,7 @@ component TerminalDrawer
   state dragKey = ""
   state dragHeight = 0
   state dragging = false
+  state dragStart = 0
   state hovered = ""
   derive maxHeight = max(180, floor(viewportHeight * 0.75))
   derive height = min(max(floor((dragKey == view.threadKey and dragHeight > 0 ? dragHeight : view.height) + 0.5), 180), maxHeight)
@@ -89,14 +90,21 @@ component TerminalDrawer
   // handleResizePointerMove: the height follows the pointer, clamped at every step.
   action resize(dx: number, dy: number)
     let current = height
+    if not dragging
+      dragStart = current
     dragging = true
     dragKey = view.threadKey
     dragHeight = min(max(current - dy, 180), maxHeight)
-  // handleResizePointerEnd → syncHeight: the store keeps the clamped height (saved per thread).
+  // handleResizePointerEnd → syncHeight: the store keeps the clamped height (saved per thread). A drag
+  // that ends where it started keeps the stored preference, which may be taller than the window-capped
+  // height the drag started from.
   action release(vx: number, vy: number)
     let committed = height
     dragging = false
-    command("terminallocal:height", view.threadKey, `${committed}`, 0)
+    if committed == dragStart
+      dragHeight = 0
+    else
+      command("terminallocal:height", view.threadKey, `${committed}`, 0)
   // onSessionExited: the view printed "[terminal] Process exited"; the tab closes without a confirmation.
   action exited(message: string)
     command("terminallocal:exited", view.threadKey, message, 0)
