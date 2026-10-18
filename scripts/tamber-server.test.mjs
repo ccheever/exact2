@@ -880,6 +880,7 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(at.proposals.map(p => p.proposal)).toContain(held.ok.proposal);
   const same = await poll({ after: at.seq, epoch: at.epoch, wait: false, client: 'tool', held: at.held });
   expect([same.held, same.proposals]).toEqual([at.held, undefined]);
+  expect((await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify({ after: at.seq, epoch: at.epoch, wait: false, held: String(at.held) }) })).status).toBe(400);
   expect((await poll({ after: at.seq, epoch: 'another', wait: false, client: 'tool', held: at.held })).proposals).toEqual(at.proposals);
   const taken = await post({ method: 'accept', client: 'person', proposal: held.ok.proposal });
   expect(taken.status).toBe(200);

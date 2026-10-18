@@ -579,7 +579,8 @@ with.
 **`drop`** `{proposal, client}` forgets one, and answers `{dropped: id}`.
 
 **The open list** rides `subscribed` and every long poll's answer, as `proposals`, each as the
-`proposal` event shows it. A long poll's answer also carries the list's revision, `held` (*1.12*),
+`proposal` event shows it, except a long poll that names the list's current revision (below). A
+long poll's answer also carries the list's revision, `held` (*1.12*),
 which moves whenever a proposal is held, dropped, accepted, expires or is recomputed. A long poll
 that sends `held` with the revision it has (and this run's `epoch`) gets no `proposals` while the
 list is unchanged: it keeps its own.

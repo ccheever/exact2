@@ -504,6 +504,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (url.pathname === '/__tamber/events') {
       const after = request?.after ?? seq;
       if (!Number.isSafeInteger(after) || after < 0) { json(res, 400, { error: { message: '`after` is a sequence number' } }); return true; }
+      if (request?.held !== undefined && (!Number.isSafeInteger(request.held) || request.held < 0)) { json(res, 400, { error: { message: '`held` is the held list\'s revision, a whole number' } }); return true; }
       // `{client}`: present while this poll is open, and for 35 s after.
       const client = typeof request?.client === 'string' && request.client ? request.client : null;
       attend(client, 1);
