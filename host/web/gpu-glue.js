@@ -791,6 +791,15 @@ const api = {
       for (let i = 0; i < bytes.length; i += 8192) encoded += String.fromCharCode(...bytes.subarray(i, i + 8192));
       return tagged({ data: btoa(encoded), bytes: bytes.length, hash: state?.world?.hash, tick: state?.tick });
     }
+    // A look frame (LLP 1127.000) reads back on the page's next turn: the module
+    // answers `pending` until its maps land, and this waits, up to 5 s.
+    if ((request.op === "screenshot" && request.form === "look") || (request.op === "state" && (request.look || request.draws || request.visible))) return (async () => {
+      for (const end = performance.now() + 5000; performance.now() < end; await new Promise((r) => setTimeout(r, 4))) {
+        const reply = agent(request.id, request);
+        if (reply?.pending !== "readback") return reply ? tagged(reply) : { error: `view ${request.id} has no world` };
+      }
+      return { error: "look frame: the readback did not land in 5 s" };
+    })();
     if (!["layout", "state", "tree"].includes(request.op)) return { error: `world does not answer ${request.op}` };
     if (request.op === "layout" && request.entity === undefined) {
       const r = entry.host.getBoundingClientRect();

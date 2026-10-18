@@ -307,9 +307,9 @@ pub(crate) fn draws_json(
                 }
                 match kept(facts, read, group, view as usize) {
                     Some(n) if !fact.keep_all => {
-                        let _ = write!(out, ",\"culled\":{n}");
+                        let _ = write!(out, ",\"kept\":{n}");
                     }
-                    _ => out.push_str(",\"culled\":null"),
+                    _ => out.push_str(",\"kept\":null"),
                 }
             }
             Drew::Quads { kind, count } => {

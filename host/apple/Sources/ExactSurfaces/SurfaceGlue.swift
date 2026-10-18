@@ -58,6 +58,8 @@ extension CanvasesHost {
         guard let id, let e = live(id) else { return missing }
         let op = request["op"] as? String ?? ""
         if op == "screenshot", request["form"] as? String == "save" { return save(e) }
+        // A look frame (LLP 1127.000): the module draws it offscreen and its pixels come back in the reply.
+        if op == "screenshot", request["form"] as? String == "look" { return self.agent(id, request) ?? missing }
         if op == "focus" {
             guard e.wantsInput else { return ["error": "view \(id)'s surface does not take input"] }
             return ["ok": e.view.focusCanvas()]

@@ -89,6 +89,18 @@
         "audio": { "type": "boolean" },
         "assets": { "type": "boolean" },
         "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$" },
+        "look": {
+          "type": "object",
+          "description": "The proof's look result (LLP 1127.000 D1): tells the game's look intends, silenced by name. A silenced tell is still printed and recorded.",
+          "additionalProperties": false,
+          "properties": {
+            "silence": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["near-black", "near-white", "clipped", "particles-uncovered", "no-shadow-casters"] }
+            }
+          }
+        },
         "render": {
           "type": "object",
           "description": "Optional GPU-only render hooks in render/ (formerly game.presentation, LLP 1046.008 amendment). The crate may read game logic types; logic and host metadata must not depend on it. hooks names its exact_game_render::Hooks type; shaders names its reflected registry symbol, a Rust path, not shader files: those come from gpu.shaderRoots and gpu.shaderPreludes.",

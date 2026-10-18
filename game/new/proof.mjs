@@ -8,6 +8,10 @@
 // layout: see world/placed boxes, camera visibility and line-of-sight picks.
 // logs: read gameplay events and refusals, including reload/carry failures.
 // clock: advance deterministic ticks; settle reports what keeps moving.
+// The proof ends with the look: the world drawn offscreen (look(), and at each
+// session's close), its tells (a near-black or clipped frame, particles that
+// cover nothing, a shadowed sun with no caster) failing the look result, and a
+// picture to open once before reporting, which the tells cannot replace.
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
 import { proof, axNames } from '../../proof.mjs';
@@ -18,7 +22,7 @@ const distance = (n, h, a=12, v=4) => {
   const m=Math.min(n,Math.floor(v*h/a));
   return a*m*(m+1)/(2*h*h)+(n-m)*v/h;
 };
-if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave}) => {
+if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, look, say}) => {
   const movement = await open();
   if (process.argv.includes('--screenshot-only')) {
     check('screenshot uses web', host === 'web');
@@ -136,5 +140,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('Restart returns keyboard focus to the game', node(reset, 'world')?.focused === true);
   await pointerGame.hold('KeyD', 500);
   check('Restart leaves movement running', (await pointerGame.local_position('player'))[0] > 0.5);
+  // The scene from above as well as from the game's camera: what the camera never shows.
+  const plan = await look(pointerSession, {top: 30}, 'plan').catch(error => ({unavailable: error.unavailable ?? error.message}));
+  say(plan.picture ? `LOOK plan ${plan.picture}: open it once, with the frames below, before you report` : `look: ${plan.unavailable}`);
   await pointerSession.close();
 });

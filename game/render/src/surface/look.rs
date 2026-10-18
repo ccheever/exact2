@@ -76,6 +76,12 @@ struct Size {
     height: f32,
     scale: f32,
     now: f64,
+    /// Only a canvas that draws answers (the driver's tells at `clock settle`
+    /// and `screenshot`): a device-less one drew no frame to tell about.
+    drawing: bool,
+    /// The fraction of the canvas's pixels to draw, in (0, 1]: a contact
+    /// sheet's frames need not be read back whole.
+    resolution: f32,
 }
 impl Default for Size {
     fn default() -> Self {
@@ -84,6 +90,8 @@ impl Default for Size {
             height: 0.,
             scale: 1.,
             now: f64::NAN,
+            drawing: false,
+            resolution: 1.,
         }
     }
 }
@@ -174,7 +182,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                             .into(),
                     );
                 }
-                self.start_look(ask, points, size.scale, tick, hash)?
+                if size.drawing && !(self.device && self.render.is_some()) {
+                    return Err(Refusal::NoPicture("the canvas draws no frames".into()));
+                }
+                let scale = size.scale * size.resolution.clamp(0.05, 1.);
+                self.start_look(ask, points, scale, tick, hash)?
             }
         };
         if !pending.readback.ready(&pending.device)? {

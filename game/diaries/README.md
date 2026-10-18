@@ -12,7 +12,10 @@ is worthless; friction is the finding.
 `NNN-<task>-<engine>.md`: the brief (verbatim or linked); who built it and with what;
 the wall time and the number of build/run iterations to a passing proof; lines of
 game code and files touched; then the friction log — each item one line: what was
-clumsy, what it cost, whether the engine changed.
+clumsy, what it cost, whether the engine changed. Before the entry reports a pass, it
+names the look: the proof's `LOOK` picture, opened once, and what it showed (the
+proof's mechanical tells catch a black or clipped frame, not a grey meadow, a model
+facing backwards or a panel overflowing its box).
 
 ## The score (each 0–5, higher is better; the scorer reads all three diaries blind to which is ours where that is possible)
 

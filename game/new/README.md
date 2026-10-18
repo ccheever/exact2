@@ -13,9 +13,18 @@ The canvas binds `world(seed=7, paused=paused, restart=again)` by the names in
 `world()` takes every default; short positional calls take the remaining defaults.
 Raw host JSON key order is not a hash input.
 
+Every proof ends with its look: each world drawn offscreen (on this machine's GPU,
+even from the GPU-less Linux host), its tells, and `LOOK` paths to open once before
+you report. A frame that is near black or clipped, particles that cover nothing or a
+shadowed sun with no caster fail the look result, printed beside the simulation's
+(`simulation: PASS · look: PASS, 0 tells`); a look the game intends is silenced by name
+in `app.json` (`"game": {"look": {"silence": ["near-black"]}}`). The proof also shows
+the scene from above (`look(session, {top: 30}, 'plan')`).
 Capture the picture below with `bun proof.mjs web --screenshot-only` at `artifacts/web/game.png`.
 This reports `UNVERIFIED` because it skips gameplay checks; `bun proof.mjs web` runs the full browser proof.
 The grid, sky-colored height fog, sun shadows, beacon pads and bloom are starter defaults.
+Colours are CSS, as in `app.contract`: `Material::hex("#e7aa59")`, `Color::hex("#bad6d1")`;
+`Material::rgb` takes linear light, where 0.5 is not mid-grey.
 Victory uses the beacon count from setup; extending the Rust scene list needs no Contract edit.
 Gameplay reloads preserve the running world. To apply edits inside `setup`, pause
 and choose **Restart**; setup runs again and play resumes from the beginning.

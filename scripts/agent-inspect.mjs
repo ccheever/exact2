@@ -1,10 +1,10 @@
 import { MalformedOperation, inputJSON } from './agent-keys.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { renderAx } from './agent-ax.mjs';
-import { decodePng, shrink } from './png.mjs';
+import { decodePng, encodePng, shrink } from './png.mjs';
 
 /** Film's bounds (LLP 1012.001.000 D2): a drive's pictures, not a recording, decoded in memory at once. */
 export const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
@@ -244,6 +244,7 @@ export function render(op, r) {
       return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
     case 'state': {
       if (!r || typeof r !== 'object' || Array.isArray(r)) return q(r);
+      if (r.draws || r.visible || r.look) return renderLook(r);
       // One line a section: pretty-printing cost an app's state more than half again its JSON (Caltrain, 2026-10-09).
       const { epoch, incarnation, clock, ...rest } = r, app = 'slots' in r;
       const head = [epoch != null && `epoch ${epoch}`, incarnation != null && `incarnation ${incarnation}`, clock != null && `clock ${clock} ms`].filter(Boolean).join(' · ');
@@ -603,7 +604,9 @@ function renderAgreement(a) {
  * (`mediaSession`), reads that, down a dotted path (`groceries.0.done`) as an authored `expect state` does. A view's testId
  * keeps its meaning when a state is named alike. */
 export async function stateOp(s, args) {
-  const page = { ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
+  // `state <canvas> draws`, `state <canvas>:<entity> visible` and `state <canvas> look` are a world's look frame (LLP 1127.000 D1, D4).
+  const look = ['draws', 'visible', 'look'].includes(args[1]) ? { [args[1]]: true } : {};
+  const page = { ...look, ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
   const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
   if (args[0] == null) return read();
   try { return await read(args[0]); } catch (error) {
@@ -696,4 +699,58 @@ export function withRegions(env) {
   if (!env || typeof env !== 'object') return env;
   for (const region of REGIONS) for (const edge of ['top', 'right', 'bottom', 'left']) env[`-exact-${region}-inset-${edge}`] ??= env[`safe-area-inset-${edge}`] ?? 0;
   return env;
+}
+
+/** A world's look frame as text (LLP 1127.000): its tells, its draws, or why an entity is or is not drawn. */
+export function renderLook(r) {
+  const q = JSON.stringify, head = `tick ${r.tick} · hash ${r.hash}`;
+  if (r.visible) return `${head}\n${r.entity?.name ?? '#' + r.entity?.id}: ${r.visible} (${r.reason})`;
+  if (r.draws) return [head, ...r.draws.map((d) => [d.pass.padEnd(13), d.draw, d.winding, d.submitted != null && `submitted ${d.submitted}`, d.kept != null && `kept ${d.kept}`, d.variant != null && `variant ${d.variant}`, d.covered != null && (d.covered ? 'covered' : 'COVERED NOTHING'), `writes ${d.writes}`].filter(Boolean).join(' · '))].join('\n');
+  return [head, ...lookLines(r.look)].join('\n');
+}
+function lookLines(look) {
+  if (!look) return [];
+  const particles = look.particles ? ` · particles ${look.particles.live} live, ${look.particles.covered ? 'covered' : 'none covered'}` : '';
+  const casters = look.sunCasters != null ? ` · sun casters ${look.sunCasters}` : '';
+  return [`mean luminance ${look.mean} · clipped ${(look.clipped * 100).toFixed(1)}%${particles}${casters} · readback ${look.readbackBytes} B`, ...look.tells.map((t) => t.line)];
+}
+
+/** `screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>]`
+ * (LLP 1127.000 D3): the world's look frame, the tick the agent's clock has reached drawn offscreen from that view and
+ * written as a PNG, with its tells; `over … every` films it on the clock. A form of `screenshot`, never a new operation:
+ * presentation only, the hash does not move. A device-less host draws it where the machine has a GPU. */
+export async function worldLook(s, args) {
+  const [path, target, , ...from] = args;
+  const usage = 'screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>]';
+  const [view, rest] = from[0] === 'camera' ? [{}, from.slice(1)] : from[0] === 'top' ? [{ top: Number(from[1]) }, from.slice(2)]
+    : [{ yaw: Number(from[0]), pitch: Number(from[1]), distance: Number(from[2]) }, from.slice(3)];
+  if (Object.values(view).some((v) => !Number.isFinite(v))) throw new MalformedOperation(usage);
+  const shoot = (file) => lookPicture(s, file, target, view);
+  if (rest.length === 4 && rest[0] === 'over' && rest[2] === 'every') return s.film(path, { over: Number(rest[1]), every: Number(rest[3]), window: shoot });
+  if (rest.length) throw new MalformedOperation(usage);
+  return s.tagged(await shoot(resolve(path)));
+}
+
+/** After `clock settle` (`r` its reply) and a `screenshot`, each world's tells where its canvas draws (LLP 1127.000 D1): a
+ * look frame of the tick the clock reached, whose `look: …` lines reach the world's journal; the reply carries them as
+ * `look`. A canvas that draws no frames (the GPU-less host) answers at once and adds none. */
+export async function worldTells(s, r) {
+  if (Array.isArray(r?.world)) s.worldCanvases = r.world.map((w) => w.canvas).filter((c) => c != null);
+  const lines = [];
+  for (const id of s.worldCanvases ?? []) {
+    const reply = await s.op({ op: 'state', id, world: true, look: true, drawing: true }).catch(() => null);
+    lines.push(...(reply?.look?.tells ?? []).map((t) => t.line));
+  }
+  return lines.length ? { ...r, look: lines } : r;
+}
+
+/** One look frame of `target` from `view` ({} the game's camera, {top}, or {yaw, pitch, distance}) written to `path`. */
+export async function lookPicture(s, path, target, view = {}) {
+  mkdirSync(dirname(resolve(path)), { recursive: true });
+  const reply = await s.op({ op: 'screenshot', ...await s.target(target), world: true, form: 'look', ...view });
+  if (reply.unavailable) throw Object.assign(new Error(`look ${target}: ${reply.unavailable}`), { reply, unavailable: reply.unavailable });
+  if (reply.error || typeof reply.data !== 'string') throw Object.assign(new Error(`look ${target}: ${reply.error ?? 'no pixels in the reply'}`), { reply });
+  writeFileSync(resolve(path), encodePng({ width: reply.width, height: reply.height, data: Buffer.from(reply.data, 'base64') }));
+  const { tick, hash, w, h, look } = reply;
+  return { screenshot: resolve(path), w, h, tick, hash, look };
 }

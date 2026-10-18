@@ -1357,7 +1357,8 @@ impl<D: DataSource> Presenter<D> {
                 q["y"] = (v - f64::from(y)).into();
             }
         }
-        if q["op"] == "screenshot" {
+        // A look frame (LLP 1127.000) is the module's: its pixels come back in the reply.
+        if q["op"] == "screenshot" && q["form"] != "look" {
             if q["form"] != "save" {
                 return json!({"unavailable":true,"device":false,"reason":"canvas pixels require a device"});
             }

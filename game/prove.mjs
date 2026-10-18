@@ -123,24 +123,29 @@ const rows = groups.flatMap(r => r.status === 'fulfilled' ? r.value : r.reason.r
 const hashes = row => row.worlds.map(({session, tick, hash}) => ({session, tick, hash}));
 const baseline = rows[0];
 let failed = failures.length > 0;
-console.log('| Host | Run | Seconds | World hashes | Save bytes | Proof |');
-console.log('|---|---:|---:|---|---|---|');
+console.log('| Host | Run | Seconds | World hashes | Save bytes | Simulation | Look |');
+console.log('|---|---:|---:|---|---|---|---|');
 for (const row of rows) {
   const hashOK = row.worlds.length > 0 && equal(hashes(row), hashes(baseline));
   const saveOK = row.saves.length > 0 && equal(row.saves, baseline.saves);
   failed ||= !hashOK || (args.includes('--compare-saves') && !saveOK);
-  console.log(`| ${row.device ? 'ios-device' : row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${args.includes('--compare-saves') ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.status ?? 'UNVERIFIED'} |`);
+  console.log(`| ${row.device ? 'ios-device' : row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${args.includes('--compare-saves') ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.simulation ?? row.status ?? 'UNVERIFIED'} | ${row.look ? `${row.look.status}, ${row.look.detail}` : 'not taken'} |`);
 }
+// The look result (LLP 1127.000 D5): a tell no game.look.silence names fails the proof.
+const looks = rows.map(row => row.look).filter(Boolean);
+for (const look of looks) for (const picture of [...look.pages ?? [], ...look.pictures ?? []]) console.log(`LOOK ${picture}`);
+const lookStatus = looks.some(l => l.status === 'FAIL') ? 'FAIL' : looks.some(l => l.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
 for (const failure of failures) console.error(failure.reason);
 if (hosts.length > 1) {
   const entry = await import(script);
   if (entry.compare) try { await entry.compare(rows, {root, repeat}); }
   catch (error) { console.error(error.message); failed = true; }
 }
-const status = failed ? 'FAIL' : rows.length && rows.every(row => row.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
+const status = failed || lookStatus === 'FAIL' ? 'FAIL' : rows.length && rows.every(row => row.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
+console.log(`simulation: ${failed ? 'FAIL' : rows.length && rows.every(row => (row.simulation ?? row.status) === 'PASS') ? 'PASS' : 'UNVERIFIED'} · look: ${lookStatus}${looks.length ? '' : ', no look taken'}`);
 console.log(`PROOF ${status} ${name}`);
 if (status === 'UNVERIFIED') console.log(`No complete tick/save baseline was checked. Generate it with ${proofCommand(import.meta.path, local ? app : name, '--repin')}`);
-writeFileSync(resolve(root, 'summary.json'), JSON.stringify({status, rows}, null, 2)+'\n');
+writeFileSync(resolve(root, 'summary.json'), JSON.stringify({status, look:lookStatus, rows}, null, 2)+'\n');
 process.exitCode = status === 'PASS' ? 0 : 1;
 
 }
