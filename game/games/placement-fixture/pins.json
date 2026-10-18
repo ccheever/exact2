@@ -1,16 +1,18 @@
 {
   "ticks": {
-    "330": "0x7136b1be5a2f6a8d"
+    "330": "0xce509bd330c6290a"
   },
   "saves": {
-    "continuation": "651e8484f1e638527f0f5aaf000f5647664ce17daca74eadc51a7197be1475c7"
+    "continuation": "ea4c0f34a4c193bad172c925cd626a654ce24530aebc95426aa8e615edb49d27"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "622db92e4920630b523838ca26bf38e7c49682b29467c6c5ab6dac25e6d767f0",
+  "inputs": "300e7a476e83a15d6115f6e35d0e5264ff99f93a9d24671ad6f4271298b10848",
+  "sourceInputs": "6e61181227345e08a13245c5e22dd9c1248a035df378b0416d9005e1e0ceb084",
   "game": "placement-fixture",
   "generated": "bun game/prove.mjs placement-fixture --repin --hosts 'linux,web'",
-  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
+  "at": "44847582b68653e4e6f93120e063caf577a365c2",
+  "reason": "Refresh the stale fixture baseline against the current SDK after complete native/web mode and profile agreement"
 }
