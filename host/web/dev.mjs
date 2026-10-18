@@ -354,8 +354,7 @@ async function scrubPatch(values, frame, files) {
     scrubShown(live, frame);
     return {};
   }
-  // The compiler patches only the design it compiled from those bytes.
-  return scrubAsk((id) => `patch ${id} ${JSON.stringify({ source, values: values.map(({ name, css }) => [name, css]) })}`, (reply) => {
+  return scrubAsk((id) => `patch ${id} ${JSON.stringify({ source, values: values.map(({ name, css }) => [name, css]) })}`, (reply) => { // patched only on a design compiled from those bytes
     if (reply.error || reply.fallback) return reply.error ? { error: reply.error } : { fallback: true };
     scrubShown(reply, frame);
     return {};
@@ -363,8 +362,7 @@ async function scrubPatch(values, frame, files) {
 }
 /** The patched frame shown against its texts compiled in full: `{mismatch}` naming what differs. */
 async function scrubVerify(texts) {
-  const file = relative(app.dir, designPath(app.dir));
-  if (!(file in texts)) return {};
+  const file = relative(app.dir, designPath(app.dir)); if (!(file in texts)) return {};
   const answer = (mismatch) => { if (mismatch) console.log(`scrub: the patched frame is not its compile (${mismatch}); the builds get the committed design back`); return mismatch ? { mismatch } : {}; };
   if (typescript) {
     const shown = moduleScrubbed;
