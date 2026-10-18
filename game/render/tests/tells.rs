@@ -1,6 +1,7 @@
-//! The look oracle's negative controls (LLP 1127.000 D6): four scenes, three
-//! wrong in one way the garden bakeoff's was and one blown out, must trip their
-//! tell, and the same scenes with the defect removed must trip none. Each is read twice: from
+//! The look oracle's negative controls (LLP 1127.000 D6): five scenes, three
+//! wrong in one way the garden bakeoff's was, one blown out and one whose
+//! sparks draw nothing visible, must trip their tell, and the same scenes with
+//! the defect removed must trip none. Each is read twice: from
 //! a canvas that draws (the web and Apple hosts' path) and from a device-less
 //! one (the GPU-less proof host's), whose look frame makes its own device.
 #![cfg(not(target_arch = "wasm32"))]
@@ -17,6 +18,8 @@ enum Defect {
     ParticlesUnderground,
     NoCaster,
     NearWhite,
+    /// The sparks are prepared and submitted, every fragment fully transparent.
+    Transparent,
 }
 
 fn scene<const D: u8>(w: &mut World, broken: bool) {
@@ -25,6 +28,7 @@ fn scene<const D: u8>(w: &mut World, broken: bool) {
         Defect::ParticlesUnderground,
         Defect::NoCaster,
         Defect::NearWhite,
+        Defect::Transparent,
     ][D as usize];
     let dark = broken && defect == Defect::NearBlack;
     let blown = broken && defect == Defect::NearWhite;
@@ -106,16 +110,29 @@ fn scene<const D: u8>(w: &mut World, broken: bool) {
             Material::hex("#c8b48c"),
         ),
     );
-    if defect == Defect::ParticlesUnderground {
+    if matches!(defect, Defect::ParticlesUnderground | Defect::Transparent) {
         // Spawned 2 m under the ground plane, they rise half a metre and fall.
-        let y = if broken { -2. } else { 1. };
+        let y = if broken && defect == Defect::ParticlesUnderground {
+            -2.
+        } else {
+            1.
+        };
+        let sparks = Emitter {
+            size: [0.4, 0.2],
+            ..Emitter::sparks().rate(400.).lifetime(2.)
+        };
+        let clear = broken && defect == Defect::Transparent;
         w.spawn_named(
             "sparks",
             (
                 Transform::at(1.5, y, 0.),
                 Emitter {
-                    size: [0.4, 0.2],
-                    ..Emitter::sparks().rate(400.).lifetime(2.)
+                    color: if clear {
+                        [[1., 1., 1., 0.]; 2]
+                    } else {
+                        sparks.color
+                    },
+                    ..sparks
                 },
             ),
         );
@@ -145,6 +162,7 @@ fixture!(Casterless, 2, true);
 fixture!(Cast, 2, false);
 fixture!(Blown, 3, true);
 fixture!(Exposed, 3, false);
+fixture!(Clear, 4, true);
 
 const SIZE: (f32, f32) = (320., 180.);
 
@@ -234,6 +252,10 @@ fn each_defect_trips_its_tell_and_its_correction_trips_none() {
         let (cast, reply) = tells::<Cast>(drawing);
         assert!(cast.is_empty(), "{host}: {reply}");
         assert!(reply["look"]["sunCasters"].as_u64().unwrap() > 0, "{reply}");
+        // The particles' own draw is what is counted: sparks above the ground
+        // whose fragments are all transparent cover nothing.
+        let (clear, reply) = tells::<Clear>(drawing);
+        assert_eq!(clear, ["particles-uncovered"], "{host}: {reply}");
         let (blown, reply) = tells::<Blown>(drawing);
         assert!(blown.contains(&"near-white".to_owned()), "{host}: {reply}");
         let (exposed, reply) = tells::<Exposed>(drawing);

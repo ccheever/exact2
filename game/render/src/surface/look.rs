@@ -37,6 +37,8 @@ pub(super) struct Look<const ASSETS: bool> {
     pub(super) points: (f32, f32),
     /// The last live frame: a look frame draws it held.
     pub(super) held: Option<Frame>,
+    /// This build answers look requests (`crate::development_build`).
+    development: bool,
 }
 impl<const ASSETS: bool> Default for Look<ASSETS> {
     fn default() -> Self {
@@ -50,6 +52,7 @@ impl<const ASSETS: bool> Default for Look<ASSETS> {
             unread: Vec::new(),
             points: (0., 0.),
             held: None,
+            development: crate::development_build(),
         }
     }
 }
@@ -63,18 +66,25 @@ struct Pending {
     facts: Facts,
     records: Vec<Record>,
     labels: Vec<String>,
-    view_proj: glam::Mat4,
     camera: glam::Vec3,
-    /// The frame's size in points, for the picture's reply.
+    /// The frame's size in points, for the picture's reply, and its scale.
     points: (f32, f32),
+    scale: f32,
     /// Drawn at the canvas's whole resolution: only such a frame is judged.
     whole: bool,
+    /// A camera frame read only for the scene's bounds, which another view
+    /// is drawn within next (`answer_look`).
+    bounds_stage: bool,
+    /// The bounds an orbit or plan view was drawn within.
+    bounds: Option<(glam::Vec3, f32)>,
 }
 
 /// Why a look frame was not drawn.
 enum Refusal {
     /// No device on this host: the proof's "no picture on this host".
     NoPicture(String),
+    /// A device-less canvas, asked as one that draws: it drew no frame to tell about.
+    NotDrawing,
     Refused(String),
 }
 impl From<String> for Refusal {
@@ -142,6 +152,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                 tick(self),
                 crate::look::quote(&format!("no picture on this host: {why}"))
             ),
+            Err(Refusal::NotDrawing) => format!(
+                "{{\"tick\":{},\"unavailable\":\"no picture on this host: the canvas draws no frames\",\"drawing\":false}}",
+                tick(self)
+            ),
             Err(Refusal::Refused(e)) => format!(
                 "{{\"tick\":{},\"error\":{}}}",
                 tick(self),
@@ -151,7 +165,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
     }
 
     fn answer_look(&mut self, request: &str, ask: Ask) -> Result<String, Refusal> {
-        if !inspects(option_env!("EXACT_UPDATE_TRUST")) {
+        if !self.look.development {
             return Err(Refusal::Refused(PRODUCTION.into()));
         }
         if !self.seekable {
@@ -185,7 +199,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         }
         let (tick, hash) = (sim.world().tick(), sim.world().hash());
         // A readback still mapping answers the same question at the same tick.
-        let pending = match self.look.pending.take() {
+        let mut pending = match self.look.pending.take() {
             Some(p) if p.ask == ask && p.tick == tick && p.hash == hash => p,
             _ => {
                 let points = self.look.points;
@@ -197,22 +211,65 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                     );
                 }
                 if size.drawing && !(self.device && self.render.is_some()) {
-                    return Err(Refusal::NoPicture("the canvas draws no frames".into()));
+                    return Err(Refusal::NotDrawing);
                 }
                 let resolution = size.resolution.clamp(0.05, 1.);
                 let scale = size.scale * resolution;
-                let mut started = self.start_look(ask, points, scale, tick, hash)?;
+                let mut started = self.start_look(ask.clone(), points, scale, tick, hash, None)?;
                 started.whole = resolution >= 1.;
                 started
             }
         };
-        if !pending.readback.ready(&pending.device)? {
-            self.look.pending = Some(pending);
-            return Ok(format!("{{\"tick\":{tick},\"pending\":\"readback\"}}"));
+        loop {
+            if !pending.readback.ready(&pending.device)? {
+                self.look.pending = Some(pending);
+                return Ok(format!("{{\"tick\":{tick},\"pending\":\"readback\"}}"));
+            }
+            if !pending.bounds_stage {
+                return self.finish_look(pending);
+            }
+            // The camera frame's account of the scene, then the view within it.
+            let (whole, points, scale) = (pending.whole, pending.points, pending.scale);
+            let bounds = self.scene_bounds(pending)?;
+            pending = self.start_look(ask.clone(), points, scale, tick, hash, Some(bounds))?;
+            pending.whole = whole;
         }
-        self.finish_look(pending)
     }
 
+    /// The scene's centre and radius from a camera frame: the box around the
+    /// cull's sphere of every culled item (swept between ticks, skinned) and
+    /// the displayed geometry of what the cull does not account for
+    /// (`look_bounds`); in a direct frame, the displayed geometry of all.
+    fn scene_bounds(&mut self, p: Pending) -> Result<(glam::Vec3, f32), Refusal> {
+        let read = p.readback.read()?;
+        self.perf.look.0 += 1;
+        let sim = (self.sim.as_ref()).ok_or("the world has not been bound".to_string())?;
+        let (w, f) = (sim.world(), &p.facts);
+        let gpu = crate::look::culled_bounds(f, &read);
+        let cpu = if gpu.is_some() {
+            let entity = |slot: u32| {
+                let record = slot.checked_sub(crate::RENDER_SLOT_BASE);
+                record.map_or(Some(slot), |r| f.record_slots.get(r as usize).copied())
+            };
+            let kept_whole = (f.groups.iter().filter(|g| g.keep_all))
+                .flat_map(|g| f.slot_list[g.range.start as usize..g.range.end as usize].iter());
+            let outside: Vec<u32> = (f.blended.iter().map(|(slot, _)| slot))
+                .chain(kept_whole)
+                .filter_map(|&slot| entity(slot))
+                .collect();
+            crate::look_bounds::unculled_box(w, &f.model_boxes, &outside)
+        } else {
+            crate::look_bounds::scene_box(w, &f.model_boxes)
+        };
+        let all = match (cpu, gpu) {
+            (Some(a), Some(b)) => Some((a.0.min(b.0), a.1.max(b.1))),
+            (a, b) => a.or(b),
+        };
+        Ok(crate::look_bounds::centre_radius(all))
+    }
+
+    /// Draw `ask`'s look frame. An orbit or plan picture without `bounds`
+    /// draws the game's camera first, read only for the scene's bounds.
     fn start_look(
         &mut self,
         ask: Ask,
@@ -220,7 +277,14 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         scale: f32,
         tick: u64,
         hash: u64,
+        bounds: Option<(glam::Vec3, f32)>,
     ) -> Result<Pending, Refusal> {
+        let view = match &ask {
+            Ask::Picture(view) => *view,
+            _ => View::Camera,
+        };
+        let bounds_stage = view != View::Camera && bounds.is_none();
+        let view = if bounds_stage { View::Camera } else { view };
         let live = self.device && self.render.is_some();
         let (device, queue, format) = if live {
             let (renderer, _) = self.render.as_ref().unwrap();
@@ -267,13 +331,22 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             self.dirty = true;
             self.assets_dirty = true;
         }
-        let drawn = self.draw_look(&device, &queue, format, points, scale, &ask);
+        let drawn = self.draw_look(
+            &device,
+            &queue,
+            format,
+            points,
+            scale,
+            view,
+            bounds,
+            !bounds_stage,
+        );
         if !live {
             std::mem::swap(&mut self.render, &mut self.look.stash);
             std::mem::swap(&mut self.format, &mut self.look.stash_format);
             (self.dirty, self.device, self.ready_work, self.assets_dirty) = saved;
         }
-        let (readback, facts, records, labels, view_proj, camera) = drawn?;
+        let (readback, facts, records, labels, camera) = drawn?;
         Ok(Pending {
             ask,
             tick,
@@ -283,14 +356,16 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             facts,
             records,
             labels,
-            view_proj,
             camera,
             points,
+            scale,
             whole: true,
+            bounds_stage,
+            bounds,
         })
     }
 
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     fn draw_look(
         &mut self,
         device: &wgpu::Device,
@@ -298,18 +373,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         format: wgpu::TextureFormat,
         points: (f32, f32),
         scale: f32,
-        ask: &Ask,
-    ) -> Result<
-        (
-            Readback,
-            Facts,
-            Vec<Record>,
-            Vec<String>,
-            glam::Mat4,
-            glam::Vec3,
-        ),
-        Refusal,
-    > {
+        view: View,
+        bounds: Option<(glam::Vec3, f32)>,
+        pixels: bool,
+    ) -> Result<(Readback, Facts, Vec<Record>, Vec<String>, glam::Vec3), Refusal> {
         if !self.storage_fits(device) {
             return Err(self.error.clone().map_or_else(String::new, |e| e.0).into());
         }
@@ -387,20 +454,12 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         } else {
             crate::HookTime::default()
         };
-        let view = match ask {
-            Ask::Picture(view) => *view,
-            _ => View::Camera,
-        };
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), points);
         input.headroom = frame.headroom;
-        let models = renderer.model_boxes();
-        view.apply(
-            &mut input,
-            sim.world(),
-            glam::Vec2::new(points.0, points.1),
-            &models,
-        );
-        let (view_proj, camera) = (input.proj * input.view, input.camera_position);
+        if let Some(bounds) = bounds.filter(|_| view != View::Camera) {
+            view.apply(&mut input, glam::Vec2::new(points.0, points.1), bounds);
+        }
+        let camera = input.camera_position;
         let (width, height) = frame.pixels();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("game look frame"),
@@ -418,7 +477,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         });
         let target = texture.create_view(&Default::default());
         let mut encoder = device.create_command_encoder(&Default::default());
-        renderer.arm_probe();
+        renderer.arm_probe(pixels);
         let encoded = renderer.encode_hooked(
             &mut encoder,
             &target,
@@ -444,7 +503,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         queue.submit([encoder.finish()]);
         renderer.submitted();
         readback.map();
-        Ok((readback, facts, records, labels, view_proj, camera))
+        Ok((readback, facts, records, labels, camera))
     }
 
     fn finish_look(&mut self, p: Pending) -> Result<String, Refusal> {
@@ -488,7 +547,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         Ok(match &p.ask {
             Ask::Tells => format!("{head},\"look\":{look}}}"),
             Ask::Picture(_) => format!(
-                "{head},\"look\":{look},\"w\":{},\"h\":{},\"width\":{},\"height\":{},\"data\":\"{}\"}}",
+                "{head},\"look\":{look},{}\"w\":{},\"h\":{},\"width\":{},\"height\":{},\"data\":\"{}\"}}",
+                p.bounds.map_or_else(String::new, |(c, r)| format!(
+                    "\"bounds\":{{\"centre\":[{},{},{}],\"radius\":{}}},",
+                    c.x, c.y, c.z, r
+                )),
                 p.points.0,
                 p.points.1,
                 read.width,
@@ -513,7 +576,6 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                     entity,
                     |model| !sim.model_prepared(model),
                     p.camera,
-                    p.view_proj,
                     &p.facts,
                     &read,
                 );
@@ -533,12 +595,6 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
 const PRODUCTION: &str = "look frames are a development capability: this production build \
      (EXACT_UPDATE_TRUST=production) refuses `screenshot … from`, `state world look`, \
      `state world draws` and `state world:<entity> visible`";
-
-/// Whether a build baked with this trust answers look requests: every build
-/// but a production one (`scripts/app.mjs` bakes development trust unless told).
-fn inspects(trust: Option<&str>) -> bool {
-    trust != Some("production")
-}
 
 impl<const ASSETS: bool> Look<ASSETS> {
     /// Add the unread tell lines to a world's `logs` reply (`{…,"lines":[…]}`).
@@ -560,12 +616,9 @@ impl<const ASSETS: bool> Look<ASSETS> {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn a_production_build_refuses_look_frames_by_name() {
-        assert!(super::inspects(None));
-        assert!(super::inspects(Some("development")));
-        assert!(!super::inspects(Some("production")));
-        assert!(super::PRODUCTION.contains("production build"));
+impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+    /// The surface a production build makes (`crate::development_build`).
+    pub(crate) fn as_production_build(&mut self) {
+        self.look.development = false;
     }
 }

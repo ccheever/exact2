@@ -127,6 +127,8 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) hook_metrics: Option<Box<crate::hooks::metrics::Metrics>>,
     /// A look frame's instruments, armed for one encode (`probe.rs`).
     pub(crate) probe: Option<probe::Probe>,
+    /// Records the probe has built: an unarmed frame builds none (tests).
+    pub(crate) probe_built: std::cell::Cell<u64>,
 }
 
 // Use the uploaded affine records and the same presence test as transform.wgsl.
@@ -406,6 +408,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             hook_targets: None,
             hook_metrics: None,
             probe: None,
+            probe_built: Default::default(),
             counts: Stats {
                 draws: 1,
                 triangles: 1,

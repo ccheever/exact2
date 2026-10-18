@@ -152,14 +152,18 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.select_levels(frame);
         self.order_translucent(frame);
         self.quads.order::<ASSETS>(&self.device, &self.queue);
-        self.probe_size();
         // Soft particles read the opaque depth: the translucent pass splits from
         // the opaque one (not under a scene copy, whose continuation draws them
         // hard). Depth stays retained once they have drawn, so toggling them
         // never recreates the targets (and drops bloom and SSAO).
         let soft = self.quads.soft_drawn() && !needs.contains(crate::Needs::SCENE_COPY);
         self.soft_retained |= soft;
-        let direct = self.direct_frame::<H>(frame, soft);
+        // A look frame counts its particle draws, which read the scene's depth
+        // in a translucent pass of their own, as soft particles do
+        // (quad_coverage.rs). A scene copy draws them over depth it writes.
+        let particles = self.probe.is_some() && self.quads.particles_drawn();
+        let counting = particles && !needs.contains(crate::Needs::SCENE_COPY);
+        let direct = self.direct_frame::<H>(frame, soft || counting);
         // A direct frame leaves the HDR attachments as they are, unused.
         let scene_copy = if direct {
             false
@@ -167,7 +171,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.prepare_targets(
                 size,
                 needs,
-                frame.ambient_occlusion.is_some() || self.soft_retained,
+                frame.ambient_occlusion.is_some() || self.soft_retained || counting,
             )
         };
         self.quads.soft_pass(
@@ -177,6 +181,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (frame.proj * frame.view).inverse(),
             self.depth_split(),
         );
+        let uncounted = if counting {
+            self.quads
+                .begin_count(&self.device, &self.targets.depth)
+                .err()
+        } else {
+            particles.then_some("a scene copy draws translucency over depth it writes")
+        };
+        if let Some(probe) = &mut self.probe {
+            probe.uncounted = uncounted;
+        }
         let cascades = self.prepare_effects(frame);
         let map = frame.environment_map.and_then(|m| {
             let texture = self.models.textures.get(m.texture).filter(|t| t.active)?;
@@ -222,6 +236,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         uniform[31] *= self.environment.ambient_scale();
         self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
         self.prepare_cull(frame, cascades.as_ref(), hooks.materials(), size);
+        self.probe_size();
         self.prepare_shadow_cache(cascades.as_ref(), frame, hooks.materials());
         if direct {
             self.prepare_direct(target.texture().size());
@@ -243,7 +258,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             depth_read: scene_copy
                 || needs.contains(crate::Needs::FINAL_DEPTH)
                 || frame.ambient_occlusion.is_some()
-                || soft,
+                || soft
+                || counting,
             variant: usize::from(self.shadows.is_some())
                 + 2 * usize::from(frame.environment.fog.is_some())
                 + crate::pipeline::PCF_SOFT
@@ -313,28 +329,19 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         state.draws += self.encode_local_shadows(encoder, hooks.materials(), frame.timestamps);
         state.draws += self.encode_depth_prepass(encoder, frame, state.size, state.direct);
         self.encode_forward(encoder, target, &mut state, frame, hooks, &view)?;
-        if self.quads.soft_active() {
+        if self.quads.split() {
             self.encode_translucent(encoder, &mut state, frame);
         }
         if scene_copy {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
         }
-        if self.probe.is_some() {
-            // The look frame's particle coverage, over the depth the scene kept.
-            let depth = match (state.direct, &self.direct_targets) {
-                (true, Some(d)) => &d.depth,
-                _ => &self.targets.depth,
-            };
-            let near = self.depth_split();
-            let counted =
-                (self.quads).count_particles(&self.device, encoder, depth, state.size, near);
-            if let Some(probe) = &mut self.probe {
-                probe.counted = counted;
-            }
+        if let Some(probe) = &mut self.probe {
+            probe.counted = self.quads.take_counts();
+            probe.cull = self.cull.encode_probe(&self.device, encoder, self.current);
         }
         self.probe_stage(super::probe::Stage::Post);
         if let Some(settings) = frame.ambient_occlusion {
-            self.probe_note(super::probe::Drew::Fixed("ambient occlusion"));
+            self.probe_note(|| super::probe::Drew::Summary("ambient occlusion"));
             let (scale, _) = settings.quality.plan();
             if self
                 .ssao
@@ -394,8 +401,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// A direct frame's attachments at the target's size, and its quad pipelines.
     fn prepare_direct(&mut self, extent: wgpu::Extent3d) {
         let format = self.pipelines.format();
-        // A look frame keeps its depth for the particle counting pass.
-        let retained = self.probe.is_some();
+        let retained = false;
         if self
             .direct_targets
             .as_ref()
@@ -541,8 +547,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let retained = self.pipelines.depth_prepass
             || scene_copy
             || occlusion
-            || needs.contains(crate::Needs::FINAL_DEPTH)
-            || self.probe.is_some();
+            || needs.contains(crate::Needs::FINAL_DEPTH);
         let replace_targets = size.0 > self.targets.size.0
             || size.1 > self.targets.size.1
             || retained != self.targets.retained;

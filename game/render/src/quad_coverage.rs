@@ -1,15 +1,17 @@
 //! A look frame's quads (LLP 1127.000 D1, D4): what `Quads::frame` did with each
-//! sprite and emitter, each quad draw's batch, and the particle counting pass.
+//! sprite and emitter, each quad draw's batch, and the particle counts.
 //!
-//! The counting pass draws every particle draw again, after the scene, with a
-//! fragment shader that writes no colour, reads the frame's depth (sample 0)
-//! and adds one per fragment in front of it to its draw's counter in a storage
-//! buffer (`shaders/count.wgsl`). It is the same on every host that has
-//! fragment storage writes (the web has no occlusion queries, see
-//! `renderer/probe.rs`; GL has no such writes, and its counts are unmeasured),
-//! and it runs only in a look frame: a live frame encodes no such pass and
-//! makes no such pipeline. A count is of the quad's fragments, the square
-//! around a dot included, once per pixel whatever the sample count.
+//! The counts come from the particle draws themselves. While a look frame is
+//! armed, each particle draw uses the probe variant of its own pipeline
+//! (`shaders/count.wgsl`): the same vertex path, the same dot shape, texture
+//! alpha and soft fade, blended into the frame as ever, and each fragment in
+//! front of the scene that moves an 8-bit pixel (alpha at least 1/255) added
+//! to its draw's counter in a storage buffer. A particle draw that is not
+//! submitted, or whose fragments are all transparent, counts nothing. The
+//! shader reads the scene's depth, so the frame draws its translucency in its
+//! own pass, as soft particles do. A live frame makes no such pipeline and
+//! binds none. GL has no fragment storage writes: there the counts are
+//! unmeasured.
 use super::*;
 
 /// What a look frame's quads did with one sprite or emitter.
@@ -23,18 +25,31 @@ pub(crate) enum QuadFact {
     Drawn(u32),
 }
 
-pub(super) struct Coverage {
-    pipeline: wgpu::RenderPipeline,
-    layout: wgpu::BindGroupLayout,
+/// A look frame's particle counting: its counters, the bind group of
+/// counters, draw slots and scene depth, and each particle draw's slot.
+pub(super) struct Counting {
+    counts: wgpu::Buffer,
+    bind: wgpu::BindGroup,
+    /// Each quad draw's counter, for the particle draws.
+    slots: Vec<Option<u32>>,
+    draws: Vec<usize>,
 }
+
+/// The probe variants of the particle pipelines, made on first use: index
+/// `4 * soft + 2 * textured + additive`.
+#[derive(Default)]
+pub(super) struct CountPipelines {
+    layout: Option<wgpu::BindGroupLayout>,
+    pipelines: [Option<wgpu::RenderPipeline>; 8],
+}
+
+/// One counter word per draw, each draw's slot at a dynamic uniform offset.
+const STRIDE: u64 = 256;
 
 /// Whether `d` can count: fragment shaders that write storage, which GL lacks.
 pub(crate) fn counts(d: &wgpu::Device) -> bool {
     d.adapter_info().backend != wgpu::Backend::Gl
 }
-
-/// One counter word per draw, each draw's index at a dynamic uniform offset.
-const STRIDE: u64 = 256;
 
 impl Quads {
     /// Draw `index`'s batch: what it shares with every quad drawn with it.
@@ -63,27 +78,35 @@ impl Quads {
         }
     }
 
-    /// Count each particle draw's fragments in front of `depth` (the frame's,
-    /// read after the scene's passes, and bound for sampling): a buffer of one
-    /// count per draw and the indices of the draws counted, or `None` with no
-    /// particle draw or where the device cannot count.
-    pub(crate) fn count_particles(
+    /// Arm this frame's particle counting over `depth`, the scene's depth the
+    /// split translucent pass reads, after `prepare` and `order`. `Err` names
+    /// why the device cannot count.
+    pub(crate) fn begin_count(
         &mut self,
         d: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
         depth: &wgpu::TextureView,
-        size: (u32, u32),
-        near: f32,
-    ) -> Option<(wgpu::Buffer, Vec<usize>)> {
+    ) -> Result<(), &'static str> {
+        if !counts(d) {
+            return Err("this backend's fragment shaders cannot write storage");
+        }
         let draws: Vec<usize> = (self.draws.iter().enumerate())
             .filter(|(_, draw)| matches!(draw.kind, Kind::Particle(..)))
             .map(|(i, _)| i)
             .collect();
-        let arena = (self.particle_arena.as_ref()).filter(|_| !draws.is_empty() && counts(d))?;
-        if self.coverage.is_none() {
-            self.coverage = Some(coverage(d, &self.layout, self.samples));
+        if draws.is_empty() {
+            return Ok(());
         }
-        let coverage = self.coverage.as_ref().unwrap();
+        for &i in &draws {
+            let Kind::Particle(additive, look, soft) = self.draws[i].kind else {
+                unreachable!()
+            };
+            let soft = soft && self.soft_active;
+            self.count_pipeline(d, soft, look != NO_LOOK, additive);
+        }
+        let mut slots = vec![None; self.draws.len()];
+        for (k, &i) in draws.iter().enumerate() {
+            slots[i] = Some(k as u32);
+        }
         let counts = d.create_buffer(&wgpu::BufferDescriptor {
             label: Some("game look particle counts"),
             size: draws.len() as u64 * 4,
@@ -102,16 +125,14 @@ impl Quads {
                 let at = k * STRIDE as usize;
                 bytes[at..at + 4].copy_from_slice(&(k as u32).to_le_bytes());
             }
-            which
-                .slice(..)
-                .get_mapped_range_mut()
-                .ok()?
+            (which.slice(..).get_mapped_range_mut())
+                .map_err(|_| "the counters' draw slots did not map")?
                 .copy_from_slice(&bytes);
         }
         which.unmap();
         let bind = d.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("game look particle counts"),
-            layout: &coverage.layout,
+            layout: self.counted.layout.as_ref().unwrap(),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -131,34 +152,91 @@ impl Quads {
                 },
             ],
         });
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("game look particle coverage"),
-            color_attachments: &[],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: depth,
-                depth_ops: None,
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
+        self.counting = Some(Counting {
+            counts,
+            bind,
+            slots,
+            draws,
         });
-        pass.set_viewport(0., 0., size.0 as f32, size.1 as f32, near, 1.);
-        pass.set_scissor_rect(0, 0, size.0, size.1);
-        pass.set_pipeline(&coverage.pipeline);
-        pass.set_bind_group(0, &self.bind, &[]);
-        pass.set_vertex_buffer(0, arena.buffer.raw.slice(..));
-        for (k, &i) in draws.iter().enumerate() {
-            pass.set_bind_group(1, &bind, &[(k as u64 * STRIDE) as u32]);
-            pass.draw(0..6, self.draws[i].range.clone());
+        Ok(())
+    }
+
+    /// Whether this frame draws any particle (after `order`).
+    pub(crate) fn particles_drawn(&self) -> bool {
+        self.draws
+            .iter()
+            .any(|d| matches!(d.kind, Kind::Particle(..)))
+    }
+
+    /// The counters and the quad draws they count; the next frame counts none.
+    pub(crate) fn take_counts(&mut self) -> Option<(wgpu::Buffer, Vec<usize>)> {
+        self.counting.take().map(|c| (c.counts, c.draws))
+    }
+
+    /// While counting: quad draw `index`'s probe variant, and its counter slot
+    /// bound as group 3 (`Quads::draw`, after its own groups).
+    pub(super) fn bind_count<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        index: usize,
+        soft: bool,
+        textured: bool,
+        additive: bool,
+    ) {
+        let Some(counting) = &self.counting else {
+            return;
+        };
+        let Some(slot) = counting.slots.get(index).copied().flatten() else {
+            return;
+        };
+        let variant = 4 * usize::from(soft) + 2 * usize::from(textured) + usize::from(additive);
+        pass.set_pipeline(self.counted.pipelines[variant].as_ref().unwrap());
+        pass.set_bind_group(3, &counting.bind, &[(u64::from(slot) * STRIDE) as u32]);
+    }
+
+    fn count_pipeline(&mut self, d: &wgpu::Device, soft: bool, textured: bool, additive: bool) {
+        let variant = 4 * usize::from(soft) + 2 * usize::from(textured) + usize::from(additive);
+        if self.counted.pipelines[variant].is_some() {
+            return;
         }
-        drop(pass);
-        Some((counts, draws))
+        let samples = self.samples;
+        let layout = self
+            .counted
+            .layout
+            .get_or_insert_with(|| count_layout(d, samples));
+        let piece = if textured {
+            crate::pipeline::SPRITE
+        } else {
+            crate::pipeline::PARTICLE
+        };
+        let count = crate::pipeline::depth_source(crate::pipeline::COUNT, samples);
+        let (source, entry) = if soft {
+            let soft = crate::pipeline::depth_source(crate::pipeline::SOFT, samples);
+            let parts = [piece, &soft, &count, crate::pipeline::SOFT_COUNT];
+            (crate::pipeline::quad_source(&parts), "quad_soft_count_fs")
+        } else {
+            (
+                crate::pipeline::quad_source(&[piece, &count]),
+                "quad_count_fs",
+            )
+        };
+        let shader = module(d, &source);
+        let texture = textured.then(|| self.texture_layout.as_ref().unwrap());
+        let soft_layout = soft.then(|| self.soft_layout.as_ref().unwrap());
+        self.counted.pipelines[variant] = Some(pipeline_entry(
+            d,
+            self.cache.as_ref(),
+            &shader,
+            &[Some(&self.layout), texture, soft_layout, Some(&*layout)],
+            usize::from(additive) + 2,
+            entry,
+            (samples, None),
+        ));
     }
 }
 
-fn coverage(d: &wgpu::Device, frame: &wgpu::BindGroupLayout, samples: u32) -> Coverage {
-    let layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+fn count_layout(d: &wgpu::Device, samples: u32) -> wgpu::BindGroupLayout {
+    d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("game look particle counts"),
         entries: &[
             wgpu::BindGroupLayoutEntry {
@@ -192,56 +270,5 @@ fn coverage(d: &wgpu::Device, frame: &wgpu::BindGroupLayout, samples: u32) -> Co
                 count: None,
             },
         ],
-    });
-    let shader = source(
-        d,
-        &crate::pipeline::depth_source(include_str!("shaders/count.wgsl"), samples),
-    );
-    let pipeline_layout = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("game look particle coverage"),
-        bind_group_layouts: &[Some(frame), Some(&layout)],
-        immediate_size: 0,
-    });
-    let attrs =
-        wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4];
-    let pipeline = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("game look particle coverage"),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("quad_vs"),
-            buffers: &[Some(wgpu::VertexBufferLayout {
-                array_stride: 80,
-                step_mode: wgpu::VertexStepMode::Instance,
-                attributes: &attrs,
-            })],
-            compilation_options: Default::default(),
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("quad_count_fs"),
-            targets: &[],
-            compilation_options: Default::default(),
-        }),
-        primitive: wgpu::PrimitiveState {
-            cull_mode: Some(wgpu::Face::Back),
-            ..Default::default()
-        },
-        // The depth is attached read-only, as the pass needs an attachment;
-        // the shader makes the test.
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: Some(false),
-            depth_compare: Some(wgpu::CompareFunction::Always),
-            stencil: Default::default(),
-            bias: Default::default(),
-        }),
-        multisample: wgpu::MultisampleState {
-            count: samples,
-            ..Default::default()
-        },
-        multiview_mask: None,
-        cache: None,
-    });
-    Coverage { pipeline, layout }
+    })
 }

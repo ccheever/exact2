@@ -41,12 +41,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         view: u32,
         group: usize,
     ) {
-        let drew = Drew::Group {
+        let began = self.probe_begin(pass, || Drew::Group {
             group,
             view,
             variant: None,
-        };
-        let began = self.probe_begin(pass, drew);
+        });
         if self.cull.direct {
             let mesh = &self.meshes[self.batches[self.cull.groups[group].batch].mesh.0];
             bound.scene(pass, &self.scene_binds[self.current], 0);
@@ -95,7 +94,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             return 0;
         };
         let mut draws = 0;
-        let cache = shadows.cached.as_ref();
+        // A look frame draws every caster itself and leaves the cache as the
+        // live frames left it (`prepare_shadow_cache`).
+        let cache = shadows.cached.as_ref().filter(|_| self.probe.is_none());
         for i in 0..shadows.count as usize {
             let view = 1 + i as u32;
             self.probe_stage(Stage::SunShadow(i as u8));
@@ -158,7 +159,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 multiview_mask: None,
             });
             if cache.is_some_and(|c| c.seed(&mut pass, i)) {
-                self.probe_note(Drew::Fixed("cached static casters"));
                 draws += 1;
             }
             if frame.timestamps.is_some() {
@@ -228,26 +228,23 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             if let Some(custom) = custom.iter().find(|c| c.material == material) {
                 let binds = self.custom_bindings.as_ref().unwrap();
                 bound.pipeline(pass, &custom.shadow);
+                self.probe_variant(usize::MAX);
                 bound.group(pass, 2, &custom.resources);
                 bound.group(pass, 3, &binds.instances.as_ref().unwrap().1);
             } else {
                 let material = &self.models.materials[material.0];
                 let opaque = material.alpha == exact_game::asset::AlphaMode::Opaque
                     && !self.batch_fading(group.batch);
-                bound.pipeline(
-                    pass,
-                    self.pipelines.model_variant(
-                        &self.device,
-                        4 * usize::from(material.double_sided)
-                            + 16 * usize::from(group.mirrored)
-                            + 32 * usize::from(opaque),
-                        true,
-                    ),
-                );
+                let key = 4 * usize::from(material.double_sided)
+                    + 16 * usize::from(group.mirrored)
+                    + 32 * usize::from(opaque);
+                self.probe_variant(key);
+                bound.pipeline(pass, self.pipelines.model_variant(&self.device, key, true));
                 bound.group(pass, 2, self.depth_material(material, opaque));
                 bound.group(pass, 3, self.models.bind.as_ref().unwrap());
             }
         } else {
+            self.probe_variant(usize::from(group.mirrored));
             bound.pipeline(pass, &self.pipelines.shadow[usize::from(group.mirrored)]);
         }
         bound.group(pass, 1, camera);
@@ -279,7 +276,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     ) -> Result<(), RenderError> {
         let time = view.time;
         // Soft particles: translucency follows in its own pass over this depth.
-        let split = self.quads.soft_active();
+        let split = self.quads.split();
         let sky = frame
             .environment
             .background
@@ -332,7 +329,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     } else {
                         wgpu::LoadOp::Clear(1.0)
                     },
-                    store: if state.depth_read || self.probe.is_some() {
+                    store: if state.depth_read {
                         wgpu::StoreOp::Store
                     } else {
                         wgpu::StoreOp::Discard
@@ -415,17 +412,20 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if layer {
             self.scene_viewport(&mut pass, state.size, false);
         }
-        for draw in self.quads.draws.iter().filter(|d| self.quads.opaque(d)) {
-            let began = self.probe_begin(&mut pass, Drew::quads(&self.quads.draws, draw));
+        for (index, draw) in
+            (self.quads.draws.iter().enumerate()).filter(|(_, d)| self.quads.opaque(d))
+        {
+            let count = draw.range.len() as u32;
+            let began = self.probe_begin(&mut pass, || Drew::Quads { draw: index, count });
             self.quads
-                .draw::<ASSETS>(&mut pass, draw, &self.models.textures, state.direct);
+                .draw::<ASSETS>(&mut pass, index, &self.models.textures, state.direct);
             Probe::end(&mut pass, began);
             state.draws += 1;
         }
         if H::ENABLED {
             let start = (!time.seekable).then(crate::perf::Stamp::now);
             timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 18, false);
-            self.probe_note(Drew::Fixed("hook opaque"));
+            self.probe_note(|| Drew::Summary("hook opaque"));
             hooks
                 .opaque(&mut pass, view)
                 .map_err(|e| hook_error("opaque", e))?;
@@ -437,7 +437,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         let hulls = self.draw_outlines(&mut pass, state.size, state.direct);
         if hulls.draws > 0 {
-            self.probe_note(Drew::Fixed("outline hulls"));
+            self.probe_note(|| Drew::Fixed("outline hulls"));
         }
         state.draws += hulls.draws;
         state.hull_instances += hulls.instances;
@@ -450,13 +450,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             });
             pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
             pass.draw(0..3, 0..1);
-            self.probe_note(Drew::Fixed("sky"));
+            self.probe_note(|| Drew::Fixed("sky"));
             state.draws += 1;
         }
         if H::ENABLED {
             let start = (!time.seekable).then(crate::perf::Stamp::now);
             timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 19, false);
-            self.probe_note(Drew::Fixed("hook background"));
+            self.probe_note(|| Drew::Summary("hook background"));
             hooks
                 .background(&mut pass, view)
                 .map_err(|e| hook_error("background", e))?;
@@ -578,9 +578,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 view: &self.targets.depth,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Load,
-                    store: if state.needs.contains(crate::Needs::FINAL_DEPTH)
-                        || self.probe.is_some()
-                    {
+                    store: if state.needs.contains(crate::Needs::FINAL_DEPTH) {
                         wgpu::StoreOp::Store
                     } else {
                         wgpu::StoreOp::Discard
@@ -600,7 +598,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.probe_stage(Stage::Translucent);
         self.scene_viewport(&mut pass, state.size, false);
         let start = (!time.seekable).then(crate::perf::Stamp::now);
-        self.probe_note(Drew::Fixed("hook surface"));
+        self.probe_note(|| Drew::Summary("hook surface"));
         hooks
             .surface(&mut pass, &targets.scene().unwrap(), view)
             .map_err(|e| hook_error("surface", e))?;
@@ -638,7 +636,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             if let Some(inputs) = targets.post(&self.targets.resolved) {
                 let start = (!time.seekable).then(crate::perf::Stamp::now);
                 timing::encoder_stamp(&self.device, encoder, frame.timestamps, 21, false);
-                self.probe_note(Drew::Fixed("hook post"));
+                self.probe_note(|| Drew::Summary("hook post"));
                 hooks
                     .post(encoder, &inputs, view)
                     .map_err(|e| hook_error("post", e))?;
@@ -649,9 +647,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
         }
         if self.bloom.is_some() {
-            self.probe_note(Drew::Fixed("bloom"));
+            self.probe_note(|| Drew::Summary("bloom"));
         }
-        self.probe_note(Drew::Fixed("tone"));
+        self.probe_note(|| Drew::Fixed("tone"));
         if let Some(bloom) = &self.bloom {
             let passes = bloom.encode(
                 &self.queue,
@@ -723,7 +721,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let mut layer = false;
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
         let mut draws = 0;
-        for draw in self.quads.draws.iter().filter(|d| !self.quads.opaque(d)) {
+        for (index, draw) in
+            (self.quads.draws.iter().enumerate()).filter(|(_, d)| !self.quads.opaque(d))
+        {
             // Blended viewmodel parts keep the viewmodel layer's depth range.
             let viewmodel = matches!(draw.kind, crate::quads::Kind::Model(index, _)
                 if self.batches[index].viewmodel);
@@ -731,7 +731,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.scene_viewport(pass, size, viewmodel);
                 layer = viewmodel;
             }
-            if let crate::quads::Kind::Model(index, slot) = draw.kind {
+            if let crate::quads::Kind::Model(batch_index, slot) = draw.kind {
+                let index = batch_index;
                 assert!(ASSETS, "model in primitive executor");
                 let batch = &self.batches[index];
                 let material = &self.models.materials[self.model_batches[index].unwrap().0];
@@ -757,11 +758,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
                 let mesh = &self.meshes[batch.mesh.0];
-                let began = self.probe_begin(pass, Drew::Blended { batch: index });
+                let began = self.probe_begin(pass, || Drew::Blended { batch: index });
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
                 Probe::end(pass, began);
             } else {
-                let began = self.probe_begin(pass, Drew::quads(&self.quads.draws, draw));
+                let (draw, count) = (index, draw.range.len() as u32);
+                let began = self.probe_begin(pass, || Drew::Quads { draw, count });
                 self.quads
                     .draw::<ASSETS>(pass, draw, &self.models.textures, state.direct);
                 Probe::end(pass, began);

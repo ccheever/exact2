@@ -52,7 +52,13 @@ pub(crate) fn displayed(w: &World, e: Entity, models: &[(u32, Aabb)]) -> Option<
 
 /// The drawn scene's centre and radius: the box around every drawn entity's
 /// displayed geometry.
+#[cfg(test)]
 pub(crate) fn scene(w: &World, models: &[(u32, Aabb)]) -> (Vec3, f32) {
+    centre_radius(scene_box(w, models))
+}
+
+/// The box around every drawn entity's displayed geometry.
+pub(crate) fn scene_box(w: &World, models: &[(u32, Aabb)]) -> Option<Aabb> {
     let mut all: Option<Aabb> = None;
     let mut grow = |e: Entity| {
         if let Some(b) = displayed(w, e, models) {
@@ -62,7 +68,30 @@ pub(crate) fn scene(w: &World, models: &[(u32, Aabb)]) -> (Vec3, f32) {
     w.query::<&Mesh>().iter().for_each(|(e, _)| grow(e));
     w.query::<&Sprite>().iter().for_each(|(e, _)| grow(e));
     w.query::<&Emitter>().iter().for_each(|(e, _)| grow(e));
-    match all {
+    all
+}
+
+/// The box around what the cull's account leaves out: sprites and emitters,
+/// and the meshes whose slots `outside` names (blended models, kept-whole
+/// groups), by entity index (a primitive's slot, a model record's transform).
+pub(crate) fn unculled_box(w: &World, models: &[(u32, Aabb)], outside: &[u32]) -> Option<Aabb> {
+    let mut all: Option<Aabb> = None;
+    let mut grow = |e: Entity| {
+        if let Some(b) = displayed(w, e, models) {
+            all = Some(all.map_or(b, |(lo, hi)| (lo.min(b.0), hi.max(b.1))));
+        }
+    };
+    (w.query::<&Mesh>().iter())
+        .filter(|(e, _)| outside.contains(&e.index()))
+        .for_each(|(e, _)| grow(e));
+    w.query::<&Sprite>().iter().for_each(|(e, _)| grow(e));
+    w.query::<&Emitter>().iter().for_each(|(e, _)| grow(e));
+    all
+}
+
+/// A box's centre and radius (at least a metre); the origin's metre without one.
+pub(crate) fn centre_radius(b: Option<Aabb>) -> (Vec3, f32) {
+    match b {
         Some((lo, hi)) if lo.is_finite() && hi.is_finite() => {
             ((lo + hi) * 0.5, ((hi - lo).length() * 0.5).max(1.0))
         }

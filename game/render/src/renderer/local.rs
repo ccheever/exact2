@@ -215,9 +215,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     continue;
                 }
                 self.set_depth_pipeline(&mut pass, &mut bound, group, &maps.cameras[layer], custom);
-                self.probe_note(super::probe::Drew::Local {
-                    batch: group.batch,
-                    submitted: group.range.len() as u32,
+                let _ = self.probe_begin(&mut pass, || super::probe::Drew::Local {
+                    cull: layer / 4,
+                    group: index,
+                    view,
+                    variant: None,
                 });
                 if self.cull.direct {
                     let mesh = &self.meshes[self.batches[group.batch].mesh.0];

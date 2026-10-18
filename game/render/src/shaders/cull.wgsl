@@ -287,6 +287,42 @@ fn test(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_index) l
     }
 }
 
+// A look frame's account of the cull (LLP 1127.000 D4), dispatched after the
+// frame's passes with an output buffer bound as `scratch`: for each item, at
+// (chunk * 64 + lane) * 6, its world sphere (the interpolation-swept, skinned
+// one `test` reads), the views whose frustum holds it, and whether the camera's
+// occlusion pyramid hides it. `test`'s own functions decide each.
+@compute @workgroup_size(64)
+fn probe(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_index) lane: u32) {
+    let chunk = index(id);
+    if chunk >= cull.counts.y { return; }
+    let g = group_at(chunk);
+    let local = (chunk - setup[g + 2u]) * 64u + lane;
+    if local >= setup[g + 1u] { return; }
+    let flags = setup[g + 7u];
+    var sphere = vec4(0.0);
+    var seen = flags & 15u;
+    var hidden = 0u;
+    if (flags & KEEP_ALL) == 0u {
+        let value = slots[setup[g] + local];
+        sphere = world_sphere(value, g);
+        let camera = hull_sphere(value, g, sphere);
+        for (var v = 0u; v < cull.counts.x; v++) {
+            if (seen & (1u << v)) != 0u && !visible(v, select(sphere, camera, v == 0u)) { seen &= ~(1u << v); }
+        }
+        if (seen & 1u) != 0u && cull.options.x != 0u && (flags & EXEMPT) == 0u && occluded(camera) {
+            hidden = 1u;
+        }
+    }
+    let at = (chunk * 64u + lane) * 6u;
+    scratch[at] = bitcast<u32>(sphere.x);
+    scratch[at + 1u] = bitcast<u32>(sphere.y);
+    scratch[at + 2u] = bitcast<u32>(sphere.z);
+    scratch[at + 3u] = bitcast<u32>(sphere.w);
+    scratch[at + 4u] = seen;
+    scratch[at + 5u] = hidden;
+}
+
 fn unpack(packed: u32) -> vec4<u32> {
     return vec4(packed & 255u, (packed >> 8u) & 255u, (packed >> 16u) & 255u, packed >> 24u);
 }

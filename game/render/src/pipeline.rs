@@ -10,6 +10,35 @@ macro_rules! piece {
     };
 }
 const FRAME: &str = piece!("frame");
+/// The quads' pieces (quads.rs): a module is the frame, tone and quad pieces
+/// followed by a fragment piece, and a look frame's probe variants add count.
+pub(crate) const PARTICLE: &str = piece!("particle");
+pub(crate) const SPRITE: &str = piece!("sprite");
+pub(crate) const SOFT: &str = piece!("soft");
+pub(crate) const COUNT: &str = piece!("count");
+pub(crate) const SOFT_COUNT: &str = piece!("soft_count");
+pub(crate) fn quad_source(fragments: &[&str]) -> String {
+    [FRAME, TONE, piece!("quad")]
+        .into_iter()
+        .chain(fragments.iter().copied())
+        .collect()
+}
+/// Every quad module, probe variants included, at both sample counts.
+#[cfg(test)]
+fn quad_sources() -> Vec<String> {
+    let mut out = Vec::new();
+    for samples in [1, 4] {
+        let soft = depth_source(SOFT, samples);
+        let count = depth_source(COUNT, samples);
+        for piece in [PARTICLE, SPRITE] {
+            out.push(quad_source(&[piece]));
+            out.push(quad_source(&[piece, &soft]));
+            out.push(quad_source(&[piece, &count]));
+            out.push(quad_source(&[piece, &soft, &count, SOFT_COUNT]));
+        }
+    }
+    out
+}
 pub(crate) const OCCLUSION: &str = piece!("occlusion");
 pub(crate) const SHADOW_SEED: &str = piece!("shadow_seed");
 
@@ -79,11 +108,11 @@ pub(crate) fn primitive_forward_source(early: bool) -> String {
 }
 
 #[cfg(test)]
-pub(crate) fn shader_sources() -> [String; 11] {
+pub(crate) fn shader_sources() -> Vec<String> {
     let [a, b, c, d, e] = primitive_sources(false);
     let models = [model_source(false), model_source(true)];
     let [f, g] = models;
-    [
+    let mut all = vec![
         a,
         b,
         c,
@@ -95,7 +124,9 @@ pub(crate) fn shader_sources() -> [String; 11] {
         ENVIRONMENT.into(),
         outline_source(),
         SHADOW_SEED.into(),
-    ]
+    ];
+    all.extend(quad_sources());
+    all
 }
 
 /// Frustum culling reuses the scene's transform bindings (0-5) in compute.

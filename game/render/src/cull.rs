@@ -36,6 +36,8 @@ pub(crate) const OUTLINE: u32 = 256;
 /// Group flag: never occluded (a view model, drawn in its own depth range).
 pub(crate) const EXEMPT: u32 = 32;
 const CHUNK: u32 = 64;
+/// Words per item of the cull's account for a look frame (cull.wgsl `probe`).
+pub(crate) const PROBE_WORDS: u32 = 6;
 const UNIFORM_BYTES: u64 = 24 * 16 + 4 * 16;
 
 /// One indirect draw per view: a contiguous slot-list range with one pipeline.
@@ -52,6 +54,9 @@ type TestKey = ([wgpu::Buffer; 9], wgpu::TextureView);
 
 pub(crate) struct Cull {
     test: wgpu::ComputePipeline,
+    /// cull.wgsl's module, for the look frame's `probe` entry, made on first use.
+    module: wgpu::ShaderModule,
+    probe: std::cell::OnceCell<wgpu::ComputePipeline>,
     scan: wgpu::ComputePipeline,
     scatter: wgpu::ComputePipeline,
     test_layout: wgpu::BindGroupLayout,
@@ -188,10 +193,17 @@ impl Cull {
         };
         let storage = |label| Buffer::new(device, 256, wgpu::BufferUsages::STORAGE, label);
         let indirect_execution = indirect_execution(device);
+        let (test, scan, scatter) = (
+            pipeline(&test_layout, "test"),
+            pipeline(&list_layout, "scan"),
+            pipeline(&list_layout, "scatter"),
+        );
         Self {
-            test: pipeline(&test_layout, "test"),
-            scan: pipeline(&list_layout, "scan"),
-            scatter: pipeline(&list_layout, "scatter"),
+            test,
+            module,
+            probe: Default::default(),
+            scan,
+            scatter,
             test_layout,
             list_layout,
             uniform: device.create_buffer(&wgpu::BufferDescriptor {
@@ -550,33 +562,7 @@ impl Cull {
         let key = (key, pyramid);
         if self.test_binds.as_ref().is_none_or(|(_, old)| *old != key) {
             let binds = std::array::from_fn(|current| {
-                let buffers = [
-                    (0, frame),
-                    (1, transforms[1 - current]),
-                    (2, transforms[current]),
-                    (3, materials),
-                    (4, slots),
-                    (5, attachments),
-                    (6, &self.uniform),
-                    (7, &self.setup.raw),
-                    (8, palette),
-                    (9, &self.scratch.raw),
-                ];
-                let mut entries = buffers
-                    .map(|(binding, buffer)| wgpu::BindGroupEntry {
-                        binding,
-                        resource: buffer.as_entire_binding(),
-                    })
-                    .to_vec();
-                entries.push(wgpu::BindGroupEntry {
-                    binding: 12,
-                    resource: wgpu::BindingResource::TextureView(&key.1),
-                });
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("game cull test"),
-                    layout: &self.test_layout,
-                    entries: &entries,
-                })
+                self.test_bind(device, &key, current, &self.scratch.raw)
             });
             self.test_binds = Some((binds, key));
         }
@@ -608,6 +594,87 @@ impl Cull {
             self.list_bind = Some((bind, key));
         }
     }
+    /// The test pass's bind group over `key`'s buffers, with `scratch` bound as scratch.
+    fn test_bind(
+        &self,
+        device: &wgpu::Device,
+        key: &TestKey,
+        current: usize,
+        scratch: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        let (b, pyramid) = key;
+        let buffers = [
+            (0, &b[0]),
+            (1, &b[2 - current]),
+            (2, &b[1 + current]),
+            (3, &b[3]),
+            (4, &b[4]),
+            (5, &b[5]),
+            (6, &self.uniform),
+            (7, &b[7]),
+            (8, &b[6]),
+            (9, scratch),
+        ];
+        let mut entries = buffers
+            .map(|(binding, buffer)| wgpu::BindGroupEntry {
+                binding,
+                resource: buffer.as_entire_binding(),
+            })
+            .to_vec();
+        entries.push(wgpu::BindGroupEntry {
+            binding: 12,
+            resource: wgpu::BindingResource::TextureView(pyramid),
+        });
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("game cull test"),
+            layout: &self.test_layout,
+            entries: &entries,
+        })
+    }
+
+    /// A look frame's account of each item (cull.wgsl `probe`), dispatched
+    /// after the frame's passes into a buffer of its own: `PROBE_WORDS` words
+    /// an item, by chunk and lane. `None` in a direct frame or with no group.
+    pub fn encode_probe(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        current: usize,
+    ) -> Option<wgpu::Buffer> {
+        if self.groups.is_empty() || self.direct {
+            return None;
+        }
+        let (_, key) = self.test_binds.as_ref()?;
+        let out = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("game look cull account"),
+            size: u64::from(self.chunks) * u64::from(CHUNK * PROBE_WORDS) * 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let bind = self.test_bind(device, key, current, &out);
+        let pipeline = self.probe.get_or_init(|| {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("game look cull account"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("game look cull account"),
+                        bind_group_layouts: &[Some(&self.test_layout)],
+                        immediate_size: 0,
+                    }),
+                ),
+                module: &self.module,
+                entry_point: Some("probe"),
+                compilation_options: Default::default(),
+                cache: None,
+            })
+        });
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &bind, &[]);
+        pass.dispatch_workgroups(self.chunks.min(65535), self.chunks.div_ceil(65535), 1);
+        Some(out)
+    }
+
     /// Each dependent dispatch has its own pass. Nothing is encoded without a group.
     pub fn encode(
         &self,

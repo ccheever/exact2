@@ -110,19 +110,10 @@ fn view(w: &Wire) -> Result<View, String> {
 }
 
 impl View {
-    /// Point `input` at this view; the game's camera leaves it as it is.
-    /// `models` holds the renderer's model boxes (`look_bounds::displayed`).
-    pub(crate) fn apply(
-        self,
-        input: &mut crate::FrameInput<'_>,
-        w: &World,
-        size: Vec2,
-        models: &[(u32, Aabb)],
-    ) {
-        if self == View::Camera {
-            return;
-        }
-        let (centre, radius) = crate::look_bounds::scene(w, models);
+    /// Point `input` at this view of the scene within `bounds` (its centre and
+    /// radius, `look_bounds::scene`); the game's camera leaves it as it is.
+    pub(crate) fn apply(self, input: &mut crate::FrameInput<'_>, size: Vec2, bounds: (Vec3, f32)) {
+        let (centre, radius) = bounds;
         let (eye, up, camera) = match self {
             View::Camera => return,
             View::Orbit {
@@ -176,10 +167,8 @@ pub(crate) fn drawn(records: &[Record], facts: &Facts, read: &Reading) -> Drawn 
                 })
             })
             .collect::<Option<Vec<_>>>();
-        counted.map_or_else(
-            || Measure::Unmeasured("the counting pass's counts were not read back".into()),
-            Measure::Taken,
-        )
+        let why = facts.uncounted.unwrap_or("the counts were not read back");
+        counted.map_or_else(|| Measure::Unmeasured(why.into()), Measure::Taken)
     };
     let sun_casters = if facts.cascades == 0 {
         Measure::Absent
@@ -213,6 +202,55 @@ pub(crate) fn drawn(records: &[Record], facts: &Facts, read: &Reading) -> Drawn 
 fn kept(facts: &Facts, read: &Reading, g: usize, v: usize) -> Option<u64> {
     let at = (facts.groups[g].offsets[v].1 / 4) as usize + 1;
     (!facts.direct).then(|| read.indirect.get(at).map(|&n| u64::from(n)))?
+}
+
+/// Instances local shadow cull `c`'s group `g` kept in view `v`, in a culled frame.
+fn local_kept(facts: &Facts, read: &Reading, c: usize, g: usize, v: usize) -> Option<u64> {
+    let fact = facts.local.get(c)?.groups.get(g)?;
+    let at = (fact.offsets[v].1 / 4) as usize + 1;
+    let words = read.local_indirect.get(c).filter(|_| !facts.direct)?;
+    words.get(at).map(|&n| u64::from(n))
+}
+
+/// The cull's account of one item (cull.wgsl `probe`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Account {
+    /// Its world sphere: centre and radius, swept between ticks, skinned.
+    pub sphere: glam::Vec4,
+    /// Views whose frustum holds it (bit 0 the camera).
+    pub seen: u32,
+    /// The camera's occlusion pyramid hides it.
+    pub hidden: bool,
+}
+/// Group `g`'s item `local`, from the cull's account of the frame.
+pub(crate) fn account(facts: &Facts, read: &Reading, g: usize, local: u32) -> Option<Account> {
+    let words = crate::cull::PROBE_WORDS as usize;
+    let at = (facts.groups.get(g)?.chunk as usize * 64 + local as usize) * words;
+    let w = read.cull.get(at..at + words)?;
+    let f = |i: usize| f32::from_bits(w[i]);
+    Some(Account {
+        sphere: glam::Vec4::new(f(0), f(1), f(2), f(3)),
+        seen: w[4],
+        hidden: w[5] != 0,
+    })
+}
+/// The box around every item's sphere in the cull's account, or `None`
+/// without one (a direct frame, no culled group).
+pub(crate) fn culled_bounds(facts: &Facts, read: &Reading) -> Option<Aabb> {
+    let mut out: Option<Aabb> = None;
+    for (g, fact) in facts.groups.iter().enumerate().filter(|(_, f)| !f.keep_all) {
+        for local in 0..fact.range.len() as u32 {
+            let Some(a) = account(facts, read, g, local) else {
+                continue;
+            };
+            let (c, r) = (a.sphere.truncate(), a.sphere.w);
+            if c.is_finite() && r.is_finite() && r > 0. {
+                let b = (c - Vec3::splat(r), c + Vec3::splat(r));
+                out = Some(out.map_or(b, |(lo, hi)| (lo.min(b.0), hi.max(b.1))));
+            }
+        }
+    }
+    out
 }
 
 /// The slots group `g` kept in view `v`.
@@ -358,13 +396,37 @@ pub(crate) fn draws_json(
                 );
             }
             Drew::Local {
-                batch: b,
-                submitted,
+                cull,
+                group,
+                view,
+                variant,
             } => {
+                let fact = facts.local.get(cull).and_then(|l| l.groups.get(group));
+                let (label, submitted) = fact.map_or(("?", 0), |f| (batch(f.batch), f.range.len()));
+                let winding = if fact.is_some_and(|f| f.mirrored) {
+                    "cw"
+                } else {
+                    "ccw"
+                };
                 let _ = write!(
                     out,
-                    ",\"draw\":{},\"submitted\":{submitted}",
-                    quote(batch(b))
+                    ",\"draw\":{},\"winding\":\"{winding}\",\"submitted\":{submitted}",
+                    quote(label)
+                );
+                if let Some(v) = variant {
+                    let _ = write!(out, ",\"variant\":{v}");
+                }
+                match local_kept(facts, read, cull, group, view as usize) {
+                    Some(n) => {
+                        let _ = write!(out, ",\"kept\":{n}");
+                    }
+                    None => out.push_str(",\"kept\":null"),
+                }
+            }
+            Drew::Summary(name) => {
+                let _ = write!(
+                    out,
+                    ",\"draw\":\"{name}\",\"summary\":\"one entry for all its draws\""
                 );
             }
             Drew::Fixed(name) => {
@@ -378,7 +440,7 @@ pub(crate) fn draws_json(
                 }
                 None => out.push_str(",\"covered\":null"),
             },
-            None if r.stage.queried() && !matches!(r.drew, Drew::Fixed(_)) => {
+            None if r.stage.queried() && !matches!(r.drew, Drew::Fixed(_) | Drew::Summary(_)) => {
                 out.push_str(",\"covered\":null")
             }
             None => {}
@@ -409,7 +471,6 @@ pub(crate) fn visible(
     entity: Entity,
     pending: impl Fn(&str) -> bool,
     camera: Vec3,
-    view_proj: glam::Mat4,
     facts: &Facts,
     read: &Reading,
 ) -> (String, String) {
@@ -526,20 +587,37 @@ pub(crate) fn visible(
         })
     };
     if !kept_in(0) {
-        // The cull says only that it dropped the entity; its displayed box
-        // against the view says which test did.
-        let in_view =
-            crate::look_bounds::displayed(w, entity, &facts.model_boxes).is_some_and(|(lo, hi)| {
-                let planes = crate::cull::planes(view_proj);
-                crate::cull::sphere_visible(&planes, (lo + hi) * 0.5, (hi - lo).length() * 0.5)
-            });
-        return if in_view && facts.occluding {
+        // The cull's own account of the entity's items says which test dropped it.
+        let slots = &slots;
+        let accounts: Vec<Account> = (groups.iter())
+            .flat_map(|&g| {
+                let range = facts.groups[g].range.clone();
+                (range.clone()).filter_map(move |at| {
+                    let local = at - range.start;
+                    slots
+                        .contains(&facts.slot_list[at as usize])
+                        .then(|| account(facts, read, g, local))
+                        .flatten()
+                })
+            })
+            .collect();
+        return if accounts.is_empty() {
+            (
+                "not-drawn".into(),
+                "dropped by the camera's cull; its account was not read back".into(),
+            )
+        } else if accounts.iter().any(|a| a.seen & 1 != 0 && a.hidden) {
             (
                 "occluded".into(),
                 "behind last frame's occluders in the depth pyramid".into(),
             )
-        } else {
+        } else if accounts.iter().all(|a| a.seen & 1 == 0) {
             ("frustum".into(), "outside the camera's view".into())
+        } else {
+            (
+                "not-drawn".into(),
+                "inside the view and unoccluded, at a level of detail not drawn this frame".into(),
+            )
         };
     }
     let casts = groups.iter().any(|&g| facts.groups[g].views & 0b1110 != 0);
@@ -646,6 +724,7 @@ mod tests {
                 keep_all: false,
                 mirrored: false,
                 offsets: std::array::from_fn(|v| (0, v as u64 * 20)),
+                chunk: 0,
             }],
             cascades: 1,
             ..Facts::default()

@@ -578,3 +578,11 @@ mod test_device;
 
 #[cfg(test)]
 mod visibility_tests;
+
+/// Whether this build answers development requests: every build but one
+/// baked with `EXACT_UPDATE_TRUST=production` (`scripts/app.mjs` and
+/// `bake/src/compat.rs` take unset as development). Read here, in this crate,
+/// so that build.rs's environment edge rebuilds it when the trust changes.
+pub fn development_build() -> bool {
+    !matches!(option_env!("EXACT_UPDATE_TRUST"), Some("production"))
+}

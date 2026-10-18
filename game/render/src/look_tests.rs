@@ -50,6 +50,21 @@ impl Game for States {
         cube(w, "wall", [4., 1.5, 4.], Vec3::new(4., 3., 0.5));
         cube(w, "walled", [7., 0.5, 0.], Vec3::splat(0.5));
         cube(w, "far", [-6., 0.5, -40.], Vec3::ONE);
+        w.spawn_named(
+            "lamp",
+            (
+                Transform::at(0., 5., 2.).looking_at(Vec3::ZERO, Vec3::Y),
+                SpotLight::default(),
+                LightShadows,
+            ),
+        );
+        w.spawn_named(
+            "sparks",
+            (
+                Transform::at(-1., 1.5, -3.),
+                Emitter::sparks().rate(200.).lifetime(1.),
+            ),
+        );
         if args.fade {
             let hider = cube(w, "hider", [-3., 0.5, 0.], Vec3::ONE);
             w.insert(hider, Visible(false));
@@ -60,7 +75,9 @@ impl Game for States {
             cube(w, "faded", [2., 0.5, 2.], Vec3::ONE);
         }
     }
-    fn tick(_: &mut World, _: &Input, _: &Scene) {}
+    fn tick(w: &mut World, _: &Input, _: &Scene) {
+        emitter::step(w);
+    }
     fn present(p: &mut Present<'_>, _: &Scene) {
         if let Some(e) = p.named("faded") {
             p.insert(e, Opacity(0.));
@@ -134,4 +151,87 @@ fn visible_answers_one_word_for_each_state() {
         .agent(r#"{"op":"state","entity":"nobody","visible":true}"#)
         .unwrap();
     assert!(refused.contains("no entity named `nobody`"), "{refused}");
+}
+
+#[test]
+fn an_unarmed_frame_builds_no_probe_record() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut s = WorldSurface::<States>::default();
+    s.bind(&Scene { fade: false }.values(), None).unwrap();
+    // Groups, shadow cascades, particles, the sky and the tone pass, unarmed.
+    for ms in [0., 20., 40., 60.] {
+        fixture::render(&gpu, &mut s, &frame(ms)).unwrap();
+    }
+    let built = |s: &mut WorldSurface<States>| s.renderer_for_test().unwrap().probe_built.get();
+    assert_eq!(built(&mut s), 0);
+    assert_eq!(word(&mut s, "drawn"), "drawn");
+    let armed = built(&mut s);
+    assert!(armed > 0, "a look frame records its draws");
+    fixture::render(&gpu, &mut s, &frame(80.)).unwrap();
+    assert_eq!(built(&mut s), armed, "the next live frame builds none");
+}
+
+#[test]
+fn a_production_build_refuses_every_look_request_by_name() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    assert_eq!(
+        crate::development_build(),
+        option_env!("EXACT_UPDATE_TRUST") != Some("production")
+    );
+    let mut s = WorldSurface::<States>::default();
+    s.bind(&Scene { fade: false }.values(), None).unwrap();
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    s.as_production_build();
+    for request in [
+        r#"{"op":"state","look":true}"#,
+        r#"{"op":"state","draws":true}"#,
+        r#"{"op":"state","entity":"drawn","visible":true}"#,
+        r#"{"op":"screenshot","form":"look","top":20}"#,
+    ] {
+        let reply = s.agent(request).unwrap();
+        assert!(reply.contains("this production build"), "{reply}");
+        assert!(!reply.contains("\"look\":{"), "{reply}");
+    }
+}
+
+#[test]
+fn the_listing_has_each_local_shadow_draw_with_its_cull_and_the_summaries() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut s = WorldSurface::<States>::default();
+    s.bind(&Scene { fade: false }.values(), None).unwrap();
+    for ms in [0., 20., 40., 60., 80.] {
+        fixture::render(&gpu, &mut s, &frame(ms)).unwrap();
+    }
+    let reply = s
+        .agent(r#"{"op":"state","draws":true,"width":320,"height":180}"#)
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    let draws = value["draws"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{reply}"));
+    let local: Vec<_> = (draws.iter())
+        .filter(|d| d["pass"] == "local shadow 0")
+        .collect();
+    assert!(!local.is_empty(), "{reply}");
+    for d in &local {
+        assert!(d["winding"].is_string() && d["variant"].is_u64(), "{d}");
+        assert!(
+            d["kept"].as_u64().unwrap() <= d["submitted"].as_u64().unwrap(),
+            "{d}"
+        );
+    }
+    assert!(
+        local.iter().any(|d| d["kept"].as_u64() > Some(0)),
+        "{reply}"
+    );
+    let bloom = draws.iter().find(|d| d["draw"] == "bloom");
+    assert!(bloom.is_none_or(|d| d["summary"].is_string()), "{reply}");
+    let particles = draws.iter().find(|d| d["fragments"].is_u64());
+    assert!(particles.unwrap_or_else(|| panic!("{reply}"))["fragments"].as_u64() > Some(0));
 }

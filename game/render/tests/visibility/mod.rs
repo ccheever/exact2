@@ -281,3 +281,61 @@ fn visible_reads_a_sprites_residency_and_its_anchored_extent() {
     assert_eq!(word("banner"), "drawn");
     assert_eq!(word("away"), "frustum");
 }
+
+/// The cull's own spheres (LLP 1127.000 D3, D4): a skinned cube whose joint
+/// holds it 20 m from its rest box is drawn where the joint holds it, and a
+/// plan view frames it there.
+struct Deformed;
+impl Game for Deformed {
+    const ID: &'static str = "visible-deformed";
+    const ASSETS: &'static [&'static str] = &["deformed.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(20., 3., 6.).looking_at(Vec3::new(20., 0.5, 0.), Vec3::Y),
+                Camera::default(),
+            ),
+        );
+        w.spawn_named(
+            "deformed",
+            (Transform::default(), Mesh::asset("deformed.model")),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+
+#[test]
+fn a_skinned_model_is_drawn_and_framed_where_its_joint_holds_it() {
+    let Some(gpu) = gpu() else { return };
+    let mut model = crate::skin_fixture::skinned_model();
+    let joint = model.skins[0].joints[0] as usize;
+    model.nodes[joint].transform =
+        exact_game::Mat4::from_translation(Vec3::new(20., 0., 0.)).to_cols_array();
+    model.materials.fill(Default::default());
+    model.textures.clear();
+    let mut s = WorldSurface::<Deformed, exact_game_render::ModelExecutor, true>::default();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.bind(&[], None).unwrap();
+    s.asset("deformed.model", Ok(&exact_game::bin::to_vec(&model)));
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    fixture::render(&gpu, &mut s, &frame(20.)).unwrap();
+    assert!(s.error().is_none(), "{:?}", s.error());
+    let reply = s
+        .agent(r#"{"op":"state","entity":"deformed","visible":true}"#)
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    // Its rest box, at the origin, is outside the view; the cull's sphere is not.
+    assert_eq!(value["visible"], "drawn", "{reply}");
+    let reply = s
+        .agent(r#"{"op":"screenshot","form":"look","top":30}"#)
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    let centre = value["bounds"]["centre"][0].as_f64();
+    assert!(
+        centre.is_some_and(|x| (x - 20.).abs() < 3.),
+        "{}",
+        value["bounds"]
+    );
+}

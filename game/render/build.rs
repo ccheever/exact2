@@ -1,6 +1,9 @@
 use std::{env, fs, path::Path};
 
 fn main() {
+    // `development_build()` bakes the update trust into this crate: a rebake
+    // with another trust rebuilds it, never reusing a development rlib.
+    println!("cargo:rerun-if-env-changed=EXACT_UPDATE_TRUST");
     let out = env::var_os("OUT_DIR").unwrap();
     // @ref llp/1046.006.000-render-hooks.rfc.md#d2-the-frame-as-data-frameview
     let frame = fs::read_to_string("src/shaders/frame.wgsl").unwrap();
@@ -46,6 +49,12 @@ fn main() {
         "environment",
         "occlusion",
         "occluder",
+        "quad",
+        "particle",
+        "sprite",
+        "soft",
+        "count",
+        "soft_count",
     ] {
         let path = format!("src/shaders/{name}.wgsl");
         println!("cargo:rerun-if-changed={path}");

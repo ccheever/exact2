@@ -145,7 +145,8 @@ pub(crate) struct Quads {
     child_pipeline: Option<wgpu::RenderPipeline>,
     /// While a look frame is armed: what `frame` did with each sprite and emitter.
     pub observed: Option<Vec<(Entity, QuadFact)>>,
-    coverage: Option<coverage::Coverage>,
+    counting: Option<coverage::Counting>,
+    counted: coverage::CountPipelines,
 }
 #[path = "quad_coverage.rs"]
 mod coverage;
@@ -244,7 +245,8 @@ impl Quads {
             sprite_pipelines: None,
             texture_layout: None,
             observed: None,
-            coverage: None,
+            counting: None,
+            counted: Default::default(),
             hz: 60,
             #[cfg(not(target_arch = "wasm32"))]
             children: Vec::new(),
@@ -533,16 +535,9 @@ impl Quads {
                 label: Some("game soft particles"),
                 entries: &[depth, uniform],
             });
-            let soft_source =
-                crate::pipeline::depth_source(include_str!("shaders/soft.wgsl"), self.samples);
-            let dots = source(
-                d,
-                &[include_str!("shaders/particle.wgsl"), &soft_source].concat(),
-            );
-            let textured = source(
-                d,
-                &[include_str!("shaders/sprite.wgsl"), &soft_source].concat(),
-            );
+            let soft_source = crate::pipeline::depth_source(crate::pipeline::SOFT, self.samples);
+            let dots = source(d, &[crate::pipeline::PARTICLE, &soft_source].concat());
+            let textured = source(d, &[crate::pipeline::SPRITE, &soft_source].concat());
             let texture = self.texture_layout.as_ref().unwrap();
             self.soft_pipelines = Some(std::array::from_fn(|i| {
                 let (shader, group) = if i < 2 {
@@ -571,12 +566,12 @@ impl Quads {
     }
     fn sprite_shader(&mut self, d: &wgpu::Device) -> wgpu::ShaderModule {
         self.sprite_shader
-            .get_or_insert_with(|| source(d, include_str!("shaders/sprite.wgsl")))
+            .get_or_insert_with(|| source(d, crate::pipeline::SPRITE))
             .clone()
     }
     fn particle_shader(&mut self, d: &wgpu::Device) -> wgpu::ShaderModule {
         self.particle_shader
-            .get_or_insert_with(|| source(d, include_str!("shaders/particle.wgsl")))
+            .get_or_insert_with(|| source(d, crate::pipeline::PARTICLE))
             .clone()
     }
     /// Make the direct pipelines this frame's draws use (after `order`).
@@ -697,9 +692,15 @@ impl Quads {
         }
         self.soft_active = true;
     }
-    /// The translucent pass is split from the opaque one this frame.
+    /// Soft particles read the scene's depth this frame.
+    #[cfg(test)]
     pub fn soft_active(&self) -> bool {
         self.soft_active
+    }
+    /// The translucent pass is split from the opaque one this frame: soft
+    /// particles or a look frame's counts read the scene's depth.
+    pub fn split(&self) -> bool {
+        self.soft_active || self.counting.is_some()
     }
     /// Derive this frame's quads; `cull` skips what the camera cannot see.
     pub fn frame<const ASSETS: bool>(
@@ -947,13 +948,16 @@ impl Quads {
         }
     }
     /// `direct`: into the target on a direct frame, after `prepare_direct`.
+    /// Draw `index` of this frame's list (while counting, a particle draw
+    /// through its probe variant, `quad_coverage.rs`).
     pub fn draw<'a, const ASSETS: bool>(
         &'a self,
         pass: &mut wgpu::RenderPass<'a>,
-        draw: &Draw,
+        index: usize,
         textures: &'a BTreeMap<String, crate::models::Texture>,
         direct: bool,
     ) {
+        let draw = &self.draws[index];
         fn pick<'a, T>(direct: bool, hdr: &'a Option<T>, twin: &'a Option<T>) -> &'a T {
             if direct { twin } else { hdr }
                 .as_ref()
@@ -987,6 +991,7 @@ impl Quads {
                     pass.set_pipeline(&pipelines[usize::from(additive)]);
                     pass.set_bind_group(1, texture.sprite_bind.as_ref().unwrap(), &[]);
                 }
+                self.bind_count(pass, index, soft.is_some(), look != NO_LOOK, additive);
                 pass.set_vertex_buffer(
                     0,
                     self.particle_arena
@@ -1160,18 +1165,12 @@ fn quad(p: Vec3, x: Vec3, y: Vec3, c: [f32; 4], uv: [f32; 4], mode: f32, cutoff:
     }
 }
 fn source(d: &wgpu::Device, fragment: &str) -> wgpu::ShaderModule {
+    module(d, &crate::pipeline::quad_source(&[fragment]))
+}
+fn module(d: &wgpu::Device, source: &str) -> wgpu::ShaderModule {
     d.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("game quad"),
-        source: wgpu::ShaderSource::Wgsl(
-            [
-                include_str!("shaders/frame.wgsl"),
-                include_str!("shaders/tone.wgsl"),
-                include_str!("shaders/quad.wgsl"),
-                fragment,
-            ]
-            .concat()
-            .into(),
-        ),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
     })
 }
 fn pipeline(

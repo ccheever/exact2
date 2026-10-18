@@ -11,6 +11,8 @@ use exact_gpu::{
     Frame, Gpu, InputEvent, Surface, Value,
 };
 
+#[path = "fixture/model.rs"]
+mod skin_fixture;
 #[path = "visibility/mod.rs"]
 mod visibility_tests;
 
