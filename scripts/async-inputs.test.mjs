@@ -1,7 +1,8 @@
 // The async lane's skip rule for the semantics checks (scripts/async-inputs.mjs).
-// No Cargo, Lean or Bun process runs here: inputs are temporary files.
+// Inputs are temporary files; the help regression launches Bun without lane setup.
 import { afterAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Inputs, SCHEMA, Store, UNAVAILABLE, changedSince, checkEnv, decide, entry, fingerprint, outcomeOf } from './async-inputs.mjs';
@@ -111,4 +112,13 @@ test('the semantics run as four gated checks, and only a finished run is an outc
   expect(outcomeOf(UNAVAILABLE, false)).toBe('unavailable');
   expect(outcomeOf(1, false)).toBe('fail');
   expect(outcomeOf(0, true)).toBe('fail');
+});
+
+
+test('async help exits before creating its worktree', () => {
+  const worktree = join(dir, 'help-must-not-create');
+  const result = spawnSync(process.execPath, [new URL('./async.mjs', import.meta.url).pathname, '--help', '--worktree', worktree], {encoding:'utf8', timeout:10000});
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain('Usage: bun scripts/async.mjs');
+  expect(existsSync(worktree)).toBe(false);
 });

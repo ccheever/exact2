@@ -386,6 +386,11 @@ async function once(state) {
 }
 
 if (import.meta.main) {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    console.log('Usage: bun scripts/async.mjs [--once] [--from <rev>] [--worktree <dir>] [--interval <seconds>] [--branch <ref>] [--tier 1|2] [--newest] [--explain [<rev>]]');
+    console.log('Without --help, starts the async lane in its own worktree. --help performs no lane setup.');
+    process.exit(0);
+  }
   if (!existsSync(WT)) git(['worktree', 'add', '--detach', WT, BRANCH]);
   mkdirSync(STATE_DIR, { recursive: true });
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
