@@ -274,7 +274,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         ),
         Some("layout") if line.contains("\"native\"") => {
             let mut reply: serde_json::Value =
-                match serde_json::from_str(&p.layout_json(id(), field_bool(line, "plan"))) {
+                match serde_json::from_str(&p.layout_held(id(), field_bool(line, "plan"))) {
                     Ok(reply) => reply,
                     Err(_) => return error("layout: unreadable"),
                 };
@@ -286,13 +286,17 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
             reply.to_string()
         }
-        Some("layout") => p.layout_json(id(), field_bool(line, "plan")),
+        Some("layout") => p.layout_held(id(), field_bool(line, "plan")),
         Some("tap") => {
             // Input variants use the full JSON parser before any delivery.
             let request: serde_json::Value = match serde_json::from_str(line) {
                 Ok(request) => request,
                 Err(_) => return malformed("unreadable tap request"),
             };
+            // A held state (LLP 1122 D8): the state, not a press.
+            if let Some(state) = request.get("holdState") {
+                return p.hold_tap(id(), state).to_string();
+            }
             // A held contact's phase that says `mouse` (a drag's, review A1)
             // is a contact with the left button held, as `answer` set it up.
             let phased = request.get("phase").is_some();

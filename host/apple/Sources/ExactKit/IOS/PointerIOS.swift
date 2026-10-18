@@ -344,6 +344,7 @@ extension NodeView {
     // scroll always wins.
     package override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ExactEnv.agentMode { TouchLog.reach(touches) }
+        HeldState.input(at: self) // (ExactWindow's too: a contact on a held node lets its hold go, HeldState.swift)
         presenter?.supersedePress()
         if touches.contains(where: { presenter?.cancelledPressTouches.contains($0) == true }) { cancelPressContact(); return }
         if canvasTouches(touches, phase: "down", event: event) { return }

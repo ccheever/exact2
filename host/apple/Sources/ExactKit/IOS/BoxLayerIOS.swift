@@ -193,7 +193,9 @@ extension NodeView {
     /// where the overflow clips.
     func applyBoxLayer() {
         defer { syncEllipticalClip(); applyColorRanges() }
-        let background = cgColor("background_color")
+        let authored = cgColor("background_color")
+        let ground = authored == nil ? fieldGround : nil
+        let background = authored ?? ground
         let fill = background.flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]
@@ -235,7 +237,12 @@ extension NodeView {
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
-        let cornerRadius = onLayer && oneRadius && (shape == nil || continuous) ? radius : 0
+        var cornerRadius = onLayer && oneRadius && (shape == nil || continuous) ? radius : 0
+        // The design's Field under a field's own bezel: on the bezel's corners.
+        if ground != nil, onLayer, cornerRadius == 0, !isCellField {
+            cornerRadius = FieldChromeCache.textareaRadius
+            corners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
+        }
         let border = !onLayer || away || cssVisibilityHidden ? nil : edges ? sideColor : width > 0 ? colors[0] : nil
         applyShadow(outline: roundedPath(in: bounds).cgPath)
         CATransaction.begin(); CATransaction.setDisableActions(true)

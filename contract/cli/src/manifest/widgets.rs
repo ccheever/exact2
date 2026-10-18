@@ -29,11 +29,8 @@ pub struct Widget {
 use exact_plan::entry_identifier;
 
 impl Manifest {
-    /// Read entries, refusing malformed declarations and stage 2's reserved key.
+    /// Read widget entries, refusing malformed declarations.
     pub fn widgets(&self) -> Result<Vec<Widget>, String> {
-        if self.json.get("live_activities").is_some() {
-            return Err("live_activities is reserved for stage 2; remove it for this bake".into());
-        }
         let Some(value) = self.json.get("widgets") else {
             return Ok(Vec::new());
         };

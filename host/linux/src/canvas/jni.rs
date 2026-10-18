@@ -599,6 +599,18 @@ macro_rules! canvas_jni {
                 with(|h| h.field_focused(id as u32, generation as u32, focused == JNI_TRUE));
             }
 
+            /// The reader's field `id`, known at `generation`, had real input
+            /// (a finger down, a key down).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fieldInput(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                generation: jint,
+            ) {
+                with(|h| h.field_input(id as u32, generation as u32));
+            }
+
             /// The reader's field `id` holds `value` after its edit number
             /// `seq`, with its selection at `start` to `end` (UTF-16
             /// units): the person's edit, composing text included.

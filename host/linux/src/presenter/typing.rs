@@ -549,6 +549,8 @@ impl<D: DataSource> Presenter<D> {
         // A hatch observes the key after its handlers and its default
         // action (LLP 1075.003.000.001 §2.2.2).
         let mark = self.hatch_key_mark();
+        // A key on a held node (the focus there) lets its hold go (LLP 1122 D8).
+        self.hold_input(self.focus);
         self.key_pressed(name, code, repeat, now_ms);
         self.hatch_key(mark, name, code, true, repeat);
     }

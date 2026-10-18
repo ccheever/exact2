@@ -59,7 +59,7 @@ What to know:
 - **One way to write a colour:** a role if the platform has one, a token if it
   is the brand.
 - **The brand's states** (the focus ring, selection, a filled button's hover,
-  a sheet's corners) come from the theme: `contract-for-agents.md`, Tamber.
+  a sheet's corners, a row's `:hover`): `contract-for-agents.md`, Tamber.
 - **Edit it while it runs** (development only): the dev loop serves
   `/__tamber`; `bun exact.mjs tamber op <url> '{"method":"describe"}'` reads,
   and `history` and `revert` read and undo token edits. `bun exact.mjs tamber

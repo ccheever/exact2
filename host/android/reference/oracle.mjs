@@ -76,9 +76,66 @@ function draw() {
   mkdirSync(fonts, { recursive: true });
   const jar = findJar(join(homedir(), '.gradle/caches/modules-2/files-2.1/org.robolectric/nativeruntime-dist-compat'));
   run('unzip', ['-q', '-j', '-o', jar, 'fonts/*', '-d', fonts], root);
+  sansSerif(fonts);
   run('cargo', ['run', '-q', '-p', 'material-specimens-linux', '--', join(here, 'specimens.json'),
     join(root, 'apps/material-specimens/specimens'), out, join(out, 'exact')], root,
   { EXACT_FONTS: fonts, EXACT_FONT: 'Roboto' });
+}
+
+/**
+ * Android finds `sans-serif` by `fonts.xml`, file by file and weight by weight, never by a font's own names; these
+ * Roboto files name their family three ways ("Roboto21382017", "Roboto Medium21382017", and "Roboto" as the
+ * typographic family of some), so a catalogue that reads the names would find no 400 in "Roboto" and draw Medium.
+ * Each file of `fonts.xml`'s `sans-serif` is renamed "Roboto" (name IDs 1 and 16), as Android sees it.
+ */
+function sansSerif(dir) {
+  const xml = readFileSync(join(dir, 'fonts.xml'), 'utf8');
+  const family = xml.match(/<family name="sans-serif">([\s\S]*?)<\/family>/)?.[1];
+  if (!family) throw new Error('fonts.xml names no sans-serif family');
+  for (const [, file] of family.matchAll(/<font [^>]*>\s*([^<\s]+)\s*<\/font>/g)) {
+    const path = join(dir, file);
+    writeFileSync(path, renamed(readFileSync(path), 'Roboto'));
+  }
+}
+
+/** An sfnt with its family names (IDs 1 and 16) `name`, its other names kept, a new `name` table appended. */
+function renamed(font, name) {
+  const view = new DataView(font.buffer, font.byteOffset, font.byteLength);
+  const tables = view.getUint16(4);
+  let entry = -1;
+  for (let i = 0; i < tables; i++) if (font.toString('latin1', 12 + 16 * i, 16 + 16 * i) === 'name') entry = 12 + 16 * i;
+  if (entry < 0) throw new Error('a font with no name table');
+  const at = view.getUint32(entry + 8);
+  const count = view.getUint16(at + 2), strings = at + view.getUint16(at + 4);
+  const records = [];
+  for (let i = 0; i < count; i++) {
+    const r = at + 6 + 12 * i;
+    const [platform, encoding, language, id, length, offset] = [0, 2, 4, 6, 8, 10].map((k) => view.getUint16(r + k));
+    let bytes = font.subarray(strings + offset, strings + offset + length);
+    if (id === 1 || id === 16) {
+      bytes = platform === 1 ? Buffer.from(name, 'latin1') : Buffer.from(name, 'utf16le').swap16();
+    }
+    records.push({ platform, encoding, language, id, bytes });
+  }
+  const head = Buffer.alloc(6 + 12 * records.length);
+  head.writeUInt16BE(0, 0);
+  head.writeUInt16BE(records.length, 2);
+  head.writeUInt16BE(head.length, 4);
+  let offset = 0;
+  records.forEach((r, i) => {
+    [r.platform, r.encoding, r.language, r.id, r.bytes.length, offset].forEach((v, k) => head.writeUInt16BE(v, 6 + 12 * i + 2 * k));
+    offset += r.bytes.length;
+  });
+  const table = Buffer.concat([head, ...records.map((r) => r.bytes)]);
+  const padded = Buffer.concat([table, Buffer.alloc((4 - (table.length % 4)) % 4)]);
+  let sum = 0;
+  for (let i = 0; i < padded.length; i += 4) sum = (sum + padded.readUInt32BE(i)) >>> 0;
+  const start = font.length + ((4 - (font.length % 4)) % 4);
+  const out = Buffer.concat([font, Buffer.alloc(start - font.length), padded]);
+  out.writeUInt32BE(sum, entry + 4);
+  out.writeUInt32BE(start, entry + 8);
+  out.writeUInt32BE(table.length, entry + 12);
+  return out;
 }
 
 function run(cmd, argv, cwd, env = {}) {
@@ -123,16 +180,19 @@ function compare(name, specimen, scheme, [refSide, candSide], candName = name) {
   const texts = [];
   for (const t of ref.facts.texts ?? []) {
     const other = (cand.facts.texts ?? []).find((u) => u.text === t.text);
-    // A side that names no text does not observe it (the Exact side's field: its value and label are painted, not
-    // nodes); one that names some and not this one has lost it.
-    const observes = candSide === 'compose' || (cand.facts.texts ?? []).length > 0 && !/^text-field/.test(specimen.id);
     if (!other) {
-      geo.push({ what: `text "${t.text}"`, reference: t.box, candidate: null, ok: !observes, note: observes ? 'missing' : 'not observed on this side' });
-      texts.push({ text: t.text, ref: t.box, cand: cv && rv ? shift(t.box, cv.x - rv.x, cv.y - rv.y) : t.box, borrowed: true });
+      geo.push({ what: `text "${t.text}"`, reference: t.box, candidate: null, ok: false, note: 'missing' });
       continue;
     }
-    for (const k of ['x', 'y', 'w', 'h']) edge(`text "${t.text}" ${k}`, t.box[k], other.box[k]);
-    texts.push({ text: t.text, ref: t.box, cand: other.box, borrowed: false });
+    // Where both sides name a text's lines, its height is the line model's (Compose's line height, Exact's
+    // paragraph centred on its line) and what places it is the baseline.
+    const lines = t.lines?.length && other.lines?.length;
+    for (const k of lines ? ['x', 'w'] : ['x', 'y', 'w', 'h']) edge(`text "${t.text}" ${k}`, t.box[k], other.box[k]);
+    if (lines) {
+      edge(`text "${t.text}" lines`, t.lines.length, other.lines.length);
+      t.lines.forEach((l, i) => edge(`text "${t.text}" baseline ${i + 1}`, l.baseline, other.lines[i]?.baseline ?? null));
+    }
+    texts.push({ text: t.text, ref: t.box, cand: other.box });
   }
   layers.geometry = { ok: geo.every((g) => g.ok), items: geo };
   // Colour at probes, each in each side's own visual box.
@@ -149,11 +209,9 @@ function compare(name, specimen, scheme, [refSide, candSide], candName = name) {
     const b = ink(cand.png, t.cand, density);
     const d = de2000(lab(a.ink), lab(b.ink));
     const share = Math.abs(a.coverage - b.coverage) / Math.max(a.coverage, b.coverage, 1e-6);
-    return { what: `text "${t.text}"`, borrowed: t.borrowed, inkReference: hex(a.ink), inkCandidate: hex(b.ink), deltaE: round(d),
+    return { what: `text "${t.text}"`, inkReference: hex(a.ink), inkCandidate: hex(b.ink), deltaE: round(d),
       coverageReference: round(a.coverage), coverageCandidate: round(b.coverage),
-      // A box borrowed from the other side is where the text should be, not where it is: reported, not failed, until
-      // the door names the painted texts' boxes (a field's label and value).
-      ok: t.borrowed || (d <= LIMIT.ink && share <= LIMIT.coverage) };
+      ok: d <= LIMIT.ink && share <= LIMIT.coverage };
   });
   layers.text = { ok: inks.every((t) => t.ok), items: inks };
   // Pixels, over each side's crop round its layout box, text masked.

@@ -350,6 +350,11 @@ pub(crate) fn measure(engine: &mut TextEngine, request: &ButtonMeasureRequest) -
 }
 
 impl Painter {
+    /// Whether `id` shows pressed: a contact's press or a held one.
+    pub(crate) fn presses(&self, id: exact_kernel::ViewId) -> bool {
+        self.feedback.1 == Some(id) || self.held_press == Some(id)
+    }
+
     /// The neutral look's button under its title (LLP 1115.000 D17), and the
     /// ink the title takes: emphasis is a fill, and a state adds one thing.
     /// The unsaid button and `bordered` are an outline in the label's ink and
@@ -377,7 +382,7 @@ impl Painter {
         };
         let (hover, pressed) = (
             !disabled && self.feedback.0 == Some(node.id),
-            !disabled && self.feedback.1 == Some(node.id),
+            !disabled && self.presses(node.id),
         );
         let label = role("-exact-label", dark);
         if node.is_neutral_tab()

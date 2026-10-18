@@ -2,7 +2,7 @@
 // host writes it into the page's looks sheet (src/host/looks.rs), over a node's
 // inline base, at once; `:active` lowered to the press paint (LLP 1061 D7), whose
 // opacity is an absolute target eased from what shows (the hover's included) and
-// whose paint goes over the hover; rows neither names show the base, also a base
+// whose paint goes over the hover; a hover look replaces the unsaid wash; rows neither names show the base, also a base
 // that moves while pressed; a disabled node takes no look.
 import { expect, beforeAll, afterAll } from 'bun:test';
 import { spawn } from 'node:child_process';
@@ -24,12 +24,18 @@ const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/
 // As `looks::rules` writes a `:hover` look (a yellow face at 0.8); `:active` is the node's press paint as the
 // host writes it (LLP 1061 D7: a blue face, an absolute opacity of 0.6).
 const on = ':not(:disabled,[disabled]:not([disabled="false"]))';
-const rules = `@media (hover:hover){[data-view="3"]:hover${on}{background-color:rgba(255,255,0,1)!important;opacity:0.8!important;}}`;
+const hover = at => `${at}:hover${on}{background-color:rgba(255,255,0,1)!important;opacity:0.8!important;--exact-hover-wash:none!important;}`;
+const rules = `@media (hover:hover){${['3', '6', '7', '9'].map(id => hover(`[data-view="${id}"]`)).join('')}}`;
 const press = 'scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.95;--exact-press-background-color:rgba(0,0,255,1);--exact-press-opacity-to:0.6;';
 const page = sheet + `<style id="exact-looks">${rules}</style>
 <div id="exact-root" style="padding:20px">
   <div id="card" data-view="3" data-exact-on="press" tabindex="0" style="${press}width:100px;height:100px;background-color:#ffffff;border:2px solid #000000">c</div>
   <div id="away" style="height:100px"></div>
+  <div id="bare" data-view="5" data-exact-on="press" style="width:100px;height:40px">b</div>
+  <style>#exact-root#exact-root .drawn { background-image: linear-gradient(red, blue); }</style>
+  <div id="image" class="drawn" data-view="6" data-exact-on="press" style="width:100px;height:40px">i</div>
+  <div id="outer" data-view="7" data-exact-on="press" style="padding:10px"><div id="inner" data-view="8" data-exact-on="press" style="width:100px;height:40px">n</div></div>
+  <div data-listrows><div><div id="in-row" data-view="9" data-exact-on="press" style="width:100px;height:40px">r</div></div></div>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
@@ -100,6 +106,25 @@ check('a hover look composes over the base, under the press paint', async () => 
     expect(await look()).toEqual(['rgb(255, 255, 0)', 'rgb(18, 52, 86)', '0.80']); // the hover again
     await mouse('mouseMoved', away);
     expect(await now()).toEqual(['rgb(238, 238, 238)', 'rgb(18, 52, 86)', '1.00']); // and the new base, at once
+
+    // The look is the whole hover: it replaces the unsaid wash (LLP 1129), which a node with no look keeps, and leaves
+    // an image of the author's (the JS target's in a class); one inside the node keeps its own wash; the stronger
+    // wash of a row's press still shows.
+    const image = (id) => evaluate(`getComputedStyle(document.getElementById('${id}')).backgroundImage`);
+    await mouse('mouseMoved', card);
+    expect(await image('card')).toBe('none');
+    await mouse('mouseMoved', await at('bare'));
+    expect(await image('bare')).toStartWith('linear-gradient(');
+    await mouse('mouseMoved', await at('image'));
+    expect([await image('image'), (await evaluate(`getComputedStyle(document.getElementById('image')).backgroundColor`))]).toEqual(['linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255))', 'rgb(255, 255, 0)']);
+    await mouse('mouseMoved', await at('inner'));
+    expect([await image('outer'), await image('inner')]).toEqual(['none', expect.stringMatching(/^linear-gradient\(/)]);
+    await mouse('mouseMoved', await at('in-row'));
+    expect(await image('in-row')).toBe('none');
+    await mouse('mousePressed', await at('in-row'), 1);
+    expect(await image('in-row')).toStartWith('linear-gradient(');
+    await mouse('mouseReleased', await at('in-row'));
+    await mouse('mouseMoved', away);
 
     // Reduce Motion: the press's colours still ease (the press is feedback); a hover still snaps.
     await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });

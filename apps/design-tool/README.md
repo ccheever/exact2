@@ -88,6 +88,14 @@ whose design the port serves.
   never the token it aliases (D6): on the branch that won for the copy, its
   typed fields and "only this mode" as a token's, its edit `set-param`. The
   token it aliases directly is offered beside it.
+- Act first, re-scope after (D6, `rescope.ts`): the last edit of a param
+  whose value there aliases one token offers "Apply to the token … instead",
+  and the last edit of a token that one param aliases there offers "Apply to
+  … instead". The move is one transaction (the edit's inverse, then the same
+  value at the other rung, on the same `when`), worked out from the revision
+  the edit was reviewed on and refused if any file it read has changed since
+  (another write, a hand edit, the component's source). It is a write of
+  its own: one undo takes back the move, a second the edit.
 - A cell's value has typed fields by its kind (`parts.ts`): a length's
   amount and unit, a number, each shadow's inset, offsets, blur, spread
   and colour (a literal or a token's name), a type's style, weight, size,

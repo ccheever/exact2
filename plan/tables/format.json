@@ -538,6 +538,20 @@
       ]
     },
     {
+      "name": "activity_slots",
+      "_comment": "LLP 1126.001 WP8: independent placement roots in one snapshot session; no refresh. Names are lockScreen, compactLeading, compactTrailing, minimal, expanded.leading, expanded.trailing, expanded.center and expanded.bottom.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "root",
+          "codec": "idx:nodes"
+        }
+      ]
+    },
+    {
       "name": "bindings",
       "fields": [
         {

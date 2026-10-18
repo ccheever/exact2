@@ -315,9 +315,11 @@ export const navigation = {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (!root.contains(event.target) && event.target !== document.body && event.target !== document.documentElement) return;
       if (document.querySelector("dialog:modal") || [...document.querySelectorAll(":popover-open")].some(p => p.popover === "auto" || p.popover === "hint")) return;
-      for (const nav of root.querySelectorAll("[navigationBack]")) {
-        if (!["modal", "fullscreen"].includes(selectedRoute(nav)?.getAttribute("navigationPresentation"))) continue;
-        event.preventDefault(); pressBack(nav); return;
+      // The innermost shown sheet's Back: its named control, else the app bar's way, as iOS's swipe down (`goBack`).
+      for (const nav of [...root.querySelectorAll("[navigationBack]")].reverse()) {
+        const route = selectedRoute(nav);
+        if (!["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation")) || inertAncestor(route) || route.checkVisibility?.({ visibilityProperty: true }) === false) continue;
+        event.preventDefault(); if (backControl(nav) || closedNone(route)) pressBack(nav); else appBack(route); return;
       }
     });
   },

@@ -871,7 +871,7 @@ fn main() {
         };
         let _ = writeln!(w, "        let {} = {expr};", f.name);
     }
-    let _ = writeln!(w, "        if snapshot_entry != snapshot.unwrap_or(\"\") || snapshot_entry.is_empty() != snapshot_refresh.is_none() {{ return Err(PlanError::WrongEntry); }}");
+    let _ = writeln!(w, "        if snapshot_entry != snapshot.unwrap_or(\"\") {{ return Err(PlanError::WrongEntry); }}");
     // A string is its 4-byte length and its bytes.
     let _ = writeln!(w, "        let n = r.count()?; let mut strings = Vec::with_capacity(r.reserve(n, 4)); for _ in 0..n {{ strings.push(r.string()?); }}");
     // The bytecode and data pools stay in a static plan's bytes.

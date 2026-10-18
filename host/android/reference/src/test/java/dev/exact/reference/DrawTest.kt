@@ -64,15 +64,27 @@ class DrawTest(private val id: String, private val scheme: String) {
             if (text != null) {
                 val layouts = mutableListOf<TextLayoutResult>()
                 node.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action?.invoke(layouts)
+                val l = layouts.firstOrNull()
+                // A text field's node is its whole decoration box, and its layout is in the coordinates of its inner
+                // text field: the one node under it that names no text (the clip round the value). Its value's box
+                // is the first line's, there.
+                val editable = node.config.getOrNull(SemanticsProperties.EditableText) != null
+                val inner = if (!editable) node.boundsInRoot else node.children
+                    .filter { it.config.getOrNull(SemanticsProperties.Text) == null }
+                    .singleOrNull()?.boundsInRoot ?: error("$id: a text field with no single inner text field")
                 val lines = JSONArray()
-                layouts.firstOrNull()?.let { l ->
-                    for (i in 0 until l.lineCount) {
-                        lines.put(JSONObject().put("top", (node.positionInRoot.y + l.getLineTop(i)) / density)
-                            .put("bottom", (node.positionInRoot.y + l.getLineBottom(i)) / density)
-                            .put("baseline", (node.positionInRoot.y + l.getLineBaseline(i)) / density))
-                    }
+                if (l != null) for (i in 0 until l.lineCount) {
+                    lines.put(JSONObject().put("top", (inner.top + l.getLineTop(i)) / density)
+                        .put("bottom", (inner.top + l.getLineBottom(i)) / density)
+                        .put("baseline", (inner.top + l.getLineBaseline(i)) / density))
                 }
-                texts.put(JSONObject().put("text", text).put("box", box(node.boundsInRoot, density)).put("lines", lines))
+                val at = if (!editable || l == null || l.lineCount == 0) node.boundsInRoot else Rect(
+                    inner.left + l.getLineLeft(0), inner.top + l.getLineTop(0),
+                    inner.left + l.getLineRight(0), inner.top + l.getLineBottom(0))
+                // An empty field's value is nothing to compare.
+                if (text.isNotEmpty() || !editable) {
+                    texts.put(JSONObject().put("text", text).put("box", box(at, density)).put("lines", lines))
+                }
             }
             node.children.forEach(::walk)
         }

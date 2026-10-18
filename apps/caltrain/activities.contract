@@ -1,0 +1,77 @@
+// @ref LLP 1126.001 WP8 — one state and eight independently sized placements.
+shape DepartureState
+  station: string
+  headsign: string
+  train: number
+  at: number
+  status: string
+
+shape ActivityViewport
+  width: number
+  height: number
+
+component DepartureActivity
+  props
+    station: string
+    headsign: string
+    train: number
+    at: number
+    status: string
+  inject
+    snapshot_viewport: ActivityViewport
+  view
+    view slot="lockScreen"
+      column gap=8
+        text `${station} to ${headsign}` font-weight=600 line-clamp=1
+        text `Train ${train} · ${status}` font-variant-numeric="tabular-nums"
+        time datetime=at format="countdown" font-variant-numeric="tabular-nums"
+    view slot="compactLeading"
+      text train.toString() font-variant-numeric="tabular-nums"
+    view slot="compactTrailing"
+      time datetime=at format="countdown" font-variant-numeric="tabular-nums"
+    view slot="minimal"
+      image "symbol:sf/tram.fill"
+    view slot="expanded"
+      view slot="leading"
+        text station line-clamp=1
+      view slot="trailing"
+        text train.toString() font-variant-numeric="tabular-nums"
+      view slot="center"
+        time datetime=at format="countdown" font-variant-numeric="tabular-nums"
+      view slot="bottom"
+        column gap=4
+          text headsign font-weight=600 line-clamp=1
+          if snapshot_viewport.width > 160
+            text status line-clamp=1
+
+shape ServiceAlertState
+  title: string
+  message: string
+  updatedAt: number
+
+component ServiceAlertActivity
+  props
+    title: string
+    message: string
+    updatedAt: number
+  view
+    view slot="lockScreen"
+      column gap=8
+        text title font-weight=600
+        text message line-clamp=2
+        time datetime=updatedAt format="relative" font-variant-numeric="tabular-nums"
+    view slot="compactLeading"
+      image "symbol:sf/exclamationmark.triangle"
+    view slot="compactTrailing"
+      text "Delay"
+    view slot="minimal"
+      image "symbol:sf/exclamationmark.triangle"
+    view slot="expanded"
+      view slot="leading"
+        image "symbol:sf/exclamationmark.triangle"
+      view slot="trailing"
+        time datetime=updatedAt format="relative" font-variant-numeric="tabular-nums"
+      view slot="center"
+        text title font-weight=600 line-clamp=1
+      view slot="bottom"
+        text message line-clamp=3

@@ -455,6 +455,7 @@ const announcement = () => current ? {
 } : { epoch, ready: false };
 const hello = (nonce) => JSON.stringify({ hello: true, ...announcement(), ...(nonce ? { nonce } : {}) });
 let retentionToken = null;
+const isEntryFile = name => name.startsWith('plans/') || name.startsWith('activities/');
 function captureGeneration(reuseCurrentAssets = false) {
   // A mixed app publishes one complete candidate. A producer may finish
   // first, but neither language may reset the other's last admitted module.
@@ -476,7 +477,7 @@ function captureGeneration(reuseCurrentAssets = false) {
   }
   const module = currentModule ? moduleCards(files, app.id) : null;
   if (currentRust) for (const [name, body] of currentRust) {
-    if (name === 'app.plan' || name === 'app.plan.map.json' || (currentModule && name.startsWith('plans/'))) continue;
+    if (name === 'app.plan' || name === 'app.plan.map.json' || (currentModule && isEntryFile(name))) continue;
     // A Contract/TS bake can reuse the exact accepted Rust artifact. Bind
     // its receipt to the new common plan; each client validates both
     // executors together before restart with carry.
@@ -489,7 +490,7 @@ function captureGeneration(reuseCurrentAssets = false) {
   const rust = currentRust ? rustCards(files) : null;
   const assets = [];
   const entryFiles = currentModule ?? currentRust;
-  const fromProducer = name => entryFiles && name.startsWith('plans/');
+  const fromProducer = name => entryFiles && isEntryFile(name);
   // Logic edits reuse the last admitted static snapshot. Asset events capture
   // through owned filesystem reads again before publishing their own revision.
   if (reuseCurrentAssets && current) {
@@ -505,7 +506,7 @@ function captureGeneration(reuseCurrentAssets = false) {
     assets.push(...assetCards(captured));
   }
   if (entryFiles) {
-    const entries = new Map([...entryFiles].filter(([name]) => name.startsWith('plans/')));
+    const entries = new Map([...entryFiles].filter(([name]) => isEntryFile(name)));
     for (const [name, body] of entries) files.set(name, body);
     assets.push(...assetCards(entries));
   }
@@ -764,7 +765,7 @@ function startModuleCompiler() {
         // A value-only design edit (LLP 1121 stage 4): the same structure and
         // the same module, so no generation; its tokens go out as a batch.
         // The executables, not the receipt, which names the plan's digest.
-        const sameEntries = currentModule && JSON.stringify(assetCards(new Map([...currentModule].filter(([name]) => name.startsWith('plans/'))))) === JSON.stringify(assetCards(new Map([...candidate].filter(([name]) => name.startsWith('plans/')))));
+        const sameEntries = currentModule && JSON.stringify(assetCards(new Map([...currentModule].filter(([name]) => isEntryFile(name))))) === JSON.stringify(assetCards(new Map([...candidate].filter(([name]) => isEntryFile(name)))));
         const sameModule = sameEntries && [MODULE_FILES.native, MODULE_FILES.web].every(name => currentModule.get(name)?.equals(candidate.get(name)));
         const live = sameModule && moduleDesign && reply.design && designBatch(moduleDesign, reply.design);
         // While a scrub previews, the builds stay on it: a value-only edit

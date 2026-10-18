@@ -685,3 +685,27 @@ fn field_password_arrows_and_delete_cross_one_bullet() {
         );
     }
 }
+
+#[test]
+fn field_texts_name_where_the_label_and_the_value_were_painted() {
+    let field = |value: &str| {
+        let (mut p, id) = boot_source(&format!(
+            "component Fields\n  view\n    column width=400 height=600 padding=10\n      input testId=\"field\" value=\"{value}\" placeholder=\"Title\" width=280\n"
+        ));
+        (p.rect_of(id).unwrap(), p.field_texts(id).unwrap())
+    };
+    let (rect, texts) = field("Moby");
+    let (label, value) = (texts.label.unwrap(), texts.value.unwrap());
+    // Both start at the field's inset; the floated label is above the value,
+    // and each baseline is in its own box.
+    assert_eq!(label.rect.0, rect.0 + 16.0);
+    assert_eq!(value.rect.0, rect.0 + 16.0);
+    assert!(label.rect.1 + label.rect.3 <= value.rect.1, "{texts:?}");
+    for t in [label, value] {
+        assert!(t.baseline > t.rect.1 && t.baseline < t.rect.1 + t.rect.3);
+    }
+    // Empty and unfocused, the label rests lower and there is no value.
+    let (_, empty) = field("");
+    assert_eq!(empty.value, None);
+    assert!(empty.label.unwrap().rect.1 > label.rect.1, "{empty:?}");
+}

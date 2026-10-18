@@ -30,6 +30,7 @@ public final class ExactWindow: UIWindow {
             let sessions = ExactApp.shared.sessions
             let owners = touch.view.map { view in sessions.filter { $0.presenter.mounts(view) } } ?? []
             for session in owners.isEmpty ? sessions : owners { session.presenter.supersedePress() }
+            HeldState.input(at: touch.view) // a contact on a held node, or in it, lets its hold go (HeldState.swift)
         }
         super.sendEvent(event)
         if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self) }

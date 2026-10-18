@@ -893,26 +893,29 @@ component DesignTool
     newName = v
   action editNewValue(v: string)
     newValue = v
+  // Its button's `disabled` is no guard against Enter in either field (`submit`).
   action addToken
-    if scrubShown
-      scrubTick = scrubTick + 1
-      scrubWant = false
-      send written = cancelScrub(scrubAsk)
-    editKind = "add-token"
-    editTarget = newName.trim()
-    editWhen = ""
-    editValue = newValue.trim()
+    if newName.trim() != "" and newValue.trim() != ""
+      if scrubShown
+        scrubTick = scrubTick + 1
+        scrubWant = false
+        send written = cancelScrub(scrubAsk)
+      editKind = "add-token"
+      editTarget = newName.trim()
+      editWhen = ""
+      editValue = newValue.trim()
   action editRename(v: string)
     renameTo = v
   action renameToken
-    if scrubShown
-      scrubTick = scrubTick + 1
-      scrubWant = false
-      send written = cancelScrub(scrubAsk)
-    editKind = "rename-token"
-    editTarget = selToken
-    editWhen = ""
-    editValue = renameTo.trim()
+    if renameTo.trim() != ""
+      if scrubShown
+        scrubTick = scrubTick + 1
+        scrubWant = false
+        send written = cancelScrub(scrubAsk)
+      editKind = "rename-token"
+      editTarget = selToken
+      editWhen = ""
+      editValue = renameTo.trim()
   action removeToken
     if scrubShown
       scrubTick = scrubTick + 1
@@ -1385,7 +1388,7 @@ component DesignTool
                       text "Only this mode"
                   if not branch.param
                     row gap=8
-                      input value=renameTo input=editRename placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
+                      input value=renameTo input=editRename submit=renameToken placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
                       button press=renameToken disabled=(renameTo.trim() == "") testId="rename"
                         text "Rename"
                       button commandfor="confirm-remove" command="show-modal" destructive=true testId="remove"
@@ -1400,8 +1403,8 @@ component DesignTool
               column gap=8 testId="add"
                 text "Add a token" role="heading" aria-level=3
                 row gap=8
-                  input value=newName input=editNewName placeholder="surface.raised" aria-label="New token's name" flex=1 min-width=0 testId="new-name"
-                  input value=newValue input=editNewValue placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
+                  input value=newName input=editNewName submit=addToken placeholder="surface.raised" aria-label="New token's name" flex=1 min-width=0 testId="new-name"
+                  input value=newValue input=editNewValue submit=addToken placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
                   button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "") testId="add-token"
                     text "Add"
               if editKind != ""

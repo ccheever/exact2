@@ -504,6 +504,7 @@ internal object Exact {
         field { Native.fieldComposing(id, generation, composing, value) }
     fun fieldSelected(id: Int, generation: Int, start: Int, end: Int) = field { Native.fieldSelected(id, generation, start, end) }
     fun fieldAction(id: Int, generation: Int, action: Int) = field { Native.fieldAction(id, generation, action) }
+    fun fieldInput(id: Int, generation: Int) = field { Native.fieldInput(id, generation) }
 
     /** What happened in the window of surface [serial] of the top layer ([Surfaces], [Native.surface], LLP 1115.001
      * D10): told on exact2's thread, in order. exact2 answers with the surface painted again or closed (a request,
