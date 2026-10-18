@@ -3,16 +3,16 @@
     "300": "0x4884240fd15afc36"
   },
   "saves": {
-    "continuation": "bfe4bea33e73d634f6aed6726bdf56855630c1271aeb9fb50de6ba77b0f48978"
+    "continuation": "4d451ecdb089077d96f8c387248a8e6b672441202c9e2a7b53abbfef09b4273b"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "1f21cc7047936927601a9bb23a7444f3679c137d182cbc208b5078f6efc03aec",
-  "sourceInputs": "40ee4eff84a8fca3a9e0aef433bb2113b9d3672ac6af83a16e63e00673a58ee3",
+  "inputs": "fece63a635e04a693f35ac605c4cda83ed09975e458a1f64138daf86a4e70453",
+  "sourceInputs": "4e52f90b108508603b9a94fd34f3706964f5824f26964af935d20a2515720108",
   "game": "sprites-fixture",
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
-  "at": "c488c06611505bc4388d5b0c6e8c32f45186ddca",
-  "reason": "Refresh the stale fixture baseline against the current SDK after complete native/web mode and profile agreement"
+  "at": "5e0b86344d607e3c12af40be038c0f350d204690",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear extend the hash stream; f5ad281e8: EXGAME v5 world save magic"
 }
