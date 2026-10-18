@@ -50,6 +50,8 @@ shape FilesTreeRow
   selected: bool
   token: string
   ignored: bool
+  // An open folder still loading its children (its row's spinner).
+  loading: bool
   guides: TreeGuide[]
 shape TreeGuide
   id: string
@@ -59,7 +61,13 @@ shape FilesCrumb
   label: string
   path: string
   current: bool
-  directory: bool
+  // Moves the browser to its folder (FolderBreadcrumb); else a label.
+  navigable: bool
+  // Below the current crumb, kept from where the browser came up.
+  descendant: bool
+  // The chevron after it lists its folder (FolderContentsMenu); a host path's chevrons are plain.
+  menu: bool
+  last: bool
 shape FilesCodeRun
   id: string
   text: string
@@ -91,6 +99,8 @@ shape FilesView
   project: string
   ready: bool
   loading: bool
+  // The path search is pending ("Loading files…" with an unlisted root).
+  searching: bool
   error: string
   query: string
   truncated: bool
@@ -101,9 +111,15 @@ shape FilesView
   treeMenu: SidebarMenuRow[]
   explorer: bool
   showExplorer: bool
+  // The subheader shows (a file, a folder, or the explorer the crumbs walked up to); the explorer toggle beside a workspace preview.
+  subheader: bool
+  explorerToggle: bool
   path: string
   preview: string
   previewError: string
+  // A read error's attempted path, and the workspace folder for a workspace file.
+  errorPath: string
+  errorCwd: string
   crumbs: FilesCrumb[]
   lines: FilesCodeLine[]
   commentOpen: bool
@@ -157,7 +173,6 @@ shape FilesCrumbEntry
 shape FilesCrumbMenu
   open: bool
   root: string
-  x: number
   back: string
   backPath: string
   status: string

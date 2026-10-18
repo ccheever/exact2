@@ -248,7 +248,7 @@ export class Session {
     return result.slice(0, 700);
   }
   failure(error: unknown): TransportFailure {
-    if (error instanceof TransportFailure) return new TransportFailure(error.kind, this.clean(error.message), error.uncertain, error.reason, this.clean(error.detail));
+    if (error instanceof TransportFailure) return new TransportFailure(error.kind, this.clean(error.message), error.uncertain, error.reason, this.clean(error.detail), error.context);
     return new TransportFailure('Network', this.clean(error instanceof Error ? error.message : String(error)));
   }
 
