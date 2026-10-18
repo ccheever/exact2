@@ -3795,3 +3795,17 @@ author wrote says where.
 - **Tests:** `source_map.rs` (an own row, an expansion, a class's row in another file, a tag's row
   saying nowhere); `tamber-inspect.test.mjs` (the join's `at`, `sha256` and `attr`; an attribute's
   place is no node's site).
+
+### Stage 9, commit E: held rows name their tokens (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s9e-plan.md`; theme2's 16:13 ruling and its conditions), the first item under `tamber/1.12`.
+
+- **The runner** (`runner/src/agent.rs` `node`): the answer gains `looks {hover?, focus_visible?}`, each look row as a style row is, its value and the token it read (`Runner::look_token`, from the theme index's look rows under the node's tuple). So every host reads a look's rows, and their tokens, from one place.
+- **The held answer, every host**: `held {state, node, site, instance, rows: [{name, value, token?}]}`, the node being the one the state is held on (the press it resolved to, named on a node inside it). Rows: `active` the node's own D7 rows from the runner's answer; a look's from its `looks`.
+  - The wasm page: `heldOf(el, ask)` reads the runner (no more CSS text, `computed` or `provenance`).
+  - The JS target (no runner): the page's CSS, a varying token named by modes.js; `provenance: "incomplete"` only for a value it can't name (16:13 (b)).
+  - Apple and Linux: their runner's `node` answer (Apple's batch conversion stays only for a presenter with no session).
+- **The server's join** places held rows at the held node's site (its map node and bindings), and names an `:active` row as its author wrote it under the part (`background-color`), the press row it lowered to as `row` (16:13 (2)).
+- **Docs:** the protocol's `tamber/1.12` bullet and the selection's `held`. QUEUE's two entries (held token names and the press's site; Apple's non-colour look rows) are closed.
+- **Tests:** `state_looks.rs` (a node's layout says its looks' rows and tokens: a token row, a literal row, only the states it has); `hold.test.mjs` (the runner's rows and tokens for a held press named on its label, and for a held hover); `HeldStateTests` (a held hover's rows name their tokens on the Mac; a press named inside names the press's node and site); `held_tests.rs` (the held answer's node and site); `tamber-inspect.test.mjs` (a held press named inside joins at the press's site, named as written, tokens kept).
+

@@ -368,11 +368,23 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // wire names: a press's paint rows (`:active` lowered to them), else the state look's rows in the looks sheet
   // (its `[data-exact-held~=…]` rule). The rows' places are the server's to join, from the source map.
   const WIRE = { "--exact-press": "press_scale", "--exact-press-background-color": "press_background_color", "--exact-press-color": "press_color", "--exact-press-opacity": "press_opacity", "--exact-press-opacity-to": "press_opacity_to" };
-  globalThis.exact.heldOf = (el) => {
+  // `ask`: the runner's agent (the wasm page): the rows as `layout` says the press's own (its D7 rows, `:active`
+  // lowered to them) or its look's, each with the token it read (LLP 1121 D8, stage 9 E). Without one (the JS
+  // target) they are the CSS the page holds, a varying token named where modes.js knows it. Either names the node
+  // the state is held on (the press it resolved to, when named on a node inside it).
+  globalThis.exact.heldOf = (el, ask = null) => {
     if (!held || (held.el !== el && held.asked !== el)) return null;
     el = held.el;
+    const view = el.dataset?.view != null ? Number(el.dataset.view) : globalThis.$exactViewId?.(el) ?? null;
+    const node = ask && view != null ? ask({ op: "node", id: view, plan: true }) : null;
+    if (node && !node.error) {
+      const own = held.state === "active" ? Object.fromEntries(Object.entries(node.style ?? {}).filter(([name]) => Object.values(WIRE).includes(name)))
+        : node.looks?.[held.state === "hover" ? "hover" : "focus_visible"] ?? {};
+      const rows = Object.entries(own).map(([name, row]) => ({ name, value: row.value, ...(row.token ? { token: row.token } : {}) }));
+      return { held: { state: held.state, node: view, site: node.site ?? null, instance: node.instance ?? [], rows } };
+    }
     const rows = [];
-    if (held.state === "active") for (const [prop, name] of Object.entries(WIRE)) { const value = el.style.getPropertyValue(prop).trim(); if (value) rows.push({ name, value }); }
+    if (held.state === "active") for (const [prop, name] of Object.entries(WIRE)) { const value = el.style.getPropertyValue(prop).trim(); if (value) rows.push({ name, value, prop }); }
     else for (const sheet of document.styleSheets) {
       let list; try { list = [...sheet.cssRules]; } catch { continue; }
       for (const rule of list.flatMap(r => r instanceof CSSMediaRule ? [...r.cssRules] : [r])) {
@@ -382,16 +394,23 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         for (const prop of rule.style) if (!prop.startsWith("--")) rows.push({ name: prop.replace(/^border-(top|right|bottom|left)-color$/, "border_color_$1").replace(/-/g, "_"), value: rule.style.getPropertyValue(prop).trim(), prop });
       }
     }
-    // A row a token or a role writes (`var(…)`, `light-dark(…)`) says the value it resolves to here; which token it
-    // is, this host can't say (`provenance: "incomplete"`).
+    // A row a token or a role writes (`var(…)`, `light-dark(…)`) says the value it resolves to here, and the token
+    // where modes.js names it; one it can't name leaves the answer `provenance: "incomplete"`.
     let incomplete = false;
     const cs = getComputedStyle(el);
     for (const row of rows) {
-      const prop = row.prop ?? Object.keys(WIRE).find(k => WIRE[k] === row.name);
+      const prop = row.prop;
       delete row.prop;
-      if (/\b(var|light-dark)\(/.test(row.value)) { incomplete = true; row.computed = cs.getPropertyValue(prop).trim(); }
+      if (!/\b(var|light-dark)\(/.test(row.value)) continue;
+      row.computed = cs.getPropertyValue(prop).trim();
+      const token = globalThis.exact.modes?.token?.(el, prop, row.value);
+      if (token) row.token = token; else incomplete = true;
     }
-    return { held: { state: held.state, rows, ...(incomplete ? { provenance: "incomplete" } : {}) } };
+    const site = el.dataset?.site != null ? Number(el.dataset.site) : null;
+    const answer = { held: { state: held.state, node: view, site, rows, ...(incomplete ? { provenance: "incomplete" } : {}) } };
+    // (The element, unsaid in JSON: a host that numbers its views another way names it from this.)
+    Object.defineProperty(answer.held, "el", { value: el, enumerable: false });
+    return answer;
   };
   // Real input on the held node: a press, a key, the pointer coming over it (a hover's), the focus (a focus's).
   for (const type of ["pointerdown", "keydown"]) root.addEventListener(type, e => { if (held?.el.contains(e.target)) letGo("input"); }, true);

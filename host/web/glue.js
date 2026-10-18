@@ -1014,7 +1014,7 @@ function nodeDetail(id, plan = false) {
   const el = views.get(id);
   if (!el || !el.isConnected) return { error: `stale node #${id}` };
   const node = ask({ op: "node", id, ...(plan ? { plan: true } : {}) });
-  if (node.error) return node; Object.assign(node, globalThis.exact.heldOf?.(el)); // what is held on it, and its rows (LLP 1122 D8)
+  if (node.error) return node; Object.assign(node, globalThis.exact.heldOf?.(el, ask)); // what is held on it, and its rows with their tokens (LLP 1122 D8)
   if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: shownValue(el) };
   delete node.frame;
   delete node.absolute;

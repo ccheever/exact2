@@ -78,7 +78,11 @@ check('a held state is the real one, until real input, its disabling or its goin
     expect(await hold('label', 'active')).toEqual({ held: 'active', reason: null, el: 'card' });
     expect(await evaluate(`['data-pressed', 'data-exact-painting'].map(a => document.getElementById('card').hasAttribute(a))`)).toEqual([true, true]);
     expect(await face()).toBe('color(srgb 0 0 1)');
-    expect((await evaluate('exact.heldOf(document.getElementById("card"))')).held).toEqual({ state: 'active', rows: [{ name: 'press_background_color', value: 'rgba(0,0,255,1)' }] });
+    expect((await evaluate('exact.heldOf(document.getElementById("card"))')).held).toEqual({ state: 'active', node: 3, site: null, rows: [{ name: 'press_background_color', value: 'rgba(0,0,255,1)' }] });
+    // With the runner's agent (the wasm page), its rows are the press's own as `layout` says them, with their
+    // tokens, and the node is the press's.
+    const asked = await evaluate(`exact.heldOf(document.getElementById('label'), (r) => r.op === 'node' && r.id === 3 ? { site: 4, instance: [], style: { press_background_color: { value: '#0000ff', token: { names: ['ink'], text: 'ink', modes: '', implied: false } }, background_color: { value: '#ffffff' } } } : { error: 'no' })`);
+    expect(asked.held).toEqual({ state: 'active', node: 3, site: 4, instance: [], rows: [{ name: 'press_background_color', value: '#0000ff', token: { names: ['ink'], text: 'ink', modes: '', implied: false } }] });
     // The element it was named on answers too, with the press's rows.
     expect((await evaluate('exact.heldOf(document.getElementById("label"))')).held.rows).toEqual([{ name: 'press_background_color', value: 'rgba(0,0,255,1)' }]);
     // A node no press reaches holds none, said why.
@@ -88,6 +92,8 @@ check('a held state is the real one, until real input, its disabling or its goin
     expect(await hold('card', 'hover')).toEqual({ held: 'hover', reason: null, el: 'card' });
     expect(await face()).toBe('rgb(255, 255, 0)');
     expect((await evaluate('exact.heldOf(document.getElementById("card"))')).held.rows).toEqual([{ name: 'background_color', value: 'rgb(255, 255, 0)' }]);
+    const looked = await evaluate(`exact.heldOf(document.getElementById('card'), (r) => ({ site: 4, instance: [], style: {}, looks: { hover: { background_color: { value: '#ffff00', token: { names: ['glow'], text: 'glow', modes: '', implied: false } } } } }))`);
+    expect(looked.held.rows).toEqual([{ name: 'background_color', value: '#ffff00', token: { names: ['glow'], text: 'glow', modes: '', implied: false } }]);
     // Real input on the node lets it go.
     await evaluate(`document.getElementById('card').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, isPrimary: true }))`);
     expect(await dropped()).toEqual(['input']);

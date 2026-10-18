@@ -76,7 +76,11 @@ on macOS and Linux.
   a row its author wrote carries `at`, the attribute's place, with the file's `sha256` as
   compiled, and `attr`, its name as written (a shorthand's for an expansion); real-time scrubs
   added the long poll's held revision (`held` on each answer, and `held` on the request to leave
-  out an unchanged `proposals`). Stage 9's later wire changes add under the same version.
+  out an unchanged `proposals`); stage 9 E added the held state's names: a selection's `held` and
+  `layout`'s held answer name the node the state is held on (`node`, `site`, `instance`: the press
+  a hold named on a node inside it resolved to), each row its `token` (the runner's, as a style
+  row's), and the join names an `:active` row as its author wrote it (`background-color`, with the
+  press row it lowered to as `row`). Stage 9's later wire changes add under the same version.
 
 ## Where it runs
 
@@ -1030,9 +1034,14 @@ The tool drives no input into an app; a command changes only what `prefer` would
   as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
   `padding` for `padding_top`. A tag's row, one the compiler derived, a conditional class's, a
   folded `:disabled` or `:checked` row, and one the compiler composed or renamed (an animation's
-  longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, rows}`
-  (*1.11*): the rows that state shows (`active`: the press paint's; a look's otherwise), each with
-  `state` and `source` (an `:active` row's part's place, a look's row its node's). Each file the join reads is
+  longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, node?, site?, instance?, rows}`
+  (*1.11*; `node`, `site`, `instance` and a row's `token` *1.12*): the node the state is held on
+  (the press it resolved to, named on a node inside it) and the rows that state shows (`active`:
+  the press paint's; a look's otherwise), each with its value, the token it read, `state` and
+  `source` (an `:active` row's part's place, a look's row its node's), joined at the held node's
+  site. An `:active` row is named as its author wrote it under the part (`background-color`), the
+  press row it lowered to beside it (`row`, *1.12*). A host that cannot name a row's token says
+  `provenance: "incomplete"`. Each file the join reads is
   checked against the digest the map says it was compiled from (`sources`): one that moved since
   makes the selection `readOnly`, with its reason, and every row read-only. The app's design file
   likewise (the one the server serves, which the map must name), unless the build runs the

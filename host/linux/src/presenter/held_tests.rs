@@ -146,14 +146,17 @@ fn a_held_active_is_the_press_paint_until_real_input_lets_it_go() {
     let card = view(&p, "card");
     let layout: Value = serde_json::from_str(&p.layout_held(Some(card), false)).unwrap();
     assert_eq!(
-        layout["node"]["held"],
-        json!({"state": "active", "rows": [{"name": "press_background_color", "value": "#0000ff"}]})
+        layout["node"]["held"]["rows"],
+        json!([{"name": "press_background_color", "value": "#0000ff"}])
     );
+    // It names the node it is held on, the card, by its site and instance (stage 9 E).
+    assert_eq!(layout["node"]["held"]["node"], card);
+    assert_eq!(layout["node"]["held"]["site"], layout["node"]["site"]);
     let layout: Value =
         serde_json::from_str(&p.layout_held(Some(view(&p, "child")), false)).unwrap();
     assert_eq!(
-        layout["node"]["held"],
-        json!({"state": "active", "rows": [{"name": "press_background_color", "value": "#0000ff"}]}),
+        layout["node"]["held"]["rows"],
+        json!([{"name": "press_background_color", "value": "#0000ff"}]),
         "named on the child, it answers for the child too, with the card's rows"
     );
     // A real press on it lets it go; the press goes on, and its release lets it up.
@@ -208,8 +211,8 @@ fn a_held_hover_or_focus_is_the_look_until_the_pointer_or_focus_crosses() {
     let card = view(&p, "card");
     let layout: Value = serde_json::from_str(&p.layout_held(Some(card), false)).unwrap();
     assert_eq!(
-        layout["node"]["held"],
-        json!({"state": "hover", "rows": [{"name": "background_color", "value": "#ffff00"}]})
+        layout["node"]["held"]["rows"],
+        json!([{"name": "background_color", "value": "#ffff00"}])
     );
     // Moving elsewhere is nothing to it; coming over it lets it go, the real
     // hover in its place.
