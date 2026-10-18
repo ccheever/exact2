@@ -15,11 +15,12 @@ test('R15 real fast and shipping game proofs refuse profile drift without changi
     const status = await child.exited;
     return {status, output:readFileSync(logPath,'utf8')+readFileSync(errors,'utf8')};
   };
+  let passed = false;
   try {
     if (!existsSync(app)) createGame(app);
     writeFileSync(resolve(app,'logic/Cargo.toml'), `[package]\nname = "profile-drift-logic"\nversion = "0.1.0"\nedition = "2021"\nworkspace = "../.shells"\n[dependencies]\nexact-game.workspace = true\n`);
-    // Both profiles disable debug_assertions. Cargo's actual OPT_LEVEL is 1 for
-    // gpu-dev and z for shipping web; a build script exposes precisely that input.
+    // Both profiles disable debug_assertions. The logic dependency uses OPT_LEVEL=3
+    // in gpu-dev and z in shipping web; expose Cargo's actual input.
     writeFileSync(resolve(app,'logic/build.rs'), 'fn main() { println!("cargo:rustc-env=PROOF_OPT_LEVEL={}", std::env::var("OPT_LEVEL").unwrap()); }');
     const logic = resolve(app,'logic/src/lib.rs');
     if (!readFileSync(logic,'utf8').includes('struct ProfileFlag')) writeFileSync(logic, readFileSync(logic,'utf8').replace('        w.reseed(args.seed);', '        w.insert_resource(ProfileFlag(env!("PROOF_OPT_LEVEL") == "z"));\n        w.reseed(args.seed);') + '\n#[derive(Default, Resource)]\nstruct ProfileFlag(bool);\n');
@@ -37,9 +38,10 @@ test('R15 real fast and shipping game proofs refuse profile drift without changi
     expect(repin.status).not.toBe(0);
     expect(repin.output).toContain('web release proof missing, failed, or disagrees with gpu-dev');
     expect(readFileSync(pinFile,'utf8')).toBe(before);
+    passed = true;
   } finally {
     // Keep failed evidence under target; a passing run owns no remaining fixture.
-    if (process.env.EXACT_KEEP_PROFILE_ORACLE !== '1') rmSync(root,{recursive:true,force:true});
+    if (passed && process.env.EXACT_KEEP_PROFILE_ORACLE !== '1') rmSync(root,{recursive:true,force:true});
   }
 }, 3_600_000);
 

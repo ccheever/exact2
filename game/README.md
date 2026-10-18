@@ -65,8 +65,9 @@ before building, if that port is in use. `--lan` serves a phone on this network.
 library for type errors and determinism violations, without linking. The dev loop prints
 that result before building each Rust save and keeps the running game when it fails.
 Host, linker and target errors still belong to the build.
-Gameplay reloads carry the running world; shared
-app-runtime edits reload the page. The server also prints **Open in native**.
+Gameplay reloads carry the running world in games without tables. In table games,
+successful Rust saves rebuild the primary module and restart the world; table-only web
+edits preserve it. Shared app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
 To explore the existing sample instead, run `bun game/dev.mjs beacons`.
@@ -661,7 +662,7 @@ Active table bytes appear in world resources and contribute to the hash. Every a
 version remains in saved inputs for the session. `sim.table_inputs()` exports these
 clock-stamped bytes; `sim.replay_tables(&inputs)` queues them on a tick-zero simulation
 loaded with their original setup version. A restore requires the same active table bytes
-and declared type names, and refuses changed tables by name. Development swaps are reported as `tableEdits` in
+and module-qualified declared type names, and refuses changed tables by name. Development swaps are reported as `tableEdits` in
 world state and refuse a proof pin. Delivery while running is admitted at the next tick;
 replay preserves those recorded ticks, including transactions still pending at export.
 
@@ -669,6 +670,9 @@ Web dev clients swap tables under the running world, preserving its tick. Native
 dev clients apply a whole generation and restart the world on table delivery. For table
 games, successful Rust saves rebuild the primary module and restart the web world,
 validating the current table files before publishing the new declarations; the validator never follows an unselected side module.
+The server retains only the three most recent table generations in memory. A client still
+fetching an older generation after three later edits receives a refusal and must reload
+the latest generation; those table generations are not retained on disk.
 
 Animation order is explicit: `animation::step` → apply root motion → query sockets.
 `SocketFollow` attaches to a joint without changing the saved local transform.
