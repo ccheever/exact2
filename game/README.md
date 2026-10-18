@@ -401,21 +401,29 @@ screenshot alone is not a verified simulation.
 
 Beside the simulation result a proof reports a look result, on its own line:
 `simulation: PASS · look: PASS, 0 tells`, or `look: FAIL, near-black`. At each
-session's close the runner draws every world offscreen from its own camera (a look
-frame, [render README](render/README.md#look-frames)), the page as composited where
-the canvas draws, and a contact sheet over 600 ms, and prints each as a `LOOK` path.
-A tell in a look frame or in the session's `logs` (`look: …` lines, which a drawing
-host writes at `clock settle` and `screenshot`) fails the proof: a near-black or
-near-white frame, more than 5% of pixels clipped, particles that drew and covered
-nothing, a shadowed sun with no caster. A look the game intends is silenced by name in
-`app.json`, `"game": {"look": {"silence": ["near-black"]}}`, and still printed and
-recorded. The GPU-less host draws its look frames where the machine has a GPU; with
-none, or for a model-capable module there, the line is `look: no picture on this
-host` and the look result is `UNVERIFIED`. The tells see brightness and coverage, not
-colour, facing or layout: open a `LOOK` picture once before reporting. A proof script
-takes its own with `look(session, view, label)`, `view` being `{}` (the game's camera),
-`{top: 30}` or `{yaw: 35, pitch: -20, distance: 40}`; the look step runs in mode 0
-only, beside the simulation the paranoid modes check. `prove.mjs` prints its unique
+session's close the runner draws every world offscreen from its own camera at the
+tick the clock holds (a look frame, [render README](render/README.md#look-frames)),
+the page as composited where the canvas draws, and a contact sheet over 600 ms at
+half resolution, and prints each as a `LOOK` path. A tell fails the look: a
+near-black or near-white frame, more than 5% of pixels clipped, a particle draw that
+covered nothing, a shadowed sun whose shadow passes drew no caster. Tells are judged
+on whole frames from the game's camera: the close step's, and the one a drawing host
+takes at every `clock settle` and pixel `screenshot` (their replies carry its
+`look` lines, `lookGaps` and `lookFailed`). The contact sheet and the orbit and plan
+views are pictures. A tell is counted once a frame that told it, and fails the look
+alone: the simulation result and its failures do not change. A look the game
+intends is silenced by name in `app.json`, `"game": {"look": {"silence":
+["near-black"]}}`, and still printed and recorded. The look passes only when every
+world each session showed was seen and every measurement a tell reads was taken; a
+world with no picture (the GPU-less host without a GPU, or a model-capable module
+there: `look: no picture on this host`), a look frame that failed, or a gap
+(`particles: not measured`) leaves it `UNVERIFIED`, named on a `look: unverified`
+line. `prove.mjs` passes the look only when every host's every run did. The tells
+see brightness and coverage, not colour, facing or layout: open a `LOOK` picture once
+before reporting. A proof script takes its own with `look(session, view, label)`,
+`view` being `{}` (the game's camera, judged), `{top: 30}` or `{yaw: 35, pitch: -20,
+distance: 40}`; the look step runs in mode 0 only, beside the simulation the
+paranoid modes check, whose journal comparison leaves the `look:` lines out. `prove.mjs` prints its unique
 `ARTIFACTS` directory; direct `proof.mjs` runs use `artifacts/<host>/`.
 Use `--report` on `prove.mjs` to explain recorded stalls and refusals.
 `ios` selects the simulator; `--device` selects a paired phone and requires an
@@ -517,10 +525,14 @@ many metres off; `from top <height>` is an orthographic plan that many metres ta
 and kept after culling, whether it covered a sample and what it wrote.
 `state world:<entity> visible` answers one word and a reason: `drawn`, `frustum`,
 `occluded`, `hidden`, `hidden-ancestor <name>`, `opacity 0`, `asset-pending <model>`,
-`lod-hidden <d> m`, `outside-cascade <n>` or `custom-material`. `state world look`
-gives the frame's luminance, clipped fraction and tells; after `clock settle` and
-`screenshot` a canvas that draws writes them to the journal. The GPU-less Linux host
-draws look frames on this machine's GPU where it has one.
+`lod-hidden <d> m`, `outside-cascade <n>`, `custom-material`, `not-drawn` or
+`no-particles`, read from what the renderer did (a sprite's texture residency and
+its quad's extent about its anchor included). `state world look` gives the frame's
+luminance, clipped fraction, tells and gaps; after `clock settle` and every pixel
+`screenshot` a canvas that draws adds them to the world's `logs` (`look: …` lines,
+never its journal, which a save carries) and to the reply. The GPU-less Linux host
+draws look frames on this machine's GPU where it has one. A production build
+refuses all of these.
 
 In a proof, `session.world('world')` supplies `hold`, `run`, `settle`, `get`,
 `layout`, `snapshot` and `save`. A held key is released on the same carrier even

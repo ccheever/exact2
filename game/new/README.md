@@ -15,11 +15,12 @@ Raw host JSON key order is not a hash input.
 
 Every proof ends with its look: each world drawn offscreen (on this machine's GPU,
 even from the GPU-less Linux host), its tells, and `LOOK` paths to open once before
-you report. A frame that is near black or clipped, particles that cover nothing or a
-shadowed sun with no caster fail the look result, printed beside the simulation's
-(`simulation: PASS · look: PASS, 0 tells`); a look the game intends is silenced by name
-in `app.json` (`"game": {"look": {"silence": ["near-black"]}}`). The proof also shows
-the scene from above (`look(session, {top: 30}, 'plan')`).
+you report. A frame that is near black, near white or clipped, particles that cover
+nothing or a shadowed sun with no caster fail the look result, printed beside the
+simulation's (`simulation: PASS · look: PASS, 0 tells`); a look the game intends is
+silenced by name in `app.json` (`"game": {"look": {"silence": ["near-black"]}}`). A
+world with no picture or a measurement not taken leaves the look `UNVERIFIED`. The
+proof also shows the scene from above (`look(session, {top: 30}, 'plan')`).
 Capture the picture below with `bun proof.mjs web --screenshot-only` at `artifacts/web/game.png`.
 This reports `UNVERIFIED` because it skips gameplay checks; `bun proof.mjs web` runs the full browser proof.
 The grid, sky-colored height fog, sun shadows, beacon pads and bloom are starter defaults.
