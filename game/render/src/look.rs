@@ -170,30 +170,30 @@ pub(crate) fn drawn(records: &[Record], facts: &Facts, read: &Reading) -> Drawn 
         let why = facts.uncounted.unwrap_or("the counts were not read back");
         counted.map_or_else(|| Measure::Unmeasured(why.into()), Measure::Taken)
     };
-    let sun_casters = if facts.cascades == 0 {
+    // The shadow tell reads what the shadow passes wrote into the maps.
+    let sun_texels = if facts.cascades == 0 {
         Measure::Absent
+    } else if read.shadow_texels.len() == facts.cascades as usize {
+        Measure::Taken(read.shadow_texels.iter().map(|&n| u64::from(n)).sum())
     } else {
-        let mut casters = Some(0);
-        let mut why = "";
-        // Only what the shadow passes submitted: the cull's lists for a view
-        // count nothing a pass did not draw.
-        for r in records {
-            let (Stage::SunShadow(_), Drew::Group { group, view, .. }) = (r.stage, r.drew) else {
-                continue;
-            };
-            let n = if facts.direct {
-                why = "a direct frame draws casters unculled, uncounted per cascade";
-                None
-            } else {
-                why = "the cull's counts were not read back";
-                kept(facts, read, group, view as usize)
-            };
-            casters = casters.zip(n).map(|(a, b)| a + b);
-        }
-        casters.map_or_else(|| Measure::Unmeasured(why.into()), Measure::Taken)
+        Measure::Unmeasured("the shadow maps' texels were not read back".into())
     };
+    // The caster instances the shadow passes submitted, where the cull counted
+    // them (not in a direct frame, which draws casters unculled).
+    let sun_casters = (facts.cascades > 0 && !facts.direct)
+        .then(|| {
+            (records.iter())
+                .filter_map(|r| match (r.stage, r.drew) {
+                    (Stage::SunShadow(_), Drew::Group { group, view, .. }) => Some((group, view)),
+                    _ => None,
+                })
+                .map(|(group, view)| kept(facts, read, group, view as usize))
+                .sum::<Option<u64>>()
+        })
+        .flatten();
     Drawn {
         particles,
+        sun_texels,
         sun_casters,
     }
 }
@@ -221,6 +221,8 @@ pub(crate) struct Account {
     pub seen: u32,
     /// The camera's occlusion pyramid hides it.
     pub hidden: bool,
+    /// It is a level of detail the frame does not draw.
+    pub level: bool,
 }
 /// Group `g`'s item `local`, from the cull's account of the frame.
 pub(crate) fn account(facts: &Facts, read: &Reading, g: usize, local: u32) -> Option<Account> {
@@ -231,9 +233,43 @@ pub(crate) fn account(facts: &Facts, read: &Reading, g: usize, local: u32) -> Op
     Some(Account {
         sphere: glam::Vec4::new(f(0), f(1), f(2), f(3)),
         seen: w[4],
-        hidden: w[5] != 0,
+        hidden: w[5] & 1 != 0,
+        level: w[5] & 2 != 0,
     })
 }
+/// Each model record's box in its entity's space: the rigid ones' meshes,
+/// and each skinned one deformed by the frame's palette, as the cull bounds it
+/// (cull.wgsl `local_sphere`: the union of every joint's transformed mesh
+/// sphere, under the node's local matrix).
+pub(crate) fn model_boxes(facts: &Facts, read: &Reading) -> Vec<(u32, Aabb)> {
+    // The bound on a linear map's stretch the cull uses: its 3×3 Frobenius norm.
+    let norm = |m: &glam::Mat4| {
+        (m.x_axis.truncate().length_squared()
+            + m.y_axis.truncate().length_squared()
+            + m.z_axis.truncate().length_squared())
+        .sqrt()
+    };
+    let skinned = facts.skins.iter().filter_map(|s| {
+        let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+        for j in s.palette..s.palette + s.joints {
+            let at = j as usize * 16;
+            let joint = glam::Mat4::from_cols_slice(read.palette.get(at..at + 16)?);
+            let (c, r) = (joint.transform_point3(s.centre), s.radius * norm(&joint));
+            lo = lo.min(c - Vec3::splat(r));
+            hi = hi.max(c + Vec3::splat(r));
+        }
+        let centre = s.local.transform_point3((lo + hi) * 0.5);
+        let r = (hi - lo).length() * 0.5 * norm(&s.local);
+        (r.is_finite() && s.joints > 0).then(|| {
+            (
+                s.transform,
+                (centre - Vec3::splat(r), centre + Vec3::splat(r)),
+            )
+        })
+    });
+    facts.model_boxes.iter().cloned().chain(skinned).collect()
+}
+
 /// The box around every item's sphere in the cull's account, or `None`
 /// without one (a direct frame, no culled group).
 pub(crate) fn culled_bounds(facts: &Facts, read: &Reading) -> Option<Aabb> {
@@ -310,8 +346,8 @@ pub(crate) fn tells_json(
             out.push(']');
         }
     }
-    out.push_str(",\"sunCasters\":");
-    match &drawn.sun_casters {
+    out.push_str(",\"sunTexels\":");
+    match &drawn.sun_texels {
         Measure::Absent => out.push_str("null"),
         Measure::Unmeasured(why) => {
             let _ = write!(out, "{{\"unmeasured\":{}}}", quote(why));
@@ -319,6 +355,12 @@ pub(crate) fn tells_json(
         Measure::Taken(n) => {
             let _ = write!(out, "{n}");
         }
+    }
+    match drawn.sun_casters {
+        Some(n) => {
+            let _ = write!(out, ",\"sunCasters\":{n}");
+        }
+        None => out.push_str(",\"sunCasters\":null"),
     }
     let _ = write!(out, ",\"readbackBytes\":{bytes}}}");
     out
@@ -376,9 +418,18 @@ pub(crate) fn draws_json(
                     _ => out.push_str(",\"kept\":null"),
                 }
             }
-            Drew::Quads { draw, count } => {
+            Drew::Quads {
+                draw,
+                count,
+                variant,
+                ..
+            } => {
                 let label = facts.quad_labels.get(draw).map_or("quads", String::as_str);
-                let _ = write!(out, ",\"draw\":{},\"submitted\":{count}", quote(label));
+                let _ = write!(
+                    out,
+                    ",\"draw\":{},\"winding\":\"camera-facing\",\"submitted\":{count},\"variant\":{variant}",
+                    quote(label)
+                );
                 if let Some(k) = facts.counted.iter().position(|&c| c == draw) {
                     match read.counts.get(k) {
                         Some(n) => {
@@ -388,11 +439,25 @@ pub(crate) fn draws_json(
                     }
                 }
             }
-            Drew::Blended { batch: b } => {
+            Drew::Blended {
+                batch: b,
+                variant,
+                mirrored,
+            } => {
+                let winding = if mirrored { "cw" } else { "ccw" };
                 let _ = write!(
                     out,
-                    ",\"draw\":{},\"submitted\":1",
+                    ",\"draw\":{},\"winding\":\"{winding}\",\"submitted\":1",
                     quote(&format!("{} (blended)", batch(b)))
+                );
+                if let Some(v) = variant {
+                    let _ = write!(out, ",\"variant\":{v}");
+                }
+            }
+            Drew::Hulls { draws } => {
+                let _ = write!(
+                    out,
+                    ",\"draw\":\"outline hulls\",\"draws\":{draws},\"summary\":\"one entry for all its draws\""
                 );
             }
             Drew::Local {
@@ -440,25 +505,37 @@ pub(crate) fn draws_json(
                 }
                 None => out.push_str(",\"covered\":null"),
             },
-            None if r.stage.queried() && !matches!(r.drew, Drew::Fixed(_) | Drew::Summary(_)) => {
+            None if r.stage.queried()
+                && !matches!(
+                    r.drew,
+                    Drew::Fixed(_) | Drew::Summary(_) | Drew::Hulls { .. }
+                ) =>
+            {
                 out.push_str(",\"covered\":null")
             }
             None => {}
         }
-        let _ = write!(out, ",\"writes\":\"{}\"}}", writes(r.stage));
+        let _ = write!(out, ",\"writes\":\"{}\"}}", writes(r));
     }
     out.push(']');
     out
 }
 
-fn writes(stage: Stage) -> &'static str {
-    match stage {
-        Stage::Occluders => "occlusion depth",
-        Stage::SunShadow(_) => "sun shadow map",
-        Stage::LocalShadow(_) => "local shadow map",
-        Stage::Prepass => "depth",
-        Stage::Forward | Stage::Translucent => "colour, depth",
-        Stage::Post => "colour",
+/// The attachments a draw writes: blended draws and the split translucent
+/// pass, whose depth is read-only, write colour alone.
+fn writes(r: &Record) -> &'static str {
+    match (r.stage, r.drew) {
+        (Stage::Occluders, _) => "occlusion depth",
+        (Stage::SunShadow(_), _) => "sun shadow map",
+        (Stage::LocalShadow(_), _) => "local shadow map",
+        (Stage::Prepass, _) => "depth",
+        (Stage::Post, _) | (Stage::Translucent, Drew::Quads { .. } | Drew::Blended { .. }) => {
+            "colour"
+        }
+        (_, Drew::Quads { depth: false, .. } | Drew::Blended { .. } | Drew::Fixed("sky")) => {
+            "colour"
+        }
+        _ => "colour, depth",
     }
 }
 
@@ -613,10 +690,15 @@ pub(crate) fn visible(
             )
         } else if accounts.iter().all(|a| a.seen & 1 == 0) {
             ("frustum".into(), "outside the camera's view".into())
+        } else if accounts.iter().any(|a| a.level) {
+            (
+                "not-drawn".into(),
+                "a level of detail the frame does not draw".into(),
+            )
         } else {
             (
                 "not-drawn".into(),
-                "inside the view and unoccluded, at a level of detail not drawn this frame".into(),
+                "in view and unoccluded by the cull's account, yet not in the camera's list".into(),
             )
         };
     }
@@ -763,25 +845,33 @@ mod tests {
                 variant: None,
             },
         );
+        // The listing's instances: what the shadow passes' records submitted.
         let drew = |records: &[Record]| drawn(records, &facts, &read).sun_casters;
-        assert_eq!(drew(&[camera, cascade]), Measure::Taken(3));
-        // Shadow drawing suppressed, culling intact: the cull kept three
-        // casters for the cascade, and the pass drew none.
-        assert_eq!(drew(&[camera]), Measure::Taken(0));
-        let judged = crate::tells::judge(
-            &crate::tells::FrameStats::of(&[128; 16]),
-            &drawn(&[camera], &facts, &read),
-        );
-        assert_eq!(judged.tells[0].name, "no-shadow-casters");
-        // A direct frame draws its casters unculled: unknown, not invented.
+        assert_eq!(drew(&[camera, cascade]), Some(3));
+        assert_eq!(drew(&[camera]), Some(0));
         let direct = Facts {
             direct: true,
             ..facts.clone()
         };
-        let unknown = drawn(&[cascade], &direct, &read).sun_casters;
-        assert!(matches!(unknown, Measure::Unmeasured(_)), "{unknown:?}");
-        // And a cull whose counts were not read back is unknown too.
-        let unread = drawn(&[cascade], &facts, &Reading::default()).sun_casters;
+        assert_eq!(drawn(&[cascade], &direct, &read).sun_casters, None);
+        assert_eq!(
+            drawn(&[cascade], &facts, &Reading::default()).sun_casters,
+            None
+        );
+        // The tell reads the maps: a pass that drew (a record, culling intact)
+        // but wrote no texel drew no caster.
+        let good = crate::tells::FrameStats::of(&[128; 16]);
+        let texels = |n: Option<u32>| Reading {
+            shadow_texels: n.into_iter().collect(),
+            ..read.clone()
+        };
+        let judged =
+            crate::tells::judge(&good, &drawn(&[camera, cascade], &facts, &texels(Some(0))));
+        assert_eq!(judged.tells[0].name, "no-shadow-casters");
+        let lit = drawn(&[camera, cascade], &facts, &texels(Some(4096)));
+        assert_eq!(lit.sun_texels, Measure::Taken(4096));
+        assert!(crate::tells::judge(&good, &lit).tells.is_empty());
+        let unread = drawn(&[camera, cascade], &facts, &texels(None)).sun_texels;
         assert!(matches!(unread, Measure::Unmeasured(_)), "{unread:?}");
     }
 
@@ -811,7 +901,7 @@ mod tests {
             &crate::tells::FrameStats::of(&[128; 16]),
             &Drawn {
                 particles: Measure::Taken(draws),
-                sun_casters: Measure::Absent,
+                ..Default::default()
             },
         );
         assert_eq!(judged.tells.len(), 1);
@@ -847,6 +937,28 @@ mod tests {
         assert_eq!(listed[0]["covered"], true, "{json}");
         assert!(listed[1]["covered"].is_null() && json.matches("\"covered\"").count() == 2);
         assert_eq!(listed[1]["kept"], 2, "{json}");
+    }
+
+    #[test]
+    fn the_cull_account_names_occlusion_and_an_undrawn_level_apart() {
+        let (facts, _) = culled(1);
+        let item = |why: u32| Reading {
+            cull: [1f32, 2., 3., 0.5]
+                .map(f32::to_bits)
+                .into_iter()
+                .chain([1, why])
+                .collect(),
+            ..Reading::default()
+        };
+        let a = account(&facts, &item(2), 0, 0).unwrap();
+        assert!((a.level, a.hidden, a.seen) == (true, false, 1));
+        assert_eq!(a.sphere, glam::Vec4::new(1., 2., 3., 0.5));
+        let b = account(&facts, &item(1), 0, 0).unwrap();
+        assert!(b.hidden && !b.level);
+        assert!(
+            account(&facts, &item(0), 0, 1).is_none(),
+            "past the account's end"
+        );
     }
 
     #[test]

@@ -76,10 +76,23 @@ pub(crate) enum Drew {
         variant: Option<usize>,
     },
     /// A run of `count` quads, the frame's quad draw `draw`: particles,
-    /// sprites or a placed child.
-    Quads { draw: usize, count: u32 },
-    /// One instance of a blended model, drawn in translucent order.
-    Blended { batch: usize },
+    /// sprites or a placed child, camera-facing, with its pipeline variant and
+    /// whether it writes depth (an opaque or masked sprite).
+    Quads {
+        draw: usize,
+        count: u32,
+        variant: usize,
+        depth: bool,
+    },
+    /// One instance of a blended model, drawn in translucent order, with its
+    /// pipeline variant and winding.
+    Blended {
+        batch: usize,
+        variant: Option<usize>,
+        mirrored: bool,
+    },
+    /// The outline hulls: `draws` draws, listed as one entry.
+    Hulls { draws: u32 },
     /// Local shadow cull `cull`'s group `group` in its view `view`, with the
     /// pipeline variant the pass chose for it.
     Local {
@@ -116,6 +129,8 @@ pub(crate) struct Probe {
     pub uncounted: Option<&'static str>,
     /// The cull's account of each item (`Cull::encode_probe`).
     pub cull: Option<wgpu::Buffer>,
+    /// Texels each sun cascade's pass wrote (`encode_shadow_texels`), and the cascades.
+    pub shadow: Option<(wgpu::Buffer, u32)>,
     /// Pixels to read back: false for a frame read only for its bounds.
     pub pixels: bool,
 }
@@ -132,6 +147,7 @@ impl Probe {
             counted: None,
             uncounted: None,
             cull: None,
+            shadow: None,
             pixels,
         }
     }
@@ -159,7 +175,10 @@ impl Probe {
     /// query when the pass carries the set. Pair with [`Probe::end`].
     fn begin(&self, pass: &mut wgpu::RenderPass<'_>, mut drew: Drew) -> bool {
         let stage = self.stage.get();
-        if let Drew::Group { variant, .. } | Drew::Local { variant, .. } = &mut drew {
+        if let Drew::Group { variant, .. }
+        | Drew::Local { variant, .. }
+        | Drew::Blended { variant, .. } = &mut drew
+        {
             *variant = self.variant.take();
         }
         let queried = stage.queried() && self.queries.is_some();
@@ -189,6 +208,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Arm the next encode's instruments; `pixels` false reads no colour back.
     pub(crate) fn arm_probe(&mut self, pixels: bool) {
         self.probe = Some(Probe::new(pixels));
+    }
+    /// Drop every frame-scoped instrument: the probe, and the quads' counting
+    /// and observations (a look frame whose encode failed).
+    pub(crate) fn disarm_probe(&mut self) {
+        self.probe = None;
+        self.quads.disarm();
     }
     /// Once every draw group and quad of the frame is prepared (after
     /// `prepare_cull`): its occlusion queries, one for each draw the forward
@@ -234,10 +259,71 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             });
         }
     }
+    /// After the frame's passes: on the GPU, the texels each sun cascade's
+    /// pass wrote nearer than the maps' clear depth (`shaders/shadow_count.wgsl`),
+    /// one word a cascade. `None` without a shadowed sun.
+    pub(crate) fn encode_shadow_texels(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Option<(wgpu::Buffer, u32)> {
+        use shadow_count_interface::shadow_count as count;
+        let shadows = self.shadows.as_ref().filter(|s| s.count > 0)?;
+        let d = &self.device;
+        let layout = d.create_bind_group_layout(&count::GROUP_0);
+        let pipeline = d.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("game look shadow texels"),
+            layout: Some(&d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("game look shadow texels"),
+                bind_group_layouts: &[Some(&layout)],
+                immediate_size: 0,
+            })),
+            module: &d.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("game look shadow texels"),
+                source: wgpu::ShaderSource::Wgsl(
+                    include_str!("../shaders/shadow_count.wgsl").into(),
+                ),
+            }),
+            entry_point: Some(count::entry::COUNT),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+        let written = d.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("game look shadow texels"),
+            size: u64::from(shadows.count) * 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let bind = d.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("game look shadow texels"),
+            layout: &layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: count::CASCADES.binding,
+                    resource: wgpu::BindingResource::TextureView(&shadows.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: count::WRITTEN.binding,
+                    resource: written.as_entire_binding(),
+                },
+            ],
+        });
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind, &[]);
+        let side = shadows.resolution.div_ceil(8);
+        pass.dispatch_workgroups(side, side, shadows.count);
+        drop(pass);
+        Some((written, shadows.count))
+    }
     /// The pipeline variant of the next group or local draw recorded.
     pub(crate) fn probe_variant(&self, variant: usize) {
         if let Some(probe) = &self.probe {
             probe.variant.set(Some(variant));
         }
     }
+}
+
+#[allow(dead_code)]
+mod shadow_count_interface {
+    include!(concat!(env!("OUT_DIR"), "/shadow_count_interface.rs"));
 }

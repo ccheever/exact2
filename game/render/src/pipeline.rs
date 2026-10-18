@@ -10,31 +10,34 @@ macro_rules! piece {
     };
 }
 const FRAME: &str = piece!("frame");
-/// The quads' pieces (quads.rs): a module is the frame, tone and quad pieces
-/// followed by a fragment piece, and a look frame's probe variants add count.
-pub(crate) const PARTICLE: &str = piece!("particle");
-pub(crate) const SPRITE: &str = piece!("sprite");
-pub(crate) const SOFT: &str = piece!("soft");
-pub(crate) const COUNT: &str = piece!("count");
-pub(crate) const SOFT_COUNT: &str = piece!("soft_count");
-pub(crate) fn quad_source(fragments: &[&str]) -> String {
-    [FRAME, TONE, piece!("quad")]
-        .into_iter()
-        .chain(fragments.iter().copied())
-        .collect()
+/// A quad module as build.rs assembled and validated it (quads.rs): `base`
+/// `particle` (dots) or `sprite` (textured quads), `kind` `plain`, `soft`,
+/// `count` or `soft_count` (a look frame's probe variants), at `samples` 1 or 4.
+pub(crate) fn quad_module(base: &str, kind: &str, samples: u32) -> &'static str {
+    macro_rules! quads {
+        ($($name:literal)*) => {
+            match format!("{base}_{kind}_{samples}").as_str() {
+                $($name => include_str!(concat!(env!("OUT_DIR"), "/quad/", $name, ".wgsl")),)*
+                other => unreachable!("no quad module {other}"),
+            }
+        };
+    }
+    quads!(
+        "particle_plain_1" "particle_soft_1" "particle_count_1" "particle_soft_count_1"
+        "sprite_plain_1" "sprite_soft_1" "sprite_count_1" "sprite_soft_count_1"
+        "particle_plain_4" "particle_soft_4" "particle_count_4" "particle_soft_count_4"
+        "sprite_plain_4" "sprite_soft_4" "sprite_count_4" "sprite_soft_count_4"
+    )
 }
-/// Every quad module, probe variants included, at both sample counts.
+/// Every quad module, as the renderer compiles it.
 #[cfg(test)]
 fn quad_sources() -> Vec<String> {
     let mut out = Vec::new();
     for samples in [1, 4] {
-        let soft = depth_source(SOFT, samples);
-        let count = depth_source(COUNT, samples);
-        for piece in [PARTICLE, SPRITE] {
-            out.push(quad_source(&[piece]));
-            out.push(quad_source(&[piece, &soft]));
-            out.push(quad_source(&[piece, &count]));
-            out.push(quad_source(&[piece, &soft, &count, SOFT_COUNT]));
+        for base in ["particle", "sprite"] {
+            for kind in ["plain", "soft", "count", "soft_count"] {
+                out.push(quad_module(base, kind, samples).to_string());
+            }
         }
     }
     out

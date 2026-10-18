@@ -78,6 +78,38 @@ impl Quads {
         }
     }
 
+    /// Draw `index`'s probe record: its run of quads, its pipeline variant
+    /// (`4 × soft + 2 × textured + additive` for particles, the alpha mode for
+    /// sprites) and whether it writes depth.
+    pub(crate) fn record(&self, index: usize) -> crate::renderer::probe::Drew {
+        let draw = &self.draws[index];
+        let (variant, depth) = match draw.kind {
+            Kind::Particle(additive, look, soft) => (
+                4 * usize::from(soft) + 2 * usize::from(look != NO_LOOK) + usize::from(additive),
+                false,
+            ),
+            Kind::Sprite(i) => {
+                let alpha = self
+                    .sprites
+                    .get(i)
+                    .map_or(AlphaMode::Blend, |s| s.value.alpha);
+                let variant = match alpha {
+                    AlphaMode::Opaque => 0,
+                    AlphaMode::Mask => 1,
+                    AlphaMode::Blend => 2,
+                };
+                (variant, variant < 2)
+            }
+            _ => (0, false),
+        };
+        crate::renderer::probe::Drew::Quads {
+            draw: index,
+            count: draw.range.len() as u32,
+            variant,
+            depth,
+        }
+    }
+
     /// Arm this frame's particle counting over `depth`, the scene's depth the
     /// split translucent pass reads, after `prepare` and `order`. `Err` names
     /// why the device cannot count.
@@ -120,26 +152,30 @@ impl Quads {
             mapped_at_creation: true,
         });
         {
+            // Each draw's slot: its counter, and whether it adds (count.wgsl).
             let mut bytes = vec![0u8; draws.len() * STRIDE as usize];
-            for k in 0..draws.len() {
+            for (k, &i) in draws.iter().enumerate() {
                 let at = k * STRIDE as usize;
+                let additive = matches!(self.draws[i].kind, Kind::Particle(true, ..));
                 bytes[at..at + 4].copy_from_slice(&(k as u32).to_le_bytes());
+                bytes[at + 4..at + 8].copy_from_slice(&u32::from(additive).to_le_bytes());
             }
             (which.slice(..).get_mapped_range_mut())
                 .map_err(|_| "the counters' draw slots did not map")?
                 .copy_from_slice(&bytes);
         }
         which.unmap();
+        use count_interface::particle_count_4 as count;
         let bind = d.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("game look particle counts"),
             layout: self.counted.layout.as_ref().unwrap(),
             entries: &[
                 wgpu::BindGroupEntry {
-                    binding: 0,
+                    binding: count::COVERED.binding,
                     resource: counts.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 1,
+                    binding: count::COUNTED.binding,
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: &which,
                         offset: 0,
@@ -147,7 +183,7 @@ impl Quads {
                     }),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 2,
+                    binding: count::COUNT_DEPTH.binding,
                     resource: wgpu::BindingResource::TextureView(depth),
                 },
             ],
@@ -166,6 +202,18 @@ impl Quads {
         self.draws
             .iter()
             .any(|d| matches!(d.kind, Kind::Particle(..)))
+    }
+
+    /// Forget a look frame's counting and observations.
+    pub(crate) fn disarm(&mut self) {
+        self.counting = None;
+        self.observed = None;
+    }
+
+    /// Whether a look frame's counting is armed.
+    #[cfg(test)]
+    pub(crate) fn counting_armed(&self) -> bool {
+        self.counting.is_some()
     }
 
     /// The counters and the quad draws they count; the next frame counts none.
@@ -204,23 +252,17 @@ impl Quads {
             .counted
             .layout
             .get_or_insert_with(|| count_layout(d, samples));
-        let piece = if textured {
-            crate::pipeline::SPRITE
-        } else {
-            crate::pipeline::PARTICLE
-        };
-        let count = crate::pipeline::depth_source(crate::pipeline::COUNT, samples);
-        let (source, entry) = if soft {
-            let soft = crate::pipeline::depth_source(crate::pipeline::SOFT, samples);
-            let parts = [piece, &soft, &count, crate::pipeline::SOFT_COUNT];
-            (crate::pipeline::quad_source(&parts), "quad_soft_count_fs")
+        let base = if textured { "sprite" } else { "particle" };
+        let (kind, entry) = if soft {
+            let entry = count_interface::particle_soft_count_4::entry::QUAD_SOFT_COUNT_FS;
+            ("soft_count", entry)
         } else {
             (
-                crate::pipeline::quad_source(&[piece, &count]),
-                "quad_count_fs",
+                "count",
+                count_interface::particle_count_4::entry::QUAD_COUNT_FS,
             )
         };
-        let shader = module(d, &source);
+        let shader = module(d, crate::pipeline::quad_module(base, kind, samples));
         let texture = textured.then(|| self.texture_layout.as_ref().unwrap());
         let soft_layout = soft.then(|| self.soft_layout.as_ref().unwrap());
         self.counted.pipelines[variant] = Some(pipeline_entry(
@@ -235,40 +277,28 @@ impl Quads {
     }
 }
 
+/// The probe variants' counter group, as build.rs reflected it from the
+/// assembled modules (all of which declare it alike): the draw's slot is
+/// bound at a dynamic offset, and the depth is multisampled as the scene is.
 fn count_layout(d: &wgpu::Device, samples: u32) -> wgpu::BindGroupLayout {
+    use count_interface::particle_count_4 as count;
+    let mut entries = [count::COVERED, count::COUNTED, count::COUNT_DEPTH];
+    if let wgpu::BindingType::Buffer {
+        has_dynamic_offset, ..
+    } = &mut entries[1].ty
+    {
+        *has_dynamic_offset = true;
+    }
+    if let wgpu::BindingType::Texture { multisampled, .. } = &mut entries[2].ty {
+        *multisampled = samples > 1;
+    }
     d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("game look particle counts"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: wgpu::BufferSize::new(16),
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Depth,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: samples > 1,
-                },
-                count: None,
-            },
-        ],
+        entries: &entries,
     })
+}
+
+#[allow(dead_code)]
+mod count_interface {
+    include!(concat!(env!("OUT_DIR"), "/count_interface.rs"));
 }

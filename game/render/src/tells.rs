@@ -100,14 +100,19 @@ pub struct ParticleDraw {
 pub struct Drawn {
     /// Each particle draw submitted to the camera after the CPU cull.
     pub particles: Measure<Vec<ParticleDraw>>,
-    /// With a shadowed sun: the casters its shadow passes drew, after culling.
-    pub sun_casters: Measure<u64>,
+    /// With a shadowed sun: the texels its shadow passes wrote, nearer than
+    /// the maps' clear depth (counted on the GPU from the maps themselves).
+    pub sun_texels: Measure<u64>,
+    /// The caster instances those passes submitted, where the cull counted
+    /// them: the listing's figure, which no tell reads.
+    pub sun_casters: Option<u64>,
 }
 impl Default for Drawn {
     fn default() -> Self {
         Self {
             particles: Measure::Absent,
-            sun_casters: Measure::Absent,
+            sun_texels: Measure::Absent,
+            sun_casters: None,
         }
     }
 }
@@ -171,12 +176,14 @@ pub fn judge(stats: &FrameStats, drawn: &Drawn) -> Judgement {
         Measure::Unmeasured(why) => out.gaps.push(format!("particles: not measured ({why})")),
         Measure::Absent => {}
     }
-    match &drawn.sun_casters {
+    match &drawn.sun_texels {
         Measure::Taken(0) => tell(
             "no-shadow-casters",
             "look: sun shadow pass drew no casters".into(),
         ),
-        Measure::Unmeasured(why) => out.gaps.push(format!("sun casters: not measured ({why})")),
+        Measure::Unmeasured(why) => out
+            .gaps
+            .push(format!("sun shadow maps: not measured ({why})")),
         _ => {}
     }
     out
@@ -222,7 +229,8 @@ mod tests {
         let good = FrameStats::of(&frame([120, 160, 140], 100));
         let fine = Drawn {
             particles: Measure::Taken(vec![draw(469, 900)]),
-            sun_casters: Measure::Taken(3),
+            sun_texels: Measure::Taken(3),
+            ..Default::default()
         };
         assert!(names(&good, &fine).is_empty());
         let dark = FrameStats::of(&frame([10, 10, 10], 100));
@@ -246,7 +254,7 @@ mod tests {
             "look: 469 particles live, 0 pixels covered (dots)"
         );
         let casterless = Drawn {
-            sun_casters: Measure::Taken(0),
+            sun_texels: Measure::Taken(0),
             ..fine.clone()
         };
         assert_eq!(names(&good, &casterless), ["no-shadow-casters"]);
@@ -258,7 +266,8 @@ mod tests {
     fn what_was_not_measured_is_a_gap_never_a_pass_or_a_tell() {
         let unmeasured = Drawn {
             particles: Measure::Unmeasured("no counting pass".into()),
-            sun_casters: Measure::Unmeasured("a direct frame is not culled".into()),
+            sun_texels: Measure::Unmeasured("the maps were not read back".into()),
+            ..Default::default()
         };
         let good = FrameStats::of(&frame([120, 160, 140], 100));
         let j = judge(&good, &unmeasured);
@@ -267,7 +276,7 @@ mod tests {
             j.gaps,
             [
                 "particles: not measured (no counting pass)",
-                "sun casters: not measured (a direct frame is not culled)"
+                "sun shadow maps: not measured (the maps were not read back)"
             ]
         );
         // An empty readback is not a black frame.

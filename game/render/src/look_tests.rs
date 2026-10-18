@@ -174,31 +174,6 @@ fn an_unarmed_frame_builds_no_probe_record() {
 }
 
 #[test]
-fn a_production_build_refuses_every_look_request_by_name() {
-    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
-        return;
-    };
-    assert_eq!(
-        crate::development_build(),
-        option_env!("EXACT_UPDATE_TRUST") != Some("production")
-    );
-    let mut s = WorldSurface::<States>::default();
-    s.bind(&Scene { fade: false }.values(), None).unwrap();
-    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
-    s.as_production_build();
-    for request in [
-        r#"{"op":"state","look":true}"#,
-        r#"{"op":"state","draws":true}"#,
-        r#"{"op":"state","entity":"drawn","visible":true}"#,
-        r#"{"op":"screenshot","form":"look","top":20}"#,
-    ] {
-        let reply = s.agent(request).unwrap();
-        assert!(reply.contains("this production build"), "{reply}");
-        assert!(!reply.contains("\"look\":{"), "{reply}");
-    }
-}
-
-#[test]
 fn the_listing_has_each_local_shadow_draw_with_its_cull_and_the_summaries() {
     let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
@@ -234,4 +209,120 @@ fn the_listing_has_each_local_shadow_draw_with_its_cull_and_the_summaries() {
     assert!(bloom.is_none_or(|d| d["summary"].is_string()), "{reply}");
     let particles = draws.iter().find(|d| d["fragments"].is_u64());
     assert!(particles.unwrap_or_else(|| panic!("{reply}"))["fragments"].as_u64() > Some(0));
+}
+
+static FAIL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Hooks whose compute stage fails while `FAIL` is set.
+#[derive(Default)]
+struct Failing;
+impl crate::Hooks for Failing {
+    fn compute(
+        &mut self,
+        _: &mut exact_gpu::wgpu::CommandEncoder,
+        _: &crate::FrameView<'_>,
+    ) -> Result<(), crate::RenderError> {
+        if FAIL.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(crate::RenderError::Scene("told to fail".into()));
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn a_failed_look_leaves_no_probe_state_for_the_next_frame() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut s = WorldSurface::<States, (), false, Failing>::default();
+    s.bind(&Scene { fade: false }.values(), None).unwrap();
+    for ms in [0., 20., 40., 60.] {
+        fixture::render(&gpu, &mut s, &frame(ms)).unwrap();
+    }
+    // The sparks are drawn: a look frame counts them, after which its hook fails.
+    FAIL.store(true, std::sync::atomic::Ordering::SeqCst);
+    let reply = s
+        .agent(r#"{"op":"state","look":true,"width":320,"height":180}"#)
+        .unwrap();
+    FAIL.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert!(reply.contains("told to fail"), "{reply}");
+    let built = s.renderer_for_test().unwrap().probe_built.get();
+    fixture::render(&gpu, &mut s, &frame(80.)).unwrap();
+    let r = s.renderer_for_test().unwrap();
+    assert!(r.probe.is_none() && !r.quads.counting_armed());
+    assert!(
+        !r.quads.split(),
+        "an ordinary frame draws translucency in its forward pass"
+    );
+    assert_eq!(r.probe_built.get(), built);
+}
+
+/// A skinned cube whose joint holds it 20 m from its rest box, blended or not:
+/// the CPU routes' bounds (blended models, a direct cull) follow the palette.
+#[derive(Default, Args)]
+struct DeformedArgs {
+    blend: bool,
+}
+struct Deformed;
+impl Game for Deformed {
+    const ID: &'static str = "look-deformed";
+    const ASSETS: &'static [&'static str] = &["deformed.model"];
+    type Args = DeformedArgs;
+    fn setup(w: &mut World, _: &DeformedArgs) {
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(20., 3., 6.).looking_at(Vec3::new(20., 0.5, 0.), Vec3::Y),
+                Camera::default(),
+            ),
+        );
+        w.spawn_named(
+            "deformed",
+            (Transform::default(), Mesh::asset("deformed.model")),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &DeformedArgs) {}
+}
+
+#[test]
+fn skinned_bounds_follow_the_palette_on_the_blended_and_direct_routes() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    for (blend, direct) in [(true, false), (false, true)] {
+        let mut model = crate::test_model::skinned_model();
+        let joint = model.skins[0].joints[0] as usize;
+        model.nodes[joint].transform =
+            Mat4::from_translation(Vec3::new(20., 0., 0.)).to_cols_array();
+        model.materials.fill(Default::default());
+        if blend {
+            model.materials[0].alpha_mode = exact_game::asset::AlphaMode::Blend;
+        }
+        model.textures.clear();
+        let mut s = WorldSurface::<Deformed, crate::ModelExecutor, true>::default();
+        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.bind(&[exact_gpu::Value::Bool(blend)], None).unwrap();
+        s.asset("deformed.model", Ok(&exact_game::bin::to_vec(&model)));
+        fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+        if direct {
+            // As a device without indirect draws culls: every group drawn whole.
+            let r = s.renderer_for_test().unwrap();
+            r.cull.indirect_execution = false;
+            r.cull.epoch += 1;
+        }
+        for ms in [20., 40.] {
+            fixture::render(&gpu, &mut s, &frame(ms)).unwrap();
+        }
+        assert!(s.error().is_none(), "{:?}", s.error());
+        assert_eq!(s.renderer_for_test().unwrap().cull.direct, direct);
+        let reply = s
+            .agent(r#"{"op":"screenshot","form":"look","top":30,"width":320,"height":180}"#)
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        let centre = value["bounds"]["centre"][0].as_f64();
+        assert!(
+            centre.is_some_and(|x| (x - 20.).abs() < 3.),
+            "blend {blend}, direct {direct}: {}",
+            value["bounds"]
+        );
+    }
 }

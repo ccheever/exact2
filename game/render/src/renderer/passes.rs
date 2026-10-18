@@ -412,11 +412,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if layer {
             self.scene_viewport(&mut pass, state.size, false);
         }
-        for (index, draw) in
+        for (index, _) in
             (self.quads.draws.iter().enumerate()).filter(|(_, d)| self.quads.opaque(d))
         {
-            let count = draw.range.len() as u32;
-            let began = self.probe_begin(&mut pass, || Drew::Quads { draw: index, count });
+            let began = self.probe_begin(&mut pass, || self.quads.record(index));
             self.quads
                 .draw::<ASSETS>(&mut pass, index, &self.models.textures, state.direct);
             Probe::end(&mut pass, began);
@@ -437,7 +436,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         let hulls = self.draw_outlines(&mut pass, state.size, state.direct);
         if hulls.draws > 0 {
-            self.probe_note(|| Drew::Fixed("outline hulls"));
+            self.probe_note(|| Drew::Hulls { draws: hulls.draws });
         }
         state.draws += hulls.draws;
         state.hull_instances += hulls.instances;
@@ -736,36 +735,36 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 assert!(ASSETS, "model in primitive executor");
                 let batch = &self.batches[index];
                 let material = &self.models.materials[self.model_batches[index].unwrap().0];
-                pass.set_pipeline(self.pipelines.model_variant(
-                    &self.device,
-                    variant
-                        + 64 * usize::from(material.untextured)
-                        + 128 * usize::from(self.shadows.as_ref().is_some_and(|s| s.count == 1))
-                        + 4 * usize::from(material.double_sided)
-                        + 8
-                        + 16 * usize::from(
-                            self.slot_mirrored(self.slot_list[slot as usize], frame),
-                        )
-                        + crate::pipeline::MODEL_DIRECT * usize::from(state.direct)
-                        + crate::pipeline::MODEL_BILINEAR * usize::from(state.bilinear)
-                        + crate::pipeline::MODEL_LIGHTS
-                            * usize::from(self.lights.info[0] != 0. || frame.fill.is_some()),
-                    false,
-                ));
+                let mirrored = self.slot_mirrored(self.slot_list[slot as usize], frame);
+                let key = variant
+                    + 64 * usize::from(material.untextured)
+                    + 128 * usize::from(self.shadows.as_ref().is_some_and(|s| s.count == 1))
+                    + 4 * usize::from(material.double_sided)
+                    + 8
+                    + 16 * usize::from(mirrored)
+                    + crate::pipeline::MODEL_DIRECT * usize::from(state.direct)
+                    + crate::pipeline::MODEL_BILINEAR * usize::from(state.bilinear)
+                    + crate::pipeline::MODEL_LIGHTS
+                        * usize::from(self.lights.info[0] != 0. || frame.fill.is_some());
+                self.probe_variant(key);
+                pass.set_pipeline(self.pipelines.model_variant(&self.device, key, false));
                 pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
                 pass.set_bind_group(1, &self.shadow_sample, &[]);
                 pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
                 pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
                 let mesh = &self.meshes[batch.mesh.0];
-                let began = self.probe_begin(pass, || Drew::Blended { batch: index });
+                let began = self.probe_begin(pass, || Drew::Blended {
+                    batch: index,
+                    variant: None,
+                    mirrored,
+                });
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
                 Probe::end(pass, began);
             } else {
-                let (draw, count) = (index, draw.range.len() as u32);
-                let began = self.probe_begin(pass, || Drew::Quads { draw, count });
+                let began = self.probe_begin(pass, || self.quads.record(index));
                 self.quads
-                    .draw::<ASSETS>(pass, draw, &self.models.textures, state.direct);
+                    .draw::<ASSETS>(pass, index, &self.models.textures, state.direct);
                 Probe::end(pass, began);
             }
             draws += 1;

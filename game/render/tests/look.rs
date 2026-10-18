@@ -1116,3 +1116,146 @@ fn counts_every_particle_pipeline<const MSAA: bool>() {
         "{batches:?}"
     );
 }
+
+/// Particles at the limits of what counts (count.wgsl): `edge`, a white square
+/// visible only through the samples of one pixel column that sample 0 misses
+/// (two boxes in front leave half a pixel open, at four samples); else a dot
+/// whose alpha is 0.002, added over black.
+#[derive(Default, Args)]
+struct LimitArgs {
+    edge: bool,
+}
+struct Limits;
+impl Game for Limits {
+    const ID: &'static str = "look-limits";
+    const ASSETS: &'static [&'static str] = &["white.tex"];
+    type Args = LimitArgs;
+    fn setup(w: &mut World, args: &LimitArgs) {
+        w.insert_resource(Environment {
+            background: Some([0.; 3].into()),
+            bloom: None,
+            fog: None,
+            tone_mapping: ToneMapping::None,
+            ..Default::default()
+        });
+        // 128 px across 4 m: a pixel is 1/32 m, and x = 0 is a column's edge.
+        w.spawn((Transform::at(0., 0., 5.), Camera::orthographic(4.)));
+        let emitter = |size, color, additive| {
+            Emitter {
+                rate: 0.,
+                lifetime: 10.,
+                speed: 0.,
+                spread: 0.,
+                gravity: Vec3::ZERO,
+                size: [size, size],
+                color: [color; 2],
+                additive,
+                ..Default::default()
+            }
+            .burst(1)
+        };
+        if args.edge {
+            let px = 1. / 32.;
+            let sparks = w.spawn((Transform::default(), emitter(2., [1.; 4], false)));
+            w.insert(
+                sparks,
+                ParticleLook {
+                    texture: "white.tex".into(),
+                    ..Default::default()
+                },
+            );
+            // In front: x < -px / 2 and x > 0. Column [-px, 0) shows the square
+            // at its samples 1 and 3 (x offsets 0.875, 0.625), not at sample 0 (0.375).
+            let left = -px / 2.;
+            for (lo, hi) in [(-3., left), (0., 3.)] {
+                w.spawn((
+                    Transform::at((lo + hi) / 2., 0., 1.),
+                    Mesh::cuboid(Vec3::new(hi - lo, 6., 0.2)),
+                    Material::hex("#808080"),
+                ));
+            }
+        } else {
+            w.spawn((Transform::default(), emitter(2., [1., 1., 1., 0.002], true)));
+        }
+    }
+    fn tick(w: &mut World, _: &Input, _: &LimitArgs) {
+        emitter::step(w);
+    }
+}
+
+#[test]
+fn a_particle_counts_where_any_covered_sample_shows_it_and_any_contribution_counts() {
+    let Some(gpu) = gpu() else { return };
+    for edge in [true, false] {
+        let mut s = WorldSurface::<Limits, ModelExecutor, true>::default();
+        s.bind(&[Value::Bool(edge)], None).unwrap();
+        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.asset(
+            "white.tex",
+            Ok(&bin::to_vec(&asset::TextureData {
+                width: 1,
+                height: 1,
+                mips: vec![vec![255; 4]],
+                ..Default::default()
+            })),
+        );
+        for now_ms in [0., 100.] {
+            fixture::render(&gpu, &mut s, &Frame { now_ms, ..frame() }).unwrap();
+        }
+        assert!(s.error().is_none(), "{:?}", s.error());
+        let reply = s.agent(r#"{"op":"screenshot","form":"look"}"#).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        let look = &value["look"];
+        let draw = &look["particles"][0];
+        assert!(draw["covered"].as_u64() > Some(0), "edge {edge}: {look}");
+        // The dot over black is near black, as it should be; neither is uncovered.
+        let tells = look["tells"].as_array().unwrap();
+        assert!(
+            tells.iter().all(|t| t["name"] != "particles-uncovered"),
+            "edge {edge}: {look}"
+        );
+        // And it shows: some pixel the particle lights is not black.
+        let pixels = base64(value["data"].as_str().unwrap());
+        let brightest = pixels.chunks(4).map(|p| p[0].max(p[1]).max(p[2])).max();
+        if edge {
+            // The open half column is brighter than the boxes either side of it.
+            let width = value["width"].as_u64().unwrap() as usize;
+            let at = |x: usize| pixels[(64 * width + x) * 4];
+            assert!(
+                at(63) > at(40) && at(63) > at(90),
+                "column 63 {} beside {} and {}",
+                at(63),
+                at(40),
+                at(90)
+            );
+        } else {
+            assert!(
+                brightest > Some(0),
+                "a 0.002 alpha dot over black: brightest {brightest:?}"
+            );
+        }
+    }
+}
+
+/// RFC 4648 base64, decoded (a look picture's `data`).
+fn base64(text: &str) -> Vec<u8> {
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => c - b'A',
+        b'a'..=b'z' => c - b'a' + 26,
+        b'0'..=b'9' => c - b'0' + 52,
+        b'+' => 62,
+        _ => 63,
+    };
+    let bytes: Vec<u8> = text.bytes().filter(|&c| c != b'=').map(value).collect();
+    bytes
+        .chunks(4)
+        .flat_map(|c| {
+            let n = c
+                .iter()
+                .enumerate()
+                .fold(0u32, |n, (i, &v)| n | u32::from(v) << (18 - 6 * i));
+            let out = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
+            out.into_iter().take(c.len() - 1)
+        })
+        .collect()
+}

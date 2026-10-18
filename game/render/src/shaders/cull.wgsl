@@ -290,8 +290,9 @@ fn test(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_index) l
 // A look frame's account of the cull (LLP 1127.000 D4), dispatched after the
 // frame's passes with an output buffer bound as `scratch`: for each item, at
 // (chunk * 64 + lane) * 6, its world sphere (the interpolation-swept, skinned
-// one `test` reads), the views whose frustum holds it, and whether the camera's
-// occlusion pyramid hides it. `test`'s own functions decide each.
+// one `test` reads), the views whose frustum holds it, and a word of why it
+// is dropped besides: 1 when the camera's occlusion pyramid hides it, 2 when
+// it is a level of detail not drawn this frame. `test`'s own rules decide each.
 @compute @workgroup_size(64)
 fn probe(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_index) lane: u32) {
     let chunk = index(id);
@@ -300,18 +301,21 @@ fn probe(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_index) 
     let local = (chunk - setup[g + 2u]) * 64u + lane;
     if local >= setup[g + 1u] { return; }
     let flags = setup[g + 7u];
+    let value = slots[setup[g] + local];
     var sphere = vec4(0.0);
     var seen = flags & 15u;
     var hidden = 0u;
+    if value >= 2147483648u && setup[cull.sections.z + (value - 2147483648u) * 8u + 2u] != 0u {
+        hidden |= 2u;
+    }
     if (flags & KEEP_ALL) == 0u {
-        let value = slots[setup[g] + local];
         sphere = world_sphere(value, g);
         let camera = hull_sphere(value, g, sphere);
         for (var v = 0u; v < cull.counts.x; v++) {
             if (seen & (1u << v)) != 0u && !visible(v, select(sphere, camera, v == 0u)) { seen &= ~(1u << v); }
         }
         if (seen & 1u) != 0u && cull.options.x != 0u && (flags & EXEMPT) == 0u && occluded(camera) {
-            hidden = 1u;
+            hidden |= 1u;
         }
     }
     let at = (chunk * 64u + lane) * 6u;

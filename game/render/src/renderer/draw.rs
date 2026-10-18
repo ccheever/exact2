@@ -146,6 +146,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.prepass_active = self.pipelines.depth_prepass && hooks.materials().is_empty();
         // This frame's quads and translucent order first: the split below
         // follows the soft particles actually drawn.
+        if self.probe.is_none() {
+            // No look frame's state outlives it, even one whose encode failed.
+            self.quads.disarm();
+        }
         self.quads.observed = self.probe.is_some().then(Vec::new);
         self.quads
             .frame::<ASSETS>(frame, &self.models.textures, !self.cull.keep_all);
@@ -335,9 +339,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if scene_copy {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
         }
-        if let Some(probe) = &mut self.probe {
-            probe.counted = self.quads.take_counts();
-            probe.cull = self.cull.encode_probe(&self.device, encoder, self.current);
+        if self.probe.is_some() {
+            let counted = self.quads.take_counts();
+            let cull = self.cull.encode_probe(&self.device, encoder, self.current);
+            let shadow = self.encode_shadow_texels(encoder);
+            if let Some(probe) = &mut self.probe {
+                (probe.counted, probe.cull, probe.shadow) = (counted, cull, shadow);
+            }
         }
         self.probe_stage(super::probe::Stage::Post);
         if let Some(settings) = frame.ambient_occlusion {

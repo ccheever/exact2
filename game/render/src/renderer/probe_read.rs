@@ -79,11 +79,26 @@ pub(crate) struct Facts {
     pub uncounted: Option<&'static str>,
     /// What the quads did with each sprite and emitter (`Quads::observed`).
     pub quads: Vec<(exact_game::Entity, crate::quads::QuadFact)>,
-    /// Each model record's box in its entity's space (`model_boxes`).
+    /// Each rigid model record's box in its entity's space (`model_boxes`).
     pub model_boxes: Vec<(u32, crate::look_bounds::Aabb)>,
+    /// Each skinned record, whose box the frame's palette gives (`look::model_boxes`).
+    pub skins: Vec<SkinFact>,
     /// Each blended model instance's slot and whether the CPU cull kept it:
     /// they draw one by one in depth order, outside the draw groups.
     pub blended: Vec<(u32, bool)>,
+}
+
+/// A skinned model record: its entity, its joints' span of the skin palette,
+/// its mesh's sphere in bind space and its node's local matrix (the words the
+/// cull reads, `renderer/culling.rs`).
+#[derive(Clone, Debug)]
+pub(crate) struct SkinFact {
+    pub transform: u32,
+    pub palette: u32,
+    pub joints: u32,
+    pub centre: glam::Vec3,
+    pub radius: f32,
+    pub local: glam::Mat4,
 }
 
 /// The buffers one look frame reads back, mapped together.
@@ -108,10 +123,12 @@ enum Part {
     Lists,
     LocalIndirect(usize),
     Cull,
+    Shadow(u32),
+    Palette,
 }
 
 /// A look frame's readback, read.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct Reading {
     /// Tightly packed RGBA rows, top down; empty for a frame read for its bounds.
     pub rgba: Vec<u8>,
@@ -128,8 +145,12 @@ pub(crate) struct Reading {
     pub lists: Vec<u32>,
     /// Each local shadow cull's indirect arguments as words.
     pub local_indirect: Vec<Vec<u32>>,
-    /// The cull's account of each item, `CULL_WORDS` words an item.
+    /// The cull's account of each item, `PROBE_WORDS` words an item.
     pub cull: Vec<u32>,
+    /// Texels each sun cascade's pass wrote.
+    pub shadow_texels: Vec<u32>,
+    /// The frame's skin palette, column-major matrices, when a record is skinned.
+    pub palette: Vec<f32>,
 }
 
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
@@ -182,6 +203,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             uncounted: self.probe.as_ref().and_then(|p| p.uncounted),
             quads: self.quads.observed.take().unwrap_or_default(),
             model_boxes: self.model_boxes(),
+            skins: self.skin_facts(),
             blended: (self.models.transparent.iter())
                 .filter_map(|&(_, slot, depth)| {
                     Some((*self.slot_list.get(slot as usize)?, !depth.is_nan()))
@@ -190,16 +212,37 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
     }
 
-    /// Each model record's mesh box in its entity's space, by entity index.
+    /// Each rigid model record's mesh box in its entity's space, by entity index.
     pub(crate) fn model_boxes(&self) -> Vec<(u32, crate::look_bounds::Aabb)> {
         if !ASSETS {
             return Vec::new();
         }
         (self.models.records.iter())
+            .filter(|r| r.skin.is_none())
             .filter_map(|r| {
                 let mesh = self.meshes.get(r.geometry.0)?;
                 let local = (mesh.center - mesh.half, mesh.center + mesh.half);
                 Some((r.transform, crate::look_bounds::transformed(r.local, local)))
+            })
+            .collect()
+    }
+
+    fn skin_facts(&self) -> Vec<SkinFact> {
+        let Some(skinning) = self.models.skinning.as_ref().filter(|_| ASSETS) else {
+            return Vec::new();
+        };
+        (self.models.records.iter().zip(&skinning.offsets))
+            .filter_map(|(r, &palette)| {
+                let skin = r.skin?;
+                let mesh = self.meshes.get(r.geometry.0)?;
+                Some(SkinFact {
+                    transform: r.transform,
+                    palette: palette & 0x7fff_ffff,
+                    joints: skinning.joints(skin),
+                    centre: mesh.center,
+                    radius: mesh.half.length(),
+                    local: r.local,
+                })
             })
             .collect()
     }
@@ -272,6 +315,28 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         if let Some(cull) = probe.as_ref().and_then(|p| p.cull.as_ref()) {
             copy(Part::Cull, cull, cull.size(), "game look cull account");
+        }
+        if let Some(skinning) = self
+            .models
+            .skinning
+            .as_ref()
+            .filter(|_| !facts.skins.is_empty())
+        {
+            let palette = &skinning.palette.raw;
+            copy(
+                Part::Palette,
+                palette,
+                palette.size(),
+                "game look skin palette",
+            );
+        }
+        if let Some((texels, n)) = probe.as_ref().and_then(|p| p.shadow.as_ref()) {
+            copy(
+                Part::Shadow(*n),
+                texels,
+                u64::from(*n) * 4,
+                "game look shadow texels",
+            );
         }
         if !facts.direct && facts.indirect > 0 {
             copy(
@@ -422,6 +487,10 @@ impl Readback {
                     out.local_indirect[i] = words();
                 }
                 Part::Cull => out.cull = words(),
+                Part::Shadow(n) => {
+                    out.shadow_texels = words().into_iter().take(n as usize).collect()
+                }
+                Part::Palette => out.palette = words().into_iter().map(f32::from_bits).collect(),
             }
             drop(data);
             buffer.unmap();

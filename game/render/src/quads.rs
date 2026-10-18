@@ -535,9 +535,14 @@ impl Quads {
                 label: Some("game soft particles"),
                 entries: &[depth, uniform],
             });
-            let soft_source = crate::pipeline::depth_source(crate::pipeline::SOFT, self.samples);
-            let dots = source(d, &[crate::pipeline::PARTICLE, &soft_source].concat());
-            let textured = source(d, &[crate::pipeline::SPRITE, &soft_source].concat());
+            let dots = module(
+                d,
+                crate::pipeline::quad_module("particle", "soft", self.samples),
+            );
+            let textured = module(
+                d,
+                crate::pipeline::quad_module("sprite", "soft", self.samples),
+            );
             let texture = self.texture_layout.as_ref().unwrap();
             self.soft_pipelines = Some(std::array::from_fn(|i| {
                 let (shader, group) = if i < 2 {
@@ -566,12 +571,12 @@ impl Quads {
     }
     fn sprite_shader(&mut self, d: &wgpu::Device) -> wgpu::ShaderModule {
         self.sprite_shader
-            .get_or_insert_with(|| source(d, crate::pipeline::SPRITE))
+            .get_or_insert_with(|| module(d, crate::pipeline::quad_module("sprite", "plain", 1)))
             .clone()
     }
     fn particle_shader(&mut self, d: &wgpu::Device) -> wgpu::ShaderModule {
         self.particle_shader
-            .get_or_insert_with(|| source(d, crate::pipeline::PARTICLE))
+            .get_or_insert_with(|| module(d, crate::pipeline::quad_module("particle", "plain", 1)))
             .clone()
     }
     /// Make the direct pipelines this frame's draws use (after `order`).
@@ -1163,9 +1168,6 @@ fn quad(p: Vec3, x: Vec3, y: Vec3, c: [f32; 4], uv: [f32; 4], mode: f32, cutoff:
             uv[0], uv[1], uv[2], uv[3],
         ],
     }
-}
-fn source(d: &wgpu::Device, fragment: &str) -> wgpu::ShaderModule {
-    module(d, &crate::pipeline::quad_source(&[fragment]))
 }
 fn module(d: &wgpu::Device, source: &str) -> wgpu::ShaderModule {
     d.create_shader_module(wgpu::ShaderModuleDescriptor {

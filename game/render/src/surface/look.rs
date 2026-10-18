@@ -241,11 +241,14 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
     /// the displayed geometry of what the cull does not account for
     /// (`look_bounds`); in a direct frame, the displayed geometry of all.
     fn scene_bounds(&mut self, p: Pending) -> Result<(glam::Vec3, f32), Refusal> {
+        let bytes = p.readback.bytes;
         let read = p.readback.read()?;
         self.perf.look.0 += 1;
+        self.perf.look.1 += bytes;
         let sim = (self.sim.as_ref()).ok_or("the world has not been bound".to_string())?;
         let (w, f) = (sim.world(), &p.facts);
         let gpu = crate::look::culled_bounds(f, &read);
+        let models = crate::look::model_boxes(f, &read);
         let cpu = if gpu.is_some() {
             let entity = |slot: u32| {
                 let record = slot.checked_sub(crate::RENDER_SLOT_BASE);
@@ -257,9 +260,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                 .chain(kept_whole)
                 .filter_map(|&slot| entity(slot))
                 .collect();
-            crate::look_bounds::unculled_box(w, &f.model_boxes, &outside)
+            crate::look_bounds::unculled_box(w, &models, &outside)
         } else {
-            crate::look_bounds::scene_box(w, &f.model_boxes)
+            crate::look_bounds::scene_box(w, &models)
         };
         let all = match (cpu, gpu) {
             (Some(a), Some(b)) => Some((a.0.min(b.0), a.1.max(b.1))),
@@ -489,7 +492,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             &self.hook_poses,
         );
         if let Err(e) = encoded {
-            renderer.probe = None;
+            renderer.disarm_probe();
             return Err(e.to_string().into());
         }
         let records = renderer
@@ -612,13 +615,5 @@ impl<const ASSETS: bool> Look<ASSETS> {
             lines.remove(0);
         }
         reply.insert_str(at, &lines);
-    }
-}
-
-#[cfg(test)]
-impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
-    /// The surface a production build makes (`crate::development_build`).
-    pub(crate) fn as_production_build(&mut self) {
-        self.look.development = false;
     }
 }

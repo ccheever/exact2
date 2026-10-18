@@ -252,6 +252,7 @@ fn each_defect_trips_its_tell_and_its_correction_trips_none() {
         let (cast, reply) = tells::<Cast>(drawing);
         assert!(cast.is_empty(), "{host}: {reply}");
         assert!(reply["look"]["sunCasters"].as_u64().unwrap() > 0, "{reply}");
+        assert!(reply["look"]["sunTexels"].as_u64().unwrap() > 0, "{reply}");
         // The particles' own draw is what is counted: sparks above the ground
         // whose fragments are all transparent cover nothing.
         let (clear, reply) = tells::<Clear>(drawing);
