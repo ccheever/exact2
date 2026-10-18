@@ -1,0 +1,47 @@
+use Icon from "../shared/icons.contract"
+shape FindDiffSegment
+  id: string
+  text: string
+  mark: bool
+  syntax: string
+  find: number
+shape DiffFindView
+  open: bool
+  query: string
+  focus: number
+  navigation: number
+  count: string
+  target: string
+  caseSensitive: bool
+  wholeWord: bool
+  regex: bool
+  empty: bool
+component DiffFindBar
+  props
+    find: DiffFindView
+    op: action
+    prefix: string
+  action key(k: string, e: KeyboardEvent)
+    if k == "Enter"
+      op(e.shiftKey ? "previous" : "next", "")
+    if k == "Escape"
+      op("close", "")
+  action query(value: string)
+    op("query", value)
+  view
+    row width="100%" min-height=36 padding-left=8 padding-right=4 box-sizing="border-box" align-items="center" gap=4 background-color="light-dark(#fefefe, #171717)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" role="search" aria-label="Find in diff" testId=`${prefix}-find-bar`
+      for focus in [find.focus] key=focus
+        input id=`${prefix}-find-query` type="search" value=find.query input=query key=key aria-label="Find in diff" placeholder="Find in diff" autofocus=true spellcheck=false autocomplete="off" flex=1 min-width=0 border-width=0 background-color="#00000000" font-size=13 testId=`${prefix}-find-query` autocorrect="off"
+      button press=op("case", "") aria-label="Match case" aria-pressed=find.caseSensitive width=24 height=24 padding=0 border-width=0 background-color=(find.caseSensitive ? "light-dark(#e4e4e7, #3f3f46)" : "#00000000")
+        text "Aa" font-size=11
+      button press=op("word", "") aria-label="Match whole word" aria-pressed=find.wholeWord width=24 height=24 padding=0 border-width=0 background-color=(find.wholeWord ? "light-dark(#e4e4e7, #3f3f46)" : "#00000000")
+        text "ab" font-size=11 text-decoration-line="underline"
+      button press=op("regex", "") aria-label="Use regular expression" aria-pressed=find.regex width=24 height=24 padding=0 border-width=0 background-color=(find.regex ? "light-dark(#e4e4e7, #3f3f46)" : "#00000000")
+        text ".*" font-size=11
+      text find.count font-size=11 font-variant-numeric="tabular-nums" color=(find.empty ? "light-dark(#dc2626, #f87171)" : "light-dark(#71717a, #a1a1aa)")
+      button press=op("previous", "") aria-label="Previous diff match" disabled=find.empty width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
+        Icon(name="chevron-up", size=14, color="currentColor")
+      button press=op("next", "") aria-label="Next diff match" disabled=find.empty width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
+        Icon(name="chevron-down", size=14, color="currentColor")
+      button press=op("close", "") aria-label="Close diff find" width=24 height=24 padding=0 border-width=0 background-color="#00000000" title=""
+        Icon(name="x", size=14, color="currentColor")
