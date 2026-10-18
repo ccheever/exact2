@@ -33,6 +33,7 @@ exact-raster = { path = "../raster" }
 # here beside the tiny-skia this host already has.
 exact-svg-raster = { path = "../svg-raster" }
 exact-route = { path = "../../route" }
+exact-update = { path = "../../update" }
 # A `markup="markdown"` text's pieces (LLP 1045 D4): the painter links Rust,
 # so the reader expands its source here, as Apple's archive does.
 exact-markdown = { path = "../../markdown" }

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-/// The SHA-256 of the file at `path`, hashed once per process while the
+/// The raw or signature-normalized digest of `path`, cached separately while the
 /// file stays the same one (inode, length, modification time): the host
 /// opens a module that its boot already verified on another thread
 /// (`prepare_gpu`), and a module is megabytes.
@@ -112,40 +112,14 @@ impl DigestStore {
     }
 }
 
-// Definition: bake/src/receipt.rs::code_digest. Completed development
-// receipts bind every byte. A Mac can run either through this headless host.
+// Completed development receipts bind every byte. A Mac can run either
+// receipt policy through this headless host.
 pub(super) fn bytes_digest(bytes: &[u8], code: bool) -> String {
-    use sha2::Digest;
-    let word = |at: usize| {
-        bytes
-            .get(at..at + 4)
-            .map(|b| u32::from_le_bytes(b.try_into().unwrap()) as usize)
-    };
-    let macho = || -> Option<Vec<u8>> {
-        if !code || word(0)? != 0xfeed_facf {
-            return None;
-        }
-        let (mut at, mut signature, mut zero) = (32, None, Vec::new());
-        for _ in 0..word(16)? {
-            let (cmd, size) = (word(at)?, word(at + 4)?);
-            if cmd == 0x1d {
-                signature = Some(word(at + 8)?);
-                zero.push((at + 12, 4));
-            } else if cmd == 0x19 && bytes.get(at + 8..at + 24)? == b"__LINKEDIT\0\0\0\0\0\0" {
-                zero.extend([(at + 32, 8), (at + 48, 8)]);
-            }
-            at += size.max(8);
-        }
-        let mut code = bytes.get(..signature?)?.to_vec();
-        for (at, len) in zero {
-            code.get_mut(at..at + len)?.fill(0);
-        }
-        Some(code)
-    };
-    format!(
-        "{:x}",
-        sha2::Sha256::digest(macho().as_deref().unwrap_or(bytes))
-    )
+    if code {
+        exact_update::gpu_code_digest(bytes)
+    } else {
+        exact_update::sha256_hex(bytes)
+    }
 }
 
 #[cfg(test)]
@@ -169,28 +143,6 @@ mod tests {
         bytes[150] = code;
         bytes.extend_from_slice(signature);
         bytes
-    }
-
-    #[test]
-    fn product_digest_normalizes_only_the_signature_and_its_sizes() {
-        let original = signed(b"ad-hoc", 1);
-        let resigned = signed(b"longer recipient signature", 1);
-        assert_eq!(bytes_digest(&original, true), bytes_digest(&resigned, true));
-        assert_ne!(
-            bytes_digest(&original, true),
-            bytes_digest(&signed(b"ad-hoc", 2), true)
-        );
-        assert_ne!(
-            bytes_digest(&original, false),
-            bytes_digest(&resigned, false)
-        );
-        for bytes in [b"ELF or PE".as_slice(), &original[..100]] {
-            use sha2::Digest;
-            assert_eq!(
-                bytes_digest(bytes, true),
-                format!("{:x}", sha2::Sha256::digest(bytes))
-            );
-        }
     }
 
     #[test]
