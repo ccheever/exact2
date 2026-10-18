@@ -39,15 +39,10 @@ struct SnapshotNodeView: View {
             .overlay { paint.border(in: bounds) }
             .modifier(PathClip(path: style.clipPath("clip_path")))
             .opacity(style.number("opacity").map { Double(max(0, min(1, $0))) } ?? 1)
-            .modifier(Privacy(public: publicContent && !environment.placeholder))
+            .modifier(Privacy(word: environment.placeholder ? nil : SnapshotData.words(node)["privacy"]))
             .modifier(Semantics(node: node))
             .modifier(Linked(url: link))
     }
-
-    /// `data-privacy="public"` (the node's `dataset`): not account content,
-    /// so it stays while the Lock Screen redacts the rest (D8), in a widget
-    /// and in a Live Activity alike.
-    private var publicContent: Bool { SnapshotData.words(node)["privacy"] == "public" }
 
     @ViewBuilder
     private var content: some View {
@@ -91,10 +86,18 @@ private struct PathClip: ViewModifier {
     }
 }
 
+/// `data-privacy` (the node's `dataset`), in a widget and in a Live Activity
+/// alike (D8): `public` is not account content, so it stays while the Lock
+/// Screen redacts the rest; `private` is redacted inside a public container.
+/// Neither applies to the placeholder, where any value would undo its redaction.
 private struct Privacy: ViewModifier {
-    let `public`: Bool
+    let word: String?
     func body(content: Content) -> some View {
-        if `public` { content.privacySensitive(false) } else { content }
+        switch word {
+        case "public": content.privacySensitive(false)
+        case "private": content.privacySensitive(true)
+        default: content
+        }
     }
 }
 
