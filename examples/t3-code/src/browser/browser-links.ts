@@ -26,7 +26,7 @@ import { assetUrl } from '../settings/settings-b-icons';
 import { openHome } from '../pages/home-landing';
 
 export type BrowserLinkTarget = 'system' | 'app';
-export type LinkEvent = { readonly metaKey: boolean; readonly ctrlKey: boolean };
+export type LinkEvent = { readonly metaKey: boolean; readonly ctrlKey: boolean; readonly button?: number };
 const NO_MODIFIER: LinkEvent = { metaKey: false, ctrlKey: false };
 
 /** Only http(s) can load in the in-app browser; mailto:, vscode:// and the rest belong to the shell. */
@@ -36,7 +36,7 @@ export function isWebUrl(url: string): boolean {
 /** "app" only when the preference asks for it, the runtime can honour it, the URL can load in-app and the click
  *  carried no modifier: the modifier is the one-gesture way out when the default is in-app. */
 export function resolveLinkTarget(input: { url: string; event: LinkEvent; preference: BrowserLinkTarget; canOpenInApp: boolean }): BrowserLinkTarget {
-  if (input.event.metaKey || input.event.ctrlKey) return 'system';
+  if (input.event.metaKey || input.event.ctrlKey || input.event.button === 1) return 'system';
   if (input.preference !== 'app') return 'system';
   if (!input.canOpenInApp) return 'system';
   if (!isWebUrl(input.url)) return 'system';

@@ -701,8 +701,16 @@ component PrLinkRun
   // A modifier held on the click leaves the link to the browser (pages-pr-links.ts openLink): the press's own, as a fourth line.
   action open(e: MouseEvent)
     local("pr-link-open", "", `${chip.detail}\n${chip.target}\n${run.href}\n${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`)
+  state middleDown = false
+  action down(e: PointerEvent)
+    middleDown = e.buttons == 4
+  action up(e: PointerEvent)
+    let bounds = frame(`pr-link-${chip.id}`)
+    if middleDown and e.clientX >= bounds.x and e.clientX <= bounds.x + bounds.width and e.clientY >= bounds.y and e.clientY <= bounds.y + bounds.height
+      local("pr-link-open", "", `${chip.detail}\n${chip.target}\n${run.href}\nmiddle`)
+    middleDown = false
   view
-    button id=`pr-link-${chip.id}` press=open contextmenu=linkMenu(run.href) hover=hover role="link" aria-label=run.text testId=`pr-link-${chip.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="flex-start" flex-shrink=0 cursor="pointer"
+    button id=`pr-link-${chip.id}` press=open pointerdown=down pointerup=up contextmenu=linkMenu(run.href) hover=hover role="link" aria-label=run.text testId=`pr-link-${chip.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="flex-start" flex-shrink=0 cursor="pointer"
       if run.kind == "link-start" and chip.detail == ""
         box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
           TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")

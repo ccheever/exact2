@@ -5,9 +5,10 @@
 // right panel's pull-request content). Ops arrive as `surface-linked-*`.
 import type { T3Client } from '../client/client';
 import { obj, num, str } from '../client/domain';
-import { ClientError, type Files, type Native } from '../client/protocol';
+import { bridgeReply, ClientError, type Files, type Native } from '../client/protocol';
 import type { PanelState, Surface } from './panel-surfaces';
-import { prSurfaceId, prTabIcon, prTarget, prRowCommand, prRowLocal, prefetchPrTabs, selectionOf, threadPrTarget, togglePrRows, type PrTarget } from './pr-surface';
+import { prLinksOpenInApp, prSurfaceId, prTabIcon, prTarget, prRowCommand, prRowLocal, prefetchPrTabs, selectionOf, threadPrTarget, togglePrRows, type PrTarget } from './pr-surface';
+import { openLink as openLinkByTarget } from '../browser/browser-links';
 import { attachmentLocal, attachmentToken, attachmentView, emptyAttachment, requireAttachment, type AttachmentMeta, type AttachmentView } from './attachment-surface';
 
 export type LinkedSurface = Surface;
@@ -46,9 +47,11 @@ export function openThreadPullRequest(client: T3Client, state: PanelState, value
 /** `surface-linked-*` without the command gate: open a pull request link or an attachment, and the attachment's controls. */
 export async function linkedLocal(client: T3Client, native: Native, state: PanelState, op: string, id: string, value: string): Promise<string> {
   if (op === 'pr-open') {
+    if (id === 'held') { await bridgeReply(native, { op: 'remoteEditorsOpen', url: value }); return ''; }
+    if (!prLinksOpenInApp(client)) { await openLinkByTarget(client, native, value); return ''; }
     // useOpenPrLink: a project on the link's host opens the surface; the caller passed its target.
     const target = prTarget(client, value) ?? (id ? (() => { const parsed = obj(JSON.parse(id)); return num(parsed.number) > 0 ? { projectId: str(parsed.projectId), host: str(parsed.host), repository: str(parsed.repository), number: num(parsed.number), url: str(parsed.url, value) } : null; })() : null);
-    if (!target) throw new ClientError('That pull request cannot be opened here.');
+    if (!target) { await openLinkByTarget(client, native, value); return ''; }
     client.diffOpen = false;
     openPullRequestIn(state, target);
     return '';
