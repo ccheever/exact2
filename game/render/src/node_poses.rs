@@ -128,15 +128,17 @@ pub(crate) fn node_pair(
     if !node.posable {
         return base;
     }
-    resolve_pair(base, rows, &node.name).unwrap_or(base)
+    let hash = exact_game::NodeName::hash_str(&node.name);
+    resolve_pair(base, &rows, &node.name, hash).unwrap_or(base)
 }
-/// Validate the whole row before either endpoint is committed.
+/// Validate the whole row before either endpoint is committed. `hash` is
+/// `NodeName::hash_str(name)`, which the caller keeps with the name.
 pub(crate) fn resolve_pair(
     base: [Transform; 2],
-    rows: [NodeOffsets; 2],
+    rows: &[NodeOffsets; 2],
     name: &str,
+    hash: u64,
 ) -> Option<[Transform; 2]> {
-    let hash = exact_game::NodeName::hash_str(name);
     let mut pair = base;
     for i in 0..2 {
         if let Some(row) = rows[i]
@@ -155,16 +157,47 @@ pub(crate) fn resolve_pair(
 pub(crate) struct Assignments {
     rows: BTreeMap<Entity, (Mesh, u64)>,
     revision: u64,
+    /// The world's `Mesh` revision and membership and its entities' revision
+    /// when `rows` last matched it.
+    seen: Option<(u64, u64, u64)>,
 }
 impl Assignments {
-    pub fn update(&mut self, w: &World) {
-        self.rows.retain(|e, _| w.contains(*e) && w.has::<Mesh>(*e));
-        for (e, mesh) in w.query::<&Mesh>().iter() {
+    /// `initial` (a new presentation generation, when `World::changed` cannot
+    /// reach back) compares every `Mesh`; otherwise only those written since.
+    pub fn update(&mut self, w: &World, initial: bool) {
+        let now = (
+            w.revision::<Mesh>(),
+            w.membership::<Mesh>(),
+            w.entities_revision(),
+        );
+        let seen = self.seen.filter(|_| !initial);
+        if seen == Some(now) {
+            return;
+        }
+        if seen.is_none_or(|s| (s.1, s.2) != (now.1, now.2)) {
+            self.rows.retain(|e, _| w.contains(*e) && w.has::<Mesh>(*e));
+        }
+        let mut assign = |e: Entity, mesh: &Mesh| {
             if self.rows.get(&e).is_none_or(|(old, _)| old != mesh) {
                 self.revision += 1;
                 self.rows.insert(e, (mesh.clone(), self.revision));
             }
+        };
+        match seen {
+            Some(seen) => {
+                for e in w.changed::<Mesh>(seen.0) {
+                    if let Some(mesh) = w.contains(e).then(|| w.get::<Mesh>(e)).flatten() {
+                        assign(e, &mesh);
+                    }
+                }
+            }
+            None => {
+                for (e, mesh) in w.query::<&Mesh>().iter() {
+                    assign(e, mesh);
+                }
+            }
         }
+        self.seen = Some(now);
     }
     pub fn revision(&self, e: Entity) -> u64 {
         self.rows.get(&e).map_or(0, |(_, revision)| *revision)

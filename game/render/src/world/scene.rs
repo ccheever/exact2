@@ -770,7 +770,7 @@ impl Attachments {
         _models_changed: bool,
     ) {
         self.node_offsets.update(w, initial);
-        self.assignments.update(w);
+        self.assignments.update(w, initial);
         if initial {
             self.owners.clear();
         }

@@ -197,7 +197,10 @@ impl Skinning {
                 model: model_id,
                 meta: self.metadata.len() as u32,
                 fresh: false,
-                words: 4 + model.nodes.len() * 2 + skin.joints.len() + skin.inverse_binds.len(),
+                words: 4
+                    + model.nodes.len() * 3
+                    + skin.joints.len()
+                    + skin.inverse_binds.len(),
                 rest: rest.clone(),
                 joints: skin.joints.len(),
                 rigid: index >= model.skins.len() && index < model.skins.len() + rigid.len(),
@@ -211,6 +214,13 @@ impl Skinning {
             self.metadata.extend(&skin.joints);
             self.metadata
                 .extend(skin.inverse_binds.iter().map(|v| v.to_bits()));
+            // Each node's parent by node index, for the shader's walk to the root.
+            self.metadata.extend(
+                model
+                    .nodes
+                    .iter()
+                    .map(|n| n.parent.unwrap_or(u32::MAX)),
+            );
         }
         self.reallocations += u64::from(self.meta.grow(
             device,
@@ -353,13 +363,7 @@ impl Skinning {
                 self.offsets.push(u32::MAX);
             }
         }
-        // Each job keeps its globals after the output matrices. Workgroup-sized
-        // matrix arrays fail pipeline creation on older Adreno Vulkan drivers.
-        let mut matrices = palette;
-        for job in self.jobs_words.chunks_exact_mut(4) {
-            job[3] = matrices as u32;
-            matrices += self.metadata[job[0] as usize] as usize;
-        }
+        let matrices = palette;
         let limit = device.limits().max_storage_buffer_binding_size;
         if (matrices * 64) as u64 > limit
             || (pose * 4) as u64 > limit
@@ -435,7 +439,7 @@ impl Skinning {
         }
         self.generation = Some(w.presentation_generation());
         self.history.update(w, initial);
-        self.assignments.update(w);
+        self.assignments.update(w, initial);
         let mut offset = 0;
         for &(record, template) in &self.records {
             let t = &self.templates[template];
@@ -506,13 +510,17 @@ impl Skinning {
                     }
                 }
             }
-            for (_, name, node) in &model.nodes {
+            // With no row at either endpoint every node keeps its base pose.
+            let offsets = pair
+                .iter()
+                .any(|rows| !rows.rows().is_empty() || rows.overflowed());
+            for (hash, name, node) in model.nodes.iter().filter(|_| offsets) {
                 let at = offset + node * 10;
                 let base = [
                     crate::node_poses::read(&self.pose_words[at..]),
                     crate::node_poses::read(&self.pose_words[at + len..]),
                 ];
-                if let Some(composed) = crate::node_poses::resolve_pair(base, pair, name) {
+                if let Some(composed) = crate::node_poses::resolve_pair(base, &pair, name, *hash) {
                     crate::node_poses::put(&mut self.pose_words[at..at + 10], composed[0]);
                     crate::node_poses::put(
                         &mut self.pose_words[at + len..at + len + 10],
