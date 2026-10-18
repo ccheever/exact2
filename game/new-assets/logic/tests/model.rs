@@ -6,6 +6,7 @@ use exact_game::{Mesh, Sim};
 
 // Apart, so rustfmt's order does not depend on the name a new game gives these.
 use small_game_logic::Options;
+
 use small_game_logic::SmallGame;
 
 fn start() -> Sim<SmallGame> {
