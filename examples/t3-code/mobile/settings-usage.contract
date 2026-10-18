@@ -63,6 +63,7 @@ shape UsageProvider
   light: string
   dark: string
   value: string
+  fraction: number
   share: string
   detail: string
 shape UsageValue
@@ -237,13 +238,17 @@ component SettingsUsage
             column gap=7
               SettingsSectionLabel(title="Providers", colors=colors, roles=roles)
               column background-color=colors.grouped border-radius=24 overflow="hidden"
-                for provider in data.providers key=provider.id
-                  row padding=14 gap=14 align-items="center"
-                    view width=7 height=7 border-radius=4 background-color=(dark ? provider.dark : provider.light)
-                    column flex=1 gap=3.5
-                      text provider.label color=colors.foreground font-size=roles.body.size
-                      text `${provider.share} · ${provider.detail}` color=colors.muted font-size=roles.footnote.size
-                    text provider.value color=colors.foreground font-size=roles.body.size
+                for provider, index in data.providers key=provider.id
+                  column padding=14 gap=7 border-top-width=(index > 0 ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle
+                    row align-items="baseline" justify-content="space-between" gap=10.5
+                      row align-items="center" gap=7 flex-shrink=0
+                        view width=8.75 height=8.75 border-radius=999 flex-shrink=0 background-color=(dark ? provider.dark : provider.light)
+                        text provider.label flex-shrink=0 color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px`
+                      text provider.value flex-shrink=0 color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px` font-variant-numeric="tabular-nums"
+                    row height=3.5 overflow="hidden" border-radius=999 background-color=colors.subtle
+                      view height="100%" flex=provider.fraction border-radius=999 background-color=(dark ? provider.dark : provider.light)
+                      view flex=(1 - provider.fraction)
+                    text `${provider.share} · ${provider.detail}` color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
             UsageValues(title="Totals", items=data.totals, colors=colors, roles=roles)
             UsageValues(title="Cost", items=data.costs, colors=colors, roles=roles)
             column gap=7

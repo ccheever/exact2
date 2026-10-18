@@ -87,13 +87,13 @@ test('nonempty usage provider rows project only declared UI fields',()=>{
   const contract=readFileSync(new URL('./settings-usage.contract',import.meta.url),'utf8');
   const declared=contract.split('shape UsageProvider\n')[1]?.split('shape UsageValue')[0]??'';
   const keys=[...declared.matchAll(/^  (\w+):/gm)].map(match=>match[1]).sort();
-  expect(keys).toHaveLength(7);
+  expect(keys).toHaveLength(8);
   for(const metric of ['cost','tokens']){
     const data=mobileUsagePresentation({tab:'usage',window:mobileUsageWindow(30,now),metric,now,presentations:new Map(),external:false,
       sources:[{id:'a',label:'A',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]});
     expect(data.providers).toHaveLength(1);
     expect(Object.keys(data.providers[0]!).sort()).toEqual(keys);
-    expect(data.providers[0]).toMatchObject({id:'claude',label:'Claude Code',value:metric==='cost'?'$2.00':'1K',share:'100.0%'});
+    expect(data.providers[0]).toMatchObject({id:'claude',label:'Claude Code',value:metric==='cost'?'$2.00':'1K',fraction:1,share:`100.0% of ${metric}`});
   }
 });
 
@@ -182,8 +182,28 @@ test('Usage provider rows rank the selected metric with stable ties and preserve
     expect(rows.map(provider=>provider.id)).toEqual(metric==='cost'?costOrder:tokenOrder);
     expect(data.providers).toEqual(rows);expect(data.chartLegend.map(provider=>provider.id)).toEqual(costOrder);
     expect(merged.providers.map(provider=>provider.provider)).toEqual(costOrder);expect(JSON.stringify(summary)).toBe(before);
-    expect(data.providers.find(provider=>provider.id==='antigravity')).toEqual({id:'antigravity',label:'Antigravity',light:'#8c7bd1',dark:'#8c7bd1',value:metric==='cost'?'$0.00':'0',share:'0.0%',detail:metric==='cost'?'0 tokens':'$0.00'});
-    expect(data.providers.find(provider=>provider.id==='cursor')).toEqual({id:'cursor',label:'Cursor',light:'#8b8b8b',dark:'#8b8b8b',value:metric==='cost'?'$0.00':'0',share:'0.0%',detail:metric==='cost'?'0 tokens':'$0.00'});
+    expect(data.providers.find(provider=>provider.id==='antigravity')).toEqual({id:'antigravity',label:'Antigravity',light:'#8c7bd1',dark:'#8c7bd1',value:metric==='cost'?'$0.00':'0',fraction:0,share:`0.0% of ${metric}`,detail:metric==='cost'?'0 tokens':'$0.00'});
+    expect(data.providers.find(provider=>provider.id==='cursor')).toEqual({id:'cursor',label:'Cursor',light:'#8b8b8b',dark:'#8b8b8b',value:metric==='cost'?'$0.00':'0',fraction:0,share:`0.0% of ${metric}`,detail:metric==='cost'?'0 tokens':'$0.00'});
+  }
+});
+test('Usage provider presentation retains unrounded fractional shares and metric-specific detail',()=>{
+  const summary:Obj={contractVersion:6,sources:['claude','codex','grok'].map(provider=>({status:'ok',fingerprint:{provider,hostId:'qa',resolvedHomePath:`/qa/${provider}`},distinctSessions:1})),
+    buckets:[['claude',2,10],['codex',1,100]].map(([provider,costUsd,tokens])=>({provider,model:'qa',day:'2026-10-07',costUsd,totals:{uncachedInputTokens:tokens}}))};
+  const merged=mergeUsage([{id:'qa',label:'QA',summary}]),before=JSON.stringify(summary);
+  for(const provider of merged.providers)Object.freeze(provider);
+  Object.freeze(merged.providers);
+  const input={tab:'usage',window:{sinceDay:'2026-10-07',untilDay:'2026-10-07',timeZone:'UTC',resolution:'day' as const},now,presentations:new Map(),external:false,
+    sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
+  for(const metric of ['cost','tokens','cost']){
+    const rows=mobileUsageProviderRows(merged.providers,metric==='tokens'),data=mobileUsagePresentation({...input,metric},false);
+    expect(data.providers).toEqual(rows);
+    expect(rows.map(provider=>[provider.id,provider.fraction,provider.share,provider.detail,provider.value])).toEqual(metric==='cost'?[
+      ['claude',2/3,'66.7% of cost','10 tokens','$2.00'],['codex',1/3,'33.3% of cost','100 tokens','$1.00'],['grok',0,'0.0% of cost','0 tokens','$0.00'],
+    ]:[
+      ['codex',10/11,'90.9% of tokens','$1.00','100'],['claude',1/11,'9.1% of tokens','$2.00','10'],['grok',0,'0.0% of tokens','$0.00','0'],
+    ]);
+    expect(data.chartLegend.map(provider=>provider.id)).toEqual(['claude','codex','grok']);
+    expect(merged.providers.map(provider=>provider.provider)).toEqual(['claude','codex','grok']);expect(JSON.stringify(summary)).toBe(before);
   }
 });
 test('Usage headline follows the metric while raw totals and chart window labels remain separate',()=>{
