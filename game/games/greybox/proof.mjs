@@ -96,7 +96,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   const hud = await s.tree();
   check('typed surface record → HUD text', node(hud, 'hud-beacons')?.props?.text === 'Beacons 1 / 1', node(hud, 'hud-beacons'));
   await s.state();
-  const logs = await s.logs();
+  const logs = await s.logs({all:true});
   check('world journal carries beacon-1 lit', logs?.world?.some(w => w.lines.some(line => line.includes('beacon-1 lit'))), logs?.world);
   for (const sound of ['sfx footstep at player ', 'sfx chime at beacon-1 ', 'loop wind on ']) {
     check(`world journal carries ${sound.trim()}`, logs?.world?.some(w => w.lines.some(line => line.includes(sound))));
