@@ -138,7 +138,7 @@ export type CategoryCost = { input: number; cacheRead: number; cacheWrite: numbe
 export type SpeedCost = { standard: number; fast: number; ultrafast: number; premium: number };
 export type ModelTotals = { model: string; provider: string; costUsd: number; totalTokens: number; tokens: TokenTotals; records: number; unpricedRecords: number; unpricedTokens: number; costShare: number; tokenShare: number };
 export type Merged = {
-  costUsd: number; uncachedInputTokens: number; cachedInputTokens: number; cacheCreationTokens: number; outputTokens: number; totalTokens: number;
+  costUsd: number; uncachedInputTokens: number; cachedInputTokens: number; cacheCreationTokens: number; outputTokens: number; reasoningTokens: number; totalTokens: number;
   records: number; sessions: number; unpricedShare: number; cacheSavingsUsd: number;
   providers: { provider: string; costUsd: number; totalTokens: number; sessions: number; costShare: number; tokenShare: number }[];
   models: ModelTotals[];
@@ -161,7 +161,7 @@ export function mergeUsage(environments: { id: string; label: string; summary: O
     if (owner.has(key)) { duplicates.push(`${environment.label}: ${str(obj(source.fingerprint).resolvedHomePath)}`); continue; }
     owner.set(key, environment.id); sessionsByFingerprint.set(key, num(source.distinctSessions));
   }
-  let costUsd = 0, uncached = 0, cached = 0, creation = 0, output = 0, records = 0, sessions = 0, savings = 0, unpriced = 0;
+  let costUsd = 0, uncached = 0, cached = 0, creation = 0, output = 0, reasoning = 0, records = 0, sessions = 0, savings = 0, unpriced = 0;
   const category = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }, speed = { fast: 0, ultrafast: 0, premium: 0 };
   const providers = new Map<string, { costUsd: number; totalTokens: number; sessions: number }>();
   const models = new Map<string, Omit<ModelTotals, 'model' | 'costShare' | 'tokenShare'>>();
@@ -191,6 +191,7 @@ export function mergeUsage(environments: { id: string; label: string; summary: O
       const tokens = bucketTokens(bucket), totals = obj(bucket.totals);
       costUsd += num(bucket.costUsd); savings += num(bucket.cacheSavingsUsd);
       uncached += num(totals.uncachedInputTokens); cached += num(totals.cachedInputTokens); creation += num(totals.cacheCreationTokens); output += num(totals.outputTokens);
+      reasoning += num(totals.reasoningTokens);
       records += num(bucket.records); unpriced += num(bucket.unpricedRecords);
       if (bucket.categoryCostUsd && typeof bucket.categoryCostUsd === 'object') {
         const split = obj(bucket.categoryCostUsd);
@@ -213,7 +214,7 @@ export function mergeUsage(environments: { id: string; label: string; summary: O
   }
   const totalTokens = uncached + cached + creation + output;
   return {
-    costUsd, uncachedInputTokens: uncached, cachedInputTokens: cached, cacheCreationTokens: creation, outputTokens: output, totalTokens,
+    costUsd, uncachedInputTokens: uncached, cachedInputTokens: cached, cacheCreationTokens: creation, outputTokens: output, reasoningTokens: reasoning, totalTokens,
     records, sessions, unpricedShare: records === 0 ? 0 : unpriced / records, cacheSavingsUsd: savings,
     providers: [...providers].map(([provider, totals]) => ({ provider, ...totals, costShare: costUsd === 0 ? 0 : totals.costUsd / costUsd, tokenShare: totalTokens === 0 ? 0 : totals.totalTokens / totalTokens }))
       .sort((a, b) => b.costUsd - a.costUsd),
