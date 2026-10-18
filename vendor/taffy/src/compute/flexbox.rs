@@ -2567,26 +2567,36 @@ fn resolve_cross_axis_auto_margins(flex_lines: &mut [FlexLine], constants: &Algo
 
         for child in line.items.iter_mut() {
             let free_space = line_cross_size - child.outer_target_size.cross(constants.dir);
+            let auto_start = child.margin_is_auto.cross_start(constants.dir);
+            let auto_end = child.margin_is_auto.cross_end(constants.dir);
 
-            if child.margin_is_auto.cross_start(constants.dir) && child.margin_is_auto.cross_end(constants.dir) {
+            // EXACT PATCH 52: auto margins consume only positive space. Chrome places
+            // overflowing items at inline/block start; in an RTL column that is the
+            // right edge, independently of which margin is auto.
+            let margin_space = free_space.max(0.0);
+            if (auto_start || auto_end) && constants.is_column && constants.layout_direction.is_rtl() {
+                child.offset_cross = free_space.min(0.0);
+            }
+
+            if auto_start && auto_end {
                 if constants.is_row {
-                    child.margin.top = free_space / 2.0;
-                    child.margin.bottom = free_space / 2.0;
+                    child.margin.top = margin_space / 2.0;
+                    child.margin.bottom = margin_space / 2.0;
                 } else {
-                    child.margin.left = free_space / 2.0;
-                    child.margin.right = free_space / 2.0;
+                    child.margin.left = margin_space / 2.0;
+                    child.margin.right = margin_space / 2.0;
                 }
-            } else if child.margin_is_auto.cross_start(constants.dir) {
+            } else if auto_start {
                 if constants.is_row {
-                    child.margin.top = free_space;
+                    child.margin.top = margin_space;
                 } else {
-                    child.margin.left = free_space;
+                    child.margin.left = margin_space;
                 }
-            } else if child.margin_is_auto.cross_end(constants.dir) {
+            } else if auto_end {
                 if constants.is_row {
-                    child.margin.bottom = free_space;
+                    child.margin.bottom = margin_space;
                 } else {
-                    child.margin.right = free_space;
+                    child.margin.right = margin_space;
                 }
             } else {
                 // 14. Align all flex items along the cross-axis.
@@ -3666,6 +3676,10 @@ mod balance {
         }
     }
 }
+
+#[cfg(all(test, feature = "taffy_tree"))]
+#[path = "flexbox_cross_margins_tests.rs"]
+mod cross_margins_tests;
 
 #[cfg(all(test, feature = "taffy_tree", feature = "grid"))]
 mod intrinsic_tests {

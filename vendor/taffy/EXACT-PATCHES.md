@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 and 48 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51 and 52 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1608,6 +1608,36 @@ MaxContent measurements and layouts in both directions, with growth enabled
 and disabled. All were measured in Chrome 151.0.7922.34 on 2026-10-18. Before
 the correction, nine kernel frames and twelve Taffy measurements/layouts
 differed; the reported 20px row was 30px.
+
+## Patch 52: keep flex cross-axis auto margins nonnegative
+
+`resolve_cross_axis_auto_margins` distributes only positive free space to
+automatic margins. An overflowing item stays at block/inline start: the top
+in a row, the left in an LTR column, and the right in an RTL column. RTL
+columns use the negative free space as a position offset, preserving fixed
+margins and keeping auto margins at zero. Items without cross-axis auto
+margins retain their alignment path.
+
+This follows Chrome 151's
+[`ResolvedAlignSelf` and cross-axis margin resolution](https://chromium.googlesource.com/chromium/src/+/refs/tags/151.0.7922.34/third_party/blink/renderer/core/layout/flex/flex_layout_algorithm.cc#1894):
+auto margins coerce alignment to flex-start and their share is clamped to
+zero. It gives the overflow placement required by
+[Flexbox §9.6](https://www.w3.org/TR/css-flexbox-1/#algo-cross-margins)
+without assigning a negative used auto margin.
+
+**Held by** `browser_position::cross_axis_auto_margins_match_chrome`:
+84 literal cases in `browser_flex_auto_margins.tsv`, measured in Chrome
+151.0.7922.34 on 2026-10-18. They cover individual and paired margins,
+negative, zero and positive free space, both axes and reversed directions,
+RTL columns inside LTR blocks, multiple lines, fixed positive and negative
+opposite margins, and alignment overrides. Before the patch, 18 frames
+differed; the reported item was at x=-30 instead of x=0.
+
+Taffy's `cross_axis_auto_margins_never_consume_negative_space` checks the
+used margins for 54 layouts, including RTL left-auto cases whose frames
+already matched despite negative margins. Before the patch, 18 margin pairs
+differed. Run with `cargo test --manifest-path vendor/taffy/Cargo.toml
+--no-fail-fast`.
 
 ## Cargo workspace boundary
 

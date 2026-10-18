@@ -182,6 +182,20 @@ fn positioned_boxes_roots_and_ratios_match_chrome() {
     check(failures(fixture, true), &[]);
 }
 
+/// Chrome 151.0.7922.34, 2026-10-18: cross-axis auto margins with negative,
+/// zero and positive free space, in rows, columns and reversed directions.
+/// RTL columns sit in an LTR block; wrapping and fixed margins are controls.
+#[test]
+fn cross_axis_auto_margins_match_chrome() {
+    check(
+        failures(
+            include_str!("fixtures/browser_flex_auto_margins.tsv"),
+            false,
+        ),
+        &[],
+    );
+}
+
 /// The row itself receives MinContent, without an absolute solver's later
 /// definite-width pass. Chrome's width:min-content wrapper gives these frames.
 #[test]
