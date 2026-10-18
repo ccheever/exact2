@@ -3895,3 +3895,24 @@ Built to the approved plan (`~/x2theme/x2p4-s9a-plan.md`; theme2's 17:03 ruling 
   - Tests: an asymmetric bar's pixels (right side up), two opposite-winding paths solid, an accent tint; docs (D10, the known-limits line, stage 6 F3's Apple bullet).
 - **After review round 2 (Astra, Grok):** the image helper is left out of watchOS (it has no image renderer); a centred path icon on iOS shows its em square again whatever the box was before; the widget snapshot places the em square by `object-fit` and meets the viewBox in it, as the page hosts do, and its tint shows through one mask (overlapping paths don't compound a translucent tint); a watch target names its missing `sf` (`tamber-icon-missing`) instead of calling a template no one-colour shape.
 
+
+### Stage 9, commit G1: a look snaps on the web (draft for theme2)
+
+D8 says a look snaps; on both web targets a look is a page rule (`looks::rules`), so a node's own
+`transition` on a property its look sets timed the look both ways.
+- **The input glue** (`host/web/input-glue.js`, both targets): the browser has already moved
+  `:hover` and `:focus-visible` when `pointerover`/`pointerout` (and `mouseover`/`mouseout`, which
+  Firefox sends alone for a scroll under a still pointer) and `focusin`/`focusout` come. A node
+  with a look for the state whose edge it is (entering or leaving it, not moving within it; a focus
+  look is the focused node's own), and a transition of its own, takes that one style change with
+  its transitions off (`data-exact-snap`, which the press paint's observer doesn't watch; one style
+  read for every such node). A key that turns `:focus-visible` on for the node already focused (a
+  click, then a key) is held still in the frame's style change. A base change eases as authored.
+- **Deviation (theme2's 19:55 (b)):** a transition of that node's running across the edge, on any
+  property, ends there (CSS can't hold one property still). QUEUE only if seen in practice.
+- **Not heard:** hover that moves with no event (a node laid out or inserted under a still pointer;
+  WebKit's hover timer), and a touch screen's hover that sticks after its up; the look then eases
+  as before.
+- **Tests:** `host/web/tests/looks.test.mjs`: a wasm view and a JS-target node with transitions on
+  what their looks set show the look and the base a frame after the edge; moving onto a child
+  touches nothing; a focus look comes and goes at once; a base change still eases.

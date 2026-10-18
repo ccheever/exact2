@@ -25,7 +25,7 @@ const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/
 // host writes it (LLP 1061 D7: a blue face, an absolute opacity of 0.6).
 const on = ':not(:disabled,[disabled]:not([disabled="false"]))';
 const hover = at => `${at}:hover${on}{background-color:rgba(255,255,0,1)!important;opacity:0.8!important;--exact-hover-wash:none!important;}`;
-const rules = `@media (hover:hover){${['3', '6', '7', '9', '11'].map(id => hover(`[data-view="${id}"]`)).join('')}${hover('[data-exact-looks="1"]')}}`;
+const rules = `@media (hover:hover){${['3', '6', '7', '9', '11'].map(id => hover(`[data-view="${id}"]`)).join('')}${hover('[data-exact-looks="1"]')}}[data-exact-looks="2"]:focus-visible${on}{background-color:rgba(0,255,255,1)!important;}`;
 // A node with its own transition on what its look sets: the wasm host's (a view the looks sheet has rules for) and
 // the JS target's (`data-exact-looks`).
 const eased = 'width:100px;height:40px;background-color:#ffffff;opacity:1;transition:background-color 400ms linear,opacity 400ms linear';
@@ -41,12 +41,13 @@ const page = sheet + `<style id="exact-looks">${rules}</style>
   <div data-listrows><div><div id="in-row" data-view="9" data-exact-on="press" style="width:100px;height:40px">r</div></div></div>
   <div id="eased" data-view="11" style="${eased}">e</div>
   <div id="eased-js" data-exact-looks="1" style="${eased}"><span id="eased-js-in">j</span></div>
+  <div id="focused" data-exact-looks="2" tabindex="0" style="${eased}">f</div>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
   createInputHandlers({ root: document.getElementById('exact-root'), views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
   // As the wasm glue keeps the looks sheet's rules, by view.
-  document.getElementById('exact-looks').exactRules = new Map([[11, '']]);
+  document.getElementById('exact-looks').exactRules = new Map([[11, '[data-view="11"]:hover{}']]);
   window.ready = true;
 </script>`;
 
@@ -93,9 +94,17 @@ check('a look snaps through an authored transition, entering and leaving; a base
     }
     // Moving within the node (onto a child) is no edge: nothing is touched.
     await mouse('mouseMoved', await at('eased-js'));
+    await evaluate(`window.snaps = 0; new MutationObserver(r => { window.snaps += r.length; }).observe(document.getElementById('eased-js'), { attributes: true, attributeFilter: ['data-exact-snap'] })`);
     await mouse('mouseMoved', await at('eased-js-in'));
     expect(await shows('eased-js')).toEqual(['rgb(255, 255, 0)', '0.80']);
+    expect(await evaluate('window.snaps')).toBe(0);
     await mouse('mouseMoved', away);
+    // A focus look: focus coming and going, at once.
+    await evaluate(`document.getElementById('focused').focus({ focusVisible: true })`);
+    expect(await evaluate(`document.getElementById('focused').matches(':focus-visible')`)).toBe(true);
+    expect(await shows('focused')).toEqual(['rgb(0, 255, 255)', '1.00']);
+    await evaluate(`document.getElementById('focused').blur()`);
+    expect(await shows('focused')).toEqual(['rgb(255, 255, 255)', '1.00']);
     // A base change still eases as authored.
     await evaluate(`(e => { getComputedStyle(e).backgroundColor; e.style.backgroundColor = '#000000'; getComputedStyle(e).backgroundColor; })(document.getElementById('eased'))`);
     await evaluate('new Promise(ok => setTimeout(ok, 100))');

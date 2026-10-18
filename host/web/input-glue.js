@@ -425,18 +425,58 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const crosses = (e) => held.el.contains(e.target) !== held.el.contains(e.relatedTarget);
   for (const type of ["pointerover", "pointerout"]) root.addEventListener(type, e => { if (held?.state === "hover" && crosses(e)) letGo("input"); }, true);
   for (const type of ["focusin", "focusout"]) root.addEventListener(type, e => { if (held?.state === "focus-visible" && crosses(e)) letGo("input"); }, true);
-  // @ref LLP 1121 D8 — a look snaps, an authored transition or not: the browser has already moved `:hover` and
-  // `:focus-visible` when these come, so each node with a look whose edge this one crosses (entering or leaving it,
-  // not moving within it) takes that style change with its transitions off. A base change still eases as authored.
-  // (A look: the JS target's `data-exact-looks`, or a view the wasm host's looks sheet has rules for.)
-  const looked = (el) => el.hasAttribute("data-exact-looks") || (el.dataset.view != null && !!document.getElementById("exact-looks")?.exactRules?.has(Number(el.dataset.view)));
-  const lookEdges = (e) => {
-    for (let el = e.target; el instanceof Element && root.contains(el); el = el.parentElement) {
-      if (el.contains(e.relatedTarget)) break;
-      if (looked(el)) snap(el, () => {});
+  // @ref LLP 1121 D8 — a look snaps, an authored transition or not. The browser has already moved `:hover` and
+  // `:focus-visible` when these events come, so a node with a look for the state whose edge this is (entering or
+  // leaving it, not moving within it), and a transition of its own, takes that style change with its transitions off
+  // (`data-exact-snap`, an attribute the press paint's observer doesn't watch), one style read for all of them. A base
+  // change still eases as authored; a transition of that node's running across the edge ends there (CSS can't hold
+  // one property still: theme2's 19:55 (b)). A look: the JS target's `data-exact-looks`, whose rules name their
+  // states, or a view the wasm host's looks sheet has rules for. (Hover that moves with no event, a node laid out or
+  // inserted under a still pointer, isn't heard: LLP 1121 §10.)
+  if (!document.getElementById("exact-snap")) document.head.append(Object.assign(document.createElement("style"), { id: "exact-snap", textContent: "[data-exact-snap]{transition:none!important}" }));
+  const lookStates = new Map(); // a JS-target look's attribute value -> its states, from its rules
+  const looks = (el, sheet) => {
+    if (el.dataset.view != null) { const css = sheet?.exactRules?.get(Number(el.dataset.view)); if (css) return css; }
+    const at = el.getAttribute("data-exact-looks");
+    if (at == null) return "";
+    if (!lookStates.has(at)) {
+      let text = "";
+      const sel = `[data-exact-looks="${at}"]`, walk = (rules) => { for (const r of rules) { if (r.selectorText?.includes(sel)) text += r.selectorText; if (r.cssRules) walk(r.cssRules); } };
+      for (const s of document.styleSheets) { try { walk(s.cssRules); } catch { /* another origin's */ } }
+      if (!text) return "";
+      lookStates.set(at, text);
     }
+    return lookStates.get(at);
   };
-  for (const type of ["pointerover", "pointerout", "focusin", "focusout"]) root.addEventListener(type, lookEdges, true);
+  const stillThrough = (els) => {
+    if (!els.length) return;
+    for (const el of els) el.setAttribute("data-exact-snap", "");
+    getComputedStyle(els[0]).opacity;
+    for (const el of els) el.removeAttribute("data-exact-snap");
+  };
+  const moving = (el) => getComputedStyle(el).transitionDuration.split(",").some(d => parseFloat(d) > 0);
+  const lookEdges = (e) => {
+    const sheet = document.getElementById("exact-looks"), els = [];
+    if (e.type === "focusin" || e.type === "focusout") {
+      // `:focus-visible` is the focused node's own, moving into a descendant included.
+      const el = e.target;
+      if (el instanceof Element && root.contains(el) && looks(el, sheet).includes("focus-visible") && moving(el)) els.push(el);
+    } else {
+      for (let el = e.target; el instanceof Element && root.contains(el); el = el.parentElement) {
+        if (el.contains(e.relatedTarget)) break;
+        if (looks(el, sheet).includes(":hover") && moving(el)) els.push(el);
+      }
+    }
+    stillThrough(els);
+  };
+  for (const type of ["pointerover", "pointerout", "mouseover", "mouseout", "focusin", "focusout"]) root.addEventListener(type, lookEdges, true);
+  // A key can turn `:focus-visible` on for the node already focused, with no focus event, in its default action:
+  // the node is held still for the frame's style change if it did.
+  root.addEventListener("keydown", () => {
+    const el = document.activeElement, was = el?.matches?.(":focus-visible");
+    if (!(el instanceof Element) || was || !root.contains(el) || !looks(el, document.getElementById("exact-looks")).includes("focus-visible")) return;
+    requestAnimationFrame(() => { if (document.activeElement === el && el.matches(":focus-visible") && moving(el)) stillThrough([el]); });
+  }, true);
   const release = (now = false) => { if (press) showPress(press.el, false, now); press = null; };
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
