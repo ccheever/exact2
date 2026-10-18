@@ -44,21 +44,8 @@ final class ComposerIntentTests: XCTestCase {
         intent.destroy()
     }
 
-    // ⌘↩ (a draft starts in the background) and ⌥⌘↩ (send and
-    // start a new thread) are not the editor's plain-Return send. They pass
-    // through to the send button's aria-keyshortcuts (Meta+Enter, Meta+Alt+Enter),
-    // and the gesture recorded on the way resolves the intent through the
-    // server's keybindings (composer-editor-intent.ts sendIntent).
+    // Gesture metadata accompanies Contract's send action without consuming the key.
     func testCommandReturnChordsPassToTheSendShortcutWithTheirGesture() {
-        XCTAssertEqual(T3Composer.returnAction(key([]), hasMarkedText: false), .send)
-        XCTAssertEqual(T3Composer.returnAction(key(.command), hasMarkedText: false), .passThrough)
-        XCTAssertEqual(T3Composer.returnAction(key([.command, .option]), hasMarkedText: false), .passThrough)
-        XCTAssertEqual(T3Composer.returnAction(key(.shift), hasMarkedText: false), .passThrough, "⇧↩ inserts a newline")
-        XCTAssertEqual(T3Composer.returnAction(key([.command, .option]), hasMarkedText: true), .passThrough, "IME text commits first")
-        XCTAssertEqual(T3Composer.returnAction(key(.command), hasMarkedText: false, shortcut: "mod-enter"), .send, "the ⌘↩ send setting sends from the editor")
-        XCTAssertEqual(T3Composer.returnAction(key([.command, .option]), hasMarkedText: false, shortcut: "mod-enter"), .passThrough)
-        XCTAssertEqual(T3Composer.returnAction(key([], code: 76), hasMarkedText: false), .send, "keypad Enter")
-
         _ = NSApplication.shared
         let intent = T3ComposerIntent()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)

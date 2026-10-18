@@ -17,7 +17,6 @@ extension T3Module {
         if request["op"] as? String == "devicePresentation" {
             DispatchQueue.main.async { [weak self] in
                 self?.chrome.setAppearance(request["appearanceMode"] as? String ?? "system")
-                self?.composer.sendShortcut = request["sendShortcut"] as? String ?? "enter"
                 self?.menus.quitMode = request["confirmQuit"] as? String ?? "hold"
                 T3RootFont.set(request["rootFontSize"]) // Interface font size (T3RootFont.swift)
                 reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": [:]])

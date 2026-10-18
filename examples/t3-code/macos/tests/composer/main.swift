@@ -79,16 +79,13 @@ final class ComposerTests: XCTestCase {
         chrome.destroy()
     }
 
-    func testConfiguredSendShortcutUsesPromptAndPreservesIME() {
+    func testReturnModifiersReachTheSharedField() {
         let fixture = ComposerFixture()
-        let plain = fixture.event(), command = fixture.event(modifiers: .command)
-        XCTAssertEqual(T3Composer.returnAction(plain, hasMarkedText: false, shortcut: "mod-enter"), .passThrough)
-        XCTAssertEqual(T3Composer.returnAction(command, hasMarkedText: false, shortcut: "mod-enter"), .send)
-        XCTAssertEqual(T3Composer.returnAction(plain, hasMarkedText: false, shortcut: "mod-enter-multiline", prompt: "one"), .send)
-        XCTAssertEqual(T3Composer.returnAction(plain, hasMarkedText: false, shortcut: "mod-enter-multiline", prompt: "one\ntwo"), .passThrough)
-        XCTAssertEqual(T3Composer.returnAction(command, hasMarkedText: false, shortcut: "mod-enter-multiline", prompt: "one\ntwo"), .send)
-        XCTAssertEqual(T3Composer.returnAction(command, hasMarkedText: true, shortcut: "mod-enter"), .passThrough)
-        XCTAssertEqual(T3Composer.returnAction(fixture.event(modifiers: [.command, .shift]), hasMarkedText: false, shortcut: "mod-enter"), .passThrough)
+        for flags: NSEvent.ModifierFlags in [[], .command, .shift, .control, .option, [.command, .shift]] {
+            let event = fixture.event(modifiers: flags)
+            XCTAssertTrue(fixture.controller.handle(event) === event)
+        }
+        XCTAssertEqual(fixture.clicks.pointee, 0)
     }
 
 
@@ -153,26 +150,24 @@ final class ComposerTests: XCTestCase {
         XCTAssertNil(fixture.window.toolbar)
     }
 
-    func testApplicationDeliveryDispatchesWithoutInsertingNewline() {
+    func testNativeMonitorLeavesReturnToTheTextSystem() {
         let fixture = ComposerFixture()
         fixture.editor.string = "Prompt"
-        // The real application event path must execute the installed monitor,
-        // not just its independently testable decision function.
+        fixture.editor.setSelectedRange(NSRange(location: 6, length: 0))
+        // This fixture has no Contract key handler, so ordinary AppKit inserts the newline.
         NSApp.sendEvent(fixture.event())
-        XCTAssertEqual(fixture.clicks.pointee, 1)
-        XCTAssertEqual(fixture.editor.string, "Prompt")
+        XCTAssertEqual(fixture.clicks.pointee, 0)
+        XCTAssertEqual(fixture.editor.string, "Prompt\n")
     }
 
-    func testReturnDispatchesOnceWithoutEditingText() {
+    func testReturnAndRepeatsAreNotConsumedByTheOSAdapter() {
         let fixture = ComposerFixture()
         fixture.editor.string = "Prompt"
-        XCTAssertNil(fixture.controller.handle(fixture.event()))
-        XCTAssertEqual(fixture.clicks.pointee, 1)
+        XCTAssertNotNil(fixture.controller.handle(fixture.event()))
         XCTAssertEqual(fixture.editor.string, "Prompt")
-        XCTAssertNil(fixture.controller.handle(fixture.event(repeatKey: true)))
-        XCTAssertEqual(fixture.clicks.pointee, 1)
-        XCTAssertNil(fixture.controller.handle(fixture.event(key: 76)))
-        XCTAssertEqual(fixture.clicks.pointee, 2)
+        XCTAssertNotNil(fixture.controller.handle(fixture.event(repeatKey: true)))
+        XCTAssertNotNil(fixture.controller.handle(fixture.event(key: 76)))
+        XCTAssertEqual(fixture.clicks.pointee, 0)
     }
 
     func testModifiedReturnStaysWithTextSystem() {

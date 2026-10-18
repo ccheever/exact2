@@ -51,10 +51,6 @@ final class T3ComposerEditor {
     private var seq = 0
     private var reported = ""
 
-    var history: [T3ComposerText.HistoryEntry] = []
-    /// The thread whose sent prompts `history` holds.
-    var historyOwner = ""
-    private var historyPosition: T3ComposerText.HistoryPosition?
     let styler = T3ComposerStyler()
 
     // Undo grouping (composer-undo-grouping.ts): a new step after 1 s idle
@@ -236,28 +232,22 @@ final class T3ComposerEditor {
             // ⇧Tab toggles Build/Plan when the plan toggle is shown.
             return press("plan")
         case #selector(NSResponder.cancelOperation(_:)):
-            guard trigger != nil else { return false }
-            dismiss()
-            return true
+            return press("Escape")
         case #selector(NSResponder.moveDown(_:)), #selector(NSResponder.moveUp(_:)):
             let down = selector == #selector(NSResponder.moveDown(_:))
-            if trigger != nil, press(down ? "ArrowDown" : "ArrowUp") { return true }
+            if press(down ? "ArrowDown" : "ArrowUp") { return true }
             // The open stash menu takes the arrows (ComposerStashMenu).
             if press(down ? "stash-ArrowDown" : "stash-ArrowUp") { return true }
-            return recall(backward: !down, in: view)
+            return false
         case #selector(NSResponder.deleteToBeginningOfLine(_:)):
             return press("stash-Delete")
         case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
-            if trigger != nil, press("Enter") { return true }
+            if press("Enter") { return true }
             if press("stash-Enter") { return true }
-            let selection = view.selectedRange()
-            guard selection.length == 0, let edit = T3ComposerText.listContinuation(view.string, cursor: selection.location) else { return false }
-            return apply(NSRange(location: edit.start, length: edit.end - edit.start), edit.replacement, in: view)
+            return false
         case #selector(NSResponder.insertTab(_:)):
-            if trigger != nil, press("Enter") { return true }
-            let selection = view.selectedRange()
-            guard let edit = T3ComposerText.listIndent(view.string, start: selection.location, end: selection.location + selection.length) else { return false }
-            return apply(NSRange(location: edit.start, length: 0), edit.replacement, in: view, caret: selection.location + 2)
+            if press("Enter") { return true }
+            return false
         case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveRight(_:)),
              #selector(NSResponder.deleteBackward(_:)), #selector(NSResponder.deleteForward(_:)):
             return styler.chipCommand(selector, in: view)
@@ -265,21 +255,6 @@ final class T3ComposerEditor {
             return false
         }
     }
-
-    // MARK: Prompt history (composerPromptHistory.ts)
-
-    private func recall(backward: Bool, in view: NSTextView) -> Bool {
-        if historyPosition == nil && !view.string.isEmpty { return false }
-        guard styler.caretOnVisualEdge(first: backward, in: view) else { return false }
-        guard let step = T3ComposerText.historyStep(backward: backward, entries: history, position: historyPosition, current: view.string) else { return false }
-        historyPosition = step.position
-        let whole = NSRange(location: 0, length: (view.string as NSString).length)
-        _ = apply(whole, step.prompt, in: view)
-        return true
-    }
-
-    /// The composer's owner changed (another thread): recall restarts.
-    func resetHistory() { historyPosition = nil }
 
     // MARK: Edits
 
@@ -301,7 +276,7 @@ final class T3ComposerEditor {
     /// TypeScript's replace (a picked menu row, an inserted chip): only when
     /// the range still holds what the menu saw.
     func edit(_ request: [String: Any]) -> [String: Any] {
-        if let fold = request["fold"] as? Int { folds.removeAll { $0["id"] as? Int == fold } }
+        if let fold = request["fold"] as? Int { forgetFold(fold) }
         guard let view = textView else { return ["applied": false, "reason": "no composer"] }
         let text = view.string as NSString
         let all = request["all"] as? Bool == true
@@ -343,29 +318,6 @@ final class T3ComposerEditor {
         if let window = view.window, window.firstResponder !== view { window.makeFirstResponder(view) }
         let applied = apply(NSRange(location: start, length: replaceEnd - start), lead + body + (body.hasSuffix(" ") ? "" : " "), in: view)
         return ["applied": applied]
-    }
-
-    /// Tiptap's toggleBold / toggleItalic on Markdown source: unwrap a
-    /// selection already wrapped by the marker, else wrap it; an empty
-    /// selection opens a marked span for what is typed next.
-    func toggleMark(_ marker: String, in view: NSTextView) {
-        let text = view.string as NSString
-        let selection = view.selectedRange()
-        let width = (marker as NSString).length
-        let before = selection.location >= width ? text.substring(with: NSRange(location: selection.location - width, length: width)) : ""
-        let after = NSMaxRange(selection) + width <= text.length ? text.substring(with: NSRange(location: NSMaxRange(selection), length: width)) : ""
-        // A lone `*` beside a `**` is bold's, not italic's.
-        let bolder = width == 1 && (selection.location >= 2 && text.substring(with: NSRange(location: selection.location - 2, length: 2)) == "**")
-        if before == marker, after == marker, !bolder {
-            let outer = NSRange(location: selection.location - width, length: selection.length + width * 2)
-            let inner = text.substring(with: selection)
-            apply(outer, inner, in: view, caret: selection.location - width)
-            view.setSelectedRange(NSRange(location: selection.location - width, length: selection.length))
-            return
-        }
-        let inner = text.substring(with: selection)
-        apply(selection, marker + inner + marker, in: view, caret: selection.location + width)
-        view.setSelectedRange(NSRange(location: selection.location + width, length: selection.length))
     }
 
     // MARK: Folder drops (ChatComposer addDroppedFolders)
@@ -441,6 +393,7 @@ final class T3ComposerEditor {
     /// Pastes held back for TypeScript to fold into pasted-text.txt. Each
     /// stays until an edit names it, so a sync whose answer is lost retries.
     private(set) var folds: [[String: Any]] = []
+    func forgetFold(_ id: Int) { folds.removeAll { $0["id"] as? Int == id } }
     private var foldSeq = 0
 
     /// foldPastedText (pastedTextDisposition): a paste of 32 KiB or more, or
