@@ -37,3 +37,6 @@ pub mod halo {}
 /// Spawn a prop or sprite from literal values.
 #[doc = include_str!("../../recipes/literal-builders.md")]
 pub mod literal_builders {}
+/// Light and frame a scene under water.
+#[doc = include_str!("../../recipes/underwater.md")]
+pub mod underwater {}

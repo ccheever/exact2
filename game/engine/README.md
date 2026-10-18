@@ -308,6 +308,8 @@ the generated model's identity is the same on every host and saves restore.
 
 The saved `Environment` resource controls linear sky colours, exposure, fog, bloom
 and the output curve. `Environment::default()` retains height fog, bloom and ACES.
+`Environment::underwater()` is clear water seen from inside it, with uniform fog
+that hides 90% of a surface 32.9 m away ([underwater recipe](../recipes/underwater.md)).
 `Fog::new(density, height_falloff)` integrates exponential height fog;
 `Fog::linear(near, far)` uses smoothstep between camera-space forward depths in
 metres, as three.js `Fog`. `Fog.color = None` uses the horizon; use `Some(clear)`
