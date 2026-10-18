@@ -346,84 +346,165 @@ final class SnapshotDriverTests: XCTestCase {
         return (Double(sum) / Double(max(1, counted) * 3), Double(differing) / Double(max(1, counted)), true)
     }
 
-    // MARK: Paint: gradients in the batch's forms, a dashed elliptical border
+    // MARK: Paint: gradients in the batch's forms, dashed borders
 
-    func testGradientsPaintInTheBatchsOrderAndSpaces() throws {
-        let family = Family.all[0]
+    func testGradientsPaintInTheBatchsOrderShapesAndSpaces() throws {
+        let family = Family.all[1]
         let session = try HeadlessSession(plan: try Self.plan("SNAPSHOT_GRADIENT"), entry: "gradient-card", size: family.content.size)
         defer { session.close() }
         let (image, snapshot) = try plain(session, family: family, environment: environment(family))
         try write(render(SnapshotDriver.view(session: session, displaySize: family.size, environment: environment(family)).environment(\.colorScheme, .light).background(.white), size: family.size), "gradients")
         let root = try XCTUnwrap(snapshot.roots.first.flatMap { snapshot.nodes[$0] })
         let strips = root.children.compactMap { snapshot.nodes[$0] }
-        XCTAssertEqual(strips.count, 5)
-        func sample(_ strip: HeadlessSession.Node, atX fraction: CGFloat) throws -> [Int] {
-            let frame = strip.frame.offsetBy(dx: root.frame.minX + family.content.minX, dy: root.frame.minY + family.content.minY)
-            return try color(image, x: Int(frame.minX + frame.width * fraction), y: Int(frame.midY))
+        XCTAssertEqual(strips.count, 8)
+        func frame(_ strip: HeadlessSession.Node) -> CGRect { strip.frame.offsetBy(dx: root.frame.minX + family.content.minX, dy: root.frame.minY + family.content.minY) }
+        func sample(_ strip: HeadlessSession.Node, x: CGFloat, y: CGFloat) throws -> [Int] {
+            let f = frame(strip)
+            return try color(image, x: Int(f.minX + f.width * x), y: Int(f.minY + f.height * y))
         }
         // Axial, red to blue: the batch's `t, r, g, b, a` order read as such.
-        let axialLeft = try sample(strips[0], atX: 0.05), axialRight = try sample(strips[0], atX: 0.95)
-        XCTAssertGreaterThan(axialLeft[0], 200, "\(axialLeft)"); XCTAssertLessThan(axialLeft[2], 60, "\(axialLeft)")
-        XCTAssertGreaterThan(axialRight[2], 200, "\(axialRight)"); XCTAssertLessThan(axialRight[0], 60, "\(axialRight)")
-        // An ellipse, closest side: green at the centre, black at the side's end.
-        let centre = try sample(strips[1], atX: 0.5), edge = try sample(strips[1], atX: 0.0)
-        XCTAssertGreaterThan(centre[1], 200, "\(centre)"); XCTAssertLessThan(edge[1], 60, "\(edge)")
+        let left = try sample(strips[0], x: 0.03, y: 0.5), right = try sample(strips[0], x: 0.97, y: 0.5)
+        XCTAssertGreaterThan(left[0], 200, "\(left)"); XCTAssertLessThan(left[2], 60, "\(left)")
+        XCTAssertGreaterThan(right[2], 200, "\(right)"); XCTAssertLessThan(right[0], 60, "\(right)")
+        // An ellipse, farthest side, on a wide box: green at the centre, black
+        // at the side's end and at the top's middle (a circle of the farthest
+        // side would still be green there).
+        let centre = try sample(strips[1], x: 0.5, y: 0.5), side = try sample(strips[1], x: 0.01, y: 0.5), top = try sample(strips[1], x: 0.5, y: 0.1)
+        XCTAssertGreaterThan(centre[1], 200, "\(centre)"); XCTAssertLessThan(side[1], 70, "\(side)"); XCTAssertLessThan(top[1], 70, "\(top)")
         // A length stop: the kernel places it; red up to 20 px, blue from 80%.
-        let before = try sample(strips[2], atX: 0.05), after = try sample(strips[2], atX: 0.95)
+        let before = try sample(strips[2], x: 0.03, y: 0.5), after = try sample(strips[2], x: 0.97, y: 0.5)
         XCTAssertGreaterThan(before[0], 200, "\(before)"); XCTAssertGreaterThan(after[2], 200, "\(after)")
-        // The dashed elliptical border drew, and nothing inside it: the
-        // ellipse's curve stays out of the middle band (24 pt in, 6 pt down).
-        let borderFrame = strips[3].frame.offsetBy(dx: root.frame.minX + family.content.minX, dy: root.frame.minY + family.content.minY)
-        XCTAssertGreaterThan(try ink(image, in: borderFrame), 10)
-        XCTAssertEqual(try ink(image, in: borderFrame.insetBy(dx: 24, dy: 6)), 0)
+        // 45° on a wide box: colour is a function of the projection onto the
+        // CSS direction in points, so two points with one projection match
+        // (the unit-square mapping would give them different colours).
+        let f = frame(strips[3])
+        let p1 = try color(image, x: Int(f.midX + 5), y: Int(f.midY + 5)), p2 = try color(image, x: Int(f.midX - 5), y: Int(f.midY - 5))
+        XCTAssertLessThan(abs(p1[0] - p2[0]) + abs(p1[2] - p2[2]), 24, "\(p1) \(p2)")
+        let lowLeft = try sample(strips[3], x: 0.05, y: 0.9), highRight = try sample(strips[3], x: 0.95, y: 0.1)
+        XCTAssertGreaterThan(lowLeft[0], highRight[0]); XCTAssertGreaterThan(highRight[2], lowLeft[2])
+        // Wide stops cross as a linear-sRGB ramp (LLP 1100 D2), read as such:
+        // the midpoint is brighter than an sRGB-space mix (128, 0, 128), and
+        // not the black a /255 reading of the floats would give.
+        let mid = try sample(strips[4], x: 0.5, y: 0.5)
+        XCTAssertGreaterThan(mid[0], 140, "\(mid)"); XCTAssertGreaterThan(mid[2], 140, "\(mid)")
+        // A dashed border: on the top edge, red in the first dash (3 widths),
+        // the background in the gap after it.
+        let d = frame(strips[5])
+        let dash = try color(image, x: Int(d.minX + 3), y: Int(d.minY + 1)), gap = try color(image, x: Int(d.minX + 9), y: Int(d.minY + 1))
+        XCTAssertGreaterThan(dash[0], 200, "\(dash)"); XCTAssertLessThan(dash[1], 80, "\(dash)")
+        XCTAssertGreaterThan(gap[1], 200, "\(gap)")
+        // The elliptical one drew, and nothing inside its curve.
+        let e = frame(strips[6])
+        XCTAssertGreaterThan(try ink(image, in: e), 10)
+        XCTAssertEqual(try ink(image, in: e.insetBy(dx: 60, dy: 6)), 0)
+    }
+
+    /// Raster decoding is bounded (D8): a large image decodes to a
+    /// thumbnail no larger than the frame's pixels, its natural size kept.
+    func testRastersDecodeAsBoundedThumbnails() throws {
+        let dir = Self.out.appending(path: "assets")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let big = dir.appending(path: "big.png")
+        let context = try XCTUnwrap(CGContext(data: nil, width: 2000, height: 1500, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 2000, height: 1500))
+        try write(context.makeImage(), "assets/big")
+        let decoded = try XCTUnwrap(SnapshotRasters.decode("big.png", roots: [Self.out], pixels: CGSize(width: 120, height: 120)))
+        XCTAssertEqual(decoded.natural, CGSize(width: 2000, height: 1500))
+        XCTAssertLessThanOrEqual(max(decoded.image.width, decoded.image.height), 120)
+        XCTAssertNil(SnapshotRasters.decode("../../big.png", roots: [dir], pixels: CGSize(width: 10, height: 10)), "a path may not leave its root")
+        XCTAssertNil(SnapshotRasters.decode("big.png", roots: [dir.appending(path: "missing")], pixels: CGSize(width: 10, height: 10)))
     }
 
     // MARK: D5: the accented groups
 
+    /// Text and symbols are the accented group, a raster the default one,
+    /// desaturated unless the author asked for full colour: the decision,
+    /// and under the accented rendering mode a red raster renders grey by
+    /// default and red with `data-rendering="full-color"`.
     func testTextAndSymbolsAreTheAccentedGroupAndRastersDesaturate() throws {
         let font = CTFontCreateWithName("Helvetica" as CFString, 13, nil)
-        func node(_ kind: String, _ props: [String: String] = [:]) -> HeadlessSession.Node {
-            HeadlessSession.Node(id: 1, kind: kind, frame: CGRect(x: 0, y: 0, width: 10, height: 10), props: props,
-                                 runs: [HeadlessSession.Run(text: "", size: 13, weight: 400, family: 0, italic: false, font: font)])
+        func node(_ id: UInt32, _ kind: String, _ props: [String: String] = [:], frame: CGRect = CGRect(x: 0, y: 0, width: 10, height: 10)) -> HeadlessSession.Node {
+            HeadlessSession.Node(id: id, kind: kind, frame: frame, props: props, runs: [HeadlessSession.Run(text: "", size: 13, weight: 400, family: 0, italic: false, font: font)])
         }
-        XCTAssertEqual(SnapshotAccent.group(node("text")), .accented)
-        XCTAssertEqual(SnapshotAccent.group(node("time")), .accented)
-        XCTAssertEqual(SnapshotAccent.group(node("image", ["imageSource": "symbol:sf/arrow.up", "symbolName": "arrow.up"])), .accented)
-        XCTAssertEqual(SnapshotAccent.group(node("image", ["imageSource": "photo.png"])), .desaturated)
-        XCTAssertEqual(SnapshotAccent.group(node("image", ["imageSource": "photo.png", "dataset": "{\"rendering\":\"full-color\"}"])), .fullColor)
-        XCTAssertNil(SnapshotAccent.group(node("view")))
+        XCTAssertEqual(SnapshotAccent.group(node(1, "text")), .accented)
+        XCTAssertEqual(SnapshotAccent.group(node(1, "time")), .accented)
+        XCTAssertEqual(SnapshotAccent.group(node(1, "image", ["imageSource": "symbol:sf/arrow.up", "symbolName": "arrow.up"])), .accented)
+        XCTAssertEqual(SnapshotAccent.group(node(1, "image", ["imageSource": "red.png"])), .desaturated)
+        XCTAssertEqual(SnapshotAccent.group(node(1, "image", ["imageSource": "red.png", "dataset": "{\"rendering\":\"full-color\"}"])), .fullColor)
+        XCTAssertNil(SnapshotAccent.group(node(1, "view")))
+        // A red raster fixture, rendered under the accented mode.
+        let dir = Self.out.appending(path: "assets")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+        try write(context.makeImage(), "assets/red")
+        func render(_ props: [String: String]) throws -> [Int] {
+            let image = node(2, "image", props, frame: CGRect(x: 0, y: 0, width: 40, height: 40))
+            let root = HeadlessSession.Node(id: 1, kind: "view", frame: CGRect(x: 0, y: 0, width: 40, height: 40), children: [2])
+            let snapshot = HeadlessSession.Snapshot(size: CGSize(width: 40, height: 40), roots: [1], nodes: [1: root, 2: image])
+            let view = SnapshotDriver.view(snapshot, environment: SnapshotEnvironment(family: .systemSmall, imageRoots: [Self.out], contentMargins: EdgeInsets()))
+                .environment(\.widgetRenderingMode, .accented).environment(\.colorScheme, .light).background(.white)
+            let rendered = try XCTUnwrap(self.render(view, size: CGSize(width: 40, height: 40), scale: 1))
+            return try color(rendered, x: 20, y: 20)
+        }
+        let full = try render(["imageSource": "red.png", "dataset": "{\"rendering\":\"full-color\"}"])
+        XCTAssertGreaterThan(full[0], 200, "full colour stays red: \(full)"); XCTAssertLessThan(full[1], 60, "\(full)")
+        let desaturated = try render(["imageSource": "red.png"])
+        if #available(iOS 18.0, macOS 15.0, *) {
+            XCTAssertLessThan(abs(desaturated[0] - desaturated[1]), 40, "desaturated by default: \(desaturated)")
+        }
     }
 
     // MARK: D6, against the shape WP3 is adding
 
     /// `time` and `progress` as the platform's live views, from synthetic
     /// nodes in WP3's shape (`datetime`, `format`; `start`, `end`): the
-    /// mapping, and each leaf drawing inside its frame.
+    /// mapping (a countdown from the entry's date, fractional ISO 8601
+    /// accepted, calendar formats as the kernel's text), and each leaf
+    /// drawing inside its frame.
     func testSyntheticTimeAndProgressNodesBecomeLiveViews() throws {
         let font = CTFontCreateWithName("Helvetica" as CFString, 13, nil)
         let run = HeadlessSession.Run(text: "", size: 13, weight: 400, family: 0, italic: false, font: font)
-        let now = Date(timeIntervalSince1970: 1_787_915_700)
-        func node(_ id: UInt32, _ kind: String, _ props: [String: String], frame: CGRect) -> HeadlessSession.Node {
-            HeadlessSession.Node(id: id, kind: kind, frame: frame, props: props, style: ["text_color": ["sys": "labelColor"]], runs: [run])
+        let now = Date(timeIntervalSince1970: 1_787_915_700), entry = now.addingTimeInterval(-60)
+        func node(_ id: UInt32, _ kind: String, _ props: [String: String], frame: CGRect, lines: [HeadlessSession.Line] = []) -> HeadlessSession.Node {
+            HeadlessSession.Node(id: id, kind: kind, frame: frame, props: props, style: ["text_color": ["sys": "labelColor"]], lines: lines, runs: [run])
         }
         let relative = node(2, "text", ["semanticTag": "time", "datetime": "1787915700000", "format": "relative"], frame: CGRect(x: 0, y: 0, width: 160, height: 16))
-        let timer = node(3, "time", ["datetime": ISO8601DateFormatter().string(from: now.addingTimeInterval(300)), "format": "countdown"], frame: CGRect(x: 0, y: 20, width: 110, height: 16))
+        let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let countdown = node(3, "time", ["datetime": iso.string(from: now.addingTimeInterval(300.5)), "format": "countdown"], frame: CGRect(x: 0, y: 20, width: 110, height: 16))
         let interval = node(4, "control", ["type": "progress", "start": "1787915700000", "end": "1787916300000"], frame: CGRect(x: 0, y: 40, width: 160, height: 6))
         let value = node(5, "control", ["type": "progress", "value": "3", "max": "8"], frame: CGRect(x: 0, y: 50, width: 160, height: 6))
-        XCTAssertEqual(SnapshotLive.presentation(relative), .relative(now))
-        XCTAssertEqual(SnapshotLive.presentation(timer), .timer(now.addingTimeInterval(300)))
-        XCTAssertNil(SnapshotLive.presentation(value))
+        let calendar = node(6, "time", ["datetime": "1787915700000", "format": "date-short"], frame: CGRect(x: 0, y: 60, width: 160, height: 16),
+                            lines: [HeadlessSession.Line(text: "7/26/26", range: NSRange(location: 0, length: 7), origin: CGPoint(x: 0, y: 12), width: 48, ascent: 12, descent: 3)])
+        XCTAssertEqual(SnapshotLive.presentation(relative, entryDate: entry), .relative(now))
+        XCTAssertEqual(SnapshotLive.presentation(countdown, entryDate: entry), .countdown(entry...now.addingTimeInterval(300.5)))
+        XCTAssertEqual(SnapshotLive.presentation(node(7, "time", ["datetime": "1787915700000", "format": "timer"], frame: .zero), entryDate: entry), .timer(now))
+        XCTAssertNil(SnapshotLive.presentation(calendar, entryDate: entry), "a calendar format is the kernel's text")
+        XCTAssertNil(SnapshotLive.presentation(value, entryDate: entry))
+        XCTAssertEqual(SnapshotLive.instant("2026-07-26T12:35:00Z"), ISO8601DateFormatter().date(from: "2026-07-26T12:35:00Z"))
         XCTAssertEqual(SnapshotLive.interval(interval), now...now.addingTimeInterval(600))
         XCTAssertNil(SnapshotLive.interval(value))
-        let root = HeadlessSession.Node(id: 1, kind: "view", frame: CGRect(x: 0, y: 0, width: 160, height: 60), children: [2, 3, 4, 5])
-        let snapshot = HeadlessSession.Snapshot(size: CGSize(width: 160, height: 60), roots: [1],
-                                                nodes: Dictionary(uniqueKeysWithValues: [root, relative, timer, interval, value].map { ($0.id, $0) }))
-        let environment = SnapshotEnvironment(family: .systemSmall, contentMargins: EdgeInsets())
+        let root = HeadlessSession.Node(id: 1, kind: "view", frame: CGRect(x: 0, y: 0, width: 160, height: 80), children: [2, 3, 4, 5, 6])
+        let snapshot = HeadlessSession.Snapshot(size: CGSize(width: 160, height: 80), roots: [1],
+                                                nodes: Dictionary(uniqueKeysWithValues: [root, relative, countdown, interval, value, calendar].map { ($0.id, $0) }))
+        let environment = SnapshotEnvironment(family: .systemSmall, contentMargins: EdgeInsets(), entryDate: entry)
         let view = SnapshotDriver.view(snapshot, environment: environment).environment(\.colorScheme, .light).background(.white)
-        let image = try XCTUnwrap(render(view, size: CGSize(width: 160, height: 60), scale: 1))
-        try write(render(view, size: CGSize(width: 160, height: 60)), "synthetic-time-progress")
-        for leaf in [relative, timer, interval, value] {
+        let image = try XCTUnwrap(render(view, size: CGSize(width: 160, height: 80), scale: 1))
+        try write(render(view, size: CGSize(width: 160, height: 80)), "synthetic-time-progress")
+        for leaf in [relative, countdown, interval, value, calendar] {
             XCTAssertGreaterThan(try ink(image, in: leaf.frame), 4, "\(leaf.kind) \(leaf.props) drew nothing")
+        }
+    }
+
+    /// A real `time` node from the kernel carries its runs, so the live
+    /// text takes the font the kernel measured it in.
+    func testARealTimeNodeCarriesItsMeasuredFont() throws {
+        let family = Family.all[0]
+        let session = try HeadlessSession(plan: try Self.plan("SNAPSHOT_TRAINS"), entry: "next-trains", size: family.content.size)
+        defer { session.close() }
+        let snapshot = try session.snapshot()
+        for node in snapshot.nodes.values where node.kind == "text" || node.kind == "time" {
+            XCTAssertFalse(node.runs.isEmpty, "\(node.kind) \(node.props)")
         }
     }
 }

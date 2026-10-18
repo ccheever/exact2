@@ -109,9 +109,11 @@ component App
   view
     text "The widget fixture has no app."
 
-// Paint the driver's tests sample: gradients in the batch's three forms
-// (an axial ramp, an ellipse, one the kernel places from its CSS), a dashed
-// elliptical border, and plain text over them.
+// Paint the driver's tests sample: gradients in the batch's forms (an
+// axial ramp; an ellipse whose extent a circle would get wrong; one the
+// kernel places from its CSS; a diagonal on a wide box; a ramp through
+// wide stops, which crosses as srgb-linear), a dashed rectangular border
+// and a dashed elliptical one, and plain text.
 shape GradientProps
   label: string
 
@@ -119,9 +121,12 @@ component GradientCard
   props
     label: string
   view
-    column width="100%" height="100%" gap=4
-      view height=24 background-image="linear-gradient(to right, #ff0000, #0000ff)"
-      view height=24 background-image="radial-gradient(ellipse closest-side at 50% 50%, #00ff00, #000000)"
-      view height=24 background-image="linear-gradient(to right, #ff0000 20px, #0000ff 80%)"
-      view height=24 border-width=2 border-style="dashed" border-color="#ff0000" border-radius="50%"
+    column width="100%" height="100%" gap=2
+      view height=14 background-image="linear-gradient(to right, #ff0000, #0000ff)"
+      view height=14 background-image="radial-gradient(ellipse farthest-side at 50% 50%, #00ff00, #000000)"
+      view height=14 background-image="linear-gradient(to right, #ff0000 20px, #0000ff 80%)"
+      view height=14 background-image="linear-gradient(45deg, #ff0000, #0000ff)"
+      view height=14 background-image="linear-gradient(to right, color(display-p3 1 0 0), color(display-p3 0 0 1))"
+      view height=14 border-width=2 border-style="dashed" border-color="#ff0000"
+      view height=14 border-width=2 border-style="dashed" border-color="#ff0000" border-radius="50%"
       text label font="-exact-footnote"
