@@ -3,6 +3,7 @@
 
 mod activities;
 mod entry;
+mod inline;
 mod paragraphs;
 mod refresh;
 mod values;

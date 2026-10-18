@@ -190,13 +190,22 @@ fn draw(
     if let Some(e) = p.set_device(&device) {
         return Err(format!("device: {e}"));
     }
+    // A specimen of a pushed route is pushed by its `push` control, and
+    // settles before what follows.
+    // The clock is absolute: what follows settles from where this left it.
+    let mut now = 0.0;
+    if let Some(push) = node(&p, "push") {
+        p.tap(push)?;
+        now = 1000.0;
+        p.clock(now);
+    }
     let specimen = node(&p, "specimen");
     if id.ends_with("-focused") {
         p.tap(specimen.ok_or("no specimen to focus")?)?;
     }
     // As the reference: 300 ms on, a focus and a label's float settled and a
     // caret short of its first blink.
-    p.clock(300.0);
+    p.clock(now + 300.0);
     let mut picture = (*p.frame()).clone();
     // The reader asks for the bars' pictures with each stream; this asks once.
     p.reader_bars(density);
@@ -242,7 +251,7 @@ fn draw(
         picture.draw_pixmap(0, 0, bar.as_ref(), &PixmapPaint::default(), at, None);
     }
     let layout = match id {
-        "top-app-bar" => bar_frames.first().copied(),
+        "top-app-bar" | "top-app-bar-up" => bar_frames.first().copied(),
         "navigation-bar" => bar_frames.last().copied(),
         _ => specimen
             .and_then(|s| p.rect_of(s))

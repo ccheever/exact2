@@ -2,6 +2,53 @@
 use super::*;
 use exact_runner::{FieldSelection, SelectionDirection};
 
+#[test]
+fn decorations_share_intrinsic_measurement_paint_and_source_geometry() {
+    let source = r##"decoration large font-size=32 color="#0000ff" background-color="#ffff00" text-decoration="underline"
+component Fields
+  view
+    column width=400 height=600
+      textarea id="field" testId="field" value="a😀c" decorations=TextDecorations(value="a😀c",spans=[TextDecorationSpan(name="large",start=1,end=3)],blocks=[],hidden=[],atoms=[]) appearance="none" width=180 field-sizing="content" font-size=16
+      textarea testId="plain" value="a😀c" appearance="none" width=180 field-sizing="content" font-size=16
+"##;
+    let (mut presenter, id) = boot_source(source);
+    let paragraph = presenter.paragraph(id).unwrap();
+    assert_eq!(
+        paragraph
+            .runs()
+            .iter()
+            .map(|run| run.text.as_str())
+            .collect::<String>(),
+        "a😀c"
+    );
+    assert_eq!(
+        paragraph
+            .runs()
+            .iter()
+            .map(|run| run.size)
+            .collect::<Vec<_>>(),
+        [16., 32., 16.]
+    );
+    let line = paragraph.layout_runs().next().unwrap();
+    let glyph = line.glyphs.iter().find(|glyph| glyph.start == 1).unwrap();
+    let point = (
+        glyph.x + glyph.w * 0.1,
+        line.line_top + line.line_height * 0.5,
+    );
+    let field = presenter.rect_of(id).unwrap();
+    let plain = presenter.host.kernel().find_by_test_id("plain")[0];
+    let plain = presenter.host.kernel().node_by_key(plain).unwrap().id;
+    assert!(
+        field.3 > presenter.rect_of(plain).unwrap().3 * 1.5,
+        "decorated font metrics size the intrinsic field"
+    );
+    assert_eq!(presenter.field_value(id), "a😀c");
+    presenter.press_at(field.0 + point.0, field.1 + point.1, 0.);
+    assert_eq!(presenter.field_selection(id).start, 1);
+    key(&mut presenter, id, "ArrowRight");
+    assert_eq!(presenter.field_selection(id).start, 3);
+}
+
 fn boot(tag: &str, value: &str, extra: &str) -> (Presenter<()>, ViewId) {
     let source = format!(
         r##"component Fields

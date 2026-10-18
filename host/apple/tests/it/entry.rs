@@ -9,6 +9,7 @@ fn entry_plan() -> Vec<u8> {
         title: None,
         description: None,
         families: vec!["systemSmall".into()],
+        watch_families: vec![],
         component: "Card".into(),
         props: "Props".into(),
         refresh: "refresh".into(),

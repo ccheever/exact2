@@ -2,6 +2,22 @@
 //! Hosts share these UTF-16 reconciliation rules; painting and IME ownership
 //! stay with the host's editor.
 
+/// Source decorations and field font facts at the intrinsic measurement boundary.
+/// This is borrowed only by fields that authored `decorations`.
+#[derive(Debug, Clone, Copy)]
+pub struct DecoratedField<'a> {
+    /// The field whose native selection may reveal source during measurement.
+    pub view: crate::ViewId,
+    /// The producer's source-backed UTF-16 record.
+    pub record: &'a str,
+    /// Visible declaration aliases and their compiled style rows.
+    pub styles: &'a str,
+    /// The root font size used by `rem` lengths.
+    pub root_font_size: f32,
+    /// Physical pixels per logical point.
+    pub display_scale: f32,
+}
+
 /// A half-open source range in UTF-16 code units.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Range {
