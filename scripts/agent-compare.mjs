@@ -402,16 +402,20 @@ export function closeUp(ref, png, result) {
     const x = Math.max(0, b.x - PAD), y = Math.max(0, b.y - PAD);
     return { x, y, w: Math.min(w, b.x + b.w + PAD) - x, h: Math.min(h, b.y + b.h + PAD) - y, region: b };
   });
-  const GAP = 4, BAND = 10, rs = ref.width / w, ss = png.width / w, widest = Math.max(...boxes.map((b) => b.w)), tall = boxes.reduce((sum, b) => sum + b.h, 0);
-  const k = Math.max(0.25, Math.min(rs, ss, (CLOSE_WIDTH - 2 * GAP) / (3 * widest), (CLOSE_HEIGHT - BAND * boxes.length) / tall));
+  const GAP = 4, BAND = 10, widest = Math.max(...boxes.map((b) => b.w)), tall = boxes.reduce((sum, b) => sum + b.h, 0);
+  // Each axis by its own scale: a reference may be up to 1% another shape (`referenceScale`).
+  const k = Math.max(0.25, Math.min(ref.width / w, ref.height / h, png.width / w, png.height / h, (CLOSE_WIDTH - 2 * GAP) / (3 * widest), (CLOSE_HEIGHT - BAND * boxes.length) / tall));
   const W = Math.round(3 * widest * k) + 2 * GAP;
   const rows = boxes.map((b) => ({ ...b, pw: Math.max(1, Math.round(b.w * k)), ph: Math.max(1, Math.round(b.h * k)) }));
   const H = rows.reduce((sum, r) => sum + BAND + r.ph, 0);
   const data = new Uint8Array(W * H * 4).fill(255);
   const put = (x, y, c) => { if (x < 0 || y < 0 || x >= W || y >= H) return; const i = (y * W + x) * 4; data[i] = c[0]; data[i + 1] = c[1]; data[i + 2] = c[2]; data[i + 3] = 255; };
-  // A box's pixels from a picture `s` pixels a point, at `pw`×`ph`, over white.
-  const cut = (img, s, b, pw, ph) => {
-    const x = Math.round(b.x * s), y = Math.round(b.y * s), cw = Math.min(img.width - x, Math.max(1, Math.round(b.w * s))), ch = Math.min(img.height - y, Math.max(1, Math.round(b.h * s)));
+  // A box's pixels from a picture of the `w`×`h`-point screen, at `pw`×`ph`, over white; inside the picture however
+  // its scale rounds.
+  const cut = (img, b, pw, ph) => {
+    const sx = img.width / w, sy = img.height / h;
+    const x = Math.min(img.width - 1, Math.round(b.x * sx)), y = Math.min(img.height - 1, Math.round(b.y * sy));
+    const cw = Math.max(1, Math.min(img.width - x, Math.round(b.w * sx))), ch = Math.max(1, Math.min(img.height - y, Math.round(b.h * sy)));
     const piece = flatten(crop(img, x, y, cw, ch));
     return pw <= cw && ph <= ch ? shrink(piece, pw, ph) : piece;
   };
@@ -420,7 +424,7 @@ export function closeUp(ref, png, result) {
   rows.forEach((r, n) => {
     for (let t = 0; t <= n; t++) for (let y = 2; y < BAND - 2; y++) { put(2 + t * 4, top + y, amber); put(3 + t * 4, top + y, amber); }
     top += BAND;
-    const left = cut(ref, rs, r, r.pw, r.ph), mid = cut(png, ss, r, r.pw, r.ph), panel = Math.round(widest * k) + GAP;
+    const left = cut(ref, r, r.pw, r.ph), mid = cut(png, r, r.pw, r.ph), panel = Math.round(widest * k) + GAP;
     for (let y = 0; y < r.ph; y++) for (let x = 0; x < r.pw; x++) {
       const at = (img) => { const xx = Math.min(img.width - 1, Math.floor(x * img.width / r.pw)), yy = Math.min(img.height - 1, Math.floor(y * img.height / r.ph)), i = (yy * img.width + xx) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
       const a = at(left), b = at(mid), cx = Math.min(w - 1, Math.floor(r.x + x / k)), cy = Math.min(h - 1, Math.floor(r.y + y / k));

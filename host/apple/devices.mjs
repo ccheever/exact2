@@ -147,7 +147,7 @@ export function simulators() {
   return Object.entries(JSON.parse(r.stdout).devices).flatMap(([runtime, list]) => list.map((d) => ({ udid: d.udid, name: d.name, runtime, state: d.state, type: d.deviceTypeIdentifier?.split('.').pop() ?? '' })));
 }
 
-/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. When several are booted, the one the app in `dir` last used (its `.exact/simulator`, which each choice writes), else the one `app` (a bundle id) is installed on, said on stderr; refused when that is none or several, naming how to choose: `hint`, the caller's own way. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
+/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. When several are booted, the one `app` (a bundle id) is installed on, and of several so, the one the app in `dir` last used (its `.exact/simulator`, written when a simulator is named or chosen so), said on stderr; refused when that is none or several, naming how to choose: `hint`, the caller's own way. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
 const saidSimulator = new Set(); // a verify opens a dozen sessions: the choice is said once
 export function simulator(pick = process.env.EXACT_SIM, options = {}) { return bootSimulator(chooseSimulator(pick, options)); }
 /** `simulator`'s choice, booting nothing: what a drive locks before it launches (agent.mjs `resolveDevice`). */
@@ -163,17 +163,17 @@ export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint
   const booted = iphones.filter((d) => d.state === 'Booted');
   const used = dir ? resolve(dir, '.exact', tv ? 'simulator-tv' : 'simulator') : null;
   let last = null; try { last = used && readFileSync(used, 'utf8').trim(); } catch { /* none chosen yet */ }
-  const mine = !pick && booted.length > 1 ? booted.find((d) => d.udid === last) : null;
-  if (mine) {
-    dev = mine;
-    if (!saidSimulator.has(dev.udid)) { saidSimulator.add(dev.udid); console.error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted; using ${dev.name} ${dev.udid}, the one this app last used; name another with ${hint}`); }
-  } else if (!pick && booted.length > 1) {
+  // What `used` remembers: a simulator named, or one the installed-app check chose.
+  let chosen = Boolean(pick);
+  if (!pick && booted.length > 1) {
     // An app's bundle id is its own (`exact new` suffixes it), so the simulator it is installed on is the one
-    // its last build or drive used; another session's app is not there (a renamed bundle id may be).
+    // its last build or drive used; another session's app is not there. A bundle id two apps share (a port renamed
+    // to its original's) is on several: of those, the one this app last used.
     const has = app ? booted.filter((d) => read('xcrun', ['simctl', 'get_app_container', d.udid, app]).status === 0) : [];
-    if (has.length === 1) {
-      dev = has[0];
-      if (!saidSimulator.has(dev.udid)) { saidSimulator.add(dev.udid); console.error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted; using ${dev.name} ${dev.udid}, the one with ${app} installed; name another with ${hint}`); }
+    const mine = has.length > 1 ? has.find((d) => d.udid === last) : null;
+    if (has.length === 1 || mine) {
+      dev = mine ?? has[0]; chosen = true;
+      if (!saidSimulator.has(dev.udid)) { saidSimulator.add(dev.udid); console.error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted; using ${dev.name} ${dev.udid}, ${mine ? `the one this app last used of those with ${app} installed` : `the one with ${app} installed`}; name another with ${hint}`); }
     } else {
       const named = (d) => `${d.name} ${d.udid}${has.includes(d) ? ` (has ${app})` : ''}`;
       throw new Error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted (${booted.map(named).join(', ')})${app ? `, ${has.length ? 'several' : 'none'} with ${app} installed` : ''}: name one with ${hint}`);
@@ -181,7 +181,7 @@ export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint
   }
   dev ??= booted[0] ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
   if (!dev) throw new Error(`no ${tv ? 'Apple TV' : 'iPhone'} simulator on ${tv ? 'tvOS' : 'iOS'}; add one in Xcode, or name any simulator by udid or name with EXACT_SIM (or --sim)`);
-  if (used && dev.udid !== last) try { mkdirSync(dirname(used), { recursive: true }); writeFileSync(used, `${dev.udid}\n`); } catch { /* remembered next time, if it can be */ }
+  if (used && chosen && dev.udid !== last) try { mkdirSync(dirname(used), { recursive: true }); writeFileSync(used, `${dev.udid}\n`); } catch { /* remembered next time, if it can be */ }
   return dev;
 }
 /** `dev` booted and waited for; `bootedHere` when this call booted it, not when another process had just done so. */

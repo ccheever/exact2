@@ -3,7 +3,7 @@
 // a builder reading it learns where the verbs are (`bun exact.mjs --help`), not this code. An
 // exact.mjs written before this file held all of it, and still runs; `bun exact.mjs update` thins it.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 
@@ -29,7 +29,8 @@ export function compilerWarnings(text, cwd = process.cwd()) {
 export function warningLines(dir, host, warnings) {
   const file = resolve(dir, '.exact', `warnings-${host}.txt`), shown = relative(process.cwd(), file);
   let before = null; try { before = new Set(readFileSync(file, 'utf8').split('\n').filter(Boolean)); } catch { /* none said yet */ }
-  try { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, warnings.map((w) => `${w}\n`).join('')); } catch { /* said in full below */ }
+  // Replaced whole, so a drive beside this one reads either list, never half of one.
+  try { mkdirSync(dirname(file), { recursive: true }); writeFileSync(`${file}.${process.pid}.tmp`, warnings.map((w) => `${w}\n`).join('')); renameSync(`${file}.${process.pid}.tmp`, file); } catch { /* said in full below */ }
   if (!warnings.length) return [];
   const fresh = before ? warnings.filter((w) => !before.has(w)) : warnings;
   const where = shown.startsWith('..') ? file : shown;

@@ -266,6 +266,13 @@ test('compare: the regions up close, a row each, cut from both pictures at their
   const first = result.regions[0].screen, y = 10 + (8 + 2) * 3, x = (first.x - Math.max(0, first.x - 8) + 2) * 3;
   assert.deepEqual([at(x, y), at(56 * 3 + 4 + x, y)], [[255, 255, 255], [20, 20, 20]]);
   assert.equal(closeUp(ref, ref, compareGrids(grid(ref, 120, 200), grid(ref, 120, 200))), null, 'nothing differs: no sheet');
+  // A reference just under 1% shorter than the screen's shape, and a region at the bottom: each axis is cut by its own
+  // scale, inside the picture.
+  // (Cut by the width's scale, the bottom region's padded top lay below the reference's last row.)
+  const short = { ...picture(100, 1200, [], 3), height: 3564 }; short.data = short.data.subarray(0, 300 * 3564 * 4);
+  const low = picture(100, 1200, [[10, 1197, 30, 3]], 3), bottom = compareGrids(grid(short, 100, 1200), grid(low, 100, 1200));
+  assert.deepEqual(bottom.regions.map(box), [[10, 1197, 30, 3]]);
+  assert.ok(closeUp(short, low, bottom).height > 0);
   assert.match(report(result, [], { reference: 'r', diff: 'd', close: 'c' }).split('\n')[0], new RegExp(`; up close, c \\(a row a region, 1 to ${n}\\)$`));
 });
 
@@ -417,6 +424,13 @@ test('a native named store is kept unless the drive resets it, under its lock; a
       assert.equal(lock?.storage === 's1', locked, `${host} lock`);
       if (locked) { assert.equal(lock.device, `the one ${host} device`); assert.deepEqual(order, ['resolve', 'lock', 'open']); }
     }
+    // A native drive that names no store has `default`, which --reset-storage empties; a web drive has none to reset.
+    let env = null, lock = null;
+    const injected = { open: async (o) => { env = o.env; return { state: async () => ({}), close: async () => {} }; }, driveServer: async () => null,
+      exclusiveNativeStore: async (key, launch) => { lock = key; return launch(); }, resolveDevice: () => 'a device' };
+    assert.equal(await main(['ios', '--reset-storage', 'state'], injected), 0);
+    assert.deepEqual([lock?.storage, env?.EXACT_AGENT_STORAGE_FRESH], ['default', '1']);
+    await assert.rejects(main(['web', '--reset-storage', 'state'], injected), /need --storage <name>/);
   } finally { [console.log, console.error] = quiet; }
 });
 

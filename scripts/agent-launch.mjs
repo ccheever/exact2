@@ -367,7 +367,8 @@ export function parseFlags(argv) {
   }
   if (flags.widget && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
-  if ((flags.keepStorage || flags.resetStorage) && flags.storage === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
+  // A native drive's store is `default` when it names none (`defaultStore`); an authored test's is its own.
+  if ((flags.keepStorage || flags.resetStorage) && (flags.test ? flags.storage : defaultStore(rest[0], flags)) === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };
 }
 

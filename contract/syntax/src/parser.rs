@@ -336,9 +336,11 @@ impl Parser {
                                 .iter()
                                 .any(|c| c.actions.iter().any(|a| a.name == name))
                     };
+                    // A free call of a refused declaration's or member's name may
+                    // be a call of it, as of one that parsed.
                     let free = std::mem::take(&mut self.free);
                     for (name, error, edits) in free {
-                        if !declared(&name) {
+                        if !declared(&name) && !self.hidden.contains(&name) {
                             errors.push(error);
                             self.edits.extend(edits);
                         }

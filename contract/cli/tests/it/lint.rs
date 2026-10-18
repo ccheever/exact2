@@ -759,6 +759,13 @@ fn a_refused_member_does_not_hide_the_other_passes_refusals() {
         "{}",
         found[0].2
     );
+    // A refused member's name is still its own: a call of it is no method's free form.
+    let named = "component App\n  state n = \"\"\n  action trim(s: string)\n    n =\n  view\n    button \"go\" press=trim(\"x\")\n";
+    let ids: Vec<String> = compile_all("named", named)
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect();
+    assert_eq!(ids, ["syntax-expected-expression"]);
     // A refused first component would make another the app: nothing else is checked.
     let first = "component App\n  props\n    x number\n  view\n    Card()\ncomponent Card\n  view\n    text \"a\" color=missingName\n";
     let ids: Vec<String> = compile_all("first", first)
