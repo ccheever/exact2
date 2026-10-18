@@ -1210,6 +1210,13 @@ pub(crate) fn check_prop_value(
             | (tags::PropTy::Bool, Ty::Bool)
             | (tags::PropTy::Int | tags::PropTy::Float, Ty::Number)
     );
+    if !ok && prop == PropId::Datetime {
+        return err(
+            "lower-time-instant",
+            "`datetime` is an instant in epoch milliseconds; parse a string with `date(…)`",
+            span,
+        );
+    }
     if !ok {
         return err(
             "lower-attr-type",

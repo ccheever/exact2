@@ -200,6 +200,14 @@ fn datetime_edits_name_the_instant_and_the_wrong_tag() {
         error.message.contains("epoch milliseconds") && error.message.contains("date("),
         "{error:?}"
     );
+    let bound = contract::compile(
+        "component App\n  state raw = \"2026-10-17T12:00:00Z\"\n  view\n    time datetime=raw\n",
+    )
+    .unwrap_err();
+    assert!(
+        bound.message.contains("epoch milliseconds") && bound.message.contains("date("),
+        "{bound:?}"
+    );
     let error = contract::compile("component App\n  view\n    view datetime=0\n").unwrap_err();
     assert!(
         error.message.contains("`view`") && error.message.contains("`time`"),
