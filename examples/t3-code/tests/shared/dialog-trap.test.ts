@@ -111,6 +111,7 @@ const NOT_MODAL: Record<string, string> = {
   'settings-b-accent.contract "provider-accent-panel"': 'Popover',
   'settings-mobile-beta.contract "TestFlight beta"': 'NightlyMobileBeta Popover',
   'settings-mobile-beta.contract "Google Play beta"': 'NightlyMobileBeta Popover',
+  'settings-rows.contract `settings-scope-search-${scope}`': 'Combobox popup',
   'settings-rows.contract `setting-inheritance-${row.id}-popover`': 'Popover',
   'settings-source-control.contract `device-versions-${tool.kind}-popover`': 'Popover',
   'shell-details.contract "thread-details"': 'Popover',

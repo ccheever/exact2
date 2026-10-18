@@ -7,6 +7,7 @@ use SettingsSwitch from "./settings-kit.contract"
 use SettingsSelect from "./settings-kit.contract"
 use SettingsNotice from "./settings-kit.contract"
 use SelectOption from "./settings-kit.contract"
+use LucideChevronRight from "./settings-icons.contract"
 use LucideMinus from "./settings-icons.contract"
 use LucidePlus from "./settings-icons.contract"
 
@@ -20,6 +21,16 @@ shape StorageRuleView
   first: bool
   decrease: string
   increase: string
+shape CleanupEntry
+  id: string
+  path: string
+  detail: string
+shape CleanupReport
+  id: string
+  label: string
+  counts: string
+  description: string
+  entries: CleanupEntry[]
 shape StoragePage
   available: bool
   project: bool
@@ -38,6 +49,8 @@ shape StoragePage
   keepOptions: SelectOption[]
   worktrees: StorageRuleView[]
   artifacts: StorageRuleView[]
+  cleanupSummary: string
+  cleanupReports: CleanupReport[]
 
 component StoragePanel
   props
@@ -73,6 +86,34 @@ component StoragePanel
             for rule in data.artifacts key=`${data.scope}:${rule.key}:${rule.days}:${rule.enabled}`
               SettingsRow(title=rule.label, description=rule.description, first=rule.first, rowId=`storage-row-${rule.key}`)
                 StorageControl(rule=rule, busy=busy, rest=rest, restInput=restInput)
+
+      if data.cleanupReports.length > 0
+        CleanupLastRun(summary=data.cleanupSummary, reports=data.cleanupReports)
+
+component CleanupLastRun
+  props
+    summary: string
+    reports: CleanupReport[]
+  state open = false
+  action toggle
+    open = not open
+  view
+    column width="100%" border-radius="0.875rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" testId="storage-cleanup-last-run"
+      button press=toggle aria-expanded=open width="100%" box-sizing="border-box" padding="1rem" gap="0.75rem" display="flex" align-items="center" background-color="#00000000" border-width=0
+        LucideChevronRight(size=14, color="light-dark(#71717b, #818181)")
+        text "Last run" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+        text summary title=summary flex=1 min-width=0 line-clamp=1 text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" font-variant-numeric="tabular-nums"
+      if open
+        for report in reports key=report.id
+          column width="100%" padding="1rem" gap="0.5rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)"
+            if reports.length > 1
+              text report.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            text report.counts font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+            text report.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+            for entry in report.entries key=entry.id
+              column width="100%" gap="0.125rem"
+                text entry.path title=entry.path max-width="100%" line-clamp=1 font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+                text entry.detail font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
 
 // A switch, or RetentionControl: [−][N days][+] when on, "Off" when off.
 component StorageControl

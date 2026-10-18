@@ -2,6 +2,10 @@ import { T3Client } from '../client/client';
 import { effectiveWorktreeRules, arr, obj, str, num, applyShell, initialShell, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { projectIdentity } from '../client/presentation';
+import { liveEnvironments, watchStorageReports } from '../client/live-streams';
+import { resolveScope } from './settings-core';
+import { environmentClient, groupOfMember } from './projects-fleet';
+import { settingsScopeEnvironmentLabel } from './settings-scope';
 import { letGo } from '../client/let-go';
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Could not load this section.';
@@ -64,27 +68,50 @@ export function relativeTimeLabel(iso: string, now: number): string {
 // useArchivedThreadSnapshots (archivedThreadsState.ts): one archivedShellSnapshot query per visit (Atom.swr revalidates on
 // mount), again on a new connection and after this client's own unarchive or delete (refreshArchivedThreadsForEnvironment;
 // here settingsRefresh, which app.contract bumps when a rest command succeeds), never on a wake or the minute tick.
-const archives = new WeakMap<T3Client, { key: string; value: Obj; error: string }>();
-export async function archivedSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, now = 0, refresh = 0) {
+const archives = new WeakMap<T3Client, Map<string, { key: string; value: Obj; error: string }>>();
+export async function archivedSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, now = 0, refresh = 0, machine = '', projectKey = '', checkout = '') {
   const empty = { available: false, loading: false, error: '', groups: [] as ArchiveGroup[] };
   if (!active) { archives.delete(client); return empty; }
   try {
-    if (!native?.available || !client.ready || (environmentId !== "" && environmentId !== client.environmentId) || (projectId && !client.shell.projects.some(project => project.id === projectId))) throw new Error('This scope is unavailable. Choose a connected environment and an existing checkout.');
-    const visit = `${client.origin}|${client.environmentId}|${client.generation}|${refresh}`;
-    let kept = archives.get(client);
-    if (!kept || kept.key !== visit) {
-      // A shared read: an answer asked again before its reply joins it instead of sending it again (diagnostics-view.ts).
-      try { kept = { key: visit, value: await client.restAccess(native).read('orchestration.getArchivedShellSnapshot'), error: '' }; }
-      catch (failure) { if (letGo(failure)) throw failure; kept = { key: visit, value: {}, error: errorMessage(failure) }; }
-      archives.set(client, kept);
+    if (!native?.available) throw new Error('Open on macOS to load archived threads.');
+    const legacy = !projectKey && projectId ? groupOfMember(client, projectId) : undefined;
+    const scope = resolveScope(client, machine || environmentId, legacy?.key ?? projectKey, checkout);
+    if (!scope.connected || scope.kind === 'unavailable') throw new Error(scope.message || 'Choose a connected environment.');
+    let cache = archives.get(client);
+    if (!cache) archives.set(client, cache = new Map());
+    const groups = new Map<string, ArchiveGroup & { dated: { at: string; row: ArchiveGroup['threads'][number] }[] }>();
+    const failures: string[] = [], multiple = scope.selected.length > 1;
+    for (const environment of scope.selected) {
+      if (environment.connection.phase !== 'connected') continue;
+      const label = settingsScopeEnvironmentLabel(environment, scope.environments);
+      const remote = environmentClient(client, environment.environmentId, native);
+      const visit = `${remote.origin}|${remote.generation}|${refresh}`;
+      let kept = cache.get(environment.environmentId);
+      if (!kept || kept.key !== visit) {
+        try { kept = { key: visit, value: await remote.restAccess(native).read('orchestration.getArchivedShellSnapshot'), error: '' }; }
+        catch (failure) { if (letGo(failure)) throw failure; kept = { key: visit, value: {}, error: errorMessage(failure) }; }
+        cache.set(environment.environmentId, kept);
+      }
+      if (kept.error) { failures.push(`${label}: ${kept.error}`); continue; }
+      const shell = applyShell(initialShell(), kept.value);
+      const selectedIds = scope.members.filter(member => member.environmentId === environment.environmentId).map(member => member.id);
+      for (const project of shell.projects.filter(project => scope.kind === 'all' || scope.kind === 'environment' || selectedIds.includes(project.id))) {
+        const logical = scope.groups.find(group => group.memberProjects.some(member => member.environmentId === environment.environmentId && member.id === project.id));
+        const id = logical?.projectKey ?? `${environment.environmentId}:${project.id}`;
+        let group = groups.get(id);
+        if (!group) {
+          const title = logical?.displayName ?? str(project.title), identity = projectIdentity(title);
+          groups.set(id, group = { id, title, mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface, threads: [], dated: [] });
+        }
+        for (const thread of shell.threads.filter(thread => thread.projectId === project.id)) {
+          const at = str(thread.archivedAt || thread.createdAt), threadId = str(thread.id);
+          group.dated.push({ at, row: { id: multiple ? `${environment.environmentId}:${threadId}` : threadId, scope: `${environment.environmentId}:${project.id}:${threadId}`, title: str(thread.title), first: false,
+            description: `${multiple ? label + ' · ' : ''}Archived ${relativeTimeLabel(at, now)} · Created ${relativeTimeLabel(str(thread.createdAt), now)}` } });
+        }
+      }
     }
-    if (kept.error) throw new Error(kept.error);
-    const shell = applyShell(initialShell(), kept.value);
-    // ArchivedThreadsPanel: archivedAt ?? createdAt, newest first, then id.
-    const key = (thread: Obj) => str(thread.archivedAt || thread.createdAt);
-    const groups = shell.projects.filter(project => !projectId || project.id === projectId).map(project => ({ id: str(project.id), title: str(project.title), mark: projectIdentity(str(project.title)).projectMark, ink: projectIdentity(str(project.title)).projectInk, surface: projectIdentity(str(project.title)).projectSurface, threads: shell.threads.filter(thread => thread.projectId === project.id).sort((a, b) => key(b).localeCompare(key(a)) || str(b.id).localeCompare(str(a.id))).map((thread, index) => ({ id: str(thread.id), scope: `${client.environmentId}:${project.id}:${thread.id}`, title: str(thread.title), first: index === 0,
-      description: `Archived ${relativeTimeLabel(key(thread), now)} · Created ${relativeTimeLabel(str(thread.createdAt), now)}` })) })).filter(group => group.threads.length);
-    return { ...empty, available: true, groups };
+    return { ...empty, available: true, error: failures.join(' · '), groups: [...groups.values()].filter(group => group.dated.length).map(({ dated, ...group }) => ({ ...group,
+      threads: dated.sort((a, b) => b.at.localeCompare(a.at) || b.row.id.localeCompare(a.row.id)).map((entry, index) => ({ ...entry.row, first: index === 0 })) })) };
   } catch (error) { return { ...empty, error: errorMessage(error) }; }
 }
 
@@ -125,10 +152,19 @@ const storageDefinitions = [
   ['browserArtifactsAfterDays', 'Delete old browser artifacts', 'Delete saved browser captures after this many days. Older capture links will no longer open.', true],
   ['logsAfterDays', 'Delete old rotated logs', 'Delete inactive rotated log files after this many days. Current logs are kept.', true],
 ] as const;
-export async function storageSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean) {
+export function lastRunSummary(entries: readonly { label: string; counts: string }[], machineCount: number): string {
+  const first = entries[0];
+  if (!first) return '';
+  if (machineCount <= 1) return first.counts;
+  if (entries.length === machineCount && entries.every(entry => entry.counts === first.counts)) return `${first.counts} on every machine`;
+  return entries.map(entry => `${entry.label}: ${entry.counts}`).join(' · ');
+}
+export async function storageSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine = '', projectKey = '', checkout = '', now = 0) {
   const modeLabels: Record<string, string> = { inherit: 'Inherit', off: 'Off', custom: 'Custom' };
   const empty = { directory: '', directorySupported: false, keepSupported: false, keepValue: '', keepDescription: '', keepOptions: [] as { value: string; label: string; selected: boolean }[],
-    available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], artifacts: [] as StorageRuleView[] };
+    available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], artifacts: [] as StorageRuleView[], cleanupSummary: '', cleanupReports: [] as { id: string; label: string; counts: string; description: string; entries: { id: string; path: string; detail: string }[] }[] };
+
+
   if (!active) return empty;
   try {
     if (!native?.available || !client.ready || (environmentId !== "" && environmentId !== client.environmentId) || (projectId && !client.shell.projects.some(project => project.id === projectId))) throw new Error('This scope is unavailable. Choose a connected environment and existing checkout.');
@@ -143,12 +179,26 @@ export async function storageSettings(client: T3Client, native: Native | null | 
     const rules = { ...obj(settings.storageCleanup), ...effectiveWorktreeRules(settings, override) };
     const view = (definitions: (typeof storageDefinitions)[number][], first: boolean) => definitions.map(([key, label, description, retention], index) => ({ key, label, description, retention, first: first && index === 0, enabled: retention ? typeof rules[key] === 'number' : rules[key] === true, days: typeof rules[key] === 'number' ? String(rules[key]) : '8',
       decrease: String(Math.max(key === 'worktreeSettledAfterDays' ? 0 : 1, num(rules[key], 8) - 1)), increase: String(Math.min(3650, num(rules[key], 8) + 1)) }));
+    const scope = resolveScope(client, machine, projectKey, checkout);
+    const environments = liveEnvironments(client, native).filter(environment => scope.selected.some(selected => selected.environmentId === environment.environmentId)
+      && environment.connected && obj(obj(environment.config.environment).capabilities).storageCleanupRun === true);
+    if (!projectId) await watchStorageReports(client, native, environments.map(environment => environment.environmentId));
+    const cleanupReports = projectId ? [] : environments.flatMap(environment => {
+      const report = environment.cleanup.value?.[0];
+      if (!report) return [];
+      const counts = obj(report.counts), selected = scope.environments.find(selected => selected.environmentId === environment.environmentId);
+      return [{ id: environment.environmentId, label: selected ? settingsScopeEnvironmentLabel(selected, scope.environments) : environment.label,
+        counts: `${num(counts.removed)} removed, ${num(counts.kept)} kept${num(counts.failed) > 0 ? `, ${num(counts.failed)} failed` : ''}`,
+        description: `Last run ${relativeTimeLabel(str(report.finishedAt), now)}. ${bytes(report.bytesFreed)} recovered.`,
+        entries: arr(report.entries).map((entry, index) => ({ id: String(index), path: str(entry.path) || str(entry.threadTitle) || str(entry.kind), detail: `${str(entry.outcome)} · ${str(entry.reason)}` })) }];
+    });
     const showRules = !projectId || mode === 'custom';
     const keep = str(rules.worktreeKeepWhen, 'uncommitted-changes');
-    return { ...empty, available: true, directory: str(settings.worktreesDirectory), directorySupported: !projectId && capabilities.worktreesDirectory === true, keepSupported: showRules && capabilities.storageCleanupRun === true, keepValue: keep,
+    return { ...empty, available: true, cleanupReports, cleanupSummary: lastRunSummary(cleanupReports, environments.length), directory: str(settings.worktreesDirectory), directorySupported: !projectId && capabilities.worktreesDirectory === true, keepSupported: showRules && capabilities.storageCleanupRun === true, keepValue: keep,
       keepDescription: keep === 'any-local-files' ? 'Includes ignored files, except node_modules.' : keep === 'tracked-changes' ? 'Deletes untracked and ignored files, including .env.' : 'Keeps edits and untracked files. Deletes ignored files, including .env.',
       keepOptions: [['any-local-files', 'Any local files'], ['uncommitted-changes', 'Uncommitted changes'], ['tracked-changes', 'Edited tracked files']].map(([value, label]) => ({ value, label, selected: value === keep })),
       mode, modeLabel: modeLabels[mode] || 'Inherit',
+
       modeDescription: mode === 'off' ? "Keep this project's worktrees until you delete them manually." : mode === 'custom' ? 'Use these rules for this project.' : "Use each machine's worktree cleanup settings.",
       modes: ['inherit', 'off', 'custom'].map(value => ({ value, label: modeLabels[value], selected: value === mode })),
       worktrees: showRules ? view(storageDefinitions.slice(0, 5).filter(([key]) => key !== 'worktreeSettledAfterDays' || capabilities.settledWorktreeCleanup === true), !projectId && capabilities.worktreesDirectory !== true) : [],
