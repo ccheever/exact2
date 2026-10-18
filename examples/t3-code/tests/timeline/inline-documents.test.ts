@@ -29,12 +29,14 @@ test('signed URLs are chosen once and retain the mounted document through refres
   const key = inlineDocumentKey(client, 't', 'i', ref);
   await syncInlineDocuments(client, native, 0);
   const initial = inlineDocumentView(client, key, ref);
-  expect(initial.src).toStartWith('http://127.0.0.1:1/api/assets/a?bucket=1#t3-theme=');
+  expect(initial.src).toStartWith('assets/inline-document/index.html#');
+  const config = JSON.parse(decodeURIComponent(initial.src.split('#')[1]!));
+  expect(config.src).toStartWith('http://127.0.0.1:1/api/assets/a?bucket=1#t3-theme=');
   await syncInlineDocuments(client, native, 1_000_000);
   expect(calls).toHaveLength(1);
   expect(inlineDocumentView(client, key, ref).src).toBe(initial.src);
   inlineDocumentEvent(client, key, 'loaded', '');
-  inlineDocumentEvent(client, key, 'message', JSON.stringify({ jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { height: 250 } }));
+  inlineDocumentEvent(client, key, 'message', JSON.stringify({ t3Document: config.token, message: { jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { height: 250 } } }));
   expect(inlineDocumentView(client, key, ref)).toMatchObject({ ready: true, height: 250 });
 });
 
@@ -50,7 +52,7 @@ test('a failed URL mint remains an error until an explicit retry and never spins
   client.rpc = async () => ({ relativeUrl: '/api/assets/retry', expiresAt: 10_000_000 });
   await syncInlineDocuments(client, native, 2);
   expect(inlineDocumentView(client, key, ref)).toMatchObject({ error: '', ready: false });
-  expect(inlineDocumentView(client, key, ref).src).toContain('/api/assets/retry');
+  expect(decodeURIComponent(inlineDocumentView(client, key, ref).src)).toContain('/api/assets/retry');
 });
 
 test('a reply from the previous connection never publishes into the replacement frame', async () => {
@@ -64,5 +66,24 @@ test('a reply from the previous connection never publishes into the replacement 
   expect(inlineDocumentView(client, key, ref).src).toBe('');
   client.rpc = async () => ({ relativeUrl: '/api/assets/new', expiresAt: 10_000_000 });
   await syncInlineDocuments(client, native, 0);
-  expect(inlineDocumentView(client, key, ref).src).toContain('/api/assets/new');
+  expect(decodeURIComponent(inlineDocumentView(client, key, ref).src)).toContain('/api/assets/new');
+});
+
+
+test('expanding and restoring a document keeps its source and ignores fullscreen height reports', async () => {
+  const client = fixture();
+  let mints = 0;
+  client.rpc = async () => { mints++; return { relativeUrl: '/api/assets/resident', expiresAt: 10_000_000 }; };
+  const key = inlineDocumentKey(client, 't', 'i', ref);
+  await syncInlineDocuments(client, native, 0);
+  const initial = inlineDocumentView(client, key, ref);
+  const config = JSON.parse(decodeURIComponent(initial.src.split('#')[1]!));
+  await inlineDocumentEvent(client, key, 'fullscreen', 'open');
+  await inlineDocumentEvent(client, key, 'measure', '1280|840');
+  await inlineDocumentEvent(client, key, 'message', JSON.stringify({ t3Document: config.token, message: { jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { height: 840 } } }));
+  expect(inlineDocumentView(client, key, ref)).toMatchObject({ fullscreen: true, src: initial.src, height: initial.height });
+  await inlineDocumentEvent(client, key, 'fullscreen', 'close');
+  await syncInlineDocuments(client, native, 1);
+  expect(inlineDocumentView(client, key, ref)).toMatchObject({ fullscreen: false, src: initial.src, height: initial.height });
+  expect(mints).toBe(1);
 });

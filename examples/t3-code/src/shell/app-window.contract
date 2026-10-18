@@ -449,11 +449,11 @@ component T3Window
   // A link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
   // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button"). The
   // click's modifiers are its press's own (`kind|meta+shift`; no native gesture read).
-  // The Save panel copied the file out, or was dismissed: nothing follows, as a browser download shows nothing more.
+  // Complete this Save request before presenting the next file in an app download.
   action saveChosen(name: string)
-    let saved = name
+    chatLocal("save-complete", `${data.saveRequest.nonce}`, name)
   action saveDismissed
-    let dismissed = true
+    chatLocal("save-complete", `${data.saveRequest.nonce}`, "")
   // A ref list scrolled toward its end (ref-paging.contract RefPageScroll): ref-paging.ts loads its next page.
   action refScrollEnd(name: string)
     chatLocal("ref-scroll-end", name, "")
