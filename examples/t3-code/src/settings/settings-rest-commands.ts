@@ -6,7 +6,7 @@ import { hostCredentialsCommand } from './source-control-credentials';
 import { toggleRemovalPick } from '../appearance/settings-a-collections';
 import type { T3Client } from '../client/client';
 import { ClientError, type Files, type Native } from '../client/protocol';
-import { applyShell, arr, initialShell, obj, str, type Json, type Obj } from '../client/domain';
+import { applyShell, arr, effectiveWorktreeRules, initialShell, obj, str, type Json, type Obj } from '../client/domain';
 import { shortcutInput, whenExpression, validShortcut, validWhen } from './keybinding-settings';
 import { rowId } from './keybinding-view';
 import { scheduledTaskCommand } from './scheduled-tasks-commands';
@@ -24,6 +24,8 @@ import { postScopedNotice, scopeEnvironments, scopedWriter } from './settings-sc
 import { PROJECT_SCOPED, applyDeviceSetting } from './settings-core'; // "Open links in"
 import { copyThreadReference } from '../sidebar/thread-reference'; // ⇧⌘C copies the PR link or the thread ID
 import { byEnvironment, environmentClient, groupOfMember } from './projects-fleet';
+import { scopedStorageCommand } from './storage-scope';
+import { databaseCommand } from './storage-maintenance';
 import { fleetThreadId, parseFleetThreadId } from '../connections/settings-b-fleet';
 
 /** Contract sends `a=encodeURIComponent(x)&b=…`; Hermes has no URLSearchParams. */
@@ -60,17 +62,12 @@ async function currentScope(client: T3Client, access: Access, scope: string) {
   return { environmentId, projectId, shell };
 }
 
-const worktreeKeys = ['worktreeOnDelete', 'worktreeAfterDays', 'worktreeOnMerge', 'worktreeUnchanged'];
-const retentionKeys = ['worktreeAfterDays', 'browserArtifactsAfterDays', 'logsAfterDays'];
+const worktreeKeys = ['worktreeKeepWhen', 'worktreeSettledAfterDays', 'worktreeOnDelete', 'worktreeAfterDays', 'worktreeOnMerge', 'worktreeUnchanged'];
+const retentionKeys = ['worktreeSettledAfterDays', 'worktreeAfterDays', 'browserArtifactsAfterDays', 'logsAfterDays'];
 
 /** resolveWorktreeCleanup from packages/shared/projectSettings.ts. */
 export function resolveWorktreeCleanup(settings: Obj, projectId: string): Obj {
-  const override = projectId ? obj(obj(settings.projectSettingsOverrides)[projectId]) : {};
-  const policy = obj(override.worktreeCleanup ?? settings.worktreeCleanup);
-  if (policy.mode === 'custom') return { ...obj(policy.rules) };
-  if (policy.mode === 'off') return { worktreeAfterDays: null, worktreeOnMerge: false, worktreeOnDelete: false, worktreeUnchanged: false };
-  const cleanup = obj(settings.storageCleanup);
-  return { worktreeAfterDays: cleanup.worktreeAfterDays ?? null, worktreeOnMerge: cleanup.worktreeOnMerge === true, worktreeOnDelete: cleanup.worktreeOnDelete === true, worktreeUnchanged: cleanup.worktreeUnchanged === true };
+  return effectiveWorktreeRules(settings, projectId ? obj(obj(settings.projectSettingsOverrides)[projectId]) : {});
 }
 
 /** StorageSettings.tsx writes, through planScopedSettingsPatch / planScopedSettingsClear. */
@@ -84,12 +81,19 @@ export function storagePatch(settings: Obj, projectId: string, key: string, raw:
     else current.worktreeCleanup = raw === 'off' ? { mode: 'off' } : { mode: 'custom', rules: resolveWorktreeCleanup(settings, projectId) };
     return { projectSettingsOverrides: { [projectId]: Object.keys(current).length ? current : null } };
   }
-  if (retentionKeys.includes(key)) {
+  if (key === 'worktreesDirectory') {
+    if (projectId) throw new ClientError('Worktree location belongs to the environment.');
+    return { worktreesDirectory: raw.trim() };
+  }
+  if (key === 'worktreeKeepWhen') {
+    if (!['any-local-files', 'uncommitted-changes', 'tracked-changes'].includes(raw)) throw new ClientError('Choose which local changes keep a worktree.');
+    value = raw;
+  } else if (retentionKeys.includes(key)) {
     if (raw === 'null') value = null;
     else {
       const days = Number(raw);
       if (!/^\s*\d+(\.\d+)?\s*$/.test(raw) || !Number.isFinite(days)) throw new ClientError('Enter a number of days.');
-      value = Math.min(3650, Math.max(1, Math.round(days)));
+      value = Math.min(3650, Math.max(key === 'worktreeSettledAfterDays' ? 0 : 1, Math.round(days)));
     }
   } else if (['worktreeOnDelete', 'worktreeOnMerge', 'worktreeUnchanged'].includes(key)) {
     if (raw !== 'true' && raw !== 'false') throw new ClientError('Choose On or Off.');
@@ -110,6 +114,8 @@ export function storagePatch(settings: Obj, projectId: string, key: string, raw:
 }
 
 export async function restCommand(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
+  if ((op === 'storage' || op === 'storage-run') && params(value).scope !== undefined) return scopedStorageCommand(client, native, op, params(value), storagePatch);
+  if (op.startsWith('storage-') && op !== 'storage-run') { const input = params(value); return databaseCommand(client, native, storage, op, str(input.environment), str(input.command)); }
   if (op.startsWith('archive-')) return archiveCommand(client, native, storage, op, scope, value);
   if (op === 'browser-link-target') { if (!applyDeviceSetting(client.local, 'browserLinkTarget', value)) throw new ClientError('Unsupported setting.'); await client.savePreferences(storage); return ''; } // "Open links in"
   if (op === 'device-tools') return deviceToolsCommand(client, native, params(value));
@@ -249,6 +255,7 @@ export function viewState(client: T3Client) {
 
 export async function restLocal(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
   void native; void storage; void scope; void value;
+  if (op === 'storage-dismiss-database' || op === 'storage-copy-database') { const input = params(value); return databaseCommand(client, native, storage, op, str(input.environment), str(input.command)); }
   if (op === 'rescan') { viewState(client).rescan++; return ''; }
   if (op.startsWith('diag-')) return telemetryLocal(client, op, value); // settings-a-telemetry.ts
   // The collection removal dialog's checkboxes: device-local, never gated on a pending write.

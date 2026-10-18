@@ -3,7 +3,7 @@
 // models.ts/threadSettled.ts/threadSort.ts; MIT, see LICENSE-T3): status, the
 // shelf a thread lives on, the static sort, unread/woke/recede prominence and
 // the labels a row draws. Pure functions over the raw V2 thread shell.
-// 1e2ecbd975 (1302ccacbd): the Working shelf orders by the last authored send
+// T3 Code 9c161462c9: the Working shelf orders by the last authored send
 // (threadInbox.ts sortWorkingThreadsBySend); the active shelf keeps the return order.
 import { pendingSubagentRequest } from './subagent-requests';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -37,8 +37,8 @@ const terminal = (status: string) => ['completed', 'interrupted', 'failed', 'can
 export const backgroundHolds = (thread: Obj): boolean => arr(thread.pendingBackgroundTasks).some(task => str(task.kind) !== 'command');
 /** models.ts shellRuntime: idle parks only the roster that holds the run's completion. */
 export function shellRuntime(thread: Obj): Runtime | null {
-  if (thread.latestRunId == null && thread.activeProviderThreadId == null) return null;
   const park = backgroundHolds(thread) && thread.status !== 'failed';
+  if (thread.latestRunId == null && thread.activeProviderThreadId == null && !park) return null;
   return { status: park ? 'idle' : str(thread.activityRunStatus ?? thread.status), activeRunId: str(thread.activeRunId),
     activityStartedAt: thread.activityRunStartedAt === undefined ? undefined : thread.activityRunStartedAt === null ? null : str(thread.activityRunStartedAt),
     updatedAt: str(thread.updatedAt), lastErrorClass: str(thread.lastErrorClass) };

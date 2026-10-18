@@ -141,7 +141,7 @@ component DetailsBody
           if details.editorShow and density != "essential"
             OpenInRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), act=act)
           // A project with scripts shows its primary script as a split row (project-scripts.contract).
-          if details.scriptName != ""
+          if details.scripts.length > 0
             ScriptRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), run=act("terminallocal:run-script", "", ""), act=act)
           else
             // ProjectScriptsControl's openAddDialog: the Add Action dialog over the thread (ProjectDialogs, settings-b-actions.contract).

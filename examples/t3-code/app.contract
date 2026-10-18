@@ -1146,8 +1146,8 @@ component T3Code
         if result.relaunch
           relaunch()
         if pendingModal != ""
-          modalError = result.message.startsWith("toasted:") ? "" : result.message
-        if result.message == ""
+          modalError = result.message == "task-webhook-keep" or result.message.startsWith("toasted:") ? "" : result.message
+        if result.message == "" or result.message == "task-webhook-keep"
           if pendingModal == "connect-first" or pendingModal == "connect"
             connecting = false
             origin = ""
@@ -1173,7 +1173,8 @@ component T3Code
               settingsProjectKey = ""
               settingsProjectId = ""
               settingsCheckout = ""
-            restEditor = ""
+            if result.message != "task-webhook-keep"
+              restEditor = ""
             settingsRefresh = settingsRefresh + 1
           if pendingModal == "settings"
             settingsRefresh = settingsRefresh + 1

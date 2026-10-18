@@ -76,7 +76,7 @@ describe('live streams', () => {
     expect(requests.map(request => request.method)).toEqual(['scheduledTasks.subscribe', 'subscribeProjectClones']);
     expect(liveFleetEvent(entry, { key: PROJECT_CLONES_KEY, generation: 4, subscriptionId: '4-2', value: [{ projectId: 'q' }] })).toBe(true);
     expect(liveFleetEvent(entry, { key: 'shell', generation: 4, subscriptionId: '4-9', value: {} })).toBe(false);
-    expect(LIVE_KEYS).toEqual(['scheduled-tasks', 'project-clones', 'storage-cleanup-report', 'settings-device-hosts']);
+    expect(LIVE_KEYS).toEqual(['scheduled-tasks', 'project-clones', 'storage-cleanup-report', 'database-storage', 'settings-device-hosts']);
     expect(EnvironmentFleet.native(native, entry.key).available).toBe(true);
   });
 });

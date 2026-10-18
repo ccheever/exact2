@@ -1,10 +1,11 @@
 // Composer commands the footer and banners issue,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9: ChatView.tsx (onResume,
+// adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3. Sources at 9c161462c9: ChatView.tsx (onResume,
 // onImplementPlanInNewThread, handleUnsnoozeActiveThread, acknowledgeActiveThreadWoke,
 // onProviderModelSelect's provider lock), ChatView.logic.ts (deriveLockedProvider,
 // resolveComposerProviderSelection), threadWorkflows.ts (threadSupportsProviderHandoff),
 // TraitsPicker.tsx (option choice) and QueuedRunsControl.tsx.
 import { arr, obj, str, type Obj } from '../client/domain';
+import { visiblePullRequests } from '../panel/shell-pr';
 import { ClientError, activeRun, launchPayload, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
@@ -199,10 +200,17 @@ export async function composerCommand(client: T3Client, native: Native, storage:
   if (op === 'branch-restore' || op === 'branch-restore-confirmed') return restoreThreadBranch(client, native, storage, op === 'branch-restore-confirmed');
   if (op === 'branch' || op === 'branch-create') return selectBranch(client, native, storage, value, op === 'branch-create');
   if (op === 'stop-background') {
-    // handleStopBackgroundWork → interruptThreadTurn without a run: the latest run owns the background work.
+    // A PR watch can hold a thread that never ran (interruptThreadTurn).
     const projection = requireThread(client), threadId = client.threadId;
     const runs = arr(projection.runs), run = activeRun(projection) ?? runs.reduce<Obj | undefined>((latest, entry) => !latest || Number(entry.ordinal) > Number(latest.ordinal) ? entry : latest, undefined);
-    if (!run) throw new ClientError('There is no background work to stop.');
+    if (!run) {
+      for (const link of visiblePullRequests(obj(projection.thread).pullRequests)) {
+        if (link.watch === undefined) continue;
+        const [commandId] = await access.ids(1);
+        await access.dispatch(storage, { type: 'thread.pull-request.watch', commandId, threadId, host: link.host, repository: link.repository, number: link.number, watching: false }, 'Stop pull request watch');
+      }
+      return '';
+    }
     const [commandId] = await access.ids(1);
     await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId, runId: str(run.id) }, 'Stop background work');
     return '';
