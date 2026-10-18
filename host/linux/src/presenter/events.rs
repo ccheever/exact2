@@ -515,10 +515,13 @@ impl<D: DataSource> Presenter<D> {
     /// contact is down. Never inside `frame()`: its pixels and witness are
     /// the tree it painted.
     pub fn follow_pointer(&mut self) {
+        let Some(at) = self.hover_point else { return };
         if self.contact.is_some() || self.pointer_held.is_some() || self.pointer_buttons != 0 {
+            // No hover event while held, but a `:hover` look follows the point (LLP 1121 D8).
+            let hit = self.hit(at.0, at.1);
+            self.refresh_looks(Some(hit));
             return;
         }
-        let Some(at) = self.hover_point else { return };
         if let Some(error) = self.hover_at(Some(at), self.host.now()) {
             self.host.log(error);
         }

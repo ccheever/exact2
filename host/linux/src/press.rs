@@ -53,7 +53,10 @@ pub(crate) fn paints_over(node: &exact_kernel::NodeRef<'_>, property: Property) 
         _ => return false,
     };
     rows.iter().any(|r| node.style.mask.has(*r))
-        || node.looks().iter().any(|(_, l)| l.mask.has(row))
+        || node
+            .looks()
+            .iter()
+            .any(|(_, l)| l.mask.union(l.written).has(row))
 }
 
 /// Whether a press on `node` shows anything of its own: a scale or the
@@ -90,6 +93,10 @@ pub(crate) fn present(
             };
         }
     }
+    // A disabled node shows no press, its release ease included; the
+    // painter clamps opacity, so a base beyond 0 to 1 is clamped first.
+    let progress = if disabled { 0. } else { progress };
+    shown.opacity = shown.opacity.clamp(0., 1.);
     shown.press = scale(node.style.press_scale, progress);
     shown.press_paint = progress;
     let s = node.style;

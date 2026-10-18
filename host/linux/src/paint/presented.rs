@@ -240,8 +240,11 @@ impl BoxPaint {
                 .find(|(s, _)| *s == state)
                 .map(|(_, l)| l)
         };
-        // `currentcolor` in a look is the node's colour, as in its rows.
-        let current = node.computed_row(exact_kernel::StyleId::TextColor, |s| s.text_color);
+        // `currentcolor` in a look is the node's colour as shown (a colour
+        // transition's), as in its rows.
+        let computed = node.computed_row(exact_kernel::StyleId::TextColor, |s| s.text_color);
+        let current = (shown.colors.color(Property::Color))
+            .unwrap_or_else(|| super::rgba(computed.resolve(dark)));
         let mut paint = self;
         for (state, on) in [
             (exact_kernel::LOOK_HOVER, shown.looks[0]),
@@ -256,17 +259,19 @@ impl BoxPaint {
 
     /// The box with a look's rows in place of its own: its background, its
     /// border sides' colours and its shadow.
-    fn looked(
-        mut self,
-        look: &StyleProps,
-        current: exact_kernel::ColorValue,
-        dark: bool,
-    ) -> BoxPaint {
+    fn looked(mut self, look: &StyleProps, current: [u8; 4], dark: bool) -> BoxPaint {
         use exact_kernel::StyleId::*;
-        let rgba =
-            |c: Option<exact_kernel::ColorValue>| super::rgba(c.unwrap_or(current).resolve(dark));
-        if look.mask.has(BackgroundColor) {
-            self.background = rgba(look.background_color);
+        // A row it clears (`unset`) is written with no value: CSS's initial
+        // one (a transparent background, a `currentcolor` side, no shadow).
+        let names = |id| look.mask.union(look.written).has(id);
+        let rgba = |c: Option<exact_kernel::ColorValue>| {
+            c.map_or(current, |c| super::rgba(c.resolve(dark)))
+        };
+        if names(BackgroundColor) {
+            self.background = match look.mask.has(BackgroundColor) {
+                true => rgba(look.background_color),
+                false => [0; 4],
+            };
         }
         let sides = [
             (BorderColorTop, look.border_color_top),
@@ -275,12 +280,15 @@ impl BoxPaint {
             (BorderColorLeft, look.border_color_left),
         ];
         for (color, (id, side)) in self.colors.iter_mut().zip(sides) {
-            if look.mask.has(id) {
-                *color = rgba(side);
+            if names(id) {
+                *color = rgba(side.filter(|_| look.mask.has(id)));
             }
         }
-        if look.mask.has(BoxShadow) {
-            self.shadows = ShadowPaint::capture(look, dark);
+        if names(BoxShadow) {
+            self.shadows = match look.mask.has(BoxShadow) {
+                true => ShadowPaint::capture(look, dark),
+                false => Vec::new(),
+            };
         }
         self
     }

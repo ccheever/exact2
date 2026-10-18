@@ -20,6 +20,9 @@ const APP: &str = r##"component App
           border-color = "#ff0000"
           opacity = 0.8
         text "c" testId="child"
+      box background-color="#00ff00" width=300 height=40 testId="clears"
+        :hover
+          background-color = "unset"
       box press=go disabled=true background-color="#00ff00" width=300 height=60 testId="off"
         :hover
           background-color = "#ffff00"
@@ -159,4 +162,16 @@ fn a_looks_opacity_is_never_kept() {
         [0, 255, 0],
         "its own opacity, 1, again"
     );
+}
+
+/// A row a look clears (`unset`) is CSS's initial value: a transparent
+/// background shows the page.
+#[test]
+fn a_looks_clear_is_the_initial_value() {
+    let mut p = boot();
+    let c = rect(&mut p, "clears");
+    let at = (c.0 + 20., c.1 + 20.);
+    assert_eq!(pixel(&mut p, at.0, at.1), [0, 255, 0]);
+    p.pointer_move(at.0, at.1, 0.).unwrap();
+    assert_eq!(pixel(&mut p, at.0, at.1), [255, 255, 255]);
 }
