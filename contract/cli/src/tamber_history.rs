@@ -126,6 +126,60 @@ impl Lit {
 struct Read {
     rows: Vec<(Key, Lit)>,
     rest: String,
+    /// The rows written over more than one line, which set-state and
+    /// unset-state refuse.
+    spread: Vec<Key>,
+}
+
+/// A line's parentheses opened less those closed, and where its comment
+/// starts, both outside its strings.
+fn scan(l: &str) -> (i32, Option<usize>) {
+    let (mut depth, mut quoted, mut escaped) = (0, false, false);
+    let bytes = l.as_bytes();
+    for (i, &c) in bytes.iter().enumerate() {
+        match (quoted, escaped, c) {
+            (true, true, _) => escaped = false,
+            (true, false, b'\\') => escaped = true,
+            (_, false, b'"') => quoted = !quoted,
+            (false, _, b'/') if bytes.get(i + 1) == Some(&b'/') => return (depth, Some(i)),
+            (false, _, b'(') => depth += 1,
+            (false, _, b')') => depth -= 1,
+            _ => {}
+        }
+    }
+    (depth, None)
+}
+
+/// Whether the row `k` in `text` has a comment on its line, or is its
+/// block's last row under a header with one: what `unset-state` takes.
+fn commented(text: &str, k: &Key) -> bool {
+    let Ok(file) = contract_syntax::parse(text) else {
+        return false;
+    };
+    let Some(style) = file.styles.iter().find(|s| s.name == k.0) else {
+        return false;
+    };
+    let name = contract_syntax::state::state_attr(&format!(":{}", k.1), &k.2);
+    let Some(row) = style.attrs.iter().find(|a| a.name == name) else {
+        return false;
+    };
+    let lines: Vec<&str> = text.split('\n').collect();
+    let at = row.span.line as usize - 1;
+    if lines.get(at).is_some_and(|l| scan(l).1.is_some()) {
+        return true;
+    }
+    let alone = style
+        .attrs
+        .iter()
+        .filter(|a| contract_syntax::state::state_of(&a.name).is_some_and(|(st, _)| st == k.1))
+        .count()
+        == 1;
+    let header = (0..at).rev().find(|&i| {
+        let l = lines[i].trim();
+        l.strip_prefix(':')
+            .is_some_and(|r| r[..scan(r).1.unwrap_or(r.len())].trim() == k.1)
+    });
+    alone && header.is_some_and(|i| scan(lines[i]).1.is_some())
 }
 
 /// The rows the border's colour shares: their order is the design's too.
@@ -138,14 +192,16 @@ fn read(text: &Option<String>, which: &str) -> Result<Read, String> {
         return Ok(Read {
             rows: Vec::new(),
             rest: String::new(),
+            spread: Vec::new(),
         });
     };
     let file = contract_syntax::parse(text)
         .map_err(|e| format!("{which} does not parse: {}", e.message))?;
     let mut lines: Vec<String> = text.split('\n').map(str::to_string).collect();
     let mut rows = Vec::new();
+    let mut spread = Vec::new();
     // A line's comment, which stays the code's.
-    let comment = |l: &str| l.find("//").map_or(String::new(), |i| l[i..].to_string());
+    let comment = |l: &str| scan(l).1.map_or(String::new(), |i| l[i..].to_string());
     for (i, style) in file.styles.iter().enumerate() {
         if file.styles[..i].iter().any(|s| s.name == style.name) {
             return Err(format!("{which} declares `style {}` twice", style.name));
@@ -162,15 +218,21 @@ fn read(text: &Option<String>, which: &str) -> Result<Read, String> {
                 Lit::of(&a.value, &line),
             ));
             // The row's lines, through a value's parentheses left open.
+            // Through a value's parentheses left open, or a line that
+            // ends wanting more (`opacity=-` and its number below).
             let mut depth = 0i32;
             let mut end = at;
             for (j, l) in lines.iter().enumerate().skip(at) {
-                let code = l.split("//").next().unwrap_or("");
-                depth += code.matches('(').count() as i32 - code.matches(')').count() as i32;
+                let (open, cut) = scan(l);
+                depth += open;
                 end = j;
-                if depth <= 0 {
+                let code = l[..cut.unwrap_or(l.len())].trim_end();
+                if depth <= 0 && !code.ends_with(['-', '=']) {
                     break;
                 }
+            }
+            if end > at {
+                spread.push((style.name.clone(), state.to_string(), row.to_string()));
             }
             for l in &mut lines[at..=end] {
                 *l = comment(l);
@@ -182,7 +244,7 @@ fn read(text: &Option<String>, which: &str) -> Result<Read, String> {
             let name = l
                 .trim()
                 .strip_prefix(':')
-                .map(|r| r.split("//").next().unwrap_or("").trim());
+                .map(|r| r[..scan(r).1.unwrap_or(r.len())].trim());
             if name.is_some_and(|n| contract_syntax::state::STATES.contains(&n)) {
                 *l = comment(l);
             }
@@ -194,7 +256,7 @@ fn read(text: &Option<String>, which: &str) -> Result<Read, String> {
         .cloned()
         .collect::<Vec<_>>()
         .join("\n");
-    Ok(Read { rows, rest })
+    Ok(Read { rows, rest, spread })
 }
 
 /// One state edit: a row's value before and after, or a block's border
@@ -369,6 +431,7 @@ fn revert_contract(
             continue;
         }
         let shown = now.as_ref().map_or(Value::Null, |l| json!(l.text()));
+        let spread = today.spread.contains(k);
         if now == edit.before {
             already.push(json!({"file": file, "edit": e}));
         } else if !styles.contains(&k.0) {
@@ -378,6 +441,11 @@ fn revert_contract(
             ));
         } else if now != edit.after {
             conflicts.push(refuse("the row has moved on since", shown));
+        } else if spread {
+            conflicts.push(refuse(
+                "the row is written over more than one line: edit it by hand",
+                shown,
+            ));
         } else if let Some(was) = &edit.before {
             let Some(value) = was.value() else {
                 conflicts.push(refuse(
@@ -388,14 +456,30 @@ fn revert_contract(
             };
             // Put back, a border row would land after another and change
             // which one paints a side.
-            let others = today.rows.iter().any(|((s, st, r), _)| {
-                *s == k.0 && *st == k.1 && *r != k.2 && border(r) && border(&k.2)
+            // Its rows before it in the version before: one today that
+            // was not would be under it once it is put back last.
+            let earlier: Vec<&str> = a
+                .rows
+                .iter()
+                .take_while(|(key, _)| key != k)
+                .filter(|((s, st, _), _)| *s == k.0 && *st == k.1)
+                .map(|((.., r), _)| r.as_str())
+                .collect();
+            let later = today.rows.iter().any(|((s, st, r), _)| {
+                *s == k.0
+                    && *st == k.1
+                    && *r != k.2
+                    && border(r)
+                    && border(&k.2)
+                    && !earlier.contains(&r.as_str())
             });
-            if now.is_none() && others {
+            if now.is_none() && later {
                 conflicts.push(refuse("put back last, it would paint over the block's other border rows: restore it by hand", shown));
                 continue;
             }
             ops.push(json!({"op": "set-state", "style": k.0, "state": k.1, "row": k.2, "value": value, "file": file}));
+        } else if commented(current, k) {
+            conflicts.push(refuse("unset-state would take the comment on its line (or its emptied block's header): remove the row by hand", shown));
         } else {
             ops.push(
                 json!({"op": "unset-state", "style": k.0, "state": k.1, "row": k.2, "file": file}),

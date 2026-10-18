@@ -427,5 +427,51 @@ fn history_holds_its_edges() {
             .contains("paint over"),
         "{back}"
     );
+    // Round 2: put back last where it was last, it goes back.
+    let last = base.replace(
+        "    border-left-color=\"#00ff00\"\n",
+        "    border-left-color=\"#00ff00\"\n    border-color=\"#ff0000\"\n",
+    );
+    let ok = revert(&mut s, json!(last), json!(base));
+    assert_eq!(ok["ops"][0]["op"], "set-state", "{ok}");
+    // A "(" or "//" in a string is no parenthesis or comment.
+    let quoted = base.replace("opacity=0.5", "opacity=0.5\n    box-shadow=\"( // x\"");
+    let code = compare(
+        &mut s,
+        json!(quoted),
+        json!(quoted.replace("text \"a\"", "text \"b\"")),
+    );
+    assert_eq!(code["code"], true, "{code}");
+    // A "//" in a string leaves nothing behind; a split minus is one row.
+    let url = compare(
+        &mut s,
+        json!(base),
+        json!(base.replace("opacity=0.5", "opacity=0.5\n    box-shadow=\"https://x\"")),
+    );
+    assert!(url["code"].is_null(), "{url}");
+    let split = compare(
+        &mut s,
+        json!(base),
+        json!(base.replace("opacity=0.5", "opacity=-\n      0.5")),
+    );
+    assert!(split["code"].is_null(), "{split}");
+    // Unset would take a comment on the row's line.
+    std::fs::write(
+        dir.join("app.contract"),
+        base.replace("opacity=0.5", "opacity=0.5 // kept"),
+    )
+    .unwrap();
+    let added = revert(
+        &mut s,
+        json!(base.replace("    opacity=0.5\n", "")),
+        json!(base),
+    );
+    assert!(
+        added["conflicts"][0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("comment"),
+        "{added}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

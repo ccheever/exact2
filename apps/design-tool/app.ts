@@ -573,8 +573,8 @@ const opText = (o: any): string => {
     : o?.op === 'add-axis' ? `add axis ${o.name ?? o.axis} = ${[].concat(o.values ?? []).join(' | ')}`
     : o?.op === 'add-axis-value' ? `add ${o.value} to axis ${o.axis ?? o.name}`
     : o?.op === 'remove-axis-value' ? `remove ${o.value} from axis ${o.axis ?? o.name}`
-    : o?.op === 'set-state' ? `set ${o.style} :${o.state} ${o.row} = ${o.value}`
-    : o?.op === 'unset-state' ? `unset ${o.style} :${o.state} ${o.row}`
+    : o?.op === 'set-state' ? `set ${o.style} :${String(o.state).replace(/^:/, '')} ${o.row} = ${typeof o.value === 'string' ? JSON.stringify(o.value) : o.value}`
+    : o?.op === 'unset-state' ? `unset ${o.style} :${String(o.state).replace(/^:/, '')} ${o.row}`
     : typeof o?.op === 'string' && /axis/.test(o.op) ? `${o.op.replace(/-/g, ' ')} ${o.name ?? o.axis ?? ''}${o.value ? ` ${o.value}` : ''}${o.values ? ` = ${[].concat(o.values).join(' | ')}` : ''}`.trim()
     : JSON.stringify(o);
   // The file it edits (the design's when it names none): two items may
