@@ -6,6 +6,7 @@ import { updateEverythingPass, updateEverythingState } from '../sidebar/update-e
 // the toast stack with its timers, the header's panel-control labels, the
 // right panel's surface chooser and the thread title's action menu.
 import { noteAutomationWindow } from '../browser/browser-automation';
+import { migrateModelPreferences } from '../providers/model-preferences';
 import type { T3Client } from '../client/client';
 import { terminalAvailable, terminalOpen } from '../terminal/terminal-drawer-view';
 import type { DispatchContext } from './keyboard-dispatch'; // terminal labels resolve with terminalFocus
@@ -273,6 +274,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   const state = shellState(client);
   permissionUpdateNotices(client, client.preferencesLoaded);
   if (native?.available) {
+    if (client.writable) void migrateModelPreferences(client, native).catch(() => {});
     native.watch('t3.notify');
     state.status = await nativeNotifyStatus(native, state.status, page.focused);
     await reportWindowFacts(client, native, page.visible, page.focused);

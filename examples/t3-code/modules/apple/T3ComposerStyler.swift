@@ -21,6 +21,7 @@ final class T3ComposerStyler {
     /// the typing attributes, which no storage edit reports.
     private var authored: [NSKeyValueObservation] = []
 
+    var literal = false { didSet { if oldValue != literal { chipText = ""; restyle() } } }
     var richText = true { didSet { if oldValue != richText { restyle() } } }
     /// Context ids the draft holds a record for, with each record's chip kind
     /// ("thread", "pr-open"…); a reference missing here draws unresolved.
@@ -179,7 +180,7 @@ final class T3ComposerStyler {
         let ink = baseInk ?? view.textColor ?? .textColor
         chips = chipsAfterEdits(string)
         // Past ~60k characters the marks are left unstyled so typing stays responsive.
-        let rich = richText && length <= 60_000
+        let rich = richText && !literal && length <= 60_000
         (marks, hidden) = rich ? T3ComposerStyler.inlineMarks(string, excluding: chips) : ([], [])
         tasks = rich ? T3ComposerStyler.taskLines(string, excluding: chips) : []
         storage.beginEditing()
@@ -261,6 +262,7 @@ final class T3ComposerStyler {
     /// left whole (still its own source, where it was).
     private func chipsAfterEdits(_ string: String) -> [T3ComposerChip] {
         defer { carried = nil; chipText = string }
+        if literal { return [] }
         if string == chipText { return chips }
         let parsed = T3ComposerText.chips(string)
         guard let carried, !carried.isEmpty else { return parsed }
