@@ -48,34 +48,54 @@ fn absolute_flex_sizes_match_chrome() {
         "padding:10px;height:50%",
         "nearby flex-direction:column;min-height:400px grow 1",
     ];
-    let mut failures = Vec::new();
-    for line in include_str!("fixtures/browser_absolute_flex.tsv").lines() {
-        let fields: Vec<_> = line.split('\t').collect();
-        let [name, root, container, item, count, frames] = fields[..] else {
-            panic!("invalid absolute-flex case: {line}");
-        };
-        let want: Vec<_> = frames
-            .split(' ')
-            .map(|frame| {
-                let (id, rect) = frame.split_once('=').unwrap();
-                let v: Vec<f32> = rect.split(',').map(|n| n.parse().unwrap()).collect();
-                (id.parse().unwrap(), [v[0], v[1], v[2], v[3]])
+    let cases: Vec<_> = include_str!("fixtures/browser_absolute_flex.tsv")
+        .lines()
+        .map(|line| {
+            let fields: Vec<_> = line.split('\t').collect();
+            let [name, root, container, item, count, frames] = fields[..] else {
+                panic!("invalid absolute-flex case: {line}");
+            };
+            let want: Vec<_> = frames
+                .split(' ')
+                .map(|frame| {
+                    let (id, rect) = frame.split_once('=').unwrap();
+                    let v: Vec<f32> = rect.split(',').map(|n| n.parse().unwrap()).collect();
+                    (id.parse().unwrap(), [v[0], v[1], v[2], v[3]])
+                })
+                .collect();
+            (name, root, container, item, count.parse().unwrap(), want)
+        })
+        .collect();
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let failures: Vec<_> = std::thread::scope(|scope| {
+        let jobs: Vec<_> = cases
+            .chunks(cases.len().div_ceil(workers).max(1))
+            .map(|chunk| {
+                scope.spawn(move || {
+                    let mut failures = Vec::new();
+                    for (name, root, container, item, count, want) in chunk {
+                        for kind in [NodeType::Canvas, NodeType::Image] {
+                            let k = fixture(root, container, item, *count, kind);
+                            let found = mismatches(&format!("{name}; {kind:?}"), &k, want);
+                            if owed.contains(name) {
+                                if found.is_empty() {
+                                    failures.push(format!(
+                                        "{name}; {kind:?} now matches; remove its queue entry and owed marker"
+                                    ));
+                                }
+                            } else {
+                                failures.extend(found);
+                            }
+                        }
+                    }
+                    failures
+                })
             })
             .collect();
-        for kind in [NodeType::Canvas, NodeType::Image] {
-            let k = fixture(root, container, item, count.parse().unwrap(), kind);
-            let found = mismatches(&format!("{name}; {kind:?}"), &k, &want);
-            if owed.contains(&name) {
-                if found.is_empty() {
-                    failures.push(format!(
-                        "{name}; {kind:?} now matches; remove its queue entry and owed marker"
-                    ));
-                }
-            } else {
-                failures.extend(found);
-            }
-        }
-    }
+        jobs.into_iter()
+            .flat_map(|job| job.join().unwrap())
+            .collect()
+    });
     assert!(
         failures.is_empty(),
         "{}\n{} failures",
