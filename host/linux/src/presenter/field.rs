@@ -7,6 +7,8 @@
 use super::*;
 use crate::text::field::Cursor;
 use exact_runner::{ControlValue, FieldSelection, InputDetails, SelectionDirection};
+use std::rc::Rc;
+use swash::text::{Category, Codepoint};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// A field's selection as this host keeps it, beside the value it indexes.
@@ -82,7 +84,11 @@ pub(super) fn delete(
 ) -> Option<(String, FieldSelection)> {
     let mut s = selection;
     if s.start == s.end {
-        let other = step(text, s.start, forward);
+        let other = if forward {
+            grapheme_step(text, s.start, true)
+        } else {
+            step(text, s.start, false)
+        };
         if other == s.start {
             return None;
         }
@@ -105,6 +111,17 @@ fn step(text: &str, at: u32, forward: bool) -> u32 {
         Some(c) => at - c.len_utf16() as u32,
         None => at,
     }
+}
+
+fn grapheme_step(text: &str, at: u32, forward: bool) -> u32 {
+    let byte = byte_at(text, at);
+    let mut boundaries = text.grapheme_indices(true).map(|(i, _)| i);
+    let next = if forward {
+        boundaries.find(|i| *i > byte).unwrap_or(text.len())
+    } else {
+        boundaries.take_while(|i| *i < byte).last().unwrap_or(0)
+    };
+    utf16_len(&text[..next])
 }
 
 /// The start (`end`: the end) of the line `at` is on: a textarea's line
@@ -139,8 +156,8 @@ pub(super) fn moved(
         _ => (s.start, s.end),
     };
     let to = |at: u32| match key {
-        "ArrowLeft" => Some(step(text, at, false)),
-        "ArrowRight" => Some(step(text, at, true)),
+        "ArrowLeft" => Some(grapheme_step(text, at, false)),
+        "ArrowRight" => Some(grapheme_step(text, at, true)),
         "Home" => Some(line_edge(text, at, false, textarea)),
         "End" => Some(line_edge(text, at, true, textarea)),
         _ => None,
@@ -191,7 +208,19 @@ fn word_step(text: &str, at: u32, forward: bool) -> u32 {
         if part.chars().all(char::is_whitespace) {
             continue;
         }
-        let punctuation = part.unicode_words().next().is_none();
+        let punctuation = part.chars().all(|c| {
+            matches!(
+                c.category(),
+                Category::Punctuation
+                    | Category::ConnectorPunctuation
+                    | Category::DashPunctuation
+                    | Category::ClosePunctuation
+                    | Category::FinalPunctuation
+                    | Category::InitialPunctuation
+                    | Category::OtherPunctuation
+                    | Category::OpenPunctuation
+            )
+        });
         if let Some(last) = words
             .last_mut()
             .filter(|last| punctuation && last.2 && last.1 == start)
@@ -350,6 +379,22 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    fn current_field(
+        &mut self,
+        id: ViewId,
+        value: &str,
+    ) -> Option<Rc<crate::paint::field::PaintedField>> {
+        self.boxes();
+        let field = self.brush.field_text.get(&id)?.clone();
+        if field.value == value {
+            Some(field)
+        } else {
+            // Keep the acknowledged placement, but never index newer text
+            // with the paragraph from a picture still waiting for its flip.
+            Some(Rc::new(field.for_value(&mut self.text.borrow_mut(), value)))
+        }
+    }
+
     /// A press indexes the same paragraph and placement that paint the value.
     pub(crate) fn press_field(&mut self, id: ViewId, x: f32, y: f32) {
         if !self
@@ -366,9 +411,14 @@ impl<D: DataSource> Presenter<D> {
             .iter()
             .find(|b| b.id == id)
             .map_or((x, y), |b| b.field_point(x, y));
-        if let Some(cursor) = self.brush.field_text.get(&id).and_then(|f| f.hit(x, y)) {
-            let value = self.field_value(id);
-            self.mark_field(id, &value, FieldSelection::caret(cursor.offset), false);
+        let value = self.field_value(id);
+        if let Some(cursor) = self.current_field(id, &value).and_then(|f| f.hit(x, y)) {
+            self.mark_field(
+                id,
+                &value,
+                FieldSelection::caret(cursor.offset.min(utf16_len(&value))),
+                false,
+            );
             if let Some(mark) = self.fields.get_mut(&id) {
                 mark.upstream = cursor.upstream;
             }
@@ -390,8 +440,7 @@ impl<D: DataSource> Presenter<D> {
             let at = word_step(value, cursor.offset, key == "ArrowRight");
             (toward(selection, at, modifiers.shift), false)
         } else if textarea && matches!(key, "ArrowUp" | "ArrowDown" | "Home" | "End") {
-            self.boxes();
-            let Some(field) = self.brush.field_text.get(&id) else {
+            let Some(field) = self.current_field(id, value) else {
                 return;
             };
             let to = if matches!(key, "ArrowUp" | "ArrowDown") {
@@ -404,6 +453,39 @@ impl<D: DataSource> Presenter<D> {
                 field.geometry.vertical(cursor, x, key == "ArrowDown")
             } else {
                 field.geometry.edge(cursor, key == "End")
+            };
+            (
+                toward(selection, to.offset.min(utf16_len(value)), modifiers.shift),
+                to.upstream,
+            )
+        } else if textarea && matches!(key, "ArrowLeft" | "ArrowRight") {
+            let Some(field) = self.current_field(id, value) else {
+                return;
+            };
+            let forward = key == "ArrowRight";
+            let collapse = !modifiers.shift && selection.start != selection.end;
+            let to = if !collapse
+                && field.geometry.wrap_boundary(cursor.offset)
+                && cursor.upstream == forward
+            {
+                Cursor {
+                    offset: cursor.offset,
+                    upstream: !forward,
+                }
+            } else {
+                let offset = if collapse {
+                    if forward {
+                        selection.end
+                    } else {
+                        selection.start
+                    }
+                } else {
+                    grapheme_step(value, cursor.offset, forward)
+                };
+                Cursor {
+                    offset,
+                    upstream: !forward && field.geometry.wrap_boundary(offset),
+                }
             };
             (toward(selection, to.offset, modifiers.shift), to.upstream)
         } else {

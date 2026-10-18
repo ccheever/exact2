@@ -39,7 +39,7 @@ pub(crate) mod damage;
 pub(crate) mod dates;
 pub mod gradient;
 pub use gradient::GradientPaint;
-mod field;
+pub(crate) mod field;
 mod fragments;
 pub(crate) use fragments::{center as tap_point, hits};
 pub(crate) use lift::{Ghost, Lift};

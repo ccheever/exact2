@@ -1,6 +1,6 @@
 //! Editing geometry from the immutable glyphs and CSS line boxes used to paint a field.
 use super::Paragraph;
-use exact_kernel::{Direction, StyleProps, TextAlign};
+use exact_kernel::{Direction, TextAlign};
 use unicode_segmentation::UnicodeSegmentation;
 
 type Rect = (f32, f32, f32, f32);
@@ -37,19 +37,19 @@ pub(crate) struct Geometry {
     len: u32,
 }
 
-pub(crate) fn line_left(style: &StyleProps, width: f32, w: f32) -> f32 {
+pub(crate) fn line_left(align: TextAlign, direction: Direction, width: f32, w: f32) -> f32 {
     if w > width {
-        return if style.direction == Direction::Rtl {
+        return if direction == Direction::Rtl {
             width - w
         } else {
             0.
         };
     }
-    let align = match style.text_align {
+    let align = match align {
         TextAlign::Justify => TextAlign::Start,
         other => other,
     };
-    let share = match align.physical(style.direction) {
+    let share = match align.physical(direction) {
         TextAlign::Center => 0.5,
         TextAlign::Right => 1.,
         _ => 0.,
@@ -58,7 +58,13 @@ pub(crate) fn line_left(style: &StyleProps, width: f32, w: f32) -> f32 {
 }
 
 impl Geometry {
-    pub(crate) fn new(paragraph: &Paragraph, value: &str, masked: bool, empty_x: f32) -> Self {
+    pub(crate) fn new(
+        paragraph: &Paragraph,
+        value: &str,
+        masked: bool,
+        empty_x: f32,
+        first_x: f32,
+    ) -> Self {
         // Painted bytes and DOM offsets differ for passwords and non-BMP characters.
         let mut offsets = vec![(0, 0)];
         let (mut byte, mut units) = (0, 0);
@@ -139,7 +145,7 @@ impl Geometry {
                 end,
                 top: run.line_top,
                 height: run.line_height,
-                empty_x,
+                empty_x: if lines.is_empty() { first_x } else { empty_x },
                 spans,
             });
             if value.is_empty() {
@@ -161,6 +167,12 @@ impl Geometry {
             });
         }
         Self { lines, len: units }
+    }
+
+    pub(crate) fn wrap_boundary(&self, offset: u32) -> bool {
+        self.lines
+            .windows(2)
+            .any(|pair| pair[0].end == offset && pair[1].start == offset)
     }
 
     fn line_index(&self, cursor: Cursor) -> usize {

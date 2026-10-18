@@ -431,3 +431,208 @@ fn field_caret_after_a_final_break_and_in_an_empty_input_is_visible() {
         }
     }
 }
+
+#[test]
+fn field_navigation_uses_the_live_value_before_display_acknowledgement() {
+    let (mut p, id) = boot("textarea", "abc", "");
+    p.set_focus(Some(id), 0.);
+    p.mark_field(id, "abc", FieldSelection::caret(3), false);
+    let first = p.display_frame().unwrap();
+    assert!(p.display_complete(&first));
+    key(&mut p, id, "d");
+    let pending = p.display_frame().unwrap();
+    key(&mut p, id, "End");
+    assert_eq!(p.field_selection(id), FieldSelection::caret(4));
+    key(&mut p, id, "X");
+    assert_eq!(p.field_text(id), "abcdX");
+    assert!(p.display_complete(&pending));
+    let latest = p.display_frame().unwrap();
+    assert!(p.display_complete(&latest));
+    assert_eq!(p.field_selection(id), FieldSelection::caret(5));
+}
+
+#[test]
+fn field_click_uses_the_live_value_before_display_acknowledgement() {
+    let (mut p, id) = boot("input", "abcdef", "");
+    p.set_focus(Some(id), 0.);
+    let first = p.display_frame().unwrap();
+    assert!(p.display_complete(&first));
+    p.mark_field(
+        id,
+        "abcdef",
+        FieldSelection {
+            start: 0,
+            end: 6,
+            direction: SelectionDirection::Forward,
+        },
+        false,
+    );
+    key(&mut p, id, "X");
+    let pending = p.display_frame().unwrap();
+    p.press_field(id, 180., 72.);
+    assert_eq!(p.field_selection(id), FieldSelection::caret(1));
+    assert!(p.display_complete(&pending));
+}
+
+#[test]
+fn field_empty_caret_keeps_text_indent() {
+    for tag in ["input", "textarea"] {
+        for placeholder in ["", "placeholder=\"hint\""] {
+            let (mut p, id) = boot(tag, "", &format!("text-indent=\"20px\" {placeholder}"));
+            p.set_focus(Some(id), 0.);
+            p.mark_field(id, "", FieldSelection::caret(0), false);
+            let y = if tag == "input" { 62 } else { 14 };
+            let pixel = p.frame().pixel(32, y).unwrap();
+            assert!(
+                pixel.red() > 200 && pixel.green() < 50,
+                "{tag} {placeholder}: {pixel:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn field_horizontal_arrows_visit_both_wrap_positions() {
+    let (mut p, id) = boot("textarea", "abcd efgh ijkl mnop qrst uvwx", "");
+    let (ox, oy) = origin(&mut p, id, true, 0.);
+    let first = p.paragraph(id).unwrap().layout_runs().next().unwrap();
+    let last = first.glyphs.last().unwrap();
+    let boundary = last.end;
+    let end_x = ox + last.x + last.w;
+    p.set_focus(Some(id), 0.);
+    let value = p.field_text(id);
+    p.mark_field(id, &value, FieldSelection::caret(0), false);
+    key(&mut p, id, "End");
+    assert_eq!(p.field_selection(id), FieldSelection::caret(boundary));
+    let pixels = p.frame();
+    let coverage: u32 = (end_x.floor() as u32..=end_x.ceil() as u32)
+        .map(|x| 255 - u32::from(pixels.pixel(x, (oy + 2.) as u32).unwrap().green()))
+        .sum();
+    assert!(coverage >= 250, "End caret: {coverage}");
+    key(&mut p, id, "ArrowRight");
+    assert_eq!(p.field_selection(id), FieldSelection::caret(boundary));
+    assert!(!p.field_cursor(id).upstream);
+    let pixel = p.frame().pixel(ox as u32, (oy + 26.) as u32).unwrap();
+    assert!(
+        pixel.red() > 200 && pixel.green() < 50,
+        "next line: {pixel:?}"
+    );
+    key(&mut p, id, "ArrowLeft");
+    assert_eq!(p.field_selection(id), FieldSelection::caret(boundary));
+    assert!(p.field_cursor(id).upstream);
+    key(&mut p, id, "ArrowRight");
+    key(&mut p, id, "ArrowRight");
+    key(&mut p, id, "ArrowLeft");
+    assert_eq!(p.field_selection(id), FieldSelection::caret(boundary));
+    assert!(p.field_cursor(id).upstream);
+    p.hold_modifier("ShiftLeft", true);
+    key(&mut p, id, "ArrowRight");
+    assert_eq!(p.field_selection(id), FieldSelection::caret(boundary));
+    key(&mut p, id, "ArrowRight");
+    assert_eq!(
+        (p.field_selection(id).start, p.field_selection(id).end),
+        (boundary, boundary + 1)
+    );
+}
+
+#[test]
+fn field_horizontal_arrows_and_delete_use_graphemes() {
+    for cluster in ["e\u{301}", "🇺🇸", "👩\u{200d}💻"] {
+        let value = format!("{cluster}x");
+        let (mut p, id) = boot("input", &value, "");
+        p.set_focus(Some(id), 0.);
+        p.mark_field(id, &value, FieldSelection::caret(0), false);
+        key(&mut p, id, "ArrowRight");
+        assert_eq!(
+            p.field_selection(id),
+            FieldSelection::caret(utf16_len(cluster)),
+            "{cluster}"
+        );
+        key(&mut p, id, "ArrowLeft");
+        assert_eq!(p.field_selection(id), FieldSelection::caret(0));
+        key(&mut p, id, "Delete");
+        assert_eq!(p.field_text(id), "x");
+    }
+    assert_eq!(
+        delete("e\u{301}", FieldSelection::caret(2), false)
+            .unwrap()
+            .0,
+        "e"
+    );
+}
+
+#[test]
+fn field_word_arrows_stop_between_adjacent_emoji() {
+    for (value, forward, backward) in [
+        ("😀👍", vec![2, 4], vec![2, 0]),
+        ("a😀👍b", vec![1, 3, 5, 6], vec![5, 3, 1, 0]),
+        ("a…… b", vec![1, 3, 5], vec![4, 1, 0]),
+    ] {
+        let (mut p, id) = boot("input", value, "");
+        p.set_focus(Some(id), 0.);
+        p.mark_field(id, value, FieldSelection::caret(0), false);
+        p.hold_modifier("ControlLeft", true);
+        for at in forward {
+            key(&mut p, id, "ArrowRight");
+            assert_eq!(p.field_selection(id), FieldSelection::caret(at), "{value}");
+        }
+        for at in backward {
+            key(&mut p, id, "ArrowLeft");
+            assert_eq!(p.field_selection(id), FieldSelection::caret(at), "{value}");
+        }
+    }
+}
+
+#[test]
+fn field_pending_display_uses_live_wraps_alignment_and_password_offsets() {
+    for (tag, value, extra, insertion) in [
+        ("textarea", "abcd efgh ijkl mnop qrst uvwx", "", "WWWW "),
+        ("input", "abc", "text-align=\"center\"", "WW"),
+        (
+            "input",
+            "abc",
+            "type=\"password\" text-align=\"right\"",
+            "😀",
+        ),
+    ] {
+        let (mut shown, id) = boot(tag, value, extra);
+        let (mut immediate, other) = boot(tag, value, extra);
+        for (p, id) in [(&mut shown, id), (&mut immediate, other)] {
+            p.set_focus(Some(id), 0.);
+            p.mark_field(id, value, FieldSelection::caret(0), false);
+        }
+        let first = shown.display_frame().unwrap();
+        assert!(shown.display_complete(&first));
+        for c in insertion.chars() {
+            key(&mut shown, id, &c.to_string());
+            key(&mut immediate, other, &c.to_string());
+        }
+        let pending = shown.display_frame().unwrap();
+        assert_eq!(shown.brush.field_text[&id].value, value);
+        for name in ["ArrowDown", "Home", "End", "ArrowUp"] {
+            key(&mut shown, id, name);
+            key(&mut immediate, other, name);
+            assert_eq!(
+                shown.field_selection(id),
+                immediate.field_selection(other),
+                "{tag} {extra} {name}"
+            );
+        }
+        for (x, y) in [(40., 24.), (85., 48.), (170., 72.)] {
+            shown.press_field(id, x, y);
+            immediate.press_field(other, x, y);
+            assert_eq!(
+                shown.field_selection(id),
+                immediate.field_selection(other),
+                "{tag} {extra} click {x},{y}"
+            );
+        }
+        key(&mut shown, id, "X");
+        key(&mut immediate, other, "X");
+        assert_eq!(shown.field_text(id), immediate.field_text(other));
+        assert!(shown.display_complete(&pending));
+        let latest = shown.display_frame().unwrap();
+        assert!(shown.display_complete(&latest));
+        assert_eq!(shown.field_selection(id), immediate.field_selection(other));
+    }
+}

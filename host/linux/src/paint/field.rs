@@ -10,14 +10,92 @@
 //! (`Painter::field_content`), which the shell's field is placed by.
 use super::*;
 use crate::text::field::{line_left, Cursor, Geometry};
+use crate::text::{Paragraph, Spec, TextEngine};
 
 pub(crate) struct PaintedField {
     pub(crate) geometry: Geometry,
+    pub(crate) value: String,
+    spec: Spec,
+    content: Rect4,
+    multiline: bool,
+    masked: bool,
     origin: (f32, f32),
     pub(super) transform: Transform,
 }
 
 impl PaintedField {
+    fn new(
+        paragraph: &Paragraph,
+        value: &str,
+        spec: Spec,
+        content: Rect4,
+        multiline: bool,
+        masked: bool,
+        transform: Transform,
+    ) -> Self {
+        let left = |width| line_left(spec.align, spec.direction, content.2, width);
+        let empty_x = left(0.);
+        let first_x = left(spec.text_indent)
+            + if spec.direction == exact_kernel::Direction::Rtl {
+                0.
+            } else {
+                spec.text_indent
+            };
+        let origin = (
+            content.0
+                + if multiline {
+                    0.
+                } else if value.is_empty() {
+                    first_x
+                } else {
+                    left(paragraph.width)
+                },
+            content.1
+                + if multiline {
+                    0.
+                } else {
+                    (content.3 - paragraph.height) / 2.
+                },
+        );
+        Self {
+            geometry: Geometry::new(
+                paragraph,
+                value,
+                masked,
+                if multiline { empty_x } else { 0. },
+                if multiline { first_x } else { 0. },
+            ),
+            value: value.to_owned(),
+            spec,
+            content,
+            multiline,
+            masked,
+            origin,
+            transform,
+        }
+    }
+
+    pub(crate) fn for_value(&self, text: &mut TextEngine, value: &str) -> Self {
+        let mut spec = self.spec.clone();
+        let mut run = spec.strut.clone();
+        run.text = if self.masked {
+            "•".repeat(value.chars().count())
+        } else {
+            value.to_owned()
+        };
+        spec.runs = vec![run];
+        let paragraph = text.paragraph(&spec, self.multiline.then_some(self.content.2));
+        Self::new(
+            &paragraph,
+            value,
+            spec,
+            self.content,
+            self.multiline,
+            self.masked,
+            self.transform,
+        )
+    }
+
     pub(crate) fn hit(&self, x: f32, y: f32) -> Option<Cursor> {
         let mut point = tiny_skia::Point::from_xy(x, y);
         self.transform.invert()?.map_point(&mut point);
@@ -154,26 +232,22 @@ impl Painter {
             + if multiline {
                 0.0
             } else {
-                line_left(&computed, content.2, paragraph.width)
+                line_left(
+                    computed.text_align,
+                    computed.direction,
+                    content.2,
+                    paragraph.width,
+                )
             };
-        let empty_x = line_left(&computed, content.2, 0.);
-        let field = PaintedField {
-            geometry: Geometry::new(
-                &paragraph,
-                value,
-                node.props.str(PropId::Type) == Some("password"),
-                if multiline { empty_x } else { 0. },
-            ),
-            origin: (
-                if value.is_empty() && !multiline {
-                    content.0 + empty_x
-                } else {
-                    ox
-                },
-                oy,
-            ),
-            transform: ts,
-        };
+        let field = PaintedField::new(
+            &paragraph,
+            value,
+            spec,
+            content,
+            multiline,
+            node.props.str(PropId::Type) == Some("password"),
+            ts,
+        );
         let selection = walk.scene.selection.filter(|_| focused);
         if let Some(s) = selection {
             self.field_highlight(&field, s);
