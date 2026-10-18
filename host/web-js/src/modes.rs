@@ -225,6 +225,9 @@ impl Modes {
             parts = projected?;
             for p in parts.iter_mut().flatten() {
                 p.css = self.substitute(&p.css);
+                for (_, look) in &mut p.looks {
+                    *look = self.substitute(look);
+                }
                 p.props.retain(|_, v| {
                     *v = self.substitute(v);
                     true

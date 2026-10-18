@@ -592,6 +592,20 @@ const FE_TAGS: [&str; 24] = [
     "feSpotLight",
 ];
 
+/// What the page has of a view, to send only what moved.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct Mirror {
+    pub(super) props: SortedMap<String, String>,
+    pub(super) css: String,
+    pub(super) children: Vec<exact_kernel::ViewId>,
+    /// Created inside a `<button>`, where a container is a `<span>`.
+    pub(super) in_button: bool,
+    /// Created with handlers (a text that has some is never folded).
+    pub(super) handled: bool,
+    /// Its state looks' page rules (LLP 1121 D8, `looks::rules`).
+    pub(super) looks: String,
+}
+
 /// Props as DOM attributes/properties. Names are the DOM's.
 /// The rows a node's `cssText` carries. A nested `svg` takes `x`, `y`,
 /// `width` and `height` as attributes instead ([`props_for`]): Chrome 154
@@ -1406,7 +1420,8 @@ impl<D: exact_runner::DataSource> super::Host<D> {
     pub(crate) fn view_css(&self, node: &exact_kernel::NodeRef<'_>) -> String {
         let kernel = self.runner.kernel();
         let m = self.mirror.get(&node.id);
-        let (css, _) = crate::css::css_text(&css_style(kernel, node), &self.font_names);
+        let (css, _) =
+            crate::css::css_text(&super::looks::css_style(kernel, node), &self.font_names);
         let css = host_css(
             kernel,
             node,

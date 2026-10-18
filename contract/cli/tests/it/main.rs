@@ -125,6 +125,7 @@ mod source_map;
 mod spelling;
 mod stack_depth;
 mod stack_split;
+mod state_looks;
 mod state_parts;
 mod status_bar;
 mod strings;

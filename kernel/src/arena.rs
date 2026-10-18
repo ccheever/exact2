@@ -123,6 +123,10 @@ pub struct NodeArena {
     control_styles: Option<Box<[StyleProps; 10]>>,
     pub(crate) field_content: IdMap<u32, Frame>,
     pub(crate) button_bases: IdMap<u32, Option<f32>>,
+    /// Each node's host-known state looks (LLP 1121 D8, `Op::SetLooks`):
+    /// a state and its resolved patch, ascending; a node with none has no
+    /// entry.
+    looks: IdMap<u32, Rc<[(u8, StyleProps)]>>,
     /// The scale each fitted paragraph's last layout chose, below 1 only
     /// (`-exact-fit: shrink`, LLP 1116.001 D1.4; `layout::fit`).
     pub(crate) fit_scales: IdMap<u32, f32>,
@@ -189,6 +193,7 @@ impl Clone for NodeArena {
             control_styles: self.control_styles.clone(),
             field_content: self.field_content.clone(),
             button_bases: self.button_bases.clone(),
+            looks: self.looks.clone(),
             fit_scales: self.fit_scales.clone(),
             document_language: self.document_language.clone(),
             document_style: self.document_style.clone(),
@@ -239,6 +244,7 @@ impl NodeArena {
         self.renew_text_namespace();
         self.field_content.clear();
         self.button_bases.clear();
+        self.looks.clear();
         self.fit_scales.clear();
         self.flow.clear();
         self.exclusion_slots.clear();
@@ -377,6 +383,25 @@ impl NodeArena {
     /// Style rows.
     pub fn style(&self, slot: u32) -> &StyleProps {
         &self.styles[slot as usize]
+    }
+
+    /// The node's host-known state looks (LLP 1121 D8), ascending by
+    /// state; empty for a node with none.
+    pub fn looks(&self, slot: u32) -> &[(u8, StyleProps)] {
+        self.looks.get(&slot).map_or(&[], |l| l)
+    }
+
+    /// Replace the node's looks; whether they changed.
+    pub(crate) fn set_looks(&mut self, slot: u32, looks: &[(u8, StyleProps)]) -> bool {
+        if self.looks(slot) == looks {
+            return false;
+        }
+        if looks.is_empty() {
+            self.looks.remove(&slot);
+        } else {
+            self.looks.insert(slot, looks.into());
+        }
+        true
     }
 
     /// Props.
@@ -824,6 +849,7 @@ impl NodeArena {
         self.symbols_owed.remove(slot);
         self.measured_symbols.remove(slot);
         self.button_bases.remove(&slot);
+        self.looks.remove(&slot);
         self.fit_scales.remove(&slot);
         self.sticky_slots.remove(slot);
         self.layout_dirty.remove(slot);

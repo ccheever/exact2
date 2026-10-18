@@ -4195,6 +4195,11 @@
     {
       "id": 8,
       "name": "AttachRoot"
+    },
+    {
+      "id": 9,
+      "name": "SetLooks",
+      "_comment": "@ref LLP 1121 D8 (stage 8 B): a node's host-known state looks, resolved by the producer as a static row is: payload a u8 count (at most 3), then per look its state (0 :active, 1 :hover, 2 :focus-visible; ascending, each once) and a style patch of the look rows only (background-color, a side's border colour, opacity, box-shadow, -exact-press-scale). Replaces the node's looks whole; a count of 0 clears them. A host composes them over the base on its own tracking."
     }
   ],
   "symbols": [

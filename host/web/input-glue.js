@@ -284,17 +284,23 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const press = el.style.getPropertyValue("--exact-press");
     const to = down ? Number((press.includes("var(") ? getComputedStyle(el).getPropertyValue("--exact-press") : press) || 1) : 1;
     const old = feedback.get(el);
-    if (old?.to === to || !old && to === 1) return;
+    const looked = el.matches("[data-exact-look~=active]"); // its rows ease even at a scale of 1
+    if (old ? old.to === to && old.down === down : to === 1 && !(looked && down)) return;
     const progress = old?.animation.effect.getComputedTiming().progress ?? 0;
     const from = old ? old.from + (old.to - old.from) * progress : 1;
     old?.animation.cancel();
     const animation = el.animate([{ "--exact-press-factor": from }, { "--exact-press-factor": to }], {
       duration: agentMode ? 0 : 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both",
     });
-    const state = { animation, from, to };
+    const state = { animation, from, to, down };
     feedback.set(el, state);
+    // An `:active` look's rows ease on the same curve, both ways, while this runs
+    // (LLP 1121 D8): never on the agent's clock, and they snap under Reduce Motion.
+    const eases = !agentMode && looked && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.toggleAttribute("data-exact-easing", eases);
     animation.onfinish = () => {
-      if (to === 1 && feedback.get(el) === state) { animation.cancel(); feedback.delete(el); }
+      if (feedback.get(el) === state) el.removeAttribute("data-exact-easing");
+      if (to === 1 && !down && feedback.get(el) === state) { animation.cancel(); feedback.delete(el); }
     };
     if (agentMode || now) animation.finish();
   };
@@ -327,7 +333,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // Safari), with `haptic()`'s two lengths (workout F4).
     const haptic = el.style.getPropertyValue("--exact-press-haptic").trim();
     if (haptic && haptic !== "none") navigator.vibrate?.(haptic === "selection" ? 5 : 12);
-    if (!(declaresPress(el) || el.matches("button[data-button-style]") || touch)) return;
+    if (!(declaresPress(el) || el.matches("button[data-button-style],[data-exact-look~=active]") || touch)) return;
     const r = unpressedBox(el);
     press = { el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom] };
     showPress(el, true);

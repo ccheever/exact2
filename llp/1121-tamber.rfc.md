@@ -3420,3 +3420,44 @@ verifying build (not reproduced in three replays).
   unformatted bytes; unset with its block; a refused compile writes nothing; an unknown style;
   `propose` says `rebuild`); `scripts/tamber-server.test.mjs` (a hand edit announced, `commit`
   takes a written `.contract`, one dirty at its baseline refused).
+
+### Stage 8, commit B1: host looks on the runner and the web (draft for theme2)
+
+- **The runner resolves a look** (`runner/src/instance/looks.rs`; plan point 1, ruling (a)). At a node's mount,
+  and when its tuple moves (a mode, a pin), each of its `looks` rows' bindings goes through
+  `set_plan_style` in the node's tuple into a patch, and the node gets `Op::SetLooks {id, looks}`. A look
+  that read a token is kept in `ThemeIndex::looks`; `set_tokens` (a live batch, a role override's value)
+  sends that node's looks again, whole. Hosts never resolve a token.
+- **`Op::SetLooks`** (`kernel/src/wire/ops.rs`, op 9): a count (at most 3), then per look its state
+  (ascending, each once) and a patch of the look rows only (`look_rows()`); decode and `validate` refuse
+  anything else (`LookState`, `TooManyLooks`, `LookRow`). The arena keeps a node's looks (`NodeRef::looks`)
+  and drops them with the node. SCHEMA_DIGEST moves to `0xfc1d_b07f_ddf2_8296` (stage 8's break window);
+  the plan and FORMAT_DIGEST are unchanged.
+- **The web (wasm)** (`host/web/src/host/looks.rs`). A node with looks gets `data-exact-look` (its
+  states) and a `looks` batch op: one rule per state in the page's `#exact-looks` sheet, `:hover` (under
+  `@media (hover:hover)`), `:focus-visible`, then `[data-pressed]`, each `:not(:disabled,[disabled="true"])`,
+  rows `!important` over the inline base. So rows a look doesn't name show the base, a base that
+  changes while pressed included, and a disabled node takes none. An `:active` look's
+  `-exact-press-scale` is written as the node's own press scale (it only shows while pressed). The
+  unsaid 65% rule stands aside for `[data-exact-look~="active"]` (no double dim), and the press glue
+  tracks such a node at scale 1 too.
+- **The ease** (ruling (b)): while the press factor animates, the glue sets `data-exact-easing`,
+  whose rule transitions the `:active` look's properties on the press curve (120 ms,
+  `cubic-bezier(.16,1,.3,1)`), both ways. Not set on the agent's clock, nor under Reduce Motion, where
+  the colours snap. Deviation: the CSS transition interpolates in the browser's own way (sRGB for
+  colours, shadow by shadow), not by the factor's numbers. While it runs (120 ms), the transition
+  list replaces an authored `transition` on that node.
+- **The JS target** (`host/web-js`): the static tree applies each node's `looks` rows (`SetLooks`), and
+  the template carries their declarations. A varying token's sentinel becomes its `var()`, as in a
+  class. Each distinct set of looks is one rule group, `[data-exact-looks="N"]`, after the classes.
+  The node takes `data-exact-looks` and `data-exact-look`, and the press piece loads for it. A live
+  batch or mode reaches a look through its custom property.
+- **Tests:**
+  - `contract/cli/tests/it/state_looks.rs`: the runner resolves the looks and a live token re-sends them.
+  - `host/web/tests/it/looks.rs`: the attribute, the rules in order, the press scale, a live batch
+    re-sending the rules, and a node without looks writing neither.
+  - `host/web/tests/looks.test.mjs` (Chrome): hover, a press showing only the overlay with no 65%, a
+    base change while pressed, the ease set and cleared, Reduce Motion snapping, a disabled node taking none.
+  - `modes_tests.rs`: the JS target's rule group, shared by two nodes, with a varying token as its `var()`.
+  - The kernel's op round trip and its refusals.
+  - LLP 1061's press tests (`press.test.mjs`, `neutral-look.test.mjs`) unchanged.

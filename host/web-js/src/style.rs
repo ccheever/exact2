@@ -193,6 +193,25 @@ pub fn static_tree(
                 patch: Box::new(patch),
             });
         }
+        // Its host-known state looks (LLP 1121 D8): literal rows, tokens
+        // kept by name, as its own static rows are.
+        let at = plan.looks.partition_point(|l| (l.node.0 as usize) < i);
+        let mut looks = Vec::new();
+        for look in plan.looks[at..]
+            .iter()
+            .take_while(|l| l.node.0 as usize == i)
+        {
+            let mut patch = exact_kernel::StyleProps::default();
+            for row in look.bindings.iter().map(|b| plan.binding(b)) {
+                let v = literal(plan, plan.code(row.expr)).ok_or("a look's row is literal")?;
+                bridge::set_binding_style(&mut patch, row, &v, plan)
+                    .map_err(|e| format!("node {i}: {e:?}"))?;
+            }
+            looks.push((look.state, patch));
+        }
+        if !looks.is_empty() {
+            ops.push(Op::SetLooks { id: view(i), looks });
+        }
     }
     let tree = element_children(plan, sites);
     for (i, children) in tree.iter().cloned().enumerate() {

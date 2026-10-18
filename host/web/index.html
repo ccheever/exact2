@@ -62,7 +62,7 @@
      selector's order: a disabled button; a native control, which keeps its own
      feedback, and a game's action button, which is held; an authored press,
      which replaces it (`-exact-press-scale`, the pressed paint of LLP 1061
-     D7, which the input glue shows, or `pointerdown` or `pointerup`
+     D7, which the input glue shows, an `:active` state look, LLP 1121 D8, or `pointerdown` or `pointerup`
      handlers, which draw one; a `hover` handler observes and replaces
      nothing); a pressable covering the window, a surface the input glue
      measures at the press; anything in a row of a `list` whose rows are
@@ -74,7 +74,7 @@
   #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(
     :disabled,
     [data-button-style], [data-native], input, select, textarea, [data-action],
-    [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"],
+    [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"], [data-exact-look~="active"],
     [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"],
     [data-exact-surface],
     [data-listrows] *, [data-liststyle] > section > * > *,

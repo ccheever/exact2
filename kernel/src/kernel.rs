@@ -107,6 +107,14 @@ impl<'a> NodeRef<'a> {
         }
     }
 
+    /// The node's host-known state looks (LLP 1121 D8), each a state
+    /// ([`crate::LOOK_ACTIVE`], [`crate::LOOK_HOVER`],
+    /// [`crate::LOOK_FOCUS_VISIBLE`]) and its patch, resolved, ascending by
+    /// state: a host composes them over [`Self::style`] on its own tracking.
+    pub fn looks(&self) -> &'a [(u8, StyleProps)] {
+        self.arena.looks(self.slot)
+    }
+
     /// The editor content box in this native field's local frame (LLP 1104 D5).
     pub fn field_content_rect(&self) -> Option<Frame> {
         self.arena.field_content_rect(self.slot)

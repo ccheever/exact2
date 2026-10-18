@@ -3104,9 +3104,15 @@ component App
 under `:disabled`, and `:disabled` is your own disabled look (no default dim).
 `:active` (the host's press), `:hover` and `:focus-visible` are the host's:
 their rows never inherit (`background-color`, `border-color`, `opacity`,
-`box-shadow`, `-exact-press-scale`) and are literals, tokens included; the
-plan records them, and the hosts apply them on their own tracking from stage
-8 B. A part
+`box-shadow`, `-exact-press-scale`) and are literals, tokens included. Each
+host applies them on its own tracking, over the node's rows (rows a part doesn't
+name show the base, also a base that changes while pressed), `:hover` then
+`:focus-visible` then `:active`: `:active` is the host's own press of the
+innermost node with a `press`, easing on its press curve (colours snap under
+Reduce Motion), its `-exact-press-scale` the press's scale, and it replaces the
+host's unsaid press look (no 65% dim on top). A disabled node takes none.
+The web (both targets) does this today; Apple, Linux and Android follow (LLP
+1121 stage 8 B). A part
 on a native control or a list's row is refused (their states are the
 platform's); a node's own part whose state it never writes (`:disabled` with no
 `disabled`) is warned of (`lower-state-dead`).

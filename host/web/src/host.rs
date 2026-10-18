@@ -35,7 +35,8 @@ pub mod document;
 mod element;
 #[path = "template.rs"]
 pub mod template;
-use element::{css_style, css_style_named, host_css, in_button, props_for, svg_props, tag_for};
+use element::{css_style_named, host_css, in_button, props_for, svg_props, tag_for, Mirror};
+use mode::looks::{self, css_style};
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
@@ -121,17 +122,6 @@ impl std::fmt::Display for HostError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-struct Mirror {
-    props: SortedMap<String, String>,
-    css: String,
-    children: Vec<ViewId>,
-    /// Created inside a `<button>`, where a container is a `<span>`.
-    in_button: bool,
-    /// Created with handlers (a text that has some is never folded).
-    handled: bool,
 }
 
 /// What a host links that is generic over its data source (LLP 1047 D3):
@@ -933,7 +923,9 @@ impl<D: DataSource> Host<D> {
                         self.head_dirty = true;
                         continue;
                     }
-                    self.mirror.remove(&id);
+                    if self.mirror.remove(&id).is_some_and(|m| !m.looks.is_empty()) {
+                        batch.looks(id, "");
+                    }
                     self.layers.forget(id);
                     self.exclusions.remove(&id);
                     if let Some(drag) = self.drag {
@@ -1373,7 +1365,7 @@ impl<D: DataSource> Host<D> {
             _ => {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
-                let mut props = props_for(&node);
+                let mut props = looks::props(&node);
                 svg_props(self.runner.kernel(), &node, &mut props);
                 let css = host_css(kernel, &node, css, tag);
                 let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
@@ -1399,8 +1391,10 @@ impl<D: DataSource> Host<D> {
                 children: Vec::new(),
                 in_button,
                 handled: !kinds.is_empty(),
+                looks: String::new(),
             },
         );
+        self.emit_looks(id, batch);
         self.keys.insert(key, id);
     }
 
@@ -1432,7 +1426,7 @@ impl<D: DataSource> Host<D> {
             .str(PropId::BackgroundMaterial)
             .zip(crate::link::linked().materials)
             .and_then(|(name, material)| (material.1)(name));
-        let mut props = props_for(&node);
+        let mut props = looks::props(&node);
         element::router_press(&mut props, self.runner.press_writes_router(id));
         svg_props(self.runner.kernel(), &node, &mut props);
         let css = self.view_css(&node);
@@ -1456,6 +1450,7 @@ impl<D: DataSource> Host<D> {
             batch.style(id, &css);
             m.css = css;
         }
+        self.emit_looks(id, batch);
         if let Some(note) = note {
             self.runner.log(note);
         }
