@@ -11,6 +11,7 @@ shape SettingsColors
   card: string
   foreground: string
   muted: string
+  tertiary: string
   border: string
   borderSubtle: string
   separator: string

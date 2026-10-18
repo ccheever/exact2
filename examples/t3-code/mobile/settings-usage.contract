@@ -51,8 +51,12 @@ shape UsageBand
 shape UsageBar
   id: string
   label: string
-  showLabel: bool
   bands: UsageBand[]
+shape UsageLegend
+  id: string
+  label: string
+  light: string
+  dark: string
 shape UsageProvider
   id: string
   label: string
@@ -90,6 +94,9 @@ shape MobileUsageData
   limitsEmpty: string
   total: string
   chartTitle: string
+  chartStart: string
+  chartEnd: string
+  chartLegend: UsageLegend[]
   chart: UsageBar[]
   providers: UsageProvider[]
   totals: UsageValue[]
@@ -209,10 +216,14 @@ component SettingsUsage
                   column flex=1 min-width=0 height=180 justify-content="flex-end" aria-label=bar.label
                     for band in bar.bands key=band.id
                       view height=band.height background-color=(dark ? band.dark : band.light) aria-label=`${band.id}: ${band.value}`
-              row justify-content="space-between"
-                for bar in data.chart key=bar.id
-                  if bar.showLabel
-                    text bar.label color=colors.muted font-size=roles.caption.size
+              row justify-content="space-between" align-items="center"
+                text data.chartStart flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+                row gap=14 align-items="center" flex-shrink=0
+                  for provider in data.chartLegend key=provider.id
+                    row gap=5.25 align-items="center" flex-shrink=0
+                      view width=7 height=7 border-radius=4 flex-shrink=0 background-color=(dark ? provider.dark : provider.light)
+                      text provider.label flex-shrink=0 color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px`
+                text data.chartEnd flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
             column gap=7
               SettingsSectionLabel(title="Providers", colors=colors, roles=roles)
               column background-color=colors.grouped border-radius=24 overflow="hidden"

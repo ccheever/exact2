@@ -125,8 +125,47 @@ for(const [zone,expected] of [
     sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
   const data=mobileUsagePresentation({...input,window:{sinceDay:'2026-11-01',untilDay:'2026-11-01',timeZone:zone,resolution:'hour',sinceTime:instants[0],untilTime:'2026-11-01T07:37:00.000Z'}},false);
   expect(data.hasUsage).toBe(true);expect(data.chart.map(period=>[period.id,period.label])).toEqual(instants.map((instant,index)=>[instant,expected[index]]));
+  expect([data.chartStart,data.chartEnd]).toEqual([...expected]);
   const daily=mobileUsagePresentation({...input,window:{sinceDay:'2026-11-01',untilDay:'2026-11-01',timeZone:zone,resolution:'day'}},false);
   expect(daily.chart.map(period=>period.label)).toEqual(['Nov 1']);
+  expect([daily.chartStart,daily.chartEnd]).toEqual(['Nov 1','Nov 1']);
+});
+test('Usage footer keeps daily endpoints and empty presentation separate from category labels',()=>{
+  const data=mobileUsagePresentation({tab:'usage',window:{sinceDay:'2026-10-31',untilDay:'2026-11-02',timeZone:'Pacific/Kiritimati',resolution:'day'},
+    metric:'cost',now,presentations:new Map(),external:false,sources:[{id:'qa',label:'QA',connected:true,summary:{contractVersion:6,sources:[],buckets:[]},error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
+  expect([data.chartStart,data.chartEnd]).toEqual(['Oct 31','Nov 2']);
+  expect(data.chart.map(period=>[period.id,period.label])).toEqual([['2026-10-31','Oct 31'],['2026-11-01','Nov 1'],['2026-11-02','Nov 2']]);
+  expect(data.chartLegend).toEqual([]);expect(data.total).toBe('$0.00');
+  const empty=mobileUsagePresentation(null,false);
+  expect([empty.chartStart,empty.chartEnd,empty.chartLegend,empty.chart]).toEqual(['','',[],[]]);
+});
+test('Usage footer legend follows merged cost order in both metrics and retains zero providers',()=>{
+  const ids=['codex','claude','grok','cursor','opencode','antigravity','unknown'];
+  const summary:Obj={contractVersion:6,sources:ids.map(provider=>({status:'ok',fingerprint:{provider,hostId:'qa',resolvedHomePath:`/qa/${provider}`},distinctSessions:provider==='cursor'?0:1})),
+    buckets:[['codex',1,100],['claude',2,10],['cursor',0,0],['unknown',3,200]].map(([provider,costUsd,tokens])=>({provider,model:'qa',day:'2026-10-07',costUsd,totals:{uncachedInputTokens:tokens}}))};
+  const input={tab:'usage',window:{sinceDay:'2026-10-07',untilDay:'2026-10-07',timeZone:'UTC',resolution:'day' as const},now,presentations:new Map(),external:false,
+    sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
+  const legend=[
+    {id:'claude',label:'Claude Code',light:'#d97757',dark:'#d97757'},
+    {id:'codex',label:'Codex',light:'#3c3c43',dark:'#e6e6e6'},
+    {id:'grok',label:'Grok Build',light:'#52525b',dark:'#a1a1aa'},
+    {id:'opencode',label:'OpenCode',light:'#5b9bbd',dark:'#5b9bbd'},
+    {id:'antigravity',label:'Antigravity',light:'#8c7bd1',dark:'#8c7bd1'},
+    {id:'cursor',label:'Cursor',light:'#8b8b8b',dark:'#8b8b8b'},
+  ];
+  const contract=readFileSync(new URL('./settings-usage.contract',import.meta.url),'utf8');
+  const declared=contract.split('shape UsageLegend\n')[1]?.split('shape UsageProvider')[0]??'';
+  const keys=[...declared.matchAll(/^  (\w+):/gm)].map(match=>match[1]).sort();
+  expect(keys).toEqual(['dark','id','label','light']);
+  for(const metric of ['cost','tokens']){
+    const data=mobileUsagePresentation({...input,metric},false);
+    expect(data.chartLegend).toEqual(legend);
+    for(const item of data.chartLegend)expect(Object.keys(item).sort()).toEqual(keys);
+    expect(data.providers.map(item=>item.id)).toEqual(['codex','claude']);
+    expect(data.chart[0]?.bands.map(band=>band.id)).toEqual(['antigravity','opencode','cursor','grok','claude','codex']);
+    expect(data.chart[0]?.bands.find(band=>band.id==='codex')?.height).toBeCloseTo(metric==='cost'?30:18000/310);
+    expect(data.total).toBe(metric==='cost'?'$6.00':'310');
+  }
 });
 test('mobile USD formatting keeps reference rounding, signed zero, grouping and nonfinite output',()=>{
   expect([0.825,1.275,-0.825,-0.004,-0,0,1_234_567.891,NaN,Infinity,-Infinity].map(formatUsd))
