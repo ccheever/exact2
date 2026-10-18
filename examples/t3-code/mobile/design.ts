@@ -1,4 +1,5 @@
 import { createNativeComposerTheme, flattenThemeColor } from './composer-native-theme';
+import { mobileTextRoles } from './settings-preferences';
 // @ref llp/1109.002-design-system-parity.spec.md#semantic-colors
 // Literal palettes from upstream 365aa87982 generated-uniwind-themes.css.
 import t0 from './themes/light.json';
@@ -93,11 +94,12 @@ export function mobilePendingInputColors(scheme: string, palette = 't3-code') {
     subtleStrong: token('subtle-strong'), danger: token('danger'), dangerForeground: token('danger-foreground') };
 }
 
-export function mobileThreadColors(scheme: string, palette = 't3-code') {
+export function mobileThreadColors(scheme: string, palette = 't3-code', baseFontSize = 16) {
   const dark = scheme === 'dark';
   const variant = `${palette === 't3-code' ? '' : `${palette}-`}${dark ? 'dark' : 'light'}`;
   const tokens = themes[variant] ?? themes[dark ? 'dark' : 'light'];
   const token = (name: string) => tokens[`--color-${name}`];
+  const caption = mobileTextRoles(baseFontSize).caption;
   return {
     screen: token('screen'), card: token('card'), glassFallback: token('glass-fallback'), foreground: token('foreground'), secondary: token('foreground-secondary'),
     muted: token('foreground-muted'), iconSubtle: token('icon-subtle'), iconMuted: token('icon-muted'), border: token('border'),
@@ -107,6 +109,10 @@ export function mobileThreadColors(scheme: string, palette = 't3-code') {
     composerBorder: token('composer-border'), placeholder: token('placeholder'),
     codeBackground: token('md-code-bg'), codeForeground: token('md-code-text'),
     userCodeBackground: token('md-user-code-bg'), userCodeForeground: token('md-user-code-text'),
+    queuedIntentBorder: token('adaptive-amber-500-a25-400-a25'), queuedIntentBackground: token('adaptive-amber-500-a10-400-a10'),
+    queuedIntentForeground: token('adaptive-amber-700-300'), steerIntentBorder: token('adaptive-sky-500-a25-400-a25'),
+    steerIntentBackground: token('adaptive-sky-500-a10-400-a10'), steerIntentForeground: token('adaptive-sky-700-300'),
+    intentFontSize: caption.size, intentLineHeight: caption.line, intentLetterSpacing: caption.size * 0.025,
     composerBackdrop: `linear-gradient(to bottom, ${withAlpha(token('screen'), 0)} 0%, ${withAlpha(token('screen'), 0.6)} 50%, ${withAlpha(token('screen'), 0.9)} 100%)`,
   };
 }

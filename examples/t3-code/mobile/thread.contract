@@ -79,7 +79,14 @@ component ThreadMessage
             if row.body.trim().length > 0
               ThreadMarkdown(blocks=row.blocks, user=true, action=action, colors=colors)
           row margin-top=3.5 align-items="center" justify-content="flex-end" gap=3.5 padding-right=1.75
-            if row.intent.length > 0
+            if row.kind != "pending" and row.intentTone != ""
+              text row.intent aria-label=row.intentDescription testId=`thread-intent-${row.id}`
+                font-size=colors.intentFontSize line-height=`${colors.intentLineHeight}px` font-weight=500 letter-spacing=colors.intentLetterSpacing
+                padding-left=5.25 padding-right=5.25 padding-top=1.75 padding-bottom=1.75 border-radius=9999 border-width=1 border-style="solid"
+                border-color=(row.intentTone == "queued" ? colors.queuedIntentBorder : colors.steerIntentBorder)
+                background-color=(row.intentTone == "queued" ? colors.queuedIntentBackground : colors.steerIntentBackground)
+                color=(row.intentTone == "queued" ? colors.queuedIntentForeground : colors.steerIntentForeground)
+            else if row.intent.length > 0
               text row.intent font-size=12 line-height="16px" font-weight=500 color=colors.secondary
             text row.timestamp font-size=13 line-height="17px" font-weight=500 color=colors.secondary
             if row.body.trim().length > 0 and row.kind != "pending"

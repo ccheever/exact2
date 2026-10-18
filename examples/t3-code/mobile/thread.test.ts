@@ -13,6 +13,8 @@ import { mobileMessageCopyCommand } from './client';
 import { letGoAware } from './shared/let-go';
 import { timelineView } from './shared/timeline-presentation';
 import type { Files } from './shared/protocol';
+import { mobileOutboxRead, mobileOutboxEnqueue } from './mobile-outbox';
+import type { MobileOutboxRecord } from './mobile-outbox-model';
 
 const now = Date.parse('2026-10-07T12:00:00Z');
 const at = (seconds: number) => new Date(now + seconds * 1000).toISOString();
@@ -34,6 +36,72 @@ function fixture(items: Obj[] = [], projection: Obj = {}): T3Client {
     visibleTurnItems: items.map((value, position) => ({ position, visibility: 'local', sourceThreadId: 't1', sourceItemId: value.id, item: value })) } };
   return client;
 }
+
+test('confirmed user intent badge preserves queued origin after promotion', () => {
+  const message = user('Promoted follow-up'), client = fixture([message]);
+  const before = mobileThreadRows(client, now, false, 'visit')[0]!;
+  message.inputIntent = 'promoted_queued_to_steer';
+  const row = mobileThreadRows(client, now, false, 'visit').find(row => row.user)!;
+  expect(row.intent).toBe('queued → steer');
+  expect(row.intentDescription).toBe('Originally queued, then promoted to steer the active turn');
+  expect(row.intentTone).toBe('steer');
+  expect([row.body, row.timestamp, row.copyConfiguration, row.toggleOp, row.toggleId])
+    .toEqual([before.body, before.timestamp, before.copyConfiguration, before.toggleOp, before.toggleId]);
+});
+
+test('confirmed user badges use raw input intent and leave other message kinds unbadged', () => {
+  const cases = [
+    ['queued_turn', 'queued', 'Queued behind the active turn', 'queued'],
+    ['steer', 'steer', 'Steered the active turn', 'steer'],
+    ['turn_start', '', '', ''], [undefined, '', '', ''], ['unknown', '', '', ''],
+  ];
+  for (const [inputIntent, label, description, tone] of cases) {
+    const message = user('Follow-up'); message.inputIntent = inputIntent;
+    const client = fixture([message]);
+    client.thread!.projection.visibleTurnItems[0]!.sourceThreadId = 'ancestor';
+    client.thread!.projection.visibleTurnItems[0]!.sourceItemId = 'ancestor-item';
+    const row = mobileThreadRows(client, now)[0]!;
+    expect([row.intent, row.intentDescription, row.intentTone]).toEqual([label, description, tone]);
+    expect(JSON.parse(row.copyConfiguration).owner).toMatchObject({ sourceThread: 'ancestor', sourceItem: 'ancestor-item' });
+  }
+  const assistant = answer('Reply'); assistant.inputIntent = 'queued_turn';
+  const row = mobileThreadRows(fixture([assistant]), now)[0]!;
+  expect([row.intent, row.intentDescription, row.intentTone]).toEqual(['', '', '']);
+});
+
+test('a saving local outbox row keeps its plain status without an intent badge', async () => {
+  const client = fixture(); client.origin = 'https://intent.test';
+  const record: MobileOutboxRecord = { schemaVersion: 1, origin: client.origin, environmentId: 'env', threadId: 't1',
+    messageId: 'outbox-message', commandId: 'outbox-command', text: 'Saved follow-up', attachments: [], createdAt: at(0), dispatchMode: 'steer' };
+  let settle!: (value: unknown) => void, mutationId = '';
+  const native: Native = { available: true, watch() {}, later(raw) {
+    const request = raw as Obj;
+    if (request.op !== 'mobileOutbox') throw new Error('Only the outbox fixture is admitted');
+    if (request.action === 'read') return Promise.resolve({ ok: true, generation: client.generation, value: {
+      ownerEpoch: 'epoch', sequenceFloor: 0, complete: true, errors: [], records: [], revisions: {}, tokens: {}, outcomes: [], mutations: [], transfers: [] } });
+    mutationId = String(request.mutationId);
+    return new Promise(resolve => { settle = resolve; });
+  } };
+  expect(await mobileOutboxRead(client, native)).toBe(true);
+  const saved = mobileOutboxEnqueue(client, native, record);
+  try {
+    const row = mobileThreadRows(client, now)[0]!;
+    expect([row.kind, row.intent, row.intentDescription, row.intentTone, row.timestamp, row.copyConfiguration, row.toggleOp])
+      .toEqual(['pending', 'Saving…', '', '', 'Pending', '', '']);
+  } finally {
+    settle({ ok: true, generation: client.generation, value: { mutationId, messageId: record.messageId, status: 'failed',
+      revision: 1, ownerEpoch: 'epoch', sequenceFloor: 1, record: null, removed: null, message: 'Fixture rejected save',
+      current: { record: null, revision: 1, token: '', pending: false } } });
+    await saved;
+  }
+});
+
+test('a nonmessage plan row never receives a user input-intent badge', () => {
+  const plan = item('plan', 'proposed_plan', { markdown: 'Inspect the configuration', inputIntent: 'queued_turn' });
+  const row = mobileThreadRows(fixture([plan]), now)[0]!;
+  expect([row.kind, row.user, row.body, row.intent, row.intentDescription, row.intentTone])
+    .toEqual(['plan', false, 'Inspect the configuration', '', '', '']);
+});
 
 describe('ordinary message Copy command and native configuration', () => {
   function copyFixture(text: string, type = 'user_message', mode = 'success') {

@@ -677,7 +677,7 @@ const sources: Sources = {
   },
   threadColors: (args, _store, storage, nativeInput) => {
     const native = sourceNative('threadColors', args, nativeInput);
-    return mobileThreadColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
+    return mobileThreadColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'), Number(args[2] ?? 16));
   },
   selectThread: (args, _store, storage, nativeInput) => {
     const native = sourceNative('selectThread', args, nativeInput);
