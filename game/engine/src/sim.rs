@@ -436,15 +436,12 @@ impl<G: Game> Sim<G> {
         let args_json = crate::json::to_string(&args).map_err(|e| e.to_string())?;
         let changed = self.args_json != args_json;
         // Decoding is complete before seeking under the old arguments.
-        let restart = if !self.args.setup_changed(&args) {
-            None
-        } else {
-            Some(Self::build(&args, self.world.assets.clone()))
-        };
+        let restart = self.args.setup_changed(&args);
         if let Some(at) = at_ms {
             self.advance_with(at, Clock::Seekable, after);
         }
-        if let Some(mut world) = restart {
+        if restart {
+            let mut world = Self::build(&args, self.world.assets.clone());
             let old_values = self.args.values();
             let new_values = args.values();
             let changes: Vec<_> = G::Args::FIELDS

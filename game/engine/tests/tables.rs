@@ -565,3 +565,126 @@ fn restart_admits_latest_live_delivery_and_retains_future_replay_in_every_mode()
         }
     }
 }
+
+#[test]
+fn timestamped_restart_admits_tables_after_seeking_in_every_mode() {
+    let mut expected = None;
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        for partition in [0.0, 10.0] {
+            for restore in [false, true] {
+                let mut s = Sim::<SetupTables>::new(Options::default())
+                    .unwrap()
+                    .paranoid(mode);
+                setup_delivery(&mut s, 4.0);
+                complete_barrier(&mut s);
+                s.replay_tables(&future_inputs()).unwrap();
+                s.run(partition);
+                if restore {
+                    let saved = s.save().unwrap();
+                    // Restore into a different simulation so no original queue can mask loss.
+                    s = Sim::<SetupTables>::new(Options::default())
+                        .unwrap()
+                        .paranoid(mode);
+                    setup_delivery(&mut s, if partition == 0.0 { 4.0 } else { 5.0 });
+                    complete_barrier(&mut s);
+                    s.restore(&saved).unwrap();
+                    s.advance(partition, Clock::Seekable);
+                }
+                s.bind(&[Value::Bool(false), Value::Bool(true)], Some(10.0))
+                    .unwrap();
+                assert_eq!(s.world().tick(), 0);
+                assert_eq!(s.get::<Seen>("player").unwrap().speed, 5.0);
+                assert_eq!(
+                    s.world().table::<Tuning>("weapons.json").unwrap().speed,
+                    5.0
+                );
+                assert_eq!(
+                    s.table_inputs().iter().map(|i| i.tick).collect::<Vec<_>>(),
+                    [0, 20]
+                );
+                assert_eq!(s.table_inputs()[0].rows, rows(5.0, "first"));
+                let saved = s.save().unwrap();
+                s.restore(&saved).unwrap();
+                let mut hashes = vec![s.world().hash()];
+                for tick in 1..=24 {
+                    s.run(1.0);
+                    assert_eq!(
+                        s.world().table::<Tuning>("weapons.json").unwrap().speed,
+                        if tick < 20 { 5.0 } else { 20.0 }
+                    );
+                    hashes.push(s.world().hash());
+                }
+                if let Some(expected) = &expected {
+                    assert_eq!(&hashes, expected);
+                } else {
+                    expected = Some(hashes);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn setup_live_delivery_supersedes_same_tick_replay_in_every_mode() {
+    let mut expected = None;
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        for restart in [false, true] {
+            let mut s = Sim::<SetupTables>::new(Options::default())
+                .unwrap()
+                .paranoid(mode);
+            setup_delivery(&mut s, 4.0);
+            if restart {
+                complete_barrier(&mut s);
+            }
+            let mut inputs = future_inputs();
+            inputs.insert(
+                1,
+                asset::TableInput {
+                    tick: 1,
+                    rows: rows(1.0, "first"),
+                },
+            );
+            s.replay_tables(&inputs).unwrap();
+            setup_delivery(&mut s, 2.0);
+            if restart {
+                let saved = s.save().unwrap();
+                s.restore(&saved).unwrap();
+                s.bind(&[Value::Bool(false), Value::Bool(true)], None)
+                    .unwrap();
+            } else {
+                complete_barrier(&mut s);
+            }
+            assert_eq!(s.get::<Seen>("player").unwrap().speed, 2.0);
+            assert_eq!(
+                s.world().table::<Tuning>("weapons.json").unwrap().speed,
+                2.0
+            );
+            assert_eq!(
+                s.table_inputs().iter().map(|i| i.tick).collect::<Vec<_>>(),
+                [0, 5, 20]
+            );
+            let saved = s.save().unwrap();
+            s.restore(&saved).unwrap();
+            let mut hashes = vec![s.world().hash()];
+            for tick in 1..=24 {
+                s.run(1.0);
+                assert_eq!(
+                    s.world().table::<Tuning>("weapons.json").unwrap().speed,
+                    if tick < 5 {
+                        2.0
+                    } else if tick < 20 {
+                        5.0
+                    } else {
+                        20.0
+                    }
+                );
+                hashes.push(s.world().hash());
+            }
+            if let Some(expected) = &expected {
+                assert_eq!(&hashes, expected);
+            } else {
+                expected = Some(hashes);
+            }
+        }
+    }
+}

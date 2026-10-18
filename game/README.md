@@ -655,8 +655,10 @@ then delivers all tables together through `assets/exact-tables.json`. It prints 
 time and subprocess count. No Cargo or rustc runs for a tuning save. A complete valid
 transaction activates at the next simulation tick; a rejected transaction keeps the old
 values. Paused tables await resume without preventing settlement. Restart and initial setup
-admit the most recently delivered live transaction before setup reads it. Future replay
-transactions keep their recorded ticks across the initial asset barrier and restart.
+admit the most recently delivered live transaction before setup reads it. Replay transactions
+strictly after that live transaction's tick keep their recorded ticks across the initial asset
+barrier and restart; earlier and equal-tick replay rows are superseded. A timestamped restart
+first advances the old world to that time, then admits its resulting tables.
 Levels require a new session. Tables never spawn entities.
 
 Active table bytes appear in world resources and contribute to the hash. Every admitted

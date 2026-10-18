@@ -298,15 +298,21 @@ impl crate::World {
         if let Some(current) = &self.assets.tables {
             let mut store = (**current).clone();
             // Live deliveries precede this setup boundary even if their next tick has not
-            // run. Replay rows retain their future ticks across setup and restart.
-            if let Some(pending) = store.history.pending.iter().rev().find(|p| p.live) {
+            // run. Only replay rows strictly after that delivery remain pending.
+            let admitted = store.history.pending.iter().rev().find(|p| p.live).cloned();
+            if let Some(pending) = &admitted {
                 store.activate(pending.input.rows.clone());
             }
             store.history.inputs = vec![TableInput {
                 tick: 0,
                 rows: store.history.active.clone(),
             }];
-            store.history.pending.retain(|pending| !pending.live);
+            store.history.pending.retain(|pending| {
+                !pending.live
+                    && admitted
+                        .as_ref()
+                        .is_none_or(|live| pending.input.tick > live.input.tick)
+            });
             self.insert_resource(TableValues(store.history.active.clone()));
             self.assets.tables = Some(Arc::new(store));
         }
