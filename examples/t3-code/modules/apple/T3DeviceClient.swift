@@ -2,9 +2,10 @@
 import AppKit
 import Foundation
 
-/// One device's stream and input (MIT reference, see LICENSE-T3:
+/// One device's stream and input (MIT reference 9c161462c9, see LICENSE-T3:
 /// packages/client-runtime/src/device/stream.ts createDeviceStreamClient). iOS reads serve-sim's
-/// `stream.avcc` (falling back to `stream.mjpeg` when the description cannot be decoded) and
+/// `stream.avcc` (falling back to `stream.mjpeg` when the description cannot be decoded, and
+/// subscribing again, which starts at a fresh IDR, when the decoder falls behind or the body stalls) and
 /// talks to `helper/ws?device=` after priming the helper; Android opens serve-emu's one
 /// `ws?device=<serial>&frame-meta=1` socket for H.264 and JSON input. Everything runs on main.
 final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocketDelegate {
@@ -51,6 +52,11 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     private(set) var sent: [Data] = []
     private var generation = 0
     private var firstFrame = false
+    /// The current AVCC body has decoded a frame: its later JPEG seeds are stale.
+    private var decodedFeed = false
+    /// The helper's screen config says the simulator takes no input (`inputUnavailable`).
+    private var inputUnavailable = false
+    private var inputAdmitted = false
     private var awaitingKeyframe = true
     private var configuring = false
     private var timestamp: Int64 = 0
@@ -79,7 +85,7 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
 
     func start() {
         guard stopped else { return }
-        stopped = false; generation += 1; configuring = false; mjpeg = false
+        stopped = false; generation += 1; configuring = false; mjpeg = false; inputUnavailable = false; inputAdmitted = false
         connecting()
         session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: .main)
         let run = generation
@@ -100,7 +106,7 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         frameTimer?.cancel(); frameTimer = nil; stallTimer?.cancel(); stallTimer = nil
         retries.values.forEach { $0.cancel() }; retries = [:]
         prime?.cancel(); prime = nil; video?.cancel(); video = nil
-        let discarded = socket; socket = nil; socketOpen = false
+        let discarded = socket; socket = nil; socketOpen = false; inputAdmitted = false
         discarded?.cancel(with: .goingAway, reason: nil)
         session?.invalidateAndCancel(); session = nil
         closeDecoder(); mjpeg = false; mjpegBuffer = Data(); demuxer.reset()
@@ -172,6 +178,7 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         var made: T3H264Decoder?
         made = T3H264Decoder(onFrame: { [weak self] image in
             guard let self, self.generation == run, self.decoder === made else { return }
+            self.decodedFeed = true
             self.paint(image)
         }, onError: { [weak self] in
             guard let self, !self.stopped, self.generation == run, self.decoder === made else { return }
@@ -211,7 +218,13 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         if awaitingKeyframe { guard isKey else { return }; awaitingKeyframe = false }
         // A Duo panel feed reopens at once; the device's own feed waits out a burst.
         let pending = decoder.queueSize
-        if panelId != nil ? pending > T3H264.softDecodeQueue : backlog.behind(pending: pending, now: CACurrentMediaTime()) { recovered = "queue"; return recoverDecoder() }
+        if panelId != nil ? pending > T3H264.softDecodeQueue : backlog.behind(pending: pending, now: CACurrentMediaTime()) {
+            recovered = "queue"
+            // Native IDRs are spaced by frame count, so an idle simulator may take minutes to
+            // produce one. A new AVCC subscription forces a fresh IDR.
+            if platform == "ios", panelId == nil { return videoEnded("Video decoder fell behind. Reconnecting…") }
+            return recoverDecoder()
+        }
         decoder.decode(sample: sample, pts: pts.map { Int64(clamping: $0) } ?? timestamp)
         timestamp += Self.frameDuration
     }
@@ -224,7 +237,7 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
 
     private func readIosVideo() {
         guard !stopped, !duoPanels, let url = http("/helper/\(encodedDevice)\(panelId.map { $0 > 0 ? "/panel/\($0)" : "" } ?? "")/stream.avcc") else { return }
-        demuxer.reset(); closeDecoder()
+        demuxer.reset(); closeDecoder(); decodedFeed = false
         video = session?.dataTask(with: URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 60))
         video?.resume()
         armStall()
@@ -235,7 +248,9 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         let run = generation
         let item = DispatchWorkItem { [weak self] in
             guard let self, self.generation == run, self.video != nil, !self.mjpeg else { return }
-            self.fail("Device stream stopped receiving video. Reconnect to try again.")
+            // An AVCC body can stay open after its helper stops producing frames.
+            if self.panelId != nil { return self.reopenPanelVideo() }
+            self.videoEnded("Device stream stopped receiving video. Reconnecting…")
         }
         stallTimer = item
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.firstFrameTimeout, execute: item)
@@ -289,7 +304,7 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         guard let session else { return }
         let task = session.webSocketTask(with: url)
         task.maximumMessageSize = 32 * 1024 * 1024
-        socket = task; socketOpen = false
+        socket = task; socketOpen = false; inputAdmitted = false; inputUnavailable = false
         task.resume()
         receive(task, run: generation)
     }
@@ -318,8 +333,7 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         guard webSocketTask === socket, !stopped else { return }
         socketOpen = true
-        if platform == "ios" { send(T3DeviceWire.tagged(T3DeviceWire.hardwareKeyboard, ["enabled": false])) } else { connecting() }
-        onInput(true, "")
+        if platform == "android" { connecting(); onInput(true, "") }
     }
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
@@ -328,7 +342,7 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
 
     private func socketClosed(_ task: URLSessionWebSocketTask, code: Int, reason: String) {
         guard task === socket else { return }
-        socket = nil; socketOpen = false
+        socket = nil; socketOpen = false; inputAdmitted = false
         duoControl.clear(); rotationCursor = nil
         if platform == "android" { closeDecoder() }
         guard !stopped else { return }
@@ -370,7 +384,13 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     }
 
     private func helperMessage(_ data: Data) {
-        guard let tag = data.first, let payload = try? JSONSerialization.jsonObject(with: data.dropFirst()) as? [String: Any] else { return }
+        guard let tag = data.first else { return }
+        if tag == T3DeviceWire.inputAdmitted {
+            inputAdmitted = true
+            onInput(!inputUnavailable, inputUnavailable ? "Simulator input is unavailable" : "")
+            return
+        }
+        guard let payload = try? JSONSerialization.jsonObject(with: data.dropFirst()) as? [String: Any] else { return }
         // A hinge command's reply.
         if tag == 0x90 {
             guard let id = (payload["requestId"] as? NSNumber).flatMap({ Int(exactly: $0.doubleValue) }), let ok = payload["ok"] as? Bool else { return }
@@ -380,6 +400,8 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
               let width = (payload["width"] as? NSNumber)?.doubleValue, let height = (payload["height"] as? NSNumber)?.doubleValue, width > 0, height > 0,
               let orientation = payload["orientation"] as? String, T3DeviceWire.orientations.contains(orientation),
               case .success(let duo) = T3DuoConfig.parse(payload) else { return }
+        inputUnavailable = (payload["inputUnavailable"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false
+        onInput(socketOpen && inputAdmitted && !inputUnavailable, inputUnavailable ? "Simulator input is unavailable" : "")
         let previous = screen
         screen = Screen(width: width, height: height, orientation: orientation, duo: duo)
         if let pose = duo?.hingePose, pose != previous?.duo?.hingePose { rotationCursor = pose == "laptop" ? "landscape_left" : "portrait" }
@@ -398,7 +420,7 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     /// createDuoControl's send: hinge commands as `0x10`, orientation as the ordinary `0x07`, which
     /// the next screen config acknowledges.
     private func sendDuo(_ requestId: Int, _ command: T3DuoCommand) -> Bool {
-        guard socketOpen, !stopped, let duo = screen?.duo, duo.supportsHingeAngle else { return false }
+        guard socketOpen, !stopped, inputAdmitted, !inputUnavailable, let duo = screen?.duo, duo.supportsHingeAngle else { return false }
         if case .physical = command, !duo.supportsPhysicalOrientation { return false }
         pendingOrientation = nil
         if case .orientation(let value) = command {
@@ -477,7 +499,7 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         for chunk in demuxer.push(data) {
             switch chunk.kind {
             case .seed:
-                if let image = NSImage(data: chunk.payload)?.cgImage(forProposedRect: nil, context: nil, hints: nil) { paint(image) }
+                if !decodedFeed, let image = NSImage(data: chunk.payload)?.cgImage(forProposedRect: nil, context: nil, hints: nil) { paint(image) }
             case .description:
                 awaitingKeyframe = true
                 let next = makeDecoder()
@@ -529,7 +551,7 @@ final class T3DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     // MARK: Input
 
     private func send(_ data: Data) {
-        guard !stopped, socketOpen, let socket else { return }
+        guard !stopped, socketOpen, platform != "ios" || (inputAdmitted && !inputUnavailable), let socket else { return }
         log(data)
         socket.send(.data(data)) { _ in }
     }

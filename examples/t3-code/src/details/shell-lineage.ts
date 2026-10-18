@@ -4,8 +4,10 @@
 // ThreadRelationshipsControl.tsx, ThreadRelationshipIcon.tsx, AgentElapsed.tsx;
 // upstream 9c161462c9): the open thread's immediate relationships (fork parent,
 // forks, subagents, context transfers) from the thread shells and its own
-// projection. A subagent row follows its child's current run, a queued
-// follow-up included; the heading counts what is running.
+// projection. A settled subagent whose child thread has a live run shows that
+// run; the heading counts what is running. A row ends in one item: an agent's
+// compact elapsed time, else its status; a running T3-owned subagent trades it
+// for Stop on hover.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { subagentTitle } from '../timeline/timeline-events';
@@ -16,7 +18,7 @@ type Node = { id: string; thread: Obj | null; missing: boolean };
 type Graph = { nodes: Map<string, Node>; edges: Edge[] };
 export type LineageRow = {
   id: string; title: string; icon: string; driver: string; status: string; dot: string; group: string; index: number;
-  mergeTarget: boolean; elapsed: string; agent: boolean; missing: boolean; hint: string;
+  mergeTarget: boolean; elapsed: string; agent: boolean; missing: boolean; hint: string; failed: boolean; canStop: boolean;
 };
 
 const SETTLED_AGENT = new Set(['completed', 'failed', 'error', 'cancelled', 'interrupted', 'idle']);
@@ -134,6 +136,16 @@ export function formatElapsed(totalSeconds: number): string {
   return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`;
 }
 
+/** formatCompactElapsedSeconds: "45s", "12m", "1.5h", "14h" for tight rows; rounds down. */
+export function formatCompactElapsed(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes >= 600) return `${Math.floor(minutes / 60)}h`;
+  return `${Math.floor(minutes / 6) / 10}h`;
+}
+
 /**
  * currentSubagent: the row's timer and hover card follow the child's current work, including a
  * queued follow-up whose provider turn has not started; the task's output stays with its own run.
@@ -150,14 +162,17 @@ export function currentSubagent(agent: Obj | undefined, child: Obj | null | unde
     startedAt: startedAt ? str(startedAt) : null, completedAt: completedAt ? str(completedAt) : null, progress: null, result: null, error: null };
 }
 
-/** deriveSubagentElapsedMs, formatted; '' when the agent has no start (or a settled one no end). */
-export function agentElapsed(agent: Obj, now: number): string {
+/** deriveSubagentElapsedMs, formatted (`compact` for Lineage's rows); '' when the agent has no start (or a settled one no end). */
+export function agentElapsed(agent: Obj, now: number, compact = false): string {
   if (!agent.startedAt) return '';
   const end = LIVE_WORK.has(str(agent.status)) ? now : agent.completedAt ? Date.parse(str(agent.completedAt)) : NaN;
   const start = Date.parse(str(agent.startedAt));
   if (!Number.isFinite(start) || !Number.isFinite(end)) return '';
-  return formatElapsed(Math.max(0, end - start) / 1000);
+  return (compact ? formatCompactElapsed : formatElapsed)(Math.max(0, end - start) / 1000);
 }
+
+/** A running subagent this app started (not one the provider runs natively) stops by interrupting its child thread's turn. */
+export const canStopSubagent = (agent: Obj | undefined) => !!agent && agent.origin === 'app_owned' && !!agent.startedAt && LIVE_WORK.has(str(agent.status));
 
 const createdAt = (node: Node | undefined) => { const at = Date.parse(str(node?.thread?.createdAt)); return Number.isFinite(at) ? at : null; };
 
@@ -186,12 +201,14 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
     const driver = subagent && !parent ? str(agent?.driver) || str(provider?.driver) : '';
     const relationship = edge.kind === 'transfer' ? 'Context transfer' : subagent ? (edge.source === threadId ? 'Subagent' : 'Parent agent') : (edge.source === threadId ? 'Fork' : 'Parent thread');
     const rawTitle = str(thread?.title) || str(agent?.title) || id;
-    const group = groupOf(edge);
+    const group = groupOf(edge), failed = status === 'failed' || status === 'error';
     return {
       id, title: subagent ? subagentTitle(rawTitle) : rawTitle, icon: parent ? 'corner-left-up' : subagent ? 'bot' : 'git-fork', driver,
       status: statusLabel(status), dot: statusDot(status), group, index: counters[group]!++, mergeTarget: id === mergeTarget,
-      elapsed: agent ? agentElapsed(agent, now) : '', agent: !!agent, missing: node?.missing === true,
+      // One trailing item keeps room for the title: the badge already carries status, so a timed agent shows its time.
+      elapsed: agent && !failed ? agentElapsed(agent, now, true) : '', agent: !!agent, missing: node?.missing === true,
       hint: node?.missing ? 'This related thread is unavailable' : `Open ${relationship.toLowerCase()} in this chat`,
+      failed, canStop: canStopSubagent(agent),
     };
   });
   // Subagents without a child thread yet have no row, so they are counted on their own.

@@ -82,6 +82,7 @@ component ChatColumn
     titleUi: action
     home: PagesHome
     commandPending: bool
+    lineageStopping: string
     command: action
     paletteShow: action
     foldHold: bool
@@ -173,8 +174,21 @@ component ChatColumn
   // scrollToOffset fallback), until the next jump to the end.
   state fallbackTop = 0
   state fallbackJump = -1
+  // A wheel over the minimap moves the transcript through the same binding (minimapWheel), until the next jump to the
+  // end or restoration; `scrolled` is the list's last report: its offset, its travel and its height.
+  state wheelTop = 0
+  state wheelJump = -1
+  state wheelPending = false
+  state scrolledTop = 0
+  state scrolledMax = 0
+  state scrolledPort = 0
+  derive listTop = wheelJump == jumpRequest ? wheelTop : (fallbackJump == jumpRequest ? fallbackTop : 1000000 + jumpRequest)
   action transcriptScrolled(left: number, top: number, e: ScrollEvent)
     citeScrolled(left, top)
+    scrolledTop = e.scrollTop
+    scrolledMax = e.scrollHeight - e.clientHeight
+    scrolledPort = e.clientHeight
+    wheelPending = false
     restScrolled(composerOwner, e)
     if tipArmed
       tipEpoch = tipEpoch + 1
@@ -198,6 +212,8 @@ component ChatColumn
       let restore = not saved.end and not data.citing
       fallbackTop = saved.top
       fallbackJump = restore and not turnIds.includes(saved.key) ? jumpRequest : -1
+      if restore and not turnIds.includes(saved.key)
+        wheelJump = -1
       if restore and turnIds.includes(saved.key)
         scrollIntoView("transcript", saved.key, offset=saved.offset, behavior="instant")
   // The minimap's strip or chevron: the turn's row 24pt under the top edge (scrollToIndex viewOffset 24; offset is the
@@ -215,12 +231,25 @@ component ChatColumn
   action transcriptWheel(e: WheelEvent)
     citeEnd()
     restGesture(e.deltaY > 0)
+  // TimelineMinimap's wheel scrolls the transcript beside it (forwardWheelToTimeline): the transcript hears it as its own
+  // wheel, then moves by it (a line is 16pt, a page its height) from the offset it last reported, or from the last such
+  // move it has not reported yet. A target equal to the binding's value would not write, so it differs by 0.01.
+  action minimapWheel(e: WheelEvent)
+    let base = wheelPending and wheelJump == jumpRequest ? wheelTop : scrolledTop
+    let target = max(0, min(scrolledMax, base + e.deltaY * (e.deltaMode == 1 ? 16 : (e.deltaMode == 2 ? scrolledPort : 1))))
+    if not e.ctrlKey and e.deltaY != 0
+      preventDefault()
+      citeEnd()
+      restGesture(e.deltaY > 0)
+      wheelTop = target == listTop ? target + 0.01 : target
+      wheelJump = jumpRequest
+      wheelPending = true
   // A scroll key with the focus in the transcript is a resting gesture too (End, Page Down, ↓ and Space toward the end).
   action transcriptKeys(k: string)
     if k == "Home" or k == "End" or k == "PageUp" or k == "PageDown" or k == "ArrowUp" or k == "ArrowDown" or k == " "
       restGesture(k == "End" or k == "PageDown" or k == "ArrowDown" or k == " ")
   // resolveChatCanvasLayout (chat-canvas-view.ts) places the lane: centred, moved left and then narrowed for the docked
-  // workspace card (32pt clear of it) and for the floating player. Every lane container keeps its own 20pt padding and
+  // workspace card (32pt clear of it) and for the floating player. Every lane container keeps its own 3rem padding and
   // adds the canvas's insetEnd (`--chat-lane-inset-end`) on its end side; the composer stack is the lane itself. Until
   // the canvas first answers, chat is centred.
   derive laneInset = canvas.ready ? canvas.insetEnd : 0
@@ -228,8 +257,8 @@ component ChatColumn
   // with no messages docks it at the foot over the timeline's placeholder.
   derive hero = data.messages.length == 0 and data.threadId == ""
   derive overlaid = not hero
-  derive stackWidth = canvas.ready ? canvas.width : max(0, min(data.look.chatMax, conversationWidth - 2.5 * rem))
-  derive stackLeft = canvas.ready ? canvas.left : 1.25 * rem + max(0, conversationWidth - 2.5 * rem - stackWidth) / 2
+  derive stackWidth = canvas.ready ? canvas.width : max(0, min(data.look.chatMax, conversationWidth - 6 * rem))
+  derive stackLeft = canvas.ready ? canvas.left : 3 * rem + max(0, conversationWidth - 6 * rem - stackWidth) / 2
   // `z-index` 1: the column paints over the terminal drawer under it (z-index orders siblings only, LLP 1001), so the thread
   // details popover (below), and any other popup that overflows the column's foot, runs over an open drawer as the
   // reference's portaled popups do.
@@ -250,12 +279,12 @@ component ChatColumn
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         column flex=1 min-height=0 width="100%" position="relative"
           // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
-          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scroll=transcriptScrolled wheel=transcriptWheel keycapture=transcriptKeys scrollTop=(fallbackJump == jumpRequest ? fallbackTop : 1000000 + jumpRequest) id="transcript" testId="transcript" flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
+          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scroll=transcriptScrolled wheel=transcriptWheel keycapture=transcriptKeys scrollTop=listTop id="transcript" testId="transcript" flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             for message in data.messages key=message.id
               TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
           if not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
             TimelineFade(canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas))
-          TimelineMinimap(items=data.minimap, current=turnCurrent, visible=turnsShown, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * rem)) / 2), windowHeight=viewport.height, jump=turnJump)
+          TimelineMinimap(items=data.minimap, current=turnCurrent, visible=turnsShown, wheel=minimapWheel, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 6 * rem)) / 2), windowHeight=viewport.height, jump=turnJump)
           for owner in [composerOwner] key=owner
             box intersect=transcriptOpened(owner) position="absolute" top=0 left=0 width=0 height=0 pointer-events="none"
           // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing.
@@ -265,7 +294,7 @@ component ChatColumn
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
       // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.
       // The banners sit above the card; the drawer layer paints after both, over the banners, clipped at the card.
-      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "1.25rem") padding-right=(overlaid ? 0 : 1.25 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" hatch="t3-frame" data-frame="overlay" testId="composer-overlay"
+      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "3rem") padding-right=(overlaid ? 0 : 3 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" hatch="t3-frame" data-frame="overlay" testId="composer-overlay"
         column padding-top=(overlaid ? "0px" : "0.75rem") width="100%" max-width=data.look.chatMax position="relative" box-sizing="border-box"
           // The banners share a row with the stash's shoulder tab.
           row width="100%" align-items="flex-end" hatch="t3-frame" data-frame="shoulder"
@@ -274,7 +303,7 @@ component ChatColumn
                 ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items, exiting=noticeExit, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
             if editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) and data.requestMode != "approval" and not data.composer.subagent
               StashBadge(stash=editor.stash, op=editorOp)
-          RequestBanner(data=data, command=command, busy=commandPending, scheme=scheme, compact=(min(data.look.chatMax, conversationWidth - 2.5 * rem) - 4.25 * rem <= 35 * rem), maximumHeight=min(384, viewport.height * 0.4))
+          RequestBanner(data=data, command=command, busy=commandPending, scheme=scheme, compact=(min(data.look.chatMax, conversationWidth - 6 * rem) - 4.25 * rem <= 35 * rem), maximumHeight=min(384, viewport.height * 0.4))
         // A resting card keeps the transcript's reservation instead of the stack's height (resolveComposerTimelineInset).
         column padding-bottom=(resting ? "3.25rem" : "1.25rem") justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" hatch="t3-frame" data-frame="stack"
           column width="100%" max-width=data.look.chatMax position="relative"
@@ -299,7 +328,7 @@ component ChatColumn
       // (app-window.contract outsidePressDown): Base UI's outside press. Over a right panel sheet
       // (a narrow window) it is the window's (app-overlays.contract WindowOverlays), above the sheet.
       if detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen))
-        ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+        ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending, stopping=lineageStopping)
       // A device floated over the chat (device-workspace.contract), in the canvas's frame.
       if shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
         DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
@@ -314,7 +343,7 @@ component ChatColumn
       // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and becomes the header's
       // popover when no readable height (160pt) is left; its rows fold to the canvas's density (ThreadDetailsCard).
       if details.inline and canvas.cardShown
-        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending, stopping=lineageStopping)
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels

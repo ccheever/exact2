@@ -162,7 +162,8 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['pages-pr-quick.contract', 'PrRowStack', 'triggerKey'], ['settings-kit.contract', 'SettingsSelect', 'triggerKey'],
     ['pages-prs.contract', 'PrSortMenu', 'triggerKey'], ['pages-prs.contract', 'PrHostMenu', 'triggerKey'],
     ['pages-prs.contract', 'PrFiltersMenu', 'triggerKey'], ['device-tools.contract', 'ToolsSelect', 'triggerKey'],
-    ['pages-usage.contract', 'UsageBreadcrumb', 'triggerKey'], ['pages-pr-handoffs.contract', 'PrdCheckoutMenu', 'triggerKey'],
+    ['pages-usage.contract', 'UsageBreadcrumb', 'triggerKey'], ['pages-usage.contract', 'UsageProviderMenu', 'triggerKey'],
+    ['pages-pr-handoffs.contract', 'PrdCheckoutMenu', 'triggerKey'],
     ['browser-surface.contract', 'BrowserMore', 'triggerKey'], ['browser-surface.contract', 'BrowserLauncherProfiles', 'triggerKey'],
     ['settings-keybindings.contract', 'KeybindingRow', 'triggerKey'], ['snapshot.contract', 'SnapshotPanel', 'triggerKey'],
     ['browser-defaults.contract', 'BdViewportSelect', 'triggerKey'], ['panel.contract', 'AddSurfaceMenu', 'triggerKey'],
@@ -196,7 +197,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     const owner = contractComponent(file, name), calls: unknown[][] = [];
     const scope: Env = { ...await helpers, ...effects(calls), [itemName]: items, section: 'models', rowId: 'model', rowRef: 'repo:42',
       selectId: 'select', menuId: 'popup', popId: 'row-popup', idPrefix: 'account-', t: { id: 'thread' }, row: { id: 'row' },
-      environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
+      projects: [{ id: 'project' }], environments: [{ id: 'env' }], environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
       host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' }, testId: 'rail-trigger' };
     const popup = value(command[1]!, scope), sourceId = value(command[2]!, scope);
     expect(sourceId).not.toBe(popup);
