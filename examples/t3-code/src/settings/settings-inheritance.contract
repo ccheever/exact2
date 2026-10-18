@@ -69,11 +69,14 @@ component InheritanceGroupView
       if group.overrides.length > 0
         column width="100%" gap="0.25rem" padding-top="0.5rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e780, #ffffff08)"
           row width="100%" align-items="center" justify-content="space-between"
-            button press=toggleOverrides aria-expanded=overridesOpen testId=`inheritance-overrides-${rowId}-${group.id}` padding="0.25rem" border-width=0 background-color="#00000000"
+            if (group.folded or group.sameEverywhere) and group.overrides.length > 3
+              button press=toggleOverrides aria-expanded=overridesOpen testId=`inheritance-overrides-${rowId}-${group.id}` padding="0.25rem" border-width=0 background-color="#00000000"
+                text "Overridden by" font-size="0.75rem" color=muted
+            else
               text "Overridden by" font-size="0.75rem" color=muted
             button press=clear testId=`inheritance-clear-${rowId}-${group.id}` padding="0.25rem" border-width=0 background-color="#00000000"
               text (group.overrides.length == 1 ? "Reset it" : "Reset all") font-size="0.75rem" color=muted
-          if group.overrides.length <= 3 or overridesOpen
+          if not (group.folded or group.sameEverywhere) or group.overrides.length <= 3 or overridesOpen
             scroll width="100%" max-height="12rem"
               column width="100%"
                 for override in group.overrides key=override.id
