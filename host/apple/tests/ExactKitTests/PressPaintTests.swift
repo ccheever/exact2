@@ -276,6 +276,35 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(b.style["text_color"], ink(white))
     }
 
+    /// An ancestor with a written colour of its own still lends its press
+    /// colour; a pressed node that comes to write its own ends the lent one
+    /// below it.
+    func testWrittenColoursAndLentOnes() throws {
+        let (p, v) = try fixture(["press_background_color": navy, "press_color": yellow, "written": ["text_color"]])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "handlers": ["press"], "style": ["background_color": white, "text_color": white, "press_color": blue]],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Label"], "style": ["text_color": white]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+        ]))
+        let (b, label) = (try XCTUnwrap(p.views[4]), try XCTUnwrap(p.views[5]))
+        v.pressed = true
+        b.pressed = true
+        b.pressPaint.at -= 1
+        b.pressed = false
+        XCTAssertEqual([b.style["text_color"], label.style["text_color"]], [ink(yellow), ink(yellow)], "the ancestor's press colour again")
+        v.pressPaint.at -= 1
+        v.pressed = false
+        // A background-only press under a held ancestor, then a colour of its own.
+        p.apply(wireBatch([["op": "style", "id": 4, "style": ["background_color": white, "text_color": white, "press_background_color": green]]]))
+        v.pressed = true
+        b.pressed = true
+        XCTAssertEqual(label.style["text_color"], ink(yellow))
+        p.apply(wireBatch([["op": "style", "id": 4, "style": ["background_color": white, "text_color": navy, "written": ["text_color"], "press_background_color": green]]]))
+        XCTAssertEqual(b.style["text_color"], ink(navy))
+        XCTAssertNotEqual(label.style["text_color"], ink(yellow), "the lent colour ends below a colour of its own")
+    }
+
     /// Pressing and letting go of a descendant again and again under a held
     /// ancestor keeps the ancestor's list of what it colours bounded.
     func testRepeatedPressesUnderAHeldAncestorKeepItsListBounded() throws {

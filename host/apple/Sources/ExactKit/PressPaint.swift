@@ -266,8 +266,9 @@ extension NodeView {
         var view = superview
         while let current = view {
             if let node = current as? NodeView {
-                if node.wrote("text_color") { return nil }
+                // (A press colour shows over the node's own written one; the written one stops what is above.)
                 if node.pressPaint.down || node.pressPaint.releaseHeld, Self.pressOverlay(node.style)["text_color"] != nil { return node }
+                if node.wrote("text_color") { return nil }
             }
             view = current.superview
         }
@@ -409,8 +410,12 @@ extension NodeView {
         if pressPaint.down {
             let lent = Self.pressOverlay(style)["text_color"] == nil ? pressPaint.overlay["text_color"] : nil
             overlay = Self.pressOverlay(s)
-            // A colour a press above lends it, where its own press writes none, stays.
-            if overlay["text_color"] == nil, let lent, pressPaint.inkedBy.view != nil, !Self.writes(s, "text_color") { overlay["text_color"] = lent }
+            // A colour a press above lends it, where its own press writes none, stays; a colour of its own now
+            // ends that lender's colour below it too.
+            if overlay["text_color"] == nil, let lent, let lender = pressPaint.inkedBy.view {
+                if !Self.writes(s, "text_color") { overlay["text_color"] = lent }
+                else { endInk(below: self, by: lender); pressPaint.inkedBy = WeakNodeView() }
+            }
             refreshPressOpacity(s)
             if overlay["text_color"] != pressPaint.overlay["text_color"] {
                 // The views it coloured keep taking its colour; new ones
