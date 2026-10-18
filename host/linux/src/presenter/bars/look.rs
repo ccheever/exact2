@@ -13,10 +13,10 @@
 //! fills with its own colour: `surface`, and `surfaceContainer` once the
 //! route's content has scrolled under it (Material's "on scroll" colour).
 //! It does not collapse. The Up arrow is a 24 icon in a 48 target, 4 from
-//! the edge; the title is title-large, 16 from the edge, or straight after
-//! what leads it (52 from the edge after the arrow); the header's buttons
-//! are at the trailing edge, 4 from it: an icon button where the button
-//! has a symbol, else a text button.
+//! the edge; the title is title-large, 16 from the edge, or 4 after what
+//! leads it (56 from the edge after the arrow); the header's buttons are at
+//! the trailing edge, 4 from it: an icon button where the button has a
+//! symbol, else a text button. Its numbers are the `top-` rows.
 //!
 //! **The navigation bar** is 80 tall over the gesture bar, whose area it
 //! fills with its own colour, `surfaceContainer`. Its destinations share
@@ -42,13 +42,12 @@ const TITLE_LARGE: Type = Type(22.0, 28.0, 400, 0.0);
 const LABEL_MEDIUM: Type = Type(12.0, 16.0, 500, 0.5);
 
 /// The top app bar's height, under the status bar.
-pub const TOP_HEIGHT: f32 = 64.0;
-/// What leads and what trails keep this far from the bar's sides.
-const TOP_EDGE: f32 = 4.0;
-/// The title's distance from the side with nothing leading it.
-const TOP_TITLE_INSET: f32 = 16.0;
-/// An icon button: a 24 icon in a 48 target, its state layer a 40 circle.
-const ICON: f32 = 24.0;
+pub fn top_height() -> f32 {
+    dp(metric::TOP_HEIGHT)
+}
+
+/// An icon button: a 48 target (the minimum interactive size), its state
+/// layer a 40 circle.
 const ICON_BUTTON: f32 = 48.0;
 const ICON_LAYER: f32 = 40.0;
 /// A text button: at least 58 by 40, its label 12 from its sides.
@@ -296,19 +295,22 @@ impl Layout {
     /// Material's small top app bar for `top`.
     pub fn top(engine: &mut TextEngine, top: &Top, inputs: &Inputs) -> Layout {
         let (dark, scale) = (inputs.dark, inputs.font_scale);
-        let (y0, h) = (inputs.edge, TOP_HEIGHT);
+        let (y0, h) = (inputs.edge, top_height());
+        // What leads and what trails keep `edge` from the bar's sides, and
+        // the title has `edge` of its own either side (`TopAppBarLayout`).
+        let (edge, icon) = (dp(metric::TOP_EDGE), dp(metric::TOP_ICON));
         let (mut items, mut targets) = (Vec::new(), Vec::new());
         let middle = |size: f32| y0 + (h - size) / 2.0;
         let circle = |x: f32| {
             let at = (x + (ICON_BUTTON - ICON_LAYER) / 2.0, middle(ICON_LAYER));
             Shape::new((at.0, at.1, ICON_LAYER, ICON_LAYER), [ICON_LAYER / 2.0; 4])
         };
-        let mut left = inputs.sides.0 + TOP_EDGE;
-        let mut right = inputs.width - inputs.sides.1 - TOP_EDGE;
+        let mut left = inputs.sides.0 + edge;
+        let mut right = inputs.width - inputs.sides.1 - edge;
         if top.up {
             let ink = Role::OnSurface.color(dark);
-            let icon = (left + (ICON_BUTTON - ICON) / 2.0, middle(ICON), ICON, ICON);
-            items.push(Item::Glyph(ARROW_BACK, icon, ink));
+            let at = (left + (ICON_BUTTON - icon) / 2.0, middle(icon), icon, icon);
+            items.push(Item::Glyph(ARROW_BACK, at, ink));
             targets.push(Target {
                 rect: (left, middle(ICON_BUTTON), ICON_BUTTON, ICON_BUTTON),
                 what: What::Up,
@@ -348,8 +350,8 @@ impl Layout {
             };
             let layer = match (&b.symbol, &label) {
                 (Some(role), _) => {
-                    let icon = (at + (ICON_BUTTON - ICON) / 2.0, middle(ICON), ICON, ICON);
-                    items.push(Item::Symbol(role.clone(), icon, ink));
+                    let rect = (at + (ICON_BUTTON - icon) / 2.0, middle(icon), icon, icon);
+                    items.push(Item::Symbol(role.clone(), rect, ink));
                     circle(at)
                 }
                 (None, Some(p)) => {
@@ -367,7 +369,6 @@ impl Layout {
                 layer: (layer, ink),
             });
         };
-        let led = top.up || !top.leading.is_empty();
         for b in &top.leading {
             let x = left;
             button(b, Some(x), &mut right, &mut left);
@@ -379,18 +380,15 @@ impl Layout {
         // order the author wrote them, after the leading ones.
         let first = targets.len() - top.trailing.len();
         targets[first..].reverse();
-        // After an icon button the title starts where its target ends (the
-        // target's own 12 is the gap); a leading text button gets 4 more.
-        let text_led = top.leading.last().is_some_and(|b| b.symbol.is_none());
-        let x = match (led, text_led) {
-            (false, _) => inputs.sides.0 + TOP_TITLE_INSET,
-            (true, false) => left,
-            (true, true) => left + TOP_EDGE,
-        };
-        let room = right - x - if top.trailing.is_empty() { 12.0 } else { 0.0 };
+        // The title's box is what leads and what trails leave it, its text
+        // `edge` inside it. It starts at the inset or after what leads,
+        // whichever is further, and moves back from what trails where it
+        // would reach it (`TopAppBarLayout`).
+        let room = right - left - 2.0 * edge;
         if !top.title.is_empty() && room > 0.0 {
             let p = line(engine, &top.title, TITLE_LARGE, scale, room);
-            let at = (x, middle(p.height));
+            let x = (inputs.sides.0 + dp(metric::TOP_TITLE_INSET)).max(left) + edge;
+            let at = (x.min(right - edge - p.width), middle(p.height));
             items.push(Item::Text(p, at, Role::OnSurface.color(dark), top.heading));
         }
         let container = match top.scrolled {
@@ -539,6 +537,57 @@ mod tests {
             sides: (0.0, 0.0),
         };
         Layout::bottom(&mut engine, &bottom, &inputs)
+    }
+
+    #[test]
+    fn a_title_has_the_room_what_leads_and_trails_leave_it() {
+        let mut engine = TextEngine::from_font_files(
+            &[std::path::Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../scripts/fixtures/fonts/assets"
+            ))],
+            "DejaVu Sans",
+        );
+        let title = "A title nearly as wide as its bar";
+        let wide = paragraph(&mut engine, title, TITLE_LARGE, 1.0, None).width;
+        let button = Button {
+            node: 3,
+            title: "Star".into(),
+            symbol: Some("star".into()),
+            enabled: true,
+            destructive: false,
+            tint: None,
+        };
+        let top = Top {
+            route: 1,
+            heading: 2,
+            title: title.into(),
+            up: false,
+            leading: Vec::new(),
+            trailing: vec![button],
+            scrolled: false,
+        };
+        // Compose's room: the bar less 4 and a 48 button at its end, 4 at
+        // its start, and the title's own 4 either side; 2 to spare. From
+        // the inset (16) instead, the title would be cut.
+        let width = wide + 4.0 + 48.0 + 4.0 + 8.0 + 2.0;
+        let inputs = Inputs {
+            dark: false,
+            font_scale: 1.0,
+            width,
+            edge: 0.0,
+            sides: (0.0, 0.0),
+        };
+        let bar = Layout::top(&mut engine, &top, &inputs);
+        let (p, at) = (bar.items.iter())
+            .find_map(|item| match item {
+                Item::Text(p, at, _, 2) => Some((p.clone(), *at)),
+                _ => None,
+            })
+            .expect("the title");
+        assert_eq!(p.width, wide, "not cut");
+        // Moved back from the button: it ends 4 before the button's target.
+        assert_eq!(at.0 + p.width, width - 4.0 - 48.0 - 4.0);
     }
 
     #[test]

@@ -160,7 +160,7 @@ impl<D: DataSource> Presenter<D> {
     pub(super) fn fit_bars(&mut self) -> Option<String> {
         self.bars.painter.as_ref()?;
         let (window, safe, frame) = self.bar_window();
-        let above = (safe[0] + look::TOP_HEIGHT - frame[1]).max(0.0);
+        let above = (safe[0] + look::top_height() - frame[1]).max(0.0);
         let nav = look::nav_height(self.bar_font_scale());
         let below = (frame[1] + frame[3] - (window.1 - safe[2] - nav)).max(0.0);
         match self.host.set_bar_room(Some((above, below))) {

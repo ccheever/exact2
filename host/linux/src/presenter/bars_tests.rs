@@ -1,7 +1,7 @@
 //! A shell's bars (LLP 1115.001 D11): what each shows for Shelf's routes,
 //! the room they take of the page, what a touch in one does, how a driver
 //! addresses what they stand for, and a host with no such shell unchanged.
-use super::look::{nav_height, TOP_HEIGHT};
+use super::look::{nav_height, top_height};
 use super::*;
 use crate::presenter::top::SurfacePainter;
 use exact_runner::{DataError, Value};
@@ -506,7 +506,7 @@ fn the_largest_font_scale_clips_neither_bar() {
     assert_eq!(nav_height(2.0), 80.0, "Material's 80 holds a doubled label");
     assert!(nav_height(3.0) > 80.0, "and grows past it");
     let (above, below) = p.bars();
-    assert_eq!(above.unwrap().frame[3], 52.0 + TOP_HEIGHT);
+    assert_eq!(above.unwrap().frame[3], 52.0 + top_height());
     assert_eq!(below.unwrap().frame[3], 24.0 + 80.0);
 }
 
