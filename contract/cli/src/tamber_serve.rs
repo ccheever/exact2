@@ -1163,51 +1163,7 @@ impl Server {
         // override that varies by an app axis (LLP 1121 D5, the compiler's
         // `tamber-role-axis`). An undo restores what was, and is not judged.
         if !undo {
-            // A role that varied before this write is the file's own,
-            // already refused by the build; only what the write makes vary.
-            let varies = |text: &str| -> Vec<(String, u32, u32)> {
-                exact_tamber::check(text, &self.vocab).map_or(Vec::new(), |f| {
-                    f.tokens
-                        .iter()
-                        .zip(&f.design.tokens)
-                        .filter(|(t, _)| {
-                            t.role.is_some()
-                                && t.values.windows(2).any(|w| w[0].css() != w[1].css())
-                        })
-                        .map(|(t, d)| (t.name.clone(), d.name.line, d.name.col))
-                        .collect()
-                })
-            };
-            let mut axis = Vec::new();
-            for (path, text, _) in &planned.files {
-                let before: Vec<String> = texts
-                    .iter()
-                    .find(|(p, _)| p == path)
-                    .map_or(Vec::new(), |(_, t)| {
-                        varies(t).into_iter().map(|(n, ..)| n).collect()
-                    });
-                for (name, line, col) in varies(text) {
-                    if !before.contains(&name) {
-                        axis.push(diagnostic(path, &exact_tamber::Diagnostic { id: "tamber-role-axis", message: format!("`{name}` overrides a role and varies by an app axis: a role has one value, which the hosts' own surfaces read; vary a token the rows name instead (LLP 1121 D5)"), line, col }));
-                    }
-                }
-            }
-            if !axis.is_empty() {
-                return Err(json!({"message": "refused", "diagnostics": axis}));
-            }
-            // A param's value folds with the params where it lands, inside
-            // its range (D15), as the build checks it.
-            // Any write: an unset, a token's or an axis's edit can take a
-            // param out of its range or its `when` out of the design too.
-            if !self.params.1.tokens.is_empty() {
-                let set: Vec<(String, String)> = planned
-                    .files
-                    .iter()
-                    .filter(|(p, _, _)| *p == self.design)
-                    .map(|(p, t, _)| (p.clone(), t.clone()))
-                    .collect();
-                crate::tamber_ops::param_values(&set, &self.params.1, &self.vocab, &self.dir)?;
-            }
+            self.write_checks(&texts, &planned)?;
         }
         let mut out = json!({
             "files": files_json(snap),

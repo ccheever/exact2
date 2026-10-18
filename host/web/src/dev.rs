@@ -350,17 +350,47 @@ impl Session {
         Ok(Some(self.show(self.shape.clone(), tokens)))
     }
 
-    /// The scrub's frame shown, checked against its design `text` compiled
-    /// in full: `Some` naming the first row that differs.
-    pub fn verify<D: DataSource + Default>(
-        &mut self,
+    /// A check of the scrub's frame shown, to run off this thread: the
+    /// design `text` compiled in full (unbaked: baking leaves the theme as it
+    /// is), its shape and tokens, for [`Session::verified`].
+    pub fn verify_job(
+        &self,
         text: String,
-    ) -> Result<Option<String>, String> {
-        let (_, compiled) = self.compile_design::<D>(text)?;
-        let Some((_, shown)) = &self.scrub else {
-            return Ok(None);
-        };
-        Ok(compiled
+    ) -> impl FnOnce() -> Result<(String, Vec<exact_runner::design::Token>), String> + Send + 'static
+    {
+        let (source, src) = (self.source.clone(), self.last.clone());
+        move || {
+            let path = contract::design_path(&source).ok_or("the app has no design")?;
+            let src = src.ok_or("no plan is built yet")?;
+            let (plan, _) = contract::with_design_text(&path, text, || {
+                contract::compile_path_source_all(&source, &src, false)
+            })
+            .map_err(|errors| {
+                errors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })?;
+            Ok((
+                exact_runner::design::shape(&plan),
+                exact_runner::design::tokens(&plan),
+            ))
+        }
+    }
+
+    /// The scrub's frame shown, against `compiled` ([`Session::verify_job`]'s):
+    /// `Some` naming what differs. None with no frame shown.
+    pub fn verified(
+        &self,
+        compiled: &(String, Vec<exact_runner::design::Token>),
+    ) -> Option<String> {
+        let (shape, shown) = self.scrub.as_ref()?;
+        let (compiled_shape, compiled) = compiled;
+        if compiled_shape != shape || compiled.len() != shown.len() {
+            return Some("its compile changes the design's shape".into());
+        }
+        compiled
             .iter()
             .zip(shown)
             .find(|(a, b)| a != b)
@@ -370,7 +400,6 @@ impl Session {
                     a.name, a.value, a.slices, b.value, b.slices
                 )
             })
-            .or_else(|| (compiled.len() != shown.len()).then(|| "the rows differ".to_string())))
     }
 
     /// The design `text` compiled in place of the file's and baked, written
@@ -530,7 +559,17 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
     });
     // A command that woke the wait, answered before the next poll.
     let mut pending: Option<String> = None;
+    // Verifications compiled off this thread, answered as they finish.
+    let verified = std::sync::mpsc::channel::<(String, Result<_, String>)>();
     loop {
+        while let Ok((id, compiled)) = verified.1.try_recv() {
+            let reply = match compiled.map(|c| session.verified(&c)) {
+                Ok(Some(m)) => format!("{{\"mismatch\":{}}}", json_string(&m)),
+                Ok(None) => "{}".into(),
+                Err(e) => format!("{{\"error\":{}}}", json_string(&e)),
+            };
+            let _ = writeln!(stdout, "scrubbed {id} {reply}");
+        }
         while let Some(line) = pending.take().or_else(|| commands.try_recv().ok()) {
             let mut parts = line.splitn(3, ' ');
             let (verb, id, rest) = (parts.next(), parts.next().unwrap_or(""), parts.next());
@@ -553,15 +592,23 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
                     }
                 }
                 (Some("verify"), Some(text)) => {
-                    let checked = serde_json::from_str::<String>(text)
-                        .map_err(|e| format!("verify: {e}"))
-                        .and_then(|text| session.verify::<D>(text));
-                    let reply = match checked {
-                        Ok(Some(m)) => format!("{{\"mismatch\":{}}}", json_string(&m)),
-                        Ok(None) => "{}".into(),
-                        Err(e) => format!("{{\"error\":{}}}", json_string(&e)),
-                    };
-                    let _ = writeln!(stdout, "scrubbed {id} {reply}");
+                    // Compiled off this thread: frames keep coming meanwhile.
+                    match serde_json::from_str::<String>(text) {
+                        Ok(text) => {
+                            let (job, tx, id) =
+                                (session.verify_job(text), verified.0.clone(), id.to_string());
+                            std::thread::spawn(move || {
+                                let _ = tx.send((id, job()));
+                            });
+                        }
+                        Err(e) => {
+                            let _ = writeln!(
+                                stdout,
+                                "scrubbed {id} {{\"error\":{}}}",
+                                json_string(&format!("verify: {e}"))
+                            );
+                        }
+                    }
                     continue;
                 }
                 (Some("restore"), _) => Ok(session

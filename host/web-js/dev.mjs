@@ -159,6 +159,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // The live table (LLP 1121 stage 4): the design the page in dist was built
   // with, and the one the pages run after value-only edits since.
   let design = built.design ?? null, snapshot = null;
+  // The SHA-256 of the design file's bytes `design` was compiled from, which
+  // a scrub's frame must have been folded over to be patched on it.
+  let designFrom = built.designSource ?? null;
   const notice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [] });
   // A batch larger than this, in UTF-8 bytes, goes as the snapshot's notice
   // instead, as the resident loop sends it (host/web/dev.mjs DESIGN_FRAME):
@@ -364,7 +367,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       if (!next.error && sameShape(design, next)) {
         const from = scrubbed ?? design;
         design = next;
-        served = { digest: design.digest ?? null, source: createHash('sha256').update(text).digest('hex') };
+        served = { digest: design.digest ?? null, source: designFrom = createHash('sha256').update(text).digest('hex') };
         const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
         if (scrubbed && released) { scrubbed = null; aside = null; released = false; }
         if (scrubbed) aside = committed; else snapshot = committed;
@@ -435,7 +438,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     else if (built.kept) {
       const tokens = built.design.tokens.filter((t, i) => !same(t, from.tokens[i]));
       design = built.design;
-      served = { digest: design.digest ?? null, source: built.designSource };
+      served = { digest: design.digest ?? null, source: designFrom = built.designSource };
       const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
       // While a scrub previews the pages stay on it: this changes only what
       // its end restores. A released scrub's build goes from it, and ends it.
@@ -454,6 +457,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     }
     else {
       // A reload ends a scrub's preview: the pages boot the committed design.
+      // The scrub ends too: a frame folded on its sources would leave this edit out.
+      tamber?.compete();
       scrubbed = null; aside = null; released = false;
       const next = built.design ?? null;
       keepPageMap();
@@ -463,6 +468,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       // shape held, and the snapshot stays its to fetch.
       const shaped = from && next && from.shape === next.shape && from.tokens.length === next.tokens.length && next.tokens.every((tk, i) => tk.name === from.tokens[i].name);
       design = next;
+      designFrom = built.designSource ?? null;
       snapshot = shaped ? { kind: 'tamber-snapshot', structure: next.shape, base: null, design: next.digest, tokens: next.tokens } : null;
       // A native build on the resident producer keeps its plan and takes
       // this design as a batch only when its shape held: then it is served,
@@ -613,9 +619,11 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     patcher.child.stdin.write(`${JSON.stringify({ id, ...request })}\n`);
   });
   /** A scrub's frame patched: `{fallback}` when it must be compiled instead. */
-  async function scrubPatch(values, frame) {
-    if (!design) return { fallback: true };
-    const base = design, next = await patcherAsk({ key: base.digest, patch: values.map(({ name, css }) => [name, css]) });
+  async function scrubPatch(values, frame, files) {
+    // Folded over files the committed design was not built from (a write
+    // whose build has not landed): compiled instead.
+    if (!design || files?.[relative(app.dir, designPath(app.dir))] !== designFrom) return { fallback: true };
+    const base = design, next = await patcherAsk({ key: `${base.shape} ${base.digest}`, patch: values.map(({ name, css }) => [name, css]) });
     if (!next.tokens || design !== base) return { fallback: true };
     // The committed design's rows, those it patched set again.
     const rows = new Map(next.tokens.map((t) => [t.name, t]));
@@ -627,10 +635,11 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     const file = relative(app.dir, designPath(app.dir)), shown = scrubbed;
     if (!(file in texts) || !shown) return {};
     const next = await scrubDesign(texts[file]);
-    if (next.error || scrubbed !== shown) return {};
+    if (scrubbed !== shown) return {};
+    if (next.error) return { error: next.error };
     const i = next.tokens.findIndex((t, i) => JSON.stringify(t) !== JSON.stringify(shown.tokens[i]));
     const mismatch = i >= 0 ? `\`${next.tokens[i].name}\`: compiled ${JSON.stringify(next.tokens[i])}, patched ${JSON.stringify(shown.tokens[i])}`
-      : next.tokens.length !== shown.tokens.length || next.digest !== shown.digest ? 'the designs differ' : null;
+      : next.tokens.length !== shown.tokens.length || next.digest !== shown.digest || next.shape !== shown.shape || next.structure !== shown.structure ? 'the designs differ' : null;
     if (mismatch) console.log(`scrub: the patched frame is not its compile (${mismatch}); the pages get the committed design back`);
     return mismatch ? { mismatch } : {};
   }

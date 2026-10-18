@@ -217,6 +217,14 @@ fn a_frame_patched_from_its_fold_is_its_full_compile() {
             }
         }
         assert_eq!(patched, rows(&dir, text), "{op}: the patched rows");
+        // The verifier's ask: the same fold, with the write's checks and the
+        // text it would write.
+        let verified =
+            serve.ask(json!({"method": "scrub-fold", "ops": [op], "files": files, "verify": true}));
+        assert_eq!(
+            verified["ok"]["texts"], proposed["ok"]["texts"],
+            "{op}: the texts"
+        );
     }
     assert!(
         live > 30 && synthetic > 0 && role > 0,

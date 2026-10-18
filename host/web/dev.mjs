@@ -252,6 +252,7 @@ const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stri
 // plan; its batch goes to every build, and its snapshot is kept for a build
 // that connects (or missed a batch) until the next plan.
 let designSnapshot = null, designSource = null;
+const designBytes = () => { try { return createHash('sha256').update(readFileSync(designPath(app.dir))).digest('hex'); } catch { return null; } };
 // A frame larger than this, in UTF-8 bytes, goes as a notice instead: a
 // native host's event frames are bounded (PlanURL.swift's 64 KiB).
 const DESIGN_FRAME = 32 * 1024;
@@ -279,8 +280,7 @@ function pushDesign({ batch, snapshot }) {
   for (const res of clients) res.write(`data: ${frame}\n\n`);
   tamber?.channel.broadcast(JSON.parse(frame));
 }
-/** A scrub's batch and snapshot (`live`, or a compiler's reply) shown, each marked `frame`
- * (*1.10*): the batch sent when it sets a token, else only the snapshot kept. */
+/** A scrub's batch and snapshot (`live`, or a compiler's reply) shown, each marked `frame` (*1.11*). */
 function scrubShown(live, frame) {
   const mark = (e) => (e && frame ? { ...e, scrub: frame } : e);
   if (live.batch?.tokens.length) pushDesign({ batch: mark(live.batch), snapshot: mark(live.snapshot) }); else if (live.snapshot) designSnapshot = mark(live.snapshot);
@@ -342,9 +342,10 @@ async function scrubPreview(texts, frame) {
 }
 /** A scrub's frame patched (tamber-scrub.mjs `patch`): its folded rows set on the committed
  * design, compiling nothing; `{fallback}` when this frame must be compiled instead. */
-async function scrubPatch(values, frame) {
+async function scrubPatch(values, frame, files) {
   previewing = true;
   if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
+  if (files?.[relative(app.dir, designPath(app.dir))] !== designSource) return { fallback: true }; // its design is not built from them yet
   if (typescript) {
     const next = moduleDesign && patchDesign(moduleDesign, values);
     const live = next && scrubBatch(moduleScrubbed ?? moduleDesign, next);
@@ -359,8 +360,7 @@ async function scrubPatch(values, frame) {
     return {};
   });
 }
-/** The patched frame shown, against its texts compiled in full (tamber-scrub.mjs
- * `verify`): `{mismatch}` naming the first row that differs. */
+/** The patched frame shown against its texts compiled in full: `{mismatch}` naming what differs. */
 async function scrubVerify(texts) {
   const file = relative(app.dir, designPath(app.dir));
   if (!(file in texts)) return {};
@@ -368,12 +368,13 @@ async function scrubVerify(texts) {
   if (typescript) {
     const shown = moduleScrubbed;
     return scrubAsk((id) => JSON.stringify({ id, scrub: texts[file] }), (reply) => {
-      if (!reply.ok || !shown || moduleScrubbed !== shown) return {};
-      const i = reply.design.tokens.findIndex((t, i) => designDigest([t]) !== designDigest([shown.tokens[i] ?? { name: '', value: '', slices: [] }]));
-      return answer(i >= 0 ? `\`${reply.design.tokens[i].name}\`: compiled ${JSON.stringify(reply.design.tokens[i])}, patched ${JSON.stringify(shown.tokens[i])}` : reply.design.tokens.length !== shown.tokens.length ? 'the rows differ' : null);
+      if (!shown || moduleScrubbed !== shown) return {};
+      if (!reply.ok) return answer(reply.error ?? 'it does not compile');
+      const t = reply.design.tokens, i = t.findIndex((x, i) => designDigest([x]) !== designDigest([shown.tokens[i] ?? { name: '', value: '', slices: [] }]));
+      return answer(i >= 0 ? `\`${t[i].name}\`: compiled ${JSON.stringify(t[i])}, patched ${JSON.stringify(shown.tokens[i])}` : t.length !== shown.tokens.length || reply.design.shape !== shown.shape ? 'the designs differ' : null);
     });
   }
-  return scrubAsk((id) => `verify ${id} ${JSON.stringify(texts[file])}`, (reply) => answer(reply.mismatch ?? null));
+  return scrubAsk((id) => `verify ${id} ${JSON.stringify(texts[file])}`, (reply) => answer(reply.mismatch ?? reply.error ?? null));
 }
 /** A scrub being written: the build of what it writes goes from it. */
 async function scrubReleased() {
@@ -387,8 +388,7 @@ async function scrubRestore(frame) {
   previewing = false;
   if (typescript) {
     const live = moduleScrubbed && moduleDesign && scrubBatch(moduleScrubbed, moduleDesign);
-    moduleScrubbed = null;
-    moduleReleased = false;
+    moduleScrubbed = null; moduleReleased = false;
     if (live) scrubShown(live, frame);
     return;
   }
@@ -579,12 +579,12 @@ function startCompiler() {
         // The design file's bytes this design was compiled from (LLP 1122
         // D5: an inspected token's edit is offered only while they are the
         // file's); a scrub's preview or restore keeps them as they were.
-        try { designSource = createHash('sha256').update(readFileSync(designPath(app.dir))).digest('hex'); } catch { designSource = null; }
+        designSource = designBytes();
         console.log(`edit → batch ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no plan`);
         pushDesign(live);
       } else if (kind === 'plan') {
         if (assetsNeedRebuild) continue;
-        designSnapshot = null;
+        designSnapshot = null; designSource = designBytes(); tamber?.compete(); // a new plan ends a scrub
         const [bytes, saved, compile, bake, ready] = rest.map(Number);
         seq += 1;
         if (!first) pending.set(seq, { saved, ready });
@@ -778,7 +778,7 @@ function startModuleCompiler() {
         // released scrub's edit (what it wrote) goes from it, and ends it.
         if (live && moduleScrubbed && moduleReleased) live.batch = scrubBatch(moduleScrubbed, reply.design)?.batch ?? live.batch;
         if (!live || moduleReleased) { moduleScrubbed = null; moduleReleased = false; }
-        if (reply.design) moduleDesign = reply.design;
+        if (reply.design) { moduleDesign = reply.design; designSource = designBytes(); }
         if (live && moduleScrubbed) continue;
         if (live) {
           // No generation, but the map may have moved (an edit of locations
@@ -798,7 +798,7 @@ function startModuleCompiler() {
           }
           continue;
         }
-        designSnapshot = null;
+        designSnapshot = null; designSource = designBytes(); tamber?.compete(); // a new plan ends a scrub
         moduleCards(candidate, app.id);
         const previous = currentModule;
         currentModule = candidate;

@@ -852,7 +852,8 @@ fn a_patched_scrub_frame_is_the_compiled_one() {
     // The compile shows the same design as the patch: no batch between.
     assert!(compiled.is_none(), "{compiled:?}");
     assert!(patched.expect("a batch").tokens.len() == 2);
-    assert_eq!(s.verify::<NoData>(edited).unwrap(), None);
+    let compiled = s.verify_job(edited)().unwrap();
+    assert_eq!(s.verified(&compiled), None);
     // `ink` is one value in every tuple: two would make it vary.
     assert!(s
         .patch(&[("ink".into(), vec!["#ff0000ff".into(), "#00ff00ff".into()])])

@@ -14,9 +14,10 @@
 //   is previewed, at most one every PACE_MS; the others are answered
 //   `superseded`.
 // - A patched frame is verified once the gesture rests (VERIFY_MS with no
-//   update), never in a frame's way: the full plan and compile of the frame
-//   shown (`verify`) must give the design it patched, or the scrub ends
-//   (`mismatch`) and the builds get the committed design back.
+//   update): the fold again with the write's own checks, and the compile
+//   of its texts (`verify`), must give the design it patched; where either
+//   refuses it or they differ the scrub ends (`mismatch`) and the builds get
+//   the committed design back.
 // - A rebuild-class edit has no scrub: it applies on release, as a write.
 // - Release writes once, as one transaction checked against the digests
 //   the scrub opened with: a file moved since is a conflict, nothing is
@@ -34,12 +35,14 @@ export const VERIFY_MS = 150;
 
 /**
  * `ask` sends the design server a request; `write` makes a write as the
- * wire's own do (announced, attributed); `patch(values, frame)`, when the
- * dev loop has one, sets a frame's folded rows (`scrub-fold`'s `values`)
- * on the design the builds run and sends them the batch (resolves
- * `{fallback}` when it cannot patch this frame, `{error}` when it cannot
- * show it); `verify(texts)` compiles the frame shown in full and resolves
- * `{mismatch}` when that is not the design it patched;
+ * wire's own do (announced, attributed); `patch(values, frame, files)`,
+ * when the dev loop has one, sets a frame's folded rows (`scrub-fold`'s
+ * `values`, folded over `files`, the digests it read) on the design it
+ * committed and sends the builds the batch (resolves `{fallback}` when it
+ * cannot patch this frame, its design not built from those files among
+ * the reasons, `{error}` when it cannot show it); `verify(texts)` compiles
+ * the frame shown in full and resolves `{mismatch}` when that is not the
+ * design it patched (or `{error}` when it does not compile);
  * `preview(texts, frame)` shows a scrub's
  * texts on the builds (resolves `{error}` when it cannot); `restore(frame)`
  * sends them the committed design; each `frame` (`{id, rev}`) marks the
@@ -97,7 +100,7 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
       if (!planned.ok) { failed(id); return planned; }
       if (planned.ok.class !== 'live') { failed(id); return refused(409, REBUILD); }
       open.folded = true;
-      shown = await patch(planned.ok.values ?? [], { id, rev: ++frames });
+      shown = await patch(planned.ok.values ?? [], { id, rev: ++frames }, planned.ok.files);
       if (gone()) { void restore({ id, rev: ++frames }); return refused(409, 'the scrub ended'); }
       if (shown?.fallback) shown = null;
     }
@@ -128,10 +131,11 @@ export function scrubSessions({ ask, write, patch = null, verify = null, preview
     open.verifier = setTimeout(async () => {
       const now = () => open?.id === id && open.rev === rev && !busy && !waiting;
       if (!now()) return;
-      const planned = await ask({ method: 'propose', ops: open.ops, files: open.files, texts: true });
-      if (!now() || !planned.ok) return;
-      const checked = await verify(planned.ok.texts ?? {});
-      if (now() && checked?.mismatch) end('mismatch');
+      // The fold again with the write's own checks, and its texts.
+      const planned = await ask({ method: 'scrub-fold', ops: open.ops, files: open.files, verify: true });
+      if (!now()) return;
+      const checked = planned.ok ? await verify(planned.ok.texts ?? {}) : { mismatch: planned.error?.message ?? 'refused' };
+      if (now() && (checked?.mismatch || checked?.error)) end('mismatch');
     }, verifyMs);
     open.verifier.unref?.();
   }

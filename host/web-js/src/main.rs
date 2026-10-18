@@ -94,7 +94,8 @@ fn scrub_design(input: &std::path::Path, text: &str) -> ExitCode {
 /// `design-serve <app.contract>` (LLP 1121 D13): a scrub's frames, resident.
 /// One JSON request a line on stdin, `{id, key, patch: [[name, [css…]]…]}`:
 /// the app compiled once with its design file as it is on disk (again when
-/// `key`, the design digest the dev loop runs, is not the one it holds),
+/// `key`, the shape and digest of the design the dev loop runs, is not the
+/// one it holds),
 /// each patched row's value set per full app tuple on that plan, answered
 /// `{id, digest, tokens}`: the patched design's digest and the rows of the
 /// tokens it patched, as `design` gives them.
@@ -116,7 +117,12 @@ fn design_serve(input: &std::path::Path) -> ExitCode {
             held = None;
             match contract::compile_path_all(input, false) {
                 Ok((plan, _)) => {
-                    let digest = exact_runner::design::digest(&exact_runner::design::tokens(&plan));
+                    let tokens = exact_runner::design::tokens(&plan);
+                    let digest = format!(
+                        "{} {}",
+                        exact_runner::design::shape(&plan),
+                        exact_runner::design::digest(&tokens)
+                    );
                     let declared = modes::Declared::of(&plan);
                     held = Some((digest, plan, declared));
                 }
@@ -151,6 +157,12 @@ fn design_serve(input: &std::path::Path) -> ExitCode {
         };
         let _ = writeln!(out, "{reply}");
         let _ = out.flush();
+        // Each frame's wide colours stay interned (no holder sweeps them):
+        // past three quarters of the table it ends, and the loop starts
+        // another for the next frame.
+        if exact_kernel::style::wide::used() > 3072 {
+            break;
+        }
     }
     ExitCode::SUCCESS
 }

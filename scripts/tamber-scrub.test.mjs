@@ -50,15 +50,16 @@ test('a scrub previews each value and writes once, on release, on the digests it
 
 /** A session whose dev loop patches: each frame folded (`scrub-fold`) and
  * patched; `fallback` makes the loop refuse a patch, `mismatch` its verify. */
-function patching({ fallback = false, mismatch = false, paceMs = 0, verifyMs = 30 } = {}) {
-  const seen = { asks: [], patches: [], previews: [], verified: [], restores: 0, ended: [], starts: [] };
+function patching({ fallback = false, mismatch = false, refuse = false, paceMs = 0, verifyMs = 30 } = {}) {
+  const seen = { asks: [], patches: [], previews: [], verified: [], restores: 0, ended: [], starts: [], files: [] };
   const s = scrubSessions({
     ask: async r => {
-      seen.asks.push(r.method);
+      seen.asks.push(r.verify ? 'verify' : r.method);
+      if (refuse && r.verify) return { status: 400, error: { message: 'tamber-param-range' } };
       return { ok: { class: 'live', values: [{ name: 'ink', css: [r.ops[0].value] }], texts: { 'app.tamber': `ink = ${r.ops[0].value}` }, changed: [], synthetic: [], files: r.files } };
     },
     write: async () => ({ ok: { inverse: 'inv-1' } }),
-    patch: async (values, frame) => { seen.starts.push(Date.now()); seen.patches.push([values[0].css[0], frame.rev, frame.id]); return fallback ? { fallback: true } : {}; },
+    patch: async (values, frame, files) => { seen.starts.push(Date.now()); seen.files.push(files); seen.patches.push([values[0].css[0], frame.rev, frame.id]); return fallback ? { fallback: true } : {}; },
     verify: async texts => { seen.verified.push(texts['app.tamber']); return mismatch ? { mismatch: 'ink' } : {}; },
     preview: async texts => { seen.previews.push(texts['app.tamber']); return {}; },
     restore: () => { seen.restores++; },
@@ -76,10 +77,22 @@ test('a frame is folded and patched, compiling nothing, and verified once the ge
   expect(seen.asks).toEqual(['scrub-fold', 'scrub-fold']);
   expect(seen.patches).toEqual([['#111111', 1, 'scrub-1'], ['#222222', 2, 'scrub-1']]);
   expect(seen.previews).toEqual([]);
+  // Each patched with the digests it was folded over.
+  expect(seen.files).toEqual([{ 'app.tamber': 'd0' }, { 'app.tamber': 'd0' }]);
   await new Promise(ok => setTimeout(ok, 80));
-  // Only the frame shown last, planned in full and compiled.
+  // Only the frame shown last, folded again with the write's checks and compiled.
+  expect(seen.asks.at(-1)).toBe('verify');
   expect(seen.verified).toEqual(['ink = #222222']);
   expect(s.current()).not.toBe(null);
+});
+
+test('a patched frame the write\'s own checks refuse ends the scrub, restored', async () => {
+  const { s, seen } = patching({ refuse: true });
+  await s.update({ client: 'tool', ops: op('#111111'), files: { 'app.tamber': 'd0' } });
+  await new Promise(ok => setTimeout(ok, 80));
+  expect(seen.verified).toEqual([]);
+  expect(seen.ended).toEqual(['mismatch']);
+  expect(seen.restores).toBe(1);
 });
 
 test('a frame the loop cannot patch is planned and compiled, and not verified', async () => {
