@@ -1,3 +1,4 @@
+use ThreadFindView from "./src/timeline/thread-find.contract"
 use ServerBrowserFrame from "./src/browser/server-browser.contract"
 use PromptLinkView from "./src/prompt-links/prompt-links.contract"
 use ThemeUse, ThemeRoleUsage from "./src/appearance/settings-appearance-editor-shapes.contract"
@@ -7,7 +8,7 @@ use Snapshot, Viewport, Change, LicenseSettings, SnapshotSettings, Settings, Can
 use PairFields from "./src/connections/pairing-shapes.contract"
 use providerLinkVisit from "./src/shell/app-settings.contract"
 use SshPromptView, SshPromptAnswer from "./src/connections/ssh-prompt.contract" // the SSH password dialog (ssh-auth.ts)
-use TranscriptMarkdown from "./src/timeline/markdown.contract"
+use TranscriptMarkdown, MarkdownLabels from "./src/timeline/markdown.contract"
 use TimelineAttachmentUrls from "./src/timeline/timeline-attachments.contract"
 use PagesHome, pageTrailNext from "./src/pages/pages-hero.contract"
 use UsageView, UsageKey from "./src/usage/pages-usage.contract"
@@ -130,7 +131,7 @@ component T3Code
   // or ends (a connect, a retry or a disconnect changes it inside an answer, which nothing else reads), and once
   // whenever the delivering answer reports a table the tick has not published (a socket closed, a slot's attempt got
   // its URL).
-  derive transportAnswering = `${pending(serverBrowserUploaded)}${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(prQuickChanged)}${pending(prConfirmChanged)}${pending(prHandoffChanged)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
+  derive transportAnswering = `${pending(threadFind)}${pending(threadFindMaintained)}${pending(serverBrowserUploaded)}${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(prQuickChanged)}${pending(prConfirmChanged)}${pending(prHandoffChanged)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
   task transportAnswered key=transportAnswering
     after(1, transportPump)
   task transportRepublish when transportInbox.table > transportTable.rev key=transportInbox.table
@@ -254,6 +255,7 @@ component T3Code
   action streamCloseMiniDialog
     close(`server-browser-dialog-${serverMiniFrame.runtimeId}`)
   provide
+    threadFind
     serverMiniFrame
     serverFrame
     streamPainted
@@ -311,6 +313,7 @@ component T3Code
   state restPulls = 0
   state restGestureUntil = -1
   state restLastPull = -1000000
+  state findViewport = ""
   state restTop = -1
   state restHeight = -1
   state restContent = -1
@@ -321,6 +324,11 @@ component T3Code
   action restLapse
     restResting = false
   action restScrolled(owner: string, e: ScrollEvent)
+    match e.firstVisibleKey
+      case some(key)
+        findViewport = key
+      case none
+        findViewport = ""
     let fresh = owner != restOwner
     let end = e.scrollHeight <= e.clientHeight + 2 or e.scrollTop >= e.scrollHeight - e.clientHeight - 2
     let still = not fresh and restHeight >= 0 and max(restHeight - e.clientHeight, e.clientHeight - restHeight) < 0.5 and max(restContent - e.scrollHeight, e.scrollHeight - restContent) < 0.5 and max(restWidth - e.clientWidth, e.clientWidth - restWidth) < 0.5
@@ -434,7 +442,56 @@ component T3Code
       hoverOn = ""
       hoverUntil = until
       hoverHold(until)
-  resource markdown = renderMarkdown(data.messages, data.markdownSkills) as shape TranscriptMarkdown
+  resource threadFind = threadFind(data.revision, wallTime.epochAtZero + elapsed, data.markdownSkills, findViewport) as shape ThreadFindView
+  mutation threadFindMaintained as shape ThreadFindView refreshes threadFind, data
+  task maintainThreadFind when threadFind.attention
+    every(100, maintainThreadFindTick)
+  action maintainThreadFindTick
+    if not pending(threadFindMaintained)
+      send threadFindMaintained = threadFind(data.revision, wallTime.epochAtZero + performanceNow(), data.markdownSkills, findViewport)
+  state findTries = 0
+  state findPlacing = false
+  state findMiss = 1000000
+  task findRequested when threadFind.open and threadFind.entry != "" key=`${data.serverUrl}|${data.threadId}|${threadFind.navigation}|${threadFind.entry}`
+    after(1, findBegin)
+  action findBegin
+    citeEnd()
+    findTries = 0
+    findMiss = 1000000
+    findPlacing = true
+    scrollIntoView("transcript", threadFind.entry, offset=-96, behavior="instant")
+  task findPlacement when threadFind.open and findPlacing and findTries < 30 key=findTries
+    after(32, findPlace)
+  action findPlace
+    let target = frame("thread-find-active")
+    let row = frame(`row-${threadFind.entry}`)
+    let port = frame("transcript")
+    if target.unavailable or row.unavailable
+      findTries = findTries + 1
+    else
+      let miss = target.y - port.y - 96
+      if (miss > 1 or miss < -1) and (findMiss - miss > 0.5 or miss - findMiss > 0.5)
+        scrollIntoView("transcript", threadFind.entry, offset=target.y - row.y - 96, behavior="instant")
+        findMiss = miss
+        findTries = findTries + 1
+      else
+        findPlacing = false
+  task threadFindFocus when threadFind.open key=threadFind.focus
+    after(1, threadFindFocusField)
+  action threadFindFocusField
+    focus("thread-find-query")
+    selectText("thread-find-query")
+  task diffFindFocus when data.diffFind.open key=data.diffFind.focus
+    after(1, diffFindFocusField)
+  action diffFindFocusField
+    focus("diff-find-query")
+    selectText("diff-find-query")
+  task prFindFocus when prDetail.codeTab.find.open key=prDetail.codeTab.find.focus
+    after(1, prFindFocusField)
+  action prFindFocusField
+    focus("pr-code-find-query")
+    selectText("pr-code-find-query")
+  resource markdown = renderMarkdown(data.messages, data.markdownSkills, threadFind.highlight, threadFind.entry, threadFind.occurrence, data.messages.map((message) => MarkdownLabels(id=message.id, chips=message.md.chips))) as shape TranscriptMarkdown
   resource attachmentUrls = timelineAttachments(data.threadId, wallTime.epochAtZero + elapsed, data.revision) as shape TimelineAttachmentUrls // Signed preview URLs for the thread's sent images (timeline-attachments.ts).
   resource home = pagesHome(data.revision) as shape PagesHome // Lane pages: the empty main view, the utility pages and the sidebar footer route.
   state utilityPage = ""
@@ -857,7 +914,7 @@ component T3Code
   state licenseExpanded = ""
   state licenseRetry = 0
   state diagnosticPeriod = "15m"
-  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp) as shape KeyDispatch[]
+  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp, shell.panel.kind, prTab == "code") as shape KeyDispatch[]
   resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape SourceControlPage
   resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, fdaPoll) as shape IntegrationsPage
   state fdaPoll = 0 // Poll Full Disk Access every 1.5 s and on window focus, only while visible; fdaPoll refreshes the wizard.
