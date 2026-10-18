@@ -227,6 +227,69 @@ final class PressPaintTests: XCTestCase {
         b.pressed = true
         XCTAssertEqual(b.style["text_color"], ink(green))
         XCTAssertEqual(c.style["text_color"], ink(blue), "its own press is its boundary")
+        c.pressPaint.at -= 1
+        c.pressed = false
+        XCTAssertEqual(c.style["text_color"], ink(green), "let go, it takes the nearest press's colour")
+        b.pressPaint.at -= 1
+        b.pressed = false
+        XCTAssertEqual([b.style["text_color"], c.style["text_color"]], [ink(yellow), ink(yellow)], "then the outer one's")
+        v.pressPaint.at -= 1
+        v.pressed = false
+        XCTAssertEqual([b.style["text_color"], c.style["text_color"]], [ink(white), ink(white)])
+    }
+
+    /// A pressed node whose own press writes no colour takes a nearer press's.
+    func testABackgroundOnlyPressTakesANearerPressesColour() throws {
+        let (p, v) = try fixture(["press_background_color": navy, "press_color": yellow])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "handlers": ["press"], "style": ["background_color": white, "text_color": white, "press_color": green]],
+            ["op": "create", "id": 5, "kind": "view", "handlers": ["press"], "style": ["background_color": white, "text_color": white, "press_background_color": blue]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+        ]))
+        let (b, c) = (try XCTUnwrap(p.views[4]), try XCTUnwrap(p.views[5]))
+        v.pressed = true
+        c.pressed = true
+        XCTAssertEqual(c.style["text_color"], ink(yellow))
+        b.pressed = true
+        XCTAssertEqual([c.style["text_color"], c.style["background_color"]], [ink(green), ink(blue)])
+    }
+
+    /// A style write to a pressed node whose own press writes no colour keeps
+    /// the colour a held ancestor lends it.
+    func testAStyleWriteKeepsALentColourOnAPressedNode() throws {
+        let (p, v) = try fixture(["press_background_color": navy, "press_color": yellow])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "handlers": ["press"], "style": ["background_color": white, "text_color": white, "press_background_color": green]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+        ]))
+        let b = try XCTUnwrap(p.views[4])
+        v.pressed = true
+        b.pressed = true
+        p.apply(wireBatch([["op": "style", "id": 4, "style": ["background_color": white, "text_color": white, "press_background_color": green, "opacity": 0.9]]]))
+        XCTAssertEqual([b.style["text_color"], b.style["background_color"]], [ink(yellow), ink(green)])
+        b.pressPaint.at -= 1
+        b.pressed = false
+        XCTAssertEqual(b.style["text_color"], ink(yellow), "the held ancestor's still")
+        v.pressPaint.at -= 1
+        v.pressed = false
+        XCTAssertEqual(b.style["text_color"], ink(white))
+    }
+
+    /// Pressing and letting go of a descendant again and again under a held
+    /// ancestor keeps the ancestor's list of what it colours bounded.
+    func testRepeatedPressesUnderAHeldAncestorKeepItsListBounded() throws {
+        let (p, v) = try fixture(["press_background_color": navy, "press_color": yellow])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "handlers": ["press"], "style": ["background_color": white, "text_color": white, "press_background_color": green]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+        ]))
+        let b = try XCTUnwrap(p.views[4])
+        v.pressed = true
+        let before = v.pressPaint.inked.count
+        for _ in 0..<5 { b.pressed = true; b.pressPaint.at -= 1; b.pressed = false }
+        XCTAssertEqual(v.pressPaint.inked.count, before)
+        XCTAssertEqual(b.style["text_color"], ink(yellow))
     }
 
     /// A middle node that comes to write its own colour while a grandchild's

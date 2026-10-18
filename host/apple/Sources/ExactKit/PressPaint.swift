@@ -193,7 +193,7 @@ extension NodeView {
             changed = true
         } else {
             changed = !pressPaint.inked.isEmpty
-            endInked(pressPaint.inked.compactMap(\.view))
+            endInked(pressPaint.inked.compactMap(\.view), released: true)
             pressPaint.inked = []
         }
         guard changed, !still, let layer = paintLayer else { return }
@@ -215,8 +215,8 @@ extension NodeView {
             // (One an ancestor's press colours now takes this one's, if what it shows beneath is the same; not one
             // showing its own colour, a press's included, which is its subtree's boundary.)
             guard !node.showsOwnTextColor, node.pressPaint.inkedBy.view === self || node.style["text_color"] == inherited
-                || (node.pressPaint.inkedBy.view != nil && !node.pressPaint.down && node.pressPaint.rest["text_color"] ?? nil == inherited) else { continue }
-            pressPaint.inked.append(WeakNodeView(view: node))
+                || (node.pressPaint.inkedBy.view != nil && node.pressPaint.rest["text_color"] ?? nil == inherited) else { continue }
+            if !pressPaint.inked.contains(where: { $0.view === node }) { pressPaint.inked.append(WeakNodeView(view: node)) }
             node.pressPaint.inkedBy = WeakNodeView(view: self)
             node.standInForPress(["text_color": ink])
             inkBelow(node, ink: ink, inherited: inherited)
@@ -239,11 +239,12 @@ extension NodeView {
     /// since (a descendant pressed while this release waited out
     /// `PressFeedback.unseen`) keeps its own press's paint and loses only the
     /// text colour this one lent, where its own press writes none. Its own
-    /// going while the press that lent it colour still shows (held down, or
-    /// its release waiting): that press colours it, and what it coloured,
-    /// again (LLP 1061 D7, stage 9 G4).
-    private func endInked(_ views: [NodeView]) {
-        let lender = pressPaint.inkedBy.view.flatMap { $0 !== self && ($0.pressPaint.down || $0.pressPaint.releaseHeld) ? $0 : nil }
+    /// press `released` while the press that lent it colour still shows
+    /// (held down, or its release waiting): that press colours it, and what
+    /// it coloured, again (LLP 1061 D7, stage 9 G4). (Not when the colours
+    /// are only reworked under a new style, nor as the view goes.)
+    private func endInked(_ views: [NodeView], released: Bool = false) {
+        let lender = released ? liveLender() : nil
         for view in views {
             if view === self { endPressStandIn() } else { view.endLent(by: self) }
         }
@@ -257,6 +258,20 @@ extension NodeView {
         if !pressPaint.down { endPressStandIn() }
         else if Self.pressOverlay(style)["text_color"] == nil { endPressStandIn(only: ["text_color"]) }
         else { pressPaint.inkedBy = WeakNodeView() } // its own press colours it: nothing of `pressing`'s on it
+    }
+
+    /// The nearest press above that would colour this view now: one down (or
+    /// its release waiting) with a press colour, no colour written between.
+    private func liveLender() -> NodeView? {
+        var view = superview
+        while let current = view {
+            if let node = current as? NodeView {
+                if node.wrote("text_color") { return nil }
+                if node.pressPaint.down || node.pressPaint.releaseHeld, Self.pressOverlay(node.style)["text_color"] != nil { return node }
+            }
+            view = current.superview
+        }
+        return nil
     }
 
     /// While pressed, its press colour on the views below that take it again.
@@ -392,7 +407,10 @@ extension NodeView {
         var s = s
         var overlay = pressPaint.overlay
         if pressPaint.down {
+            let lent = Self.pressOverlay(style)["text_color"] == nil ? pressPaint.overlay["text_color"] : nil
             overlay = Self.pressOverlay(s)
+            // A colour a press above lends it, where its own press writes none, stays.
+            if overlay["text_color"] == nil, let lent, pressPaint.inkedBy.view != nil, !Self.writes(s, "text_color") { overlay["text_color"] = lent }
             refreshPressOpacity(s)
             if overlay["text_color"] != pressPaint.overlay["text_color"] {
                 // The views it coloured keep taking its colour; new ones
