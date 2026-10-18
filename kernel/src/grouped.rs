@@ -312,13 +312,6 @@ impl Kernel {
             out.custom = true;
             return out;
         }
-        // A row that is itself a text is a cell's title, as a `row` holding
-        // that text is: carried, its lines sat at the top of the cell.
-        if row.node_type == NodeType::Text {
-            out.texts(row, None, false);
-            out.custom = out.title.is_none();
-            return out;
-        }
         let shown = |n: &NodeRef<'_>| -> Vec<NodeRef<'_>> {
             n.children()
                 .into_iter()

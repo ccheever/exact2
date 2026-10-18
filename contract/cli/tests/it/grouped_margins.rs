@@ -4,7 +4,7 @@
 //! host reports them (`Kernel::set_grouped_margins`), and the sheet's
 //! stand-ins give way to them where the author wrote nothing.
 
-use exact_kernel::{Frame, GroupedMargins, GroupedRow, Kernel, Offer, Op};
+use exact_kernel::{Frame, GroupedMargins, Kernel, Offer, Op};
 use exact_runner::{DataError, DataSource, Event, Runner, Value};
 
 struct NoData;
@@ -266,24 +266,4 @@ fn a_margin_that_is_no_length_is_refused() {
             .set_grouped_margins(list, Some(margins))
             .is_err());
     }
-}
-
-/// A bare `text` in a section is a row (docs/recipes/navigation-stack.md's
-/// ingredients): it is the platform's cell, its title the text, as a `row`
-/// holding the text is, and not a custom row whose lines sat at the top of
-/// the cell.
-#[test]
-fn a_bare_text_row_is_a_cells_title() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    text \"200 g spaghetti\" testId=\"bare\"\n    row testId=\"held\"\n      text \"200 g spaghetti\"");
-    let rows = &r.kernel().grouped_list(id(&r, "list")).unwrap().sections[0].rows;
-    assert_eq!(rows[0].title.as_deref(), Some("200 g spaghetti"));
-    assert!(!rows[0].custom);
-    assert_eq!(
-        GroupedRow {
-            view: rows[1].view,
-            ..rows[0].clone()
-        },
-        rows[1],
-        "the same cell as a row holding the text"
-    );
 }
