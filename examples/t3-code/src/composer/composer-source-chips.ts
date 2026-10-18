@@ -1,5 +1,5 @@
 // composer-editor-mentions.ts, composer-logic.ts and citation spacing at T3 Code 9c161462c9.
-import { codeAt, composerMarkdown, type ComposerAtom } from './composer-markdown';
+import { codeAt, composerMarkdown, type ComposerAtom, type ComposerBlockOrigin } from './composer-markdown';
 import type { ComposerRange } from './composer-markdown-inline';
 import type { ComposerEdit } from './composer-markdown-edit';
 import { assistantCitationLabel, collectAssistantCitations } from '../timeline/diff-citations';
@@ -83,9 +83,9 @@ export function chipDecorations(chips: readonly ComposerChip[], labels: Readonly
   });
 }
 
-export function composerTrigger(value: string, cursor: number, chips = composerChips(value), styling = true): ComposerTrigger | null {
+export function composerTrigger(value: string, cursor: number, chips = composerChips(value), styling = true, blockOrigins?: readonly ComposerBlockOrigin[]): ComposerTrigger | null {
   if (!Number.isInteger(cursor) || cursor < 0 || cursor > value.length || chips.some(chip => cursor > chip.start && cursor < chip.end)) return null;
-  if (styling && codeAt(composerMarkdown(value).blocks, { start: cursor, end: cursor })) return null;
+  if (styling && codeAt(composerMarkdown(value, { blockOrigins }).blocks, { start: cursor, end: cursor })) return null;
   const start = value.lastIndexOf('\n', cursor - 1) + 1, prefix = value.slice(start, cursor), slash = /^\/(\S*)$/.exec(prefix);
   if (slash) return { kind: 'slash-command', query: slash[1] ?? '', start, end: cursor };
   const token = /[^ \t\r\n]*$/.exec(prefix)?.[0] ?? '', tokenStart = cursor - token.length;
@@ -96,8 +96,8 @@ export function composerTrigger(value: string, cursor: number, chips = composerC
   return token.startsWith('@') ? { kind: 'path', query: token.slice(1), start: tokenStart, end: cursor } : null;
 }
 
-export function pastedPathQueryLength(lineBefore: string, pasted: string, active: boolean): number {
-  if (!active || composerTrigger(lineBefore, lineBefore.length)?.kind !== 'path') return 0;
+export function pastedPathQueryLength(lineBefore: string, pasted: string, active: boolean, blockOrigins?: readonly ComposerBlockOrigin[]): number {
+  if (!active || composerTrigger(lineBefore, lineBefore.length, undefined, true, blockOrigins)?.kind !== 'path') return 0;
   return /^\S*/.exec(pasted)?.[0].length ?? 0;
 }
 

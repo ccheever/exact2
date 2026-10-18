@@ -51,8 +51,9 @@ export function composerIntentSource(client: { snapshotOwner: string }, intent: 
   if (intent.kind === 'language' || intent.kind === 'toggle') {
     if (intent.mode !== 'rich') return reply;
     const replacement = intent.kind === 'language'
-      ? composerLanguageEdit({ value: intent.value, current: intent.value, header: range, language: intent.language })
-      : composerTaskEdit({ value: intent.value, current: intent.value, block: range, checked: intent.checked });
+      ? composerLanguageEdit({ value: intent.value, current: intent.value, header: range, language: intent.language, blockOrigins: session.blockOrigins })
+      : composerTaskEdit({ value: intent.value, current: intent.value, block: range, checked: intent.checked, blockOrigins: session.blockOrigins });
+    if (replacement) session.input(intent.owner, intent.value, replacement, replacement.text);
     return replacement ? { ...reply, ...replacement, kind: 'edit', preserveSelection: true } : reply;
   }
   const result: ComposerSessionResult = intent.kind === 'key'

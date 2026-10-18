@@ -137,6 +137,18 @@ shape ComposerSourceBlock
   bodyStart: number
   bodyEnd: number
 
+// Deferred input metadata; field source and undo remain owned by the textarea.
+shape ComposerIntentMetadata
+  serial: number
+  kind: string
+  text: string
+  key: string
+  shift: bool
+  command: bool
+  start: number
+  end: number
+  inputSerial: number
+
 shape ComposerIntentReply
   owner: string
   value: string
