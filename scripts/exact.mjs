@@ -668,6 +668,8 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact game vocab [<name>]   component fields, evaluated defaults and World verbs, from rustdoc
   exact contract <args…>       the Contract compiler (build, types, vocab, …),
                                with paths relative to where you run it
+  exact docs <heading words>   the one section of the guides and recipes with
+                               that heading, with its path and line
   exact tamber check|eval|ir|fmt <app>  the app's design (app.tamber): checked,
                                its tokens in one mode (eval --mode dark-style=dim),
                                its IR, tamber.json (ir -o <file>), or its layout (fmt)
@@ -1013,6 +1015,64 @@ export function pattern(args, say = console.log) {
   say(next);
 }
 
+/** The guides `docs` reads, in the order a tie is settled: what a builder looks a section up in. */
+const GUIDES = ['docs/start-here.md', 'docs/contract-for-agents.md', 'docs/contract-grammar.md', 'docs/agent-pitfalls.md', 'docs/reference.md'];
+const SECTION_LINES = 120;
+
+/** Whether a line opens or closes a code fence (CommonMark: an opening fence's info string has no backtick). */
+const fenced = (line, open) => open ? /^\s*```+\s*$/.test(line) : /^\s*```+[^`]*$/.test(line);
+
+/** Every heading of a Markdown file outside its fences: its level, text, first line and the line its section ends on. */
+function sections(text) {
+  const lines = text.split('\n'), heads = [];
+  let fence = false;
+  lines.forEach((line, i) => {
+    if (fenced(line, fence)) fence = !fence;
+    const m = !fence && /^(#{1,6})\s+(.*)/.exec(line);
+    if (m) heads.push({ level: m[1].length, title: m[2].trim(), from: i });
+  });
+  for (const [i, h] of heads.entries()) h.to = heads.slice(i + 1).find(n => n.level <= h.level)?.from ?? lines.length;
+  return { lines, heads };
+}
+
+/** `exact.mjs docs <words>`: the one section of the guides and recipes whose heading holds every word
+ * (the shortest such heading), whole up to SECTION_LINES, with its path and line, so a lookup is one call;
+ * the other matches by path and line. No heading holding them all: the paragraph that holds them. */
+export function docs(args, say = console.log) {
+  const words = args.map(w => w.toLowerCase());
+  if (!words.length) return say(`docs: name words of a heading, as in: bun exact.mjs docs tabular numbers\nIt reads ${GUIDES.map(g => g.slice(5)).join(', ')} and recipes/.`);
+  const recipes = readdirSync(resolve(ROOT, 'docs/recipes')).filter(f => f.endsWith('.md')).sort().map(f => `docs/recipes/${f}`);
+  const files = [...GUIDES, ...recipes].map(path => ({ path, shown: relative(process.cwd(), resolve(ROOT, path)), ...sections(readFileSync(resolve(ROOT, path), 'utf8')) }));
+  const holds = text => words.every(w => text.toLowerCase().includes(w));
+  const at = (f, line) => `${f.shown}:${line + 1}`;
+  const heads = files.flatMap(f => f.heads.filter(h => holds(h.title)).map(h => ({ f, h })));
+  heads.sort((a, b) => (a.h.title.toLowerCase() !== words.join(' ')) - (b.h.title.toLowerCase() !== words.join(' ')) || a.h.title.length - b.h.title.length);
+  const others = list => list.length ? `\nAlso: ${list.slice(0, 8).join(' · ')}${list.length > 8 ? ` · ${list.length - 8} more` : ''}` : '';
+  if (heads.length) {
+    const [{ f, h }] = heads, end = Math.min(h.to, h.from + SECTION_LINES);
+    const cut = h.to > end ? `\n… ${h.to - end} more lines to ${at(f, h.to - 1)}; below: ${f.heads.filter(s => s.from >= end && s.from < h.to && s.level === h.level + 1).map(s => `${s.title} (${s.from + 1})`).join(' · ') || 'no subheading'}` : '';
+    return say(`${at(f, h.from)}\n${f.lines.slice(h.from, end).join('\n').trimEnd()}${cut}${others(heads.slice(1).map(({ f, h }) => `${at(f, h.from)} ${h.title}`))}`);
+  }
+  // Paragraphs (blank-line separated, a fence kept whole) holding every word, most mentions first.
+  const hits = [];
+  for (const f of files) {
+    let start = 0, fence = false;
+    f.lines.forEach((line, i) => {
+      if (fenced(line, fence)) fence = !fence;
+      const last = i === f.lines.length - 1;
+      if ((!fence && line.trim() === '') || last) {
+        const text = f.lines.slice(start, i + 1).join('\n');
+        if (holds(text)) hits.push({ f, from: start, to: i, count: words.reduce((n, w) => n + text.toLowerCase().split(w).length - 1, 0), head: f.heads.filter(h => h.from <= start).at(-1)?.title ?? '' });
+        start = i + 1;
+      }
+    });
+  }
+  if (!hits.length) return say(`docs: no heading or paragraph of the guides holds ${words.map(w => `"${w}"`).join(' and ')}; try fewer words, or bun exact.mjs contract vocab <name>`);
+  hits.sort((a, b) => b.count - a.count);
+  const [best] = hits;
+  return say(`${at(best.f, best.from)}, under "${best.head}" (no heading holds ${words.join(' ')})\n${best.f.lines.slice(best.from, best.to + 1).join('\n').trim()}${others(hits.slice(1).map(x => `${at(x.f, x.from)} (${x.head})`))}`);
+}
+
 async function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
@@ -1033,6 +1093,7 @@ async function main(argv) {
   if (verb === 'tamber') return process.exit(contract(['tamber', ...argv.slice(1)]));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
+  if (verb === 'docs') return docs(guardFlags('docs', argv.slice(1)));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
     const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), without = args.indexOf('--without');

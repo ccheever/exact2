@@ -296,6 +296,18 @@ The first call compiles the compiler (minutes on a cold checkout).
 Ports    none. Runs to completion: exit 0 when it compiled.`,
     example: 'bun exact.mjs contract build app.contract --json',
   },
+  docs: {
+    line: 'a guide section by heading',
+    usage: 'bun exact.mjs docs <heading words>',
+    flags: [],
+    body: `Prints the section of start-here, contract-for-agents, contract-grammar, agent-pitfalls,
+reference or a recipe whose heading holds every word (the shortest such heading), up to
+120 lines, after its path and line, then the other matches. With no heading holding
+them all, the paragraph that mentions them most. A name (a tag, property, function)
+is contract vocab's.
+Ports    none. Runs to completion.`,
+    example: 'bun exact.mjs docs tabular numbers',
+  },
   pattern: {
     line: 'start from a working, tested app: one-screen, list-detail, tabs, dashboard, rest',
     usage: 'bun exact.mjs pattern [<name>] [--force]',
