@@ -86,7 +86,7 @@ package struct RuntimeHooks {
         self.decodeBatch = decodeBatch; self.prepareBatch = prepareBatch
         self.symbolMeasure = symbolMeasure; self.prewarmIslands = prewarmIslands
     }
-    package static let headless = RuntimeHooks(decodeBatch: { Batch.decodeWire($0, resolver: $1) })
+    package static let headless = RuntimeHooks(decodeBatch: { Batch.decodeWire($0, resolver: $1) }, symbolMeasure: SymbolMeasure.measure)
 }
 
 /// A runtime handle and its calls. `destroy` is idempotent at this layer and
@@ -231,6 +231,13 @@ package final class Runtime {
             return read(exact_boot_plan(rt, n, Float(width), Float(height)))
         }
         return islands(batch)
+    }
+    /// Boot a snapshot entry's plan by its kind (LLP 1126 D2): the headless
+    /// session's boot, which a running host's `bootPlan` refuses.
+    package func bootEntry(_ bytes: Data, kind: String, width: CGFloat, height: CGFloat) -> Batch {
+        // WP4 supplies the entry admission and Rust ABI on its rebase.
+        Batch(ops: [], timers: false, motion: false, clock: nil,
+              error: "snapshot entry \(kind) requires WP4's exact_boot_entry ABI")
     }
     package func preparePlan(_ bytes: Data, width: CGFloat, height: CGFloat, token: UInt64 = 0) -> Batch {
         return on {
