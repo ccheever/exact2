@@ -37,7 +37,8 @@ component ReviewView
                 text "Loading diff…" font-size=10.5 color=colors.muted
             else
               if data.error == ""
-                text data.emptyTitle font-size=12.25 font-weight=700 color=colors.foreground
+                if data.raw == ""
+                  text data.emptyTitle font-size=12.25 font-weight=700 color=colors.foreground
                 text data.emptyDetail font-size=10.5 line-height="15.75px" color=colors.muted
               if data.raw != ""
                 view overflow-x="auto" margin-top=10.5
