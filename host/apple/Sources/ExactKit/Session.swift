@@ -1266,15 +1266,9 @@ public final class ExactSession {
 
     /// Drawn once per launch; the same across a dev reload's new runner.
     let launchPlace: LaunchPlace
-    /// The machine zone's offset now, told when it is not the one last told:
-    /// at boot and before each advance, so a DST change or a new zone reaches
-    /// the timer that fires after it (habits F6). Under the agent, the
-    /// drive's zone moves it instead (`tellAgentOffset`).
-    var toldOffset: Double?
-    /// The zone `toldOffset` was read in and when to read it again (its next
-    /// transition, an hour at most): until then, in that zone, a frame's
-    /// check reads no calendar.
-    var offsetHeld: (zone: String, until: Date)?
+    /// The zone's offset last told (`followOffset`, before each advance, so a
+    /// DST change reaches the timer after it, habits F6; `tellAgentOffset`).
+    var toldOffset: Double?, offsetHeld: (zone: String, until: Date)? // `followOffset`
     /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each
     /// change: in the same main-thread turn as the boot batch, so the first
     /// frame on screen already reads the user's preferences.

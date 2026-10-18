@@ -16,6 +16,9 @@ extension ExactSession {
         tellPreferences()
         tellPage()
     }
+    /// The machine zone's offset, told when it moved. `offsetHeld` is the
+    /// zone it was read in and when to read it again: until then, in that
+    /// zone, a frame's check reads no calendar.
     func followOffset() {
         guard launchPlace.epoch == nil else { return }
         let zone = TimeZone.autoupdatingCurrent, wall = Date()
