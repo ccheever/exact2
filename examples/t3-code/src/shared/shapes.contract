@@ -337,7 +337,29 @@ shape ServerUpdateView
   attention: bool
   confirmTitle: string
   confirmBody: string
+shape UpdateMachineView
+  id: string
+  label: string
+  status: string
+  failure: string
+  elapsed: string
+  failed: bool
+shape UpdateEverythingView
+  available: bool
+  running: bool
+  details: bool
+  label: string
+  tone: string
+  elapsed: string
+  action: string
+  confirm: bool
+  title: string
+  body: string
+  summary: string
+  ticking: bool
+  machines: UpdateMachineView[]
 shape Snapshot
+  updateEverything: UpdateEverythingView
   serverUpdate: ServerUpdateView
   timelineReadsNeeded: bool
   highlightPending: bool // a code text waits for its Shiki tokens
