@@ -5,6 +5,7 @@ use HostCredentialsForm from "./source-control-credentials.contract"
 // ProjectDefaultsSettings.tsx, BranchNamingSettings.tsx,
 // SourceControlWritingSettings.tsx, IntegrationsSettings.tsx). Scoped rows show
 // where their value comes from (SettingInheritance) and a reset arrow.
+use InheritanceGroup, InheritanceGroupView from "./settings-inheritance.contract"
 use RedactedText from "../shared/redacted-text.contract"
 use FieldPlaceholder from "../shared/field-placeholder.contract"
 use SelectOption from "./settings-kit.contract"
@@ -38,6 +39,7 @@ use BrowserProfilesView from "../browser/browser-profiles.contract"
 use BrowserProfilesSetting from "../browser/browser-profiles.contract"
 use BrowserTabDefaultRows from "../browser/browser-defaults.contract"
 use BrowserAutoShowRow from "../browser/browser-defaults.contract"
+use PullRequestLinksRow from "../browser/browser-defaults.contract"
 use SettingsPickerTrigger from "../composer/model-picker.contract"
 use CoreOption from "./settings-core-shared.contract"
 use CorePalette from "./settings-core-shared.contract"
@@ -69,6 +71,7 @@ shape ScopedRow
   summary: string
   state: string
   layers: InheritLayer[]
+  layerGroups: InheritanceGroup[]
   reset: string
   status: string
   child: string
@@ -167,18 +170,23 @@ component Card
 component Inheritance
   props
     row: ScopedRow
+    rest: action
   view
     button popovertarget=`inherit-${row.key}` aria-label=`${row.summary}. Show where this value comes from` testId=`inherit-${row.key}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
       LucideLayers(size=12, color=(row.state == "overridden" ? "light-dark(#1b4ed8, #346bf1)" : (row.state == "mixed" ? "#fe9a00" : "light-dark(#71717b, #818181)")))
     column id=`inherit-${row.key}` popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="20rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" aria-label=row.summary testId=`inherit-popup-${row.key}`
-      text "This environment" font-size="0.75rem" font-weight=500 line-height="1rem" padding-bottom="0.375rem" color="light-dark(#71717b, #818181)"
-      for layer in row.layers key=layer.key
-        row align-items="center" gap="0.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=(layer.effective ? "light-dark(#27272a0f, #f5f5f50f)" : "#00000000")
-          text layer.label font-size="0.875rem" line-height="1.25rem" font-weight=(layer.effective ? 500 : 400) color=(layer.effective ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") flex=1 min-width=0 line-clamp=1
-          text layer.value font-size="0.875rem" line-height="1.25rem" max-width="8rem" line-clamp=1 color=(layer.effective ? "light-dark(#27272a, #f5f5f5)" : (layer.set ? "light-dark(#71717b, #818181)" : "light-dark(#71717b99, #81818199)"))
-          box width="0.875rem" height="0.875rem"
-            if layer.effective
-              LucideCheck(size=14, color="light-dark(#1b4ed8, #346bf1)")
+      if row.layerGroups.length > 0
+        for group in row.layerGroups key=group.id
+          InheritanceGroupView(group=group, textColor="light-dark(#27272a, #f5f5f5)", muted="light-dark(#71717b, #818181)", highlight="light-dark(#27272a0f, #f5f5f50f)", accent="light-dark(#1b4ed8, #346bf1)", rowId=row.key, clear=rest("scoped-overrides", `key=${encodeURIComponent(row.key)}&entries=${encodeURIComponent(group.overrideTargets)}`))
+      else
+        text "This environment" font-size="0.75rem" font-weight=500 line-height="1rem" padding-bottom="0.375rem" color="light-dark(#71717b, #818181)"
+        for layer in row.layers key=layer.key
+          row align-items="center" gap="0.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=(layer.effective ? "light-dark(#27272a0f, #f5f5f50f)" : "#00000000")
+            text layer.label font-size="0.875rem" line-height="1.25rem" font-weight=(layer.effective ? 500 : 400) color=(layer.effective ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") flex=1 min-width=0 line-clamp=1
+            text layer.value font-size="0.875rem" line-height="1.25rem" max-width="8rem" line-clamp=1 color=(layer.effective ? "light-dark(#27272a, #f5f5f5)" : (layer.set ? "light-dark(#71717b, #818181)" : "light-dark(#71717b99, #81818199)"))
+            box width="0.875rem" height="0.875rem"
+              if layer.effective
+                LucideCheck(size=14, color="light-dark(#1b4ed8, #346bf1)")
 
 // SettingsRow over a scoped server setting.
 component ScopedSettingRow
@@ -202,7 +210,7 @@ component ScopedSettingRow
             row min-height="1.25rem" align-items="center" gap="0.375rem"
               text row.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
               if row.summary != ""
-                Inheritance(row=row)
+                Inheritance(row=row, rest=rest)
               box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
                 if row.reset != ""
                   button press=rest("scoped", row.reset) disabled=busy aria-label=`Reset ${row.resetLabel != "" ? row.resetLabel : row.title} to default` testId=`reset-${row.key}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
@@ -467,8 +475,8 @@ component IntegrationsPanel
             for item in data.browser key=`${data.scope}:${item.key}:${item.checked}`
               ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
       // IntegrationsSettingsPanel: the Browser section's rows are device-local ("ignore the header selection"), so they show
-      // with no connected environment too: BrowserProfilesSetting, the tab defaults, the recording rows, "Open links in"
-      // and Auto-show.
+      // with no connected environment too: BrowserProfilesSetting, the tab defaults, the recording rows, "Open links in",
+      // Auto-show and "Open pull requests in T3 Code".
       column width="100%" gap="0.625rem" testId="integrations-browser"
         row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
           SectionTitle(title="Browser")
@@ -477,6 +485,7 @@ component IntegrationsPanel
           BrowserTabDefaultRows(view=data.browserProfiles.defaults, local=local)
           BrowserDefaults(linkTarget=data.linkTarget, restInput=restInput)
           BrowserAutoShowRow(view=data.browserProfiles.defaults, local=local)
+          PullRequestLinksRow(view=data.browserProfiles.defaults, local=local)
       if data.available
         column width="100%" gap="0.625rem" testId="integrations-devices"
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
@@ -489,7 +498,7 @@ component IntegrationsPanel
             DeviceRow(row=data.agentDevice, tool=data.agentTool, scope=data.deviceScope, busy=busy, rest=rest)
             DeviceHostsRow(view=data.deviceHosts, busy=busy, rest=rest)
               if data.hostsRow.summary != ""
-                Inheritance(row=data.hostsRow)
+                Inheritance(row=data.hostsRow, rest=rest)
 
 component DeviceRow
   props
@@ -504,7 +513,7 @@ component DeviceRow
         row min-height="1.25rem" align-items="center" gap="0.375rem"
           text row.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
           if row.summary != ""
-            Inheritance(row=row)
+            Inheritance(row=row, rest=rest)
           box width="1.25rem" height="1.25rem"
         text row.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
       row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem"

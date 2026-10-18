@@ -231,6 +231,7 @@ function fakeClient(replies: Record<string, Reply>, settings: Obj = {}) {
       return reply(payload);
     },
   } as unknown as T3Client;
+  client.projectGroups = () => client.shell.projects.map(project => ({ key: String(project.id), name: String(project.title ?? ''), members: [project] }));
   return { client, calls, writes: () => calls.filter(call => call.method === 'pullRequests.runAction').map(call => call.payload) };
 }
 const defaults = (detail: Obj, extra: Record<string, Reply> = {}): Record<string, Reply> => ({

@@ -1,4 +1,4 @@
-// The palette's "Link pull request to thread": reference pullRequest/LinkPullRequestDialog.tsx
+// The palette's "Link pull request to thread": T3 Code 9c161462c9 reference pullRequest/LinkPullRequestDialog.tsx
 // over shared/changeRequestUrl.ts (parseChangeRequestUrl, changeRequestUrlFor),
 // web/pullRequestReference.ts, web/lib/openPullRequestLink.ts (project matching),
 // hooks/usePullRequestLinking.ts and client-runtime/threadPullRequestCompatibility.ts.
@@ -145,7 +145,7 @@ export function linkMode(config: Obj): LinkMode {
 function canLink(projects: Project[], mode: LinkMode, url: string): boolean {
   const parsed = parseChangeRequestUrl(url);
   if (parsed === null || mode === 'unsupported') return false;
-  return (mode === 'multiple' ? findProjectOnChangeRequestHost : findProjectForChangeRequest)(projects, parsed) !== undefined;
+  return mode === 'multiple' || findProjectForChangeRequest(projects, parsed) !== undefined;
 }
 /** resolveLinkPullRequestInput over the thread's own project. */
 export function resolveLinkInput(reference: string, projects: Project[], projectId: string, mode: LinkMode): { link: ResolvedLink } | { error: string } | null {
@@ -190,7 +190,7 @@ function dialogOf(client: T3Client): DialogState {
 /** Leaving the dialog forgets its validation (the reference resets on open). */
 export function resetLinkDialog(client: T3Client): void { dialogs.delete(client); }
 
-export const LINK_DESCRIPTION = 'Attach a pull request to this thread. A full URL can point at any repository on a host this environment has a project for.';
+export const LINK_DESCRIPTION = "Attach a pull request to this thread by its URL, or by its number for this thread's repository.";
 export function linkPullRequestView(client: T3Client, query: string): PaletteView {
   const state = dialogOf(client);
   if (query !== '') state.dirty = true;

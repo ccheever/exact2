@@ -1,5 +1,6 @@
+import { sharedPullRequestLinks } from '../pull-requests/pages-pr-shared';
 // The composer context strip's pull request badge (MIT reference, see
-// LICENSE-T3, upstream f90b77d809): BranchToolbarBranchSelector in toolbar mode renders
+// LICENSE-T3, upstream 9c161462c9): BranchToolbarBranchSelector in toolbar mode renders
 // ThreadPullRequestBadgeControl (ThreadStatusIndicators.tsx) as a ComposerControl size="xs"
 // just before the branch trigger. What it shows follows the selector:
 // - the thread's current linked pull request (resolveThreadCurrentPullRequestLink) and its
@@ -45,7 +46,7 @@ const STATE_LABEL: Record<string, string> = { open: 'Open', draft: 'Draft', clos
 export function stripPr(client: T3Client, input: { cwd: string; threadBranch: string; branch: string; status: Obj | null }): StripPr {
   const thread = client.threadId ? client.shell.threads.find(entry => entry.id === client.threadId) ?? null : null;
   const many = caps(client).threadPullRequests === true;
-  const links = thread ? arr(thread.pullRequests) : [];
+  const links = thread ? sharedPullRequestLinks(client, arr(thread.pullRequests), str(thread.projectId)) : [];
   const current = many ? currentPullRequestLink(links) : null;
   const status = peekVcsStatus(client, input.cwd) ?? input.status;
   // resolveBranchToolbarPrBranch + branchStatusQuery.data.refName === branchPrBranch.
@@ -54,7 +55,7 @@ export function stripPr(client: T3Client, input: { cwd: string; threadBranch: st
   const displayed = (current ? snapshotPr(current) : null) ?? (current === null ? branchPr : null);
   const number = current ? num(current.number) : displayed?.number ?? 0;
   const url = current ? str(current.url) : displayed?.url ?? '';
-  const badge = many && thread ? sidebarPrBadge(thread) : null;
+  const badge = many && thread ? sidebarPrBadge({ ...thread, pullRequests: links }) : null;
   const target = url ? prTarget(client, url) : null;
   const base = { prUrl: url, prTarget: target ? JSON.stringify(target) : '', prTips: tips(client, links, number, url, displayed) };
   if (badge?.stacked) {
