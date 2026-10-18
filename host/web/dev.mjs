@@ -340,8 +340,7 @@ async function scrubPreview(texts, frame) {
     return {};
   });
 }
-/** A scrub's frame patched (tamber-scrub.mjs `patch`): its folded rows set on the committed
- * design, compiling nothing; `{fallback}` when this frame must be compiled instead. */
+/** A scrub's frame patched (tamber-scrub.mjs `patch`), compiling nothing; `{fallback}`: compile it instead. */
 async function scrubPatch(values, frame, files) {
   previewing = true;
   if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
@@ -571,9 +570,7 @@ function startCompiler() {
     for (const line of lines) {
       const [kind, ...rest] = line.split(' ');
       if (kind === 'source') {
-        // The design file's bytes the build just made was compiled from
-        // (LLP 1122 D5: an inspected token's edit is offered only while they
-        // are the file's); a scrub's preview or restore keeps them as they were.
+        // The design file bytes the build compiled (LLP 1122 D5's served design; a scrub's patch gate).
         designSource = rest[0] === '-' ? null : rest[0];
       } else if (kind === 'scrubbed') {
         let reply;
