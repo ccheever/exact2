@@ -670,10 +670,10 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
     expect(first.resources.lit).toMatchObject({ names: ['surface.card'], whos: ['agent:codex'] });
     // Only the cells that moved: the dark side, where the default applies.
     expect(first.resources.lit.cells).toEqual(['surface.card|0-dark', 'surface.card|1-dark']);
-    // Each with the tokens it changes (a role that follows one among them).
+    // Each with the tokens it changes (a role that follows one among them, the params that alias one, in full).
     expect(first.resources.changes.held.map(h => [h.proposal, h.client, [...h.tokens].sort(), h.items.map(i => i.text)])).toEqual([
       [p1, 'agent:codex', ['-exact-label', 'ink.on-brand', 'text.primary'], ['text.primary = light-dark(#101010, #e7e9ea) (app.tamber)', 'ink.on-brand = #fefefe (app.tamber)']],
-      [p2, 'agent:claude', ['accent.fill'], ['accent.fill = #2070f0 (app.tamber)']],
+      [p2, 'agent:claude', ['accent.fill', 'app.contract#Card.fill', 'app.tamber#MapCard.pin'], ['accent.fill = #2070f0 (app.tamber)']],
     ]);
     expect(part.slots.written.note).toContain(`as ${id(3)}`);
     const recomputed = part.resources.changes.held.find(h => h.proposal === id(3));
