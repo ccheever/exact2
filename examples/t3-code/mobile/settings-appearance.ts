@@ -24,7 +24,7 @@ export function settingsColors(scheme: string, themeId: string) {
   const tokens = settingsTokens(scheme, themeId);
   const token = (key: string) => tokens[`--color-${key}`]!;
   return { sheet: token('sheet'), grouped: token('grouped-card'), card: token('card'), foreground: token('foreground'),
-    muted: token('foreground-muted'), border: token('border'), borderSubtle: token('border-subtle'), separator: token('separator'),
+    muted: token('foreground-muted'), tertiary: token('foreground-tertiary'), border: token('border'), borderSubtle: token('border-subtle'), separator: token('separator'),
     subtle: token('subtle'), primary: token('primary'), primaryForeground: token('primary-foreground'),
     icon: token('icon'), iconMuted: token('icon-muted'), iconSubtle: token('icon-subtle'), chevron: token('chevron'),
     switchOn: token('switch-active-track'), switchOff: token('switch-inactive-track'), secondaryBorder: token('secondary-border'), link: token('md-link') };
