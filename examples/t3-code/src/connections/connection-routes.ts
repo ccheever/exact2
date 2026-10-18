@@ -1,23 +1,24 @@
-// One environment, several routes (T3 Code 1e2ecbd975 packages/client-runtime/src/connection/
-// routes.ts and githubRoutingPermissions.ts gitHubRoutingConnectionKey, commits 979ca66ced and
-// 745c225f92; MIT, see LICENSE-T3). A saved environment keeps an ordered list of routes: direct
-// URLs (loopback, LAN, tailnet, public) and SSH tunnels. The client connects over the first route
+// One environment, several routes (T3 Code 9c161462c9 packages/client-runtime/src/connection/
+// routes.ts and githubRoutingPermissions.ts gitHubRoutingConnectionKey; MIT, see LICENSE-T3). A
+// saved environment keeps an ordered list of routes: direct URLs (loopback, LAN, tailnet, other
+// VPNs, public) and SSH tunnels. The client connects over the first route
 // that answers as the same environment (transport-routes.ts walks them) and moves back to a better one
 // when it becomes reachable again.
 //
 // Port changes: routes are plain records, the shape the connection catalog stores (transport-catalog.ts)
-// (`{ id, origin, kind, learned, credential, authorization?, ssh? }`), not Effect classes. A
+// (`{ id, origin, kind, learned, credential, authorization?, network?, ssh? }`), not Effect classes. A
 // paired route's id is its origin, which is also the origin its token is saved under;
 // a learned route's id is `learned:<environment>:<origin>@<owner id>` and borrows the owner's
 // token. An SSH route's origin is the tunnel's loopback address, so its kind comes from the stored
 // `kind`, never from the address. `allowInsecure` is always true here (a native app is not an
 // HTTPS page), so a learned plain-HTTP LAN or tailnet address (the server reports only numeric
 // private IPv4s, DirectEndpoints.ts) is walked and connects with the token it borrows, as the
-// reference desktop does (App Transport Security exempts IP literals).
+// reference desktop does (App Transport Security exempts IP literals), unless that token was paired
+// over HTTPS, loopback or the tailnet (sendsTokenInClear).
 // The relay kind stays for test parity and is never created (this client has no T3 Connect).
-import { isLocalLoopbackHost, isPrivateNetworkHost, isTailnetHost } from './host-classification';
+import { isLocalLoopbackHost, isPrivateNetworkHost, isSharedAddressSpaceHost, isTailnetHost } from './host-classification';
 
-export type ConnectionRouteKind = 'relay' | 'loopback' | 'lan' | 'tailnet' | 'public' | 'ssh';
+export type ConnectionRouteKind = 'relay' | 'loopback' | 'lan' | 'tailnet' | 'vpn' | 'public' | 'ssh';
 export type RouteSshTarget = { alias: string; hostname: string; username: string | null; port: number | null };
 export interface ConnectionRoute {
   /** The connection id: a paired route's origin, a learned route's `learned:…`, or "relay". */
@@ -28,6 +29,11 @@ export interface ConnectionRoute {
   kind?: string;
   learned?: boolean;
   authorization?: 't3-connect';
+  /**
+   * "tailscale" on a direct route the server found on its Tailscale interface. A bare
+   * 100.64.0.0/10 address could belong to any VPN.
+   */
+  network?: 'tailscale';
   ssh?: RouteSshTarget;
 }
 export interface RouteEntry { environmentId: string; label: string; routes: ConnectionRoute[] }
@@ -67,11 +73,12 @@ export function connectionRouteKind(route: ConnectionRoute): ConnectionRouteKind
   const hostname = routeHostname(route);
   if (hostname === null) return 'public';
   if (isLocalLoopbackHost(hostname)) return 'loopback';
-  if (isTailnetHost(hostname)) return 'tailnet';
+  if (route.network === 'tailscale' || isTailnetHost(hostname)) return 'tailnet';
+  if (isSharedAddressSpaceHost(hostname)) return 'vpn';
   return isPrivateNetworkHost(hostname) ? 'lan' : 'public';
 }
 
-const ROUTE_KIND_RANK: Record<ConnectionRouteKind, number> = { loopback: 0, lan: 1, tailnet: 2, public: 3, ssh: 4, relay: 5 };
+const ROUTE_KIND_RANK: Record<ConnectionRouteKind, number> = { loopback: 0, lan: 1, tailnet: 2, vpn: 2, public: 3, ssh: 4, relay: 5 };
 
 /**
  * Where a newly added route goes: after every saved route of the same or a
@@ -104,13 +111,14 @@ function routeAddressKey(route: ConnectionRoute): string | null {
   return url === null ? null : `bearer:${trimSlash(url)}`;
 }
 
-/** Short user-facing route description: "LAN", "Tailscale", "T3 Connect", a URL, or an SSH host. */
+/** Short user-facing route description: "LAN", "Tailscale", "VPN", "T3 Connect", a URL, or an SSH host. */
 export function connectionRouteLabel(route: ConnectionRoute): string {
   switch (connectionRouteKind(route)) {
     case 'relay': return 'T3 Connect';
     case 'loopback': return 'This device';
     case 'lan': return 'LAN';
     case 'tailnet': return 'Tailscale';
+    case 'vpn': return 'VPN';
     case 'ssh': return route.ssh ? `SSH ${route.ssh.username ? `${route.ssh.username}@` : ''}${route.ssh.hostname}` : 'SSH';
     case 'public': return routeHostname(route) ?? 'Remote link';
   }
@@ -127,6 +135,9 @@ export function hasRelayRoute(entry: Pick<RouteEntry, 'routes'>): boolean {
   return entry.routes.some(route => route.kind === 'relay');
 }
 
+/** A direct address the server reports, as `ServerDirectEndpoint` ("tailnet" when it is on the server's Tailscale interface). */
+export interface ReportedEndpoint { httpBaseUrl: string; kind?: string }
+
 /**
  * The routes after the server reports where it listens (server.getConfig
  * directEndpoints). Each newly reported address becomes a learned route that
@@ -134,9 +145,13 @@ export function hasRelayRoute(entry: Pick<RouteEntry, 'routes'>): boolean {
  * bearer route, the T3 Connect credential for relay. A learned route the server
  * still reports keeps its place, so the user's order holds; one it no longer
  * reports is dropped, so a changed LAN address replaces the old one. Routes the
- * user saved are never touched, and an address already saved is not learned twice.
+ * user saved are never removed or moved, and an address already saved is not
+ * learned twice. Any direct route the server reports is marked as Tailscale
+ * while the server finds it on its Tailscale interface, so a route paired by
+ * its numeric Tailscale address keeps that label. A paired token only learns a
+ * plain HTTP address off the tailnet when it was itself paired over plain HTTP.
  */
-export function mergeLearnedRoutes(input: { entry: RouteEntry; activeRoute: ConnectionRoute; reported: readonly { httpBaseUrl: string }[]; allowInsecure: boolean }): ConnectionRoute[] | null {
+export function mergeLearnedRoutes(input: { entry: RouteEntry; activeRoute: ConnectionRoute; reported: readonly ReportedEndpoint[]; allowInsecure: boolean }): ConnectionRoute[] | null {
   const { entry } = input, active = input.activeRoute, saved = connectionRoutes(entry);
   // SSH routes have no credential a learned route could reuse.
   if (active.kind === 'ssh') return null;
@@ -144,6 +159,7 @@ export function mergeLearnedRoutes(input: { entry: RouteEntry; activeRoute: Conn
   const authorization = active.kind === 'relay' || active.authorization === 't3-connect' ? 't3-connect' as const : undefined;
   const sharedCredential = authorization === undefined ? credentialConnectionId(active.id) : undefined;
   const reported = new Map<string, URL>();
+  const tailscaleOrigins = new Set<string>();
   for (const endpoint of input.reported) {
     let url: URL;
     try { url = new URL(endpoint.httpBaseUrl); } catch { continue; }
@@ -152,24 +168,66 @@ export function mergeLearnedRoutes(input: { entry: RouteEntry; activeRoute: Conn
     // A loopback address names whichever device opens it, never the server.
     if (isLocalLoopbackHost(url.hostname)) continue;
     reported.set(url.origin, url);
+    if (endpoint.kind === 'tailnet') tailscaleOrigins.add(url.origin);
   }
   const known = new Set(saved.flatMap(route => { const url = routeHttpBaseUrl(route); return url === null || isLearned(route) ? [] : [trimSlash(url)]; }));
-  const kept = saved.filter(route => {
-    if (!isLearned(route)) return true;
+  const kept = saved.flatMap((route): ConnectionRoute[] => {
     const url = routeHttpBaseUrl(route);
-    if (url === null || !reported.has(trimSlash(url)) || known.has(trimSlash(url))) return false;
+    if (!isLearned(route)) return [url === null || !reported.has(trimSlash(url)) ? route : withNetwork(route, tailscaleOrigins.has(trimSlash(url)))];
+    if (url === null || !reported.has(trimSlash(url)) || known.has(trimSlash(url))) return [];
+    if (sendsTokenInClear(saved, route, tailscaleOrigins.has(trimSlash(url)))) return [];
     known.add(trimSlash(url));
-    return true;
+    return [withNetwork(route, tailscaleOrigins.has(trimSlash(url)))];
   });
   let next: ConnectionRoute[] = kept;
   for (const url of reported.values()) {
     if (known.has(url.origin)) continue;
+    if (url.protocol === 'http:' && sharedCredential !== undefined && !tailscaleOrigins.has(url.origin) && !tokenAllowsPlainHttp(saved, sharedCredential)) continue;
     const id = sharedCredential === undefined ? `learned:${entry.environmentId}:${url.origin}` : `learned:${entry.environmentId}:${url.origin}@${sharedCredential}`;
-    next = insertRoute(next, { id, origin: url.origin, kind: '', learned: true, ...(authorization === undefined ? {} : { authorization }) });
+    next = insertRoute(next, { id, origin: url.origin, kind: '', learned: true, ...(authorization === undefined ? {} : { authorization }),
+      ...(tailscaleOrigins.has(url.origin) ? { network: 'tailscale' as const } : {}) });
   }
   // Compare addresses too: a scheme or port change keeps no id stable.
-  const signature = (routes: readonly ConnectionRoute[]) => routes.map(route => `${route.id} ${routeHttpBaseUrl(route) ?? ''}`).join('\n');
+  const signature = (routes: readonly ConnectionRoute[]) => routes.map(route => `${route.id} ${routeHttpBaseUrl(route) ?? ''} ${connectionRouteKind(route)}`).join('\n');
   return signature(saved) === signature(next) ? null : next;
+}
+
+/** The direct route with its Tailscale mark set or cleared; the same route when unchanged. */
+function withNetwork(route: ConnectionRoute, tailscale: boolean): ConnectionRoute {
+  if (route.kind === 'relay' || route.kind === 'ssh' || (route.network === 'tailscale') === tailscale) return route;
+  const { network: _previous, ...rest } = route;
+  return tailscale ? { ...rest, network: 'tailscale' } : rest;
+}
+
+// A paired token goes to a plain HTTP address outside the tailnet only when
+// it was paired that way, so a token paired over HTTPS, loopback, or the
+// tailnet keeps to the transports it was issued for.
+function tokenAllowsPlainHttp(routes: readonly ConnectionRoute[], credentialId: string): boolean {
+  const credentialRoute = routes.find(route => route.id === credentialId);
+  if (credentialRoute === undefined || routeHttpBaseUrl(credentialRoute)?.startsWith('http:') !== true) return false;
+  const kind = connectionRouteKind(credentialRoute);
+  return kind === 'lan' || kind === 'public';
+}
+
+/**
+ * Whether connecting over `route` would send a paired token over plain HTTP
+ * that it wasn't paired over. Checked against the token the route borrows,
+ * so a route learned before this rule existed is refused too.
+ */
+export function sendsTokenInClear(routes: readonly ConnectionRoute[], route: ConnectionRoute, tailscale?: boolean): boolean {
+  return sendsCredentialInClear(routes, route, credentialConnectionId(route.id), tailscale);
+}
+/** sendsTokenInClear for a route whose credential owner is stored beside it (the catalog's `credential`). */
+export function sendsCredentialInClear(routes: readonly ConnectionRoute[], route: ConnectionRoute, credentialId: string, tailscale?: boolean): boolean {
+  if (route.kind === 'relay' || route.kind === 'ssh' || route.authorization === 't3-connect') return false;
+  if ((tailscale ?? route.network === 'tailscale') || !route.origin.startsWith('http:')) return false;
+  return credentialId !== route.id && !tokenAllowsPlainHttp(routes, credentialId);
+}
+
+/** Routes a connect may use: none sends a paired token over plain HTTP it wasn't paired over. */
+export function usableRoutes(entry: Pick<RouteEntry, 'routes'>): ConnectionRoute[] {
+  const routes = connectionRoutes(entry as RouteEntry);
+  return routes.filter(route => !sendsTokenInClear(routes, route));
 }
 
 /** The connection id whose stored credential a bearer route uses. */
@@ -281,7 +339,8 @@ export function savedRoutes(entry: Record<string, unknown>): ConnectionRoute[] {
     if (!id) return [];
     const ssh = decodeSsh(raw.ssh);
     return [{ id, origin, kind: asString(raw.kind), ...(raw.learned === true ? { learned: true } : {}),
-      ...(raw.authorization === 't3-connect' ? { authorization: 't3-connect' as const } : {}), ...(ssh ? { ssh } : {}) }];
+      ...(raw.authorization === 't3-connect' ? { authorization: 't3-connect' as const } : {}),
+      ...(raw.network === 'tailscale' ? { network: 'tailscale' as const } : {}), ...(ssh ? { ssh } : {}) }];
   });
   const origin = trimSlash(asString(entry.origin));
   return routes.length || !origin ? routes : [{ id: origin, origin, kind: '' }];
@@ -289,5 +348,5 @@ export function savedRoutes(entry: Record<string, unknown>): ConnectionRoute[] {
 /** The record the catalog stores for a route: `credential` names the origin whose token it uses. */
 export function storedRoute(route: ConnectionRoute): Record<string, unknown> {
   return { id: route.id, origin: route.origin, kind: route.kind ?? '', learned: route.learned === true, credential: credentialConnectionId(route.id),
-    ...(route.authorization ? { authorization: route.authorization } : {}), ...(route.ssh ? { ssh: route.ssh } : {}) };
+    ...(route.authorization ? { authorization: route.authorization } : {}), ...(route.network ? { network: route.network } : {}), ...(route.ssh ? { ssh: route.ssh } : {}) };
 }

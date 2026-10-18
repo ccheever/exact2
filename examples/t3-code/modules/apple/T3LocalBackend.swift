@@ -664,15 +664,28 @@ final class T3LocalBackend: @unchecked Sendable {
     }
 }
 
-/// `DesktopLocalEnvironmentAuth`: the bootstrap token exchanged once for a bearer (no scope, so every
-/// scope; "T3 Code Desktop", desktop), kept in memory for the app run and never logged or written.
-/// Requests that arrive while the exchange runs wait for it (the reference's semaphore).
+/// `DesktopLocalEnvironmentAuth` (reference 9c161462c9): the bootstrap token exchanged once for a bearer
+/// (no scope, so every scope; "T3 Code Desktop", desktop), kept in memory for the app run and never logged
+/// or written. Requests that arrive while the exchange runs wait for it (the reference's semaphore).
+///
+/// The loopback exchange can fail while the server settles: a 502, 503 or 504, a refused or reset
+/// connection, a timeout. Those are retried every 500 ms for at most 15 s, as long as the renderer's own
+/// bootstrap waits; a rejected credential or any other status is final.
 final class T3LocalAuth: @unchecked Sendable {
+    static let transientStatusCodes: Set<Int> = [502, 503, 504]
+    /// The reference's per-request timeout (client-runtime rpc/http.ts).
+    static let requestTimeout: TimeInterval = 10
     private let lock = NSLock()
     private var token: String?
     private var waiting: [(String?) -> Void] = []
     let session: URLSession
-    init(session: URLSession = URLSession(configuration: .ephemeral)) { self.session = session }
+    let retryTimeout: TimeInterval, retryInterval: TimeInterval
+    init(session: URLSession = URLSession(configuration: .ephemeral), retryTimeout: TimeInterval = 15, retryInterval: TimeInterval = 0.5) {
+        self.session = session; self.retryTimeout = retryTimeout; self.retryInterval = retryInterval
+    }
+
+    /// `isTransientBearerBootstrapError`: no answer at all (a failed fetch or a timeout), or a gateway status.
+    static func isTransient(status: Int, failed: Bool) -> Bool { failed || transientStatusCodes.contains(status) }
 
     var cached: String? { lock.lock(); defer { lock.unlock() }; return token }
 
@@ -695,14 +708,25 @@ final class T3LocalAuth: @unchecked Sendable {
         let first = waiting.count == 1
         lock.unlock()
         guard first else { return }
-        var request = URLRequest(url: URL(string: "/oauth/token", relativeTo: base)!.absoluteURL, timeoutInterval: 10)
+        exchange(base: base, credential: credential, deadline: Date().addingTimeInterval(retryTimeout))
+    }
+
+    /// One attempt; a transient failure tries again after the interval while the deadline allows another.
+    private func exchange(base: URL, credential: String, deadline: Date) {
+        // The deadline also bounds a request still in flight.
+        let remaining = max(deadline.timeIntervalSinceNow, 0.001)
+        var request = URLRequest(url: URL(string: "/oauth/token", relativeTo: base)!.absoluteURL, timeoutInterval: min(Self.requestTimeout, remaining))
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "content-type")
         request.httpBody = Self.exchangeForm(credential: credential)
-        session.dataTask(with: request) { [self] data, response, _ in
+        session.dataTask(with: request) { [self] data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let object = (200..<300).contains(status) ? data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } : nil
             let token = object?["access_token"] as? String
+            if token == nil, Self.isTransient(status: status, failed: error != nil || response == nil), deadline.timeIntervalSinceNow > retryInterval {
+                DispatchQueue.global().asyncAfter(deadline: .now() + retryInterval) { self.exchange(base: base, credential: credential, deadline: deadline) }
+                return
+            }
             lock.lock()
             if let token { self.token = token }
             let callbacks = waiting

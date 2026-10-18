@@ -52,6 +52,16 @@ export function savedStatus(enabled: boolean, phase: FleetPhase, error: string):
   if (phase === 'error') return { text: error ? `Connection failed: ${error}` : 'Connection failed', tone: 'error' };
   return { text: 'Not connected', tone: 'muted' };
 }
+/**
+ * WelcomeWizard's ConnectionStep label: presentSavedCloudEnvironmentConnection's buttonLabel, and, as in
+ * Settings, "Off" for a switched-off computer rather than "Not connected".
+ */
+export function welcomeComputerStatus(enabled: boolean, phase: FleetPhase): string {
+  if (!enabled && phase !== 'unsupported') return 'Off';
+  const labels: Record<FleetPhase, string> = { connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', unsupported: 'Client not supported',
+    error: 'Connection failed', available: 'Not connected' };
+  return labels[phase];
+}
 export function statusText(phase: FleetPhase, error: string): string {
   if (phase === 'available') return 'Available';
   if (phase === 'connecting') return 'Connecting...';
