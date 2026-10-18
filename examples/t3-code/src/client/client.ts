@@ -304,6 +304,7 @@ export class T3Client {
       const selection = this.local.selections[nextEnvironment];
       this.projectId = selection?.projectId || '';
       this.threadId = selection?.threadId || '';
+      this.homeMove = null; // the window went elsewhere before the landing's move (settleHome clears it before its own)
       this.shell = initialShell(); this.shellLoaded = false; this.thread = null;
       this.config = {}; this.providerId = ''; this.modelId = ''; this.answers = {};
       this.diffOpen = false; this.diffText = ''; this.threadEpoch++; adoptHandoff(this); // keep-alive.ts: a kept thread opened from a background environment shows at once
