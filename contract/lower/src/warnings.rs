@@ -29,8 +29,8 @@ mod roles;
 mod root_replace;
 mod rows;
 mod screens;
-mod svg;
 mod states;
+mod svg;
 mod title;
 mod width;
 
