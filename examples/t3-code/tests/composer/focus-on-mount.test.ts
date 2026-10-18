@@ -1,3 +1,4 @@
+import { observeComposer } from '../support/composer-field-fixture';
 // Remove-image focus return, prompt undo and background-environment Snoozed state.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
@@ -23,6 +24,7 @@ function removalFixture() {
   client.local.snapshotDrafts['env:t'] = ['img-a', 'img-b'].map(id => ({ id, name: `${id}.png`, mimeType: 'image/png', sizeBytes: 68, source: {} }));
   const files: Files = { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } };
   const native: Native = { available: true, watch() {}, async later() { return { ok: true, generation: client.generation, value: {} }; } };
+  observeComposer(client, '');
   return { client, native, files };
 }
 

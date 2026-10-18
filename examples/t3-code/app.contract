@@ -1224,13 +1224,15 @@ component T3Code
   state composerFieldAfter = 0
   state composerFieldAcked = 0
   state composerFieldEffects = 0
+  state composerFieldFocusDone = 0
+  state composerFieldFocus = ComposerFieldAcknowledgement(applied=false, reason="", value="", start=0, end=0, generation=-1, snapshotOwner="", owner="", seq=0, then="", send=false, focus="", removedImage="", inputSerial=-1)
   state composerFieldAdmitted = false
   state composerFieldTarget = ComposerFieldCommand(generation=-1, snapshotOwner="", owner="", value="", start=0, end=0, text="", selectionStart=0, selectionEnd=0, focus=false, then="", seq=0, ready=false, history=0, citation=0, completion=0)
   derive composerFieldLive = not modal and data.requestMode != "approval" and not data.composer.subagent
   derive composerFieldSnapshot = ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=composerText, start=(composerSelectionCurrent ? composerSelectionStart : 0), end=(composerSelectionCurrent ? composerSelectionEnd : 0), composing=composerComposing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial)
   resource composerFieldNext = composerField(composerFieldSnapshot, composerFieldAfter, data.revision) as shape ComposerFieldCommand
   mutation composerFieldChanged as shape ComposerFieldResult queue refreshes editor
-  mutation composerFieldAck as shape ComposerFieldAcknowledgement queue refreshes richComposer, chip, shell then composerFieldAckDone
+  mutation composerFieldAck as shape ComposerFieldAcknowledgement queue refreshes richComposer, chip, shell, composerFieldNext, data, editor then composerFieldAckDone
   task composerFieldDeliver when composerFieldNext.ready and composerFieldNext.seq > composerFieldAfter key=composerFieldNext.seq
     after(1, composerFieldApply)
   action composerFieldApply
@@ -1252,8 +1254,10 @@ component T3Code
   action composerFieldAckDone
     match composerFieldAck
       case some(result)
-        if result.applied and result.seq > composerFieldEffects and result.generation == richComposer.generation and result.snapshotOwner == data.snapshotOwner and result.owner == richComposerOwner and not composerComposing
+        if result.applied and result.seq > composerFieldEffects and result.generation == richComposer.generation and result.snapshotOwner == data.snapshotOwner and result.owner == richComposerOwner and not composerComposing and result.value == composerText and result.inputSerial == composerFieldInputSerial and composerSelectionCurrent and result.start == composerSelectionStart and result.end == composerSelectionEnd
           composerFieldEffects = result.seq
+          if result.focus != ""
+            composerFieldFocus = result
           if result.send
             if result.value == composerText
               send("")
@@ -1262,6 +1266,13 @@ component T3Code
           else if result.then == "mode-plan" or result.then == "mode-default"
             menuPick("interaction", "", result.then == "mode-plan" ? "plan" : "default")
       case none
+  derive composerFieldFocusCurrent = composerFieldLive and composerFieldFocus.generation == richComposer.generation and composerFieldFocus.snapshotOwner == data.snapshotOwner and composerFieldFocus.owner == richComposerOwner and composerFieldFocus.value == composerText and not composerComposing and composerFieldFocus.seq == composerFieldEffects and composerFieldFocus.inputSerial == composerFieldInputSerial and composerSelectionCurrent and composerFieldFocus.start == composerSelectionStart and composerFieldFocus.end == composerSelectionEnd
+  task composerFieldRestoreFocus when composerFieldFocus.seq > composerFieldFocusDone and (not composerFieldFocusCurrent or data.snapshotDrafts.filter((image) => image.id == composerFieldFocus.removedImage).length == 0) key=composerFieldFocus.seq
+    after(1, composerFieldFocusRun)
+  action composerFieldFocusRun
+    composerFieldFocusDone = composerFieldFocus.seq
+    if composerFieldFocusCurrent and data.snapshotDrafts.filter((image) => image.id == composerFieldFocus.removedImage).length == 0 and frame(composerFieldFocus.focus).width > 0
+      focus(composerFieldFocus.focus)
   derive composerRichCurrent = richComposer.owner == richComposerOwner and richComposer.value == composerText
   derive composerSelectionCurrent = composerSelectionOwner == richComposerOwner and composerSelectionValue == composerText
   derive composerInCode = composerRichCurrent and richComposer.blocks.filter((b) => b.kind == "code" and composerSelectionStart >= b.bodyStart and composerSelectionEnd <= b.bodyEnd).length > 0

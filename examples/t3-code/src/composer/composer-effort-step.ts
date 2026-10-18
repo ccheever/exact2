@@ -1,3 +1,4 @@
+import { requestComposerField } from './composer-field-request';
 // composer.increaseEffort / composer.decreaseEffort: step the reasoning effort
 // one level without opening the traits menu, wrapping at either end. Adapted
 // from T3 Code 9c161462c9 (MIT); see LICENSE-T3. Sources:
@@ -93,8 +94,5 @@ export async function stepReasoningEffort(client: T3Client, native: Native, dire
   if (step.option) await store(step.option.id, step.option.value);
   if (step.prompt === prompt) return;
   if (!editor) { rewritePrompt(client, step.prompt); return; }
-  const key = client.draftKey, before = client.local.drafts[key];
-  const edited = await bridgeReply(native, { op: 'editorEdit', all: true, expect: prompt, text: step.prompt, caret: step.cursor }).then(reply => reply.ok && obj(reply.value).applied === true, () => false);
-  // A refused compare-and-replace means the author typed since editorState.
-  if (edited && client.local.drafts[key] === before) client.local.drafts[key] = step.prompt;
+  await requestComposerField(native, { op: 'editorEdit', all: true, expect: prompt, text: step.prompt, caret: step.cursor });
 }

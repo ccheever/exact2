@@ -1,3 +1,4 @@
+import { requestComposerField } from './composer-field-request';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { bridgeReply } from '../client/protocol';
@@ -20,7 +21,7 @@ export async function takeFolderDrop(client: T3Client, native: Native, value: Ob
     return;
   }
   const text = paths.map(path => `@${/[\s"\\]/.test(path) ? `"${path.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : path}`).join(' ') + ' ';
-  const reply = await bridgeReply(native, { op: 'editorEdit', snapshotOwner: fact.snapshotOwner, fieldOwner: fact.fieldOwner, value: fact.value,
+  const reply = await requestComposerField(native, { op: 'editorEdit', snapshotOwner: fact.snapshotOwner, fieldOwner: fact.fieldOwner, value: fact.value,
     start: fact.start, end: fact.end, expect: fact.expect, text, pad: true });
-  if (currentOwner() && (!reply.ok || obj(reply.value).applied !== true)) client.error = 'The prompt changed before the folders could be added.';
+  if (currentOwner() && !reply.accepted) client.error = 'The prompt changed before the folders could be added.';
 }

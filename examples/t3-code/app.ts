@@ -139,9 +139,9 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'refreshComposerWorkspace') return refreshComposerWorkspace(client, native, String(args[0] || ''));
   if (source === 'composerEditor') return composerEditorView(client, native, Number(args[1]) || 0);
   if (source === 'composerRich') return composerRichSource(client, { snapshotOwner: String(args[0] ?? ''), owner: String(args[1] ?? ''), value: String(args[2] ?? ''), inputType: String(args[4] ?? ''), surface: args[5] === 'preview' ? 'preview' : 'composer' });
-  if (source === 'composerField') return composerFieldResource(client, args, composerFieldOwner(client));
+  if (source === 'composerField') return composerFieldResource(client, args, composerFieldOwner(client), native);
   if (source === 'composerFieldObserved') return composerFieldObserved(client, args, composerFieldOwner(client));
-  if (source === 'composerFieldAcknowledged') return composerFieldAcknowledged(client, args, composerFieldOwner(client));
+  if (source === 'composerFieldAcknowledged') return composerFieldAcknowledged(client, args, composerFieldOwner(client), native);
   if (source === 'composerIntent') return composerIntentAnswer(client, args);
   if (source === 'composerChip') return chipPopoverView(client);
   if (source === 'composerChipObserved') return composerChipObserved(client, args[0]);

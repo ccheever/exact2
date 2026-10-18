@@ -10,7 +10,7 @@ import { pushToast } from '../shell/toast';
 import { uuid } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 import { commandChords } from './composer-presentation';
 import { openUsageLimits } from './composer-controls-usage';
-import { MAX_STASH_ENTRIES, deleteStashEntry, stashPrompt, stashView, takeStashEntry, type StashView } from './composer-editor-stash';
+import { MAX_STASH_ENTRIES, deleteStashEntry, stashPrompt, stashView, stashEntries, type StashView } from './composer-editor-stash';
 import {
   LIST_LABEL, contextId, contextLabel, contextLink, contextReferences, emptyText, fileLink, pathRows, promptLengthMessage,
   pullRequestRecord, pullRequestRows, pullRequestState, repositorySelector,
@@ -28,6 +28,8 @@ import { videoOp } from './composer-attachments';
 import { folderDropTarget, primary } from '../connections/local-primary'; // the folder drop's target (folderDrop.ts)
 import { annotationChipContexts, annotationMessageRecords } from '../browser/browser-annotation'; // Annotate's chips
 import { composerFieldOwner } from './auto-balance-owner';
+import { requestComposerField, type ComposerFieldCompletion } from './composer-field-request';
+import { nativeFiles } from '../client/protocol';
 import { composerFieldCurrent } from './composer-field-bridge';
 import { composerChips, composerTrigger } from './composer-source-chips';
 import { composerSourceSession } from './composer-rich-state';
@@ -338,8 +340,10 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
     if (!field || field.composing || composerInput(client) || field.start !== field.end || id !== 'previous' && id !== 'next') return '';
     const step = composerHistoryRecall(client, owner, field.value, id === 'previous');
     if (step) {
-      try { await editorCall(native, { op: 'editorEdit', all: true, expect: field.value, text: step.prompt, history: step.receipt.history }); }
-      finally { composerHistoryComplete(client, step.receipt, false); }
+      try {
+        const admission = await requestComposerField(native, { op: 'editorEdit', all: true, expect: field.value, text: step.prompt, history: step.receipt.history });
+        if (!admission.accepted) composerHistoryComplete(client, step.receipt, false);
+      } catch (error) { composerHistoryComplete(client, step.receipt, false); throw error; }
     }
     return '';
   }
@@ -369,8 +373,8 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
     entry.rows = []; entry.trigger = null;
     // /usage-limits opens the composer's Usage limits banner (composer-controls-usage.ts).
     if (usageLimits) { entry.usageLimits += 1; openUsageLimits(client, n || 0); }
-    const result = await editorCall(native, { op: 'editorEdit', ...range, text, focus, then, extendSpace: text.endsWith(' ') });
-    if (result.applied !== true) throw new ClientError('The prompt changed before the suggestion was applied.');
+    const result = await requestComposerField(native, { op: 'editorEdit', ...range, text, focus, then, extendSpace: text.endsWith(' ') });
+    if (!result.accepted) throw new ClientError('The prompt changed before the suggestion was applied.');
     return '';
   }
   if (op === 'insert-context') return insertContext(client, native, id, value);
@@ -378,13 +382,14 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
   if (op === 'stash') {
     // The prompt as the editor holds it: ⌘S right after typing can beat the draft's own write.
     const live = await editorCall(native, { op: 'editorState' }).then(state => typeof state.text === 'string' ? state.text : client.draft, () => client.draft);
-    const host = { local: client.local, draft: live, environmentId: client.environmentId };
-    const result = stashPrompt(host, `stash-${localId()}`, new Date(n || 0));
-    if (result.clear) {
-      if (result.evicted) pushToast(client, { kind: 'warning', title: 'Oldest stashed prompt discarded',
-        description: `The stash holds ${MAX_STASH_ENTRIES} prompts; the oldest was removed to make room.`, hideCopy: true });
-      await replaceAll(client, native, '');
-    } else if (result.restore) await restoreStash(client, native, result.restore.id);
+    const id = `stash-${localId()}`, now = new Date(n || 0);
+    if (live.trim()) {
+      await replaceAll(client, native, '', { applied: async current => {
+        const result = stashPrompt({ local: client.local, draft: live, environmentId: client.environmentId }, id, now);
+        if (result.evicted) pushToast(client, { kind: 'warning', title: 'Oldest stashed prompt discarded', description: `The stash holds ${MAX_STASH_ENTRIES} prompts; the oldest was removed to make room.`, hideCopy: true });
+        await client.persist(nativeFiles(current));
+      } }, live);
+    } else if (stashEntries(client.local).length === 1) await restoreStash(client, native, stashEntries(client.local)[0]!.id);
     else entry.stashOpen = !entry.stashOpen;
     return '';
   }
@@ -395,15 +400,23 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
 }
 
 /** Replace the whole prompt as one undoable edit, caret at the end (stash, restore). */
-async function replaceAll(client: T3Client, native: Native, text: string): Promise<void> {
-  const result = await editorCall(native, { op: 'editorEdit', all: true, text });
-  if (result.applied !== true) throw new ClientError('The prompt could not be updated.');
+async function replaceAll(client: T3Client, native: Native, text: string, effects: ComposerFieldCompletion = {}, expect = composerFieldCurrent(client, composerFieldOwner(client))?.value): Promise<void> {
+  const result = await requestComposerField(native, { op: 'editorEdit', all: true, text, ...(expect !== undefined ? { expect } : {}) }, effects);
+  if (!result.accepted) throw new ClientError('The prompt could not be updated.');
 }
 async function restoreStash(client: T3Client, native: Native, id: string): Promise<void> {
   cache(client).stashOpen = false;
-  const taken = takeStashEntry({ local: client.local, draft: client.draft, environmentId: client.environmentId }, id);
-  if (!taken) throw new ClientError('That stashed prompt is no longer available.');
-  await replaceAll(client, native, taken.prompt);
+  const entry = stashEntries(client.local).find(item => item.id === id);
+  if (!entry) throw new ClientError('That stashed prompt is no longer available.');
+  const field = composerFieldCurrent(client, composerFieldOwner(client));
+  if (!field) throw new ClientError('The composer is not ready.');
+  const current = field.value;
+  const prompt = !entry.prompt ? current : current.trim() ? `${current.replace(/\s+$/, '')}\n\n${entry.prompt}` : entry.prompt;
+  await replaceAll(client, native, prompt, { applied: async current => {
+    if (stashEntries(client.local).find(item => item.id === id) !== entry) return;
+    deleteStashEntry(client.local, id);
+    await client.persist(nativeFiles(current));
+  } }, current);
 }
 /** The chord a keybinding command currently resolves to, as aria-keyshortcuts. */
 function commandChord(client: T3Client, command: string, fallback: string): string {
@@ -411,21 +424,28 @@ function commandChord(client: T3Client, command: string, fallback: string): stri
 }
 
 /** addReviewComment (diff-review.ts): the line comment's record goes behind a chip inserted at the caret. */
-export async function addReviewCommentChip(client: T3Client, native: Native, record: Obj): Promise<void> {
+export async function addReviewCommentChip(client: T3Client, native: Native, record: Obj, effects: ComposerFieldCompletion = {}): Promise<void> {
   reviewCommentRecords(client)[str(record.contextId)] = record;
-  const result = await editorCall(native, { op: 'editorInsert', text: `${contextLink('review-comment', str(record.contextId), str(record.label))} ` });
-  if (result.applied !== true) throw new ClientError('The composer is not ready');
+  const result = await requestComposerField(native, { op: 'editorInsert', text: `${contextLink('review-comment', str(record.contextId), str(record.label))} ` }, effects);
+  if (!result.accepted) throw new ClientError('The composer is not ready');
 }
 /** A pull request hand-off's chips (pages-pr-handoffs.ts) resolve to these records when sent. */
 export function rememberReviewCommentRecord(client: T3Client, record: Obj): void { reviewCommentRecords(client)[str(record.contextId)] = record; }
 /** A hand-off into the composer on screen is one undoable edit of the whole prompt. */
-export async function replaceComposerPrompt(client: T3Client, native: Native, text: string): Promise<void> { await replaceAll(client, native, text); }
+export async function replaceComposerPrompt(client: T3Client, native: Native, text: string, effects: ComposerFieldCompletion = {}, expect?: string): Promise<void> { await replaceAll(client, native, text, effects, expect); }
 /** removeReviewComment: the chip leaves the prompt as one undoable edit, and its record goes. */
-export async function removeReviewCommentChip(client: T3Client, native: Native, contextId: string): Promise<void> {
+export async function removeReviewCommentChip(client: T3Client, native: Native, contextId: string, effects: ComposerFieldCompletion = {}): Promise<void> {
   const link = new RegExp(`\\[[^\\]\\n]{0,512}\\]\\(t3-context://v1/review-comment/${contextId.replace(/[^a-z0-9_-]/gi, '')}\\) ?`, 'g');
-  delete reviewCommentRecords(client)[contextId];
-  const next = client.draft.replace(link, '');
-  if (next !== client.draft) await replaceAll(client, native, next);
+  const field = composerFieldCurrent(client, composerFieldOwner(client));
+  if (!field) throw new ClientError('The composer is not ready.');
+  const next = field.value.replace(link, '');
+  const applied = async (current: Native) => {
+    const latest = composerFieldCurrent(client, composerFieldOwner(client));
+    if (!latest || latest.value.replace(link, '') !== latest.value) throw new ClientError('The review comment is still referenced by the prompt.');
+    delete reviewCommentRecords(client)[contextId]; await effects.applied?.(current);
+  };
+  if (next !== field.value) await replaceAll(client, native, next, { ...effects, applied }, field.value);
+  else await applied(native);
 }
 
 /**
@@ -445,6 +465,17 @@ export async function insertContext(client: T3Client, native: Native, kind: stri
       if (!thread) throw new ClientError('That thread is no longer available.');
       text = contextLink('thread', contextId('thread', id), str(thread.title, 'Thread'));
     }
+  } else if (kind === 'threads') {
+    const targets: unknown = JSON.parse(target);
+    if (!Array.isArray(targets) || targets.length > 100 || !targets.every(item => typeof item === 'string')) throw new ClientError('Unable to add to chat');
+    const links: string[] = [];
+    for (const item of targets) {
+      const ref = parseFleetThreadId(item);
+      if (ref && ref.environmentId !== client.environmentId) { const imported = await importDroppedThread(client, native, item); if (imported) links.push(imported); }
+      else { const thread = client.shell.threads.find(entry => str(entry.id) === (ref?.threadId ?? item)); if (!thread) throw new ClientError('That thread is no longer available.'); links.push(contextLink('thread', contextId('thread', ref?.threadId ?? item), str(thread.title, 'Thread'))); }
+    }
+    text = links.join(' ');
+    if (!text) return '';
   } else if (kind === 'file' || kind === 'folder') {
     const path = target.replace(/\/+$/, '');
     if (!path) throw new ClientError('Unable to add to chat');
@@ -469,7 +500,7 @@ export async function insertContext(client: T3Client, native: Native, kind: stri
     if (!/^t3-citation:\/\/v1\/[^\s)]+$/.test(target)) throw new ClientError('Unable to add to chat');
     text = `[Assistant quote](${target})`;
   } else throw new ClientError('Unable to add to chat');
-  const result = await editorCall(native, { op: 'editorInsert', text });
-  if (result.applied !== true) throw new ClientError('Unable to add to chat');
+  const result = await requestComposerField(native, { op: 'editorInsert', text });
+  if (!result.accepted) throw new ClientError('Unable to add to chat');
   return '';
 }

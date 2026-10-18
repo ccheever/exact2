@@ -1,3 +1,4 @@
+import { requestComposerField } from './composer-field-request';
 // Attach files for files that are not images (ChatComposer addComposerAttachments,
 // composerAttachmentFiles.ts): within the server's staging limit a picked file is
 // copied into the device's staged files (T3ComposerAttach.swift) and its inline
@@ -59,8 +60,8 @@ export async function insertFileChips(client: T3Client, native: Native, files: D
   if (owner && owner !== client.snapshotOwner) return false;
   const text = links.join(' '), key = files[0]?.draftKey ?? client.draftKey;
   if (key === client.draftKey) {
-    const reply = await bridgeReply(native, { op: 'editorInsert', text, ...(owner ? { owner } : {}) }).catch(() => null);
-    return reply?.ok === true && obj(reply.value).applied === true;
+    const reply = await requestComposerField(native, { op: 'editorInsert', text, ...(owner ? { owner } : {}) }).catch(() => null);
+    return reply?.accepted === true;
   }
   const prompt = client.local.drafts[key] ?? '';
   client.local.drafts[key] = `${prompt}${prompt && !/\s$/.test(prompt) ? ' ' : ''}${text} `;

@@ -1,3 +1,5 @@
+import { observeComposer } from '../support/composer-field-fixture';
+import { obj, str } from '../../src/client/domain';
 // The pull request hand-offs. The first half ports T3 Code 1e2ecbd975's
 // tests with their original names (pullRequestDetail.logic.test.ts "fix findings handoff", "findings that
 // cannot be attached", "one finding handed over on its own", "findings that are already on a line",
@@ -328,7 +330,8 @@ const activity = { reviewers: [], commits: [], commentCount: 2, reviewThreads: [
 function fakeClient(replies: Record<string, Reply>, over: Obj = {}) {
   const calls: { method: string; payload: Obj; write: boolean }[] = [], opened: string[] = [];
   const client = {
-    environmentId: 'env', threadId: '', projectId: 'p1', ready: true, revision: 0, generation: 1,
+    environmentId: 'env', threadId: '', projectId: 'p1', ready: true, revision: 0, generation: 1, projection: {},
+    get snapshotOwner() { return this.draftKey; },
     get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },
     get draft() { return this.local.drafts[this.draftKey] ?? ''; },
     local: { drafts: {} as Record<string, string>, composerControls: { contexts: {} } },
@@ -353,7 +356,7 @@ const defaults = (detail: Obj, extra: Record<string, Reply> = {}): Record<string
   ...extra,
 });
 const edits: Obj[] = [];
-const native = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'editorEdit') edits.push(request); return { ok: true, value: { applied: true } }; } } as unknown as Native;
+const native = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'editorEdit') edits.push(request); return { ok: true, generation: 0, value: { applied: true } }; } } as unknown as Native;
 const selected = JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7 });
 async function open(client: T3Client) {
   let view = await pullRequestDetail(client, native, { selected, refresh: 1, now: 0 });
@@ -396,8 +399,9 @@ describe('the panel hands the pull request over (startAsk, startHandoff)', () =>
     (client.shell.threads as Obj[]).push({ id: 't1', projectId: 'p1', pullRequests: [] });
     await open(client);
     client.local.drafts['env:t1'] = 'why is the cache keyed on the branch?';
-    edits.length = 0;
-    expect(await prCommand(client, native, 'handoff', selected, 'thread|ask')).toBe('');
+    edits.length = 0; observeComposer(client, client.draft);
+    const fieldNative: Native = { ...native, async later(request) { if (obj(request).op === 'editorEdit') client.local.drafts['env:t1'] = str(obj(request).text); return native.later(request); } };
+    expect(await prCommand(client, fieldNative, 'handoff', selected, 'thread|ask')).toBe('');
     expect(opened).toEqual([]);
     expect(client.local.drafts['env:t1']).toMatch(/^why is the cache keyed on the branch\? \[#7\]\(t3-context:[^)]+\) $/);
     expect(edits).toEqual([expect.objectContaining({ op: 'editorEdit', all: true, text: client.local.drafts['env:t1'] })]);
