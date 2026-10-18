@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
 import { readDeviceStamp } from '../snapback4/web/device-build.mjs';
@@ -1146,27 +1146,48 @@ function resolveOffline(dir, deferrable = false) {
 /** A workspace member's path as Cargo compares it: `./linux/` is `linux`. */
 const memberPath = m => String(m).replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
 
-/** `text`, a workspace Cargo.toml, without `member` in `[workspace]`'s `members` and
- * `default-members`: each string naming it (either quote, `./`, a multiline array with
- * comments) goes with its comma, and the rest of the file is left as written. The result
- * is parsed again and refused unless those arrays are exactly the old ones less it. */
+/** `text`, a workspace Cargo.toml, without `member` in the `[workspace]` table's own
+ * `members` and `default-members`: each string naming it (either quote, `./`, a multiline
+ * array with comments) goes with its comma, and the rest of the file is left as written.
+ * Only a form it reads with certainty is edited: one `[workspace]` header, bare keys, plain
+ * strings. Anything else is refused, naming the edit to make by hand, and so is a result
+ * that parses to anything but the old document less that member. */
 export function withoutMember(text, member) {
-  const lists = t => { const w = Bun.TOML.parse(t).workspace ?? {}; return [w.members, w['default-members']]; };
-  const before = lists(text);
-  let out = text;
+  const refuse = why => { throw new Error(`Cargo.toml's [workspace] is in a form this does not edit (${why}): remove "${member}" from [workspace] members and default-members by hand, then run it again`); };
+  let doc;
+  try { doc = Bun.TOML.parse(text); } catch (error) { refuse(`it does not parse: ${error.message}`); }
+  const named = l => Array.isArray(l) && l.some(m => memberPath(m) === member);
+  if (!named(doc.workspace?.members) && !named(doc.workspace?.['default-members'])) return text;
+  const expected = structuredClone(doc);
+  for (const key of ['members', 'default-members']) if (Array.isArray(expected.workspace[key])) expected.workspace[key] = expected.workspace[key].filter(m => memberPath(m) !== member);
+  if (expected.workspace['default-members']?.length === 0) refuse('default-members would be empty');
+  // The `[workspace]` table's body: from its one header to the next table's.
+  const headers = [...text.matchAll(/^[ \t]*\[[ \t]*workspace[ \t]*\][ \t]*(?:#[^\n]*)?$/gm)];
+  if (headers.length !== 1) refuse(headers.length ? 'two [workspace] headers' : 'no [workspace] header');
+  const from = headers[0].index + headers[0][0].length;
+  // A line opening with `[` inside a value ends the body early; the check below then refuses.
+  const next = /^[ \t]*\[/m.exec(text.slice(from));
+  const to = next ? from + next.index : text.length;
+  let body = text.slice(from, to);
+  if (/^[ \t]*["'](?:default-)?members["']/m.test(body)) refuse('a quoted members key');
   for (const key of ['members', 'default-members']) {
-    const head = new RegExp(`^[ \\t]*${key}[ \\t]*=[ \\t]*\\[`, 'm').exec(out);
+    const head = new RegExp(`^[ \\t]*${key}[ \\t]*=[ \\t]*\\[`, 'm').exec(body);
     if (!head) continue;
     // The array's string tokens, to its `]`, past quotes and `#` comments.
     const tokens = [];
     let i = head.index + head[0].length;
-    for (; i < out.length && out[i] !== ']'; i++) {
-      if (out[i] === '#') { while (i < out.length && out[i] !== '\n') i++; continue; }
-      if (out[i] !== '"' && out[i] !== "'") continue;
-      const quote = out[i], start = i;
-      for (i++; i < out.length && out[i] !== quote; i++) if (quote === '"' && out[i] === '\\') i++;
-      tokens.push({ start, end: i + 1, value: out.slice(start + 1, i) });
+    for (; i < body.length && body[i] !== ']'; i++) {
+      if (body[i] === '#') { while (i < body.length && body[i] !== '\n') i++; continue; }
+      if (/\s|,/.test(body[i])) continue;
+      if (body[i] !== '"' && body[i] !== "'") refuse(`${key} holds something other than a string`);
+      if (body.startsWith('"""', i) || body.startsWith("'''", i)) refuse(`${key} holds a multiline string`);
+      const quote = body[i], start = i;
+      for (i++; i < body.length && body[i] !== quote && body[i] !== '\n'; i++) if (body[i] === '\\') refuse(`${key} holds an escaped string`);
+      if (body[i] !== quote) refuse(`${key} holds an unclosed string`);
+      tokens.push({ start, end: i + 1, value: body.slice(start + 1, i) });
     }
+    if (i >= body.length) refuse(`${key} is not closed`);
+    let out = body;
     for (const t of tokens.reverse().filter(t => memberPath(t.value) === member)) {
       // Its comma after it, else the one before it (the last element); a line it had to
       // itself goes whole, with the comment on it.
@@ -1182,22 +1203,31 @@ export function withoutMember(text, member) {
         ? out.slice(0, lineStart) + rest.slice(tail[0].length)
         : out.slice(0, t.start) + rest.replace(/^[ \t]+/, '');
     }
+    body = out;
   }
-  const expected = before.map(l => l?.filter(m => memberPath(m) !== member));
-  if (JSON.stringify(lists(out)) !== JSON.stringify(expected)) throw new Error(`could not remove ${member} from the workspace's members in Cargo.toml; remove it there by hand`);
+  const out = text.slice(0, from) + body + text.slice(to);
+  let edited = null;
+  try { edited = Bun.TOML.parse(out); } catch {}
+  if (JSON.stringify(edited) !== JSON.stringify(expected)) refuse('the edit would change more than that member');
   return out;
 }
 
 /** `update --without <platform>`: the app stops building and shipping it. Its workspace
  * member goes, with app.json's `host`, `deploy.store` and `deploy.binaries` keys for it,
- * which are what the compiler reads as shipping it (contract/lower/src/icons.rs `targets`);
- * Cargo.lock is re-resolved, and only then is its crate deleted. Any failure puts
- * Cargo.toml and app.json back and keeps the crate. Returns what it removed. */
+ * which are what the compiler reads as shipping it (contract/lower/src/icons.rs `targets`).
+ * Its crate is moved aside, Cargo.lock is re-resolved without it, and only then is the
+ * crate deleted. Any failure before that puts Cargo.toml, app.json, Cargo.lock (or its
+ * absence) and the crate back as they were; a failed delete leaves the app without the
+ * platform and says what to delete. Returns what it removed. */
 function dropPlatform(dir, platform) {
   if (platform === 'web') throw new Error('update --without web: the web host is the dev loop\'s and the agent\'s (`web`, `test web`, `agent web`), so it stays');
   if (!['linux', 'android'].includes(platform)) throw new Error(`update --without ${platform}: it takes linux (which Android builds too) or android`);
   const workspacePath = resolve(dir, 'Cargo.toml'), manifestPath = resolve(dir, 'app.json');
   const workspace = readFileSync(workspacePath, 'utf8'), manifestText = existsSync(manifestPath) ? readFileSync(manifestPath, 'utf8') : null;
+  // Each file as it was, `null` for one that was absent; `cargo metadata` may rewrite the lock before it fails.
+  const saved = [workspacePath, manifestPath, resolve(dir, 'Cargo.lock')].map(path => [path, existsSync(path) ? readFileSync(path) : null]);
+  const crate = resolve(dir, platform), aside = resolve(dir, `.${platform}-removed-${randomBytes(4).toString('hex')}`);
+  let moved = false;
   const removed = [];
   try {
     const members = withoutMember(workspace, platform);
@@ -1212,15 +1242,20 @@ function dropPlatform(dir, platform) {
       if ((deploy.store || deploy.binaries) && !native.length) throw new Error(`app.json deploy.store would name no native platform, which deploy reads as all of them, ${platform} included: name the ones the app ships there (as \`"ios": "0"\`) first`);
       writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
     }
+    if (existsSync(resolve(crate, 'Cargo.toml'))) { renameSync(crate, aside); moved = true; }
     resolveOffline(dir);
   } catch (error) {
-    writeFileSync(workspacePath, workspace);
-    if (manifestText !== null) writeFileSync(manifestPath, manifestText);
-    throw new Error(`update --without ${platform}: ${error.message}; Cargo.toml, app.json and ${platform}/ are as they were`);
+    const unrestored = [];
+    for (const [path, bytes] of saved) {
+      try { if (bytes === null) rmSync(path, { force: true }); else writeFileSync(path, bytes); } catch { unrestored.push(relative(dir, path)); }
+    }
+    if (moved) try { renameSync(aside, crate); } catch { unrestored.push(`${platform}/ (it is at ${relative(dir, aside)})`); }
+    throw new Error(`update --without ${platform}: ${error.message}; ${unrestored.length ? `could not put back ${unrestored.join(', ')}` : `Cargo.toml, app.json, Cargo.lock and ${platform}/ are as they were`}`);
   }
-  if (existsSync(resolve(dir, platform, 'Cargo.toml'))) {
-    rmSync(resolve(dir, platform), { recursive: true, force: true });
-    removed.push(`${platform}/`);
+  if (moved) {
+    try { rmSync(aside, { recursive: true, force: true }); removed.push(`${platform}/`); } catch (error) {
+      removed.push(`${platform}/ from the workspace; deleting its files failed (${error.message}), so delete ${relative(dir, aside)} by hand`);
+    }
   }
   return removed.length ? `without ${platform} (removed ${removed.join(', ')})` : `without ${platform} (it shipped none already)`;
 }
