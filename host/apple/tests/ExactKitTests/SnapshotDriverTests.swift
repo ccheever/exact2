@@ -361,6 +361,10 @@ final class SnapshotDriverTests: XCTestCase {
         // An ellipse, farthest side, on a wide box: green at the centre, black
         // at the side's end and at the top's middle (a circle of the farthest
         // side would still be green there).
+        // The strip is 14 px high, so the top sample sits on its second row,
+        // 5.5 px from the centre of a 7 px radius: 21% green by the ramp, 84
+        // measured with the antialiased edge; a circle of the farthest side
+        // (half the width) would still be above 230 there.
         let centre = try sample(strips[1], x: 0.5, y: 0.5), side = try sample(strips[1], x: 0.01, y: 0.5), top = try sample(strips[1], x: 0.5, y: 0.1)
         XCTAssertGreaterThan(centre[1], 200, "\(centre)"); XCTAssertLessThan(side[1], 110, "\(side)"); XCTAssertLessThan(top[1], 110, "\(top)")
         // A length stop: the kernel places it; red up to 20 px, blue from 80%.
@@ -395,10 +399,16 @@ final class SnapshotDriverTests: XCTestCase {
         let quarter = try sample(strips[4], x: 0.25, y: 0.5)
         XCTAssertGreaterThan(quarter[0], 205, "\(quarter)")
         // `opacity` reaches the model through its presentation op: a red
-        // strip at 0 is the page, at 0.5 half red over white.
+        // strip at 0 is the page, at 0.5 half red over white; and it
+        // survives a relayout's style replace (a root font size change).
         let gone = try sample(strips[7], x: 0.5, y: 0.5), half = try sample(strips[8], x: 0.5, y: 0.5)
         XCTAssertEqual(gone, [255, 255, 255], "opacity 0")
         XCTAssertGreaterThan(half[0], 240, "\(half)"); XCTAssertGreaterThan(half[1], 100, "\(half)"); XCTAssertLessThan(half[1], 160, "\(half)")
+        try session.setRootFontSize(23)
+        let (relaid, tree) = try plain(session, family: family, environment: environment(family, type: .xxxLarge))
+        let strip = try XCTUnwrap(tree.roots.first.flatMap { tree.nodes[$0] }?.children.dropFirst(7).first.flatMap { tree.nodes[$0] })
+        let frameAfter = strip.frame.offsetBy(dx: root.frame.minX + family.content.minX, dy: root.frame.minY + family.content.minY)
+        XCTAssertEqual(try color(relaid, x: Int(frameAfter.midX), y: Int(frameAfter.midY)), [255, 255, 255], "opacity 0 after a relayout")
         // A plain text node's `text-decoration` reaches its run's paint.
         let label = strips[9]
         XCTAssertEqual(SnapshotTextPaint.decoration(try XCTUnwrap(label.runs.first), node: label), "line-through")
@@ -408,10 +418,12 @@ final class SnapshotDriverTests: XCTestCase {
     /// `cache` and `tmp`, never outside them.
     func testImagePathsResolveUnderTheirRoots() throws {
         let group = Self.out.appending(path: "group")
-        for dir in ["data", "cache", "tmp"] { try FileManager.default.createDirectory(at: group.appending(path: dir), withIntermediateDirectories: true) }
+        for dir in ["data", "cache", "temporary"] { try FileManager.default.createDirectory(at: group.appending(path: dir), withIntermediateDirectories: true) }
         try Data([0]).write(to: group.appending(path: "cache/avatar.png"))
+        try Data([0]).write(to: group.appending(path: "temporary/picked.png"))
         try Data([0]).write(to: group.appending(path: "secret.png"))
         XCTAssertEqual(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: group)?.lastPathComponent, "avatar.png")
+        XCTAssertEqual(SnapshotRasters.resolve("app:/tmp/picked.png", roots: [], appGroup: group)?.path, group.appending(path: "temporary/picked.png").standardizedFileURL.resolvingSymlinksInPath().path, "app:/tmp is the host's temporary directory")
         XCTAssertNil(SnapshotRasters.resolve("app:/cache/../secret.png", roots: [], appGroup: group))
         XCTAssertNil(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: nil), "no group, no app:/")
         XCTAssertNil(SnapshotRasters.resolve("app:/other/avatar.png", roots: [], appGroup: group))
@@ -419,22 +431,35 @@ final class SnapshotDriverTests: XCTestCase {
         XCTAssertNil(SnapshotRasters.resolve("../group/secret.png", roots: [Self.out.appending(path: "assets")], appGroup: nil))
     }
 
-    /// The invocation's raster cache keeps decoded bytes under its budget
-    /// and goes with the invocation.
+    /// The invocation's raster cache keeps decoded bytes under its budget,
+    /// never a single image larger than it, evicts the oldest first, and
+    /// goes with the invocation.
     func testTheRasterCacheIsBudgetedAndReleasedWithItsInvocation() throws {
         let dir = Self.out.appending(path: "assets")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let context = try XCTUnwrap(CGContext(data: nil, width: 400, height: 400, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 400, height: 400))
-        try write(context.makeImage(), "assets/blue")
-        let url = dir.appending(path: "blue.png")
-        var rasters: SnapshotRasters? = SnapshotRasters(budget: 300 * 300 * 4)
+        func png(_ name: String, _ side: Int) throws -> URL {
+            let context = try XCTUnwrap(CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+            try write(context.makeImage(), "assets/\(name)")
+            return dir.appending(path: "\(name).png")
+        }
+        let big = try png("big-blue", 400), a = try png("a", 40), b = try png("b", 40), c = try png("c", 40)
+        // Two 40-px decodes fit the budget (each about 6.4 KB); a 400-px one (640 KB) never does.
+        var rasters: SnapshotRasters? = SnapshotRasters(budget: 2 * 40 * 40 * 4 + 512)
         weak var released = rasters
-        let small = try XCTUnwrap(rasters?.decode(url, box: CGSize(width: 50, height: 50), fit: "fill", scale: 1))
-        XCTAssertLessThanOrEqual(max(small.image.width, small.image.height), 50)
-        // Past the budget the cache evicts: a decode larger than it is not kept, and asked again is decoded again.
-        let big = try XCTUnwrap(rasters?.decode(url, box: CGSize(width: 400, height: 400), fit: "fill", scale: 1))
-        XCTAssertEqual(big.image.width, 400)
+        try { (cache: SnapshotRasters) in
+        _ = cache.decode(big, box: CGSize(width: 400, height: 400), fit: "fill", scale: 1)
+        _ = cache.decode(big, box: CGSize(width: 400, height: 400), fit: "fill", scale: 1)
+        XCTAssertEqual(cache.decodes, 2, "an image past the budget is decoded each time, never kept")
+        XCTAssertEqual(cache.keptKeys, [])
+        for url in [a, b, c] { _ = cache.decode(url, box: CGSize(width: 40, height: 40), fit: "fill", scale: 1) }
+        XCTAssertEqual(cache.decodes, 5)
+        XCTAssertEqual(cache.keptKeys.map { URL(fileURLWithPath: String($0.split(separator: "|")[0])).lastPathComponent }, ["b.png", "c.png"], "the oldest went first")
+        _ = cache.decode(b, box: CGSize(width: 40, height: 40), fit: "fill", scale: 1)
+        XCTAssertEqual(cache.decodes, 5, "a kept image is a hit")
+        _ = cache.decode(a, box: CGSize(width: 40, height: 40), fit: "fill", scale: 1)
+        XCTAssertEqual(cache.decodes, 6, "an evicted one decodes again")
+        }(try XCTUnwrap(rasters))
         rasters = nil
         XCTAssertNil(released, "the invocation's rasters go with it")
     }
@@ -454,9 +479,15 @@ final class SnapshotDriverTests: XCTestCase {
         XCTAssertEqual(cover.natural, CGSize(width: 2000, height: 500))
         let contain = try XCTUnwrap(rasters.decode(url, box: CGSize(width: 40, height: 40), fit: "contain", scale: 3))
         XCTAssertEqual(contain.image.width, 120)
-        // The longest side is capped whatever the cover scale asks.
-        let capped = try XCTUnwrap(SnapshotRasters(longestSide: 256).decode(url, box: CGSize(width: 2000, height: 2000), fit: "cover", scale: 3))
-        XCTAssertLessThanOrEqual(cover.image.width, 2048); XCTAssertLessThanOrEqual(capped.image.width, 256)
+        // Past the pixel budget a decode scales to fit its area: a 4:1 image
+        // in a 16,384-pixel budget is 256 × 64.
+        let capped = try XCTUnwrap(SnapshotRasters(pixelBudget: 256 * 64).decode(url, box: CGSize(width: 2000, height: 2000), fit: "cover", scale: 3))
+        XCTAssertLessThanOrEqual(capped.image.width, 256); XCTAssertLessThanOrEqual(capped.image.width * capped.image.height, 256 * 64 + 256)
+        // Within it, a cover window decodes at its device pixels; ImageIO
+        // never enlarges a thumbnail past the image, so a 1200 pt-tall box
+        // of this 500-px-high panorama gets the whole image.
+        let whole = try XCTUnwrap(SnapshotRasters().decode(url, box: CGSize(width: 400, height: 400), fit: "cover", scale: 3))
+        XCTAssertEqual(whole.image.width, 2000); XCTAssertEqual(whole.image.height, 500)
     }
 
     /// A symbol fits its box as `object-fit` says and clips to its rounded

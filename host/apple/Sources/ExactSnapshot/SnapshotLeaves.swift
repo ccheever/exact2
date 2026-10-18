@@ -62,11 +62,11 @@ struct SnapshotTextView: View {
 }
 
 /// The paint a run's text takes beyond its font and colour: its tracking
-/// and its decoration (the run's own, else the node's `text-decoration`,
-/// which a plain text node's run does not carry).
+/// and its decoration, the run's own added to the node's `text-decoration`
+/// (CSS Text Decoration 3 §2.1: an inline's lines add to its ancestors').
 package enum SnapshotTextPaint {
     package static func decoration(_ run: HeadlessSession.Run, node: HeadlessSession.Node) -> String {
-        run.decoration.isEmpty ? (node.style["text_decoration_line"]?.string ?? "") : run.decoration
+        [node.style["text_decoration_line"]?.string ?? "", run.decoration].filter { !$0.isEmpty }.joined(separator: " ")
     }
     static func styled(_ text: Text, run: HeadlessSession.Run, node: HeadlessSession.Node) -> Text {
         var part = text
@@ -256,27 +256,35 @@ struct SnapshotImageView: View {
 }
 
 /// Raster decoding, bounded (D8: an extension's memory ceiling): ImageIO's
-/// thumbnail at the pixel size of what the box shows, never the full image,
-/// kept for the invocation under a decoded-byte budget and released with
+/// thumbnail at the pixels the box shows, never the full image, kept for
+/// the invocation under a decoded-byte budget (the oldest evicted past it;
+/// an image larger than the budget is never retained) and released with
 /// it. `cover` shows a window of the image, so its thumbnail is the image
-/// at the cover scale (capped at `longestSide` pixels); `none` would need
-/// the image at its own scale, which the profile refuses (drawn as
-/// `scale-down` meanwhile).
+/// at the cover scale; any decode is bounded by `pixelBudget` in area,
+/// scaled to fit it. `none` would need the image at its own scale, which
+/// the profile refuses (drawn as `scale-down` meanwhile).
 public final class SnapshotRasters {
     public struct Decoded {
         public let image: CGImage
         public let natural: CGSize
     }
-    private final class Box { let value: Decoded; init(_ value: Decoded) { self.value = value } }
-    private let cache = NSCache<NSString, Box>()
-    /// The longest side a decode may have, in pixels, whatever the box.
-    public let longestSide: Int
+    private struct Kept { let key: String; let value: Decoded; let bytes: Int }
+    private var kept: [Kept] = []
+    private var total = 0
+    private let lock = NSLock()
+    /// The decoded bytes kept at once.
+    public let budget: Int
+    /// The most pixels one decode may have; a larger one scales to fit.
+    public let pixelBudget: Int
+    /// How many decodes ran: a test's view of hits and evictions.
+    package private(set) var decodes = 0
 
-    /// `budget` is the decoded bytes kept at once (the cache evicts past it).
-    public init(budget: Int = 16 << 20, longestSide: Int = 2048) {
-        cache.totalCostLimit = budget
-        self.longestSide = longestSide
+    public init(budget: Int = 16 << 20, pixelBudget: Int = 4_000_000) {
+        self.budget = budget
+        self.pixelBudget = pixelBudget
     }
+
+    package var keptKeys: [String] { lock.lock(); defer { lock.unlock() }; return kept.map(\.key) }
 
     public func decode(_ source: String?, roots: [URL], appGroup: URL?, box: CGSize, fit: String, scale: CGFloat) -> Decoded? {
         guard let source, !source.isEmpty, let url = Self.resolve(source, roots: roots, appGroup: appGroup) else { return nil }
@@ -285,21 +293,33 @@ public final class SnapshotRasters {
 
     /// The decode a box needs: its own pixels for `fill`, `contain` and
     /// `scale-down`; for `cover`, the image scaled so the shorter cover
-    /// dimension fills the box, which is the window shown.
+    /// dimension fills the box, which is the window shown; either scaled
+    /// down to the pixel budget's area.
     public func decode(_ url: URL, box: CGSize, fit: String, scale: CGFloat) -> Decoded? {
         let pixels = CGSize(width: box.width * scale, height: box.height * scale)
-        guard let natural = Self.natural(url) else { return nil }
-        var longest = max(pixels.width, pixels.height)
-        if fit == "cover", natural.width > 0, natural.height > 0 {
+        guard let natural = Self.natural(url), natural.width > 0, natural.height > 0 else { return nil }
+        var size: CGSize
+        if fit == "cover" {
             let cover = max(pixels.width / natural.width, pixels.height / natural.height)
-            longest = max(natural.width, natural.height) * cover
+            size = CGSize(width: natural.width * cover, height: natural.height * cover)
+        } else {
+            let contain = min(pixels.width / natural.width, pixels.height / natural.height, 1)
+            size = CGSize(width: natural.width * contain, height: natural.height * contain)
+            if fit == "fill" { size = CGSize(width: min(pixels.width, natural.width), height: min(pixels.height, natural.height)) }
         }
-        return decode(url, longest: Int(max(1, min(CGFloat(longestSide), longest.rounded(.up)))), natural: natural)
+        let area = size.width * size.height
+        if area > CGFloat(pixelBudget) {
+            let factor = (CGFloat(pixelBudget) / area).squareRoot()
+            size = CGSize(width: size.width * factor, height: size.height * factor)
+        }
+        return decode(url, longest: Int(max(1, max(size.width, size.height).rounded(.up))), natural: natural)
     }
 
     private func decode(_ url: URL, longest: Int, natural: CGSize) -> Decoded? {
-        let key = "\(url.path)|\(longest)" as NSString
-        if let hit = cache.object(forKey: key) { return hit.value }
+        let key = "\(url.path)|\(longest)"
+        lock.lock()
+        if let hit = kept.first(where: { $0.key == key }) { lock.unlock(); return hit.value }
+        lock.unlock()
         guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -309,7 +329,15 @@ public final class SnapshotRasters {
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else { return nil }
         let decoded = Decoded(image: image, natural: natural)
-        cache.setObject(Box(decoded), forKey: key, cost: image.bytesPerRow * image.height)
+        let bytes = image.bytesPerRow * image.height
+        lock.lock()
+        decodes += 1
+        if bytes <= budget {
+            while total + bytes > budget, !kept.isEmpty { total -= kept.removeFirst().bytes }
+            kept.append(Kept(key: key, value: decoded, bytes: bytes))
+            total += bytes
+        }
+        lock.unlock()
         return decoded
     }
 
@@ -325,15 +353,16 @@ public final class SnapshotRasters {
 
     /// The file a source names: `app:/data/…`, `app:/cache/…` and
     /// `app:/tmp/…` under the app group's container (its `data`, `cache`
-    /// and `tmp` directories), any other name under one of the bundle
-    /// roots; `..` and a root alone are refused, and the resolved path must
-    /// stay under its root.
+    /// and `temporary` directories, the running host's names), any other
+    /// name under one of the bundle roots; `..` and a root alone are
+    /// refused, and the resolved path must stay under its root.
     public static func resolve(_ source: String, roots: [URL], appGroup: URL?) -> URL? {
         if source.hasPrefix("app:/") {
             let parts = source.dropFirst(5).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-            guard let appGroup, parts.count >= 2, ["data", "cache", "tmp"].contains(parts[0]),
+            let directories = ["data": "data", "cache": "cache", "tmp": "temporary"]
+            guard let appGroup, parts.count >= 2, let directory = directories[parts[0]],
                   !parts.dropFirst().contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { return nil }
-            let root = appGroup.appending(path: parts[0])
+            let root = appGroup.appending(path: directory)
             return confined(parts.dropFirst().reduce(root) { $0.appending(path: $1) }, under: root)
         }
         for root in roots {
