@@ -423,6 +423,25 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
             .maybe_resolve(inner_container_size, |val, basis| tree.calc(val, basis))
             .unwrap_or(0.0);
         constants.gap.set_main(constants.dir, new_gap);
+
+        // EXACT PATCH 47: max-content width uses the unwrapped sum, but its
+        // clamped inner width governs line breaks for both measured height and
+        // final frames. A max-content root need not receive another layout pass.
+        // https://www.w3.org/TR/css-flexbox-1/#main-sizing
+        let rewrap = constants.is_row
+            && constants.is_wrap
+            && available_space.width == AvailableSpace::MaxContent
+            && constants.max_size.width.is_some();
+        #[cfg(feature = "flexbox_balance")]
+        let rewrap = rewrap && !constants.is_balance;
+        if rewrap {
+            drop(flex_lines);
+            flex_lines = collect_flex_lines(
+                &constants,
+                Size { width: AvailableSpace::Definite(inner_container_size), ..available_space },
+                &mut flex_items,
+            );
+        }
     }
 
     // 6. Resolve the flexible lengths of all the flex items to find their used main size.
@@ -1344,7 +1363,8 @@ fn collect_flex_lines<'a>(
     } else {
         let main_axis_available_space = match constants.max_size.main(constants.dir) {
             // EXACT PATCH 47: max-content row width is measured without wrapping;
-            // the maximum clamps that width before the final, definite layout.
+            // compute_preliminary then wraps at the clamped width to size height
+            // and place items, including when there is no later layout pass.
             // Columns still wrap at max-height: MaxContent also represents the
             // indefinite height offered by ordinary block layout.
             // https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes
@@ -3595,6 +3615,41 @@ mod intrinsic_tests {
     use crate::geometry::{Line, Size};
     use crate::prelude::*;
     use crate::tree::{LayoutPartialTreeExt, SizingMode};
+
+    // Chrome 151.0.7922.34, 2026-10-18: rows inside width:max-content wrappers.
+    #[test]
+    fn capped_max_content_rows_measure_their_wrapped_height() {
+        let mut failures = Vec::new();
+        for width in [60.0, 100.0] {
+            for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
+                for wrap in [FlexWrap::Wrap, FlexWrap::WrapReverse] {
+                    let mut tree = TaffyTree::<()>::new();
+                    let items: Vec<_> = (0..3).map(|_| tree.new_leaf(Style {
+                        size: Size { width: length(width), height: length(30.0) },
+                        flex_shrink: 0.0,
+                        ..Default::default()
+                    }).unwrap()).collect();
+                    let row = tree.new_with_children(Style {
+                        flex_direction: direction,
+                        flex_wrap: wrap,
+                        align_content: Some(AlignContent::FLEX_START),
+                        max_size: Size { width: length(100.0), height: auto() },
+                        ..Default::default()
+                    }, &items).unwrap();
+                    for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                        tree.mark_dirty(row).unwrap();
+                        let size = tree.as_layout_tree().measure_child_size_both(
+                            row, Size::NONE, Size::NONE, Size::MAX_CONTENT, mode, Line::FALSE,
+                        );
+                        if size != (Size { width: 100.0, height: 90.0 }) {
+                            failures.push(format!("{width}; {direction:?}; {wrap:?}; {mode:?}: {size:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 
     // Chrome 151.0.7922.34, 2026-10-18: a max-content grid item with a
     // bounded width sizes its percentage-width square before its height.

@@ -137,6 +137,48 @@ fn positioned_boxes_roots_and_ratios_match_chrome() {
     check(failures(fixture, true), &[]);
 }
 
+/// Chrome 151.0.7922.34, 2026-10-18: a width:max-content wrapper around each
+/// case. The eight basic row cases also agree inside float:left wrappers.
+/// A max-content root offer must publish wrapped frames without a parent's
+/// definite-width pass.
+#[test]
+fn max_content_roots_wrap_at_their_resolved_width() {
+    use exact_kernel::{NodeType, Offer, Op};
+
+    let mut wrong = Vec::new();
+    for case in cases(include_str!("fixtures/browser_max_content.tsv")) {
+        let mut ops = Vec::new();
+        for (id, css) in std::iter::once((1, case.root)).chain(case.nodes.iter().map(
+            |(id, parent, css, text)| {
+                assert_eq!(*parent, 1);
+                assert!(text.is_empty());
+                (*id, *css)
+            },
+        )) {
+            ops.push(Op::CreateView {
+                id,
+                node_type: NodeType::View,
+            });
+            ops.push(Op::SetStyle {
+                id,
+                patch: Box::new(props(&css_rows(css))),
+            });
+        }
+        ops.extend([
+            Op::SetChildren {
+                id: 1,
+                children: case.nodes.iter().map(|node| node.0).collect(),
+            },
+            Op::AttachRoot { id: 1 },
+        ]);
+        let mut k = crate::support::reader::kernel();
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+        wrong.extend(mismatches(case.name, &k, &case.want));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
 /// LLP 1074 T1: `position: static` is the default, an absolute box's
 /// containing block is its nearest positioned ancestor, and with no inset on
 /// an axis it sits at its static position.

@@ -1338,8 +1338,11 @@ case.
 `collect_flex_lines` preserves a row's `MaxContent` width constraint when it
 has a maximum. All items contribute to one line, as
 [CSS Flexbox §9.9.1](https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes)
-requires; the existing size clamp then applies the maximum, and the final
-definite layout wraps within that width. Columns retain maximum-based wrapping:
+requires; the existing size clamp then applies the maximum. `compute_preliminary`
+recollects lines against the clamped inner width before resolving flexible lengths,
+measuring height and placing items. This also covers a root laid out directly
+under `MaxContent` and a both-axis size measurement, which need not receive a
+later definite-width pass. Columns retain maximum-based wrapping:
 ordinary block layout also uses `MaxContent` for indefinite vertical space.
 Balanced wrapping is unchanged and remains disabled in the kernel.
 
@@ -1350,6 +1353,17 @@ with three 60×30 items; reversed items start at x=40. Controls cover normal
 flow, no maximum in a 100px containing block, nowrap, contents narrower than
 the maximum, and absolute and normal-flow columns in both directions. The
 added cases had 12 frame mismatches before this patch.
+
+`browser_position::max_content_roots_wrap_at_their_resolved_width` holds 14
+further Chrome cases under `Offer::MAX_CONTENT`: 60px and 100px items in both
+row directions and wrapping directions, gaps and padding in both box-sizing
+modes, and nowrap, below-maximum and column controls. The Chrome analog is a
+row inside a `width:max-content` wrapper; `float:left` wrappers give the same
+eight basic row frames. These were measured with the same Chrome version and
+date. Before recollecting lines, ten cases had 34 frame mismatches, including
+100×30 roots that should be 100×90. Taffy's
+`capped_max_content_rows_measure_their_wrapped_height` holds the eight basic
+cases in both sizing modes; all 16 measurements previously returned 30px height.
 
 ## Cargo workspace boundary
 
