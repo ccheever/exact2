@@ -6,6 +6,8 @@ use serde_json::json;
 fn widget() -> Widget {
     Widget {
         kind: "next-trains".into(),
+        title: None,
+        description: None,
         families: vec!["systemSmall".into()],
         component: "Card".into(),
         props: "Props".into(),
@@ -185,6 +187,33 @@ fn manifest_and_preview_are_checked_and_no_widgets_is_unchanged() {
         .widgets()
         .is_err());
     }
+    let mut labels = Manifest {
+        json: json!({"widgets":[{"kind":"card","title":"Next Trains","description":"Departures from your station.",
+            "families":["systemSmall"],"component":"Card","props":"Props","refresh":"refreshCard","preview":{"title":"Preview"}}]}),
+        ..empty.clone()
+    };
+    let entries = labels.widgets().unwrap();
+    assert_eq!(entries[0].title.as_deref(), Some("Next Trains"));
+    assert_eq!(
+        entries[0].description.as_deref(),
+        Some("Departures from your station.")
+    );
+    for key in ["title", "description"] {
+        for invalid in [json!(null), json!(3), json!([])] {
+            let mut manifest = labels.clone();
+            manifest.json["widgets"][0][key] = invalid;
+            assert!(manifest
+                .widgets()
+                .unwrap_err()
+                .contains(&format!("{key} must be a string")));
+        }
+        labels.json["widgets"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove(key);
+    }
+    let entries = labels.widgets().unwrap();
+    assert!(entries[0].title.is_none() && entries[0].description.is_none());
     let src = source("    text title", "", "");
     let mut w = widget();
     w.preview = json!({"title":7});

@@ -233,6 +233,14 @@
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
           },
+          "title": {
+            "type": "string",
+            "description": "Gallery display name; defaults to the humanised kind."
+          },
+          "description": {
+            "type": "string",
+            "description": "Gallery description; defaults to the humanised kind."
+          },
           "component": {
             "type": "string",
             "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"

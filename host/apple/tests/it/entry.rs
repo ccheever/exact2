@@ -6,6 +6,8 @@ use crate::host::{handles, out, put};
 fn entry_plan() -> Vec<u8> {
     let widget = contract::Widget {
         kind: "card".into(),
+        title: None,
+        description: None,
         families: vec!["systemSmall".into()],
         component: "Card".into(),
         props: "Props".into(),

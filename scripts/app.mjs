@@ -860,7 +860,6 @@ export function hermesTarget(os = process.platform, cpu = process.arch) {
   const suffix = os === 'darwin' ? 'apple-darwin' : os === 'linux' ? 'unknown-linux-gnu' : os === 'win32' && arch === 'x86_64' ? 'pc-windows-msvc' : null;
   return arch && suffix ? `${arch}-${suffix}` : null;
 }
-
 /** The selected digest-addressed bundle; acquisition is installer-only. */
 export function hermesBundle(target = hermesTarget(), env = process.env) {
   if (!target) throw new Error(`no pinned Hermes bundle target for ${process.platform}/${process.arch}`);

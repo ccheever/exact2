@@ -134,7 +134,7 @@ mod tests {
     }
     fn entry() -> Vec<u8> {
         contract::snapshot::compile("shape Props\n  title: string\ncomponent Card\n  props\n    title: string\n  view\n    text title\n", &contract::Widget {
-            kind: "card".into(), families: vec!["systemSmall".into()], component: "Card".into(), props: "Props".into(), refresh: "refresh".into(), preview: serde_json::json!({"title":"preview"})
+            kind: "card".into(), title: None, description: None, families: vec!["systemSmall".into()], component: "Card".into(), props: "Props".into(), refresh: "refresh".into(), preview: serde_json::json!({"title":"preview"})
         }).unwrap().encode()
     }
     #[test]

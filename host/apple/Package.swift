@@ -70,11 +70,6 @@ let core: [Target] = [
             swiftSettings: capabilities.map { .define($0.define) }),
 ]
 
-let widgetRenderer: [Target] = widgetCore ? [
-    .target(name: "ExactWidgetRenderer", dependencies: ["ExactCore"], path: "Sources/ExactWidgetRenderer",
-            swiftSettings: [.unsafeFlags(["-application-extension"])])
-] : []
-
 let executables: [Target] = [
     .executableTarget(name: "ExactMac", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactMac"),
     .executableTarget(name: "ExactIOS", dependencies: ["ExactKit", "ExactComposition"], path: "Sources/ExactIOS"),
@@ -100,7 +95,7 @@ let tests: [Target] = [
 let package = Package(
     name: "Exact",
     platforms: [.macOS(.v14), .iOS(.v17), .tvOS(.v17), .watchOS(.v10), .visionOS(.v1)],
-    products: [.library(name: "ExactCore", type: widgetCore ? .dynamic : nil, targets: widgetCore ? ["ExactCore", "ExactWidgetRenderer"] : ["ExactCore"]), .library(name: "ExactSnapshot", targets: ["ExactSnapshot"])] + (testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
+    products: [.library(name: "ExactCore", type: widgetCore ? .dynamic : nil, targets: widgetCore ? ["ExactCore", "ExactSnapshot"] : ["ExactCore"]), .library(name: "ExactSnapshot", targets: ["ExactSnapshot"])] + (testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
         .library(name: "ExactKit", targets: ["ExactKit"]),
         .library(name: "ExactUpdates", targets: ["ExactUpdates"]),
         .library(name: "ExactGroupedLists", targets: ["ExactGroupedLists"]),
@@ -115,5 +110,5 @@ let package = Package(
         .executable(name: "ExactHostMac", targets: ["ExactHostMac"]),
         .executable(name: "ExactHostIOS", targets: ["ExactHostIOS"]),
     ]),
-    targets: core + widgetRenderer + (testing ? tests : executables)
+    targets: core + (testing ? tests : executables)
 )

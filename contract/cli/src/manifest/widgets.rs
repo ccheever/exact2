@@ -10,6 +10,10 @@ use std::collections::HashSet;
 pub struct Widget {
     /// Stable identifier, also the key of the envelope's `plans` map.
     pub kind: String,
+    /// Gallery display name; defaults to the humanised kind.
+    pub title: Option<String>,
+    /// Gallery description; defaults to the humanised kind.
+    pub description: Option<String>,
     /// WidgetKit family names.
     pub families: Vec<String>,
     /// Component declared or imported by `app.contract`.
@@ -45,6 +49,8 @@ impl Manifest {
                 for key in object.keys() {
                     if ![
                         "kind",
+                        "title",
+                        "description",
                         "families",
                         "component",
                         "props",
@@ -63,6 +69,17 @@ impl Manifest {
                         .filter(|v| entry_identifier(v))
                         .map(str::to_owned)
                         .ok_or_else(|| format!("{at}.{key} must be an identifier"))
+                };
+                let label = |key: &str| -> Result<Option<String>, String> {
+                    object
+                        .get(key)
+                        .map(|value| {
+                            value
+                                .as_str()
+                                .map(str::to_owned)
+                                .ok_or_else(|| format!("{at}.{key} must be a string"))
+                        })
+                        .transpose()
                 };
                 let kind = name("kind")?;
                 if !kinds.insert(kind.to_ascii_lowercase()) {
@@ -109,6 +126,8 @@ impl Manifest {
                     .clone();
                 Ok(Widget {
                     kind,
+                    title: label("title")?,
+                    description: label("description")?,
                     families,
                     component: name("component")?,
                     props: name("props")?,

@@ -334,6 +334,9 @@ Widget entries are top-level `app.json` `widgets` rows. For example:
  "preview":{"station":"Mountain View","departures":[]}}
 ```
 
+Optional `title` and `description` strings supply the widget gallery's labels;
+each defaults to the humanised `kind` when omitted.
+
 `component` and the `props` shape are declared or imported by `app.contract`;
 every component prop must match a field of that shape. `preview` supplies all
 fields, with their declared types. `refresh` names a data-source function taking
@@ -352,7 +355,7 @@ The render's props slot is named `snapshot_props`; find it by name, since a
 `path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
 The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
 map indexes these authenticated assets in the app's compatibility cohort.
-Kinds and families are binary compatibility inputs; views and preview props
+Kinds, families and gallery labels are binary compatibility inputs; views and preview props
 are plan contents. A running host refuses a snapshot plan at decode, and a
 snapshot reader requires its exact kind and refresh signature.
 
