@@ -1,0 +1,48 @@
+// HTML and MCP document frames use the framework iframe; guest bootstrapping is server-owned.
+use Icon from "../shared/icons.contract"
+shape InlineDocumentBox
+  key: string
+  kind: string
+  x: number
+  y: number
+  width: number
+  height: number
+  lines: number
+shape InlineDocument
+  key: string
+  kind: string
+  title: string
+  src: string
+  ready: bool
+  error: string
+  height: number
+  outline: InlineDocumentBox[]
+
+component InlineDocumentFrame
+  props
+    document: InlineDocument
+    local: action
+  action reported(payload: string)
+    local("inline-doc-message", document.key, payload)
+  action loaded
+    local("inline-doc-loaded", document.key, "")
+  view
+    box width="100%" min-width=0 position="relative" height=document.height overflow="hidden" testId=`inline-doc-${document.key}`
+      if document.error != ""
+        column height="100%" width="100%" align-items="center" justify-content="center" gap="0.5rem"
+          text `Unable to load ${document.title}.` color="-exact-secondary-label" font-size="0.875rem"
+          button press=local("inline-doc-retry", document.key, "") testId="inline-doc-retry"
+            text "Retry"
+      else
+        if not document.ready
+          column position="absolute" left=0 right=0 top=0 bottom=0 aria-label=`Loading ${document.title}` testId="inline-doc-loading" pointer-events="none"
+            if document.outline.length > 0
+              for box in document.outline key=box.key
+                box position="absolute" left=box.x top=box.y width=box.width height=box.height border-radius="0.25rem" background-color="light-dark(#e4e4e7, #27272a)"
+            else
+              column width="100%" height="100%" gap="1rem" padding-top="1rem" box-sizing="border-box"
+                box width="40%" height="1.25rem" border-radius="0.25rem" background-color="light-dark(#e4e4e7, #27272a)"
+                box width="100%" height="8rem" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #18181b)"
+                box width="75%" height="0.75rem" border-radius="0.25rem" background-color="light-dark(#e4e4e7, #27272a)"
+        if document.src != ""
+          iframe id=`inline-frame-${document.key}` src=document.src sandbox="allow-scripts allow-forms allow-popups allow-downloads" message=reported load=loaded width="100%" height="100%" border-width=0 opacity=(document.ready ? 1 : 0) aria-label=document.title testId="inline-doc-frame"

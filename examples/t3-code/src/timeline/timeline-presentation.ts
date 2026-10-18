@@ -38,6 +38,7 @@ import { stackLayerTarget } from '../pull-requests/pages-pr-stack';
 import { openLinkFromUi } from '../browser/browser-links';
 import { chatExternalLinkMenu } from './external-link-menu';
 import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeline-work-rows';
+import { inlineDocumentKey, inlineDocumentView, inlineDocumentEvent } from './inline-documents';
 import { keptThread } from '../client/keep-alive';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
@@ -90,6 +91,7 @@ const scoped = (client: T3Client, kind: string, id: string) => `${client.threadI
  * Copy message / Copy code with their anchored feedback.
  */
 export async function chatLocal(client: T3Client, native: Native, op: string, id: string, value: string, storage?: Files): Promise<string> {
+  if (op.startsWith('inline-doc-')) { inlineDocumentEvent(client, id, op.slice(11), value); return ''; }
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim()); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // the right panel's surfaces (window chatLocal)
   if (op === 'link-open') return openLinkFromUi(client, native, id, value); // "Open links in" (browser-links.ts)
@@ -361,6 +363,11 @@ function present(row: Row, context: PresentContext): Message {
     }
     case 'attempt': return { ...base, kind: 'attempt', title: 'Superseded attempt', detail: 'Cut off by a steer', expanded: row.expanded, groupId: row.attemptId, runId: row.runId };
     case 'compaction': return { ...base, kind: 'compaction', title: row.label, live: row.active, icon: 'minimize', activities: [keyedLabel(row, row.label)] };
+    case 'document': {
+      const entry = row.entry, ref = entry.document;
+      const key = inlineDocumentKey(context.client, str(entry.row.sourceThreadId), str(entry.item.id), ref);
+      return { ...base, kind: 'inline-document', runId: str(entry.item.runId), inlineDocuments: [inlineDocumentView(context.client, key, ref)] };
+    }
     case 'plan': {
       const markdown = str(row.entry.item.markdown);
       return { ...base, kind: 'plan', title: proposedPlanTitle(markdown) ?? 'Proposed plan', body: planBody(markdown), runId: str(row.entry.item.runId),
@@ -454,7 +461,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       continues: message.continues === true, revert: message.revert ?? -1, intent: message.intent ?? '', intentTip: message.intentTip ?? '',
       attribution: message.attribution ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
-      collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
+      collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], inlineDocuments: message.inlineDocuments ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
       images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
   });
   timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body })) };
