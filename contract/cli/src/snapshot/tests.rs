@@ -416,11 +416,15 @@ fn refresh_sources_are_typed_and_data_changes_fail_the_bake() {
             .ty
     );
     assert!(plan.resources.is_empty());
-    let declarations = crate::typescript(&source_plan(&temp.0, &app).unwrap()).unwrap();
+    let entries = super::entries(&temp.0).unwrap();
+    let declarations = crate::typescript(&source_plan(&entries, &app).unwrap()).unwrap();
     assert!(declarations.contains("refreshCard"));
     let baked = bake_app(
-        &temp.0,
+        &entries,
         app.clone(),
+        Data {
+            broken_shape: false,
+        },
         Data {
             broken_shape: false,
         },
@@ -437,13 +441,24 @@ fn refresh_sources_are_typed_and_data_changes_fail_the_bake() {
         .unwrap()
         .encode()
     );
-    let err = bake_app(&temp.0, app.clone(), Data { broken_shape: true }).unwrap_err();
+    let err = bake_app(
+        &entries,
+        app.clone(),
+        Data {
+            broken_shape: false,
+        },
+        Data { broken_shape: true },
+    )
+    .unwrap_err();
     assert!(err.to_string().contains("field order"), "{err}");
     manifest["widgets"][0]["refresh"] = json!("renamedRefresh");
     std::fs::write(temp.0.join("app.json"), manifest.to_string()).unwrap();
     let err = bake_app(
-        &temp.0,
+        &super::entries(&temp.0).unwrap(),
         app,
+        Data {
+            broken_shape: false,
+        },
         Data {
             broken_shape: false,
         },
@@ -453,4 +468,147 @@ fn refresh_sources_are_typed_and_data_changes_fail_the_bake() {
         err.to_string().contains("renamedRefresh") && err.to_string().contains("implement"),
         "{err}"
     );
+}
+
+#[test]
+fn snapshot_refusals_accumulate_and_the_props_slot_is_reserved() {
+    let src = source(
+        "    text title class=(title + title) filter=\"blur(2px)\"",
+        "",
+        "  state snapshot_props = performanceNow()\n",
+    );
+    let errors = compile(&src, &widget()).unwrap_err();
+    for id in [
+        "snapshot-class",
+        "snapshot-row",
+        "snapshot-clock",
+        "snapshot-props-name",
+    ] {
+        assert!(errors.iter().any(|e| e.id == id), "{id}: {errors:?}");
+    }
+    for declaration in ["state", "derive", "provide\n   "] {
+        let src = source("    Child()", &format!("component Child\n  {declaration} snapshot_props = 42\n  view\n    text snapshot_props.toString()"), "");
+        let errors = compile(&src, &widget()).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.id == "snapshot-props-name" && e.message.contains("rename")),
+            "{errors:?}"
+        );
+    }
+}
+
+#[test]
+fn live_times_and_links_must_own_their_paragraph() {
+    for format in ["relative", "timer", "countdown"] {
+        let time = format!("time datetime=120000 format=\"{format}\"");
+        let child = format!("component Tick\n  view\n    {time}");
+        for body in [
+            format!("    text \"Leaves \"\n      {time}"),
+            "    text\n      text \"Leaves \"\n      Tick()".into(),
+            "    text \"Leaves \"\n      if true\n        Tick()".into(),
+            "    text\n      for n in [1, 2] key=n\n        Tick()".into(),
+            "    text \"Leaves \"\n      match some(1)\n        case some(n)\n          Tick()\n        case none\n          text \"none\"".into(),
+        ] {
+            let errors = compile(&source(&body, &child, ""), &widget()).unwrap_err();
+            assert!(errors.iter().any(|e| e.id == "snapshot-inline-live-time" && e.message == "make the live time its own text, so the widget can reserve its width"), "{body}: {errors:?}");
+        }
+        for body in [
+            format!("    {time}"),
+            "    text\n      Tick()".into(),
+            "    text\n      if true\n        Tick()\n      else\n        text \"Unavailable\""
+                .into(),
+            "    column\n      for n in [1, 2] key=n\n        Tick()".into(),
+        ] {
+            let result = compile(&source(&body, &child, ""), &widget());
+            assert!(result.is_ok(), "{body}: {result:?}");
+        }
+    }
+    for body in [
+        "    text \"Departure \"\n      time datetime=120000 format=\"date-full\"",
+        "    text \"Departure \"\n      time datetime=120000",
+        "    progress start=0 end=120000",
+        "    link href=\"/departures\"\n      text title",
+        "    text title href=\"/departures\"",
+    ] {
+        let result = compile(&source(body, "", ""), &widget());
+        assert!(result.is_ok(), "{body}: {result:?}");
+    }
+    let child = "component Linked\n  view\n    text \"departures\" href=\"/departures\"";
+    for body in [
+        "    text \"See \"\n      text title href=\"/departures\"",
+        "    text\n      text \"See \"\n      Linked()",
+        "    text \"See \"\n      if true\n        Linked()",
+        "    text\n      for n in [1, 2] key=n\n        Linked()",
+    ] {
+        let errors = compile(&source(body, child, ""), &widget()).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.id == "snapshot-inline-link"
+                    && e.message == "make the link its own element"),
+            "{body}: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn refresh_checks_distinguish_pending_sources_and_result_mismatches() {
+    use exact_plan::Value;
+    use exact_runner::{Answer, DataError, DataSource, Request, Store};
+    struct Data(Result<Answer, DataError>, bool);
+    impl DataSource for Data {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            panic!("use the asynchronous seam")
+        }
+        fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            self.0.clone()
+        }
+        fn discard(&mut self, token: u64) {
+            assert_eq!(token, 7);
+            self.1 = true;
+        }
+    }
+    let plan = compile(&source("    text title", "", ""), &widget()).unwrap();
+    let entries = std::collections::BTreeMap::from([(
+        "next-trains".into(),
+        Entry {
+            widget: widget(),
+            plan,
+        },
+    )]);
+    let mut pending = Data(Ok(Answer::Later(Request::continuation(7))), false);
+    check_refreshes(&entries, &mut pending).unwrap();
+    assert!(pending.1);
+    check_refreshes(
+        &entries,
+        &mut Data(
+            Err(DataError::Unavailable(
+                "seeded away; checked by declarations".into(),
+            )),
+            false,
+        ),
+    )
+    .unwrap();
+    for (value, message) in [
+        (Value::str("oops"), "result expected List, got string"),
+        (
+            Value::list(vec![Value::record(vec![Value::Number(0.)])]),
+            "result[0] is missing field `props`",
+        ),
+        (
+            Value::list(vec![Value::record(vec![
+                Value::Number(0.),
+                Value::record(vec![Value::Number(42.)]),
+            ])]),
+            "result[0].props.title expected String, got number",
+        ),
+    ] {
+        let error =
+            check_refreshes(&entries, &mut Data(Ok(Answer::Now(value)), false)).unwrap_err();
+        assert!(
+            error.contains(message) && !error.contains("field order"),
+            "{error}"
+        );
+    }
 }

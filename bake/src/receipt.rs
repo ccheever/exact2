@@ -40,11 +40,12 @@ pub(crate) fn emit(
     compat: &mut Compat,
     trust: &str,
     app: &Path,
-    platform: &str,
-    target: &str,
+    destination: (&str, &str),
     manifest: &Manifest,
     out: &Path,
+    entries: &std::collections::BTreeMap<String, contract::snapshot::Entry>,
 ) -> Result<(), String> {
+    let (platform, target) = destination;
     for name in [
         "EXACT_UPDATE_RECEIPT",
         "EXACT_UPDATE_GENESIS",
@@ -75,7 +76,7 @@ pub(crate) fn emit(
     source_map(trust, app, out, &plan, &plan_bytes);
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
     let mut assets = asset_cards(app, out, manifest)?;
-    let (widget_assets, plans) = crate::widgets::emit(app, out, manifest)?;
+    let (widget_assets, plans) = crate::widgets::emit(out, entries)?;
     assets.extend(widget_assets);
     let rust_assets = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
         stage_rust_bundle(

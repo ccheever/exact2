@@ -20,4 +20,4 @@ component NextTrains
       for departure in departures key=departure.id
         row gap=8
           text departure.headsign flex=1 line-clamp=1
-          text formatTime(departure.at, 0, "short") font-variant-numeric="tabular-nums"
+          time datetime=departure.at format="countdown" font-variant-numeric="tabular-nums"

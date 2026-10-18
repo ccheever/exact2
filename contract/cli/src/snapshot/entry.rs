@@ -56,6 +56,22 @@ pub fn compile_widgets(
     }
 }
 
+/// Write compiled entries beside the app plan, replacing the prior entry tree.
+pub fn write_entries(entries: &BTreeMap<String, Entry>, out: &Path) -> Result<(), String> {
+    let directory = out.join("plans");
+    if directory.exists() {
+        std::fs::remove_dir_all(&directory).map_err(|e| e.to_string())?;
+    }
+    if !entries.is_empty() {
+        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    }
+    for (kind, entry) in entries {
+        std::fs::write(directory.join(format!("{kind}.plan")), entry.plan.encode())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Compile a source-text fixture's entry under the same profile as the bake.
 pub fn compile(src: &str, widget: &Widget) -> Result<Plan, Vec<CompileError>> {
     let file = contract_syntax::parse(src).map_err(CompileError::from)?;
@@ -133,8 +149,13 @@ fn compile_file(
     file.timelines.clear();
     // Styles and functions may be shared with the app; only declarations the
     // entry reaches are checked, so an unrelated app animation is harmless.
-    let styles = referenced_styles(&file)?;
-    check(&file, &styles)?;
+    let (styles, mut errors) = referenced_styles(&file);
+    if let Err(refused) = check(&file, &styles) {
+        errors.extend(refused);
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
     file.styles.retain(|s| styles.contains(&s.name));
     // No handler is admitted. Its unreferenced body must not retain helpers.
     for c in &mut file.components {
@@ -169,6 +190,9 @@ fn compile_file(
         }
     }
     if contract_syntax::scope::calls(&mut file).contains("path") {
+        if routes.as_ref().is_some_and(|r| r.slot == super::PROPS_SLOT) {
+            return Err(vec![refusal("snapshot-props-name", "rename the `snapshot_props` router; the snapshot reader reserves that binding for entry props", routes.as_ref().unwrap().span)]);
+        }
         // A URL shares the app's checked patterns, never its page data sources.
         file.routes = routes.map(|mut routes| {
             for row in &mut routes.rows {
@@ -224,6 +248,7 @@ fn compile_file(
         span,
     }];
     file.components.insert(0, wrapper);
+    super::paragraphs::check(&file)?;
     let strings = match app {
         Some(app) => crate::strings::load(app, &app.join("app.contract"))?,
         None => None,

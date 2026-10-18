@@ -2,9 +2,11 @@
 use super::{compile_widgets, Entry};
 use crate::{BakeError, DataSource, Manifest};
 use exact_plan::{builder::PlanBuilder, Plan, TypeKind, TypesId, Value};
+use exact_runner::{Answer, DataError, Store};
 use std::{collections::BTreeMap, path::Path};
 
-fn entries(app: &Path) -> Result<BTreeMap<String, Entry>, String> {
+/// Compile the entries once, for declarations, validation and the bundle receipt.
+pub fn entries(app: &Path) -> Result<BTreeMap<String, Entry>, String> {
     compile_widgets(app, &Manifest::read(app)?).map_err(|errors| {
         errors
             .iter()
@@ -14,43 +16,141 @@ fn entries(app: &Path) -> Result<BTreeMap<String, Entry>, String> {
     })
 }
 
-/// Bind each refresh's declared signature and check its bake-time answer.
+/// Check immediate refresh answers; pending and unavailable answers are checked
+/// by their source declarations. No host executes requests during this check.
 /// Epoch zero is the bake's unknown date, as on the app's data seam.
-pub fn check_refreshes(app: &Path, data: &mut impl DataSource) -> Result<(), String> {
-    for (kind, entry) in entries(app)? {
+pub fn check_refreshes(
+    entries: &BTreeMap<String, Entry>,
+    data: &mut impl DataSource,
+) -> Result<(), String> {
+    for (kind, entry) in entries {
         let plan = &entry.plan;
         let signature = plan.source(plan.snapshot_refresh.expect("refresh signature"));
         let name = plan.str(signature.name);
         data.bind(plan);
-        let value = data.query(name, &[Value::Number(0.0)])
-            .map_err(|e| format!("widget {kind}: refresh `{name}` failed: {e:?}; implement the declared refresh source"))?;
-        if !value.conforms(plan, signature.ty) {
-            return Err(format!("widget {kind}: refresh `{name}` must return {{date: number, props: {}}}[] in that field order; repair the data module or entry props shape", entry.widget.props));
+        let mut store = Store::new(data.grants(), []);
+        match data.answer(&mut store, name, &[Value::Number(0.0)]) {
+            Ok(Answer::Now(value)) => {
+                if let Some(mismatch) = mismatch(plan, signature.ty, &value, "result") {
+                    return Err(format!("widget {kind}: refresh `{name}` {mismatch}; repair the data module to match its declared source signature"));
+                }
+            }
+            Err(DataError::UnknownSource(_)) => {
+                return Err(format!(
+                "widget {kind}: unknown refresh `{name}`; implement the declared refresh source"
+            ))
+            }
+            Ok(Answer::Later(request)) => {
+                if let Some(token) = request.continuation {
+                    data.discard(token);
+                }
+            }
+            // An async source or a Rust source seeded away in the dev producer
+            // is checked by the emitted Sources signature, not a fake response.
+            Err(_) => {}
         }
     }
     Ok(())
 }
 
-/// Bake the app after checking its entries against the same data implementation.
-/// Entry signatures never enter the app plan's encoded bytes.
-pub fn bake_app(app: &Path, plan: Plan, mut data: impl DataSource) -> Result<Plan, BakeError> {
-    check_refreshes(app, &mut data).map_err(|message| BakeError::Lint {
+/// Bake the app with a separate data instance from the refresh check. A refresh
+/// can mutate module state without changing the app's compiled resource values.
+pub fn bake_app(
+    entries: &BTreeMap<String, Entry>,
+    plan: Plan,
+    data: impl DataSource,
+    mut refresh_data: impl DataSource,
+) -> Result<Plan, BakeError> {
+    check_refreshes(entries, &mut refresh_data).map_err(|message| BakeError::Lint {
         id: "snapshot-refresh",
         message,
         site: None,
     })?;
+    drop(refresh_data);
     crate::bake(plan, data)
+}
+
+fn mismatch(plan: &Plan, ty: TypesId, value: &Value, at: &str) -> Option<String> {
+    if value.conforms(plan, ty) {
+        return None;
+    }
+    let row = plan.type_(ty);
+    match (row.kind, value) {
+        (TypeKind::List, Value::List(items)) => items
+            .iter()
+            .enumerate()
+            .find_map(|(i, value)| mismatch(plan, row.elem.unwrap(), value, &format!("{at}[{i}]"))),
+        (TypeKind::Option, Value::Option(Some(value))) => {
+            mismatch(plan, row.elem.unwrap(), value, at)
+        }
+        (TypeKind::Record, Value::Record(values)) => {
+            let fields: Vec<_> = row.fields.iter().map(|id| plan.field(id)).collect();
+            if values.len() < fields.len() {
+                return Some(format!(
+                    "{at} is missing field `{}` (expected {} fields, got {})",
+                    plan.str(fields[values.len()].name),
+                    fields.len(),
+                    values.len()
+                ));
+            }
+            if values.len() > fields.len() {
+                return Some(format!(
+                    "{at} has {} fields, expected {}",
+                    values.len(),
+                    fields.len()
+                ));
+            }
+            // Values are positional at the data seam. Diagnose order only if
+            // a permutation of these values satisfies every declared field.
+            let mut remaining: Vec<_> = values.iter().collect();
+            let reordered = fields.iter().all(|f| {
+                if let Some(i) = remaining.iter().position(|v| v.conforms(plan, f.ty)) {
+                    remaining.remove(i);
+                    true
+                } else {
+                    false
+                }
+            });
+            if reordered {
+                return Some(format!(
+                    "{at} has the wrong field order; expected {{{}}}",
+                    fields
+                        .iter()
+                        .map(|f| plan.str(f.name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            fields.iter().zip(values.iter()).find_map(|(f, value)| {
+                mismatch(plan, f.ty, value, &format!("{at}.{}", plan.str(f.name)))
+            })
+        }
+        _ => Some(format!(
+            "{at} expected {:?}, got {}",
+            row.kind,
+            match value {
+                Value::Number(n) if !n.is_finite() => "a non-finite number",
+                Value::Number(_) => "number",
+                Value::Bool(_) => "bool",
+                Value::HeapStr(_) | Value::InlineStr(_) => "string",
+                Value::Unit => "unit",
+                Value::Option(_) => "option",
+                Value::List(_) => "list",
+                Value::Record(_) => "record",
+            }
+        )),
+    }
 }
 
 /// The combined data contract for tooling such as TypeScript declarations.
 /// This copy is not the app's shipped render plan.
-pub fn source_plan(app: &Path, plan: &Plan) -> Result<Plan, String> {
+pub fn source_plan(entries: &BTreeMap<String, Entry>, plan: &Plan) -> Result<Plan, String> {
     let mut builder = PlanBuilder::from_plan(plan.clone());
     let mut signatures = BTreeMap::new();
     for source in &plan.sources {
         signatures.insert(plan.str(source.name).to_string(), signature(plan, source));
     }
-    for entry in entries(app)?.values() {
+    for entry in entries.values() {
         let from = &entry.plan;
         let source = from.source(from.snapshot_refresh.expect("refresh signature"));
         let name = from.str(source.name);

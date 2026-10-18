@@ -2,14 +2,15 @@
 //! column; absence refuses a row before an archive can silently omit it.
 
 mod entry;
+mod paragraphs;
 mod refresh;
-pub use refresh::{bake_app, check_refreshes, source_plan};
+pub use refresh::{bake_app, check_refreshes, entries, source_plan};
 
 /// Find the props slot by this name; a route URL may add a preceding router slot.
 pub const PROPS_SLOT: &str = "snapshot_props";
 #[cfg(test)]
 mod tests;
-pub use entry::{compile, compile_widgets, Entry};
+pub use entry::{compile, compile_widgets, write_entries, Entry};
 
 use crate::CompileError;
 use contract_lower::tags::{attr_valued, AttrTarget};
@@ -202,6 +203,9 @@ fn check(file: &File, styles: &HashSet<String>) -> Result<(), Vec<CompileError>>
             errors.push(refusal("snapshot-effect", "a snapshot render is read-only; move mutations, sequences and persisted writes into the refresh function", c.span));
         }
         for b in c.states.iter().chain(&c.derives).chain(&c.provides) {
+            if b.name == PROPS_SLOT {
+                errors.push(refusal("snapshot-props-name", "rename `snapshot_props`; the snapshot reader reserves that binding for the entry props", b.span));
+            }
             expression(&b.expr, file, 0, &mut errors);
         }
         visit_nodes(&c.view, &mut |n| match n {
@@ -309,7 +313,7 @@ fn local_image(e: &Expr) -> bool {
     }
 }
 
-fn referenced_styles(file: &File) -> Result<HashSet<String>, Vec<CompileError>> {
+fn referenced_styles(file: &File) -> (HashSet<String>, Vec<CompileError>) {
     let mut styles = HashSet::new();
     let mut errors = Vec::new();
     for component in &file.components {
@@ -341,9 +345,5 @@ fn referenced_styles(file: &File) -> Result<HashSet<String>, Vec<CompileError>> 
             }
         });
     }
-    if errors.is_empty() {
-        Ok(styles)
-    } else {
-        Err(errors)
-    }
+    (styles, errors)
 }

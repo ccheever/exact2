@@ -1,35 +1,18 @@
 //! Entry plans beside the app plan, in one compatibility cohort (LLP 1126 D2).
 
-use contract::Manifest;
 use serde_json::{json, Map, Value};
 use std::path::Path;
 
 pub(crate) fn emit(
-    app: &Path,
     out: &Path,
-    manifest: &Manifest,
+    entries: &std::collections::BTreeMap<String, contract::snapshot::Entry>,
 ) -> Result<(Vec<Value>, Value), String> {
-    let entries = contract::snapshot::compile_widgets(app, manifest).map_err(|all| {
-        all.iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
-    let directory = out.join("plans");
-    // A removed entry must not survive an incremental bake.
-    if directory.exists() {
-        std::fs::remove_dir_all(&directory).map_err(|e| e.to_string())?;
-    }
-    if entries.is_empty() {
-        return Ok((vec![], Value::Object(Map::new())));
-    }
-    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    contract::snapshot::write_entries(entries, out)?;
     let mut assets = Vec::new();
     let mut plans = Map::new();
     for (kind, entry) in entries {
         let name = format!("plans/{kind}.plan");
         let bytes = entry.plan.encode();
-        std::fs::write(out.join(&name), &bytes).map_err(|e| e.to_string())?;
         let card =
             json!({"name":name,"sha256":exact_update::sha256_hex(&bytes),"bytes":bytes.len()});
         plans.insert(kind.clone(), card.clone());
@@ -56,6 +39,7 @@ pub(crate) fn copy(out: &Path, destination: &Path, assets: &[Value]) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use contract::Manifest;
     use exact_runner::{DataError, DataSource, Value as DataValue};
 
     struct TempDir(std::path::PathBuf);
@@ -93,7 +77,8 @@ mod tests {
             std::fs::write(dir.0.join("app.json"), json.to_string()).unwrap();
             let manifest = Manifest::read(&dir.0).unwrap();
             let plan = contract::compile_path(&dir.0.join("app.contract")).unwrap();
-            let baked = contract::snapshot::bake_app(&dir.0, plan, Refresh).unwrap();
+            let entries = contract::snapshot::entries(&dir.0).unwrap();
+            let baked = contract::snapshot::bake_app(&entries, plan, Refresh, Refresh).unwrap();
             std::fs::write(out.join("app.plan"), baked.encode()).unwrap();
             let mut compat = crate::Compat {
                 id: "a".repeat(32),
@@ -109,10 +94,10 @@ mod tests {
                 &mut compat,
                 "development",
                 &dir.0,
-                "web",
-                "wasm32-unknown-unknown",
+                ("web", "wasm32-unknown-unknown"),
                 &manifest,
                 &out,
+                &entries,
             )
             .unwrap();
             let bytes = std::fs::read(out.join("app.plan")).unwrap();

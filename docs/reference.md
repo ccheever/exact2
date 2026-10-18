@@ -336,13 +336,16 @@ fields, with their declared types. `refresh` names a data-source function taking
 an epoch-millisecond number and returning a timeline: records with `date` (epoch
 milliseconds) and `props` (the declared shape), in that field order. The plan's
 `snapshot_refresh` header selects its typed source row; the render has no resource
-for it. A data bake checks the refresh against that signature at epoch zero.
-Rust build scripts call `contract::snapshot::check_refreshes(app, &mut data)`
-before baking the app; `snapshot::bake_app` combines both steps. The TypeScript
-and replaceable Rust producers do the same check.
+for it. A data bake checks an immediate refresh answer against that signature at epoch
+zero; pending answers are checked by the source declarations. TypeScript checks
+the generated `Sources` type, including async refreshes. Compile entries once
+with `contract::snapshot::entries(app)`, then pass that map to `source_plan`,
+`check_refreshes` and receipt generation. `snapshot::bake_app` takes separate
+data instances for the app and refresh, so refresh state cannot affect the app
+first frame. The TypeScript and replaceable Rust producers use the same check.
 
 The render's props slot is named `snapshot_props`; find it by name, since a
-`path(...)` link also needs a router slot. Its initial value is the preview.
+`path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
 The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
 map indexes these authenticated assets in the app's compatibility cohort.
 Kinds and families are binary compatibility inputs; views and preview props
@@ -358,7 +361,10 @@ or `class=(condition ? A : B)`. Only literal font families reached through the
 entry are bundled; a dynamic font string selects installed or generic families.
 Images use a bundle-relative path, an `app:/` path written by refresh, or a
 `symbol:` source. Computed paths need a fixed local prefix; refresh downloads
-remote images. Snapshot handlers are refused; use a link to open the app.
+remote images. A live `time` (`relative`, `timer`, `countdown`) must own its
+text paragraph, so the widget can reserve its width; calendar formats may be
+inline. Links must be their own elements, not runs among other paragraph text.
+Snapshot handlers are refused; use a link to open the app.
 
 App icons come from `app.json`'s Web App Manifest `icons` array: Apple uses
 the first square raster of at least 512 px. To select an

@@ -32,7 +32,9 @@
 
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
-// Share the filename rule without linking the plan VM into the update store.
+// Both packages are publish=false and consumed by workspace path; vendoring
+// Exact requires the workspace tree. Share this leaf rule without linking the
+// plan VM into the update store or adding a crate for a filename predicate.
 #[path = "../../plan/src/entry.rs"]
 mod entry;
 use entry::entry_identifier;

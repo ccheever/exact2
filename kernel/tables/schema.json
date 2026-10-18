@@ -1616,24 +1616,28 @@
     {
       "id": 271,
       "name": "datetime",
+      "snapshot": "admit",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
     },
     {
       "id": 272,
       "name": "timeFormat",
+      "snapshot": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
     },
     {
       "id": 273,
       "name": "start",
+      "snapshot": "admit",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
     },
     {
       "id": 274,
       "name": "end",
+      "snapshot": "admit",
       "kind": "float",
       "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
     },
