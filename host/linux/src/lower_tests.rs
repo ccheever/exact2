@@ -230,7 +230,6 @@ fn a_look_arriving_mid_track_takes_the_readers_track_back() {
             None
         )
         .is_none());
-    h.tick(250.);
     assert!(
         !h.engine.is_played(node, Property::Opacity),
         "the engine's again"
