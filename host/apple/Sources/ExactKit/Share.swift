@@ -105,7 +105,7 @@ extension Presenter {
             }
         }
         #if canImport(UIKit)
-        let content = views.values.first(where: { $0.window != nil })?.window?.rootViewController?.view
+        let content = ViewPresentation.presenter(for: root)?.viewIfLoaded
         #else
         let content = views.values.first(where: { $0.window != nil })?.window?.contentView
         #endif
@@ -218,11 +218,7 @@ enum ShareSheet {
         // tvOS has no share sheet.
         return nil
         #elseif canImport(UIKit)
-        var responder: UIResponder? = view
-        while responder != nil && !(responder is UIViewController) { responder = responder?.next }
-        var controller = (responder as? UIViewController) ?? view.window?.rootViewController
-        while let presented = controller?.presentedViewController, !presented.isBeingDismissed { controller = presented }
-        guard let controller else { return nil }
+        guard let controller = ViewPresentation.presenter(for: view) else { return nil }
         let sheet = UIActivityViewController(activityItems: items.map { ShareItem($0, title: title) }, applicationActivities: nil)
         sheet.popoverPresentationController?.sourceView = view
         sheet.popoverPresentationController?.sourceRect = rect

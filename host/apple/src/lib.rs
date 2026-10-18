@@ -37,6 +37,7 @@
 
 pub mod abi;
 pub mod app_module;
+pub mod baked;
 pub mod batch;
 mod button;
 pub mod calc;

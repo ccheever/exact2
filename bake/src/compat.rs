@@ -517,10 +517,12 @@ fn executors(app_dir: &Path, platform: &str) -> Vec<String> {
 
 /// The data crate's source-input digest (LLP 1030 D3a): its tree, the
 /// workspace lockfile, the toolchain — never its compiled output, which a
-/// `wasm32` build can keep while the native build moved.
+/// `wasm32` build can keep while the native build moved. A `data/` without
+/// a `Cargo.toml` is no crate: TypeScript modules there are the bundle's,
+/// and an edit to them is an update, not a new cohort.
 fn data_crate(app_dir: &Path) -> Result<serde_json::Value, String> {
     let dir = app_dir.join("data");
-    if !dir.is_dir() {
+    if !dir.join("Cargo.toml").is_file() {
         return Ok(serde_json::Value::Null);
     }
     let mut files = Vec::new();
@@ -1054,7 +1056,18 @@ mod tests {
         std::fs::remove_file(dir.join("app.ts")).unwrap();
         // A byte in the data crate is identity.
         std::fs::write(dir.join("data/src/lib.rs"), "pub struct App; // moved\n").unwrap();
-        assert_ne!(with_icon, id(&dir, "ios"), "a data crate edit moves it");
+        let moved = id(&dir, "ios");
+        assert_ne!(with_icon, moved, "a data crate edit moves it");
+        // A `data/` of TypeScript modules is no crate: its edits are not identity.
+        std::fs::remove_file(dir.join("data/Cargo.toml")).unwrap();
+        let typescript = id(&dir, "ios");
+        std::fs::write(dir.join("data/src/lib.rs"), "pub struct App; // again\n").unwrap();
+        assert_eq!(
+            typescript,
+            id(&dir, "ios"),
+            "a data/ without Cargo.toml is not a crate"
+        );
+        assert_ne!(typescript, moved);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

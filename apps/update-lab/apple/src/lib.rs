@@ -1,8 +1,7 @@
 //! Update Lab: the shared Contract UI and deferred TypeScript data module on Apple.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
-const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
-const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
+include!(concat!(env!("OUT_DIR"), "/baked.rs"));
 const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
 type ExactEmbeddedData = update_lab_data::Probe;
@@ -26,4 +25,4 @@ fn lab_data() -> HostData {
     )
 }
 include!(concat!(env!("OUT_DIR"), "/linked.rs"));
-exact_apple::host!(HostData, PLAN, COMPAT, None, std::ptr::null(), lab_data; linked = EXACT_LINKED);
+exact_apple::host!(HostData, exact_plan(), exact_compat(), None, std::ptr::null(), lab_data; linked = EXACT_LINKED);

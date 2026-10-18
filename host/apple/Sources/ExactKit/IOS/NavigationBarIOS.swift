@@ -976,15 +976,13 @@ extension NavigationHost {
     /// Register a replacement before its first native layout. Resolve only
     /// the containing route, preserving that stack's Back relationships.
     func scrollBackendChanged(_ node: NodeView) {
-        var responder: UIResponder? = node
-        while let current = responder {
+        for current in ViewPresentation.controllers(for: node) {
             if let route = current as? RouteController, route.host === self,
                let nav = route.navigationController {
                 guard route.collapseScroll === node || route.edgeScroll === node || (node.scrollView != nil && contentScroller(of: route) === node) else { return }
                 prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
                 return
             }
-            responder = current.next
         }
     }
 

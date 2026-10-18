@@ -509,8 +509,9 @@ export function depInfoInputs(bin, info = `${bin}.d`, base = process.cwd()) {
 // A build script's output (`…/build/<pkg>/out/…`) is rewritten whenever another
 // build reruns that script with other variables (the web build does, for its
 // render pass) without its sources changing; those sources are in the dep-info
-// themselves, so they, not the output, decide.
-const GENERATED = /\/build\/[^/]+\/out\//;
+// themselves, so they, not the output, decide. A bake made before Cargo for a
+// linked plan (`….baked/`, scripts/linked-plan.mjs) names its own in its record.
+const GENERATED = /\/build\/[^/]+\/out\/|\.baked\//;
 // A build script watches directories an app may not have (`../assets`, `../data`,
 // `../gpu/shaders`: apps/svg-gallery has no assets); Cargo's dep-info names the
 // watch whether or not the directory exists, and a directory that never existed
@@ -518,6 +519,11 @@ const GENERATED = /\/build\/[^/]+\/out\//;
 const DIRECTORY_WATCH = /\/[^./]+$/;
 /** Dep-info's inputs modified after `since`, or gone, generated outputs and never-present watched directories aside. */
 export function depInfoNewer(since, bin, info, base) {
+  return watchedNewer(since, depInfoInputs(bin, info, base).filter(p => !GENERATED.test(p)));
+}
+
+/** Of `paths`, files and the directories a build script watches whole, those modified after `since`, or gone. */
+export function watchedNewer(since, paths) {
   const skips = new Map();
   // What no build reads: a build's output, installed packages (their declarations are inputs of their own) and a
   // hidden tree; within an app, also what its other freshness checks pass over (`notBuildInput`, and the names
@@ -533,7 +539,7 @@ export function depInfoNewer(since, bin, info, base) {
     }
     return skips.get(app);
   };
-  return [...new Set(depInfoInputs(bin, info, base).filter(p => !GENERATED.test(p)).flatMap(p => {
+  return [...new Set(paths.flatMap(p => {
     let stat;
     try { stat = statSync(p); } catch { return DIRECTORY_WATCH.test(p) ? [] : [shown(p)]; }
     if (!stat.isDirectory()) return stat.mtimeMs > since ? [shown(p)] : [];
@@ -771,8 +777,12 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   const products = new Map((build?.products ?? []).map(p => [resolve(p.path), p.sha256]));
   const inputs = info ? depInfoInputs(null, info, app.workspace) : [];
   const replaced = inputs.filter(path => products.has(path) && fileDigest(path) !== products.get(path)).map(shown);
-  const tools = info ? depInfoNewer(since, null, info, app.workspace).filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
-  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...replaced])];
+  // A linked plan's bake ran before Cargo: the dep-info names what it wrote, its record what it read.
+  // A record gone or unreadable says nothing of what it read: the build is stale.
+  let baked = [], unread = [];
+  if (build?.linkedPlan) { const at = resolve(build.linkedPlan, 'inputs.json'); try { baked = JSON.parse(readFileSync(at, 'utf8')).paths; if (!Array.isArray(baked)) throw new Error(); } catch { baked = []; unread = [shown(at)]; } }
+  const tools = info ? [...depInfoNewer(since, null, info, app.workspace), ...watchedNewer(since, baked)].filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
+  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...unread, ...replaced])];
 }
 
 /** A web `dist/`: app and shared runtime sources newer than its build marker.

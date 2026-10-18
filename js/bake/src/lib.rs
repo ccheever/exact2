@@ -43,8 +43,119 @@ impl std::error::Error for BakeError {}
 /// An app's Cargo build-script entrypoint. Write the paired artifacts and
 /// actual target/grants receipt to OUT_DIR; source files stay untouched.
 /// This development slice requires an updater-free composition (store L=0).
+///
+/// With `EXACT_BAKED` naming a directory `exact-js-bake --cargo` filled (an
+/// Apple build, `host/apple/build.mjs`), the bake has run outside Cargo: the
+/// script takes the files Rust compiles from it and watches only those, so
+/// an edit that changes the plan alone leaves the archive as it was, and the
+/// link carries the plan (`exact_apple::baked`).
 pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
+    println!("cargo:rerun-if-env-changed=EXACT_BAKED");
+    match std::env::var_os("EXACT_BAKED") {
+        Some(baked) => std::env::var_os("OUT_DIR")
+            .ok_or_else(|| "build requires OUT_DIR".to_string())
+            .and_then(|out| take_baked(Path::new(&baked), Path::new(&out))),
+        None => build_sources(app, platform, None, None),
+    }
+    .map_err(BakeError)
+}
+
+/// What `build` writes to OUT_DIR, written by a process outside Cargo
+/// (`exact-js-bake --cargo`, with OUT_DIR and TARGET set). Each file is
+/// rewritten only when its bytes change, so the ones Rust compiles keep their
+/// times across a bake that changed only the plan. The `cargo:rerun-if`
+/// lines go to stdout: the inputs whose change calls for another bake.
+pub fn bake_outside(app: &Path, platform: &str) -> Result<(), BakeError> {
     build_sources(app, platform, None, None).map_err(BakeError)
+}
+
+/// The files of a bake the archive compiles: all but the plan and its
+/// receipts, which the link carries.
+const COMPILED: [&str; 5] = ["module.rs", "logic.rs", "linked.rs", "host.rs", "app.hbc"];
+
+/// The entry's plan and compatibility document, embedded from OUT_DIR.
+const EMBEDDED: &str = r#"#[allow(dead_code)]
+fn exact_plan() -> &'static [u8] {
+    include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"))
+}
+#[allow(dead_code)]
+fn exact_compat() -> &'static str {
+    include_str!(concat!(env!("OUT_DIR"), "/compat.json"))
+}
+"#;
+
+/// The entry's plan and compatibility document, from the sections the link added.
+const LINKED: &str = r#"#[allow(dead_code)]
+fn exact_plan() -> &'static [u8] {
+    ::exact_apple::baked::plan()
+}
+#[allow(dead_code)]
+fn exact_compat() -> &'static str {
+    ::exact_apple::baked::compat()
+}
+"#;
+
+/// The pair over an entry that declares `const PLAN` and `const COMPAT`
+/// itself, as `exact new` wrote it before the plan was linked: such an app
+/// builds as it did, its plan in the archive, until `bun exact.mjs update`
+/// drops the two (`names_its_plan`).
+const NAMED: &str = r#"#[allow(dead_code)]
+fn exact_plan() -> &'static [u8] {
+    PLAN
+}
+#[allow(dead_code)]
+fn exact_compat() -> &'static str {
+    COMPAT
+}
+"#;
+
+/// Whether the crate's `src/lib.rs` declares the plan and compatibility
+/// constants itself (see `NAMED`); watched, so `update` dropping them is
+/// noticed. Outside a build script, or in a crate with no `src/lib.rs`, no.
+fn names_its_plan() -> bool {
+    let Some(dir) = std::env::var_os("CARGO_MANIFEST_DIR") else {
+        return false;
+    };
+    let entry = Path::new(&dir).join("src/lib.rs");
+    let Ok(source) = std::fs::read_to_string(&entry) else {
+        return false;
+    };
+    println!("cargo:rerun-if-changed={}", entry.display());
+    let declares = |name: &str| {
+        source
+            .lines()
+            .any(|line| line.starts_with(&format!("const {name}:")))
+    };
+    declares("PLAN") && declares("COMPAT")
+}
+
+/// `build` over a bake made outside Cargo into `baked`, for OUT_DIR `out`.
+fn take_baked(baked: &Path, out: &Path) -> Result<(), String> {
+    if names_its_plan() {
+        return Err("src/lib.rs declares `const PLAN` and `const COMPAT`, which read a plan this build links instead: run `bun exact.mjs update`, which drops them".into());
+    }
+    for name in COMPILED {
+        let from = baked.join(name);
+        println!("cargo:rerun-if-changed={}", from.display());
+        let bytes = std::fs::read(&from).map_err(|e| format!("{}: {e}", from.display()))?;
+        replace_changed(&out.join(name), &bytes)?;
+    }
+    replace_changed(&out.join("baked.rs"), LINKED.as_bytes())?;
+    // What an earlier bake in Cargo left here would be stale.
+    for name in [
+        "app.plan",
+        "app.plan.map.json",
+        "compat.json",
+        "artifacts.json",
+        "app.module.json",
+        "app.js",
+    ] {
+        match std::fs::remove_file(out.join(name)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.to_string()),
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 /// Bake a mixed app using each source's own identity and grants. Metadata reads
@@ -332,7 +443,7 @@ fn build_sources(
         ("app.hbc", &baked.bytecode[..]),
         ("app.module.json", baked.receipt.as_bytes()),
     ] {
-        std::fs::write(out.join(name), bytes).map_err(|e| e.to_string())?;
+        replace_changed(&out.join(name), bytes)?;
     }
     let manifest = contract::Manifest::read(app)?;
     let target = std::env::var("TARGET").map_err(|e| e.to_string())?;
@@ -359,7 +470,7 @@ fn build_sources(
     };
     // What an Apple archive links, as its compatibility inputs name it (LLP 1047.001 D2).
     let linked = (platform != "web").then(|| exact_bake::apple_link(&compat, host));
-    std::fs::write(out.join("compat.json"), compat.to_json()).map_err(|e| e.to_string())?;
+    replace_changed(&out.join("compat.json"), compat.to_json().as_bytes())?;
     let rust_updates = compat.inputs["rustMode"] != "off"
         && compat.inputs["rustModule"]
             .as_str()
@@ -390,7 +501,7 @@ fn build_sources(
             "pub const {name}: {placement_type} = {placement_type}::{variant};\n"
         ));
     }
-    std::fs::write(out.join("module.rs"), metadata).map_err(|e| e.to_string())?;
+    replace_changed(&out.join("module.rs"), metadata.as_bytes())?;
     {
         let mode = compat.inputs["rustMode"]
             .as_str()
@@ -416,12 +527,16 @@ fn build_sources(
             let plan = exact_plan::Plan::decode(&baked.plan).map_err(|e| format!("{e:?}"))?;
             entry.push_str(&contract::web_linked(&plan, &compat.inputs));
         }
-        std::fs::write(out.join("logic.rs"), entry).map_err(|e| e.to_string())?;
+        replace_changed(&out.join("logic.rs"), entry.as_bytes())?;
         // An Apple entry names what it links (LLP 1047.001 D3) beside it, for
         // `host!(…; linked = EXACT_LINKED)`; an entry that does not include it
         // links every capability, as before.
         if let Some(linked) = linked {
-            std::fs::write(out.join("linked.rs"), linked).map_err(|e| e.to_string())?;
+            replace_changed(&out.join("linked.rs"), linked.as_bytes())?;
+            // `exact_plan()` and `exact_compat()`, for an entry that names
+            // its host itself too; `take_baked` writes the linked pair.
+            let pair = if names_its_plan() { NAMED } else { EMBEDDED };
+            replace_changed(&out.join("baked.rs"), pair.as_bytes())?;
             // `include!(concat!(env!("OUT_DIR"), "/host.rs"))` instantiates
             // the host this compatibility id names.
             let new = if updating {
@@ -429,13 +544,13 @@ fn build_sources(
             } else {
                 "None, std::ptr::null(), "
             };
-            std::fs::write(
-                out.join("host.rs"),
+            replace_changed(
+                &out.join("host.rs"),
                 format!(
-                    "{host}::host!(AppData, PLAN, COMPAT, {new}app_data; linked = EXACT_LINKED);\n"
-                ),
-            )
-            .map_err(|e| e.to_string())?;
+                    "include!(concat!(env!(\"OUT_DIR\"), \"/baked.rs\"));\n{host}::host!(AppData, exact_plan(), exact_compat(), {new}app_data; linked = EXACT_LINKED);\n"
+                )
+                .as_bytes(),
+            )?;
         }
     }
     // Each captured source by name, not the app directory: Cargo scans a named
@@ -1224,6 +1339,19 @@ fn write_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
         std::fs::write(path, bytes).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// `write_changed` for a bake's output, which another process may be reading
+/// (an Apple build's early link reads a linked plan): the new bytes replace
+/// the file whole, by rename.
+fn replace_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if std::fs::read(path).ok().as_deref() == Some(bytes) {
+        return Ok(());
+    }
+    let staged = PathBuf::from(format!("{}.{}.tmp", path.display(), std::process::id()));
+    std::fs::write(&staged, bytes)
+        .and_then(|()| std::fs::rename(&staged, path))
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// The one-shot producer's configuration and check: `tsc` and the repository

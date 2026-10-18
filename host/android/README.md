@@ -1136,6 +1136,8 @@ app. On a machine with the SDK, Java 21 (`JAVA_HOME`) and Cargo:
 
     bun host/android/reference/oracle.mjs            # draw both sides, compare, report
     bun host/android/reference/oracle.mjs --compare  # compare what is already drawn
+    bun host/android/reference/tokens.mjs            # hold the schema's Material column to the pinned source
+    bun host/android/reference/tokens.mjs --diff 1.3.2   # what a version changed, for a bump
 
 The report is `reference/build/oracle/report.html`. `specimens.json` lists the specimens, their probes and the planted
 defects; each specimen's Exact half is `apps/material-specimens/specimens/<id>.contract`.
