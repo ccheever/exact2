@@ -211,7 +211,7 @@ test "an item is added, a repeat refused, checked off and kept"
   expect text "left" == "0 items left"
 ```
 
-Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
+Every step, launch line and `verify` flag is on the card.
 
 Interactive web drives also accept `reload` (keeps storage and fetch faults) and
 `pick <input-id> <path>`. `agent web --help all` lists driver capabilities.
@@ -244,7 +244,7 @@ snapshot. The backend’s clock stays its own.
 
 ## Look it up
 
-Start from the nearest pattern, a tested app with what the recipes teach. Look up what it lacks:
+Look up what the nearest pattern (a tested app) lacks:
 `contract vocab` prints each name's answer in turn, a keyword, tag, function or part as well as a
 recipe (`docs/recipes/<name>.md`, whole), so one call fetches what a screen needs:
 
@@ -256,7 +256,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 
 |Pattern|Already has|
 |---|---|
-|`one-screen`|a tracker: a total, buttons, a centred column over a grouped log in a file|
+|`one-screen`|a tracker: a total, quick-add buttons, a dated log in a file|
 |`dashboard`|a summary, bars, dated rows, an add sheet that validates, two columns|
 |`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
 |`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
@@ -265,11 +265,12 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |Not in a pattern|Look up|
 |---|---|
 |an entry or settings form|`grouped-form`|
+|rows added and removed in a form|`editable-rows`|
 |a write that may be refused|`after-a-write`|
 |tabular digits: numeric columns or values changing in place|`numeric-readout`|
-|a count 1–99|`stepper`|
+|a number field, a stepper's `step`|`number-field`, `stepper`|
 |a chat that opens at its newest message|`chat-thread`|
-|a welcome shown at first launch only|`first-launch`|
+|a welcome at first launch|`first-launch`|
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 |video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
