@@ -159,6 +159,9 @@ export function checks(sha, since, selection = {}) {
     // and signed, installed on nothing (Charlie, 2026-10-12): it needs the tvOS
     // SDK and Rust's tvOS simulator target, and no simulator. Tier 2 installs.
     ...(apple ? [tvosCompile] : []),
+    // The extension for an app with Live Activities and no widgets (LLP 1126.001 WP13): built and signed for a
+    // simulator, installed on nothing. Caltrain's, with widgets, is the touch smoke's build above.
+    ...(apple ? [['ios-activities', 'bun', ['host/apple/build.mjs', '--ios', 'activity-fixture', '--no-install']]] : []),
     ...semanticsChecks(),
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
