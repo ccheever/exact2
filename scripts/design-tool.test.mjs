@@ -1007,7 +1007,8 @@ async function kindsOnTheJsLoop() {
         const snapshot = design.status === 200 ? await design.json() : null;
         const builds = (await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': (await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json()).token }, body: '{"method":"hello"}' })).json()).ok.builds;
         const frame = builds.find(b => b.host === 'web-js');
-        const synced = !!frame && !!snapshot && frame.design === snapshot.design;
+        // Before any edit the loop has no snapshot to give (204): the frame runs the build's own design.
+        const synced = !!frame && (snapshot ? frame.design === snapshot.design : design.status === 204 && !!frame.design);
         if (synced || Date.now() > end) {
           seen.push({ synced, connects: connects(), snapshot, frame, file: readFileSync(join(app, 'app.tamber'), 'utf8') });
           return;
