@@ -16,7 +16,7 @@ impl<D: DataSource> Presenter<D> {
     /// button's title is the button's), or the nearest node that presses
     /// when it is in a list's row. A row's own press look replaces the
     /// wash, as it does on the web: `-exact-press-scale`, the pressed paint
-    /// (LLP 1061 D7), or `pointerdown`
+    /// (LLP 1061 D7, which `:active` lowers to), or `pointerdown`
     /// or `pointerup` handlers, which draw one. A disabled row shows none.
     fn feedback_at(&self, id: ViewId) -> Option<ViewId> {
         let kernel = self.host.kernel();
@@ -47,12 +47,15 @@ impl<D: DataSource> Presenter<D> {
 
     /// Read both again, after anything that moved the pointer or a contact.
     pub(super) fn refresh_feedback(&mut self) {
-        // A finger hovers nothing; a held contact is not also a hover.
-        let hover = match self.hover_point {
-            Some((x, y)) if self.contact.is_none() && !self.direct() => self.hit(x, y),
+        // A finger hovers nothing; a held contact is not also a hover (but
+        // for a `:hover` look, as CSS's is).
+        let hit = match self.hover_point {
+            Some((x, y)) if !self.direct() => self.hit(x, y),
             _ => None,
-        }
-        .and_then(|id| self.feedback_at(id));
+        };
+        let hover = hit
+            .filter(|_| self.contact.is_none())
+            .and_then(|id| self.feedback_at(id));
         let pressed = self
             .contact_hit()
             .and_then(|key| self.host.kernel().node_by_key(key).map(|node| node.id))
@@ -61,5 +64,59 @@ impl<D: DataSource> Presenter<D> {
             self.brush.feedback = (hover, pressed);
             self.dirty = true;
         }
+        self.refresh_looks(Some(hit));
+    }
+
+    /// The nodes whose `:hover` look holds (LLP 1121 D8): the pointer's hit
+    /// and its ancestors that have one, as CSS's `:hover` matches; none for
+    /// a finger. The focus's `:focus-visible` look holds where its ring
+    /// would show. A node whose looks moved paints again. `hit`: what the
+    /// pointer hovers now, after it moved (`None`: a paint keeps the hover it
+    /// has, its nodes that live).
+    pub(super) fn refresh_looks(&mut self, hit: Option<Option<ViewId>>) {
+        let mut at = hit.flatten();
+        let kernel = self.host.kernel();
+        let mut hovered = Vec::new();
+        if hit.is_none() {
+            hovered = (self.host.looks_shown.0.iter().copied())
+                .filter(|id| kernel.node(*id).is_some())
+                .collect();
+        }
+        while let Some(id) = at {
+            let Some(node) = kernel.node(id) else { break };
+            if node
+                .looks()
+                .iter()
+                .any(|(s, _)| *s == exact_kernel::LOOK_HOVER)
+            {
+                hovered.push(id);
+            }
+            at = node.parent;
+        }
+        let focus = self.focus.filter(|f| self.brush.ringless != Some(*f));
+        let focus = focus.filter(|f| kernel.node(*f).is_some_and(|n| !n.looks().is_empty()));
+        let (old, old_focus) = std::mem::replace(&mut self.host.looks_shown, (hovered, focus));
+        let (new, new_focus) = &self.host.looks_shown;
+        let moved: Vec<ViewId> = (old.iter().filter(|id| !new.contains(id)))
+            .chain(new.iter().filter(|id| !old.contains(id)))
+            .chain(
+                [old_focus, *new_focus]
+                    .iter()
+                    .flatten()
+                    .filter(|_| old_focus != *new_focus),
+            )
+            .copied()
+            .collect();
+        for id in moved {
+            if let Some(node) = self.host.kernel().node(id) {
+                let key = node.key;
+                self.host.row_dirty.node(key);
+                self.dirty = true;
+            }
+        }
     }
 }
+
+#[cfg(test)]
+#[path = "looks_tests.rs"]
+mod looks_tests;

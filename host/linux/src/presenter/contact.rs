@@ -524,7 +524,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let press = pressed.and_then(|id| {
             let node = self.host.kernel().node(id)?;
-            if node.style.press_scale == 1. && !crate::host::press::paints(node.style) {
+            if !crate::host::press::shows(&node) {
                 return None;
             }
             let (key, origin) = (node.key, node.style.transform_origin);

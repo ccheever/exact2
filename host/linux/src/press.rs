@@ -2,7 +2,9 @@
 //! shows as its scale (multiplied into `scale` about transform-origin) and
 //! its pressed paint (LLP 1061 D7: an opacity share, a background and a text
 //! colour, `Host::presented` and the painter). The user's motion preference
-//! never removes a button's feedback (LLP 1061).
+//! never removes a button's feedback (LLP 1061). A node's `:active` (LLP 1121
+//! D8) lowers to these rows, its opacity to an absolute target the press eases
+//! to from what shows (`press_opacity_to`).
 use super::*;
 use exact_motion::Easing;
 
@@ -29,15 +31,60 @@ impl Feedback {
 
 /// Whether a node writes any of the pressed paint (LLP 1061 D7).
 pub(crate) fn paints(style: &exact_kernel::StyleProps) -> bool {
-    use exact_kernel::StyleId::{PressBackgroundColor, PressColor, PressOpacity};
-    [PressOpacity, PressBackgroundColor, PressColor]
-        .into_iter()
-        .any(|row| style.mask.has(row))
+    use exact_kernel::StyleId::{PressBackgroundColor, PressColor, PressOpacity, PressOpacityTo};
+    [
+        PressOpacity,
+        PressOpacityTo,
+        PressBackgroundColor,
+        PressColor,
+    ]
+    .into_iter()
+    .any(|row| style.mask.has(row))
+}
+
+/// Whether a press on `node` shows anything of its own: a scale or the
+/// pressed paint.
+pub(crate) fn shows(node: &exact_kernel::NodeRef<'_>) -> bool {
+    node.style.press_scale != 1. || paints(node.style)
+}
+
+/// `shown` at a press's `progress`, and in the looks that hold (`looks`:
+/// `:hover`, `:focus-visible`), whose opacity replaces the node's: the
+/// press's opacity is `:active`'s absolute target, eased from what shows, or
+/// the pressed paint's share of it.
+pub(crate) fn present(
+    node: &exact_kernel::NodeRef<'_>,
+    progress: f32,
+    looks: [bool; 2],
+    shown: &mut Presented,
+) {
+    use exact_kernel::{StyleId, LOOK_FOCUS_VISIBLE, LOOK_HOVER};
+    let disabled = node.props.bool(exact_kernel::PropId::Disabled) == Some(true);
+    shown.looks = looks.map(|on| on && !disabled);
+    for (state, on) in [
+        (LOOK_HOVER, shown.looks[0]),
+        (LOOK_FOCUS_VISIBLE, shown.looks[1]),
+    ] {
+        let look = node
+            .looks()
+            .iter()
+            .find(|(s, l)| *s == state && l.mask.has(StyleId::Opacity));
+        if let Some((_, l)) = look.filter(|_| on) {
+            shown.opacity = l.opacity;
+        }
+    }
+    shown.press = scale(node.style.press_scale, progress);
+    shown.press_paint = progress;
+    let s = node.style;
+    if s.mask.has(StyleId::PressOpacityTo) {
+        shown.opacity += (s.press_opacity_to.clamp(0., 1.) - shown.opacity) * progress;
+    } else if s.mask.has(StyleId::PressOpacity) {
+        shown.opacity *= 1. + (s.press_opacity.clamp(0., 1.) - 1.) * progress;
+    }
 }
 
 /// The scale a press at `progress` shows: none for a scale no press can use.
-pub(crate) fn scale(style: &exact_kernel::StyleProps, progress: f32) -> f32 {
-    let to = style.press_scale;
+pub(crate) fn scale(to: f32, progress: f32) -> f32 {
     match to.is_finite() && to > 0. {
         true => 1. + (to - 1.) * progress,
         false => 1.,

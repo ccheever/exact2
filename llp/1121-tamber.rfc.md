@@ -3548,6 +3548,7 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - A `background-clip: text` background shows the states' colour.
   - A look painted or taken off, and a focus with a look, take the full painter rather than flow damage.
   - Not done (nit): an inset border's shading of a look's side colour.
+
 - **Android** replays the display list Linux records, so it needs no Kotlin change. Android forwards no mouse hover, so it shows none.
 - **Tests:** `presenter/looks_tests.rs`:
   - the hover at once with its 0.8;

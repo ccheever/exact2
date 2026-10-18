@@ -1067,11 +1067,11 @@ impl Painter {
         let paints_self = paints(walk.scene.kernel, node.id, walk.reveal);
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
-        // LLP 1062 D5): background, border sides and shadow; then a press's
-        // background (LLP 1061 D7).
+        // LLP 1062 D5): background, border sides and shadow; then its states,
+        // its looks and a press's background (LLP 1061 D7, LLP 1121 D8).
         let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark)
             .presented(&shown.colors)
-            .pressed(node.style, shown.press_paint, self.dark);
+            .states(node, &shown, self.dark);
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));

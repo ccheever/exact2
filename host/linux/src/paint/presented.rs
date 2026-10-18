@@ -42,6 +42,8 @@ pub struct Presented {
     /// What the reader plays instead of the engine (`crate::host::lower`'s
     /// bits): painted at the underlying values, in a layer it moves.
     pub lowered: u8,
+    /// Whether its `:hover` and `:focus-visible` looks hold (LLP 1121 D8).
+    pub looks: [bool; 2],
 }
 
 impl Presented {
@@ -59,6 +61,7 @@ impl Presented {
         colors: PaintValues::NONE,
         layout: [0.0, 0.0, 1.0, 1.0],
         lowered: 0,
+        looks: [false; 2],
     };
 
     /// The committed style's values (what the engine starts from).
@@ -76,6 +79,7 @@ impl Presented {
             colors: PaintValues::NONE,
             layout: Presented::IDENTITY.layout,
             lowered: 0,
+            looks: [false; 2],
         }
     }
 
@@ -214,6 +218,65 @@ impl BoxPaint {
         if progress > 0.0 && style.mask.has(exact_kernel::StyleId::PressBackgroundColor) {
             let pressed = super::rgba(style.press_background_color.resolve(dark));
             self.background = press_mix(self.background, pressed, progress);
+        }
+        self
+    }
+}
+
+impl BoxPaint {
+    /// The box in its states (LLP 1121 D8): its `:hover` then its
+    /// `:focus-visible` look while they hold (`shown.looks`), at once, then
+    /// the press's paint at its progress (LLP 1061 D7, which `:active`
+    /// lowers to).
+    pub(super) fn states(
+        self,
+        node: &exact_kernel::NodeRef<'_>,
+        shown: &Presented,
+        dark: bool,
+    ) -> BoxPaint {
+        let look = |state| {
+            node.looks()
+                .iter()
+                .find(|(s, _)| *s == state)
+                .map(|(_, l)| l)
+        };
+        let mut paint = self;
+        for (state, on) in [
+            (exact_kernel::LOOK_HOVER, shown.looks[0]),
+            (exact_kernel::LOOK_FOCUS_VISIBLE, shown.looks[1]),
+        ] {
+            if let Some(l) = look(state).filter(|_| on) {
+                paint = paint.looked(l, dark);
+            }
+        }
+        paint.pressed(node.style, shown.press_paint, dark)
+    }
+
+    /// The box with a look's rows in place of its own: its background, its
+    /// border sides' colours and its shadow.
+    fn looked(mut self, look: &StyleProps, dark: bool) -> BoxPaint {
+        use exact_kernel::StyleId::*;
+        let rgba = |c: &exact_kernel::ColorValue| super::rgba(c.resolve(dark));
+        if let Some(c) = look
+            .background_color
+            .as_ref()
+            .filter(|_| look.mask.has(BackgroundColor))
+        {
+            self.background = rgba(c);
+        }
+        let sides = [
+            (BorderColorTop, &look.border_color_top),
+            (BorderColorRight, &look.border_color_right),
+            (BorderColorBottom, &look.border_color_bottom),
+            (BorderColorLeft, &look.border_color_left),
+        ];
+        for (color, (id, side)) in self.colors.iter_mut().zip(sides) {
+            if let Some(c) = side.as_ref().filter(|_| look.mask.has(id)) {
+                *color = rgba(c);
+            }
+        }
+        if look.mask.has(BoxShadow) {
+            self.shadows = ShadowPaint::capture(look, dark);
         }
         self
     }
