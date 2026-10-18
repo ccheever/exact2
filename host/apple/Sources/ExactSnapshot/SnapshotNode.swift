@@ -1,5 +1,6 @@
-// One node: its box at the kernel's frame, its children at theirs, and the
-// platform's presentation where the author was silent (D5).
+// One node: its box at the kernel's frame, its children at theirs (in
+// document order: the vocabulary's paint order), and the platform's
+// presentation where the author was silent (D5).
 #if canImport(WidgetKit)
 import SwiftUI
 import WidgetKit
@@ -23,26 +24,23 @@ struct SnapshotNodeView: View {
         }
     }
 
-    /// The content in its box, painted and clipped, then its semantics. A
-    /// `visibility: hidden` node paints and says nothing of its own; its
-    /// descendants decide for themselves (CSS Display 3 §2.?: visibility
-    /// inherits, and a `visible` descendant shows).
+    /// The content in its box: children clipped at the padding edge when
+    /// the box clips (CSS Overflow 3 §3), the background and border on the
+    /// border box, `clip-path` over all of it, then its semantics.
     @ViewBuilder
     private var decorated: some View {
-        let visible = style.visible
-        let clips = (style.string("overflow_x") ?? "visible") != "visible" || (style.string("overflow_y") ?? "visible") != "visible"
         let nested = !isRoot && [.systemMedium, .systemLarge, .systemExtraLarge].contains(environment.family)
         let link = nested && !environment.placeholder ? SnapshotLinks.url(node.props["href"], base: environment.linkBase) : nil
         content
             .frame(width: node.frame.width, height: node.frame.height, alignment: .topLeading)
+            .modifier(Clip(outline: style.clips ? paint.paddingOutline(in: bounds) : nil))
             // The root's background is the container's (D5), never drawn twice.
-            .background { if !isRoot && visible { paint.fill(in: bounds) } }
-            .overlay { if visible { paint.border(in: bounds) } }
-            .modifier(Clip(outline: clips ? paint.outline(in: bounds) : nil, path: style.clipPath("clip_path")))
+            .background { if !isRoot { paint.fill(in: bounds) } }
+            .overlay { paint.border(in: bounds) }
+            .modifier(PathClip(path: style.clipPath("clip_path")))
             .opacity(style.number("opacity").map { Double(max(0, min(1, $0))) } ?? 1)
-            .modifier(Scheme(scheme: style.string("color_scheme")))
             .modifier(Privacy(public: publicContent && !environment.placeholder))
-            .modifier(Semantics(node: node, visible: visible))
+            .modifier(Semantics(node: node))
             .modifier(Linked(url: link))
     }
 
@@ -59,13 +57,7 @@ struct SnapshotNodeView: View {
             if node.props["type"] == "progress" {
                 SnapshotProgressView(node: node)
             } else {
-                // Document order, then `z-index`: a stable sort keeps the
-                // order among equals (CSS 2 §E, the painting order).
-                let children = node.children.compactMap { tree.nodes[$0] }.enumerated()
-                    .sorted { a, b in
-                        let (za, zb) = (SnapshotStyle(a.element).number("z_index") ?? 0, SnapshotStyle(b.element).number("z_index") ?? 0)
-                        return za != zb ? za < zb : a.offset < b.offset
-                    }.map(\.element)
+                let children = node.children.compactMap { tree.nodes[$0] }
                 FrameLayout(frames: children.map(\.frame), size: node.frame.size) {
                     ForEach(children, id: \.id) { SnapshotNodeView(node: $0, tree: tree, environment: environment) }
                 }
@@ -82,41 +74,19 @@ enum SnapshotData {
     }
 }
 
-/// Overflow clips to the rounded border box; `clip-path` clips to its
-/// path; both apply to the node and everything in it.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 private struct Clip: ViewModifier {
     let outline: RoundedOutline?
-    let path: ClipPathRow?
     func body(content: Content) -> some View {
-        content
-            .modifier(Outline(outline: outline))
-            .modifier(PathClip(path: path))
-    }
-    private struct Outline: ViewModifier {
-        let outline: RoundedOutline?
-        func body(content: Content) -> some View {
-            if let outline { content.clipShape(outline) } else { content }
-        }
-    }
-    private struct PathClip: ViewModifier {
-        let path: ClipPathRow?
-        func body(content: Content) -> some View {
-            if let path { content.clipShape(path, style: path.fillStyle) } else { content }
-        }
+        if let outline { content.clipShape(outline) } else { content }
     }
 }
 
-/// CSS `color-scheme` on a subtree (LLP 1034 §8): its `light-dark()` pairs
-/// and platform colours resolve in that scheme.
-private struct Scheme: ViewModifier {
-    let scheme: String?
+@available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
+private struct PathClip: ViewModifier {
+    let path: ClipPathRow?
     func body(content: Content) -> some View {
-        switch scheme {
-        case "dark": content.environment(\.colorScheme, .dark)
-        case "light": content.environment(\.colorScheme, .light)
-        default: content
-        }
+        if let path { content.clipShape(path, style: path.fillStyle) } else { content }
     }
 }
 
@@ -127,8 +97,9 @@ private struct Privacy: ViewModifier {
     }
 }
 
-/// A nested link's content opens its URL (D7); the root's link is the
-/// widget's URL (`SnapshotView`).
+/// A nested link's content opens its URL (D7) in the families that take a
+/// `Link`; the root's, or the one link of a small or accessory family, is
+/// the widget's URL (`SnapshotView`).
 private struct Linked: ViewModifier {
     let url: URL?
     func body(content: Content) -> some View {
@@ -138,14 +109,13 @@ private struct Linked: ViewModifier {
 
 /// Accessibility carries over from the node (D5): its label, hint and
 /// value, a heading with its level, a paragraph as one element, a
-/// decorative image hidden, a hidden node unspoken.
+/// decorative image hidden, `aria-hidden` hiding the subtree.
 private struct Semantics: ViewModifier {
     let node: HeadlessSession.Node
-    let visible: Bool
 
     func body(content: Content) -> some View {
         let label = node.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }
-        let hidden = !visible || node.props["accessibilityElementsHidden"] == "true" || (node.kind == "image" && label == nil)
+        let hidden = node.props["accessibilityElementsHidden"] == "true" || (node.kind == "image" && label == nil)
         let combined = node.kind == "text" || node.kind == "time" || label != nil
         content
             .modifier(Combined(on: combined && !hidden))
@@ -204,9 +174,8 @@ enum SnapshotLinks {
     /// A route's path as a URL reference against the app's origin or
     /// scheme, its query, fragment and escapes kept (RFC 3986 §5); an
     /// absolute `href` as it is. Empty is no link (the grammar's rule). An
-    /// inline link (a run's `href` inside a paragraph) is not a link region
-    /// in this stage; WP2's profile refuses it with "make the link its own
-    /// element".
+    /// inline link (a run's `href` inside a paragraph) is refused by the
+    /// profile: "make the link its own element".
     static func url(_ href: String?, base: URL?) -> URL? {
         guard let href, !href.isEmpty else { return nil }
         return URL(string: href, relativeTo: base)?.absoluteURL

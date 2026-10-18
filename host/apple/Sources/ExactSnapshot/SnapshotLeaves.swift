@@ -6,16 +6,12 @@
 #if canImport(WidgetKit)
 import SwiftUI
 import WidgetKit
+import ImageIO
 import ExactCore
-#if canImport(UIKit)
-import UIKit
-#else
-import AppKit
-#endif
 
 /// A text node: each kernel line is a `Text` that SwiftUI draws and never
 /// re-breaks (`.lineLimit(1).fixedSize()`), placed at the line's origin;
-/// a `time` is the platform's live text in the box the kernel reserved.
+/// a live `time` is the platform's text in the box the kernel reserved.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotTextView: View {
     let node: HeadlessSession.Node
@@ -23,9 +19,8 @@ struct SnapshotTextView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let visible = SnapshotStyle(node).visible
-        if let live = SnapshotLive.presentation(node) {
-            SnapshotLiveText(node: node, presentation: live).widgetAccentable().opacity(visible ? 1 : 0)
+        if let live = SnapshotLive.presentation(node, entryDate: environment.entryDate) {
+            SnapshotLiveText(node: node, presentation: live).widgetAccentable()
         } else {
             let box = node.contentBox
             let frames = node.lines.map { line in
@@ -33,7 +28,7 @@ struct SnapshotTextView: View {
             }
             FrameLayout(frames: frames, size: node.frame.size) {
                 ForEach(Array(node.lines.enumerated()), id: \.offset) { _, line in
-                    text(line, visible: visible)
+                    text(line)
                         .lineLimit(1)
                         .fixedSize()
                         .widgetAccentable()
@@ -43,10 +38,10 @@ struct SnapshotTextView: View {
     }
 
     /// The line's runs, each in the font the kernel measured it in and its
-    /// own colour or the paragraph's, concatenated into one `Text`. A hidden
-    /// run (or node) keeps its advance and shows no ink. The text is WP1's
-    /// `Line.text`: a clamped line's cut and "…" come from there.
-    private func text(_ line: HeadlessSession.Line, visible: Bool) -> Text {
+    /// own colour or the paragraph's, concatenated into one `Text`. The
+    /// text is WP1's `Line.text`: a clamped line's cut and "…" come from
+    /// there. A run's background and `href` are refused by the profile.
+    private func text(_ line: HeadlessSession.Line) -> Text {
         let dark = scheme == .dark
         let ink = SnapshotColor.style(SnapshotStyle(node).color("text_color"), dark: dark, context: .ink) ?? AnyShapeStyle(.primary)
         let segments = line.segments.isEmpty ? [HeadlessSession.Segment(run: 0, text: line.text)] : line.segments
@@ -55,7 +50,7 @@ struct SnapshotTextView: View {
             let run = node.runs[segment.run]
             var part = Text(verbatim: segment.text)
                 .font(Font(run.font))
-                .foregroundStyle(run.hidden || !visible ? AnyShapeStyle(.clear) : SnapshotColor.style(ColorRow(run.color), dark: dark, context: .ink) ?? ink)
+                .foregroundStyle(SnapshotColor.style(ColorRow(run.color), dark: dark, context: .ink) ?? ink)
             if run.letterSpacing != 0 { part = part.tracking(run.letterSpacing) }
             if run.decoration.contains("underline") { part = part.underline() }
             if run.decoration.contains("line-through") { part = part.strikethrough() }
@@ -81,29 +76,37 @@ package enum SnapshotAccent {
 }
 
 /// D6: `time` and `progress` as the platform's live views, which update
-/// with no code running. The props are WP3's shape (LLP 1126.000 §2): a
-/// `time` has `datetime` (an instant: epoch milliseconds, or ISO 8601) and
-/// `format`, one of `relative`, `timer`, `countdown`, `offset`, `date`,
-/// `time`; a `progress` over an interval has `start` and `end` instants.
+/// with no code running. A `time` has `datetime` (an instant: epoch
+/// milliseconds, or ISO 8601 with or without fractional seconds) and
+/// `format`: `relative` is `Text(date, style: .relative)`, `timer` is
+/// `Text(date, style: .timer)` (counting on both sides of the instant),
+/// `countdown` is `Text(timerInterval: entryDate...instant, countsDown:
+/// true)` from the timeline entry's date, stopping at zero as the running
+/// hosts do; the calendar formats do not tick and draw as the kernel's
+/// text. A `progress` over an interval has `start` and `end` instants.
 package enum SnapshotLive {
     package enum Presentation: Equatable {
-        case relative(Date), timer(Date), offset(Date), date(Date), time(Date)
+        case relative(Date), timer(Date), countdown(ClosedRange<Date>)
     }
+
+    private static let fractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
+    }()
+    private static let whole = ISO8601DateFormatter()
 
     package static func instant(_ text: String?) -> Date? {
         guard let text, !text.isEmpty else { return nil }
         if let ms = Double(text) { return Date(timeIntervalSince1970: ms / 1000) }
-        return ISO8601DateFormatter().date(from: text)
+        return fractional.date(from: text) ?? whole.date(from: text)
     }
 
-    package static func presentation(_ node: HeadlessSession.Node) -> Presentation? {
+    package static func presentation(_ node: HeadlessSession.Node, entryDate: Date) -> Presentation? {
         guard node.kind == "time" || node.props["semanticTag"] == "time", let date = instant(node.props["datetime"]) else { return nil }
         switch node.props["format"] ?? "" {
         case "relative": return .relative(date)
-        case "timer", "countdown": return .timer(date)
-        case "offset": return .offset(date)
-        case "time": return .time(date)
-        default: return .date(date)
+        case "timer": return .timer(date)
+        case "countdown": return .countdown(min(entryDate, date)...date)
+        default: return nil
         }
     }
 
@@ -114,6 +117,8 @@ package enum SnapshotLive {
     }
 }
 
+/// The live text in the node's content box, in the font the kernel
+/// measured the node's text in and its colour.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotLiveText: View {
     let node: HeadlessSession.Node
@@ -124,7 +129,6 @@ struct SnapshotLiveText: View {
         let run = node.runs.first
         let style = SnapshotStyle(node)
         let ink = SnapshotColor.style(ColorRow(run?.color) ?? style.color("text_color"), dark: scheme == .dark, context: .ink) ?? AnyShapeStyle(.primary)
-        let font = run.map { Font($0.font) } ?? .body
         let align: Alignment = {
             switch style.string("text_align") {
             case "center": return .center
@@ -133,7 +137,7 @@ struct SnapshotLiveText: View {
             }
         }()
         text
-            .font(font)
+            .font(run.map { Font($0.font) } ?? .body)
             .foregroundStyle(ink)
             .monospacedDigit()
             .lineLimit(1)
@@ -145,9 +149,7 @@ struct SnapshotLiveText: View {
         switch presentation {
         case .relative(let date): return Text(date, style: .relative)
         case .timer(let date): return Text(date, style: .timer)
-        case .offset(let date): return Text(date, style: .offset)
-        case .date(let date): return Text(date, style: .date)
-        case .time(let date): return Text(date, style: .time)
+        case .countdown(let interval): return Text(timerInterval: interval, countsDown: true)
         }
     }
 }
@@ -170,7 +172,6 @@ struct SnapshotProgressView: View {
         }
         .frame(width: node.contentBox.width, height: node.contentBox.height)
         .offset(x: node.contentBox.minX, y: node.contentBox.minY)
-        .opacity(SnapshotStyle(node).visible ? 1 : 0)
     }
 
     private var total: Double { max(Double(node.props["max"] ?? "") ?? 1, Double.leastNonzeroMagnitude) }
@@ -178,15 +179,17 @@ struct SnapshotProgressView: View {
 
 /// An image: a system symbol at its text's size and colour (the tint when
 /// unsaid, as the kernel's `symbol` role says), in the accented group; or a
-/// raster from the entry's assets, fitted as `object-fit` says and clipped
-/// to its rounded content edge, in the default group and desaturated under
-/// the accented mode unless `data-rendering="full-color"`. Never fetched
-/// in the render.
+/// raster from the entry's image roots, decoded as a bounded thumbnail at
+/// the frame's pixel size, fitted as `object-fit` says and clipped to its
+/// rounded content edge, in the default group and desaturated under the
+/// accented mode unless `data-rendering="full-color"`. Never fetched in
+/// the render; the profile requires both dimensions authored.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct SnapshotImageView: View {
     let node: HeadlessSession.Node
     let environment: SnapshotEnvironment
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         let box = node.contentBox
@@ -194,8 +197,8 @@ struct SnapshotImageView: View {
         Group {
             if (node.props["imageSource"] ?? "").hasPrefix("symbol:") {
                 symbol.widgetAccentable()
-            } else if let (image, natural) = raster {
-                SnapshotRaster(image: image, natural: natural, fit: style.string("object_fit") ?? "fill", box: box.size,
+            } else if let raster = SnapshotRasters.decode(node.props["imageSource"], roots: environment.imageRoots, pixels: CGSize(width: box.width * displayScale, height: box.height * displayScale)) {
+                SnapshotRaster(image: Image(decorative: raster.image, scale: 1), natural: raster.natural, fit: style.string("object_fit") ?? "fill", box: box.size,
                                fullColor: SnapshotAccent.group(node) == .fullColor)
                     .clipShape(RoundedOutline(radii: SnapshotPaint(style: style, dark: scheme == .dark)
                         .contentRadii(outer: CGRect(origin: .zero, size: node.frame.size), inner: box)))
@@ -203,7 +206,6 @@ struct SnapshotImageView: View {
         }
         .frame(width: box.width, height: box.height)
         .offset(x: box.minX, y: box.minY)
-        .opacity(style.visible ? 1 : 0)
     }
 
     @ViewBuilder
@@ -219,20 +221,51 @@ struct SnapshotImageView: View {
                 .foregroundStyle(ink)
         }
     }
+}
 
-    /// The raster and its natural size, from a file inside the entry's
-    /// image roots (the bundle, the app group's generation): a name may
-    /// carry `..`, so the resolved path must stay under a root.
-    private var raster: (Image, CGSize)? {
-        guard let source = node.props["imageSource"], !source.isEmpty, let url = SnapshotImageView.confined(source, roots: environment.imageRoots) else { return nil }
-        #if canImport(UIKit)
-        return UIImage(contentsOfFile: url.path).map { (Image(uiImage: $0), $0.size) }
-        #else
-        return NSImage(contentsOf: url).map { (Image(nsImage: $0), $0.size) }
-        #endif
+/// Raster decoding, bounded (D8: an extension's memory ceiling): ImageIO's
+/// thumbnail at the frame's pixel size, never the full image, decoded
+/// once per invocation and kept with the natural dimensions.
+package enum SnapshotRasters {
+    package struct Decoded {
+        package let image: CGImage
+        package let natural: CGSize
+    }
+    private static let cache = NSCache<NSString, Box>()
+    private final class Box { let value: Decoded; init(_ value: Decoded) { self.value = value } }
+
+    package static func decode(_ source: String?, roots: [URL], pixels: CGSize) -> Decoded? {
+        guard let source, !source.isEmpty, let url = confined(source, roots: roots) else { return nil }
+        return decode(url, pixels: pixels)
     }
 
-    static func confined(_ source: String, roots: [URL]) -> URL? {
+    package static func decode(_ url: URL, pixels: CGSize) -> Decoded? {
+        let longest = Int(max(1, max(pixels.width, pixels.height).rounded(.up)))
+        let key = "\(url.path)|\(longest)" as NSString
+        if let hit = cache.object(forKey: key) { return hit.value }
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue else { return nil }
+        // EXIF orientation 5–8 swap the sides; the thumbnail is made upright.
+        let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        let natural = orientation >= 5 ? CGSize(width: height, height: width) : CGSize(width: width, height: height)
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: longest,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else { return nil }
+        let decoded = Decoded(image: image, natural: natural)
+        cache.setObject(Box(decoded), forKey: key)
+        return decoded
+    }
+
+    /// The file inside one of the entry's image roots (the bundle, the app
+    /// group's generation): a name may carry `..`, so the resolved path
+    /// must stay under a root.
+    package static func confined(_ source: String, roots: [URL]) -> URL? {
         for root in roots {
             let base = root.standardizedFileURL.resolvingSymlinksInPath()
             let candidate: URL = source.hasPrefix("/") ? URL(fileURLWithPath: source)
@@ -270,10 +303,10 @@ struct SnapshotRaster: View {
         switch fit {
         case "contain": resizable.aspectRatio(natural, contentMode: .fit).frame(width: box.width, height: box.height)
         case "cover": resizable.aspectRatio(natural, contentMode: .fill).frame(width: box.width, height: box.height).clipped()
-        case "none": treated(image).frame(width: box.width, height: box.height).clipped()
+        case "none": resizable.frame(width: natural.width, height: natural.height).frame(width: box.width, height: box.height).clipped()
         case "scale-down":
             if natural.width <= box.width && natural.height <= box.height {
-                treated(image).frame(width: box.width, height: box.height)
+                resizable.frame(width: natural.width, height: natural.height).frame(width: box.width, height: box.height)
             } else {
                 resizable.aspectRatio(natural, contentMode: .fit).frame(width: box.width, height: box.height)
             }

@@ -34,11 +34,13 @@ public struct SnapshotEnvironment {
     public var contentMargins: EdgeInsets?
     /// The kernel's root font size; the environment's text size when nil.
     public var rootFontSize: CGFloat?
+    /// The timeline entry's date: where a `countdown` starts from.
+    public var entryDate: Date
 
     public init(family: Family, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL],
-                contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil) {
+                contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil, entryDate: Date = .now) {
         self.family = family; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots
-        self.contentMargins = contentMargins; self.rootFontSize = rootFontSize
+        self.contentMargins = contentMargins; self.rootFontSize = rootFontSize; self.entryDate = entryDate
     }
 }
 
@@ -91,12 +93,13 @@ public enum SnapshotDriver {
         SnapshotView(source: .snapshot(snapshot), environment: environment)
     }
 
-    /// The URL a snapshot opens: the first link's, in document order.
+    /// The URL a snapshot opens: the first link's, in document order; a
+    /// `display: none` subtree has none.
     public static func url(_ snapshot: HeadlessSession.Snapshot, environment: SnapshotEnvironment) -> URL? {
         guard !environment.placeholder else { return nil }
         var stack = Array(snapshot.roots.reversed())
         while let id = stack.popLast() {
-            guard let node = snapshot.nodes[id] else { continue }
+            guard let node = snapshot.nodes[id], node.style["display"] as? String != "none" else { continue }
             if let url = SnapshotLinks.url(node.props["href"], base: environment.linkBase) { return url }
             stack.append(contentsOf: node.children.reversed())
         }
@@ -156,7 +159,8 @@ public struct SnapshotView: View {
 
 /// D5: the root's background is the widget's, which the system draws and
 /// removes where widgets have none (StandBy, the Lock Screen, the accented
-/// mode). Unsaid, it is the system's background.
+/// mode), painted on the container's real bounds. Unsaid, it is the
+/// system's background.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct ContainerBackground: View {
     let root: HeadlessSession.Node?
@@ -165,7 +169,10 @@ struct ContainerBackground: View {
     var body: some View {
         let paint = root.map { SnapshotPaint(style: SnapshotStyle($0), dark: scheme == .dark) }
         if let paint, paint.hasBackground {
-            paint.fill(in: CGRect(origin: .zero, size: root?.frame.size ?? .zero))
+            GeometryReader { proxy in
+                let bounds = CGRect(origin: .zero, size: proxy.size)
+                paint.fill(in: bounds, positioned: bounds)
+            }
         } else {
             Rectangle().fill(.background)
         }
