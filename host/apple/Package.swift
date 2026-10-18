@@ -86,6 +86,7 @@ let executables: [Target] = [
 // as a decision rather than a drawn frame, so it needs no window, no run
 // loop, and no clock (LLP 1033 D4a).
 let tests: [Target] = [
+    .target(name: "ExactWidgetTimeline", dependencies: ["ExactCore"], path: "widget", exclude: ["Timeline.swift"], sources: ["WidgetTimelineWaiters.swift"]),
     // The sound arm's C mixer (LLP 1096 D8), rendered offline by the tests,
     // and its AVAudioEngine calls (ARC, cleaning up on a caught exception, as
     // the arm's build); the arm itself is a dylib build.mjs makes, never a product.
@@ -93,7 +94,7 @@ let tests: [Target] = [
     // The video arm's media session coordinator (LLP 1098 D7), driven by the
     // tests over stand-in players; the arm itself is build.mjs's dylib.
     .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),
-    .testTarget(name: "ExactKitTests", dependencies: ["ExactCore", "ExactSnapshot", "ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactMediaPicker", "ExactAuthSession", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests",
+    .testTarget(name: "ExactKitTests", dependencies: ["ExactWidgetTimeline", "ExactCore", "ExactSnapshot", "ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactMediaPicker", "ExactAuthSession", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests",
                 resources: [.copy("ColorFixtures"), .copy("SnapshotFixtures")], swiftSettings: devTools + gallerySettings),
 ]
 

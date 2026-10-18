@@ -190,8 +190,13 @@ enum WidgetGallery {
     static func entries(in assets: AssetResolver) -> [WidgetEntry] {
         guard let data = assets.bytes("plans/widgets.json"),
               let values = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+        #if os(watchOS)
+        let familyKey = "watchFamilies"
+        #else
+        let familyKey = "families"
+        #endif
         return values.compactMap { value in
-            guard let kind = value["kind"] as? String, let families = value["families"] as? [String],
+            guard let kind = value["kind"] as? String, let families = value[familyKey] as? [String],
                   let preview = value["preview"] as? [String: Any] else { return nil }
             return WidgetEntry(kind: kind, families: families, preview: preview, assets: assets)
         }

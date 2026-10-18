@@ -68,7 +68,7 @@ pub fn write_entries(entries: &BTreeMap<String, Entry>, out: &Path) -> Result<()
             .values()
             .map(|e| {
                 serde_json::json!({
-                    "kind":e.widget.kind, "families":e.widget.families, "preview":e.widget.preview
+                    "kind":e.widget.kind, "families":e.widget.families, "watchFamilies":e.widget.watch_families, "preview":e.widget.preview
                 })
             })
             .collect();
@@ -340,7 +340,13 @@ fn compile_file(
         });
     }
     file.components.insert(0, wrapper);
-    super::paragraphs::check(&file, &widget.families)?;
+    let admission_families: Vec<_> = widget
+        .families
+        .iter()
+        .chain(&widget.watch_families)
+        .cloned()
+        .collect();
+    super::paragraphs::check(&file, &admission_families)?;
     let strings = match app {
         Some(app) => crate::strings::load(app, &app.join("app.contract"))?,
         None => None,
@@ -369,7 +375,7 @@ fn compile_file(
     // The snapshot reader exercises the same validating decoder as its host.
     let plan = Plan::decode_snapshot(&plan.encode(), &widget.kind)
         .map_err(|e| vec![fail(format!("invalid snapshot plan: {e:?}"))])?;
-    super::inline::check(&plan, &widget.families, span)?;
+    super::inline::check(&plan, &admission_families, span)?;
     Ok(plan)
 }
 

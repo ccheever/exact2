@@ -44,8 +44,16 @@ pub(super) fn check(plan: &Plan, families: &[String], span: Span) -> Result<(), 
             match node.node_type {
                 NodeType::Text => text += 1,
                 NodeType::Image => images += 1,
-                _ if node.props.str(PropId::Type) == Some("progress") => other += 1,
-                _ => stack.extend(node.children()),
+                NodeType::View | NodeType::Pressable
+                    if node.props.str(PropId::Type) != Some("progress")
+                        && matches!(
+                            node.props.str(PropId::SemanticTag).unwrap_or(""),
+                            "" | "main" | "section" | "header" | "footer" | "article" | "aside"
+                        ) =>
+                {
+                    stack.extend(node.children())
+                }
+                _ => other += 1,
             }
         }
         if text != 1 || images > 1 || other != 0 {

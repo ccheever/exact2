@@ -121,6 +121,6 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
     '-module-cache-path', resolve(directory, 'cache'), '-I', resolve(root, 'host/apple/Sources/CExact'), '-I', resolve(shared.framework, 'Modules'), '-F', resolve(shared.framework, '..'), '-framework', 'ExactCore',
     '-Xlinker', '-rpath', '-Xlinker', '@executable_path/../../Frameworks',
     ...(!device ? ['-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__entitlements', '-Xlinker', entitlementPath] : []),
-    shared.snapshotArchive, resolve(root, 'host/apple/widget/Timeline.swift'), source, '-o', resolve(extension, 'ExactWidgets')]);
+    shared.snapshotArchive, resolve(root, 'host/apple/widget/Timeline.swift'), resolve(root, 'host/apple/widget/WidgetTimelineWaiters.swift'), source, '-o', resolve(extension, 'ExactWidgets')]);
   sign(extension, entitlementPath);
 }

@@ -1,17 +1,16 @@
 // @ref LLP 1126.001 WP17 — watch complications use the snapshot driver and their own store.
 import { resolve, relative } from 'node:path';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, rmSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, rmSync } from 'node:fs';
 import { buildBake, bakeOutput, developmentBuildEnv, HOST_DEV, executableName } from '../../scripts/app.mjs';
 import { plistFile } from './assets.mjs';
 import { platformWidgetEntries, prepareWidgetCore, sharedWidgetCore, packageWidgets } from './widgets.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname), pkg = resolve(root, 'host/apple');
 
-export function watchEntries(app, rustSources = []) {
+export function watchEntries(app) {
   return platformWidgetEntries(app, 'watchos').filter(entry => {
-    // The mixed bake's receipt names Rust-owned refreshes without running JS.
-    if (!existsSync(resolve(app.dir, 'app.ts')) || rustSources.includes(entry.refresh)) return true;
-    console.log(`host/apple: watchOS omits TypeScript entry ${entry.kind} until LLP 1126.001 §5 Q3 passes`);
+    if (!existsSync(resolve(app.dir, 'app.ts'))) return true;
+    console.log(`host/apple: watchOS omits entry ${entry.kind}, including any Rust refresh in this TypeScript app, until LLP 1126.001 §5 Q3 passes`);
     return false;
   });
 }
@@ -19,7 +18,7 @@ export function watchSimulator(args) {
   const at = args.indexOf('--watch-sim');
   if (at < 0) return undefined;
   const id = args[at + 1];
-  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id ?? '')) throw new Error('--watch-sim requires a simulator id');
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id ?? '')) throw new Error('--watch-sim requires a UDID (names are not accepted)');
   return id;
 }
 export async function buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent }) {
@@ -30,10 +29,9 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
   try {
     const parentArgs = args.filter((a, i) => !['--watchos', '--run', '--no-install', '--watch-sim'].includes(a) && args[i - 1] !== '--watch-sim');
     await buildParent([...parentArgs, '--ios', '--no-install']);
+    if (process.exitCode) throw new Error(`iOS companion build refused (exit ${process.exitCode}); watch build stopped`);
     const parent = appleArtifacts(app, { destination: 'ios-simulator' });
-    const sourceReceipt = resolve(parent.bundle, 'typescript/app.module.json');
-    const rustSources = existsSync(sourceReceipt) ? JSON.parse(readFileSync(sourceReceipt, 'utf8')).rustSources ?? [] : [];
-    const entries = watchEntries(app, rustSources);
+    const entries = watchEntries(app);
     const watch = { ...app, id: `${app.id}.watchkitapp` };
     const bundle = resolve(parent.bundle, 'Watch', `${executableName(app)}.app`);
     rmSync(resolve(parent.bundle, 'Watch'), { recursive: true, force: true });

@@ -374,7 +374,7 @@ test('watch entries keep accessory families and omit TypeScript pending the Herm
     assert.deepEqual(watchEntries(app).map(e => [e.kind, e.families]), [['train', ['accessoryCircular', 'accessoryRectangular', 'accessoryInline', 'accessoryCorner']]]);
     writeFileSync(resolve(dir, 'app.ts'), '');
     assert.deepEqual(watchEntries(app), []);
-    assert.deepEqual(watchEntries(app, ['nextTrains']).map(e => e.kind), ['train'], 'a Rust refresh ships in a mixed app');
+    assert.deepEqual(watchEntries(app), [], 'mixed apps remain omitted until the watch Hermes gate');
     const caltrain = { dir, manifest: { widgets: [{kind:'train', families:['systemSmall', 'accessoryRectangular'], watchFamilies:['accessoryInline','accessoryCircular','accessoryCorner']}] } };
     assert.deepEqual(platformWidgetEntries(caltrain).map(e => e.families), [['systemSmall','accessoryRectangular']]);
     assert.deepEqual(platformWidgetEntries(caltrain, 'watchos').map(e => e.families), [['accessoryInline','accessoryCircular','accessoryCorner']]);
@@ -390,7 +390,7 @@ test('corner-only entries give iOS no widget group or publishing kinds', () => {
 
 test('--watch-sim requires an id before the parent build can consume flags', async () => {
   const { watchSimulator } = await import('../host/apple/watch.mjs');
-  for (const args of [['--watch-sim'], ['--watch-sim','--release'], ['--watch-sim','s1126-wp17']]) assert.throws(() => watchSimulator(args), /requires a simulator id/);
+  for (const args of [['--watch-sim'], ['--watch-sim','--release'], ['--watch-sim','s1126-wp17']]) assert.throws(() => watchSimulator(args), /requires a UDID/);
   const id = '114F2B20-7CA4-46F3-A1AA-22784759F58D';
   assert.equal(watchSimulator(['--watch-sim',id,'--release']), id);
 });
@@ -408,7 +408,21 @@ test('watch owns the build before the parent starts and reports a skipped TypeSc
       appleArtifacts: () => ({bundle:resolve(dir,'Parent.app')}),
     });
     assert.deepEqual(events, ['lock','parent','release']);
-    assert.ok(logs.some(line => line.includes('omits TypeScript entry question')));
+    assert.ok(logs.some(line => line.includes('omits entry question')));
     assert.ok(logs.some(line => line.includes('--run skipped')));
   } finally { console.log = log; rmSync(dir, {recursive:true,force:true}); }
+});
+
+
+test('a refused parent prevents use of a stale companion bundle', async () => {
+  const { buildWatch } = await import('../host/apple/watch.mjs');
+  const before = process.exitCode, events = [];
+  try {
+    await assert.rejects(buildWatch({id:'fixture'}, ['--watchos'], {
+      appleBuildLock: () => { events.push('lock'); return () => events.push('release'); },
+      buildParent: async () => { events.push('parent'); process.exitCode = 1; },
+      appleArtifacts: () => { throw new Error('stale artifact accessed'); },
+    }), /iOS companion build refused/);
+    assert.deepEqual(events, ['lock','parent','release']);
+  } finally { process.exitCode = before; }
 });

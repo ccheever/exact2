@@ -446,7 +446,7 @@ fn compatibility_with_trust(
     if !widgets.is_empty() {
         inputs["widgets"] = json!(widgets
             .iter()
-            .map(|w| json!({"kind":w.kind,"families":w.families,"title":w.title,"description":w.description}))
+            .map(|w| json!({"kind":w.kind,"families":w.families,"watchFamilies":w.watch_families,"title":w.title,"description":w.description}))
             .collect::<Vec<_>>());
     }
     // Which GPU artifact owns which surface (LLP 1009 D6): the manifest's
@@ -763,6 +763,13 @@ mod tests {
             labelled.json["widgets"][0][key] = serde_json::json!("Next trains");
             assert_ne!(original.id, build(&labelled).id, "{key} is generated Swift");
         }
+        let mut watch = manifest.clone();
+        watch.json["widgets"][0]["watchFamilies"] = serde_json::json!(["accessoryCorner"]);
+        assert_ne!(
+            original.id,
+            build(&watch).id,
+            "watch families are generated Swift"
+        );
         manifest.json["widgets"][0]["preview"] = serde_json::json!({"title":"new preview"});
         assert_eq!(
             original.id,

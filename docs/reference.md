@@ -391,13 +391,16 @@ placeholder gallery. Add a complication through the watch face's editor.
 The watch extension keeps the accessory families (`accessoryCircular`,
 `accessoryRectangular`, `accessoryInline`, `accessoryCorner`); iOS drops
 `accessoryCorner`. An optional `watchFamilies` on an entry overrides its watchOS
-families; `families` still names its iOS families. TypeScript entries are named and omitted from the watch
-bundle until the watch Hermes gate passes (LLP 1126.001 §5 Q3). Rust entries
+families; `families` still names its iOS families. An app with `app.ts` has all
+watch entries omitted with a message, including its Rust refreshes, until the
+watch Hermes gate passes (LLP 1126.001 §5 Q3). Rust-only apps' entries
 refresh against the watch's own App Group and store. No account transfer is
 performed. The watch app is a placeholder gallery until the live driver lands.
 For `accessoryInline`, emit exactly one `text` or `time` leaf plus at most one
-optional image. The bake evaluates the preview at the nominal inline content
-size (225 × 26 pt); at runtime the driver checks the actual size and props.
+optional image. Only that leaf and image survive the inline archive; a
+container's background and layout do not. The bake evaluates the preview at
+225 × 26, 168 × 11.5 and 13.5 × 13.5 pt; at runtime the driver checks the actual
+size and props.
 A violation refuses the bake with an edit, or logs the entry name and renders
 “Open <app>” at runtime, including in the gallery (LLP 1126 D4). See
 Apple's [inline family](https://developer.apple.com/documentation/widgetkit/widgetfamily/accessoryinline).

@@ -276,10 +276,6 @@
             "uniqueItems": true,
             "items": {
               "enum": [
-                "systemSmall",
-                "systemMedium",
-                "systemLarge",
-                "systemExtraLarge",
                 "accessoryCircular",
                 "accessoryRectangular",
                 "accessoryInline",

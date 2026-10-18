@@ -113,9 +113,11 @@ public enum SnapshotDriver {
             switch node.kind {
             case "text", "time": text += 1
             case "image": images += 1
-            default:
-                if node.props["type"] == "progress" { other += 1 }
-                else { stack.append(contentsOf: node.children) }
+            case "view", "pressable":
+                if node.props["type"] != "progress" && ["", "main", "section", "header", "footer", "article", "aside"].contains(node.props["semanticTag"] ?? "") {
+                    stack.append(contentsOf: node.children)
+                } else { other += 1 }
+            default: other += 1
             }
         }
         return text == 1 && images <= 1 && other == 0

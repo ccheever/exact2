@@ -182,3 +182,17 @@ test('document handlers and TypeScript source mounts accept their manifest shape
     assert.throws(() => read({ typescript: { sources: { backend: { path: '../generated' } } } }), /typescript.sources.backend:.*string/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+
+test('watchFamilies admits only the four accessory families', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-watch-families-'));
+  try {
+    const write = watchFamilies => writeFileSync(resolve(dir,'app.json'), JSON.stringify({name:'Watch', app:{id:'com.exact.watch', name:'Watch'}, widgets:[{kind:'train',families:['systemSmall'],watchFamilies,component:'Card',props:'Props',refresh:'refresh',preview:{}}]}));
+    const families = ['accessoryCircular','accessoryRectangular','accessoryInline','accessoryCorner'];
+    write(families); assert.deepEqual(readManifest(dir,'watch').widgets[0].watchFamilies, families);
+    for (const family of ['systemSmall','systemMedium','systemLarge','systemExtraLarge']) {
+      write([family]); assert.throws(() => readManifest(dir,'watch'), /watchFamilies/);
+    }
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});

@@ -213,6 +213,18 @@ final class SnapshotDriverTests: XCTestCase {
         }
     }
 
+    func testInlineGuardRejectsEveryNonContainerLeaf() {
+        let text = HeadlessSession.Node(id: 2, kind: "text", props: ["text":"Countdown"])
+        for leaf in [HeadlessSession.Node(id: 3, kind: "view", props: ["semanticTag":"hr"]),
+                     HeadlessSession.Node(id: 3, kind: "control", props: ["type":"progress"]),
+                     HeadlessSession.Node(id: 3, kind: "future-leaf")] {
+            let container = HeadlessSession.Node(id: 1, kind: "view", children: [2,3])
+            XCTAssertFalse(SnapshotDriver.admitsInline(HeadlessSession.Snapshot(size: .zero, roots: [1], nodes: [1:container,2:text,3:leaf])))
+        }
+        let container = HeadlessSession.Node(id: 1, kind: "view", props: ["semanticTag":"section"], children: [2])
+        XCTAssertTrue(SnapshotDriver.admitsInline(HeadlessSession.Snapshot(size: .zero, roots: [1], nodes: [1:container,2:text])))
+    }
+
     func testCaltrainEntryRendersEveryFamilyModeAppearanceAndSize() throws {
         let plan = try Self.plan("SNAPSHOT_TRAINS")
         for family in Family.all {
