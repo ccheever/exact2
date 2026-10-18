@@ -687,9 +687,6 @@ export function entryPlans(assets) {
   return Object.keys(plans).length ? { plans } : {};
 }
 
-/** The one web envelope producer for static builds and the live dev overlay.
- * App identity comes from the plan header; the human name comes from the
- * manifest's cross-platform `app.name`, never the internal crate slug. */
 /** A dev generation's identity (LLP 1007 §6): the SHA-256 of the canonical
  * JSON of its plan, asset, module and Rust cards, each by its name, digest
  * and length, assets in UTF-8 order, as a client checks it (host/web/dev.js
@@ -704,6 +701,9 @@ export function devGenerationDigest(plan, assets, module = null, rust = null) {
   })).digest('hex');
 }
 
+/** The one web envelope producer for static builds and the live dev overlay.
+ * App identity comes from the plan header; the human name comes from the
+ * manifest's cross-platform `app.name`, never the internal crate slug. */
 export function webEnvelope(app, bytes, assets, live = {}) {
   const appId = planAppId(bytes);
   if (!appId) throw new Error('the web envelope needs a valid Exact plan with a nonempty app id');
