@@ -124,7 +124,9 @@ keeps its kept answer from ever showing at launch: pass it after `with`
 (`lower-resource-launch-identity`), a
 state read after its own action assigned it (`analyze-read-after-assign`), a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
-site past the cap), and a name or key a host would refuse or ignore at run time: a
+site past the cap), a `list` holding a `section` with no `appearance`, which is neither
+a grouped list nor a list of cells (`lower-list-section`), and a
+name or key a host would refuse or ignore at run time: a
 swipe row's `swipeTrailing` naming a button outside its `scroll` (`lower-swipe-wiring`),
 a navigation root's `navigationKey` that never meets its routes' (`lower-navigation-key`),
 a `navigationSplit` off the root route (`lower-navigation-split`), an `image` source
@@ -1481,9 +1483,10 @@ from two to five (a preset, units, a period, a filter) is a `row role="radiogrou
 `button role="radio" aria-checked=…`, each pressing its value (the web gives it the
 arrow keys and one Tab stop); switching panels, a `row role="tablist"` of text tabs
 outside the header. A list row's `delete=action` is its swipe to delete, UIKit's on
-iOS (`contract vocab swipe`). Other swipe actions are a hand-written swipe row, whose
-content iOS needs exactly the scroll's size
-([pitfalls](agent-pitfalls.md), "There is no `swipeleft`"). Its swipe actions
+iOS (`contract vocab swipe`). Other swipe actions are a hand-written swipe row, a
+`scroll` laid out as a row (`display="flex"`) whose content iOS needs exactly the
+scroll's size ([pitfalls](agent-pitfalls.md), "A hand-written swipe row shows its
+buttons under the row"). Its swipe actions
 are UIKit's, drawn by UIKit (rounded on iOS 26 and later) whatever the buttons
 paint; when every control the row names says `appearance="none"`, the paint is
 kept instead, in a grouped list too: the row swipes by its own scroll, as on

@@ -780,32 +780,41 @@ screen, 2026-10-16.)
 
 - **There is no `swipeleft` for swipe-to-delete.** A row built from `pan`,
   `panrelease` and `translate` reveals its Delete button, but by hand on every host.
-  Fix: `delete=remove(item.id)` on the list's row (`contract vocab swipe`). Cause:
-  `swiperight` is the reply gesture (a message bubble), not a direction pair; for
-  actions other than Delete the row a swipe reveals them on is a horizontal `scroll`
-  with `scroll-snap-type="x mandatory"`, its content and action buttons as snap
-  children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
-  which the web scrolls and iOS turns into UIKit's own swipe actions: UIKit's shape
-  and size (round on iOS 26 and later) with each button's background colour and a
-  snapshot of its content, not the painted box (euxy port's flush rectangles,
-  2026-10-15). To keep the paint, give every control the row names
-  `appearance="none"`: the row keeps its snap scroll and still has the full swipe,
-  one row open at a time and the actions VoiceOver reads; dropping the three
-  attributes instead keeps the paint and loses all three. Fix: copy
-  `apps/shelf/app.contract`'s `BookRow` (`swipe-…`; `apps/messages` paints its own
-  circles in hex and is no model for the rest). (Ledger2 DIARY, "Needed:
-  swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
-  not exactly the scroll's size, and `logs` says which rule failed (`swipeContent on
-  #243 is refused: swipeContent "row" is 390x68, not the row's 390x68.5 border box`):
-  a border on the scroll itself shrinks it, so put a hairline on the content (Splitter
-  DIARY, rough 10). A grouped list's row is exempt (its list cell swipes), but there
-  `width="100%"` on the scroll runs past the card by the section's 16-pt inset and
-  clips the content's last control on every host: use `list-rows`' grouped form
-  (grocery-list DIARY, issue 2, about 15 minutes, round 3). A button indented as the
-  `scroll`'s sibling, not its child, is no swipe action (iOS refuses the row, the web
-  draws it as a second line): the compiler warns (`lower-swipe-wiring`) when a
-  `swipeContent`, `swipeLeading` or `swipeTrailing` names an `id` not inside the
-  `scroll` (grocery-list, round 12, about seven minutes).
+  Fix: `delete=remove(item.id)` on the list's row (`contract vocab swipe`): on iOS
+  UIKit's own swipe action, which a full swipe performs. Cause: `swiperight` is the
+  reply gesture (a message bubble), not a direction pair. Actions other than Delete
+  are a swipe row written by hand (the next pitfall). (Ledger2 DIARY, "Needed: swipe
+  gesture", about 15 minutes, 2026-10-04.)
+
+- **A hand-written swipe row shows its buttons under the row, and nothing swipes.** iOS
+  refuses the swipe and `logs` says why (`swipeContent on #11 is refused: swipeContent
+  "row-0-1" is 402x74, not the row's 402x94.3333 border box`). Cause: the swipe `scroll`
+  puts its content and action buttons side by side only when it is laid out as a row. A
+  grouped list's section makes each of its rows one; anywhere else a scroll with no
+  `display` is a block and stacks the buttons under the content. A `list` whose
+  `section` has no `appearance` is neither a grouped list nor a list of cells, so its
+  rows are drawn as written (warning `lower-list-section`). Fix: give a list with
+  sections `appearance="auto"` (`listStyle="plain"` for a plain list's look), or drop
+  the `section`; then a Delete the platform draws is `delete=` on the row (`contract
+  vocab swipe`). (Guard-rail evaluation, Duo Notes, 2026-10-17.)
+
+  Write a swipe by hand only for other actions (Pin, Flag, a leading action, several)
+  or a Delete `delete=` cannot say, with `display="flex"` on its scroll. Its rules:
+  - iOS refuses a row whose content is not exactly the scroll's size; a border on the
+    scroll shrinks the content, so put a hairline on the content (Splitter DIARY,
+    rough 10). A grouped list's row is exempt (its list cell swipes), but there
+    `width="100%"` on the scroll runs past the card by the section's inset and clips
+    the content's last control on every host: write no `width` on it (grocery-list
+    DIARY, issue 2, round 3).
+  - An action button indented as the `scroll`'s sibling, not its child, is no swipe
+    action: iOS refuses the row and the web draws the button as a second line (warning
+    `lower-swipe-wiring`; grocery-list, round 12).
+  - UIKit draws the actions in its own shape and size (round on iOS 26 and later) with
+    each button's background colour and a snapshot of its content, not the painted box
+    (euxy port, 2026-10-15). To keep the paint, give every control the row names
+    `appearance="none"`: the row keeps its snap scroll, the full swipe, one row open at
+    a time and the actions VoiceOver reads (`apps/messages` paints its own circles in
+    hex and is no model for the rest).
 
 - **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
   the web and macOS, in a drive and in a test, while a real touch on an iPhone

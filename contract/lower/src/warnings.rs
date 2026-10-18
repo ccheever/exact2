@@ -144,7 +144,10 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     // @ref LLP 1116.016 D4 — a row that searches another data list.
     out.extend(rows::row_lookup(checked));
     // @ref LLP 1116.020 D1 — a `delete=` no list row holds.
-    out.extend(crate::swipe_rows::unplaced(&root.view));
+    out.extend(crate::swipe_rows::unplaced(
+        &root.view,
+        &checked.file.styles,
+    ));
     // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
     out.extend(parts::round_button_label(checked));
     // @ref LLP 1116.020 D5 — an empty state drawn as a list's row.

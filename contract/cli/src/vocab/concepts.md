@@ -392,7 +392,7 @@ component App
 More: docs/recipes/persisted-setting.md
 
 ## swipe: a list row's swipe actions
-names: delete, swipe-actions, swipeActions, swipe-to-delete, swipeleft
+names: delete, swipe-actions, swipeActions, swipe-to-delete, swipeleft, swipeContent, swipeLeading, swipeTrailing
 
 `delete=action` on a list row is its swipe to delete: a red Delete beside the row, which a
 full swipe performs. On iOS it is UIKit's own swipe action; on the web and the Mac the row
@@ -416,11 +416,15 @@ component App
 ```
 
 - On a row of a grouped list's `section`, or of a `list` whose rows go down the page;
-  anywhere else it does nothing (warning `lower-delete-row`).
-- Other actions than Delete (Pin, Flag, a leading action) are the long form: a horizontal
-  snap `scroll` naming its content (`swipeContent`) and its actions (`swipeTrailing`,
-  `swipeLeading`: buttons' `id`s, inside the scroll after the content), each button with a
-  `press` and a name. Or put them in the long-press menu (`contract vocab menu`).
+  anywhere else it does nothing (warning `lower-delete-row`). A `list` with sections is a
+  grouped list only with `appearance="auto"` (warning `lower-list-section`).
+- Other actions than Delete (Pin, Flag, a leading action, several) are the long form: a
+  horizontal snap `scroll` laid out as a row (`display="flex"`), naming its content
+  (`swipeContent`) and its actions (`swipeTrailing`, `swipeLeading`: buttons' `id`s, inside
+  the scroll after the content), each button with a `press` and a name. Or put them in the
+  long-press menu (`contract vocab menu`). A Delete that the platform draws is `delete=`,
+  not the long form; the long form is for a Delete you paint (below) or word otherwise, a
+  handler that reads the press's event (`delete=` passes none), or a scroll you drive.
 
 ```contract
 component App
@@ -432,7 +436,7 @@ component App
     list appearance="auto" flex=1
       section
         for i in items key=i
-          scroll swipeContent="row" swipeTrailing="pin" padding-right=0
+          scroll swipeContent="row" swipeTrailing="pin" display="flex" padding-right=0
             overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
             row id="row" width="100%" flex-shrink=0 scroll-snap-align="start" padding-right=16
               box-sizing="border-box"
