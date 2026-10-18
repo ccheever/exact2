@@ -3420,3 +3420,62 @@ verifying build (not reproduced in three replays).
   unformatted bytes; unset with its block; a refused compile writes nothing; an unknown style;
   `propose` says `rebuild`); `scripts/tamber-server.test.mjs` (a hand edit announced, `commit`
   takes a written `.contract`, one dirty at its baseline refused).
+
+### Stage 8, commit B1: `:active` as the press paint; looks on the runner and the web (draft for theme2)
+
+Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on the replan).
+
+- **`:active` lowers to the press paint** (`contract/lower/src/states.rs`). Its rows are written on the node, the class's then the node's (the node's wins), each keeping its `:active` span for inspect and the map:
+  - `background-color` → `-exact-press-background-color`;
+  - `color` → `-exact-press-color`;
+  - `-exact-press-scale` → the node's own;
+  - `opacity` → `-exact-press-opacity-to`, a new row, bit 215, lowering's alone. An author's is `lower-unknown-attr`, naming `:active opacity`, and `contract vocab` doesn't list it.
+
+  Tokens stay names, as in any row.
+
+  Refused:
+  - `border-color` and `box-shadow` in `:active` (`lower-state-row`: the press can't paint them yet);
+  - `-exact-press-scale` in `:hover` or `:focus-visible` (`lower-state-row`, pointing at `:active`);
+  - a node, or its class, saying a press paint both ways (`lower-state-press-paint`): `-exact-press-background-color`, `-exact-press-color`, `-exact-press-opacity` or `-exact-press-scale` beside the same `:active` row.
+- **Where an `:active` row is written** (theme2's 06:14 condition). The map's binding for a lowered row carries `"state": "active"` and `at`, the `:active` row's file and span (`sites::Origin::State`; its `origin` is still the node's or class's). `uses`, and so explain, name that line, not the node's.
+- **The absolute press opacity.** The press eases from the opacity shown at the press, a hover or focus look's included, to the target. For that node it replaces D7's clamped share. A hand-written `-exact-press-opacity` keeps the share.
+  - Web: `--exact-press-opacity-to`. The glue's `PAINT` list takes it, and index.html computes `base + (to − base) × paint`.
+  - Apple, Linux and Android: B2 and B3.
+- **Looks are `:hover` and `:focus-visible` only.**
+  - The looks table's state 0 is retired: the reader refuses it, and codes 1 and 2 are kept. `format.json`'s comment says so, so FORMAT_DIGEST moves to `0x973e_e759_65ad_8001` (over main's at the push).
+  - The runner resolves a node's looks rows in its tuple (`set_plan_style`) and sends `Op::SetLooks` (op 9: at most 2 looks, states 1 and 2, ascending; look rows only, set or cleared). It sends them at mount and when its tuple moves (a mode, a pin). `ThemeIndex::looks` keeps those that read a token, and `set_tokens` (a live batch, a role's value) sends them again.
+  - SCHEMA_DIGEST moves to `0x8b10_52ba_0e04_2f0b` (op 9 and bit 215, over main's at the push), in stage 8's window. Every host takes a new binary.
+- **The web, wasm** (`host/web/src/host/looks.rs`). A node with looks gets a `looks` batch op: one rule per state in the page's `#exact-looks` sheet, written as follows.
+  - `:hover` goes under `@media (hover:hover)`, then `:focus-visible`; none applies on a disabled node (`:disabled`, or a box's `disabled` of any value but "false").
+  - The rows are `!important` over the inline base, and below the shell's pressed-paint rules, which are `#exact-root`-scoped. So the press paint shows over a hover.
+  - They have no transition: a look snaps, under Reduce Motion too.
+  - The sheet goes with the last plan at a boot. An explicit clear (`unset`) crosses written with no value, as a static row's.
+- **Round 2:**
+  - A text with a look never folds into its parent's box (`element::folded`, `holds_folded`).
+  - The glue takes no press on a box whose `disabled` is any value but "false".
+  - The press paint re-reads what's beneath when a sheet or the root changes under a hold (a look's rule, the theme, the JS target's modes).
+  - `-exact-press-opacity-to` is refused in a `style` block, not suggested for a typo, and not described by `contract vocab`.
+  - `uses` lists a token a `:hover` or `:focus-visible` row reads, at its node, with its state.
+  - Round 3 (the last):
+    - A disabled box takes no press by key either.
+    - The design tool's inspect join and the agent's `layout` carry an `:active` row's `state` and `at`, and the inspector names it `:active opacity` and so on. Its edit is `set-state`'s; a token rung stands.
+    - `outline` finds a node from a `uses` location that is a part's row.
+    - The JS target's CSSOM token and tuple writes call the glue's `repaintPress`.
+    - The wasm looks sheet is written once per batch (a microtask).
+  - theme2's 07:06 question: a node's own `:active` where it has no `press` (nor `href`) never holds, and is `lower-state-dead` (a lint, as `:disabled`'s); a class's part is not judged.
+  - **Deviation (QUEUE):** on the web, a node's own `transition` on a property a look sets times the look's change. The look rule can't keep it out.
+- **The JS target** (`host/web-js`):
+  - The static tree applies each node's looks rows (`SetLooks`), and the template carries their declarations. A varying token's sentinel becomes its `var()`, as in a class, and look declarations join the sentinel scan.
+  - Each distinct set of looks is one rule group, `[data-exact-looks="N"]`, after the classes, as unscoped as wasm's, so the shell's pressed paint wins over it; the node takes `data-exact-looks`.
+  - `:active` reaches the page as D7's custom properties through the template.
+- **Tests:**
+  - `state_parts.rs` and `state_looks.rs`: each lowering, the refusals, one spelling, the internal row, retired state 0, looks re-sent by a live token (and not by one only the base reads), `unset`.
+  - `host/web/tests/it/looks.rs`: the press rows, the rules in order, a live batch re-sending them.
+  - `host/web/tests/looks.test.mjs` (Chrome):
+    - a hover at once;
+    - the press easing from the hovered 0.8 to its absolute 0.6, its paint over the hover;
+    - a base change while pressed;
+    - Reduce Motion (press colours ease, hover snaps);
+    - a disabled box taking none.
+  - The kernel's op round trip and its refusals; `modes_tests.rs`, the JS target's rule group.
+  - LLP 1061's press tests unchanged.

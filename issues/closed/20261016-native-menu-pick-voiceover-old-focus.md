@@ -1,6 +1,7 @@
 # macOS: a context-menu pick that removes the focused field lets VoiceOver read that field first
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** not reproduced on main: the navigate-away pick re-read the removed field in 0 of 23 runs with real VoiceOver; #719 not merged, as it made the `<dialog>` case worse (3 of 18, against 0 of 16 on main)
 **Systems:** Apple host (MenuHost, NSMenu), VoiceOver
 **Severity:** P3
 **Author:** Claude (Opus 5.5)
@@ -109,3 +110,22 @@ menu that defers its pick today (`MenusMac.pick` and `ChooserMac.choose`).
   (LLP 1115.002 D7.2), and with a pick that navigates the invoker away; update
   `testAPickedItemPressesInTheTurnItsMenuClosed` to the new order. iOS is unchanged.
 - Option 3 is refused: a louder name cuts off the field's words.
+
+## Closed, 2026-10-18
+
+Not reproduced on main. The repro was rebuilt from the description above and measured with
+real VoiceOver as before (#719's body has it and every run's captions); the count is runs
+that read the old field before what the pick opened. #719 (option 2 as ruled, with the
+three next steps above) was not merged: it made the `<dialog>` case worse.
+
+| Pick | main | #719 |
+|---|---|---|
+| Navigates the invoker away (Discard Changes) | 0 of 23 | 0 of 22 |
+| Opens a `<dialog>` (a sheet) with its field focused | 0 of 16 | 3 of 18 |
+| Opens an `alertdialog` (`NSAlert`) | 2 of 18 | 0 of 11 (rounds 2 and 3) |
+| Opens a page-drawn `aria-modal` box | 0 of 18 | 0 of 18 |
+| Opens that box with its field focused | 6 of 6 | 6 of 6 |
+
+The alert case is issues/20261018-macos-menu-pick-alert-voiceover-old-field.md. The box
+whose field takes the focus is not the menu's timing (it re-reads on both builds) and is
+issues/20261018-macos-menu-pick-page-modal-field-voiceover.md.

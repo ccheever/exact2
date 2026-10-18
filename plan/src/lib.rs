@@ -470,6 +470,15 @@ impl Plan {
                 field: "node",
             });
         }
+        // A look is `:hover` (1) or `:focus-visible` (2): `:active` (0) lowers
+        // to the press paint (LLP 1121 D8 as amended 2026-10-18).
+        if let Some(i) = self.looks.iter().position(|l| !(1..=2).contains(&l.state)) {
+            return Err(PlanError::BadReference {
+                table: "looks",
+                row: i as u32,
+                field: "state",
+            });
+        }
         self.validate_texts()?;
         self.validate_site_depth()?;
         self.validate_acyclic_types()

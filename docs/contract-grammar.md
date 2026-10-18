@@ -147,11 +147,14 @@ combined (`syntax-state`). `:disabled` and `:checked` (when `checked`,
 `aria-checked`, `aria-selected` or `aria-pressed` is true) take
 `background-color`, `color`, `border-color` (each side), `opacity`, `box-shadow`
 and `-exact-tint-color`, and fold into the node's own rows, `:checked` under
-`:disabled`; the host's states take the rows that do not inherit,
-`background-color`, `border-color`, `opacity`, `box-shadow` and
-`-exact-press-scale`, each a literal (`lower-state-literal`; a token's name is
-one). Another row is `lower-state-row`; a part on a native control or a list's
-row is `lower-state-target`. The node's block wins over its class's, row by row.
+`:disabled`; `:active` takes `background-color`, `color`, `opacity` and
+`-exact-press-scale` and lowers to the press paint (LLP 1061 D7: its `opacity` an
+absolute target), `:hover` and `:focus-visible` take `background-color`,
+`border-color`, `opacity` and `box-shadow`; a host state's row is a literal
+(`lower-state-literal`; a token's name is one). Another row is `lower-state-row`;
+a part on a native control or a list's row is `lower-state-target`. An `:active`
+row beside the same paint's `-exact-press-` row is `lower-state-press-paint`.
+The node's block wins over its class's, row by row.
 
 A length attribute's string is CSS's own text, read by the kernel: a px or
 other absolute length, a percentage, a viewport length, `auto`,

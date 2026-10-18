@@ -1676,6 +1676,7 @@ dependencies = [
  "exact-textflow",
  "exact-web-capabilities",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

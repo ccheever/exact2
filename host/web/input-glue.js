@@ -174,6 +174,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // unsaid dim needs nothing here: it is the browser's own `:active`.)
     if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || declaresPress(el))) return keyed(el);
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
+    if (el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a disabled box takes no press by key either (LLP 1121 D8)
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
     event.preventDefault();
     el.click();
@@ -225,7 +226,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // beneath, which this piece reads again whenever the node's style or class
   // changes, the scheme flips, or the press turns. Its `color` reaches the
   // subtree as CSS's does.
-  const PAINT = ["--exact-press-opacity", "--exact-press-background-color", "--exact-press-color"];
+  // `:active`'s opacity is the press's absolute target (`--exact-press-opacity-to`,
+  // LLP 1121 D8), eased from what shows at the press, a hover look's included.
+  const PAINT = ["--exact-press-opacity", "--exact-press-opacity-to", "--exact-press-background-color", "--exact-press-color"];
   const declaresPress = el => !!el.style.getPropertyValue("--exact-press") || PAINT.some(p => el.style.getPropertyValue(p));
   const paints = new Map();
   const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
@@ -249,6 +252,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const endPaint = (el, state) => {
     if (paints.get(el) !== state) return;
     paints.delete(el);
+    if (!paints.size) sheets.disconnect();
     state.observer.disconnect();
     state.animation.cancel();
     el.removeAttribute("data-exact-painting");
@@ -261,6 +265,11 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     paint(el, state, Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)));
   };
   globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el); });
+  // So does a live edit that reaches it through a sheet (a state look's rule, the theme's) or the root's
+  // modes and tokens (the JS target's), which change no style of the node's own (LLP 1121 D8).
+  const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el); });
+  // The JS target writes its tokens and tuples through the CSSOM, which no observer sees: it calls this (modes.js).
+  (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el); };
   // `now`: the press ends at once (the window or the page went), as it does
   // for a node no longer in the page.
   const showPaint = (el, down, now = false) => {
@@ -270,6 +279,10 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!state) {
       state = { observer: new MutationObserver(() => repaint(el)) };
       state.observer.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
+      if (!paints.size) {
+        sheets.observe(document.head, { childList: true, subtree: true, characterData: true });
+        sheets.observe(document.documentElement, { attributes: true });
+      }
       paints.set(el, state);
     }
     state.to = down ? 1 : 0;
@@ -321,7 +334,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // tap gesture a synthesized touch never makes.
     const touch = e.pointerType === "touch";
     const el = e.target.closest?.(touch ? "[data-exact-on~=press],button,a[data-view][href]" : "[data-exact-on~=press],button[data-button-style]");
-    if (!el || !root.contains(el) || el.closest(":disabled,[disabled='true']")) return;
+    if (!el || !root.contains(el) || el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a box says `disabled` (LLP 1121 D8)
     // @ref LLP 1077 D14 — `-exact-press-haptic` plays at the press, as Apple's does:
     // `navigator.vibrate` where the browser has it (not desktop, not iOS
     // Safari), with `haptic()`'s two lengths (workout F4).

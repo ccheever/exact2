@@ -13,4 +13,4 @@ pub mod frame;
 pub mod ops;
 
 pub use frame::{decode, encode, Frame, FrameBuilder};
-pub use ops::Op;
+pub use ops::{look_rows, Op, LOOK_FOCUS_VISIBLE, LOOK_HOVER};

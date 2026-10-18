@@ -22,7 +22,7 @@ import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, buildTreeFile, r
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { mapCard, pullMap } from '../../scripts/tamber-inspect.mjs';
-import { serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
+import { serveCommands, serveReport, streamFrame } from '../../scripts/tamber-builds.mjs';
 import { fresh, freshCompiler, webCompiler } from './module.mjs';
 import { INSPECT_EVENTS } from './inspect-dev.js';
 
@@ -155,11 +155,16 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // The design server's wire, once made below (a rebuild may come first).
   let tamber = null;
   const clients = new Set();
-  const push = (m) => { for (const res of clients) res.write(`data: ${JSON.stringify(m)}\n\n`); };
+  // A batch to a page behind waits, then the latest design's notice goes instead (tamber-builds.mjs).
+  const push = (m) => { for (const res of clients) if (m.kind === 'tamber-batch') streamFrame(res, JSON.stringify(m), () => snapshot && notice(snapshot)); else res.write(`data: ${JSON.stringify(m)}\n\n`); };
   // The live table (LLP 1121 stage 4): the design the page in dist was built
   // with, and the one the pages run after value-only edits since.
   let design = built.design ?? null, snapshot = null;
-  const notice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [] });
+  // The SHA-256 of the design file's bytes `design` was compiled from, which
+  // a scrub's frame must have been folded over to be patched on it.
+  let designFrom = built.designSource ?? null;
+  // A snapshot's notice keeps a scrub frame's mark (*1.11*).
+  const notice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [], ...(s.scrub ? { scrub: s.scrub } : {}) });
   // A batch larger than this, in UTF-8 bytes, goes as the snapshot's notice
   // instead, as the resident loop sends it (host/web/dev.mjs DESIGN_FRAME):
   // a native host's event frames are bounded (PlanURL.swift's 64 KiB).
@@ -171,6 +176,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // `released`: that scrub is being written; the build of what it writes
   // goes from it, and ends it.
   let scrubbed = null, aside = null, released = false;
+  // The released scrub's build carries the mark its release took (above its
+  // frames, *1.11*), so a late fetch of one of them never shows over it; the
+  // scrub ends with it.
+  const releasedMark = () => { const mark = released?.id ? released : undefined; scrubbed = null; aside = null; released = false; return mark; };
   // A design (`exact-web-js design`), read from the compiler with no build:
   // a value-only edit's and a scrub's. Optimised (host-dev), built as the
   // loop starts and again after any edit that is not a design's, so it is
@@ -364,14 +373,14 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       if (!next.error && sameShape(design, next)) {
         const from = scrubbed ?? design;
         design = next;
-        served = { digest: design.digest ?? null, source: createHash('sha256').update(text).digest('hex') };
-        const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
-        if (scrubbed && released) { scrubbed = null; aside = null; released = false; }
+        served = { digest: design.digest ?? null, source: designFrom = createHash('sha256').update(text).digest('hex') };
+        const keep = scrubbed && released ? releasedMark() : undefined;
+        const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens, scrub: keep };
         if (scrubbed) aside = committed; else snapshot = committed;
         const tokens = design.tokens.filter((tk, i) => !same(tk, from.tokens[i]));
         if (tokens.length && !scrubbed) {
           console.log(`edit → batch ready ${Date.now() - at} ms (design read in ${Date.now() - t} ms, no build) · ${tokens.length} token${tokens.length === 1 ? '' : 's'} to ${clients.size} page${clients.size === 1 ? '' : 's'}, no reload`);
-          const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
+          const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens, scrub: keep });
           push(batch);
           tamber?.channel.broadcast(batch);
         }
@@ -435,17 +444,17 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     else if (built.kept) {
       const tokens = built.design.tokens.filter((t, i) => !same(t, from.tokens[i]));
       design = built.design;
-      served = { digest: design.digest ?? null, source: built.designSource };
-      const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
+      served = { digest: design.digest ?? null, source: designFrom = built.designSource };
       // While a scrub previews the pages stay on it: this changes only what
       // its end restores. A released scrub's build goes from it, and ends it.
-      if (scrubbed && released) { scrubbed = null; aside = null; released = false; }
+      const keep = scrubbed && released ? releasedMark() : undefined;
+      const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens, scrub: keep };
       if (scrubbed) aside = committed; else snapshot = committed;
       // A batch sent before this build: it checked out, and stands.
       if (fast && !tokens.length) console.log(`edit → checked in ${Date.now() - t} ms · the batch stands`);
       if (tokens.length && !scrubbed) {
         console.log(`edit → batch ready ${Date.now() - at} ms (built in ${Date.now() - t} ms) · ${tokens.length} token${tokens.length === 1 ? '' : 's'} to ${clients.size} page${clients.size === 1 ? '' : 's'}, no reload`);
-        const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
+        const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens, scrub: keep });
         push(batch);
         // The one source of batches: the resident loop's devices and Linux
         // take them through the channel's polled streams.
@@ -454,6 +463,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     }
     else {
       // A reload ends a scrub's preview: the pages boot the committed design.
+      // The scrub ends too: a frame folded on its sources would leave this edit out.
+      tamber?.compete();
       scrubbed = null; aside = null; released = false;
       const next = built.design ?? null;
       keepPageMap();
@@ -463,6 +474,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       // shape held, and the snapshot stays its to fetch.
       const shaped = from && next && from.shape === next.shape && from.tokens.length === next.tokens.length && next.tokens.every((tk, i) => tk.name === from.tokens[i].name);
       design = next;
+      designFrom = built.designSource ?? null;
       snapshot = shaped ? { kind: 'tamber-snapshot', structure: next.shape, base: null, design: next.digest, tokens: next.tokens } : null;
       // A native build on the resident producer keeps its plan and takes
       // this design as a batch only when its shape held: then it is served,
@@ -582,14 +594,74 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   const checkpoints = new Map();
   /** A scrub's design: the compiler's, with its text in place of the design file's; written nowhere. */
   const scrubDesign = designOf;
+  // A scrub's frames patched (tamber-scrub.mjs `patch`), by the optimised
+  // reader resident (`exact-web-js design-serve`): the app compiled once per
+  // committed design, each frame's folded rows set on that plan, compiling
+  // nothing. Started at a scrub's first frame, again after the reader
+  // builds again; a frame it cannot patch is compiled whole instead.
+  const patcher = { child: null, built: null, asks: new Map(), n: 0 };
+  const patcherAsk = (request) => new Promise((done) => {
+    if (!toolFresh()) return done({ fallback: true });
+    if (!patcher.child || patcher.built !== tool.built) {
+      stopGroup(patcher.child);
+      const child = patcher.child = spawn(tool.path, ['design-serve', resolve(app.dir, 'app.contract')], { cwd: root, stdio: ['pipe', 'pipe', 'ignore'], detached: true });
+      patcher.built = tool.built;
+      let buffered = '';
+      child.stdin.on('error', () => {});
+      child.stdout.on('data', (d) => {
+        buffered += d;
+        const lines = buffered.split('\n');
+        buffered = lines.pop();
+        for (const line of lines) { try { const r = JSON.parse(line); patcher.asks.get(r.id)?.(r); patcher.asks.delete(r.id); } catch { /* not a reply */ } }
+      });
+      child.on('exit', () => {
+        if (patcher.child === child) patcher.child = null;
+        for (const answer of patcher.asks.values()) answer({ fallback: true });
+        patcher.asks.clear();
+      });
+    }
+    const id = ++patcher.n;
+    patcher.asks.set(id, done);
+    patcher.child.stdin.write(`${JSON.stringify({ id, ...request })}\n`);
+  });
+  /** A scrub's frame patched: `{fallback}` when it must be compiled instead. */
+  async function scrubPatch(values, frame, files) {
+    // Folded over files the committed design was not built from (a write
+    // whose build has not landed): compiled instead.
+    if (!design || files?.[relative(app.dir, designPath(app.dir))] !== designFrom) return { fallback: true };
+    const base = design, next = await patcherAsk({ key: `${base.shape} ${base.digest}`, patch: values.map(({ name, css }) => [name, css]) });
+    if (!next.tokens || design !== base) return { fallback: true };
+    // The committed design's rows, those it patched set again.
+    const rows = new Map(next.tokens.map((t) => [t.name, t]));
+    return scrubShow({ ...base, digest: next.digest, tokens: base.tokens.map((t) => rows.get(t.name) ?? t) }, frame);
+  }
+  /** The patched frame shown, against its texts compiled whole: `{mismatch}`
+   * naming the first token that differs. */
+  async function scrubVerify(texts) {
+    const file = relative(app.dir, designPath(app.dir)), shown = scrubbed;
+    if (!(file in texts) || !shown) return {};
+    const next = await scrubDesign(texts[file]);
+    if (scrubbed !== shown) return {};
+    if (next.error) return { error: next.error };
+    const i = next.tokens.findIndex((t, i) => JSON.stringify(t) !== JSON.stringify(shown.tokens[i]));
+    const mismatch = i >= 0 ? `\`${next.tokens[i].name}\`: compiled ${JSON.stringify(next.tokens[i])}, patched ${JSON.stringify(shown.tokens[i])}`
+      : next.tokens.length !== shown.tokens.length || next.digest !== shown.digest || next.shape !== shown.shape || next.structure !== shown.structure ? 'the designs differ' : null;
+    if (mismatch) console.log(`scrub: the patched frame is not its compile (${mismatch}); the pages get the committed design back`);
+    return mismatch ? { mismatch } : {};
+  }
   /** Preview a scrub's texts: a batch from the design the pages run, as a
    * value-only edit sends one, and its snapshot for a page that asks. */
-  async function scrubPreview(texts) {
+  async function scrubPreview(texts, frame) {
     const file = relative(app.dir, designPath(app.dir));
     // Texts that leave the design file as it is: the committed design.
-    if (!(file in texts)) { scrubRestore(); return {}; }
+    if (!(file in texts)) { scrubRestore(frame); return {}; }
     const next = await scrubDesign(texts[file]);
     if (next.error) return next;
+    return scrubShow(next, frame);
+  }
+  /** Show a scrub's design `next` on the pages, its batch and snapshot
+   * marked `frame` (*1.10*). */
+  function scrubShow(next, frame) {
     const from = scrubbed ?? design;
     if (!from || from.shape !== next.shape || from.tokens.length !== next.tokens.length
       || next.tokens.some((t, i) => t.name !== from.tokens[i].name || String(t.accent) !== String(from.tokens[i].accent))) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
@@ -600,10 +672,10 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     // A new preview is no released scrub's.
     scrubbed = next;
     released = false;
-    snapshot = { kind: 'tamber-snapshot', structure: next.shape, base: null, design: next.digest, tokens: next.tokens };
+    snapshot = { kind: 'tamber-snapshot', structure: next.shape, base: null, design: next.digest, tokens: next.tokens, scrub: frame };
     const tokens = next.tokens.filter((t, i) => !same(t, from.tokens[i]));
     if (tokens.length) {
-      const batch = framed({ kind: 'tamber-batch', structure: next.shape, base: from.digest, design: next.digest, tokens });
+      const batch = framed({ kind: 'tamber-batch', structure: next.shape, base: from.digest, design: next.digest, tokens, scrub: frame });
       push(batch);
       tamber?.channel.broadcast(batch);
     }
@@ -625,17 +697,17 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     return inline ? `\`${inline.name}\` is written inline on this page (${inline.writer ?? 'a font weight, an SVG attribute'})` : null;
   }
   /** A scrub ended without its write: the pages back on the committed design. */
-  function scrubRestore() {
+  function scrubRestore(frame) {
     released = false;
     if (!scrubbed || !design) return;
     const from = scrubbed;
     scrubbed = null;
     // The committed design's snapshot (a page fetching it applies nothing new).
-    snapshot = aside ?? { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
+    snapshot = { ...(aside ?? { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens }), scrub: frame };
     aside = null;
     const tokens = design.tokens.filter((t, i) => !same(t, from.tokens[i]));
     if (!tokens.length) return;
-    const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
+    const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens, scrub: frame });
     push(batch);
     tamber?.channel.broadcast(batch);
   }
@@ -669,7 +741,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       await new Promise((ok) => setTimeout(ok, 250));
     }
   };
-  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; }, inline: inlineWhy } }) : null;
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: (frame) => { released = scrubbed != null && (frame ?? true); }, inline: inlineWhy } }) : null;
   // A polled stream (Linux, the resident loop's relay) is told the design to run.
   tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {
@@ -827,7 +899,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   };
   const stop = async () => {
     stopping = true;
-    for (const w of watchers) w.close(); building?.kill('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); stopGroup(tool.cleaner); residentChild?.kill('SIGTERM'); server.close();
+    for (const w of watchers) w.close(); building?.kill('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); stopGroup(tool.cleaner); stopGroup(patcher.child); residentChild?.kill('SIGTERM'); server.close();
     // The design server lets go of its lock before this exits.
     await tamber?.close();
     // A local iOS build in flight is stopped and waited for, as the resident loop does.

@@ -237,13 +237,17 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     },
   });
   // Scrub sessions (tamber-scrub.mjs): previewed by the dev loop (`scrub`:
-  // `{preview(texts), restore()}`), one at a time, each end told.
+  // `{patch(values, frame, files)?, verify(texts)?, preview(texts, frame),
+  // restore(frame)}`, each frame its batch's mark), one at a time, each end
+  // told.
   const scrubs = scrubSessions({
     ask: r => ask(r),
     write: r => write(r),
-    preview: texts => scrub.preview(texts),
-    restore: () => scrub?.restore(),
-    released: () => scrub?.released?.(),
+    patch: scrub?.patch ? (values, frame, files) => scrub.patch(values, frame, files) : null,
+    verify: scrub?.verify ? texts => scrub.verify(texts) : null,
+    preview: (texts, frame) => scrub.preview(texts, frame),
+    restore: frame => scrub?.restore(frame),
+    released: frame => scrub?.released?.(frame),
     opened: e => send({ event: 'scrub', seq: ++seq, epoch, ...e, reason: 'opened' }),
     ended: e => send({ event: 'scrub', seq: ++seq, epoch, ...e }),
     idleMs: scrubIdleMs,
@@ -926,7 +930,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     });
   }
 
-  return { handle, close, ready, channel, get token() { return token; }, get down() { return down; } };
+  // `compete()`: the dev loop's build of an edit the watcher does not see
+  // (a Contract source's), which ends a scrub as a hand edit does.
+  return { handle, close, ready, channel, compete: () => scrubs.compete(), get token() { return token; }, get down() { return down; } };
 }
 
 /** The app directory an argument names (a directory, or a file in it). */

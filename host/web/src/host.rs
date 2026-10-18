@@ -19,6 +19,7 @@ use exact_runner::{
     Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
     RunnerError, SurfaceOutcome, Timed, Work,
 };
+use mode::mirror::Mirror;
 
 #[path = "auth.rs"]
 mod auth;
@@ -121,17 +122,6 @@ impl std::fmt::Display for HostError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-struct Mirror {
-    props: SortedMap<String, String>,
-    css: String,
-    children: Vec<ViewId>,
-    /// Created inside a `<button>`, where a container is a `<span>`.
-    in_button: bool,
-    /// Created with handlers (a text that has some is never folded).
-    handled: bool,
 }
 
 /// What a host links that is generic over its data source (LLP 1047 D3):
@@ -933,7 +923,9 @@ impl<D: DataSource> Host<D> {
                         self.head_dirty = true;
                         continue;
                     }
-                    self.mirror.remove(&id);
+                    if self.mirror.remove(&id).is_some_and(|m| !m.looks.is_empty()) {
+                        batch.looks(id, "");
+                    }
                     self.layers.forget(id);
                     self.exclusions.remove(&id);
                     if let Some(drag) = self.drag {
@@ -1399,8 +1391,10 @@ impl<D: DataSource> Host<D> {
                 children: Vec::new(),
                 in_button,
                 handled: !kinds.is_empty(),
+                looks: String::new(),
             },
         );
+        self.emit_looks(id, batch);
         self.keys.insert(key, id);
     }
 
@@ -1456,6 +1450,7 @@ impl<D: DataSource> Host<D> {
             batch.style(id, &css);
             m.css = css;
         }
+        self.emit_looks(id, batch);
         if let Some(note) = note {
             self.runner.log(note);
         }

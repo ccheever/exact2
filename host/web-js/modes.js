@@ -90,6 +90,7 @@ function apply() {
       was[j] = text;
     }
   }
+  globalThis.exact?.repaintPress?.(); // a held press eases over the tuples as they are now (input-glue.js)
 }
 const set = (e, k) => { if (e.getAttribute("data-x-modes") !== k) e.setAttribute("data-x-modes", k); };
 
@@ -167,6 +168,10 @@ const refused = pins => {
 
 // dev-only {: the live table's runtime, which a release build's copy leaves
 // out (build.mjs `withoutDev`).
+// The last scrub frame applied (`{id, rev}`), which an older one is not.
+let Scrubbed = null;
+// The runs a later run's frame has followed: theirs are older (a few kept).
+const Retired = [];
 /** The page's rule for each full tuple, by its key, and its accent
  * companions (`[data-x-accent]`, modes.rs `rules`), by key and property. */
 function tupleRules() {
@@ -205,8 +210,38 @@ const tupleKey = t => {
  * its base is not this page's design. */
 function design(frame) {
   if (frame.structure !== Structure) return { live: "structure" };
+  // A frame sent before the last applied is shown over already: one of a
+  // retired run, or one after a mark of its own run (with no
+  // run on either, its scrub) not above it; one with a run after a mark
+  // with none is a new run's.
+  const mark = frame.scrub;
+  const same = mark && Scrubbed && (mark.run != null && Scrubbed.run != null ? mark.run === Scrubbed.run : mark.run == null && Scrubbed.run == null && mark.id === Scrubbed.id);
+  const older = mark && (Retired.includes(mark.run) || (same && mark.rev <= Scrubbed.rev));
+  if (older) return { live: "applied" };
   if (frame.base != null && frame.base !== Design) return { live: "stale" };
+  if (mark) {
+    if (Scrubbed?.run != null && mark.run !== Scrubbed.run && !Retired.includes(Scrubbed.run)) { Retired.push(Scrubbed.run); if (Retired.length > 8) Retired.shift(); }
+    Scrubbed = mark;
+  }
   if (frame.design === Design || !frame.tokens?.length) return { live: "applied" };
+  return mark ? still(() => setTokens(frame)) : setTokens(frame);
+}
+/** A scrub's frame shows with no transition, as the tool drags it (LLP 1121
+ * D13): every transition off while its values are set and styled, then back
+ * on, with nothing left to move. */
+function still(apply) {
+  const root = document.documentElement;
+  if (!document.getElementById("x-scrub-still")) {
+    const sheet = document.createElement("style");
+    sheet.setAttribute("id", "x-scrub-still");
+    sheet.textContent = "[data-x-scrub],[data-x-scrub] *,[data-x-scrub] *::before,[data-x-scrub] *::after{transition:none!important}";
+    document.head.append(sheet);
+  }
+  root.setAttribute("data-x-scrub", "");
+  try { const out = apply(); void root.offsetWidth; return out; } finally { root.removeAttribute("data-x-scrub"); }
+}
+/** Set a frame's tokens in every tuple's rule, in one style update. */
+function setTokens(frame) {
   const rules = tupleRules();
   // A type token is a property a row it writes (`parts`, modes.rs `design`).
   for (const t of frame.tokens.flatMap(t => t.parts ?? [t])) {
@@ -223,6 +258,7 @@ function design(frame) {
     });
   }
   Design = (globalThis.exact ??= {}).designDigest = frame.design;
+  globalThis.exact.repaintPress?.(); // a held press eases over the new values (LLP 1121 D8, input-glue.js)
   // A symbol sized by a type token's property redraws its mask, as the
   // build channel's scheme pin asks it (symbols.js listens for a resize).
   if (frame.tokens.some(t => t.parts) && typeof dispatchEvent === "function") dispatchEvent(new Event("resize"));

@@ -930,8 +930,26 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let text = String(data: data, encoding: .utf8) else { return }
         if syncing { waitingFrames.append(text); return }
+        let received = PlanURL.scrubTrace ? Date().timeIntervalSince1970 * 1000 : 0
         let answer = applyDesign(text)
         if answer == "stale" { syncDesign() } else if answer.hasPrefix("refused") { status("live: \(answer)") }
+        if PlanURL.scrubTrace, let mark = frame["scrub"] as? [String: Any] { PlanURL.trace(mark, frame, received) }
+    }
+
+    /// EXACT_SCRUB_TRACE in the app's environment: a line per scrub frame,
+    /// its revision, the first token's value, and when (unix ms) it came off
+    /// the stream, was applied, and the main run loop turned after it (its
+    /// commit to the render server made), for a bench to join with the
+    /// gestures it sent.
+    static let scrubTrace = ProcessInfo.processInfo.environment["EXACT_SCRUB_TRACE"] != nil
+    private static func trace(_ mark: [String: Any], _ frame: [String: Any], _ received: Double) {
+        let applied = Date().timeIntervalSince1970 * 1000
+        let value = ((frame["tokens"] as? [[String: Any]])?.first?["value"] as? String) ?? ""
+        let rev = mark["rev"] as? Int ?? -1
+        DispatchQueue.main.async {
+            let turned = Date().timeIntervalSince1970 * 1000
+            print("exact scrub: rev \(rev) received \(received) applied \(applied) turned \(turned) value \(value)")
+        }
     }
 
     private var syncing = false

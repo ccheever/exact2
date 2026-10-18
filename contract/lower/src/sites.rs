@@ -69,15 +69,27 @@ pub enum Origin {
     Class(String),
     /// The tag's fixed row (`row` sets `flex_direction`).
     Tag,
+    /// A state part's row lowered onto the node (LLP 1121 D8: `:active`'s
+    /// press paint), the node's or its class's, and where it is written.
+    State {
+        /// The node's or its class's.
+        of: Box<Origin>,
+        /// The state, as written after its colon.
+        state: &'static str,
+        /// The state part's row.
+        span: Span,
+    },
 }
 
 impl Origin {
-    /// The map's spelling: `own`, `class:<Name>`, `tag`.
+    /// The map's spelling: `own`, `class:<Name>`, `tag` (a state part's row,
+    /// its node's or class's).
     pub fn label(&self) -> String {
         match self {
             Origin::Own => "own".into(),
             Origin::Class(name) => format!("class:{name}"),
             Origin::Tag => "tag".into(),
+            Origin::State { of, .. } => of.label(),
         }
     }
 }

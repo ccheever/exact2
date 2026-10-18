@@ -179,7 +179,11 @@ fn part(name: &str) -> Option<Part> {
 
 fn entry(name: &str) -> Option<Entry> {
     let tag = tags::tag(name).map(|t| tag_json(name, &t));
-    let attr = tags::attr(name).map(|a| attr_json(name, &a));
+    // Lowering's own row for `:active`'s opacity is no attribute (LLP 1121 D8).
+    let attr = (name != contract_lower::PRESS_OPACITY_TO)
+        .then(|| tags::attr(name))
+        .flatten()
+        .map(|a| attr_json(name, &a));
     let value_of: Vec<&'static str> = vocab::attrs()
         .into_iter()
         .filter(|(n, a)| rows_of(n, a).iter().any(|r| r.enum_names().contains(&name)))

@@ -119,6 +119,8 @@ export function editable(row, origin) {
   if (origin.startsWith('class:') && origin.includes('/')) return { rung: null, reason: `a conditional class (${origin.slice(6)}): refused here`, link };
   if (origin.startsWith('class:')) return { rung: null, reason: `a style's row (${origin.slice(6)}): comes with template editing (T5)`, link };
   if (origin !== 'own') return { rung: null, reason: 'the tag\'s own row: comes with template editing (T5)', link };
+  // @ref LLP 1121 D8 — an `:active` row lowered to the press paint: its part's to edit.
+  if (!names.length && row.state) return { rung: null, reason: `a \`:${row.state}\` part's row: \`set-state\` edits it` };
   if (!names.length) return { rung: null, reason: 'a value, not a token: setting a row comes with T5' };
   // Its whole value is the token: its name, or the role spelling the runner
   // resolved to it (`-exact-secondary-label` for `secondary-label`).
@@ -135,16 +137,20 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   if (!map) return { ...base, source: null, rows: rows.map(r => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
   const node = map.nodes[selected.site];
   if (!node) return { ...base, source: null, rows: rows.map(r => ({ ...r, editable: { rung: null, reason: 'the site is not in the source map' } })), readOnly: 'the site is not in the source map' };
-  const origins = new Map((node.bindings ?? []).map(b => [b.row, b.origin]));
-  const files = [...new Set([node.file, ...(node.chain ?? []).map(c => c.file)])];
+  const bound = new Map((node.bindings ?? []).map(b => [b.row, b]));
+  // An `:active` row is written in its part (LLP 1121 D8): its file counts too.
+  const files = [...new Set([node.file, ...(node.chain ?? []).map(c => c.file), ...(node.bindings ?? []).flatMap(b => b.at ? [b.at.file] : [])])];
   const readOnly = files.map(f => moved(map, f, read)).find(Boolean) || designMoved(map, build, served, design, read) || null;
   const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [] };
   return {
     ...base, source, readOnly,
     rows: rows.map(r => {
-      const origin = origins.get(r.name) ?? null;
-      const offered = editable(r, origin);
-      return { ...r, origin, editable: readOnly ? { rung: null, reason: readOnly, link: offered.link ?? offered.token ?? null } : offered };
+      const b = bound.get(r.name);
+      const origin = b?.origin ?? null;
+      // A state part's row, where it is written (the map's `state` and `at`).
+      const part = b?.state ? { state: b.state, at: b.at ?? null } : {};
+      const offered = editable({ ...r, ...part }, origin);
+      return { ...r, origin, ...part, editable: readOnly ? { rung: null, reason: readOnly, link: offered.link ?? offered.token ?? null } : offered };
     }),
   };
 }
@@ -152,7 +158,9 @@ export function join(build, selected, map, { read = readFileSync, served = null,
 /** The sites of `map` at `source`'s location: every copy of that node. */
 export function sitesAt(map, source) {
   if (!map || !source) return [];
-  return map.nodes.flatMap((n, site) => n.file === source.file && n.line === source.line && n.col === source.col ? [site] : []);
+  const here = x => x && x.file === source.file && x.line === source.line && x.col === source.col;
+  // A node, or a state part's row it lowered (`uses` names that row's own place).
+  return map.nodes.flatMap((n, site) => here(n) || (n.bindings ?? []).some(b => here(b.at)) ? [site] : []);
 }
 
 /** Whether a report is the build's latest: its plan, design and pin

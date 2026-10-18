@@ -498,3 +498,107 @@ fn round_two_a_dominated_token_an_ambiguous_line_branch_pins_and_an_icon_file() 
         "{svg}"
     );
 }
+
+/// The server keeps the app's params and its own `.contract` files from
+/// one walk of the Contract sources, walked again when one of them is
+/// edited: a param a component gains resolves, a range it narrows refuses,
+/// and a file a new `use` reaches is the server's.
+#[test]
+fn a_contract_edit_is_read_again_by_the_next_request() {
+    let dir = app("walk");
+    let mut s = Serve::start(&dir);
+    let gap = s.ask(json!({"method": "resolve", "token": "PostButton.gap"}));
+    assert!(gap["error"].is_object(), "no param yet: {gap}");
+    let post = VIEW.split("component App").next().unwrap();
+    std::fs::write(
+        dir.join("post.contract"),
+        post.replace(
+            "    fade: duration",
+            "    gap: length = \"radius.md\"  range=\"0..40\"\n    fade: duration",
+        )
+        .replace("range=\"0..40\"  control", "range=\"0..4\"  control")
+        .replace(
+            "    column border-radius",
+            "    column gap=\"param.gap\" border-radius",
+        ),
+    )
+    .unwrap();
+    let gap = s.ask(json!({"method": "resolve", "token": "PostButton.gap"}));
+    assert_eq!(gap["ok"]["token"], "post.contract#PostButton.gap", "{gap}");
+    let wide = s.ask(json!({"method": "propose", "ops": [{"op": "set-param", "name": "PostButton.radius", "value": "8px"}]}));
+    assert!(wide["error"].is_object(), "the narrowed range: {wide}");
+    let files = |s: &mut Serve| s.ask(json!({"method": "hello"}))["ok"]["files"].clone();
+    assert!(files(&mut s).get("badge.contract").is_none());
+    std::fs::write(
+        dir.join("badge.contract"),
+        "component Badge\n  view\n    text \"b\"\n",
+    )
+    .unwrap();
+    let root = std::fs::read_to_string(dir.join("app.contract")).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        format!("use Badge from \"./badge.contract\"\n{root}").replace(
+            "      PostButton()\n      PostButton()\n",
+            "      PostButton()\n      PostButton()\n      Badge()\n",
+        ),
+    )
+    .unwrap();
+    assert!(
+        files(&mut s).get("badge.contract").is_some(),
+        "a file a new use reaches"
+    );
+}
+
+/// Review round 1 of the walk: what decides the params and the server's own
+/// files beyond the Contract sources' bytes is read again too: a native
+/// component's params in the design, a `package.json` that makes a file a
+/// package's, and a root that comes after the server started.
+#[test]
+fn the_walk_follows_the_design_a_manifest_and_a_late_root() {
+    let dir = std::env::temp_dir().join(format!("exact2-walk-inputs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("vendor/p")).unwrap();
+    let card = |inset: &str| {
+        format!("tamber t\n\ntheme\n  ink = #111111\n\ncomponent MapCard\n  params\n    inset: length = {inset}  in 0..24\n")
+    };
+    std::fs::write(dir.join("app.tamber"), card("8px")).unwrap();
+    let mut s = Serve::start(&dir);
+    let files = |s: &mut Serve| s.ask(json!({"method": "hello"}))["ok"]["files"].clone();
+    assert!(files(&mut s).get("app.contract").is_none(), "no root yet");
+    std::fs::write(
+        dir.join("vendor/p/index.contract"),
+        "component Badge\n  params\n    gap: length = \"4px\"  range=\"0..40\"\n  view\n    text \"b\" padding=\"param.gap\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Badge from \"./vendor/p/index.contract\"\n\ncomponent App\n  view\n    column\n      text \"a\" color=\"ink\"\n      Badge()\n",
+    )
+    .unwrap();
+    let now = files(&mut s);
+    assert!(now.get("app.contract").is_some(), "the late root: {now}");
+    assert!(now.get("vendor/p/index.contract").is_some(), "{now}");
+    let inset = |s: &mut Serve| {
+        let r = s.ask(json!({"method": "resolve", "token": "MapCard.inset"}));
+        r["ok"]["tuples"][0]["value"].clone()
+    };
+    assert_eq!(inset(&mut s), "8px");
+    std::fs::write(dir.join("app.tamber"), card("12px")).unwrap();
+    assert_eq!(inset(&mut s), "12px", "the design's default");
+    let gap = |s: &mut Serve| {
+        s.ask(json!({"method": "resolve", "token": "Badge.gap"}))["ok"]["token"].clone()
+    };
+    assert_eq!(gap(&mut s), "vendor/p/index.contract#Badge.gap");
+    std::fs::write(dir.join("vendor/p/package.json"), "{\"name\": \"p\"}").unwrap();
+    let now = files(&mut s);
+    assert!(
+        now.get("vendor/p/index.contract").is_none(),
+        "a package's now: {now}"
+    );
+    assert_eq!(
+        gap(&mut s),
+        "p/index.contract#Badge.gap",
+        "named by its package now"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

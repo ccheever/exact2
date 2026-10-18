@@ -65,8 +65,10 @@ on macOS and Linux.
   later wire changes add under the same version.
 - `tamber/1.11` (LLP 1121 stage 8, commit D) added the app's own Contract sources to the design's
   files (`hello`, every reply's `files`, the journal, `commit`, `history` and `revert`) and the
-  state part operations `set-state` and `unset-state`. The window's later additive changes
-  (stage 8, real-time scrubs) add under the same version.
+  state part operations `set-state` and `unset-state`; real-time scrubs added a scrub frame's mark
+  (`scrub` on a batch and the snapshot), the `mismatch` end of a scrub, and the build channel's
+  long poll (`wait` on `/__dev/commands`). The window's later additive changes (stage 8) add under
+  the same version.
 
 ## Where it runs
 
@@ -401,14 +403,34 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
   (`scrub` its id). It needs `write` scope and a present client (a subscription or long poll that
   names it), and the dev loop's wire: a server no dev loop runs answers 501.
   - **One at a time:** another client's scrub open is 409.
-  - **Each update is the whole gesture's edit,** planned (`propose` with `texts`) on the files as
-    the scrub opened on them (`files`, the digests its client read, given when it opens). The dev
-    loop compiles the texts in place of the design file and sends every build the batch from the
-    design it runs, as a value-only edit sends one; the snapshot it serves (`/__dev/design`) is the
-    scrub's while it lasts.
-  - **Updates that come while one previews** wait; only the latest is previewed, and the others
-    are answered `{scrub, superseded: true}`. An update back to the committed value previews the
-    committed design, and the scrub stays open.
+  - **Each update is the whole gesture's edit,** folded on the files as the scrub opened on them
+    (`files`, the digests its client read, given when it opens). The design server takes what the
+    fold reads once, when the scrub opens, and folds the whole design per update, reading no file;
+    the dev loop sets the rows that changed on the design it committed and sends every build the
+    batch from the design it runs, as a value-only edit sends one, compiling nothing. A frame it
+    cannot set so (a row that would gain or lose its per-tuple values, a design it has not built
+    yet) is planned (`propose` with `texts`) and compiled in place of the design file, as before.
+    The snapshot it serves (`/__dev/design`) is the scrub's while it lasts.
+  - **Updates that come while one previews** wait; only the latest is previewed next, and the
+    others are answered `{scrub, superseded: true}`. Nothing else paces them: a build shows the
+    latest frame it has at its next display frame. An update back to the
+    committed value previews the committed design, and the scrub stays open.
+  - **Each frame a scrub sends is marked** (*1.11*): its batch and the snapshot carry `scrub`
+    `{id, rev, run}`, the scrub's id, a revision that rises over every frame of every scrub the
+    design server sends, ends included, and the server's run (a name per start: a restarted
+    server's revisions start again). A build drops a frame or snapshot of the run it last applied
+    a frame of (with no `run`, of the scrub) whose `rev` is not above that one's, so a polled
+    host's late fetch of an earlier scrub's frame never shows over a later scrub or its end. A
+    build that has applied a frame of a later run drops any frame of an earlier one; a frame with
+    a `run` after a mark with none is a new run's. A notice that stands for a scrub frame (one over
+    a stream's bound, a polled queue collapsed) keeps its mark, and the build of what a release
+    wrote carries a mark above the scrub's frames. A build applies a scrub's frames with no
+    transition: an authored
+    `transition` on a row the frame sets neither starts nor goes on (a development preview that
+    follows the tool's gesture; any other edit moves as authored).
+  - **A frame set without compiling is checked** once the gesture rests (150 ms with no update):
+    the frame shown, planned and compiled in full, must be the design set. Where it is not, or the
+    full check refuses it, the scrub ends (`mismatch`).
   - **The dev loop's builds and a preview.** Any write other than the scrub's own release, and
     any hand edit, ends the scrub first (below); that write is never previewed over. What the
     loop does with a value-only build that lands while a preview is still showing is only about
@@ -441,7 +463,8 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
   gesture's first, and a build that connects later gets the committed snapshot.
 - **The `scrub` event** `{scrub, client, reason}` says each opening (`opened`, at its first
   preview; one that ends before it previews is never announced) and each end
-  (`released`, `refused`, `cancelled`, `competing write`, `disconnected`, `server lost`, `idle`).
+  (`released`, `refused`, `cancelled`, `competing write`, `disconnected`, `server lost`, `idle`,
+  and `mismatch`, *1.11*).
   While one is open the files and the running builds differ: the tool says "previewing".
 - **Scope:** the local tool's token writes. A paired client's scoped token (LLP 1122 D6) names
   its scope, and a `propose`-scope client's scrub is 403.
@@ -785,6 +808,8 @@ A write reaches every running development build at once. Release builds take non
     `AccentColor` is the app's tint) and each node's rows; the web rewrites its role sheet
     (`{"op": "theme"}`) in the batch's one style update; Linux re-targets its paint and paints
     again; the JS target's development build sets the role's sheet property (below).
+  - `scrub` (*1.11*), on a scrub's batch and on the snapshot it leaves: `{id, rev, run}`, the frame's
+    mark (see [Scrub sessions](#scrub-sessions-12-llp-1121-d13-llp-1122-d6)).
   - `base` is the design digest it applies to, and `design` the new one. The JS target's batches
     add each token's custom property and its CSS per tuple (`prop`, `css`). A role override's
     `prop` is its role's property in the theme's sheet (`--exact-accent`, `--exact-canvas-text`,
@@ -845,6 +870,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
       under `seq + 1`. The first answer's `seq` is 1.
     - An answer holds at most 32 KiB of frames (the rest wait for the next poll, and a batch
       larger alone goes as its notice).
+    - **A long poll** (*1.11*): `&wait=<ms>` holds a poll with nothing to answer until a frame
+      is queued for its stream or the wait passes (at most 4 s), so a frame reaches the build at
+      once. One is held per stream: a newer poll answers the older at once. The JS loop's resident
+      producer holds each poll 4 s; Linux holds 250 ms, so a report it queues waits at most that
+      for the poll before it to end.
     - **Bounded.** Only the latest `pin` waits in a stream's queue. Past 64 frames or 128 KiB
       queued, the live-table frames waiting collapse into one notice of the latest design, and
       the build fetches the snapshot.

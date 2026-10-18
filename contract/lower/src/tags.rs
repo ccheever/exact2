@@ -989,6 +989,8 @@ pub const HEAD_FIELDS: &[&str] = &[
 /// lookup. No second vocabulary is maintained, and this never admits an alias.
 pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
     similar(name, |candidate| match attr(candidate) {
+        // Lowering's own row for `:active`'s opacity (LLP 1121 D8).
+        _ if candidate == crate::states::PRESS_OPACITY_TO => false,
         Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand) => true,
         Some(_) => !style_only,
         None => false,

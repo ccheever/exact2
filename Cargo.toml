@@ -104,7 +104,7 @@ debug = "line-tables-only"
 # parsing, and the filesystem helper's base64 JSON. Across the heaviest test
 # binaries it saved 16% of their CPU; a cold, uncached build of the Linux host's
 # tests takes 63% more CPU, paid once per dependency change. The workspace's
-# own crates stay unoptimized for debugging, except the three below.
+# own crates stay unoptimized for debugging, except the four below.
 [profile.dev.package."*"]
 opt-level = 3
 
@@ -121,6 +121,12 @@ opt-level = 3
 # The tooling filesystem helper carries every dev generation's bytes as
 # base64 JSON; unoptimized, decoding a megabyte is most of an edit's latency.
 [profile.dev.package.exact-filesystem]
+opt-level = 3
+
+# The design server folds each frame of a dragged colour through the whole
+# design (a scrub, LLP 1121 D13): unoptimized, ~6 ms of a 16.7 ms frame on the
+# Bluesky clone; optimized, ~1 ms.
+[profile.dev.package.exact-tamber]
 opt-level = 3
 
 # Development native builds — an Apple app (`host/apple/build.mjs` unless the
