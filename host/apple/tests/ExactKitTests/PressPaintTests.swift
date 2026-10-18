@@ -116,6 +116,32 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), 0)
     }
 
+    /// A descendant with its own press colour pressed while an ancestor's
+    /// quick release waits out `PressFeedback.unseen`: the ancestor's release
+    /// gives back only the text colour it lent, not the descendant's own
+    /// press, which holds while it is down (LLP 1061 D7, stage 9 G4).
+    func testAnAncestorsHeldReleaseLeavesADescendantsNewerPress() throws {
+        let (p, v) = try fixture(["press_background_color": navy, "press_color": yellow])
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "handlers": ["press"], "style": ["background_color": white, "text_color": white, "press_background_color": green]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 40.0, "w": 200.0, "h": 40.0],
+        ]))
+        let inner = try XCTUnwrap(p.views[4])
+        v.pressed = true
+        XCTAssertEqual(inner.style["text_color"], ink(yellow), "the ancestor's press lends it its colour")
+        v.pressed = false // a quick tap: the release waits
+        inner.pressed = true
+        XCTAssertEqual(inner.style["background_color"], ink(green), "its own press")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.05))
+        XCTAssertEqual(v.style["background_color"], ink(blue), "the ancestor let go")
+        XCTAssertEqual(inner.style["background_color"], ink(green), "the descendant's press holds while it is down")
+        XCTAssertEqual(inner.style["text_color"], ink(white), "the lent colour given back")
+        inner.pressPaint.at -= 1
+        inner.pressed = false
+        XCTAssertEqual(inner.style["background_color"], ink(white))
+    }
+
     /// A style that drops the pressed look while held: the dim and colours
     /// go with it, and the release still takes back the scale, though the
     /// platform's press now answers for the node.
