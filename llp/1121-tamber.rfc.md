@@ -1440,9 +1440,25 @@ Android's reader and the terminal.
       corpus unchanged; `tamber-unreachable` names the macOS switch and iOS's disabled glass
    button; the workbench shows each component's state parts, editable through `set-state`
    (which rebuilds).
-9. **Icon tokens** (D10). Digest break: none if the symbol wire already takes an SVG source
-   per node, else one. **Gate:** the clone's ~100 `symbol:sf/…` uses draw on the web from
-   icon tokens; a missing source fails the build with the target named.
+9. **Icons and native controls, finished; the design server's row operations** (D9, D10, D13).
+   Re-scoped 2026-10-18 (theme2's brief, accepted by the lead, Charlie informed): the icon tokens
+   this stage first held were built and met in stage 6 F (their gate: the clone's `symbol:sf/…`
+   uses draw on the web from icon tokens, and a missing source fails the build with the target
+   named). What it holds now: Apple draws icon paths (an svg-only icon, tinted by a colour
+   token); Mac symbol images take their colour; `explain` and `uses` answer icons and params;
+   `set-row`, `add-param` and `remove-param` (stage 7 C's, on stage 8 D's `.contract`
+   ownership), the server half of LLP 1122 T5; held rows name their tokens (LLP 1122 T4);
+   D9's and D8's follow-ups (an authored accent past an `AccentColor` role on the natives, the
+   web's authored transition off a look's edges, a row arriving during a delegated track, the
+   iPad pointer's `:hover`). Wire: the next window, `tamber/1.12`. Digest break: name it if A
+   or B moves the kernel schema. **Gate:** an svg-only icon draws on iOS and the Mac, tinted by
+   a colour token, through a live retheme; Mac symbols take `color`; `explain` answers an icon
+   and a param; LLP 1122 T5's gate lines through `set-row` (one-line template edit with hot
+   reload, a stale digest refused, a failing candidate writes nothing, promote to param and to
+   token each one transaction, a `class:` row edits its style's own file); inspect on a held
+   node names its rows' tokens; an authored transition does not time a look on the web; an
+   iPad pointer shows a `:hover` look; no regressions (release unchanged where unused, conform
+   clean, LLP 1061's press corpus unchanged).
 10. **External clients and remote authentication** (D13, D14). A Figma plugin bridge, a Paper
     or Pencil client, pairing. Waits on §9 Q4. **Gate:** a changed accent in Figma Variables
     is proposed as a dial change and a changed folded value as a pinned override; a paired
