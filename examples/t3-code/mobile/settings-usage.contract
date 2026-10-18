@@ -27,6 +27,10 @@ shape UsageColumn
   present: bool
   remaining: number
   email: string
+  pending: bool
+  resetsIn: string
+  resetLabel: string
+  credits: number
 shape UsagePoolWindow
   id: string
   windowId: string
@@ -190,7 +194,7 @@ component SettingsUsage
               row align-items="center" gap=7 padding-left=3.5 padding-right=3.5
                 ProviderIcon(driver=pool.id, size=18, dark=dark, iconUrl="")
                 text pool.label color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-weight=500
-              for window in pool.windows key=window.id
+              for window, windowIndex in pool.windows key=window.id
                 column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" padding=14 gap=10.5
                   row align-items="flex-start" justify-content="space-between" gap=10.5
                     column gap=3.5
@@ -205,12 +209,18 @@ component SettingsUsage
                   if window.nextRefill.length > 0
                     text window.nextRefill color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px` font-variant-numeric="tabular-nums"
                   row gap=3.5
-                    for item in window.columns key=item.key
-                      button press=account(item.key, window.windowId, window.kind) disabled=(not item.present) flex=1 min-width=0 padding=0 aria-label=`${item.label}, ${item.remaining}% remaining`
-                        column gap=3.5
-                          view height=7 border-radius=4 background-color=colors.subtle overflow="hidden"
-                            view width=`${item.remaining}%` height=7 background-color=(dark ? pool.dark : pool.light)
-                          text item.label color=colors.muted font-size=roles.caption.size line-clamp=1
+                    for item, itemIndex in window.columns key=item.key
+                      if item.present
+                        button appearance="none" press=account(item.key, window.windowId, window.kind) flex=1 min-width=0 height=24.5 padding=0 border-radius=5.25 background-color=colors.subtle overflow="hidden" aria-label=usageSegmentLabel(itemIndex + 1, item) aria-description="Show account details"
+                          UsageLimitSegment(remaining=item.remaining, color=(dark ? pool.dark : pool.light), pending=item.pending, patternId=`usage-limit-${poolIndex}-${windowIndex}-${itemIndex}`)
+                          column position="absolute" inset=0 align-items="center" justify-content="center" pointer-events="none" aria-hidden=true
+                            text `${itemIndex + 1}` color=colors.foreground font-size=roles.label.size line-height=`${roles.label.line}px` font-weight=500 font-variant-numeric="tabular-nums"
+                      else
+                        view flex=1 min-width=0 height=24.5
+                  column
+                    for item, itemIndex in window.columns key=item.key
+                      if item.present
+                        UsageLimitAccountRow(item=item, ordinal=(itemIndex + 1), windowId=window.windowId, kind=window.kind, colors=colors, roles=roles, account=account)
           if data.cursorPoolInsertAt == data.pools.length
             UsageCursorLimits(items=data.cursor, colors=colors, roles=roles, dark=dark, command=command)
         else
@@ -375,6 +385,50 @@ component UsageValues
             text item.label color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
             text item.value color=colors.foreground font-size=roles.title.size line-height=`${roles.title.line}px` font-weight=500 font-variant-numeric="tabular-nums"
             text item.detail color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+fn usageSegmentLabel(ordinal: number, item: UsageColumn): string = `Segment ${ordinal}, ${item.label}, ${item.remaining}% left`
+fn usageAccountRowLabel(ordinal: number, item: UsageColumn): string = `${usageSegmentLabel(ordinal, item)}${item.resetsIn.length > 0 ? `, ${item.resetsIn}` : ""}${item.credits > 0 ? `, ${item.credits} reset credits banked` : ""}`
+component UsageLimitSegment
+  props
+    remaining: number
+    color: string
+    pending: bool
+    patternId: string
+  view
+    svg width="100%" height="100%" aria-hidden=true
+      defs
+        pattern id=patternId width=6 height=6 patternUnits="userSpaceOnUse"
+          path d="M-1 1L1 -1M0 6L6 0M5 7L7 5" stroke=color stroke-width=1 opacity=0.22
+      if pending
+        rect x=`${remaining}%` width=`${100 - remaining}%` height="100%" fill=`url(#${patternId})`
+      rect width=`${remaining}%` height="100%" fill=color opacity=0.35
+component UsageLimitAccountRow
+  props
+    item: UsageColumn
+    ordinal: number
+    windowId: string
+    kind: string
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    account: action
+  state pressed = false
+  action pointerDown
+    pressed = true
+  action pointerUp
+    pressed = false
+  view
+    button appearance="none" press=account(item.key, windowId, kind) pointerdown=pointerDown pointerup=pointerUp min-height=44 padding=0 display="flex" flex-direction="row" align-items="center" gap=7 opacity=(pressed ? 0.6 : 1) aria-label=usageAccountRowLabel(ordinal, item) aria-description="Show account details"
+      column width=17.5 height=17.5 flex-shrink=0 align-items="center" justify-content="center" overflow="hidden" border-radius=5.25 background-color=colors.subtleStrong
+        text `${ordinal}` color=colors.foreground font-size=roles.label.size line-height=`${roles.label.line}px` font-weight=500 font-variant-numeric="tabular-nums"
+      text item.label flex=1 min-width=0 line-clamp=1 color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+      text `${item.remaining}%` flex-shrink=0 color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500 font-variant-numeric="tabular-nums"
+      row flex-shrink=0 align-items="center" gap=3.5
+        if item.resetLabel.length > 0
+          text item.resetLabel flex-shrink=0 color=colors.muted font-size=roles.label.size line-height=`${roles.label.line}px` font-variant-numeric="tabular-nums"
+        if item.credits > 0
+          if item.resetLabel.length > 0
+            text "·" flex-shrink=0 color=colors.tertiary font-size=roles.label.size line-height=`${roles.label.line}px`
+          t3-symbol symbol-name="ticket" symbol-tint=colors.icon width=13 height=13 flex-shrink=0
+          text `${item.credits}` flex-shrink=0 color=colors.foreground font-size=roles.label.size line-height=`${roles.label.line}px` font-weight=500 font-variant-numeric="tabular-nums"
 component SettingsUsageAccount
   props
     data: MobileUsageAccountData

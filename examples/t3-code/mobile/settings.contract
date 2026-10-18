@@ -16,6 +16,7 @@ shape SettingsColors
   borderSubtle: string
   separator: string
   subtle: string
+  subtleStrong: string
   primary: string
   primaryForeground: string
   icon: string
