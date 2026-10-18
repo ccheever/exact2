@@ -7,7 +7,7 @@
 // `<versionDir>/t3 --bootstrap-fd 0` with the desktop envelope on stdin, supervise it
 // (T3LocalBackendManager.swift), and once it answers exchange the bootstrap token for a bearer
 // kept in memory for the app run. When the last session goes (exact2 #105/#200: every session's
-// module is destroyed at quit), stop it: SIGTERM, SIGKILL after 2 s, at most 5 s. A pid file in
+// module is destroyed at quit), stop it: SIGTERM, SIGKILL after 5 s, at most 5 s. A pid file in
 // the app's data folder lets the next launch reap a server an app crash left behind.
 //
 // Real data and port 3773 are opt-in: only the packaged build (Contents/Resources/distribution.json
@@ -161,7 +161,7 @@ final class T3LocalProcessSpawner: T3LocalSpawner {
         func close() {
             guard process.isRunning else { return }
             kill(pid, SIGTERM)
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [process] in
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [process] in
                 if process.isRunning { kill(process.processIdentifier, SIGKILL) }
             }
         }
@@ -246,6 +246,7 @@ final class T3LocalBackend: @unchecked Sendable {
     var makeSpawner: () -> T3LocalSpawner = { T3LocalProcessSpawner() }
     var makeProber: () -> T3LocalProber = { T3LocalHTTPProber() }
     var fatal: (String, String) -> Void = { T3LocalFatal.handle(stage: $0, message: $1) }
+    var stateDirOwned: (String, String) -> Void = { T3LocalFatal.homeUnavailable(title: $0, message: $1) }
     var canListen: (Int, String) -> Bool = T3LocalPorts.canListen
     /// How long a switch-on waits for the server to answer.
     var startTimeout: TimeInterval = 60
@@ -468,6 +469,9 @@ final class T3LocalBackend: @unchecked Sendable {
         manager.logger = { [weak self] in self?.log($0) }
         manager.spec.onStarted = { pid, config in T3LocalPidFile.write(pidFile, pid: pid, executable: config.executablePath) }
         manager.spec.onReady = { [weak self] url in self?.exchange(url) }
+        // `onStateDirOwned` (DesktopBackendPool.ts): another server owns this T3 home. The reference shows
+        // the error box and quits; the status says it first, so the Connections page agrees.
+        manager.spec.onStateDirOwned = { [weak self] in self?.stateDirOwned(T3LocalFatal.homeUnavailableTitle, T3LocalFatal.homeUnavailableMessage) }
         manager.changed = { [weak self, weak manager] in
             guard let self, let manager else { return }
             self.publish { self.describe(manager, into: &$0) }
@@ -484,7 +488,7 @@ final class T3LocalBackend: @unchecked Sendable {
     }
 
     /// The Local environment switch (the reference relaunches the app; exact2 cannot, issue
-    /// #122, so this is the stopgap): off stops the server (SIGTERM, SIGKILL after 2 s, at most 5 s);
+    /// #122, so this is the stopgap): off stops the server (SIGTERM, SIGKILL after 5 s, at most 5 s);
     /// on starts it and answers once it is ready. `done(nil)` on success, else the reason. TypeScript
     /// persists the setting first and reconnects after.
     func setEnabled(_ enabled: Bool, done: @escaping (String?) -> Void) {
@@ -625,12 +629,13 @@ final class T3LocalBackend: @unchecked Sendable {
 
     private func describe(_ manager: T3LocalBackendManager, into status: inout [String: Any]) {
         let snapshot = manager.snapshot
-        status["state"] = snapshot.ready ? "ready" : snapshot.restartScheduled ? "restarting" : snapshot.desiredRunning ? "starting" : "stopped"
+        status["state"] = manager.stateDirOwned ? "failed" : snapshot.ready ? "ready" : snapshot.restartScheduled ? "restarting" : snapshot.desiredRunning ? "starting" : "stopped"
         status["restartAttempt"] = snapshot.restartAttempt
         status["nextRestartMs"] = manager.nextRestartMs.map { Int($0.rounded()) } ?? NSNull()
         status["pid"] = snapshot.activePid.map { Int($0) } ?? NSNull()
         status["lastExit"] = manager.lastExit ?? NSNull()
         status["bearerReady"] = auth.cached != nil
+        if manager.stateDirOwned { status["failure"] = "\(T3LocalFatal.homeUnavailableTitle). \(T3LocalFatal.homeUnavailableMessage)" }
     }
 
     /// At each ready: the bearer (exchanged once per app run) and the server's descriptor, whose

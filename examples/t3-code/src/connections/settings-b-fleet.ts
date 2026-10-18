@@ -25,13 +25,14 @@ import { codexHandoffEvent } from '../providers/codex-handoff-events'; // the pr
 import { providerSetupEvent } from '../providers/provider-setup';
 import { fleetSetupHost } from '../providers/codex-fleet-host'; // a background computer's Codex setup streams
 import { fleetPortsEvent, fleetPortsPass } from '../sidebar/legacy-sidebar-ports'; // a background environment's discovered ports
+import { sessionHasLegacyPermissions, sessionPermissions } from './remote-scopes';
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 export interface FleetEntry {
   key: string; origin: string; environmentId: string;
   phase: FleetPhase; message: string; traceId: string;
   generation: number; synchronized: number; lastEvent: number; subscriptions: Record<string, string>;
-  config: Obj; shell: Shell; scopes: string[]; error: string; requested: boolean; busy?: boolean;
+  config: Obj; shell: Shell; scopes: string[]; legacyPermissions?: boolean; error: string; requested: boolean; busy?: boolean;
   /** The route this environment's transport connected over. */
   activeRouteId?: string;
   /** The primary environment (local-primary.ts): connected with the embedded server's bearer. */
@@ -177,7 +178,7 @@ export class EnvironmentFleet {
   private async bootstrap(remote: Native, entry: FleetEntry): Promise<void> {
     const generation = entry.generation;
     const auth = await this.call(remote, entry, { op: 'http', path: '/api/auth/session' });
-    entry.scopes = Array.isArray(auth.scopes) ? auth.scopes.filter((scope): scope is string => typeof scope === 'string') : [];
+    entry.scopes = sessionPermissions(auth); entry.legacyPermissions = sessionHasLegacyPermissions(auth);
     entry.config = await this.call(remote, entry, { op: 'request', method: 'server.getConfig', payload: {} });
     entry.subscriptions.config = str((await this.call(remote, entry, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { usageLimitSources: true } })).id); // hub sources, as the focused client asks
     entry.shell = applyShell(initialShell(), await this.call(remote, entry, { op: 'http', path: '/api/orchestration/shell' }));
@@ -187,7 +188,7 @@ export class EnvironmentFleet {
 
   /** Each background transport already has its own inbox and generation; metadata uses that lifecycle. */
   private async watchTerminals(remote: Native, entry: FleetEntry): Promise<void> {
-    if (!entry.scopes.includes('terminal:operate') || entry.terminalAttempted || entry.subscriptions['terminal-metadata']) return;
+    if (!entry.scopes.includes('terminal:read') || entry.terminalAttempted || entry.subscriptions['terminal-metadata']) return;
     entry.terminalAttempted = true;
     try {
       entry.subscriptions['terminal-metadata'] = str((await this.call(remote, entry, { op: 'subscribe', key: 'terminal-metadata', method: 'subscribeTerminalMetadata', payload: {} })).id);
