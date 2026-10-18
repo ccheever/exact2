@@ -841,8 +841,8 @@ macro_rules! canvas_jni {
                 _env: *mut JNIEnv, _class: jclass,
             ) {
                 with(|h| h.display_frame());
-                // A display frame the app's own views draw in, a canvas stream or not.
-                $crate::presenter::scrub_frame_drawn();
+                // A scrub frame's trace waits for the frame this reader draws.
+                $crate::presenter::scrub_frames_said();
             }
 
             #[no_mangle]
