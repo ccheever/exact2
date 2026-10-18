@@ -1,5 +1,6 @@
 use ProviderIcon from "./provider-icon.contract"
 use ProjectFavicon, ProjectFaviconTarget from "./project-favicon.contract"
+use SettingsTextRole from "./settings.contract"
 // @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // Upstream 365aa87982 HomeScreen, thread-list-v2-items, EmptyState (screen pane).
 // @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
@@ -117,6 +118,8 @@ component Home
     items: HomeItem[]
     emptyTitle: string
     emptyDetail: string
+    emptyTitleRole: SettingsTextRole
+    emptyDetailRole: SettingsTextRole
     loading: bool
     addEnvironment: bool
     fullPageEmpty: bool
@@ -241,6 +244,24 @@ component Home
     if items.length == 0 and listId == "sidebar-list"
       list id=listId appearance="none" flex=1 min-height=0 padding-left=8 padding-right=8 padding-top=6 padding-bottom=bottomClearance
         text emptyTitle padding-left=7 padding-right=7 padding-top=14 padding-bottom=14 font-size=14 line-height="19px" color=colors.drawerMuted translate="0px 0.5px" testId="sidebar-empty-title"
+    else if items.length == 0 and not fullPageEmpty
+      scroll id=listId flex=1 min-height=0 padding-bottom=bottomClearance
+        column flex="none" padding=17.5
+          border-radius=22
+          border-width=1
+          border-style="solid"
+          border-color=colors.border
+          background-color=colors.card
+          text emptyTitle font-size=emptyTitleRole.size
+            line-height=`${emptyTitleRole.line}px`
+            font-weight=700
+            color=colors.foreground
+            testId="home-empty-title"
+          text emptyDetail margin-top=7
+            font-size=emptyDetailRole.size
+            line-height=`${emptyDetailRole.size * 1.625}px`
+            color=colors.muted
+            testId="home-empty-detail"
     else if items.length == 0
       // Reference HomeScreen's unfiltered empty box spans the transparent glass window; filtered empties stay in flow.
       column flex=1
