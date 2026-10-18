@@ -221,6 +221,8 @@ mod tests {
         let entries = contract::snapshot::compile_entries(&app, &manifest).unwrap();
         assert_eq!(entries.len(), 2);
         let (assets, plans) = emit(&out, false, &entries).unwrap();
+        assert!(!out.join("plans/widgets.json").exists());
+        assert!(!assets.iter().any(|c| c["name"] == "plans/widgets.json"));
         let destination = dir.0.join("copy");
         copy(&out, &destination, &assets).unwrap();
         for a in manifest.live_activities().unwrap() {

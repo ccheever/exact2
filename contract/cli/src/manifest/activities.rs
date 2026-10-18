@@ -9,9 +9,9 @@ use std::collections::HashSet;
 pub struct Activity {
     /// Stable entry identifier, unique across widgets and activities.
     pub kind: String,
-    /// Literal platform label, defaulting to the humanised kind.
+    /// Literal platform label; absence is left to the platform host.
     pub title: Option<String>,
-    /// Literal platform description, defaulting to the humanised kind.
+    /// Literal platform description; absence is left to the platform host.
     pub description: Option<String>,
     /// Root component, whose props match the state shape.
     pub component: String,

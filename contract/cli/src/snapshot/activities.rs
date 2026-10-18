@@ -2,22 +2,10 @@
 use super::{entry::RenderEntry, refusal, Declaration, Entry, STATE_SLOT};
 use crate::{manifest::Activity, CompileError};
 use contract_syntax::{Expr, File, Node, Span};
-use exact_plan::{ActivitySlotsRow, NodesId, Plan, TypeKind, TypesId};
+use exact_plan::{ActivitySlotsRow, NodesId, Plan, TypeKind, TypesId, ACTIVITY_PLACEMENTS};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path};
-
-/// ActivityKit's placement identities, never an app-visible switching value.
-pub const PLACEMENTS: [&str; 8] = [
-    "lockScreen",
-    "compactLeading",
-    "compactTrailing",
-    "minimal",
-    "expanded.leading",
-    "expanded.trailing",
-    "expanded.center",
-    "expanded.bottom",
-];
 
 /// Compile a source fixture under the activity profile used by the bake.
 pub fn compile_activity(src: &str, activity: &Activity) -> Result<Plan, Vec<CompileError>> {
@@ -33,17 +21,21 @@ pub(super) fn compile_file(
     activity: &Activity,
     app: Option<&Path>,
 ) -> Result<Plan, Vec<CompileError>> {
-    let fail = |m| refusal("snapshot-placement", m, Span::default());
     let root = file
         .components
         .iter_mut()
         .find(|c| c.name == activity.component)
         .ok_or_else(|| {
-            fail(format!(
-                "activity {}: declare component `{}` in app.contract",
-                activity.kind, activity.component
-            ))
+            refusal(
+                "snapshot-entry",
+                format!(
+                    "activity {}: declare component `{}` in app.contract",
+                    activity.kind, activity.component
+                ),
+                Span::default(),
+            )
         })?;
+    let at = root.span;
     // `slot` is HTML's placement attribute. It is consumed here, before ordinary
     // lowering, and never reaches the kernel as a presentation property.
     fn slots(
@@ -67,17 +59,37 @@ pub(super) fn compile_file(
             let name = match names.as_slice() {
                 [a] => match &a.value {
                     Expr::Str(s, _) => s.clone(),
-                    _ => String::new(),
+                    _ => {
+                        return Err(refusal(
+                            "snapshot-placement",
+                            "`slot` must be a string literal naming a placement",
+                            a.span,
+                        ))
+                    }
                 },
-                _ => String::new(),
+                [] => {
+                    return Err(refusal(
+                        "snapshot-placement",
+                        "missing `slot`; name this view's placement",
+                        *span,
+                    ))
+                }
+                _ => {
+                    return Err(refusal(
+                        "snapshot-placement",
+                        "`slot` repeats; keep one placement attribute",
+                        names[1].span,
+                    ))
+                }
             };
             let full = format!("{prefix}{name}");
             if tag != "view"
                 || !positional.is_empty()
-                || (full != "expanded" && !PLACEMENTS.contains(&full.as_str()))
+                || (full != "expanded" && !ACTIVITY_PLACEMENTS.contains(&full.as_str()))
             {
                 return Err(refusal("snapshot-placement", format!("unknown placement `{full}`; use lockScreen, compactLeading, compactTrailing, minimal or expanded's leading, trailing, center and bottom"), *span));
             }
+            let at = names[0].span;
             attrs.retain(|a| a.name != "slot");
             if full == "expanded" {
                 if !attrs.is_empty() || children.is_empty() {
@@ -92,7 +104,7 @@ pub(super) fn compile_file(
                 return Err(refusal(
                     "snapshot-placement",
                     format!("placement `{full}` repeats; keep one view per slot"),
-                    Span::default(),
+                    at,
                 ));
             }
         }
@@ -100,11 +112,15 @@ pub(super) fn compile_file(
     }
     let mut found = BTreeMap::new();
     slots(std::mem::take(&mut root.view), "", &mut found)?;
-    for name in PLACEMENTS {
+    for name in ACTIVITY_PLACEMENTS {
         root.view.push(found.remove(name).ok_or_else(|| {
-            fail(format!(
-                "missing placement `{name}`; add its `view slot=…` to the activity component"
-            ))
+            refusal(
+                "snapshot-placement",
+                format!(
+                    "missing placement `{name}`; add its `view slot=…` to the activity component"
+                ),
+                at,
+            )
         })?);
     }
     let mut container = contract_syntax::parse("component Slots\n  view\n    view\n")
@@ -148,14 +164,14 @@ pub(super) fn placements(plan: &mut Plan) -> Result<(), Vec<CompileError>> {
         .filter(|(_, n)| n.parent == Some(NodesId(0)) && n.arm.is_none())
         .map(|(i, _)| NodesId(i as u32))
         .collect();
-    if roots.len() != PLACEMENTS.len() {
+    if roots.len() != ACTIVITY_PLACEMENTS.len() {
         return Err(vec![refusal(
             "snapshot-placement",
             "each activity slot needs one view root",
             Span::default(),
         )]);
     }
-    for (name, root) in PLACEMENTS.into_iter().zip(roots) {
+    for (name, root) in ACTIVITY_PLACEMENTS.into_iter().zip(roots) {
         let name = if let Some(i) = plan.strings.iter().position(|s| s == name) {
             exact_plan::StrId(i as u32)
         } else {
@@ -213,8 +229,42 @@ pub fn shape_digest(plan: &Plan) -> String {
     )
 }
 
-/// The encoded static attributes and dynamic state share ActivityKit's 4 KiB limit.
-/// Use UTF-8 bytes, including JSON escaping and both copies of the shape digest.
+// Foundation and serde_json choose different number spellings and escapes.
+// Reserve 32 bytes per finite number, six per control/line separator and two
+// per slash. Everything else is compact UTF-8 JSON. Both send and bake use
+// this upper bound, so neither can admit a state the other refuses at 4 KiB.
+fn encoded_size_bound(value: &Value) -> usize {
+    fn string(s: &str) -> usize {
+        2 + s
+            .chars()
+            .map(|c| match c {
+                '\u{0}'..='\u{1f}' | '\u{2028}' | '\u{2029}' => 6,
+                '"' | '\\' | '/' => 2,
+                _ => c.len_utf8(),
+            })
+            .sum::<usize>()
+    }
+    match value {
+        Value::Null => 4,
+        Value::Bool(true) => 4,
+        Value::Bool(false) => 5,
+        Value::Number(_) => 32,
+        Value::String(s) => string(s),
+        Value::Array(items) => {
+            2 + items.len().saturating_sub(1) + items.iter().map(encoded_size_bound).sum::<usize>()
+        }
+        Value::Object(fields) => {
+            2 + fields.len().saturating_sub(1)
+                + fields
+                    .iter()
+                    .map(|(key, value)| string(key) + 1 + encoded_size_bound(value))
+                    .sum::<usize>()
+        }
+    }
+}
+
+/// A shared conservative UTF-8 JSON size bound for attributes plus content state.
+/// See `ActivityEnvelope.swift` and the shared activity-envelope.json fixture.
 pub fn payload_bytes(
     kind: &str,
     generation: &str,
@@ -223,10 +273,9 @@ pub fn payload_bytes(
 ) -> Result<usize, String> {
     let attributes = json!({"kind":kind, "generation":generation, "shape":shape});
     let content = json!({"shape":shape, "state":state});
-    let bytes = serde_json::to_vec(&attributes).unwrap().len()
-        + serde_json::to_vec(&content).unwrap().len();
+    let bytes = encoded_size_bound(&attributes) + encoded_size_bound(&content);
     if bytes > 4096 {
-        Err(format!("encoded attributes and state use {bytes} bytes; the limit is 4096 bytes; shorten the state"))
+        Err(format!("attributes and state budget {bytes} bytes (conservative JSON bound); the limit is 4096 bytes; shorten the state"))
     } else {
         Ok(bytes)
     }
@@ -288,7 +337,7 @@ pub(super) fn write(entries: &BTreeMap<String, Entry>, out: &Path) -> Result<(),
         registry.push(
             json!({"kind":kind, "state":a.state, "shape":digest, "preview":a.preview,
             "push":a.push, "frequent":a.frequent, "title":a.title, "description":a.description,
-            "slots":PLACEMENTS}),
+            "slots":ACTIVITY_PLACEMENTS}),
         );
     }
     if !registry.is_empty() {

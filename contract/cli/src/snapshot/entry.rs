@@ -117,11 +117,13 @@ pub fn write_entries(entries: &BTreeMap<String, Entry>, out: &Path) -> Result<()
                 Declaration::Activity(_) => None,
             })
             .collect();
-        std::fs::write(
-            directory.join("widgets.json"),
-            serde_json::to_vec(&registry).unwrap(),
-        )
-        .map_err(|e| e.to_string())?;
+        if !registry.is_empty() {
+            std::fs::write(
+                directory.join("widgets.json"),
+                serde_json::to_vec(&registry).unwrap(),
+            )
+            .map_err(|e| e.to_string())?;
+        }
     }
     super::activities::write(entries, out)?;
     for (kind, entry) in entries {

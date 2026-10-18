@@ -12,7 +12,7 @@ pub use refresh::{bake_app, check_refreshes, entries, source_plan};
 pub const PROPS_SLOT: &str = "snapshot_props";
 /// Find an activity's typed state slot by this name.
 pub const STATE_SLOT: &str = "snapshot_state";
-pub use activities::{compile_activity, payload_bytes, shape_digest, state_schema, PLACEMENTS};
+pub use activities::{compile_activity, payload_bytes, shape_digest, state_schema};
 #[cfg(test)]
 mod activity_tests;
 #[cfg(test)]

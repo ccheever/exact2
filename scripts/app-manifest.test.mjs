@@ -152,3 +152,17 @@ test('document handlers and TypeScript source mounts accept their manifest shape
     assert.throws(() => read({ typescript: { sources: { backend: { path: '../generated' } } } }), /typescript.sources.backend:.*string/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+
+test('activity labels reject control characters in schema validation', async () => {
+  const {validate} = await import('./app.mjs');
+  const schema = await Bun.file(new URL('./app.schema.json', import.meta.url)).json();
+  const activity = schema.properties.live_activities.items;
+  for (const key of ['title', 'description']) {
+    const label = activity.properties[key];
+    assert.deepEqual(validate('Next train 🚆', label, key, schema), []);
+    for (const code of [...Array.from({length:32}, (_, i) => i), ...Array.from({length:33}, (_, i) => i + 127), 0x2028, 0x2029]) {
+      assert.ok(validate(`bad${String.fromCodePoint(code)}label`, label, key, schema).length, `${key}: ${code}`);
+    }
+  }
+});

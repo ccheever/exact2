@@ -29,6 +29,18 @@ pub mod builder;
 pub mod bytes;
 mod entry;
 pub use entry::entry_identifier;
+/// ActivityKit's ordered placement identities (LLP 1126.001 WP8).
+pub const ACTIVITY_PLACEMENTS: [&str; 8] = [
+    "lockScreen",
+    "compactLeading",
+    "compactTrailing",
+    "minimal",
+    "expanded.leading",
+    "expanded.trailing",
+    "expanded.center",
+    "expanded.bottom",
+];
+
 pub mod shared;
 pub mod strings;
 pub mod value;
@@ -234,17 +246,7 @@ impl Plan {
             return Err(PlanError::WrongEntry);
         }
         if activity {
-            const NAMES: [&str; 8] = [
-                "lockScreen",
-                "compactLeading",
-                "compactTrailing",
-                "minimal",
-                "expanded.leading",
-                "expanded.trailing",
-                "expanded.center",
-                "expanded.bottom",
-            ];
-            if self.activity_slots.len() != NAMES.len() {
+            if self.activity_slots.len() != ACTIVITY_PLACEMENTS.len() {
                 return Err(PlanError::WrongEntry);
             }
             let roots: Vec<_> = self
@@ -255,11 +257,13 @@ impl Plan {
                 .map(|(i, _)| i as u32)
                 .collect();
             for (i, slot) in self.activity_slots.iter().enumerate() {
-                if self.str(slot.name) != NAMES[i] || roots.get(i) != Some(&slot.root.0) {
+                if self.str(slot.name) != ACTIVITY_PLACEMENTS[i]
+                    || roots.get(i) != Some(&slot.root.0)
+                {
                     return Err(PlanError::WrongEntry);
                 }
             }
-            if roots.len() != NAMES.len()
+            if roots.len() != ACTIVITY_PLACEMENTS.len()
                 || !self.slots.iter().any(|s| {
                     self.str(s.name) == "snapshot_state"
                         && s.owner.is_none()

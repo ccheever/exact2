@@ -29,6 +29,33 @@ public indirect enum ActivityJSON: Codable, Hashable, Sendable {
         case let .object(v): try value.encode(v)
         }
     }
+
+    // The same conservative UTF-8 JSON accounting as the bake's payload_bytes:
+    // 32 bytes per finite number, six per control/line separator, two per slash.
+    fileprivate func encodedSizeBound() throws -> Int {
+        func string(_ value: String) -> Int {
+            2 + value.unicodeScalars.reduce(0) { count, scalar in
+                switch scalar.value {
+                case 0...31, 0x2028, 0x2029: return count + 6
+                case 34, 47, 92: return count + 2
+                default: return count + String(scalar).utf8.count
+                }
+            }
+        }
+        switch self {
+        case .null: return 4
+        case let .bool(value): return value ? 4 : 5
+        case let .number(value):
+            guard value.isFinite else { throw ExactActivityAttributes.Failure(description: "activity state needs finite JSON numbers") }
+            return 32
+        case let .string(value): return string(value)
+        case let .array(items):
+            return try 2 + max(0, items.count - 1) + items.reduce(0) { try $0 + $1.encodedSizeBound() }
+        case let .object(fields):
+            return try 2 + max(0, fields.count - 1) + fields.reduce(0) { try $0 + string($1.key) + 1 + $1.value.encodedSizeBound() }
+        }
+    }
+
 }
 
 public struct ExactActivityAttributes: Codable, Hashable, Sendable {
@@ -58,11 +85,11 @@ public struct ExactActivityAttributes: Codable, Hashable, Sendable {
         guard digest(generation), digest(shape), content.shape == shape else {
             throw Failure(description: "activity generation or state shape digest does not match")
         }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let bytes = try encoder.encode(self).count + encoder.encode(content).count
+        let attributes = ActivityJSON.object(["kind": .string(kind), "generation": .string(generation), "shape": .string(shape)])
+        let state = ActivityJSON.object(["shape": .string(content.shape), "state": content.state])
+        let bytes = try attributes.encodedSizeBound() + state.encodedSizeBound()
         guard bytes <= 4096 else {
-            throw Failure(description: "encoded attributes and state use \(bytes) bytes; the limit is 4096 bytes; shorten the state")
+            throw Failure(description: "attributes and state budget \(bytes) bytes (conservative JSON bound); the limit is 4096 bytes; shorten the state")
         }
         return bytes
     }

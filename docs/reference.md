@@ -416,15 +416,21 @@ The shape digest hashes its canonical schema, including each record's field
 order. The universal envelope's attributes are `{kind, generation, shape}`;
 its content state is `{shape, state}`, where `state` is a JSON value, not an
 encoded JSON string. `generation` names the immutable publication digest. The
-preview's encoded attributes and content state together must fit 4096 UTF-8
-bytes, including both shape digests; a refusal reports the bytes and asks for
-shorter state. The shared Swift envelope exposes the same check for sends.
+preview and sends share a conservative 4096-byte JSON budget, including both
+shape digests. Both reserve 32 bytes per finite number (covering either encoder's
+Double spelling), six per U+0000–U+001F or U+2028/U+2029, and two per slash;
+other characters and JSON punctuation use their compact UTF-8 size. This margin
+covers Foundation/serde_json differences in number spelling and escaping, so a
+state admitted at bake also passes the send check. A refusal reports the budgeted
+bytes and asks for shorter state. The shared `activity-envelope.json` fixture
+pins this rule in Rust and Swift, including the 4096/4097-byte boundary.
 
 An activity pins its named generation within the installed compatibility cohort,
 even after `current` moves. Publications currently keep every generation. The
-per-id state cache also separates generations and shapes: a state the plan cannot
-decode falls back to its last decodable state with the driver's outdated flag,
-or the placeholder when none exists. ActivityKit's `isStale` is a separate system
+cache has one file per activity id. The caller supplies the pinned plan's decoder:
+a state it cannot decode falls back to its last decodable state with the driver's
+outdated flag. Without a decodable kept state the placeholder has no outdated
+flag. A failed write returns an error to the caller. ActivityKit's `isStale` is a separate system
 fact. Rendering across a compatibility-changing binary update remains subject
 to LLP 1126.001 §5 Q6's pending ruling.
 

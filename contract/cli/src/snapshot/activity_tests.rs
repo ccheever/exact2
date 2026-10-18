@@ -1,6 +1,61 @@
 use super::*;
 use crate::{manifest::Activity, Manifest};
-use serde_json::json;
+use serde_json::{json, Value};
+
+// Deliberately accepts only the schema vocabulary the state emitter promises.
+fn conforms(value: &Value, schema: &Value) -> bool {
+    for key in schema.as_object().unwrap().keys() {
+        assert!(
+            [
+                "$schema",
+                "type",
+                "enum",
+                "anyOf",
+                "properties",
+                "required",
+                "additionalProperties",
+                "items"
+            ]
+            .contains(&key.as_str()),
+            "uncovered schema keyword: {key}"
+        );
+    }
+    if let Some(choices) = schema.get("anyOf") {
+        return choices
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| conforms(value, s));
+    }
+    if let Some(choices) = schema.get("enum") {
+        if !choices.as_array().unwrap().contains(value) {
+            return false;
+        }
+    }
+    match schema["type"].as_str().unwrap() {
+        "null" => value.is_null(),
+        "boolean" => value.is_boolean(),
+        "number" => value.is_number(),
+        "string" => value.is_string(),
+        "array" => value
+            .as_array()
+            .is_some_and(|items| items.iter().all(|v| conforms(v, &schema["items"]))),
+        "object" => value.as_object().is_some_and(|object| {
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|key| object.contains_key(key.as_str().unwrap()))
+                && object
+                    .iter()
+                    .all(|(key, value)| match schema["properties"].get(key) {
+                        Some(s) => conforms(value, s),
+                        None => schema["additionalProperties"] != false,
+                    })
+        }),
+        unknown => panic!("uncovered schema type: {unknown}"),
+    }
+}
 
 fn activity() -> Activity {
     Activity {
@@ -36,7 +91,7 @@ fn one_activity_plan_has_all_placements_and_no_refresh() {
             .iter()
             .map(|s| p.str(s.name))
             .collect::<Vec<_>>(),
-        PLACEMENTS
+        exact_plan::ACTIVITY_PLACEMENTS
     );
     assert_eq!(p.resources.len(), 1);
     assert_eq!(p.str(p.resources[0].source), "exactViewport");
@@ -104,17 +159,25 @@ fn a_single_session_relayouts_slots_at_their_own_proposed_width() {
         let children = session.kernel().node(root).unwrap().children();
         assert_eq!(children.len(), 8);
         for child in children {
-            let node = session.kernel().node(child).unwrap();
-            let key = node.key;
-            assert_eq!(
-                session.kernel().laid_out_frame(key).unwrap().0.width,
-                width as f32
-            );
-            assert!(session
+            session.set_viewport(width, 200.).unwrap();
+            session
                 .kernel_mut()
-                .fit_content_height(key)
-                .unwrap()
-                .is_finite());
+                .compute_layout(root, Offer::definite(width as f32, 200.))
+                .unwrap();
+            let key = session.kernel().node(child).unwrap().key;
+            let fit = session.kernel_mut().fit_content_height(key).unwrap();
+            assert!(fit.is_finite() && fit > 0.);
+            session.set_viewport(width, fit as f64).unwrap();
+            session
+                .kernel_mut()
+                .compute_layout(root, Offer::definite(width as f32, fit))
+                .unwrap();
+            let frame = session.kernel().laid_out_frame(key).unwrap().0;
+            assert_eq!(frame.width, width as f32);
+            assert_eq!(
+                frame.height, fit,
+                "each slot uses its own fit height at width {width}"
+            );
         }
     }
 }
@@ -143,6 +206,11 @@ fn activity_slots_keep_snapshot_edits_and_require_known_unique_slots() {
         );
     }
     for (from, to, edit) in [
+        (
+            "slot=\"minimal\"",
+            "slot=7",
+            "`slot` must be a string literal",
+        ),
         ("slot=\"minimal\"", "slot=\"unknown\"", "unknown placement"),
         ("slot=\"minimal\"", "slot=\"lockScreen\"", "repeats"),
         (
@@ -154,12 +222,18 @@ fn activity_slots_keep_snapshot_edits_and_require_known_unique_slots() {
         let errors =
             compile_activity(&source("text title").replace(from, to), &activity()).unwrap_err();
         assert!(
-            errors
-                .iter()
-                .any(|e| e.id == "snapshot-placement" && e.message.contains(edit)),
+            errors.iter().any(|e| e.id == "snapshot-placement"
+                && e.message.contains(edit)
+                && e.span != contract_syntax::Span::default()),
             "{errors:?}"
         );
     }
+    let mut missing = activity();
+    missing.component = "Missing".into();
+    let errors = compile_activity(&source("text title"), &missing).unwrap_err();
+    assert!(errors
+        .iter()
+        .any(|e| e.id == "snapshot-entry" && e.message.contains("`Missing`")));
 }
 
 #[test]
@@ -239,10 +313,21 @@ fn caltrain_activities_bake_with_state_schemas_and_unchanged_app_plan() {
         assert_eq!(plan.activity_slots.len(), 8);
         assert_eq!(shape_digest(plan).len(), 64);
         let schema = state_schema(plan);
-        assert_eq!(schema["additionalProperties"], false);
-        for key in a.preview.as_object().unwrap().keys() {
-            assert!(schema["properties"].get(key).is_some());
-        }
+        assert!(
+            conforms(&a.preview, &schema),
+            "{} preview: {schema}",
+            a.kind
+        );
+        let field = a.preview.as_object().unwrap().keys().next().unwrap();
+        let mut missing = a.preview.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(!conforms(&missing, &schema));
+        let mut extra = a.preview.clone();
+        extra["unexpected"] = json!(true);
+        assert!(!conforms(&extra, &schema));
+        let mut wrong = a.preview.clone();
+        wrong[field] = json!([]);
+        assert!(!conforms(&wrong, &schema));
     }
     assert!(
         before
@@ -272,6 +357,15 @@ fn shape_digest_tracks_nested_order_types_enums_and_not_presentation() {
         schema["properties"]["extra"]["items"]["properties"]["value"]["anyOf"][1]["type"],
         "null"
     );
+    assert!(conforms(&a.preview, &schema));
+    let mut changed = a.preview.clone();
+    changed["extra"][0]["value"] = json!(42.);
+    assert!(conforms(&changed, &schema));
+    changed["extra"][0]["value"] = json!("wrong type");
+    assert!(!conforms(&changed, &schema));
+    changed = a.preview.clone();
+    changed["extra"][0]["status"] = json!("unknown");
+    assert!(!conforms(&changed, &schema));
     let reordered = compile_activity(
         &src.replace(
             "  status: enum<\"ready\", \"done\">\n  value: option<number>",
@@ -281,4 +375,34 @@ fn shape_digest_tracks_nested_order_types_enums_and_not_presentation() {
     )
     .unwrap();
     assert_ne!(shape_digest(&nested), shape_digest(&reordered));
+}
+
+#[test]
+fn shared_envelope_fixture_has_the_same_conservative_budget_as_swift() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../host/apple/tests/ExactKitTests/SnapshotFixtures/activity-envelope.json"
+    ))
+    .unwrap();
+    let attributes = &fixture["attributes"];
+    let state = &fixture["content"]["state"];
+    let budget = fixture["budget"].as_u64().unwrap() as usize;
+    let measure = |s: &Value| {
+        payload_bytes(
+            attributes["kind"].as_str().unwrap(),
+            attributes["generation"].as_str().unwrap(),
+            attributes["shape"].as_str().unwrap(),
+            s,
+        )
+    };
+    assert_eq!(measure(state), Ok(budget));
+    assert!(
+        serde_json::to_vec(attributes).unwrap().len()
+            + serde_json::to_vec(&fixture["content"]).unwrap().len()
+            <= budget
+    );
+    let mut padded = state.clone();
+    padded["padding"] = json!("x".repeat(4096 - budget));
+    assert_eq!(measure(&padded), Ok(4096));
+    padded["padding"] = json!("x".repeat(4097 - budget));
+    assert!(measure(&padded).unwrap_err().contains("4097 bytes"));
 }
