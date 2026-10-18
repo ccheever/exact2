@@ -137,10 +137,11 @@ test('Stop ends visible PR watches even when a thread has never run', async () =
   expect(presentBackgroundWork([{ kind: 'monitor', description: 'Watching pull request #12' }])?.title).toBe('Watching pull request #12');
 });
 
-test('cleanup uses its maintenance permission independently of orchestration writes', () => {
+test('cleanup uses settings permission independently of orchestration writes', () => {
   const focused = { focused: true, key: '' };
   expect(cleanupPermitted({ scopes: ['orchestration:operate'] }, focused)).toBe(false);
-  expect(cleanupPermitted({ scopes: ['environment:maintain'] }, focused)).toBe(true);
+  expect(cleanupPermitted({ scopes: ['environment:maintain'] }, focused)).toBe(false);
+  expect(cleanupPermitted({ scopes: ['settings:write'] }, focused)).toBe(true);
 });
 
 import { contractComponent, type Env } from '../support/contract-action-fixture';

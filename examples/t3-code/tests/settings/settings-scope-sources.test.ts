@@ -14,6 +14,7 @@ import { archivedSettings, lastRunSummary, storageSettings } from '../../src/set
 import { groupDeviceHosts, scopedDeviceHostsView, deviceHostsCommand, hostChecks } from '../../src/device/settings-a-hosts';
 import { taskEnvironmentSummaries } from '../../src/settings/scheduled-view';
 import { toasts } from '../../src/shell/toast';
+import { runCleanup } from '../../src/settings/storage-maintenance';
 
 const capabilities = { storageCleanup: true, storageCleanupRun: true, projectWorktreeCleanup: true, settledWorktreeCleanup: true, worktreesDirectory: true, projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true };
 function focused(settings: Obj = {}) {
@@ -120,6 +121,20 @@ describe('settings scope across environments', () => {
     expect(page.cleanupAvailable).toBe(true);
     expect(page.cleanupDisabled).toBe(true);
     expect(page.cleanupDescription).not.toContain('Turn on a cleanup rule');
+  });
+  test('cleanup enables and runs only targets with settings permission, independently of the focused grant', async () => {
+    const client = focused();
+    Object.assign(client, { scopes: ['environment:maintain'], generation: 1, shell: initialShell() });
+    const settingsOnly = entry(B, 'env-b', 'Settings only', { storageCleanup: { logsAfterDays: 7 } });
+    const maintainOnly = entry(C, 'env-c', 'Maintain only', { storageCleanup: { logsAfterDays: 7 } });
+    settingsOnly.scopes = ['settings:write']; maintainOnly.scopes = ['environment:maintain'];
+    fleet.entries.set(B, settingsOnly); fleet.entries.set(C, maintainOnly);
+    const calls: Obj[] = [], native = nativeFor(new Set(), calls);
+    expect((await storageSettings(as(client), native, '', '', true, 'env-b', '', '')).cleanupDisabled).toBe(false);
+    expect((await storageSettings(as(client), native, '', '', true, 'env-c', '', '')).cleanupDisabled).toBe(true);
+    await runCleanup(as(client), native, ['env-b', 'env-c']);
+    expect(calls.filter(call => call.method === 'server.runStorageCleanup').map(call => call.fleet)).toEqual([B]);
+    await expect(runCleanup(as(client), native, ['env-c'])).rejects.toThrow('permission');
   });
   test('a single environment writes only there', async () => {
     const client = focused();

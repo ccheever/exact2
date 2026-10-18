@@ -23,7 +23,7 @@ export function cleanupHasRules(settings: Obj): boolean {
 }
 export function cleanupPermitted(client: Pick<T3Client, 'scopes'>, environment: Pick<LiveEnvironment, 'focused' | 'key'>): boolean {
   const scopes = environment.focused ? client.scopes : fleet.entries.get(environment.key)?.scopes ?? [];
-  return scopes.includes('environment:maintain');
+  return scopes.includes('settings:write');
 }
 export async function runCleanup(client: T3Client, native: Native, environmentIds: readonly string[]): Promise<void> {
   const environments = liveEnvironments(client, native).filter(environment => environmentIds.includes(environment.environmentId) && environment.connected
