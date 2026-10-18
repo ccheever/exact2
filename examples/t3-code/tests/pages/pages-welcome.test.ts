@@ -3,7 +3,7 @@ import { noPrimary, resetPrimary } from '../support/local-primary-fixture';
 // These cases are the hosted rules (resolveHostedFirstRunDecision): no embedded server runs on this Mac.
 beforeEach(noPrimary);
 afterEach(resetPrimary);
-import { hostedDecision, transition, agentRows, providerState, decodeCandidates, recentCandidates, welcomeView, welcomeLocal, importProjects, welcomeShowing } from '../../src/pages/pages-welcome';
+import { splitOnboardingProjectPath, hostedDecision, transition, agentRows, providerState, decodeCandidates, recentCandidates, welcomeView, welcomeLocal, importProjects, welcomeShowing } from '../../src/pages/pages-welcome';
 import { pagesPrefs } from '../../src/pages/pages-prefs';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
@@ -158,4 +158,10 @@ test('the agents step holds one sign-in subscription per stream, and the project
   for (let answer = 0; answer < 3; answer++) await welcomeView(client, native, { step: 'import', now: Date.now() });
   expect(keys('subscribe')).toEqual(['provider-auth:codex', 'provider-install:codex']);
   expect(keys('unsubscribe')).toEqual(['provider-auth:codex', 'provider-install:codex']);
+});
+
+test('project paths keep sibling checkout names visible on Unix and Windows', () => {
+  expect(splitOnboardingProjectPath('/Users/me/Projects/app/')).toEqual({ name: 'app', parent: '/Users/me/Projects/' });
+  expect(splitOnboardingProjectPath('C:\\Users\\me\\app\\')).toEqual({ name: 'app', parent: 'C:\\Users\\me\\' });
+  for (const path of ['/', 'C:\\', '//server/share/']) expect(splitOnboardingProjectPath(path)).toEqual({ name: path, parent: '' });
 });

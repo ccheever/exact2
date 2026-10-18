@@ -5,12 +5,13 @@
 // "pending reactions") and pullRequestReviewStore.test.ts ("pull request review drafts"; the store is
 // a plain object here, so `setState` is a fresh store).
 import { describe, expect, it } from 'bun:test';
-import { contractComponent, type Env } from '../support/contract-action-fixture';
+import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 import type { Obj } from '../../src/client/domain';
 import {
   PULL_REQUEST_REACTION_ORDER, PullRequestReviewStore, applyPendingPullRequestReactions, canEditPullRequestChangeRequest, canEditPullRequestComment, pullRequestReactionEmoji,
   pullRequestReactionName, pullRequestReactionTooltip, pullRequestReviewKey, type PendingReviewComment, type PullRequestReaction, type PullRequestReactionContent,
 } from '../../src/pull-requests/pages-pr-writes-logic';
+import { contractFn } from '../support/contract-fn-fixture';
 import { appPath } from '../support/app-files';
 
 const actor = (login: string): Obj => ({ login, name: null, avatarUrl: null });
@@ -296,5 +297,24 @@ describe('remark focus and clipped body editing', () => {
     const text = await Bun.file(appPath('pages-pr-edit.contract')).text();
     expect(text).toContain('if not open and pencil and canEdit\n            PrdEditButton(');
     expect(text).toContain('opacity=(shown or focused ? 1 : 0)');
+  });
+});
+
+
+describe('review summary guidance', () => {
+  it('names the input that Submit needs for the chosen verdict', async () => {
+    const prcCanSubmit = await contractFn('pages-pr-compose.contract', 'prcCanSubmit', ['verdict', 'summary', 'pending', 'required']);
+    const expression = (await Bun.file(appPath('pages-pr-compose.contract')).text()).match(/^fn prcSummaryPlaceholder\([^)]*\): string = (.+)$/m)![1]!;
+    const placeholder = (verdict: string, pending: number, required: boolean) => value(expression, { prcCanSubmit, verdict, pending, required });
+    expect(placeholder('approve', 0, false)).toBe('Summarize your review (optional)');
+    expect(placeholder('comment', 0, false)).toBe('Summarize your review or add line comments');
+    expect(placeholder('comment', 1, false)).toBe('Summarize your review (optional)');
+    expect(placeholder('request-changes', 1, true)).toBe('Summarize your review (required to request changes)');
+    const form = contractComponent('pages-pr-compose.contract', 'PrdComposer');
+    const scope = { scope: 'review', writes: { verdicts: ['comment'], pendingCount: 0, summaryRequired: false, reviewPending: false, canComment: true, commentDraft: '', commentSerial: 0, summary: '', reviewSerial: 0, submitting: '', actionPending: false } };
+    const state = { ...form.state(scope), mode: 'review' };
+    expect(form.drawn('select value=chosen', state, scope)).toBe(false);
+    scope.writes.verdicts.push('approve');
+    expect(form.drawn('select value=chosen', state, scope)).toBe(true);
   });
 });

@@ -132,11 +132,12 @@ describe('a change still reaches each page, without a read', () => {
 
   test('Keybindings show a keybindingsUpdated list', async () => {
     const { server, ask, wake } = await launched();
-    expect((await ask(PAGES.Keybindings!)).view).toMatchObject({ count: '1 binding', path: '/lane/keybindings.json' });
+    expect((await ask(PAGES.Keybindings!)).view).toMatchObject({ rows: [expect.anything()], path: '/lane/keybindings.json' });
     server.config.keybindings = [...arr(server.config.keybindings), { command: 'chat.new', shortcut: { key: 'n', modKey: true } }];
     server.emit('config', { type: 'keybindingsUpdated', payload: { keybindings: server.config.keybindings, issues: [] } });
     const view = await wake(PAGES.Keybindings!);
-    expect({ sent: view.sent, count: view.view.count }).toEqual({ sent: [], count: '2 bindings' });
+    expect(view.sent).toEqual([]);
+    expect(arr(view.view.rows)).toHaveLength(2);
   });
 
   test('Scheduled tasks show the live list and the editor a new default model; the editor reads its refs once', async () => {

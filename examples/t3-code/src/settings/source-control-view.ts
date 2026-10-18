@@ -33,7 +33,7 @@ export type ScopedRow = { key: string; kind: string; title: string; description:
   /** A model row's picker trigger mark: the instance's driver and ProviderInstanceIcon badge. */
   driver: string; badge: string; accent: string };
 
-export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3code', branchNameInstructions: '',
+export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3', branchNameInstructions: '',
   sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null,
   enableAgentBrowserAccess: true, enableAgentDeviceAccess: false, enableDeviceSupport: false, defaultModelSelection: null, defaultThreadEnvMode: null, deviceHosts: [] };
 const PROJECT_KEYS = ['defaultModelSelection', 'defaultThreadEnvMode', 'defaultAutoPull', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'sourceControlWriterModelSelection', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod'];
@@ -100,10 +100,10 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
   const available = textProviders.some(provider => providerAvailable(provider) && arr(provider.models).some(model => model.isUnavailable !== true));
   const text = [
     row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'select', title: 'Worktree branch naming', resetLabel: 'branch naming', first: true, value: mode, valueLabel: BRANCH_MODES[mode] || mode, disabled: !writable,
-      description: 'Choose how new worktree branches are named from your first message.', options: Object.entries(BRANCH_MODES).map(([v, l]) => ({ value: v, label: l, selected: v === mode })), reset: resetFor('branchNamingMode', mode !== 'static') }),
+      description: 'Choose how new worktree branches are named from your first message.', options: Object.entries(BRANCH_MODES).map(([v, l]) => ({ value: v, label: l, selected: v === mode })), reset: resetFor('branchNamingMode', mode !== 'static'),
+      status: mode === 'semantic' ? 'The model chooses a prefix that describes the work, such as feat/add-search, fix/login-timeout, or refactor/auth.' : '' }),
     ...(mode === 'static' ? [row(settings, projectId, environmentLabel, 'branchNamePrefix', { kind: 'text', title: 'Branch prefix', resetLabel: 'branch prefix', value: str(value.branchNamePrefix), placeholder: 'No prefix', disabled: !writable,
-      description: 'For example, t3code or t3code/ produces t3code/add-search. Leave empty for no prefix.', reset: resetFor('branchNamePrefix', str(value.branchNamePrefix) !== 't3code') })] : []),
-    ...(mode === 'semantic' ? [row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'note', title: '', description: 'The model chooses a prefix that describes the work, such as feat/add-search, fix/login-timeout, or refactor/auth.' })] : []),
+      description: 'For example, t3 or t3/ produces t3/add-search. Leave empty for no prefix.', reset: resetFor('branchNamePrefix', str(value.branchNamePrefix) !== 't3') })] : []),
     ...(mode === 'custom' ? [row(settings, projectId, environmentLabel, 'branchNameInstructions', { kind: 'textarea', title: 'Branch naming instructions', resetLabel: 'branch naming instructions', value: str(value.branchNameInstructions), placeholder: 'Use julius/ followed by the issue ID and a short description.', disabled: !writable,
       description: 'Appended to the naming prompt. The model returns the complete branch name; no prefix or suffix is added.', reset: resetFor('branchNameInstructions', str(value.branchNameInstructions) !== '') })] : []),
     row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { kind: 'select', title: 'Source control writing style', resetLabel: 'source control writing style', value: writing, valueLabel: WRITING_MODES[writing]?.label || writing, disabled: !writable,

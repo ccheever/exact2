@@ -119,7 +119,7 @@ describe('settings scope across environments', () => {
     await applyCoreSetting(as(client), nativeFor(new Set([B])), 'provider-update-checks:|||', 'false');
     expect(client.writes.length).toBe(1);
     expect(toasts(as(client)).at(-1)).toMatchObject({ kind: 'error', title: 'Setting saved on some environments',
-      description: 'Could not update Server. The other selected environments saved the change.' });
+      description: 'Could not save on Server: Disconnected during save\nSaved on Studio.' });
     // An offline named environment refuses before any request.
     fleet.entries.set(C, entry(C, 'env-c', 'Offline box', {}, 'error'));
     await applyCoreSetting(as(client), nativeFor(), 'provider-update-checks:|env-c||', 'true');

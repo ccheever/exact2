@@ -113,7 +113,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     ['pages-pr-quick.contract', '${popId}-keys'], ['pages-pr-stack.contract', 'pr-stack-keys'], ['settings-b-kit.contract', '${menuId}-keys'], ['settings-kit.contract', '${menuId}-keys'],
     ['settings-rows.contract', '${menuId}-keys'], ['timeline-plan.contract', 'plan-menu-${message.id}-keys'], ['legacy-sidebar.contract', 'legacy-sidebar-options-keys'],
     ['snapshot.contract', 'snapshot-sound-keys'], ['pages-usage.contract', 'usage-environment-keys'], ['pages-usage-prices.contract', 'usage-prices-apply-keys'],
-    ['pages-hero.contract', 'hero-project-keys'], ['git.contract', 'details-git-options-keys'], ['panel.contract', 'add-surface-menu-keys'], ['panel.contract', 'linked-pr-menu-keys'],
+    ['git.contract', 'details-git-options-keys'], ['panel.contract', 'add-surface-menu-keys'], ['panel.contract', 'linked-pr-menu-keys'],
     ['shell-panels.contract', 'title-menu-keys'], ['shell-panels.contract', 'title-submenu-keys'], ['requests.contract', 'approval-menu-${approval.id}-keys'],
     ['shell-details.contract', 'details-editors-keys'], ['project-scripts.contract', 'details-scripts-keys'], ['diff.contract', 'diff-scope-keys'], ['diff.contract', 'diff-turns-keys'],
     ['files-surface.contract', 'crumb-menu-keys'],
@@ -154,10 +154,10 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['legacy-sidebar.contract', 'LegacyOptions', 'triggerKey'], ['timeline-plan.contract', 'PlanCard', 'triggerKey'],
     ['connections.contract', 'ThisMachineSection', 'triggerKey'], ['connections.contract', 'EnvironmentRow', 'triggerKey'],
     ['connections.contract', 'EnvironmentIconMenu', 'triggerKey'], ['settings-b-kit.contract', 'CnSelect', 'triggerKey'],
-    ['pages-pr-stack.contract', 'PrdStackControls', 'triggerKey'], ['pages-hero.contract', 'HeroPicker', 'triggerKey'],
+    ['pages-pr-stack.contract', 'PrdStackControls', 'triggerKey'],
     ['settings-rows.contract', 'ScopeSentence', 'projectKey'], ['settings-rows.contract', 'ScopeSentence', 'environmentKey'],
     ['settings-rows.contract', 'CoreRowView', 'traitsKey'], ['settings-rows.contract', 'CoreSelect', 'triggerKey'],
-    ['pages-pr-code.contract', 'PrdCodeToolbar', 'triggerKey'], ['settings-a-hosts.contract', 'HostRowView', 'triggerKey'],
+    ['pages-pr-code.contract', 'PrdCodeToolbar', 'triggerKey'], ['pages-pr-code.contract', 'PrdDiffOptions', 'triggerKey'], ['settings-a-hosts.contract', 'HostRowView', 'triggerKey'],
     ['pages-pr-quick.contract', 'PrRowStack', 'triggerKey'], ['settings-kit.contract', 'SettingsSelect', 'triggerKey'],
     ['pages-prs.contract', 'PrSortMenu', 'triggerKey'], ['pages-prs.contract', 'PrHostMenu', 'triggerKey'],
     ['pages-prs.contract', 'PrFiltersMenu', 'triggerKey'], ['device-tools.contract', 'ToolsSelect', 'triggerKey'],
@@ -195,7 +195,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     const owner = contractComponent(file, name), calls: unknown[][] = [];
     const scope: Env = { ...await helpers, ...effects(calls), [itemName]: items, section: 'models', rowId: 'model', rowRef: 'repo:42',
       selectId: 'select', menuId: 'popup', popId: 'row-popup', idPrefix: 'account-', t: { id: 'thread' }, row: { id: 'row' },
-      environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
+      projects: [{ id: 'project' }], environments: [{ id: 'env' }], environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
       host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' }, testId: 'rail-trigger' };
     const popup = value(command[1]!, scope), sourceId = value(command[2]!, scope);
     expect(sourceId).not.toBe(popup);

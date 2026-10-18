@@ -379,6 +379,8 @@ shape Snapshot
   threadId: string
   threadTitle: string
   threadHeading: CommandChoice[]
+  // A subagent thread's parent (id and title) for the header's crumb; empty otherwise.
+  parentThread: CommandChoice[]
   draft: string
   running: bool
   // A live subagent's elapsed time ticks on the timeline clock (AgentElapsed).

@@ -25,6 +25,7 @@ use KmItem from "../shared/menu-keys.contract"
 use kmTriggerKey from "../shared/menu-keys.contract"
 use kmTriggerTarget from "../shared/menu-keys.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
+use DialogFinalFocus from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 use RefPageScroll from "../composer/ref-paging.contract"
 
@@ -481,6 +482,7 @@ component ScheduledEditor
           focus(target)
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="scheduled-task-overlay"
+      DialogFinalFocus(open=confirmRotate, owner="webhook-rotate-dialog")
       column position="relative" width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=(draft.id == "" ? "New task" : "Edit task") testId="scheduled-task-dialog" id="scheduled-task-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("scheduled-task-dialog") key=dialogFallback("scheduled-task-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract): from Runs on (a new task's) or Name to the X.
         FocusGuard(guardId="scheduled-task-guard-start", targets=dialogTargets, popup="scheduled-task-dialog")
@@ -584,26 +586,20 @@ component ScheduledEditor
               if scheduleMode == "webhook"
                 column gap="0.75rem"
                   if draft.address != ""
-                    input value=draft.address readonly=true aria-label="Webhook URL" class=TkField testId="task-webhook-url"
+                    input value=draft.address readonly=true aria-label="Webhook URL" class=TkField testId="task-webhook-url" autocorrect="off"
                   if draft.address != ""
                     row gap="0.5rem"
                       button press=rest("task", `action=copy-webhook&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}`) disabled=(busy or not draft.copyable) class=TkOutline testId="task-webhook-copy"
                         text "Copy"
-                      button press=askRotate(true) disabled=busy class=TkOutline testId="task-webhook-rotate"
+                      button id="task-webhook-rotate" press=askRotate(true) disabled=busy class=TkOutline testId="task-webhook-rotate"
                         text "Rotate"
                   if confirmRotate
-                    column role="alertdialog" aria-label="Rotate this webhook URL?" gap="0.5rem"
-                      text "Rotate this webhook URL? The current URL stops working." font-size="0.875rem"
-                      row gap="0.5rem"
-                        button press=askRotate(false) class=TkOutline
-                          text "Cancel"
-                        button press=rotate disabled=busy class=TkOutline testId="task-webhook-rotate-confirm"
-                          text "Rotate"
+                    WebhookRotateDialog(busy=busy, cancel=askRotate(false), confirm=rotate)
                   text draft.note font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
                   text "Each request runs the prompt. Use {{body.path}}, {{headers.name}}, {{query.name}}, {{body}} or {{request}} in the prompt; only what it names reaches the agent." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
                   column gap="0.375rem"
                     text "Skip requests older than" class=TkLabel
-                    input value=maxDeliveryAgeMinutes input=setText("maxDeliveryAgeMinutes") placeholder="Run every request" aria-label="Skip requests older than, minutes" disabled=busy class=TkField testId="task-webhook-max-age"
+                    input value=maxDeliveryAgeMinutes input=setText("maxDeliveryAgeMinutes") placeholder="Run every request" aria-label="Skip requests older than, minutes" disabled=busy class=TkField testId="task-webhook-max-age" autocorrect="off"
                   row align-items="center" justify-content="space-between" gap="1rem"
                     column gap="0.25rem" flex=1
                       text "Require signature" class=TkLabel
@@ -611,8 +607,8 @@ component ScheduledEditor
                     SettingsSwitch(checked=signatureEnabled, label="Require signature", disabled=busy, switchId="task-webhook-signature", toggle=toggle("signature"))
                   if signatureEnabled
                     column gap="0.5rem"
-                      input value=signatureHeader input=setText("signatureHeader") aria-label="Header" placeholder="Header" class=TkField disabled=busy testId="task-webhook-header"
-                      input value=signaturePrefix input=setText("signaturePrefix") aria-label="Prefix" placeholder="None" class=TkField disabled=busy testId="task-webhook-prefix"
+                      input value=signatureHeader input=setText("signatureHeader") aria-label="Header" placeholder="Header" class=TkField disabled=busy testId="task-webhook-header" autocorrect="off"
+                      input value=signaturePrefix input=setText("signaturePrefix") aria-label="Prefix" placeholder="None" class=TkField disabled=busy testId="task-webhook-prefix" autocorrect="off"
                       row gap="0.5rem"
                         button press=choose("encoding", "hex") aria-pressed=(signatureEncoding == "hex") class=TkOutline
                           text "hex"
@@ -623,7 +619,7 @@ component ScheduledEditor
                 row align-items="center" gap="0.75rem" flex-wrap="wrap"
                   row align-items="center" gap="0.5rem"
                     text "Run at" class=TkLabel
-                    input type="time" value=timeOfDay change=setText("time") aria-label="Run at" disabled=busy testId="task-time" box-sizing="border-box" width="8rem" height="2rem" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
+                    input type="time" value=timeOfDay change=setText("time") aria-label="Run at" disabled=busy testId="task-time" box-sizing="border-box" width="8rem" height="2rem" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
                     text "on" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
                   row role="group" aria-label="Days to run"
                     Weekday(label="Mon", short="Mo", on=monday, first=true, last=false, press=toggle("1"))
@@ -691,3 +687,26 @@ component TaskChoiceItem
         text option.label line-clamp=1 font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
         if option.secondary != ""
           text option.secondary max-width="18rem" line-clamp=1 font-size="0.75rem" color="light-dark(#71717b, #818181)"
+
+component WebhookRotateDialog
+  inject
+    dialogEntered: action
+    dialogFallback: action
+  props
+    busy: bool
+    cancel: action
+    confirm: action
+  derive targets = ["task-webhook-rotate-cancel", "task-webhook-rotate-confirm"]
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=50 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)"
+      column role="alertdialog" aria-label="Rotate this webhook URL?" id="webhook-rotate-dialog" testId="webhook-rotate-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("webhook-rotate-dialog") key=dialogFallback("webhook-rotate-dialog", targets) gap="0.75rem" padding="1.5rem" max-width="24rem" border-radius="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6"
+        FocusGuard(guardId="webhook-rotate-guard-start", targets=targets, popup="webhook-rotate-dialog")
+        DialogOpenFocus(target="task-webhook-rotate-cancel")
+        text "Rotate this webhook URL?" font-size="1rem" font-weight=600 role="heading" aria-level=2
+        text "The current URL stops working." font-size="0.875rem"
+        row gap="0.5rem" justify-content="flex-end"
+          button data-focus-stop="enabled" id="task-webhook-rotate-cancel" press=cancel class=TkOutline aria-keyshortcuts="Escape"
+            text "Cancel"
+          button data-focus-stop=(busy ? "" : "enabled") id="task-webhook-rotate-confirm" press=confirm disabled=busy class=TkOutline testId="task-webhook-rotate-confirm"
+            text "Rotate"
+        FocusGuard(guardId="webhook-rotate-guard-end", targets=targets, popup="webhook-rotate-dialog")

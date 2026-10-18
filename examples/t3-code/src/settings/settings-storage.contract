@@ -111,7 +111,7 @@ component StoragePanel
         column width="100%" padding="1rem" gap="0.75rem" box-sizing="border-box" border-radius="0.875rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e8, #ffffff14)" testId=`storage-database-${notice.environmentId}`
           text notice.title font-weight=500 font-size="0.875rem"
           text notice.description font-size="0.75rem" line-height="1.125rem"
-          input value=notice.command readonly=true aria-label="Database compact command" width="100%" font-size="0.75rem" testId="storage-database-command"
+          input value=notice.command readonly=true aria-label="Database compact command" width="100%" font-size="0.75rem" testId="storage-database-command" autocorrect="off"
           text "You can also run t3 doctor to inspect database storage." font-size="0.75rem"
           row gap="0.75rem"
             button press=rest("storage-copy-database", `environment=${encodeURIComponent(notice.environmentId)}&command=${encodeURIComponent(notice.command)}`) disabled=busy testId="storage-copy-database"
