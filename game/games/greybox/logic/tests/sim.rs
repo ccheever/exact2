@@ -204,6 +204,12 @@ fn soundscape_journals_ground_distance_beacon_and_camera_wind() {
     assert_eq!(s.get::<AudioSource>("camera").unwrap().sound, "wind");
     s.tap("KeyE");
     s.run(17.0);
+    assert!(!s
+        .world()
+        .journal()
+        .iter()
+        .any(|e| e.line.contains("sfx chime at beacon-1 ")));
+    s.run(17.0);
     assert!(s
         .world()
         .journal()
