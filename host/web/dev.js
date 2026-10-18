@@ -62,6 +62,11 @@ const sameOrigin = (path, base) => {
   if (url.origin !== location.origin || !["http:", "https:"].includes(url.protocol)) throw new Error("the dev generation leaves the app origin");
   return url.href;
 };
+function sameModule(a, b) {
+  if (!a || !b) return a === b;
+  return Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(key =>
+    a[key].length === b[key]?.length && a[key].every((byte, index) => byte === b[key][index]));
+}
 async function readBounded(url, limit, signal) {
   const response = await fetch(url, { cache: "no-store", signal });
   sameOrigin(response.url || url, location.href);
@@ -222,7 +227,7 @@ if (es) {
       if (!current()) return false;
       const t = performance.now();
       const names = candidate.surfaceAssets;
-      const liveAssets = Array.isArray(names) && names.length && activeGeneration && !candidate.module && !candidate.rust
+      const liveAssets = Array.isArray(names) && names.length && activeGeneration && sameModule(candidate.module, activeGeneration.module) && sameModule(candidate.rust, activeGeneration.rust)
         && candidate.planSha256 === activeGeneration.planSha256 && candidate.assets.size === activeGeneration.assets.size
         && [...candidate.assets].every(([name, card]) => names.includes(name) || card.sha256 === activeGeneration.assets.get(name)?.sha256);
       const accepted = liveAssets && globalThis.exact.gpu?.reloadAssets

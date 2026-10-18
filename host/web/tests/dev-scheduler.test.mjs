@@ -415,25 +415,35 @@ test('game edits omit bake-only sources but retain runtime, code generation and 
     assert.equal(run(()=>{throw new Error('non-game metadata must not be queried');})(inputs),inputs);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
-function scheduler() {
+function scheduler(game = false) {
   const legacy = !source.includes('function drainBuilds()');
   const functions = legacy ? source.slice(source.indexOf('function produceRust()'), source.indexOf('  if (!rustChild)')) + 'calls.push(["rust"]);rustActive=true;}'
     : source.slice(source.indexOf('function produceRust()'), source.indexOf('function produceRustNow()'));
-  return new Function(`
+  return new Function('game', `
     let building=false, rustActive=false, buildPending=false, rustPending=false, rustDirty=false, again=false, changed=new Set(), calls=[];
     let lastFailed=new Set(), failedInputs=new Set(), failing=false;
-    const app={manifest:{}};
+    const app={manifest:game?{game:{}}:{},dir:'fixture',workspace:'fixture'};
+    const process={execPath:'bun',stdout:{write(){}}},root='.',buildEnv={},resolve=(...parts)=>parts.join('/'),existsSync=()=>false;
+    let hostBuildChild,checked; const push=()=>{},watchCompilerInputs=()=>{};
+    const spawn=()=>{calls.push(['check']);checked={};return {stdout:{on(){}},stderr:{on(){}},on(event,fn){checked[event]=fn;}};};
     const gpuOnly = files => files.length && files.every(f=>f==='gpu.rs');
     const produceGpu = files => { building=true; calls.push(['gpu',files]); };
     const rebuildNow = files => { building=true; calls.push(['full',files]); if (failing) lastFailed=new Set(files); };
     const produceRustNow = () => { rustActive=true; calls.push(['rust']); };
     ${legacy ? 'function rebuild(){if(building){again=true;return;}const files=[...changed];changed.clear();if(gpuOnly(files))produceGpu(files);else rebuildNow(files);}function drainBuilds(){rebuild();}' : ''}
     ${functions}
-    return {calls, rust:produceRust, change(file){changed.add(file);buildPending=true;drainBuilds();},
+    return {calls, check(code){checked.exit(code);}, rust:produceRust, change(file){changed.add(file);buildPending=true;drainBuilds();},
       set failing(value){failing=value;}, get retrying(){return lastFailed.size>0;},
       finish(){building=false;rustActive=false;${legacy ? 'if(again||changed.size){again=false;rebuild();}' : 'drainBuilds();'}}};
-  `)();
+  `)(game);
 }
+test('a failed game check does not start either rebuild and a corrected save checks first', () => {
+  const s=scheduler(true);s.change('gpu.rs');
+  assert.deepEqual(s.calls,[['check']]);s.check(1);
+  assert.deepEqual(s.calls,[['check']]);assert.equal(s.retrying,true);
+  s.change('gpu.rs');assert.deepEqual(s.calls,[['check'],['check']]);s.check(0);
+  assert.deepEqual(s.calls,[['check'],['check'],['gpu',['gpu.rs']]]);
+});
 test('a Rust request during GPU build stays Rust, with no empty full rebuild', () => {
   const s=scheduler(); s.change('gpu.rs'); s.rust();
   assert.equal(s.calls.length,1); s.finish();

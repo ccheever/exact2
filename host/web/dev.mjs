@@ -30,9 +30,8 @@
 // shows its errors in the page's overlay, as a contract that fails does,
 // and the page keeps the last good wasm. TypeScript apps use a checked
 // resident producer below the data seam; file watching remains Node's own.
-import { spawn as childSpawn, spawnSync as childSpawnSync } from 'node:child_process';
-let processStarts = 0, tuning = null;
-const spawn = (...args) => { processStarts++; return childSpawn(...args); }, spawnSync = (...args) => { processStarts++; return childSpawnSync(...args); };
+import { spawn, spawnSync } from 'node:child_process';
+let tuning = null;
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
@@ -221,7 +220,7 @@ function gameRuntimeInputs(inputs) {
   }));
 }
 readGpuInputs();
-const gpuOnly = files => !producersOnly && files.length > 0 && appInputs.size > 0
+const gpuOnly = files => !tuning?.paths.size && !producersOnly && files.length > 0 && appInputs.size > 0
   && files.every(path => path.endsWith('.rs') && gpuInputs.has(path) && !appInputs.has(path));
 const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
 
@@ -423,18 +422,19 @@ const announcement = () => current ? {
 } : { epoch, ready: false };
 const hello = (nonce) => JSON.stringify({ hello: true, ...announcement(), ...(nonce ? { nonce } : {}) });
 let retentionToken = null;
-function captureGeneration(reuseCurrentAssets = false) {
+const tableGenerations = new Map();
+function captureGeneration(reuseCurrentAssets = false, tableUpdate = null) {
   // A mixed app publishes one complete candidate. A producer may finish
   // first, but neither language may reset the other's last admitted module.
   if (typescript && portableRust && (!currentModule || !currentRust)) return;
-  const encodedPlan = currentModule ? null : filesystem({ op: 'get', root: dist, path: 'app.plan' });
-  if (!currentModule && encodedPlan === null) throw new Error('the plan is missing');
-  const planBytes = currentModule?.get('app.plan') ?? currentRust?.get('app.plan') ?? Buffer.from(encodedPlan, 'base64');
+  const encodedPlan = currentModule || tableUpdate ? null : filesystem({ op: 'get', root: dist, path: 'app.plan' });
+  if (!currentModule && !tableUpdate && encodedPlan === null) throw new Error('the plan is missing');
+  const planBytes = (tableUpdate ? current?.files.get('app.plan') : undefined) ?? currentModule?.get('app.plan') ?? currentRust?.get('app.plan') ?? Buffer.from(encodedPlan, 'base64');
   const files = currentModule ? new Map(currentModule) : new Map([['app.plan', planBytes]]);
   // Source metadata stays beside the dev generation, never in its assets or
   // module receipt. A static/Rust bake may have replaced the plan without a map.
-  const encodedMap = currentModule || currentRust ? null : filesystem({ op: 'get', root: dist, path: 'app.plan.map.json' });
-  const mapBytes = currentModule?.get('app.plan.map.json') ?? currentRust?.get('app.plan.map.json') ?? (encodedMap == null ? null : Buffer.from(encodedMap, 'base64'));
+  const encodedMap = currentModule || currentRust || tableUpdate ? null : filesystem({ op: 'get', root: dist, path: 'app.plan.map.json' });
+  const mapBytes = (tableUpdate ? current?.files.get('app.plan.map.json') : undefined) ?? currentModule?.get('app.plan.map.json') ?? currentRust?.get('app.plan.map.json') ?? (encodedMap == null ? null : Buffer.from(encodedMap, 'base64'));
   files.delete('app.plan.map.json');
   if (mapBytes && mapBytes.length <= 64 * 1024 * 1024) {
     try {
@@ -460,9 +460,9 @@ function captureGeneration(reuseCurrentAssets = false) {
   // through owned filesystem reads again before publishing their own revision.
   if (reuseCurrentAssets && current) {
     for (const asset of current.envelope.assets) {
-      const body = current.files.get(asset.name);
+      const body = tableUpdate?.get(asset.name) ?? current.files.get(asset.name);
       files.set(asset.name, body);
-      assets.push({ name: asset.name, sha256: asset.sha256, bytes: body.length });
+      assets.push({ name: asset.name, sha256: tableUpdate?.has(asset.name) ? createHash('sha256').update(body).digest('hex') : asset.sha256, bytes: body.length });
     }
   } else {
     for (const tree of ['assets', 'deck', 'shaders']) {
@@ -496,8 +496,11 @@ function captureGeneration(reuseCurrentAssets = false) {
   const envelopeBytes = Buffer.from(JSON.stringify(envelope) + '\n');
   if (envelopeBytes.length > 64 * 1024) throw new Error('generation envelope exceeds 64 KiB');
   files.set('exact.json', envelopeBytes);
-  const retained = retainDevGeneration(generationCache, epoch, seq, files, undefined, retentionToken);
-  retentionToken = retained.token;
+  if (tableUpdate) {
+    // Table edits retain immutable bytes in this session; no filesystem helper is launched.
+    tableGenerations.set(prefix, files);
+    while (tableGenerations.size > 3) tableGenerations.delete(tableGenerations.keys().next().value);
+  } else retentionToken = retainDevGeneration(generationCache, epoch, seq, files, undefined, retentionToken).token;
   const revision = { epoch, seq, generation, envelope, files, prefix, url: prefix + 'exact.json' };
   const classification=classifyGeneration(planBytes,assets);
   current = revision;
@@ -1205,8 +1208,9 @@ function watchCompilerInputs() {
 watchCompilerInputs();
 if (app.manifest.game) {
   const {watchTables} = await import('../../game/app/tables.mjs');
-  tuning = await watchTables({app:app.dir, dist, processCount:()=>processStarts, refused:(error,text)=>{ console.error(error); push({error, ...(text ? {surfaceAttempt:{name:'assets/exact-tables.json',text}} : {})}); },
-    publish:(name, timing)=>{ seq++; captureGeneration(); console.log(`table: validated and published in ${timing.milliseconds.toFixed(1)} ms; subprocesses ${timing.processes}`); push({...announcement(), surfaceAssets:[name]}); }});
+  tuning = await watchTables({app:app.dir, dist, refused:(error,text)=>{ console.error(error); push({error, ...(text ? {surfaceAttempt:{name:'assets/exact-tables.json',text}} : {})}); },
+    reported:timing=>console.log(`table: validated and published in ${timing.milliseconds.toFixed(1)} ms; subprocesses ${timing.processes}`),
+    publish:(name, bytes)=>{ if (!current) return; seq++; captureGeneration(true, new Map([[name,bytes]])); push({...announcement(), surfaceAssets:[name]}); }});
 }
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', input => {
@@ -1273,7 +1277,6 @@ function rebuildNow(files) {
   });
 }
 
-// Only the artifacts whose inputs an edit touched are rebuilt and swapped.
 async function produceGpu(files) {
   building = true;
   try {
@@ -1303,7 +1306,9 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
     const compiled = Date.now();
     // The side directory mirrors dist: `gpu.js`, or a module's `gpu/<name>.js`.
     await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',module ? resolve(stage, 'gpu') : stage,'--out-name',module ?? 'gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate(kind).replaceAll('-','_')+'.wasm')]);
-    if (tuning && stem === 'gpu') await tuning.reload(stage, true);
+    if (tuning && stem === 'gpu' && (await (await import('../../game/app/tables.mjs')).tableValidator(stage, true)).names.length) {
+      changed.add(source); buildPending = true; rmSync(stage, {recursive:true,force:true}); return;
+    }
     gpuVersion++; gpuVersions.set(gpuVersion, { stem, directory: stage }); gpuSides.set(stem, gpuVersion);
     // Query versions pin JS and wasm together. A lagging fetch gets 404 rather
     // than silently pairing exports from one build with another build's wasm.
@@ -1377,7 +1382,12 @@ const server = createServer(async (req, res) => {
         const body = current.files.get(name);
         if (body) retained = { name, body };
       } catch { /* malformed URL */ }
-    } else retained = await readDevGenerationAsync(generationCache, url.pathname);
+    } else {
+      const prefix = url.pathname.slice(0, url.pathname.indexOf('/', '/__dev/generation/'.length + 33) + 1);
+      const files = tableGenerations.get(prefix);
+      if (files) { try { const name = decodeURIComponent(url.pathname.slice(prefix.length)); if (files.has(name)) retained = {name,body:files.get(name)}; } catch {} }
+      else retained = await readDevGenerationAsync(generationCache, url.pathname);
+    }
     if (!retained) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
     const { name, body } = retained;
     res.writeHead(200, { 'content-type': name === 'exact.json' ? 'application/vnd.exact.envelope+json' : webContentType('/' + name), 'cache-control': 'no-store' });
