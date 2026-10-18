@@ -580,7 +580,7 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     const clean = verify('--shots', 'out/shots');
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
     assert.ok(clean.lines.length <= 9, clean.stdout);
-    assert.ok(clean.lines.includes("largest text size (root font size 53 px at 390x844, iOS's body at its largest), 4 screens: nothing spills"), clean.stdout);
+    assert.ok(clean.lines.includes("largest text size (root font size 53 px at 390x844, iOS's body at its largest), 5 screens: nothing spills"), clean.stdout); // 4, and 1 the tests pass through
     assert.ok(!clean.lines.some((l) => l.startsWith('compiler:')), clean.stdout);
     assert.ok(clean.lines.includes('tests: 2 passed, 0 failed'), clean.stdout);
     assert.ok(clean.lines.includes('check first screen, 2 test ends, relaunch · 390x844, 1280x900 · light, dark: no findings'), clean.stdout);
@@ -729,7 +729,7 @@ test('the largest text size: its findings once each with the screens they were o
   ];
   const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots: [], ms: 2000 });
   assert.deepEqual(r.lines.slice(1, 6), [
-    'largest text size (accessibility-extra-extra-extra-large, body 53 pt), 2 screens: 3 findings (give the text room; a smaller or fixed font is the tell)',
+    'largest text size (accessibility-extra-extra-extra-large, body 53 pt), 2 screens: 3 findings (the app\'s own layout: give the text room; a smaller or fixed font is the tell)',
     `  (first screen only) ${lines[0].trim()}`,
     `  (first screen only) ${lines[1].trim()}`,
     lines[2],
@@ -803,6 +803,18 @@ test('the largest text size in a list row; a scaled iOS test end', async () => {
   assert.deepEqual(scaledEnd(end(), [402, 292.36])[0].lines, lines, 'a size the phone shows unscaled');
 });
 
+
+// The web's tour of the screens the tests pass through says only what the screens verify visits did not: another run's
+// row ids hold another date, and a line is the same with its digits aside.
+test('the tour at the largest text size: only what the visited screens did not say', async () => {
+  const { tourNews } = await import('./verify.mjs');
+  const visited = [{ screen: 'first screen', lines: ['  clipped  note-1792335600000-0\'s label "Coastal weekend" [32,474 129×62]: its text is 86 px wider than its box'] }];
+  const toured = [{ screen: 'line 36 of "study"', lines: [
+    '  clipped  note-1792339200000-0\'s label "Coastal weekend" [32,480 129×62]: its text is 86 px wider than its box',
+    '  clipped  again\'s label "Again" [48,839 133×66]: again cuts 17 px of its width',
+  ] }];
+  assert.deepEqual(tourNews(visited, toured), [{ screen: 'line 36 of "study"', lines: [toured[0].lines[1]] }]);
+});
 
 // LLP 1116.020 D4: a font size the app's Contract fixes is a finding, named where it is written, with the rem it would be;
 // app.json's `verify.accept` takes one by its node's testId, and a test file is no screen.
