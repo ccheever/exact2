@@ -41,7 +41,19 @@ final class IframePostMessageTests: XCTestCase {
         window.contentView = ExactView(session: session)
         window.orderFrontRegardless()
         defer { window.close() }
+        #else
+        session.drawReceipt()()
         #endif
+        let activationDeadline = Date(timeIntervalSinceNow: 30)
+        while !session.dataActivated && Date() < activationDeadline {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+        XCTAssertTrue(session.dataActivated, "storage activation must finish before installing the fixture root")
+        guard session.dataActivated else { return }
+        let activatedFile = AppFiles.url("app:/data/replacement.html")
+        fputs("iframe activated data root: \(activatedFile?.path ?? "missing"); fixture: \(directory.path)\n", stderr)
+        // First-pixel activation learns the runtime's roots after boot.
+        AppFiles.learn(["roots": ["data": directory.path]])
         let ready = expectation(description: "both committed guest documents are ready")
         ready.expectedFulfillmentCount = 2
         let replies = expectation(description: "two ordered replies from the addressed guest")
@@ -79,6 +91,11 @@ final class IframePostMessageTests: XCTestCase {
             guard let bytes = text.data(using: .utf8), let value = try? JSONSerialization.jsonObject(with: bytes) as? [String: String] else { return }
             if value["frame"] == "replacement" && value["text"] == "ready" { reset.fulfill() }
         }
+        let replacementFile = directory.appendingPathComponent("replacement.html")
+        let resolvedFile = try XCTUnwrap(AppFiles.url("app:/data/replacement.html"))
+        XCTAssertEqual(resolvedFile.standardizedFileURL, replacementFile.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.isReadableFile(atPath: resolvedFile.path))
+        fputs("iframe replacement read: \(resolvedFile.path), readable=true\n", stderr)
         let replace = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "replace" })
         session.presenter.press(replace.id)
         XCTAssertEqual(guest.props["src"], "app:/data/replacement.html")
