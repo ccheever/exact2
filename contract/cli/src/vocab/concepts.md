@@ -190,6 +190,9 @@ component App
   list where it was left. Build locations with `path("recipe", name)`; a route's parameters
   are strings (`e.params.name`). In tests, `clock settle` after each push and back. A form
   over the screen is a sheet (`contract vocab modal`).
+- A welcome shown at first launch only is not a second route: the main screen is the root
+  route and shows the welcome while a `persist` flag is unset (docs/recipes/first-launch.md).
+  A stack's first visit keeps its root route: `replace` to another route is refused there.
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 

@@ -265,6 +265,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |tabular digits: numeric columns or values changing in place|`numeric-readout`|
 |a count 1–99|`stepper`|
 |a chat that opens at its newest message|`chat-thread`|
+|a welcome shown at first launch only|`first-launch`|
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 |video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|

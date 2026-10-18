@@ -26,6 +26,7 @@ mod miswiring;
 mod nested_header;
 mod parts;
 mod roles;
+mod root_replace;
 mod rows;
 mod screens;
 mod svg;
@@ -140,6 +141,8 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
         line_height::multiplier(&style.attrs, &mut out);
     }
     out.extend(screens::screen_by_state(checked));
+    // A `replace` the router refuses on a root route's screen.
+    out.extend(root_replace::root_replace(checked));
     out.extend(counts::count_plural(checked));
     // @ref LLP 1116.016 D4 — a row that searches another data list.
     out.extend(rows::row_lookup(checked));

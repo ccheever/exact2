@@ -312,6 +312,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   says "navigate refused"). Fix: `navigate=follow` on the root and
   `action follow(url: string)` with `nav = go(nav, url)`, as every pattern has;
   `one-screen` keeps it with one route (LLP 1116.002, 1116.003).
+- **A welcome screen's Continue does nothing.** Cause: the welcome is the route at `/`
+  and Continue writes `nav = replace(nav, path("habits"))`; a stack's first visit keeps
+  its root route, so the router refuses ("replace cannot change the tab's root
+  route" in the log), and `push` would put the list over the welcome, with a Back to
+  it. Fix: the main screen is the root route and shows the welcome while a `persist`
+  flag is unset (docs/recipes/first-launch.md). The compiler warns on the plain form
+  (`lower-replace-root`). (Guard-rail evaluation, welcome, 2026-10-16.)
 - **A pushed screen's content is cut off and never scrolls, or its large title never
   collapses.** Cause: a route is a box, not a scroller; a title collapses only with
   the scroller right after the route's `header`. Fix: a `scroll flex=1 min-height=0`
