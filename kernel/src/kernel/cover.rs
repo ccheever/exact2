@@ -21,6 +21,9 @@
 //! `padding-top: env(safe-area-inset-top)` under `viewport-fit=cover`)
 //! hands that inset to its route's top cover, so the route's content starts
 //! at the bar's bottom whichever of the two padded it (LLP 1075.003 §9.10).
+//!
+//! The margins a platform's own list gives a grouped list's cards and cells
+//! are a claim of the same kind (`grouped::GroupedMargins`), set here.
 
 use super::Kernel;
 use crate::arena::NodeArena;
@@ -93,6 +96,38 @@ impl Kernel {
             {
                 layout.restyle(&self.arena, slot, node);
                 layout.mark_dirty(node);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Kernel {
+    /// Set or clear (`None`) the margins the platform's list gives the
+    /// grouped list `view`. Nonfinite or negative lengths are refused.
+    pub fn set_grouped_margins(
+        &mut self,
+        view: ViewId,
+        margins: Option<crate::grouped::GroupedMargins>,
+    ) -> Result<(), KernelError> {
+        let slot = self
+            .arena
+            .slot_of(view)
+            .ok_or(LayoutError::UnknownView(view))?;
+        let lengths = margins.map_or([0.0; 4], |m| [m.card[0], m.card[1], m.cell[0], m.cell[1]]);
+        if !lengths.iter().all(|l| l.is_finite() && *l >= 0.0) {
+            return Err(LayoutError::InvalidIntrinsicSize(view).into());
+        }
+        if self.arena.grouped_margins(slot) == margins {
+            return Ok(());
+        }
+        self.arena.set_grouped_margins(slot, margins);
+        if let Some(r) = &mut self.region {
+            r.intrinsic(slot);
+        }
+        if let Some(layout) = self.layout.as_deref_mut() {
+            for &section in self.arena.children(slot) {
+                crate::grouped::restyle(&self.arena, layout, section);
             }
         }
         Ok(())

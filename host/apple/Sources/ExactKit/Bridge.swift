@@ -139,6 +139,21 @@ extension Runtime {
             return read(exact_host_covers(rt, write(bytes)))
         }
     }
+    /// The margins UIKit's own list gives each grouped list's cards and
+    /// cells, under one layout: the card's left and right insets, then the
+    /// cell's left and right margins; nil clears them.
+    package func groupedMargins(_ lists: [(UInt32, [CGFloat]?)]) -> Batch {
+        return on {
+            var bytes = Data(capacity: lists.count * 24)
+            for (view, margins) in lists {
+                let lengths = (margins ?? [0, 0, 0, 0]).map { Float($0).bitPattern }
+                for word in [view, margins == nil ? 9 : 8] + lengths {
+                    withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
+                }
+            }
+            return read(exact_host_covers(rt, write(bytes)))
+        }
+    }
     func regionComplete(_ artifact: RegionArtifact) -> Batch {
         return on {
             let p = artifact.metadata

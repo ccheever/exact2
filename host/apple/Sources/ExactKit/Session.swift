@@ -576,7 +576,7 @@ public final class ExactSession {
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
     /// Run `work` now, or after the slice in flight lands (LLP 1072 §3).
-    func whenIdle(_ work: @escaping () -> Void) {
+    package func whenIdle(_ work: @escaping () -> Void) {
         if fillInFlight { afterFill.append((generation, work)) } else { work() }
     }
 

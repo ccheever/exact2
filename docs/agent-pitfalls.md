@@ -260,11 +260,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   (Web and iOS simulator, 2026-10-06.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
-  the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
-  and a 16-pt trailing padding. A custom row with `width="100%"` adds the
-  margin on top and runs 16 pt past the card. Fix: leave custom row content
-  at its natural width (`flex-grow=1` on the part that should stretch), not
-  `width="100%"`. (Signal Clone, build 15.)
+  the sheet already gives each row the cell's margin at both ends (on iOS
+  UIKit's: 16 pt on an iPhone, 20 on the iPhone Duo; 40 more after an icon).
+  A custom row with `width="100%"` adds the margin on top and runs past the
+  card. Fix: leave custom row content at its natural width (`flex-grow=1` on
+  the part that should stretch), not `width="100%"`. (Signal Clone, build 15.)
 
 - **A data answer past 16 MiB fails only on the JS target.** A 64 MiB string from
   a Rust source loaded on the wasm web host and on Linux, and on the JS target
