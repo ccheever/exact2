@@ -79,20 +79,26 @@ export function inlineTheme(client: T3Client) {
 /** Resource refresh signs once per mounted document; a changing cache URL never reloads an interactive frame. */
 export async function syncInlineDocuments(client: T3Client, native: Native, now: number): Promise<void> {
   const held = state(client), threadId = client.threadId;
+  const ownedSync = () => client.generation === held.generation && client.environmentId === held.environment && client.origin === held.origin && client.threadId === threadId && states.get(client) === held;
   const active = new Set(arr(client.projection.visibleTurnItems).slice(-LIMIT).flatMap(row => { const item = obj(row.item), ref = inlineReference(item); return ref ? [inlineDocumentKey(client, str(row.sourceThreadId), str(item.id), ref)] : []; }));
   for (const [key, frame] of held.frames) if (!active.has(key)) { if (frame.runtime) disposeDocumentRuntime(frame.runtime); held.frames.delete(key); }
   for (const row of arr(client.projection.visibleTurnItems).slice(-LIMIT)) {
+    if (!ownedSync()) return;
     const item = obj(row.item), ref = inlineReference(item);
     if (!ref) continue;
     const key = inlineDocumentKey(client, str(row.sourceThreadId), str(item.id), ref);
     const cached = held.frames.get(key);
     if (cached) updateShortcuts(client, cached);
     if (cached && ref.kind === 'html') updateHtmlTheme(client, cached);
-    if (cached?.runtime) { await drainDocumentRuntime(cached.runtime, native, now); cached.runtime.host.updateHostContext(); }
+    if (cached?.runtime) {
+      await drainDocumentRuntime(cached.runtime, native, now);
+      if (!ownedSync()) return;
+      cached.runtime.host.updateHostContext();
+    }
     if (cached?.src || cached?.reading || cached?.error) continue;
     const frame: Frame = cached ?? { token: `${held.generation}:${++nextDocument}`, url: '', expiresAt: 0, src: '', ready: false, error: '', reading: false, posts: [], serial: 0 };
     held.frames.set(key, frame); frame.reading = true;
-    const owned = () => client.generation === held.generation && client.environmentId === held.environment && client.origin === held.origin && client.threadId === threadId && states.get(client) === held && held.frames.get(key) === frame;
+    const owned = () => ownedSync() && held.frames.get(key) === frame;
     while (held.frames.size > LIMIT) held.frames.delete(held.frames.keys().next().value!);
     try {
       if (!frame.url || frame.expiresAt - now <= MIN_URL_LIFE) {
