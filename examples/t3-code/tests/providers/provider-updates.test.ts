@@ -200,7 +200,7 @@ it('does not offer incompatible latest versions and restores suggestions after p
 
 describe('getProviderUpdateRunToastView', () => {
   const updateState = (status: string, message: string): Obj => ({ status, startedAt: checkedAt, finishedAt: laterCheckedAt, message, output: null });
-  const run = (machineLabel: string, providerDriver: string, result: ReturnType<typeof success<{ providers: Obj[] }>>) => ({ machineLabel, driver: providerDriver, instanceId: providerDriver, result });
+  const run = (machineLabel: string, providerDriver: string, result: ReturnType<typeof success<{ providers: Obj[] }>>) => ({ environmentId: machineLabel, machineLabel, driver: providerDriver, instanceId: providerDriver, result });
 
   it('lists every failed update and ignores interrupted ones', () => {
     const view = getProviderUpdateRunToastView([
