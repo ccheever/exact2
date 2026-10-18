@@ -212,9 +212,8 @@ reply is M3's design (LLP 1020.000): the plausible shape is the data
 seam — a guest `message` lands as an action, the command runs as a
 mutation (LLP 1016) with the client's auth, and the settled result is
 posted back — keeping the token out of the guest and the bridge out of
-the Contract's way. The 2026-10-19 scoped user approval also admits host-initiated theme,
-shortcut and MCP-context updates through this same string channel (§11).
-Other general app→guest messaging stays cut (§5).
+the Contract's way. General app→guest messaging beyond replies stays
+cut (§5).
 
 **D3 — loading is the GPU-module shape.** The Apple webview arm is a
 separate artifact beside `libexact_gpu.dylib`, `dlopen`ed at the first
@@ -312,8 +311,7 @@ so each return is a measurement or a named consumer, not drift:
   URL cannot configure") was met the day the survey read the shipped SDK:
   every `castleSdk` deck expects replies in its window. The narrow form
   — replies to guest messages — is scoped in as D2r; **general**
-  app→guest messaging stays cut except the theme, shortcut and MCP-context
-  updates admitted on 2026-10-19 (§11).
+  app→guest messaging stays cut.
 - **Navigation policy, verdicts, popups, the 13-op controller** — the
   first product need to intercept guest navigation. Until then: the guest
   navigates itself as any iframe may; popups are denied by `sandbox`
@@ -598,19 +596,27 @@ LLP 1020.001 D4 amends this table for a bundled HTML page under `assets/` or `de
   update of the row.
 
 
-## 11. Addressed string replies and host updates (approved 2026-10-19)
+## 11. Proposed addressed string replies and host updates (draft #777)
 
-The scoped user approval admits `postMessage(text, iframeId)` on Apple and
-both web executors for replies and host-initiated theme, shortcut and MCP-context
-updates. The existing canvas form and its ordered pending queue keep their behavior.
-The compiler distinguishes iframe delivery internally; the public command still has
-two string arguments, and repeated iframe instances may compute their ids.
+Consumer authorization: Daehyeon Mun, 2026-10-18 UTC (2026-10-19 KST),
+authorized the T3 Code consumer work. This does not constitute Charlie's framework
+scope waiver. No named, dated waiver or explicit doing-list trade has been recorded;
+framework expansion remains pending Charlie under `rules/RULES.md`. D2r's reply-only
+boundary and §5's cut remain binding. This section describes the draft implementation
+and evidence, not an accepted scope change.
+
+Draft #777 proposes `postMessage(text, iframeId)` on Apple and both web executors
+for string replies and host-initiated theme, shortcut and MCP-context updates. The
+consumer needs these for interactive HTML and MCP documents. The prototype keeps
+the existing canvas form and its ordered pending queue. Its compiler distinguishes
+iframe delivery internally; the public command still has two string arguments, and
+repeated iframe instances may compute their ids.
 
 A post addresses one mounted frame. Missing or ambiguous ids and names shared
 with a live canvas are refused. Iframe posts never wait by id for a future frame:
 a replacement document cannot inherit a prior frame's messages. Web delivery uses
-that document's Window and known origin, or `*` only for an opaque sandbox; guest
-an observed subsequent load revokes its channel until the app commits a new source.
+that document's Window and known origin, or `*` only for an opaque sandbox; an
+observed subsequent load revokes its channel until the app commits a new source.
 Authored source or sandbox changes immediately replace the channel token. On the web,
 a cross-origin or opaque guest can start self-navigation before its parent observes
 load; its WindowProxy remains stable during that interval. This channel does not
@@ -618,8 +624,9 @@ claim navigation-start revocation there. Apple checks the wrapper generation or 
 direct document's private isolated-world nonce, and revokes at navigation start. A direct native guest receives a synthesized string MessageEvent;
 its own posts continue through the existing guest-to-app bridge.
 
-No structured-clone expansion, permission broker, navigation controller or app-owned
-native bridge is admitted. Linux refuses iframe-tagged posts explicitly; it keeps its
+The proposal excludes structured-clone expansion, a permission broker, a navigation
+controller and an app-owned native bridge. The Linux prototype refuses iframe-tagged
+posts explicitly; it keeps its
 existing canvas protocol. The focused compiler/browser tests and native fixture are
 `post_message.rs`, `frame-messages.test.mjs` and `IframePostMessageTests.swift`.
 

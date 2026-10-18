@@ -1907,7 +1907,7 @@ argument validation. Use the working implementation when selecting arguments:
 
 | Operation | Starting point |
 | --- | --- |
-| `postMessage(text, target)`: string replies or theme/context updates to a live iframe by `id` (Apple and both web executors), or ordered messages to a canvas by literal surface name. Iframe targets may be computed strings; missing, ambiguous, replaced or navigation-revoked iframe targets are dropped without entering the canvas queue. The guest receives a string; send JSON text when needed. | [Iframe fixture](../scripts/fixtures/iframe-post-messages.contract), [compiler tests](../contract/cli/tests/it/post_message.rs) |
+| `postMessage(text, target)`: ordered messages to a canvas by literal surface name. **Draft #777 proposes an iframe extension; framework scope approval remains pending Charlie.** The prototype sends string replies and host updates to a live iframe by `id` on Apple and both web executors; targets may compute. Missing, ambiguous, replaced or navigation-revoked iframe targets are dropped without entering the canvas queue. The draft does not amend D2r's reply-only boundary. | [Proposal and status](../llp/1020-webview.rfc.md#11-proposed-addressed-string-replies-and-host-updates-draft-777), [iframe fixture](../scripts/fixtures/iframe-post-messages.contract), [compiler tests](../contract/cli/tests/it/post_message.rs) |
 | `focus(id)` | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
