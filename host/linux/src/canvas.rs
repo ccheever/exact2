@@ -60,6 +60,8 @@ use crate::paint::{Backend, GradientPaint, Rect4, Shape};
 #[cfg(target_os = "android")]
 use crate::presenter::Presenter;
 use crate::text::{Paragraph, RunPaint, TextEngine};
+#[doc(hidden)]
+pub use exact_kernel::NodeKey as ModuleKey;
 use exact_kernel::ViewId;
 #[cfg(target_os = "android")]
 use exact_runner::DataSource;

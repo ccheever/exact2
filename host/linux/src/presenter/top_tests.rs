@@ -738,7 +738,9 @@ fn a_long_press_opens_the_context_menu_a_node_names_where_the_finger_is() {
     let held = p.rect_of(id(&p, "held")).unwrap();
     let at = (held.0 + 120.0, held.1 + 10.0);
     assert_eq!(p.pointer_down(at.0, at.1, 0.0), Ok(true));
+    let before = p.long_presses();
     assert!(p.long_press(at.0, at.1, 500.0));
+    assert_eq!(p.long_presses(), before.wrapping_add(1));
     // Its `contextmenu` ran first, then the menu opened at the finger.
     assert_eq!(text(&p, "aimed"), "row");
     assert_eq!(p.surface().map(|s| s.kind), Some(SurfaceKind::Menu));
@@ -757,6 +759,11 @@ fn a_long_press_opens_the_context_menu_a_node_names_where_the_finger_is() {
     assert!(
         !p.long_press(poke.0 + 5.0, poke.1 + 5.0, 800.0),
         "a node that names none"
+    );
+    assert_eq!(
+        p.long_presses(),
+        before.wrapping_add(1),
+        "counted only when taken"
     );
 }
 
