@@ -106,7 +106,7 @@ It names the `appId` line `app.ts` needs when the two disagree: `app.json`'s
 `"app": { "id" }`, which `exact new` set from the directory's name. Last it
 says the server to start, `bunx snapback4 dev --port <n>` above. The driver is
 pinned to Snapback4 0.4.29: install that version for the server. A new app
-made this way and tested as written against 0.4.29 (2026-10-16): both of the
+made this way and tested as written against 0.4.29 (2026-10-18): both of the
 guestbook's tests pass.
 
 ### Updating an inherited app
@@ -515,7 +515,7 @@ test "offline, a note is kept, then delivered on reconnect"
 ```
 
 The app is `bun <this checkout>/scripts/exact.mjs new app --snapback`, run in
-the backend's directory, which writes these four files and wires them. Built that way and tested as written against 0.4.29 (2026-10-16): both tests pass, and pass again on the data a first run leaves.
+the backend's directory, which writes these four files and wires them. Built that way and tested as written against 0.4.29 (2026-10-18): both tests pass, and pass again on the data a first run leaves.
 
 ### A complete online app
 
