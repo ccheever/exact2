@@ -271,19 +271,6 @@ mod tests {
             "zero {zero}, started {}",
             before - 15_000.0
         );
-        // A driver's clock (the agent's) boots at zero whatever the display's reads.
-        let mut config = crate::app::Config::from_env(&timer, "{}");
-        (config.clock_started, config.agent) = (Some(started), true);
-        let (presenter, _) = crate::app::boot_presenter_with_painter::<()>(
-            &mut config,
-            (8., 8.),
-            PainterBoot {
-                choice: PainterChoice::Gpu,
-                open: counted,
-            },
-        )
-        .expect("boots");
-        assert_eq!(presenter.host.runner().timer_due_ms(), Some(10_000.0));
     }
 
     #[test]

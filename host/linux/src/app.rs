@@ -324,9 +324,11 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     // What the host knows at launch, read from the first settle. The date is
     // sampled once, here, at the runner's clock zero: the display's clock's
     // start, where each boot attempt's clock begins at its reading then,
-    // else the boot (a driver's clock, from zero). `delivered` tells the
-    // same fact after, which commits nothing.
-    let clock_started = config.clock_started.filter(|_| !config.agent);
+    // else the boot (a driver's clock, from zero). The Android reader's
+    // drive keeps the display's start: its first frames run on that clock
+    // before the agent takes time (QUEUE). `delivered` tells the same fact
+    // after, which commits nothing.
+    let clock_started = config.clock_started;
     let clock = move || clock_started.map(|started| started.elapsed().as_secs_f64() * 1000.0);
     let (epoch_at_zero, utc_offset) = agent_time.unwrap_or_else(|| {
         let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
