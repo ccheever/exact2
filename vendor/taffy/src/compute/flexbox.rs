@@ -1418,7 +1418,9 @@ fn collect_flex_lines<'a>(
                             // Interleaving fractional gaps can round a fitting line above its limit.
                             line_length += child.hypothetical_outer_size.main(constants.dir);
                             let gap_sum = sum_axis_gaps(main_axis_gap, idx + 1);
-                            line_length + gap_sum > main_axis_available_space && idx != 0
+                            // Allow 1/1024px of f32 roundoff at the fit boundary: sixteen times
+                            // smaller than Chrome's 1/64px layout unit, independent of container size.
+                            line_length + gap_sum - main_axis_available_space > 1.0 / 1024.0 && idx != 0
                         })
                         .map(|(idx, _)| idx)
                         .unwrap_or(flex_items.len());
@@ -3628,6 +3630,8 @@ mod intrinsic_tests {
             (73.33, 0.1, 300.0, Size { width: 220.19, height: 30.0 }),
             (73.33, 0.1, 150.0, Size { width: 150.0, height: 60.0 }),
             (60.2, 0.2, 120.6, Size { width: 120.6, height: 60.0 }),
+            (60.4, 0.1, 181.4, Size { width: 181.4, height: 30.0 }),
+            (60.4, 0.125, 181.4, Size { width: 181.4, height: 60.0 }),
         ] {
             for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
                 for wrap in [FlexWrap::Wrap, FlexWrap::WrapReverse] {

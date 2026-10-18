@@ -1345,6 +1345,9 @@ under `MaxContent` and a both-axis size measurement, which need not receive a
 later definite-width pass. Line fitting sums item lengths and gaps separately,
 matching intrinsic width accumulation. Interleaving fractional gaps can round a
 line above its own max-content width or a maximum that should fit it exactly.
+The fit comparison also allows 1/1024px of rounding error: a sum can round above
+an independently represented width even with consistent accumulation. This
+fixed tolerance is sixteen times smaller than Chrome's 1/64px layout unit.
 Columns retain maximum-based wrapping:
 ordinary block layout also uses `MaxContent` for indefinite vertical space.
 Balanced wrapping is unchanged and remains disabled in the kernel.
@@ -1374,9 +1377,17 @@ The root frames use the same Chrome version, date and `width:max-content`
 analog. Three 60.1px items with 0.1px gaps fit on one line below a 300px maximum;
 60.2px items with 0.2px gaps fit two per line under a 120.6px maximum. Before
 matching the accumulation order, these cases had ten frame mismatches and 16
-incorrect measured heights. The 73.33px controls cover two-decimal item widths. Chrome's 1/64px length quantization accounts for less than 0.05px frame
+incorrect measured heights. The 73.33px controls cover two-decimal item widths.
+Chrome's 1/64px length quantization accounts for less than 0.05px frame
 drift in these fixtures; the size measurements check widths within 0.001px
 and heights exactly.
+
+Eight boundary root-frame cases cover three 60.4px items under `width:181.4px`
+and `max-width:181.4px`, in both row directions. With 0.1px gaps they occupy
+one line; 0.125px gaps still force wrapping. These use the same Chrome version,
+date and wrapper. Sixteen further measurements cover the maximum in both sizing
+and wrapping modes. Without the fit tolerance, the 0.1px cases had eight frame
+mismatches and eight measurements with 60px height instead of 30px.
 
 ## Cargo workspace boundary
 
