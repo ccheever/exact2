@@ -765,11 +765,18 @@ final class HeldStateTests: XCTestCase {
         XCTAssertNil(HeldState.view, "the pointer coming over it lets it go")
         XCTAssertEqual(reasons, ["input"])
         XCTAssertEqual(card.style["background_color"], ink(green), "and the real hover shows")
-        // Held with the pointer over it: moving within keeps it, leaving lets it go.
+        // Held with the pointer over it: moving within keeps it, a cancel keeps it and what shows, the next begin
+        // (still over) keeps it, and leaving lets it go.
         reasons = []
         XCTAssertEqual(card.hold("hover", dropped: { reasons.append($0) }).held, "hover")
         hover(card, .changed)
         XCTAssertTrue(card.holds("hover"))
+        hover(card, .cancelled)
+        XCTAssertTrue(card.holds("hover"))
+        XCTAssertFalse(card.pressPaint.hovered, "the real hover goes with a cancel")
+        XCTAssertEqual(card.style["background_color"], ink(green), "the held look still shows")
+        hover(card, .began)
+        XCTAssertTrue(card.holds("hover"), "still over")
         hover(card, .ended)
         XCTAssertEqual(reasons, ["input"])
         XCTAssertEqual(card.style["background_color"], ink(blue))

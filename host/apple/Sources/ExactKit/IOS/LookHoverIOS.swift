@@ -45,8 +45,9 @@ extension NodeView {
         case .began: lookState(hovered: true); HeldState.lookHovered(self, true)
         case .ended: lookState(hovered: false); HeldState.lookHovered(self, false)
         // Cancelled (the recognizer turned off, as inspect mode does to every
-        // one): no crossing. What showed stays, until its next begin or end
-        // says where the pointer is.
+        // one): no crossing, so a hold stays; the real hover goes (a reset
+        // recognizer sends no end when the pointer leaves).
+        case .cancelled, .failed: lookState(hovered: false)
         default: break
         }
     }
