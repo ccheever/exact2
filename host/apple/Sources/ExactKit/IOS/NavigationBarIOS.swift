@@ -361,11 +361,13 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     var paintsInk = false
     /// UIKit's field's text: the node's own colour, else the design's
     /// FieldText where it overrides it, else UIKit's (LLP 1115 D4, LLP 1121
-    /// D9); set again on a live retheme.
+    /// D9); and its fill, the design's Field where it overrides it. Set
+    /// again on a live retheme.
     func ink() {
         #if !os(tvOS)
         guard let field else { return }
         let text = controller.searchBar.searchTextField
+        text.backgroundColor = field.fieldGroundColor
         if field.showsOwnTextColor || ThemeRoles.color("FieldText", in: field) != nil {
             text.textColor = field.fieldInk
             paintsInk = true
