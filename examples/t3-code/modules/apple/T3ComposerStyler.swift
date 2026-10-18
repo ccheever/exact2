@@ -25,6 +25,7 @@ final class T3ComposerStyler {
     /// Context ids the draft holds a record for, with each record's chip kind
     /// ("thread", "pr-open"…); a reference missing here draws unresolved.
     var contexts: [String: String] = [:] { didSet { if oldValue != contexts { restyle() } } }
+    var fileIcons: [String: String] = [:] { didSet { if oldValue != fileIcons { restyle() } } }
     /// The selected provider's skill chip labels by skill name (composer-editor-menu.ts
     /// `skillChipLabels`, the reference's `skillLabelFor`): a skill's own display name.
     var skills: [String: String] = [:] { didSet { if oldValue != skills { restyle() } } }
@@ -764,7 +765,7 @@ final class T3ComposerUnderlay: NSView {
             NSImage(cgImage: image.thumbnail, size: iconRect.size).draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
             NSGraphicsContext.restoreGraphicsState()
         } else {
-            T3ComposerIcons.draw(missing ? "circle-dashed" : T3ComposerIcons.name(for: chip, kind: styler.chipKind(chip)), in: iconRect, color: ink, dark: dark, path: chip.detail)
+            T3ComposerIcons.draw(missing ? "circle-dashed" : (chip.kind == "mention" ? styler.fileIcons[chip.detail] ?? "pierre:default" : T3ComposerIcons.name(for: chip, kind: styler.chipKind(chip))), in: iconRect, color: ink, dark: dark, path: chip.detail)
         }
         let label = styler.displayLabel(chip) as NSString
         let labelFont = styler.chipFont(font)

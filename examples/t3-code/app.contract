@@ -381,6 +381,9 @@ component T3Code
       prTyped = true
     send localChanged = command(`pageslocal:pr-${op}`, "", value, 0)
   action prSelect(ref: string)
+    let closedSelection = prSelected
+    if ref == "" and closedSelection != ""
+      send localChanged = command("shelllocal:surface-remember-pr", closedSelection, "", 0)
     prSelected = ref
     prPanelOpen = true
     prTab = "summary"
@@ -1657,6 +1660,27 @@ component T3Code
     if what == "toggle" or what == "close" or what == "tab-close"
       send localChanged = command(what == "tab-close" ? "shelllocal:surface-close" : (what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open ? "shelllocal:surface-show" : "shelllocal:surface-hide"), id, "", 0)
       if what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open
+        focus("surface-chooser")
+    if what == "reopen"
+      settingsOpen = false
+      utilityPage = ""
+      draftOwner = "__unset__"
+      jumpRequest = jumpRequest + 1
+      send changed = command("shell:surface-reopen", "", "", 0)
+    if what == "maximize"
+      send localChanged = command("shelllocal:surface-maximize", "", "", 0)
+    if what == "new"
+      if data.diffOpen or rightPanel or shell.panel.open
+        showPopover("add-surface-menu", source="panel-add-surface")
+        let availableSurfaces = shell.surfaces.filter((surface) => surface.available)
+        match availableSurfaces.at(0)
+          case some(surface)
+            focus(`add-surface-${surface.id}`)
+          case none
+            focus("panel-add-surface")
+      else
+        rightPanelAt = shell.panel.key
+        send localChanged = command("shelllocal:surface-show", "", "", 0)
         focus("surface-chooser")
     if what == "terminal" // the layout controls' toggle (toggleTerminalVisibility); closing returns to the composer
       send terminalChanged = command("terminallocal:toggle", "", "", 0)

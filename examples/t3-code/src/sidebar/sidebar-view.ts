@@ -3,8 +3,9 @@
 // reference renders them, so thread.jump and prev/next follow the same list)
 // plus the sidebar's own view state. Pure over the client and `now`.
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { isScratch } from '../composer/scratch-machine';
 import { machineKind } from '../connections/connections';
-import { fleetThreads, parseFleetThreadId, fleetTerminalProcessCount, remoteThread } from '../connections/settings-b-fleet'; // settings-b: background environments' threads
+import { fleet, fleetThreads, parseFleetThreadId, fleetTerminalProcessCount, remoteThread } from '../connections/settings-b-fleet'; // settings-b: background environments' threads
 import type { T3Client } from '../client/client';
 import { knownSessions } from '../terminal/terminal-drawer-view';
 import { selectRunningSubprocessTerminalIds } from '../terminal/terminal-session';
@@ -15,7 +16,7 @@ import { NO_CALENDAR, firstWeekday, snoozeCalendar, type SnoozeCalendar } from '
 import { sidebarProviderPill } from './sidebar-provider-pill';
 import { grayIdentity, projectGlyph, type ProjectGlyph } from './sidebar-glyph';
 import { rowTips, type SidebarRowTip } from './sidebar-tips';
-import { cachedDisplayNames as displayNames } from './project-groups';
+import { cachedDisplayNames as displayNames, groupLabel, logicalKey } from './project-groups';
 import { SIDEBAR_PROBES, textMeasure } from '../shared/laid-out-widths';
 import type { Probe } from '../composer/composer-menus';
 export { grayIdentity } from './sidebar-glyph';
@@ -85,19 +86,41 @@ const timestamp = (value: unknown) => { const time = Date.parse(str(value)); ret
  * threads' creation) with no-thread groups on their own stamps; Manual keeps
  * the source order, as an empty projectOrder does.
  */
+export const NO_PROJECT_SCOPE = '\0no-project';
 export function projectScopes(client: T3Client): { key: string; name: string; ids: Set<string>; time: number; members: Obj[] }[] {
-  const threads = client.shell.threads.filter(sidebarVisible);
+  const threads = [...client.shell.threads, ...fleetThreads()].filter(sidebarVisible);
   const order = projectSortOrder(client);
-  const groups = client.projectGroups().map(group => {
+  const grouped = new Map<string, { key: string; members: Obj[]; name: string }>();
+  const add = (key: string, name: string, members: Obj[]) => {
+    const group = grouped.get(key) ?? { key, name, members: [] };
+    group.members.push(...members); grouped.set(key, group);
+  };
+  for (const group of client.projectGroups()) {
+    const scratch = group.members.every(member => member.isScratch === true || isScratch(member, str(client.config.scratchWorkspaceRoot)));
+    add(scratch ? NO_PROJECT_SCOPE : group.key, scratch ? 'No project' : group.name,
+      group.members.map(member => ({ ...member, environmentId: client.environmentId, isScratch: scratch })));
+  }
+  for (const entry of fleet.entries.values()) {
+    if (entry.phase !== 'connected' || entry.synchronized !== entry.generation || entry.environmentId === client.environmentId) continue;
+    for (const member of entry.shell.projects) {
+      const scratch = member.isScratch === true || isScratch(member, str(entry.config.scratchWorkspaceRoot));
+      add(scratch ? NO_PROJECT_SCOPE : logicalKey(client, entry.environmentId, member), scratch ? 'No project' : str(member.title),
+        [{ ...member, environmentId: entry.environmentId, id: `fleet:${entry.environmentId}:${str(member.id)}`, isScratch: scratch }]);
+    }
+  }
+  const groups = [...grouped.values()].map(group => {
     const ids = new Set(group.members.map(member => str(member.id)));
     const own = threads.filter(thread => ids.has(str(thread.projectId)));
     const time = own.length ? Math.max(...own.map(thread => threadSortTime(thread, order)))
       : Math.max(...group.members.map(member => order === 'created_at' ? timestamp(member.createdAt) : timestamp(member.updatedAt ?? member.createdAt)));
-    return { key: group.key, name: str(group.name), ids, time, members: group.members };
+    return { key: group.key, name: group.key === NO_PROJECT_SCOPE ? 'No project' : groupLabel(group.members) || group.name, ids, time, members: group.members };
   });
+  // A saved physical scratch filter may precede the config that identifies its No project group.
+  const saved = sidebarPrefs(client).scope, scratch = groups.find(group => group.key === NO_PROJECT_SCOPE);
+  if (saved && scratch?.members.some(member => saved === logicalKey(client, str(member.environmentId), member) || saved === `${str(member.environmentId)}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`)) sidebarPrefs(client).scope = NO_PROJECT_SCOPE;
   // Manual follows the persisted project order (orderItemsByPreferredIds over physical keys), as the legacy sidebar arranges it.
   if (order === 'manual') return orderItemsByPreferredIds({ items: groups, preferredIds: sidebarPrefs(client).projectOrder, getId: group => group.key,
-    getPreferenceIds: group => group.members.map(member => `${client.environmentId}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`) });
+    getPreferenceIds: group => group.members.map(member => `${str(member.environmentId)}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`) });
   return groups.sort((left, right) => (right.time === left.time ? 0 : right.time > left.time ? 1 : -1) || left.name.localeCompare(right.name) || left.key.localeCompare(right.key));
 }
 /** clientSettings.sidebarProjectSortOrder: updated_at (default), created_at or manual. */

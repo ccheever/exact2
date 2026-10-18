@@ -257,6 +257,7 @@ shape AutomationRecording // browser-automation-recording.ts automationRecording
   slot: number // the queued send to run it on (app.contract automationRecordingServed0-3)
 
 shape PanelView
+  maximized: bool
   key: string // the thread (or draft) the panel belongs to (rightPanelStore byThreadKey)
   launcher: bool // open on the launcher alone (isOpen with no surface)
   terminalClose: TerminalSurfaceClose

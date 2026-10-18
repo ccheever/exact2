@@ -734,7 +734,7 @@ component T3Window
   state titleMenuY = 0
   state renaming = false
   state renameText = ""
-  state rightMaximized = false
+  derive rightMaximized = shell.panel.maximized and (rightPanel or shell.panel.open) and not narrowDiff
   action titleUi(what: string, value: string)
     let typed = renameText // the commit sends the field's text as the action found it
     if what == "open" or what == "context"
@@ -769,10 +769,6 @@ component T3Window
   action panelUi(what: string, id: string)
     let closingTerminal = what == "tab-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length > 0
     titleMenuOpen = false
-    if what == "toggle" or what == "close" or what == "tab-close"
-      rightMaximized = closingTerminal ? rightMaximized : what == "tab-close" and shell.panel.count > 1 and rightMaximized
-    if what == "maximize"
-      rightMaximized = not rightMaximized
     panelUiRoot(what, id)
   action detailsAct(op: string, target: string, value: string)
     titleMenuOpen = false

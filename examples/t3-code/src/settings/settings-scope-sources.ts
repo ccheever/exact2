@@ -9,7 +9,7 @@ import { bridgeReply, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { fleet as appFleet, EnvironmentFleet, environmentKey, type FleetEntry } from '../connections/settings-b-fleet';
 import { machineKind } from '../connections/connections';
-import { groupLabel } from '../sidebar/project-groups';
+import { groupLabel, repositoryGroupingKey } from '../sidebar/project-groups';
 import type { ScopeGroup, ScopeMember } from './settings-scope';
 import type { ScopedSettingsEnvironment } from './scoped-settings-plan';
 import { pushToast } from '../shell/toast';
@@ -63,7 +63,7 @@ export function scopeProjectGroups(client: Focused, source: EnvironmentFleet = a
     if (entry.phase !== 'connected' || entry.synchronized !== entry.generation || entry.environmentId === client.environmentId) continue;
     for (const project of entry.shell.projects) {
       const physical = `${entry.environmentId}:${projectPath(project.workspaceRoot)}`, grouping = str(overrides[physical], mode);
-      const identity = obj(project.repositoryIdentity), canonical = str(identity.canonicalKey), root = projectPath(identity.rootPath), path = projectPath(project.workspaceRoot);
+      const identity = obj(project.repositoryIdentity), canonical = repositoryGroupingKey(identity), root = projectPath(identity.rootPath), path = projectPath(project.workspaceRoot);
       const relative = root && path.startsWith(root + '/') ? path.slice(root.length + 1) : '';
       const key = grouping === 'separate' || !canonical ? physical : canonical + (grouping === 'repository_path' && relative ? `::${relative}` : '');
       const group = groups.get(key) ?? { name: '', members: [], projects: [] };

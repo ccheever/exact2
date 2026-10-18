@@ -250,6 +250,7 @@ final class T3Composer {
             if let rich = request["richText"] as? Bool { editor.styler.richText = rich }
             if let local = request["localEnvironment"] as? Bool { editor.localEnvironment = local }
             if let contexts = request["contexts"] as? [String: String] { editor.styler.contexts = contexts }
+            if let icons = request["fileIcons"] as? [String: String] { editor.styler.fileIcons = icons }
             if let skills = request["skills"] as? [String: String] { editor.styler.skills = skills }
             if let limit = request["foldLimit"] as? Int { editor.foldLimit = limit }
             if let owner = request["owner"] as? String, owner != editor.historyOwner { editor.historyOwner = owner; editor.resetHistory() }
@@ -257,6 +258,7 @@ final class T3Composer {
             value["notices"] = editor.takeNotices()
             value["folds"] = editor.folds
             value["pastes"] = editor.pastedFiles.count
+            value["mentions"] = editor.styler.chips.filter { $0.kind == "mention" }.map(\.detail)
         case "editorEdit": value = editor.edit(request)
         case "editorInsert": value = editor.insert(request)
         case "editorPoke":

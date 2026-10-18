@@ -62,6 +62,10 @@ component ShortcutDispatch
           ShortcutButton(item=item, press=closeDiff)
         if item.kind == "close-surface"
           ShortcutButton(item=item, press=panel("tab-close", item.target))
+        if item.kind == "panel-reopen"
+          ShortcutButton(item=item, press=panel("reopen", ""))
+        if item.kind == "panel-new"
+          ShortcutButton(item=item, press=panel("new", ""))
         if item.kind == "panel-close" // ⇧⌘J closes a shown Browser panel
           ShortcutButton(item=item, press=panel("close", ""))
         if item.kind == "pr-close"

@@ -1,3 +1,4 @@
+import { notePagePullRequest } from '../panel/closed-views';
 // The pull request detail panel: pullRequests.detail and
 // .activity read for the selected row, presented as PullRequestDetailPanel's
 // header and Summary/Timeline tabs, and its writes (runAction, update,
@@ -146,6 +147,7 @@ export type DetailInput = { selected: string; refresh: number; now: number; visi
 export async function pullRequestDetail(client: T3Client, native: Native | null | undefined, input: DetailInput, storage?: Files): Promise<PrDetailView> {
   const view = emptyDetail();
   view.md = markdownEnv(client); view.diffScheme = diffSchemeOf(client);
+  if (input.page) notePagePullRequest(client, input.selected, input.visible !== false);
   const selection = parseSelection(input.selected);
   const live = !!native?.available && client.ready;
   if (!selection) {

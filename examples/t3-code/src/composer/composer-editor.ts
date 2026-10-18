@@ -1,3 +1,4 @@
+import { composerFileIcons, noteComposerFilePaths, refreshFileMetadata, textFilePaths as textPaths } from '../shared/file-metadata';
 // The prompt editor's projection and commands. The native editor
 // (T3ComposerEditor.swift) reports the trigger at the caret; this builds the
 // command menu's rows (composer-editor-menu.ts), applies a picked row back
@@ -241,12 +242,18 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   if (!native?.available) return { ...EDITOR_BAKED, promptLimit, overLimit, stash };
   native.watch('t3.editor');
   const draft = client.draft, key = client.draftKey, files = draftFiles(client.local);
+  const fileIcons = composerFileIcons(client, textPaths(draft));
   let state: Obj;
   try {
     state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
-      history: client.thread ? historyEntries(messages(client.thread)) : [], contexts: chipContexts(client, draft), foldLimit: client.ready ? foldLimit(client) : 0,
+      history: client.thread ? historyEntries(messages(client.thread)) : [], contexts: chipContexts(client, draft), fileIcons, foldLimit: client.ready ? foldLimit(client) : 0,
       skills: skillChipLabels(workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills')) });
   } catch { return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
+  const mentionPaths = Array.isArray(state.mentions) ? state.mentions.filter((path): path is string => typeof path === 'string') : textPaths(draft);
+  noteComposerFilePaths(client, mentionPaths);
+  await refreshFileMetadata(client, native);
+  const resolvedIcons = composerFileIcons(client, mentionPaths);
+  if (JSON.stringify(resolvedIcons) !== JSON.stringify(fileIcons)) await editorCall(native, { op: 'editorSync', fileIcons: resolvedIcons });
   for (const notice of arr(state.notices)) pushToast(client, { kind: str(notice.kind) === 'error' ? 'error' : 'info', title: str(notice.title), description: str(notice.description), hideCopy: true });
   // Large pastes the editor held back become pasted-text.txt chips (composer-editor-files.ts).
   for (const fold of arr(state.folds)) await takeFold(client, native, fold, localId()).catch(() => undefined);

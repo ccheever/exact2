@@ -26,7 +26,7 @@ import { sessionHasLegacyPermissions, sessionPermissions } from '../connections/
 import { routedPullRequestRequest } from '../pull-requests/pages-pr-environments';
 import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logic';
 import { adoptLocalPrefs, refreshLocal, unknownLocalBackend, type LocalBackendStatus, adoptHandoff, keepAliveEvent, keptThread } from '../connections/local-environment';
-import { groupLabel } from '../sidebar/project-groups';
+import { groupLabel, repositoryGroupingKey } from '../sidebar/project-groups';
 import { adoptModelPrefs } from '../providers/settings-b-models';
 import { type RequestDraft } from '../composer/requests';
 import { DiffState, DIFF_LOCAL_OPS } from '../diff/diff';
@@ -34,6 +34,7 @@ import { TELEMETRY_KEY, telemetryEvent } from '../settings/settings-a-telemetry'
 import { mostRecentProjectId } from '../pages/pages-home';
 import { landHome, settleHome, type HomeTarget } from '../pages/home-landing';
 import { adoptPagesPrefs } from '../pages/pages-prefs';
+import { adoptClosedViews } from '../panel/closed-views';
 import { adoptShellPrefs } from '../shell/shell-prefs';
 import { adoptFilesPrefs } from '../panel/files-prefs';
 import { adoptSidebarWidth } from '../sidebar/sidebar-width';
@@ -225,7 +226,7 @@ export class T3Client {
       adoptStash(next, saved); // the prompt stash (composer-editor-stash.ts)
       adoptComposerFiles(next, saved); // folded pastes (composer-editor-files.ts)
       adoptPagesPrefs(next, saved); adoptPrSnapshots(next, saved); // page preferences and the first-run flag (pages-prefs.ts); the kept pull request details (pages-pr-refresh.ts)
-      adoptShellPrefs(next, saved); // notice dismissals and closed workspace cards (shell-prefs.ts)
+      adoptShellPrefs(next, saved); adoptClosedViews(next, saved); // notice dismissals and closed workspace cards (shell-prefs.ts)
       adoptBrowserPrefs(next, saved); // the Browser's profiles and the defaults a new tab opens with (browser-defaults.ts)
       adoptFilesPrefs(next, saved); // Files explorer and render preferences (files-prefs.ts)
       adoptBrowserHistory(next, saved); // the Browser tab's history (browser-history.ts)
@@ -746,7 +747,7 @@ export class T3Client {
     for (const project of this.shell.projects) {
       const physical = `${this.environmentId}:${projectPath(project.workspaceRoot)}`;
       const mode = this.local.groupingOverrides[physical] || this.local.groupingMode;
-      const identity = obj(project.repositoryIdentity), canonical = str(identity.canonicalKey), root = projectPath(identity.rootPath), path = projectPath(project.workspaceRoot);
+      const identity = obj(project.repositoryIdentity), canonical = repositoryGroupingKey(identity), root = projectPath(identity.rootPath), path = projectPath(project.workspaceRoot);
       const relative = root && path.startsWith(root + '/') ? path.slice(root.length + 1) : '';
       const key = mode === 'separate' || !canonical ? physical : canonical + (mode === 'repository_path' && relative ? `::${relative}` : '');
       const members = byKey.get(key) || []; members.push(project); byKey.set(key, members);

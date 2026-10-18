@@ -125,6 +125,7 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
   if (context.modalOpen && !context.settingsOpen) return [];
   // Settings… (⌘,) opens Settings on General from anywhere in the main window.
   out.push({ id: 'settings.open', command: 'settings.open', chord: 'Meta+,', kind: 'settings', target: 'general', extra: '', label: 'Settings' });
+  add('view.reopenClosed', 'panel-reopen', '', 'Reopen Closed Tab');
   if (context.settingsOpen) {
     // The settings page is the router's other location; Back leaves it.
     add('navigation.back', 'back', '', 'Back');
@@ -237,6 +238,7 @@ function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePro
   // rightPanel.close: an open panel closes before ⌘W reaches the window, a draft's panel too.
   const closing = closeChordTarget(client, context.diffOpen, context.prNumber ?? ''); // the active surface tab first
   if (closing) add('rightPanel.close', closing[0], closing[1], 'Close Right Panel');
+  add('rightPanel.new', 'panel-new', '', 'New Right Panel Tab');
   add('rightPanel.toggle', 'diff', '', 'Toggle Right Panel'); // a draft's panel toggles too (ChatView toggleRightPanel)
   if (!context.draftThreadRoute) {
     add('diff.toggle', diffShown(client) ? 'diff' : 'diff-open', '', 'Toggle Diff');

@@ -124,6 +124,23 @@ component PanelHeaderBar
   state menuTab = ""
   action tabMenu(id: string)
     menuTab = id
+  state dragTab = ""
+  state dragStartX = 0
+  state draggingTab = false
+  action beginTabDrag(id: string, x: number)
+    dragTab = id
+    dragStartX = x
+    draggingTab = false
+  action moveTab(dx: number, dy: number)
+    let activeDrag = dragTab != "" and (draggingTab or max(dx, 0 - dx) >= 6)
+    if activeDrag
+      let pointerX = dragStartX + dx
+      let toIndex = panel.tabs.filter((tab) => tab.id != dragTab and pointerX >= frame(`panel-tab-row-${tab.id}`).x + frame(`panel-tab-row-${tab.id}`).width / 2).length
+      draggingTab = true
+      local("surface-move", dragTab, `${toIndex}`)
+  action endTabDrag(dx: number, dy: number)
+    dragTab = ""
+    draggingTab = false
   view
     row height=52 flex-shrink=0 padding-left="0.5rem" padding-right="0.8125rem" box-sizing="border-box" align-items="center" gap="0.25rem" position="relative" z-index=20 testId="panel-tabbar"
       // RightPanelTabs handleTabContextMenu: api.contextMenu.show at the pointer. macOS presents these
@@ -139,7 +156,7 @@ component PanelHeaderBar
       scroll flex=1 min-width=0 height="1.5rem" overflow-x="scroll" overflow-y="hidden" scrollLeft=tabsScroll scroll=tabsScrolled mask-image=tabsMask hatch="t3-anchor" data-anchor="tab-strip-view" testId="panel-tab-strip"
         row flex-shrink=0 width=(panel.tabStrip.content > panel.tabStrip.view ? panel.tabStrip.content : "100%") gap="0.25rem" align-items="center" role="tablist" aria-label="Panel surfaces" hatch="t3-anchor" data-anchor="tab-strip-content"
           for tab in panel.tabs key=tab.id
-            PanelTabChip(tab=tab, ui=ui, local=local, menu=tabMenu)
+            PanelTabChip(tab=tab, ui=ui, local=local, menu=tabMenu, begin=beginTabDrag, move=moveTab, end=endTabDrag, dragging=(draggingTab and dragTab == tab.id))
           if panel.count > 0
             AddSurfaceMenu(surfaces=surfaces, profiles=panel.browser.profiles, ui=ui, local=local)
       if panel.tabStrip.overflow
@@ -179,6 +196,10 @@ component PanelTabChip
     ui: action
     local: action
     menu: action
+    begin: action
+    move: action
+    end: action
+    dragging: bool
   state over = false
   action hover(value: bool)
     over = value
@@ -196,13 +217,15 @@ component PanelTabChip
   state middleDown = false
   action tabPointerDown(e: PointerEvent)
     middleDown = e.buttons == 4
+    if e.buttons == 1 and not tab.renaming
+      begin(tab.id, e.clientX)
   action tabPointerUp(e: PointerEvent)
     let box = frame(`panel-tab-row-${tab.id}`)
     if middleDown and e.clientX >= box.x and e.clientX <= box.x + box.width and e.clientY >= box.y and e.clientY <= box.y + box.height
       ui("tab-close", tab.id)
     middleDown = false
   view
-    row id=`panel-tab-row-${tab.id}` pointerdown=tabPointerDown pointerup=tabPointerUp contextmenu=menu(tab.id) contextPopover="panel-tab-menu" height="1.5rem" max-width="9rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" gap="0.125rem" align-items="center" border-radius="0.5rem" flex-shrink=0 hover=hover role="tab" aria-selected=tab.active background-color=(tab.active ? "light-dark(#f4f4f5, #141414)" : over ? "light-dark(#f4f4f599, #14141499)" : "#00000000") hatch="t3-anchor" data-anchor=`tab-chip:${tab.id}` testId=`panel-tab-${tab.id}`
+    row id=`panel-tab-row-${tab.id}` pointerdown=tabPointerDown pointerup=tabPointerUp pan=move panrelease=end touch-action="none" opacity=(dragging ? 0.6 : 1) cursor="grab" contextmenu=menu(tab.id) contextPopover="panel-tab-menu" height="1.5rem" max-width="9rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" gap="0.125rem" align-items="center" border-radius="0.5rem" flex-shrink=0 hover=hover role="tab" aria-selected=tab.active background-color=(tab.active ? "light-dark(#f4f4f5, #141414)" : over ? "light-dark(#f4f4f599, #14141499)" : "#00000000") hatch="t3-anchor" data-anchor=`tab-chip:${tab.id}` testId=`panel-tab-${tab.id}`
       button id=`panel-tab-close-${tab.id}` hatch="t3-anchor" data-anchor=`tab-close:${tab.id}` press=ui("tab-close", tab.id) key=tabKey(`panel-tab-close-${tab.id}`) aria-label=`Close ${tab.title}` testId=`close-tab-${tab.id}` width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 position="relative" flex-shrink=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         if over
           ShellIcon(name="x", size=12, color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))

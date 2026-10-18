@@ -1,7 +1,8 @@
+import { captureClosedView, rememberClosedView, reopenClosedView, rememberPagePullRequest } from './closed-views';
 import { parseScopedThreadKey } from '../terminal/terminal-ui-state';
 import { addTerminalSurface, focusPanelTerminal, terminalPanelLocal, terminalPanelView, panelTerminalLabel, terminalSurfaceCloseCopy, installTerminalPanelCleanup, type PanelTerminal } from '../terminal/terminal-panel';
 import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerView, type TerminalDrawerView } from '../terminal/terminal-drawer-view';
-// The right panel's tabbed surfaces (MIT reference, see LICENSE-T3:
+// The right panel's tabbed surfaces (MIT reference 9c161462c9, see LICENSE-T3:
 // apps/web/src/rightPanelStore.ts, components/RightPanelTabs.tsx, ChatView.tsx
 // addFilesSurface / addDeviceSurface / openFileSurface): an ordered set of surface
 // tabs per thread with one active, opened from the launcher, the "+" menu, the
@@ -9,7 +10,7 @@ import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerVi
 // this model lists it as a tab and keeps it in step. Every op here is a
 // `shelllocal:surface-*` (or `shell:surface-*` for writes) routed from
 // shell-commands.ts, so the window's root state only learns `shell.panel.open`.
-import { closeSurface, closePanelSurfaces, openDeviceSurface, editTabName, tabRename, copyTabPath, tabMenuRows, type TabMenuRow } from './right-panel-tabs';
+import { closeSurface, moveSurface, closePanelSurfaces, openDeviceSurface, editTabName, tabRename, copyTabPath, tabMenuRows, type TabMenuRow } from './right-panel-tabs';
 import { selectDeviceTarget } from '../device/device-session';
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
@@ -44,12 +45,12 @@ import { browserTabAudio, browserTabMute } from '../browser/browser-automation-t
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal; browser?: { tabId: string; threadKey: string } };
-export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number };
+export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number; maximized?: boolean };
 export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[]; favicon: string; faviconFallback: string; audio: string };
 export type PanelView = {
   /** The thread (or draft) this panel belongs to (panelKey), and whether it is open on the launcher alone (rightPanelStore
    *  isOpen with no surface: RightPanelEmptyState). The window keys its own open state by `key` (app.contract rightPanelAt). */
-  key: string; launcher: boolean;
+  key: string; launcher: boolean; maximized: boolean;
   open: boolean; kind: string; active: string; count: number; tabs: PanelTab[]; terminal: TerminalDrawerView; terminalClose: { serial: number; title: string; body: string; target: string; op: string };
   files: FilesView; prs: PrsView; device: DeviceView; deviceSetup: boolean; pr: PrSurfaceView; attachment: AttachmentView; deviceMini: DeviceMini; tabStrip: TabStrip; browser: BrowserView;
   /** The floating player's browser tab (its frame: chat-canvas-view.ts). */
@@ -194,6 +195,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   // The agent's recording requests (app.contract automationRecording; id = the send) are not the person's use of the
   // panel: they run before its state, its userRevision and its cleanups (review of 2026-10-12: an agent's request before
   // the panel was restored made restoreRightPanel skip the saved one).
+  if (op === 'remember-pr') { rememberPagePullRequest(client, id); return ''; }
   if (op === 'browser-automation-recording') { await serveRecordingRequests(client, native, Number(id) || 0); return ''; }
   const targetSplit = op === 'close-confirmed' ? id.lastIndexOf('|') : -1;
   const targetKey = targetSplit >= 0 ? id.slice(0, targetSplit) : panelKey(client);
@@ -201,6 +203,8 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   const state = targetKey === panelKey(client) ? panelState(client) : surfaceStore(client).panels.get(targetKey);
   if (!state) return '';
   if (targetKey === panelKey(client)) syncDiff(client, state);
+  if (op === 'maximize') { state.maximized = !state.maximized; return ''; }
+  if (op === 'move') { moveSurface(state, id, Number(value)); return ''; }
   state.userRevision++;
   installTerminalPanelCleanup(client, native, state, parseScopedThreadKey(targetKey)); installBrowserCleanup(client, native);
   if (op.startsWith('terminal-')) return terminalPanelLocal(client, native, op.slice(9), id, value);
@@ -231,7 +235,9 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op === 'close-confirmed') op = 'close';
   if (['close', 'close-others', 'close-to-right', 'close-all'].includes(op)) {
     const hadTerminal = state.surfaces.some(entry => entry.kind === 'terminal');
+    const closed = state.surfaces.map(surface => ({ surface, entry: captureClosedView(client, targetKey, surface) }));
     await closePanelSurfaces(client, state, op, id);
+    for (const entry of closed) if (!state.surfaces.some(surface => surface.id === entry.surface.id)) rememberClosedView(client, entry.entry);
     if (panelState(client) !== state) return '';
     if (!state.surfaces.some(entry => entry.kind === 'diff')) client.diffOpen = false;
     const next = state.surfaces.find(entry => entry.id === state.active);
@@ -249,7 +255,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     if (target && thread) floatMiniDevice(client, thread, target);
     // A live Browser tab floats too (closePreviewPanel's browser half).
     if (active?.kind === 'browser' && active.browser && thread && floatingTabOf(client) !== active.browser.tabId) miniStoreOf(client).open(thread, browserMiniPlayerSource(active.browser.tabId));
-    state.visible = false; client.diffOpen = false; client.diffLoading = false; return '';
+    state.visible = false; state.maximized = false; client.diffOpen = false; client.diffLoading = false; return '';
   }
   if (op === 'show') {
     // rightPanelStore.show: the thread's panel opens, on its launcher when it has no surface.
@@ -269,7 +275,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op.startsWith('session-')) {
     const key = panelKey(client), closingId = state.active;
     const effect = await deviceSessionLocal(client, native, deviceStateOf(client), key, op.slice(8), value);
-    if (effect === 'close') closeSurfaceIn(state, closingId);
+    if (effect === 'close') { const closing = state.surfaces.find(surface => surface.id === closingId); if (closing) rememberClosedView(client, captureClosedView(client, key, closing)); closeSurfaceIn(state, closingId); }
     if (panelState(client) !== state) return '';
     if (effect === 'hide') { state.visible = false; client.diffOpen = false; }
     if (effect === 'reopen') { client.diffOpen = false; const target = deviceTargetOf(client, key); if (target) openDeviceSurface(state, target); }
@@ -279,6 +285,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
 }
 /** `shell:surface-*`: the writes (file saves, pull-request watch/unlink, device hub settings). */
 export async function surfaceCommand(client: T3Client, native: Native, storage: Files, op: string, id: string, value: string): Promise<string> {
+  if (op === 'reopen') return reopenClosedView(client, native, storage);
   if (op.startsWith('pr-')) return prsCommand(client, native, storage, op.slice(3), id, value);
   if (op.startsWith('linked-')) return linkedCommand(client, native, storage, op.slice(7), id); // pr-attachment-surfaces.ts
   if (op.startsWith('session-')) {
@@ -338,7 +345,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   return {
     terminalClose: store.terminalClose,
     terminal: active?.kind === 'terminal' ? terminalPanelView(client, await terminalDrawerView(client, native, 0, now), active) : emptyTerminalDrawerView(),
-    key: panelKey(client), launcher: state.visible && !active, open, kind: active?.kind ?? '', active: active?.id ?? '', count: state.surfaces.length,
+    maximized: state.maximized === true, key: panelKey(client), launcher: state.visible && !active, open, kind: active?.kind ?? '', active: active?.id ?? '', count: state.surfaces.length,
     tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...linked,
     deviceMini: visibleMini(deviceMini(client, deviceStateOf(client)), shownDevice(client)), // shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
@@ -358,4 +365,4 @@ export function shownDevice(client: T3Client): DeviceTarget | undefined {
   const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
   return state.visible && active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
 }
-export const closedPanel = (): PanelView => ({ key: '', launcher: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), annotationSend: 0, automationRecording: { serial: 0, slot: 0 } });
+export const closedPanel = (): PanelView => ({ key: '', launcher: false, maximized: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), annotationSend: 0, automationRecording: { serial: 0, slot: 0 } });

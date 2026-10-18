@@ -1,4 +1,4 @@
-// The right panel's surfaces survive a relaunch (MIT reference, see LICENSE-T3:
+// The right panel's surfaces survive a relaunch (MIT reference 9c161462c9, see LICENSE-T3:
 // apps/web/src/rightPanelStore.ts persists `byThreadKey` — each thread's surfaces, active surface and
 // whether the panel is open — under "t3code:right-panel-state:v2", and migratePersistedRightPanelState
 // reads it back). The reference restores the panel with its file, so the Files breadcrumbs settle at
@@ -13,7 +13,7 @@ import type { PanelState, Surface } from './panel-surfaces';
 import { keepRestored, readRestored, RESTORED_KINDS, type RestoredSurface, type SurfaceEntry } from './saved-surfaces';
 
 export type SavedSurface = { id: string; kind: 'files' | 'file' | 'pull-requests'; path: string; line: number } | RestoredSurface;
-export type SavedPanel = { visible: boolean; active: string; surfaces: SavedSurface[] };
+export type SavedPanel = { visible: boolean; active: string; surfaces: SavedSurface[]; maximized?: true };
 type Holder = { local: object };
 const KEPT = new Set(['files', 'file', 'pull-requests']);
 const MAX_PANELS = 200;
@@ -29,12 +29,12 @@ function keep(surface: SurfaceEntry): SavedSurface | null {
 }
 
 /** One panel as saved: its kept surfaces, the active one (or the first while open), open only with something kept. */
-export function savedPanel(state: { surfaces: readonly SurfaceEntry[]; active: string; visible: boolean }): SavedPanel | null {
+export function savedPanel(state: { surfaces: readonly SurfaceEntry[]; active: string; visible: boolean; maximized?: boolean }): SavedPanel | null {
   const surfaces = state.surfaces.map(keep).filter((entry): entry is SavedSurface => !!entry);
   if (!surfaces.length) return null;
   const kept = surfaces.some(entry => entry.id === state.active);
   const visible = state.visible;
-  return { visible, active: kept ? state.active : visible ? surfaces[0]!.id : '', surfaces };
+  return { visible, active: kept ? state.active : visible ? surfaces[0]!.id : '', surfaces, ...(state.maximized === true ? { maximized: true } : {}) };
 }
 
 const local = (owner: Holder) => owner.local as { rightPanels?: Record<string, SavedPanel> };
@@ -46,7 +46,7 @@ export function adoptRightPanels(next: object, saved: Obj): void {
     const entry = obj(value);
     const panel = savedPanel({
       surfaces: arr(entry.surfaces).map(readRestored),
-      active: str(entry.active), visible: entry.visible === true,
+      active: str(entry.active), visible: entry.visible === true, maximized: entry.maximized === true,
     });
     if (key && panel) panels[key] = panel;
   }
@@ -86,6 +86,7 @@ export function restoreRightPanel(owner: Holder & { preferencesLoaded: boolean; 
     ...('terminal' in entry ? { terminal: entry.terminal } : {}),
     ...('title' in entry ? { title: entry.title } : {}), ...('pr' in entry ? { pr: entry.pr } : {}), ...('attachment' in entry ? { attachment: entry.attachment } : {}), ...('device' in entry && entry.device ? { device: entry.device } : {}),
   }));
+  if (saved.maximized === true) state.maximized = true; else delete state.maximized;
   state.active = saved.active;
   state.visible = saved.visible && !!saved.active;
   return true;

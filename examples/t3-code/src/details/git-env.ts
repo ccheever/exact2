@@ -1,3 +1,4 @@
+import { repositoryGroupingKey } from '../sidebar/project-groups';
 // "Run on", adapted from T3 Code (MIT; see LICENSE-T3):
 // components/BranchToolbarEnvironmentSelector.tsx (the panel Select and its static
 // label), ChatView.tsx logicalProjectEnvironments / onEnvironmentChange, and
@@ -26,7 +27,7 @@ const normalize = (value: unknown) => str(value).trim().replace(/\\/g, '/').repl
 export function logicalProjectKey(project: Obj, environmentId: string, mode: string): string {
   const physical = `${environmentId}:${normalize(project.workspaceRoot)}`;
   if (mode === 'separate') return physical;
-  const identity = obj(project.repositoryIdentity), canonical = str(identity.canonicalKey);
+  const identity = obj(project.repositoryIdentity), canonical = repositoryGroupingKey(identity);
   if (!canonical) return physical;
   if (mode === 'repository') return canonical;
   const root = normalize(identity.rootPath), path = normalize(project.workspaceRoot);

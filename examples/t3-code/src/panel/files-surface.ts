@@ -1,3 +1,4 @@
+import { invalidateFileMetadata } from '../shared/file-metadata';
 // The Files surface (MIT reference, see LICENSE-T3:
 // components/files/FilePreviewPanel.tsx, FileBrowserPanel.tsx, useDirectoryEntries.ts,
 // FileBreadcrumbs.tsx, fileSaveCoordinator.ts, filePreviewMode.ts and @pierre/trees'
@@ -205,7 +206,9 @@ export async function editFile(client: T3Client, native: Native, path: string, c
     const revision = edit.revision, text = edit.contents;
     edit.saving = true;
     try {
+      invalidateFileMetadata(client, path, cwd);
       await client.restAccess(native).request('projects.writeFile', { cwd, relativePath: path, contents: text }, true);
+      invalidateFileMetadata(client, path, cwd);
       edit.confirmed = revision; edit.error = '';
     } catch (error) {
       if (letGo(error)) { edit.saving = false; throw error; }
@@ -475,7 +478,7 @@ async function renderedMarkdown(client: T3Client, native: Native, path: string, 
   const diagrams = filesMermaid(client, text);
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, folder, [], `files:${absolute}`, scope) }, // the owner names the document
+    md: { ...markdownEnv(client), chips: messageChips({ text }, folder, [], `files:${absolute}`, scope, client) }, // the owner names the document
     code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };

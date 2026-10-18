@@ -31,6 +31,14 @@ function client(): T3Client {
   return c;
 }
 const context = { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false };
+test('new panel and reopen closed view follow resolved server shortcuts, including Settings', () => {
+  const c = client();
+  c.config.keybindings = [{ command: 'rightPanel.new', shortcut: { key: 't', modKey: true } }, { command: 'view.reopenClosed', shortcut: { key: 't', modKey: true, shiftKey: true } }];
+  for (const settingsOpen of [false, true]) {
+    const rows = keyboardDispatch(c, [], '', '', { ...context, settingsOpen }).filter(row => ['rightPanel.new', 'view.reopenClosed'].includes(row.command));
+    expect(rows.map(row => [row.kind, row.chord]).sort()).toEqual(settingsOpen ? [['panel-reopen', 'Meta+Shift+t']] : [['panel-new', 'Meta+t'], ['panel-reopen', 'Meta+Shift+t']]);
+  }
+});
 class Fake implements Native {
   available = true; calls: Obj[] = [];
   watch() {}
