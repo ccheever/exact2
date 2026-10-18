@@ -1480,10 +1480,10 @@ component T3Code
       taskModelPick = `${provider}:${id}`
       modelsOpen = false
       focus("setting-task-model")
-    else if id != "" and modelTarget.id.startsWith("source-control-writer-model:")
+    else if id != "" and (modelTarget.id.startsWith("source-control-writer-model:") or modelTarget.id.startsWith("review-guide-model:"))
       modelsOpen = false
-      focus("setting-source-control-writer-model")
-      restRaw("rest:scoped", modelTarget.id.slice(modelTarget.id.indexOf(":|") + 2, modelTarget.id.length), `key=sourceControlWriterModelSelection&value=${encodeURIComponent(`${provider}:${id}`)}`)
+      focus(modelTarget.id.startsWith("review-guide-model:") ? "setting-review-guide-model" : "setting-source-control-writer-model")
+      restRaw("rest:scoped", modelTarget.id.slice(modelTarget.id.indexOf(":|") + 2, modelTarget.id.length), `key=${modelTarget.id.startsWith("review-guide-model:") ? "reviewGuideModelSelection" : "sourceControlWriterModelSelection"}&value=${encodeURIComponent(`${provider}:${id}`)}`)
     else if not commandPending and id != ""
       commandPending = true
       pendingModal = modelTarget.id == "" ? "" : "settings" // a General row's pick is that setting's write, never the thread's model

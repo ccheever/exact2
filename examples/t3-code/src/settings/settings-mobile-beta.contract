@@ -9,9 +9,9 @@
 // panel may wrap narrower than the reference draws it. The codes' boxes mount on
 // first use only (the pointer arriving or a press).
 use CoreRow from "./settings-core.contract"
-use CorePalette from "./settings-core.contract"
+use CorePalette from "./settings-core-shared.contract"
 use QrMark from "./settings-core.contract"
-use SettingsGhost from "./settings-core.contract"
+use SettingsGhost from "./settings-core-shared.contract"
 
 keyframes mbShownA
   from opacity=1

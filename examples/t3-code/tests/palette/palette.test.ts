@@ -205,6 +205,8 @@ describe('add project', () => {
     expect(view.rows.map(entry => entry.title)).toEqual(['Add existing project']);
     expect(view.enterArg).toBe('new-project');
     expect(view.enterLabel).toBe('Create');
+    const highlighted = await addProjectView(c, native, { page: 'new-project', query: 'My App', highlighted: true });
+    expect(highlighted).toMatchObject({ enterLabel: 'Select', accessoryKey: '⌘ Enter', accessoryOp: 'flow', accessoryArg: 'new-project', accessoryArg2: 'My App' });
   });
   test('adding a path creates the project and opens a new thread in it', async () => {
     const c = client(), native = new Fake();

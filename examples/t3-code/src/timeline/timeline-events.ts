@@ -1,6 +1,7 @@
 // Lifecycle rows adapted from T3 Code (MIT, see LICENSE-T3):
 // apps/web/src/components/chat/V2LifecycleRow.tsx (interrupts, handoffs,
 // forks and subagents) and TimelineSystemDivider.tsx.
+import { subagentCard } from '../sidebar/subagent-card';
 import { obj, str, type Activity, type Message, type Obj } from '../client/domain';
 import { resolveProviderInstanceAcpRegistryIconUrl } from '../providers/acp-icons';
 import { instanceInitials } from '../usage/usage-pooled-view';
@@ -22,7 +23,7 @@ function plainDetail(text: string): string {
   return text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/`/g, '').replace(/^[ \t]*[-*][ \t]+/gm, '').replace(/\s+/g, ' ').trim();
 }
 /** What a subagent card reads beside its item: the parent's subagent records and the server's providers. */
-export interface SubagentContext { agents: Obj[]; providers: Obj[] }
+export interface SubagentContext { agents: Obj[]; providers: Obj[]; threads?: Obj[] }
 const NO_CONTEXT: SubagentContext = { agents: [], providers: [] };
 
 /**
@@ -40,8 +41,12 @@ export function subagent(item: Obj, context: SubagentContext = NO_CONTEXT): Acti
   const timing = { status, startedAt: agent?.startedAt ?? item.startedAt, completedAt: agent?.completedAt ?? item.completedAt };
   const startedMs = workActive(status) && typeof timing.startedAt === 'string' ? Date.parse(timing.startedAt) : NaN;
   const elapsed = Number.isFinite(startedMs) ? null : subagentElapsedMs(timing, 0);
-  const driver = str(item.driver), provider = context.providers.find(candidate => candidate.instanceId === item.providerInstanceId);
-  return { id: str(item.id), label: subagentTitle(str(item.title, 'Subagent')), body: detail, icon: 'bot', output: elapsed === null ? '' : formatElapsedSeconds(elapsed / 1000),
+  const record = agent ? { ...item, ...agent } : item;
+  const driver = str(record.driver), provider = context.providers.find(candidate => candidate.instanceId === record.providerInstanceId);
+  const card = subagentCard({ title: str(item.title), model: typeof record.model === 'string' ? record.model : null, provider, providers: context.providers,
+    providerInstanceId: str(record.providerInstanceId), origin: str(record.origin), modelSelection: record.modelSelection ? obj(record.modelSelection) : undefined,
+    childThread: context.threads?.find(thread => thread.id === record.childThreadId), status });
+  return { modelLine: card.modelLine, effort: card.effort, speed: card.speed, speedLabel: card.speedLabel, id: str(item.id), label: subagentTitle(str(item.title, 'Subagent')), body: detail, icon: 'bot', output: elapsed === null ? '' : formatElapsedSeconds(elapsed / 1000),
     result: STATUS[status] ?? status, failed: status === 'failed', timestamp: str(item.startedAt ?? item.updatedAt),
     tone: status === 'failed' ? 'error' : status === 'completed' ? 'success' : settled || status === 'idle' ? 'muted' : 'info',
     ok: true, reasoning: false, expandable: false, detail: driver, status, targetId: str(item.childThreadId), answer: '',

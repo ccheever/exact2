@@ -12,6 +12,7 @@ import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stag
 import { additiveGesture, fanoutSelections, fanoutSupported, sendFanout, setFanout, toggleFanout } from '../composer/composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from '../composer/composer-controls-commands';
 import { dispatchSelection, promptForSend, ultrathinkChoice } from '../composer/composer-ultrathink';
+import { stepReasoningEffort } from '../composer/composer-effort-step';
 import { queuedEdit, saveQueuedEdit } from '../composer/composer-controls-queue';
 import { fanoutBase, serverThreadWorkspace, workspaceStrategy } from '../composer/composer-controls-branch';
 import { composerSelection } from '../composer/composer-provider-selection'; // the sent selection
@@ -75,6 +76,8 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
     else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value, id)) || ''; }); // onSend's guard (a move in flight finishes first)
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value, n === 1); // n 1: the picker's Shift+click or Shift+Return
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
+    // composer.increaseEffort / composer.decreaseEffort (keyboard-dispatch.ts): id is the direction.
+    else if (op === 'effort-step') await stepReasoningEffort(this, native, id === '-1' ? -1 : 1, (option, choice) => changeModelOption.call(this, native, storage, option, choice, true));
     else if (op === 'runtime' || op === 'interaction') await changeMode.call(this, native, storage, op, value);
     else if (op === 'stop') {
       const run = activeRun(this.projection);
@@ -209,8 +212,9 @@ async function changeModel(this: T3Client, native: Native, storage: Files, op: s
   this.providerId = providerId; this.modelId = modelId;
   this.modelOptions = remembered;
 }
-async function changeModelOption(this: T3Client, native: Native, storage: Files, id: string, value: string): Promise<void> {
-  if (ultrathinkChoice(this, id, value)) return; // an injected effort rewrites the prompt
+/** `promptHandled`: the caller edits the prompt itself (an effort step), so an Ultrathink choice does not rewrite it here. */
+async function changeModelOption(this: T3Client, native: Native, storage: Files, id: string, value: string, promptHandled = false): Promise<void> {
+  if (!promptHandled && ultrathinkChoice(this, id, value)) return; // an injected effort rewrites the prompt
   // The traits menu shows the model the turn runs on (composer-provider-selection.ts); its option change keeps that model.
   const chosen = composerSelection(this, !!fanoutSelections(this));
   const providerId = chosen.instanceId || this.providerId, modelId = chosen.entry ? chosen.model : this.modelId;

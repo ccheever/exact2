@@ -410,19 +410,26 @@ component CommandPaletteBody
   // CommandPalette.tsx handleKeyDown takes every thread.jump.N chord in the field
   // (view.jumpKeys), prevented and stopped, and runs the displayed row that has it (⌘1–⌘9 on a project pick), if one
   // does: ⌘5 with two projects, or ⌘1 on the root page, does nothing. Every other key is the root's (the arrows, Backspace).
+  // An accessory labelled "⌘ Enter" (a highlighted row holds Enter) takes ⌘Return: Add while browsing, Create on New project.
   action inputKey(k: string, e: KeyboardEvent)
     let chord = `${e.metaKey ? "Meta+" : ""}${e.ctrlKey ? "Control+" : ""}${e.altKey ? "Alt+" : ""}${e.shiftKey ? "Shift+" : ""}${k}`
-    match first(view.rows.filter((r) => r.jump != "" and r.jump == chord))
-      case some(r)
-        preventDefault()
-        stopPropagation()
-        run(r.op, r.arg, r.arg2)
-      case none
-        if view.jumpKeys.filter((c) => c == chord).length > 0
+    if chord == "Meta+Enter" and view.accessoryKey == "⌘ Enter"
+      preventDefault()
+      stopPropagation()
+      if not e.repeat and not busy and view.accessoryEnabled
+        run(view.accessoryOp, view.accessoryArg, view.accessoryArg2)
+    else
+      match first(view.rows.filter((r) => r.jump != "" and r.jump == chord))
+        case some(r)
           preventDefault()
           stopPropagation()
-        else
-          onKey(k)
+          run(r.op, r.arg, r.arg2)
+        case none
+          if view.jumpKeys.filter((c) => c == chord).length > 0
+            preventDefault()
+            stopPropagation()
+          else
+            onKey(k)
   derive dialogTargets = [(view.addon == "back" ? "palette-back" : "palette-input"), (view.footerAction != "" ? "palette-footer-action" : (view.toggles ? "palette-regex" : "palette-input"))]
   view
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" press=close aria-label=(view.escapeLabel == "Back" ? "Back" : "Close") testId="palette-backdrop"

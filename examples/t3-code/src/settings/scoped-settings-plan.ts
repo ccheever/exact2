@@ -11,9 +11,9 @@ import type { ResolvedSettingsScope, ScopeMember } from './settings-scope';
 
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = ['worktreeCleanup', 'defaultModelSelection', 'defaultRuntimeMode', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin',
   'worktreeSubmodules', 'defaultAutoPull', 'defaultProjectScripts', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'textGenerationModelSelection',
-  'sourceControlWriterModelSelection', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod',
+  'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'reviewGuidesEnabled', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod',
   'sidebarAutoSettleOnMerge', 'sidebarAutoSettleAfterDays', 'continueThreadsAfterServerUpdate', 'responseStreamingMode'] as const;
-const NULLABLE_PROJECT_SETTINGS_OVERRIDES = new Set(['defaultModelSelection', 'sourceControlWriterModelSelection', 'pullRequestMergeMethod', 'sidebarAutoSettleAfterDays']);
+const NULLABLE_PROJECT_SETTINGS_OVERRIDES = new Set(['defaultModelSelection', 'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'pullRequestMergeMethod', 'sidebarAutoSettleAfterDays']);
 export const PROJECT_FILE_BACKED_SETTINGS: Record<string, { field: string; builtIn: string }> = {
   defaultThreadEnvMode: { field: 'defaultThreadEnvMode', builtIn: 'local' }, worktreeSubmodules: { field: 'worktreeSubmodules', builtIn: 'recursive' } };
 const SERVER_KEYS = new Set(['worktreeCleanup', 'storageCleanup', 'responseStreamingMode', 'enableProviderUpdateChecks', 'continueThreadsAfterServerUpdate', 'enableAgentBrowserAccess',
@@ -22,7 +22,7 @@ const SERVER_KEYS = new Set(['worktreeCleanup', 'storageCleanup', 'responseStrea
   'snoozeLimitedThreads', 'autoResumeLimitedThreads', 'sidebarAutoSettleOnMerge', 'backgroundActivity', 'automaticGitFetchInterval', 'providerHealthRefreshInterval',
   'backgroundActivityProfile', 'defaultTheme', 'defaultThemeSetAt', 'environmentIcon', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin', 'worktreeSubmodules',
   'addProjectBaseDirectory', 'textGenerationModelSelection', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'sourceControlWritingStyle',
-  'sourceControlWriterModelSelection', 'pullRequestMergeMethod', 'providers', 'providerInstances', 'observability', 'bitbucket', 'usageLimitSources',
+  'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'reviewGuidesEnabled', 'pullRequestMergeMethod', 'providers', 'providerInstances', 'observability', 'bitbucket', 'usageLimitSources',
   'cursorKeychainUsageEnabled', 'usagePriceOverrides', 'usageModelAliases']);
 const CLIENT_KEYS = new Set(['notificationMode', 'inAppNotificationsEnabled', 'diffColorScheme', 'chatWidth', 'loadBalancingEnabled', 'loadBalancingWeights', 'appearanceContrast',
   'panelAnimationDurationMs', 'confirmQuit', 'confirmThreadArchive', 'confirmThreadDelete', 'confirmThreadUnpin', 'diffFilesCollapsed', 'diffIgnoreWhitespace', 'diffLayout',

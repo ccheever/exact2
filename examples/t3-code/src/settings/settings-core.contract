@@ -2,6 +2,7 @@
 // Geometry and colours follow the served reference
 // (SettingsSidebarNav, WorkspacePageHeader, SettingsScopeSentence, settingsLayout,
 // ui/select, ui/switch); colours arrive as light-dark() tokens from the theme palette.
+use CoreOption, CorePalette, SettingsGhost from "./settings-core-shared.contract"
 use NightlyBackdrop from "../sidebar/nightly.contract"
 use Tip from "../shell/shell-tip.contract"
 use FontDiffPreview from "../shared/shapes.contract"
@@ -14,14 +15,6 @@ use Wordmark from "../shared/icons.contract"
 use ProviderInstanceMark from "../shared/icons-kit.contract"
 use SidebarUpdatePill from "../sidebar/sidebar-icons-kit.contract"
 
-shape CoreOption
-  id: string
-  value: string
-  label: string
-  detail: string
-  icon: string
-  selected: bool
-  disabled: bool
 shape CoreRow
   id: string
   title: string
@@ -107,40 +100,6 @@ shape CoreNav
   firstRoute: string
   firstTarget: string
   firstId: string
-shape CorePalette
-  canvas: string
-  sidebar: string
-  sidebarBorder: string
-  rowActive: string
-  sidebarText: string
-  sidebarMuted: string
-  sidebarIcon: string
-  text: string
-  muted: string
-  heading: string
-  description: string
-  card: string
-  cardBorder: string
-  divider: string
-  input: string
-  field: string
-  accent: string
-  accentText: string
-  switchOff: string
-  thumb: string
-  popover: string
-  popoverBorder: string
-  highlight: string
-  kbd: string
-  output: string
-  line: string
-  rowHover: string
-  sectionMuted: string
-  tileActive: string
-  border: string
-  backdrop: string
-  footer: string
-  surface: string
 
 shape Wire
   canvas: string
@@ -444,8 +403,3 @@ component SettingsTopBar
           svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="none" flex-shrink=0 aria-hidden=true
             path d=coreIconPath("rotate-ccw") stroke=pal.muted stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
           text "Restore device defaults" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text id=`paint-SettingsTopBar-4-${route}` data-paint="text" data-pick="text"
-
-style SettingsGhost
-  cursor="pointer"
-  display="flex" flex-direction="row" align-items="center" justify-content="center"
-  box-sizing="border-box" border-width=0 background-color="#00000000" flex-shrink=0 min-height=0

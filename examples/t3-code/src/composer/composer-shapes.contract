@@ -156,8 +156,6 @@ shape ComposerView
   fanoutMore: number
   fanoutKeys: string[]
   traitsLabel: string
-  traitsSpeed: string
-  traitsAria: string
   runtimeIconOnly: bool
   traitsIconOnly: bool
   restingRuntimeIconOnly: bool

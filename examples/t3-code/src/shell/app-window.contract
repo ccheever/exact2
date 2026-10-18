@@ -346,6 +346,7 @@ component T3Window
     dialogFallback
     rem = data.look.fontSize
     still = viewport.prefersReducedMotion
+    corePal = settingsCore.palette // Settings' palette, for rows drawn outside the General route (the writer model's TraitsPicker)
     hoverTipAt
     hoverTip
     hoverShown
