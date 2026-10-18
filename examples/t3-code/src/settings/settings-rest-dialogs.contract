@@ -3,6 +3,7 @@
 // the open dialog; `subject`/`label` carry what it acts on.
 use ScheduledPage from "./settings-scheduled.contract"
 use ScheduledEditor from "./settings-scheduled.contract"
+use WebhookDeliveriesDialog from "./scheduled-deliveries.contract"
 use ProjectsPage from "./settings-projects.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 
@@ -66,6 +67,8 @@ component SettingsRestDialogs
     open: action
     taskBase: action
   view
+    if editor == "task-deliveries"
+      WebhookDeliveriesDialog(data=scheduled.deliveries, close=close, select=taskBase)
     if editor == "task"
       for draft in scheduled.editors key=draft.key
         ScheduledEditor(data=scheduled, draft=draft, busy=busy, error=error, close=close, rest=rest, lookupBase=taskBase, runsOn=open("task"))

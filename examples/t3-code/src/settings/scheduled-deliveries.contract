@@ -1,0 +1,61 @@
+// WebhookDeliveriesDialog (T3 Code 9c161462c9).
+use WebhookDeliveries from "./settings-scheduled.contract"
+use FocusGuard from "../shared/dialog-trap.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
+component WebhookDeliveriesDialog
+  inject
+    dialogEntered: action
+    dialogFallback: action
+  props
+    data: WebhookDeliveries
+    close: action
+    select: action
+  state refresh = 0
+  action pick(id: string)
+    select(`delivery=${encodeURIComponent(id)}&refresh=${refresh}`)
+  action back
+    if data.selected != ""
+      pick("")
+    else
+      select(`delivery=&refresh=${refresh + 1}`)
+      refresh = refresh + 1
+  derive targets = (data.selected == "" ? data.items.map((item) => `webhook-delivery-${item.id}`) : []).concat(["webhook-deliveries-back", "webhook-deliveries-done"])
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)"
+      column role="dialog" aria-label=data.title id="webhook-deliveries-dialog" testId="webhook-deliveries-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("webhook-deliveries-dialog") key=dialogFallback("webhook-deliveries-dialog", targets) width="100%" max-width="42rem" max-height="90vh" border-radius="1rem" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden"
+        FocusGuard(guardId="webhook-deliveries-guard-start", targets=targets, popup="webhook-deliveries-dialog")
+        DialogOpenFocus(target="webhook-deliveries-done")
+        column padding="1.5rem" gap="0.5rem"
+          text data.title font-size="1.25rem" font-weight=600 role="heading" aria-level=2
+          text "Recent requests to this task's webhook URL." font-size="0.875rem" color="light-dark(#71717b, #818181)"
+        scroll flex-shrink=1 min-height=0
+          column padding-left="1.5rem" padding-right="1.5rem" gap="1rem"
+            if data.error != ""
+              text data.error role="alert" color="light-dark(#dc2626, #f87171)" font-size="0.875rem"
+            if data.empty
+              text "No requests yet." font-size="0.875rem" color="light-dark(#71717b, #818181)"
+            if data.selected == ""
+              for item in data.items key=item.id
+                button data-focus-stop="enabled" id=`webhook-delivery-${item.id}` press=pick(item.id) testId=`webhook-delivery-${item.id}` width="100%" display="flex" flex-direction="row" align-items="center" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" border-width=0 background-color="#00000000"
+                  text item.label font-size="0.875rem" font-weight=500
+                  text item.method font-size="0.875rem"
+                  text item.age font-size="0.875rem" color="light-dark(#71717b, #818181)"
+                  text item.missing font-size="0.75rem" color="light-dark(#71717b, #818181)"
+            else
+              row gap="0.5rem" flex-wrap="wrap"
+                text data.outcome font-size="0.875rem" font-weight=500
+                text `${data.method} · ${data.age}` font-size="0.875rem"
+                if data.verified
+                  text "Signature verified" font-size="0.875rem" color="light-dark(#71717b, #818181)"
+              for block in data.blocks key=block.title
+                column gap="0.25rem"
+                  text block.title font-size="0.875rem" font-weight=500
+                  text block.value font-size="0.75rem" font-family="monospace" white-space="pre-wrap" user-select="text" padding="0.5rem" border-radius="0.5rem" background-color="light-dark(#f4f4f5, #ffffff08)"
+              if data.missing != ""
+                text data.missing font-size="0.875rem" color="light-dark(#71717b, #818181)"
+        row padding="1.5rem" gap="0.5rem" justify-content="flex-end"
+          button data-focus-stop="enabled" id="webhook-deliveries-back" press=back testId="webhook-deliveries-back"
+            text (data.selected != "" ? "Back" : "Refresh") font-size="0.875rem"
+          button data-focus-stop="enabled" id="webhook-deliveries-done" press=close aria-keyshortcuts="Escape" testId="webhook-deliveries-done"
+            text "Done" font-size="0.875rem"
+        FocusGuard(guardId="webhook-deliveries-guard-end", targets=targets, popup="webhook-deliveries-dialog")

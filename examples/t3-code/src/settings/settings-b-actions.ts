@@ -1,4 +1,4 @@
-// Settings → Project → Actions (ProjectActionsSettings.tsx,
+// Settings → Project → Actions (T3 Code 9c161462c9 ProjectActionsSettings.tsx,
 // ProjectActionsList.tsx, projectScriptEditor.tsx, useProjectScriptSettings.ts,
 // projectScripts.ts, lib/projectScriptKeybindings.ts, shared/projectScripts.ts).
 // Actions belong to a project: a project scope edits each selected checkout's
@@ -47,19 +47,33 @@ export function keybindingFor(keybindings: Obj[], command: string | null): strin
   return '';
 }
 
-type Script = { id: string; name: string; command: string; icon: string; runOnWorktreeCreate: boolean; async?: boolean; previewUrl?: string; autoOpenPreview?: boolean };
-export type ScriptInput = { name: string; command: string; icon: string; runOnWorktreeCreate: boolean; waitForSetup: boolean; keybinding: string; previewUrl: string; autoOpenPreview: boolean };
+type Script = { id: string; name: string; command: string; icon: string; runOnWorktreeCreate: boolean; runOnSettle?: boolean; async?: boolean; previewUrl?: string; autoOpenPreview?: boolean };
+export type ScriptInput = { name: string; command: string; icon: string; runOnWorktreeCreate: boolean; runOnSettle: boolean; waitForSetup: boolean; keybinding: string; previewUrl: string; autoOpenPreview: boolean };
 const asScript = (value: unknown): Script => {
   const entry = obj(value);
   return { id: str(entry.id), name: str(entry.name), command: str(entry.command), icon: ICON_IDS.includes(str(entry.icon)) ? str(entry.icon) : 'play',
-    runOnWorktreeCreate: entry.runOnWorktreeCreate === true, ...(typeof entry.async === 'boolean' ? { async: entry.async } : {}),
+    runOnWorktreeCreate: entry.runOnWorktreeCreate === true, ...(entry.runOnSettle === true ? { runOnSettle: true } : {}), ...(typeof entry.async === 'boolean' ? { async: entry.async } : {}),
     ...(str(entry.previewUrl) ? { previewUrl: str(entry.previewUrl), autoOpenPreview: entry.autoOpenPreview === true } : {}) };
 };
 /** buildProjectScript. */
 export function buildScript(id: string, input: ScriptInput): Script {
   return { id, name: input.name, command: input.command, icon: input.icon, runOnWorktreeCreate: input.runOnWorktreeCreate,
+    ...(input.runOnSettle ? { runOnSettle: true } : {}),
     ...(input.runOnWorktreeCreate && input.waitForSetup ? { async: false } : {}),
     ...(input.previewUrl ? { previewUrl: input.previewUrl, autoOpenPreview: input.autoOpenPreview } : {}) };
+}
+/** Saving an action transfers each lifecycle role independently. */
+export function releaseClaimedRoles(script: Script, saved: Pick<ScriptInput, 'runOnWorktreeCreate' | 'runOnSettle'>): Script {
+  const setup = saved.runOnWorktreeCreate && script.runOnWorktreeCreate;
+  const settle = saved.runOnSettle && script.runOnSettle === true;
+  return setup || settle ? { ...script, ...(setup ? { runOnWorktreeCreate: false } : {}), ...(settle ? { runOnSettle: false } : {}) } : script;
+}
+export function primaryScript(scripts: Script[], preferred = ''): Script | undefined {
+  return scripts.find(script => script.id === preferred && !script.runOnSettle) ?? scripts.find(script => !script.runOnWorktreeCreate && !script.runOnSettle) ?? scripts.find(script => !script.runOnSettle);
+}
+export function scriptMenuLabel(script: Script): string {
+  const roles = [...(script.runOnWorktreeCreate ? ['setup'] : []), ...(script.runOnSettle ? ['on settle'] : [])];
+  return `${script.name}${roles.length ? ` (${roles.join(', ')})` : ''}`;
 }
 /** resolveProjectScripts: the project's override, then (until folded) the legacy map and its own scripts, then the environment. */
 export function resolveScripts(settings: Obj, project: Obj): Script[] {
@@ -89,9 +103,9 @@ export function parseProjectScripts(contents: string | null): { status: 'missing
   for (const raw of file.scripts) {
     const entry = obj(raw), name = str(entry.name).trim(), command = str(entry.command).trim();
     const optionalBool = (key: string) => entry[key] === undefined || typeof entry[key] === 'boolean';
-    if (!name || !command || (entry.icon !== undefined && !ICON_IDS.includes(str(entry.icon))) || !optionalBool('runOnWorktreeCreate') || !optionalBool('async') || !optionalBool('autoOpenPreview')
+    if (!name || !command || (entry.icon !== undefined && !ICON_IDS.includes(str(entry.icon))) || !optionalBool('runOnWorktreeCreate') || !optionalBool('async') || !optionalBool('runOnSettle') || !optionalBool('autoOpenPreview')
       || (entry.previewUrl !== undefined && !str(entry.previewUrl).trim())) return { status: 'invalid', scripts: [] };
-    scripts.push({ name, command, icon: str(entry.icon, 'play'), runOnWorktreeCreate: entry.runOnWorktreeCreate === true, async: entry.async,
+    scripts.push({ name, command, icon: str(entry.icon, 'play'), runOnWorktreeCreate: entry.runOnWorktreeCreate === true, ...(entry.runOnSettle === true ? { runOnSettle: true } : {}), async: entry.async,
       previewUrl: str(entry.previewUrl).trim(), autoOpenPreview: entry.autoOpenPreview === true });
   }
   return { status: 'valid', scripts };
@@ -125,13 +139,13 @@ export async function projectActions(client: T3Client, native: Native | null | u
     actionsMixed: mixed, actionsOverridden: overridden, t3Invalid: file.status === 'invalid',
     actions: scripts.map((script, index) => {
       const value = keybindingFor(keybindings, commandForScript(script.id));
-      return { id: script.id, first: index === 0, name: script.name, command: script.command, icon: script.icon, setup: script.runOnWorktreeCreate,
+      return { id: script.id, first: index === 0, name: script.name, command: script.command, icon: script.icon, setup: script.runOnWorktreeCreate, settle: script.runOnSettle === true,
         preview: !!script.previewUrl, shortcut: value ? shortcutLabel(value) : '',
-        edit: JSON.stringify({ id: script.id, name: script.name, command: script.command, icon: script.icon, runOnWorktreeCreate: script.runOnWorktreeCreate,
+        edit: JSON.stringify({ id: script.id, name: script.name, command: script.command, icon: script.icon, runOnWorktreeCreate: script.runOnWorktreeCreate, runOnSettle: script.runOnSettle === true,
           waitForSetup: script.runOnWorktreeCreate && script.async === false, keybinding: value, previewUrl: script.previewUrl ?? '', autoOpenPreview: script.autoOpenPreview === true }) };
     }),
     importable: importable.map(entry => ({ key: `${str(entry.name)} ${str(entry.command)}`, name: str(entry.name), command: str(entry.command), icon: str(entry.icon, 'play'),
-      payload: JSON.stringify({ name: str(entry.name), command: str(entry.command), icon: str(entry.icon, 'play'), runOnWorktreeCreate: entry.runOnWorktreeCreate === true,
+      payload: JSON.stringify({ name: str(entry.name), command: str(entry.command), icon: str(entry.icon, 'play'), runOnWorktreeCreate: entry.runOnWorktreeCreate === true, runOnSettle: entry.runOnSettle === true,
         waitForSetup: entry.runOnWorktreeCreate === true && entry.async === false, keybinding: '', previewUrl: str(entry.previewUrl), autoOpenPreview: str(entry.previewUrl) ? entry.autoOpenPreview === true : false }) })),
   };
 }
@@ -141,7 +155,7 @@ export function decodeInput(text: string): ScriptInput & { id: string } {
   const raw = new URLSearchParams(text || '');
   const icon = raw.get('icon') ?? 'play';
   return { id: (raw.get('id') ?? '').trim(), name: (raw.get('name') ?? '').trim(), command: (raw.get('command') ?? '').trim(), icon: ICON_IDS.includes(icon) ? icon : 'play',
-    runOnWorktreeCreate: raw.get('setup') === 'true', waitForSetup: raw.get('wait') === 'true', keybinding: (raw.get('keybinding') ?? '').trim(),
+    runOnWorktreeCreate: raw.get('setup') === 'true', runOnSettle: raw.get('settle') === 'true', waitForSetup: raw.get('wait') === 'true', keybinding: (raw.get('keybinding') ?? '').trim(),
     previewUrl: (raw.get('preview') ?? '').trim(), autoOpenPreview: raw.get('auto') === 'true' };
 }
 /** The editor's submit validation (projectScriptEditor submit). */
@@ -192,7 +206,7 @@ async function runEnvironmentActionOp(client: T3Client, native: Native, op: stri
     const next = buildScript(id, valid);
     changedId = id; keybinding = valid.keybinding || null;
     transform = current => {
-      const updated = current.map(script => script.id === id ? next : valid.runOnWorktreeCreate ? { ...script, runOnWorktreeCreate: false } : script);
+      const updated = current.map(script => script.id === id ? next : releaseClaimedRoles(script, valid));
       return current.some(script => script.id === id) ? updated : [...updated, next];
     };
   }
