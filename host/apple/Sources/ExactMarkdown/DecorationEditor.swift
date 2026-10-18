@@ -305,23 +305,34 @@ final class DecorationEditor: FieldDecorating {
         return CGRect(x: first.minX - gutter, y: first.minY + (first.height - size) / 2, width: size, height: size)
     }
 
-    func click(_ point: CGPoint) -> Bool {
-        guard let node, !node.disabled, !node.inert, node.props["editable"] != "false", node.fieldText == styled else { return false }
+    private enum Hit {
+        case checkbox(Bool, NSRange)
+        case atom(NSRange)
+    }
+    private func hit(_ point: CGPoint) -> Hit? {
+        guard let node, !node.disabled, !node.inert, !node.fieldComposing,
+              node.props["editable"] != "false", node.fieldText == styled else { return nil }
         if let block = blocks.first(where: { ($0.marker == "checkbox:on" || $0.marker == "checkbox:off") && markerRect($0)?.insetBy(dx: -4, dy: -4).contains(point) == true }) {
-            node.decorationToggle(checked: block.marker == "checkbox:on", range: block.range)
-            return true
+            return .checkbox(block.marker == "checkbox:on", block.range)
         }
         for atom in atoms {
-            if segments(atom.range).first?.contains(point) == true {
-                #if os(macOS)
-                field?.setSelectedRange(atom.range)
-                #else
-                field?.selectedRange = atom.range
-                #endif
-                return true
-            }
+            if segments(atom.range).first?.contains(point) == true { return .atom(atom.range) }
         }
-        return false
+        return nil
+    }
+    func hitTest(_ point: CGPoint) -> Bool { hit(point) != nil }
+    func click(_ point: CGPoint) -> Bool {
+        guard let node, let hit = hit(point) else { return false }
+        switch hit {
+        case let .checkbox(checked, range): node.decorationToggle(checked: checked, range: range)
+        case let .atom(range):
+            #if os(macOS)
+            field?.setSelectedRange(range)
+            #else
+            field?.selectedRange = range
+            #endif
+        }
+        return true
     }
 
     func draw(background: Bool) {

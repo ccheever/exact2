@@ -35,6 +35,7 @@ package protocol FieldDecorating: AnyObject {
     func selection(_ range: NSRange, previous: NSRange) -> NSRange
     func replacement(_ range: NSRange) -> NSRange
     func draw(background: Bool)
+    func hitTest(_ point: CGPoint) -> Bool
     func click(_ point: CGPoint) -> Bool
 }
 

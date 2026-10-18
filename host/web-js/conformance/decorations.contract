@@ -7,6 +7,8 @@ component App
   state draft = "## Heading\nhello **world** @alice\n- [ ] task"
   state painted = "## Heading\nhello **world** @alice\n- [ ] task"
   state status = "Ready"
+  state geometry = ""
+  state toggleCount = 0
   derive ranges = TextDecorations(value=painted,
     spans=[TextDecorationSpan(name="accent", start=19, end=24)],
     blocks=[TextDecorationBlock(name="heading", start=0, end=11, marker=""), TextDecorationBlock(name="task", start=34, end=44, marker=(painted.slice(37, 38) == "x" ? "checkbox:on" : "checkbox:off"))],
@@ -21,12 +23,19 @@ component App
     draft = value
     painted = value
     status = "Ready"
+    geometry = ""
+    toggleCount = 0
   action replace
     setRangeText("composer", "Hi", 11, 16, "select", "undo")
   action measure
     let box = rangeFrame("composer", 19, 24)
     status = box.unavailable ? "Unavailable" : `${box.width} × ${box.height}`
+  action probe
+    let task = rangeFrame("composer", 34, 44)
+    let atom = rangeFrame("composer", 27, 33)
+    geometry = task.unavailable || atom.unavailable ? "Unavailable" : `${task.x},${task.y},${task.height},${atom.x},${atom.y},${atom.width},${atom.height}`
   action taskToggle(e: ToggleEvent)
+    toggleCount = toggleCount + 1
     status = `${e.oldState} → ${e.newState} ${e.start}:${e.end}`
     setRangeText("composer", e.newState == "checked" ? "x" : " ", e.start + 3, e.start + 4, "preserve", "undo")
   view
@@ -39,4 +48,7 @@ component App
           text "Reset decorations"
         button id="measure" testId="measure" press=measure
           text "Measure range"
+      button id="probe" testId="probe" press=probe
+        text "Probe touch geometry"
       text status testId="status"
+      text geometry testId="geometry"
