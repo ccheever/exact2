@@ -1209,7 +1209,9 @@ screen, 2026-10-16.)
   session. (Wave 9, lanes 015/060, 2026-10-12.)
 
 - **An agent drive shows the app's defaults (a mock, an empty store) though
-  the app's files are there.** Cause: without `--storage <name>` the data
+  the app's files are there.** Cause: a web drive without `--storage <name>`
+  (a native one uses the store `default`, kept between drives), or an authored
+  test, whose store starts empty: the data
   module reads an empty store (`readFile`, `readdir`, `stat` and `realpath` reject
   with code `ENOENT`, as for a missing file) and every write throws "storage is
   unavailable in agent mode…", so a module that catches a missing file falls back

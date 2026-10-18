@@ -169,7 +169,9 @@ nothing): the window asks its `beforeunload` first, and the reply says
 macOS, iOS and Linux until one passes `--reset-storage`, and on web Chrome when the
 next drive passes `--keep-storage` (a browser profile served on one port per
 name; a Firefox or WebKit drive starts fresh each time, so a name there lasts
-for the drive, including its `reload`). Without it a drive has no
+for the drive, including its `reload`). A native drive that names none uses the
+store `default`, kept the same way, as the app keeps its files from launch to
+launch. A web drive without one has no
 app storage: an `app:/` file read finds an empty store (code `ENOENT`, as a
 fresh install's first launch does), and a write or SQLite request is refused (`storage
 is unavailable in agent mode unless the drive names a scratch store (--storage

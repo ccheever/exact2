@@ -26,7 +26,7 @@ import { closeSync, createWriteStream, existsSync, mkdirSync, openSync, readdirS
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
-import { compilerWarnings, CONFIG_JSON, DECLARATIONS, depInfoInputs, moduleGraph, newerThan, notBuildInput, receiptChanges, refuseStale } from './agent-launch.mjs';
+import { compilerWarnings, warningLines, CONFIG_JSON, DECLARATIONS, depInfoInputs, moduleGraph, newerThan, notBuildInput, receiptChanges, refuseStale } from './agent-launch.mjs';
 import { bakeOutput, claimLive, developmentBuildEnv, resolveApp, shaderWatchRoots } from './app.mjs';
 import { bakeTool, linkedBakeDir } from './linked-plan.mjs';
 
@@ -267,7 +267,7 @@ export async function buildFirst(host, app, { say = line => console.error(line),
     const log = resolve(app.dir, '.exact', `${host}-plan.log`), made = await makeOverride(host, app, state, { bake, log }), what = named(app, state.changed);
     if (made.made) {
       say(`${label(host)}: ${what} changed; running the new plan on the existing build (no native rebuild)`);
-      for (const warning of compilerWarnings(made.output)) say(warning);
+      for (const line of warningLines(app.dir, host, compilerWarnings(made.output))) say(line);
       return hashed();
     }
     if (made.failed) {
@@ -283,8 +283,8 @@ export async function buildFirst(host, app, { say = line => console.error(line),
   // Another build took the claim between the check and this one (two started together): wait for it, then decide again.
   if (code && retries > 0 && /Apple build busy for/.test(output)) return buildFirst(host, app, { say, build, wait, bake, retries: retries - 1 });
   if (code) say(failureSummary(output, { host, code, log: shown(log) }));
-  // The compiler's warnings, which Cargo said for the bake's build script (LLP 1116.004 D7).
-  else for (const warning of compilerWarnings(output)) say(warning);
+  // The compiler's warnings, which Cargo said for the bake's build script (LLP 1116.004 D7): the new ones in full.
+  else for (const line of warningLines(app.dir, host, compilerWarnings(output))) say(line);
   return code;
 }
 
