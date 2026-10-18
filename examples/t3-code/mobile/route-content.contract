@@ -506,7 +506,7 @@ component MobileRouteContent
     else if routeName == "settingsChoice"
       SettingsChoices(data=settingsChoice, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, change=changePreference)
     else if routeName == "archive"
-      Archive(data=archiveData, colors=archiveLook, pending=archivedPending, loading=archiveDataPending, width=viewport.width, reduced=viewport.prefersReducedMotion, refresh=refreshArchive, action=archiveAction)
+      Archive(data=archiveData, colors=archiveLook, roles=settingsData.root.roles, pending=archivedPending, loading=archiveDataPending, width=viewport.width, reduced=viewport.prefersReducedMotion, refresh=refreshArchive, action=archiveAction)
       ArchiveChrome(data=archiveChrome, routeKey=routeId, focused=focused, event=archiveChromeEvent)
     else if routeName == "threadAgents"
       AgentActivity(data=agents, colors=agentLook, dark=appearance.scheme == "dark", bottomInset=layout.safeBottom, open=openAgent)
