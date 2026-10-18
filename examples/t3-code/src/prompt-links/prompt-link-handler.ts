@@ -1,0 +1,187 @@
+// T3 Code 9c161462c9 (MIT, LICENSE-T3): components/promptLinks/{NewThreadLinkView,ThreadLinkPrompt}.tsx.
+// The connection fleet supplies the reference's environment registry; draft and checkout operations are shared with the app.
+import type { T3Client } from '../client/client';
+import { arr, obj, str, type Obj } from '../client/domain';
+import { ClientError, type Files, type Native } from '../client/protocol';
+import { letGo } from '../client/let-go';
+import { fleet, fleetThreadId, focusFleetProject, focusFleetThread } from '../connections/settings-b-fleet';
+import { openScratchProject } from '../composer/scratch-project';
+import { openRemoteScratch } from '../composer/scratch-machine';
+import { stage } from '../composer/composer-controls';
+import { projectsByActivity, isScratchProject } from '../pages/pages-home';
+import { backgroundShellsBootstrapped } from '../pages/home-landing';
+import { prEnvironments, type PrEnvironment } from '../pull-requests/pages-pr-environments';
+import { actOnHandoff } from '../pull-requests/pages-pr-acton';
+import { cloneDestination } from '../palette/palette-add';
+import { startTrackedClone } from '../shell/project-clones-live';
+import { pushToast } from '../shell/toast';
+import { findPromptLinkProject, findPromptLinkPullRequestThread, resolvePromptLinkModelSelection } from './prompt-link-model';
+import { placeLinkedPrompt, warnAboutHiddenCharacters } from './linked-prompt';
+import { parseNewThreadLink, parseThreadLinkPrompt, promptLinkAppPath, promptLinkPullRequestUrl, type NewThreadLink, type PromptLinkRepository } from './prompt-links';
+
+type Project = Obj & { environmentId: string };
+type Pending = { link: NewThreadLink; repository: PromptLinkRepository; project?: Project };
+type State = { status: 'missing-repository' | 'pull-request-checkout' | 'failed' | 'opening'; title: string; description: string; pending: Pending | null; busy?: boolean };
+const states = new WeakMap<T3Client, State>();
+export const promptLinksReady = (client: T3Client): boolean => client.ready && backgroundShellsBootstrapped(client);
+export const dismissPromptLink = (client: T3Client): void => { states.delete(client); };
+export function promptLinkView(client: T3Client) {
+  const state = states.get(client);
+  return { show: !!state, title: state?.title ?? '', description: state?.description ?? '', busy: state?.busy === true || state?.status === 'opening',
+    clone: state?.status === 'missing-repository', cloneLabel: state?.pending ? `Clone ${state.pending.repository.owner}/${state.pending.repository.name}` : '',
+    withoutProject: state?.status === 'missing-repository', checkout: state?.status === 'pull-request-checkout' };
+}
+
+function environments(client: T3Client): PrEnvironment[] { return prEnvironments(client).filter(environment => environment.connected); }
+function projects(client: T3Client): Project[] {
+  const list = environments(client);
+  return projectsByActivity({ sequence: 0,
+    projects: list.flatMap(environment => environment.projects.filter(project => !isScratchProject(project, str(environment.config.scratchWorkspaceRoot)))
+      .map(project => ({ ...project, id: fleetThreadId(environment.id, str(project.id)), originalId: project.id, environmentId: environment.id }))),
+    threads: list.flatMap(environment => environment.threads.map(thread => ({ ...thread, projectId: fleetThreadId(environment.id, str(thread.projectId)) }))),
+  }).map(project => ({ ...project, id: project.originalId, environmentId: str(project.environmentId) }));
+}
+function lastActiveEnvironment(client: T3Client): PrEnvironment | null {
+  const list = environments(client);
+  const latest = list.flatMap(environment => environment.threads.map(thread => ({ environment, at: str(thread.updatedAt) })))
+    .sort((left, right) => right.at.localeCompare(left.at))[0]?.environment;
+  return latest ?? list.find(environment => environment.local) ?? list[0] ?? null;
+}
+async function openProject(client: T3Client, native: Native, storage: Files, project: Project): Promise<void> {
+  client.homePending = false; client.homeMove = null;
+  if (project.environmentId !== client.environmentId) {
+    const focused = await focusFleetProject(client, native, project.environmentId, str(project.id));
+    client.adoptStatus(focused.value, focused.generation);
+    await client.refresh(native, storage);
+  } else await client.openProjectDraft(native, str(project.id));
+}
+function placeDraft(client: T3Client, link: NewThreadLink, extraPrompt = ''): void {
+  const notes: string[] = [];
+  if (link.kind === 'new' && link.provider !== null) {
+    const resolved = resolvePromptLinkModelSelection(arr(client.config.providers), { provider: link.provider, model: link.model });
+    if (resolved) stage(client, { providerId: resolved.selection.instanceId, modelId: resolved.selection.model, options: [] });
+    if (!resolved || !resolved.exact) notes.push(!resolved
+      ? `The link asked for ${link.provider}, which is not set up here, so your default model is used.`
+      : `The link asked for ${link.model}, which ${link.provider} does not offer here, so its default model is used.`);
+  }
+  const text = [link.prompt?.text, extraPrompt].filter(Boolean).join('\n\n');
+  if (text) placeLinkedPrompt(client, client.draftKey, { text, hiddenCharacters: link.prompt?.hiddenCharacters ?? 0 }, notes);
+}
+async function openScratch(client: T3Client, native: Native, storage: Files, link: NewThreadLink): Promise<void> {
+  const latest = lastActiveEnvironment(client), list = environments(client);
+  const available = (environment: PrEnvironment | null) => environment && str(environment.config.scratchWorkspaceRoot) ? environment : null;
+  const environment = available(latest) ?? list.find(candidate => !!available(candidate));
+  if (!environment) throw new ClientError('None of your machines can start a thread without a project right now.');
+  let id: string;
+  if (environment.id === client.environmentId) id = await openScratchProject(client, native);
+  else {
+    const entry = [...fleet.entries.values()].find(candidate => candidate.environmentId === environment.id);
+    if (!entry) throw new ClientError('That environment is no longer connected.');
+    id = await openRemoteScratch(client, native, entry);
+  }
+  await openProject(client, native, storage, { id, environmentId: environment.id });
+  placeDraft(client, link, link.kind === 'pull-request' ? promptLinkPullRequestUrl(link.pullRequest) : '');
+  states.delete(client);
+}
+async function openThread(client: T3Client, native: Native, storage: Files, environmentId: string, threadId: string): Promise<void> {
+  client.homePending = false; client.homeMove = null;
+  if (environmentId === client.environmentId) await client.openSelected(native, threadId);
+  else {
+    const focused = await focusFleetThread(client, native, fleetThreadId(environmentId, threadId));
+    client.adoptStatus(focused.value, focused.generation);
+    await client.refresh(native, storage);
+  }
+}
+
+export async function openPromptLink(client: T3Client, native: Native, storage: Files, value: string): Promise<string> {
+  dismissPromptLink(client);
+  try {
+    const path = promptLinkAppPath(value);
+    if (!path) throw new ClientError('This link is not a T3 Code prompt or thread link.');
+    const url = new URL(path, 'https://app.t3.codes');
+    if (url.pathname !== '/new') {
+      const [, environmentId, threadId] = url.pathname.split('/').map(decodeURIComponent);
+      if (!environmentId || !threadId) throw new ClientError('This link does not name a thread.');
+      const environment = environments(client).find(candidate => candidate.id === environmentId);
+      if (!environment?.threads.some(thread => thread.id === threadId)) throw new ClientError('That thread is no longer available.');
+      await openThread(client, native, storage, environmentId, threadId);
+      const parsed = parseThreadLinkPrompt(url.search);
+      if (!parsed.ok) pushToast(client, { kind: 'error', title: 'Could not open the linked prompt', description: parsed.error, stacked: true });
+      else if (parsed.value) placeLinkedPrompt(client, `${environmentId}:${threadId}`, parsed.value);
+      return 'sidebar:new-thread';
+    }
+    const parsed = parseNewThreadLink(url.search);
+    if (!parsed.ok) throw new ClientError(parsed.error);
+    const link = parsed.value;
+    if (link.kind === 'pull-request') {
+      const thread = findPromptLinkPullRequestThread(environments(client).flatMap(environment => environment.threads.map(thread => ({ ...thread, id: str(thread.id), environmentId: environment.id }))), link.pullRequest);
+      if (thread) {
+        await openThread(client, native, storage, str(thread.environmentId), str(thread.id));
+        if (link.prompt) placeLinkedPrompt(client, `${thread.environmentId}:${thread.id}`, link.prompt);
+        return 'sidebar:new-thread';
+      }
+    }
+    const repository = link.kind === 'new' ? link.repository : link.pullRequest;
+    if (!repository) { await openScratch(client, native, storage, link); return 'sidebar:new-thread'; }
+    const project = findPromptLinkProject(projects(client), repository);
+    const pending = { link, repository, ...(project ? { project } : {}) };
+    if (!project) states.set(client, { status: 'missing-repository', title: `You don't have ${repository.owner}/${repository.name}`,
+      description: 'Clone it to work on it here, or start without a project.', pending });
+    else if (link.kind === 'pull-request') {
+      if (link.prompt) warnAboutHiddenCharacters(client, link.prompt);
+      states.set(client, { status: 'pull-request-checkout', title: `Check out ${repository.owner}/${repository.name}#${link.pullRequest.number}?`,
+        description: "This puts the pull request's code in a new worktree and runs your project's setup script on it.", pending });
+    } else {
+      await openProject(client, native, storage, project);
+      placeDraft(client, link);
+      return 'sidebar:new-thread';
+    }
+    return '';
+  } catch (error) {
+    if (letGo(error)) throw error;
+    states.set(client, { status: 'failed', title: 'Could not open the link', description: error instanceof Error ? error.message : 'An error occurred.', pending: null });
+    return '';
+  }
+}
+
+export async function promptLinkAction(client: T3Client, native: Native, storage: Files, action: string): Promise<string> {
+  const state = states.get(client), pending = state?.pending;
+  if (!state || !pending || state.status === 'opening' || state.busy) return '';
+  states.set(client, action === 'checkout' ? { ...state, busy: true } : { ...state, status: 'opening', title: 'Opening the link...' });
+  try {
+    if (action === 'without-project') await openScratch(client, native, storage, pending.link);
+    else if (action === 'checkout' && pending.link.kind === 'pull-request' && pending.project) {
+      const environment = environments(client).find(candidate => candidate.id === pending.project!.environmentId);
+      if (!environment) throw new ClientError('That environment is no longer connected.');
+      const project = pending.project;
+      const result = await actOnHandoff(client, native, { environmentId: project.environmentId, projectId: str(project.id), workspaceRoot: str(project.workspaceRoot), label: environment.label, machine: environment.machine },
+        { projectId: project.id, workspaceRoot: project.workspaceRoot, url: promptLinkPullRequestUrl(pending.link.pullRequest) }, 'prompt-link', pending.link.prompt ? { prompt: pending.link.prompt.text } : null, 'worktree');
+      if (!result) { states.set(client, state); return ''; }
+      states.delete(client);
+    } else if (action === 'clone') {
+      const environment = lastActiveEnvironment(client);
+      if (!environment || !str(environment.config.newProjectsRoot) || obj(obj(environment.config.environment).capabilities).projectCloneTracking !== true)
+        throw new ClientError('This machine cannot clone from a link. Update T3 Code on it, or clone the repository from the command palette.');
+      if (environment.id !== client.environmentId) {
+        const focused = await focusFleetProject(client, native, environment.id, '');
+        client.adoptStatus(focused.value, focused.generation);
+        await client.refresh(native, storage);
+      }
+      const { owner, name } = pending.repository;
+      const result = await startTrackedClone(client, native, `https://github.com/${owner}/${name}.git`, cloneDestination(str(environment.config.newProjectsRoot), name), name);
+      if (!result.ok) { states.set(client, state); return ''; }
+      if (!result.projectId) throw new ClientError('The clone started, but its project did not appear.');
+      if (pending.link.kind === 'pull-request') states.set(client, { status: 'failed', title: `Cloning ${owner}/${name}`, description: 'Open this link again when the clone finishes.', pending: null });
+      else {
+        await openProject(client, native, storage, { id: result.projectId, environmentId: environment.id });
+        placeDraft(client, pending.link);
+        states.delete(client);
+      }
+    } else { states.set(client, state); return ''; }
+    return 'sidebar:new-thread';
+  } catch (error) {
+    if (letGo(error)) { if (states.get(client)?.pending === pending) states.set(client, state); throw error; }
+    states.set(client, { status: 'failed', title: 'Could not open the link', description: error instanceof Error ? error.message : 'An error occurred.', pending: null });
+    return '';
+  }
+}
