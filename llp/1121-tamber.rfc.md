@@ -3726,3 +3726,48 @@ Built to the same plan and E1's wire. Android's reader runs this presenter, so i
 - **After review round 1 (Astra, Grok):** a held `active` named on a node inside the press answers `layout` for that node too, with the press's rows; a held press let go keeps its paint only while a live contact presses the node inside the box it had when pressed (one dragged off unpaints). A frame addressing another plan is nothing, unsaid; a revision ended here is not taken again from a resent frame, and a lower revision (a new server's) forgets them.
 - **After review round 2 (Astra, Grok):** a disabled node stops a held `active`'s walk to its press (`disabled`), as a real press does; an `unsupported` hold ends its revision; a held `active` shows the painted control's pressed look (a neutral control's wash) as a contact's does.
 - **After review round 3 (Astra, Grok):** a held `active` named inside its press climbs the kernel's parents (the display's are none until a new generation's first picture is acknowledged), so a same-plan generation takes it again with no `gone`; a frame of another plan leaves the frame kept and what is held alone; holds are scoped to the build channel's stream (a let-go of an earlier stream's says nothing, a queued hold report of an earlier nonce, or of none while the stream is lost, is dropped, a kept frame is taken again only on its own stream, a hold command still waiting from the old stream is dropped, and a new or lost stream forgets the ended revisions); Android's reader tells exact2 of a finger down, a key down or any IME call (a code-point deletion included) in a hosted field (`Native.fieldInput`), so real input that changes nothing else (a backspace in an empty field) still lets a hold go; Android's hosted fields (a finger on one, an edit, composing, a selection, the action key) let a hold of the field go; a held press and a contact's each show their own painted control pressed.
+
+### Stage 8, commit G: the clone takes state parts (clone `5ca7be8`, `382201d`, `95d7d41`, on its main)
+
+- **The Post button** is its own control (D8): `style PostButton`, a solid pill on `param.fill`
+  (primary_500), `:active` primary_600 (lowering to D7's press paint) and `:disabled`
+  primary_300. It was iOS prominent glass with an `opacity=(dim ? 0.5 : 1)` hand fix, and iOS
+  draws a disabled prominent glass button grey (D9); the hand fix and the `dim` prop are gone.
+- **The action row's six buttons** take `style ControlButton`: `:hover` and `:focus-visible`
+  show contrast_25, and `:disabled` is opacity 0.6, replacing the reply column's opacity hand fix.
+  The switches already took `accent-color="primary_500"`.
+- **Spinners** (`382201d`): after the spinner rule (C's gap, `4418182a9`) the clone's root
+  `accent-color="text"` reached its 14 spinners; its 7 bare ones take their own colours
+  (contrast_500, white_100 inside filled buttons), as Bluesky's grey `ActivityIndicator`s are.
+- **Format** (`95d7d41`): one `contract fmt` over its 22 `.contract` files, format only; the plan
+  is byte-identical (cmp), so a `set-state` write is a one-line diff.
+- The clone's web tests pass, 9/9.
+
+### Stage 8's gate: met, with two deviations (2026-10-18; the run is `~/x2theme/stage8-gate-run.txt`)
+
+The clone at `95d7d41` (G `5ca7be8`) on exact2 main: the host lines at `91ad9421f` (the Android
+reader at `55a2c10fc`), the hold lines at `b301a914a`. Stage 8's commits: A `e53b427a3`..`d17651ba0`,
+F `7be3690cf`..`78b93c82a`, D `5ddec9cc4`..`dd5a46579`, B1 `4b1f450fe`..`6da7f6fc2`, B2 and B3
+`b5f14324e`..`8e9ac2349`, C `c57e36a3d`..`84b24fafb`, E1 `9d8d22d29`..`740af62e9`, E2 and E3
+`e27145459`..`a0ff804f2`.
+
+| Gate line | Result |
+|---|---|
+| The clone's Post button and switches are right on every host with no hand fix and no double dim | **Met** on the web, macOS, the iOS simulator, Linux and the Android reader: rest #006aff (primary_500), pressed #0059d6 (the `:active` part), disabled #75afff (primary_300, nothing over it), switch #006aff. The Mac's `NSSwitch` draws the system accent, which `tamber-unreachable` names. |
+| A checked, disabled toggle with both parts shows `:disabled`'s | **Met** on the same hosts (#ff0000), and `state_parts.rs`. |
+| A class change and a base change while pressed keep the overlay over the new base | **Met**: the web's `looks.test.mjs` in Chrome, Linux's look tests, Apple's `StateLooksTests`. |
+| Existing `disabledStyled` apps unchanged; LLP 1061's press corpus unchanged | **Met**: caltrain, theme-fixture, shelf, realworld and tamber-host, and the press corpus (`press.contract`, `press-paint.contract`, `motion-feel.contract`), built before and after each run of stage 8 commits: only the format and schema digests, and A's empty looks table (4 bytes). Conform `--synthetic --strict`: 0 failures in 97 targets. |
+| `tamber-unreachable` names the macOS switch and iOS's disabled glass button | **Met**: the clone's settings and moderation switches (after `91ad9421f` placed it past the warning cap), and `control_roles.rs` for iOS's disabled prominent glass (the clone has none now). |
+| The workbench shows each component's state parts, editable through `set-state` (which rebuilds) | **Deviation**: the server half is met (on a copy of the clone, `set-state PostButton :active background-color` proposes `rebuild`, writes the row as a one-line diff, and undo gives the bytes back). The workbench is the design tool's, LLP 1122 T3 and T4, and moves to T4's gate. |
+| Hold (LLP 1122 T4): a held state shows without a touch; real input clears it; a disabled node refuses | **Met** on the web and the Mac. |
+| Hold: inspect on a held node shows the state part's rows | **Deviation**: the rows and computed values show, but by the lowered press row (`press_background_color`) with provenance `incomplete`, not as the author wrote them (`background-color` under `:active`, its span, its tokens). Moved to stage 9 E. |
+| No regressions; release output unchanged where no state parts are used | **Met** (above). |
+
+**Also in stage 8:** C's Exact-side gaps, each its own reviewed commit, re-measured, flipping its
+cells: the reader's placeholder (`682def423`), one spinner rule on every host (`4418182a9`), the
+painters' closed select's why (`d4e62c645`), FieldText (`e5ebb1163`, which also ends Apple's
+inherited colour on a field, LLP 1115 D4) and Field (`6ec337216`; the Mac's input stays `none`,
+its bezel drawing its own ground). The protocol's tamber/1.11 window closes with the stage; the
+next wire change takes tamber/1.12.
+
+**Stage 8 is closed.**
