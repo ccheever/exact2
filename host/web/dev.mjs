@@ -345,8 +345,9 @@ async function scrubPreview(texts, frame) {
 async function scrubPatch(values, frame, files) {
   previewing = true;
   if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
-  if (files?.[relative(app.dir, designPath(app.dir))] !== designSource) return { fallback: true }; // its design is not built from them yet
+  const source = files?.[relative(app.dir, designPath(app.dir))] ?? null;
   if (typescript) {
+    if (source !== designSource) return { fallback: true }; // its design is not built from them yet
     const next = moduleDesign && patchDesign(moduleDesign, values);
     const live = next && scrubBatch(moduleScrubbed ?? moduleDesign, next);
     if (!live) return { fallback: true };
@@ -354,7 +355,8 @@ async function scrubPatch(values, frame, files) {
     scrubShown(live, frame);
     return {};
   }
-  return scrubAsk((id) => `patch ${id} ${JSON.stringify(values.map(({ name, css }) => [name, css]))}`, (reply) => {
+  // The compiler patches only the design it compiled from those bytes.
+  return scrubAsk((id) => `patch ${id} ${JSON.stringify({ source, values: values.map(({ name, css }) => [name, css]) })}`, (reply) => {
     if (reply.error || reply.fallback) return reply.error ? { error: reply.error } : { fallback: true };
     scrubShown(reply, frame);
     return {};
@@ -568,7 +570,12 @@ function startCompiler() {
     buffered = lines.pop();
     for (const line of lines) {
       const [kind, ...rest] = line.split(' ');
-      if (kind === 'scrubbed') {
+      if (kind === 'source') {
+        // The design file's bytes the build just made was compiled from
+        // (LLP 1122 D5: an inspected token's edit is offered only while they
+        // are the file's); a scrub's preview or restore keeps them as they were.
+        designSource = rest[0] === '-' ? null : rest[0];
+      } else if (kind === 'scrubbed') {
         let reply;
         try { reply = JSON.parse(rest.slice(1).join(' ')); } catch { reply = { error: 'an unreadable scrub reply' }; }
         scrubAsks.get(rest[0])?.(reply);
@@ -576,15 +583,11 @@ function startCompiler() {
         const [saved, compile, bake, ready] = rest.slice(0, 4).map(Number);
         let live;
         try { live = JSON.parse(rest.slice(4).join(' ')); } catch { console.error('dev compiler: unreadable design line'); continue; }
-        // The design file's bytes this design was compiled from (LLP 1122
-        // D5: an inspected token's edit is offered only while they are the
-        // file's); a scrub's preview or restore keeps them as they were.
-        designSource = designBytes();
         console.log(`edit → batch ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no plan`);
         pushDesign(live);
       } else if (kind === 'plan') {
         if (assetsNeedRebuild) continue;
-        designSnapshot = null; designSource = designBytes(); tamber?.compete(); // a new plan ends a scrub
+        designSnapshot = null; tamber?.compete(); // a new plan ends a scrub
         const [bytes, saved, compile, bake, ready] = rest.map(Number);
         seq += 1;
         if (!first) pending.set(seq, { saved, ready });

@@ -49,6 +49,11 @@ pub fn still() -> impl Drop {
     Still(STILL.with(|s| s.replace(true)))
 }
 
+/// Whether a [`still`] guard lives on this thread.
+pub(crate) fn is_still() -> bool {
+    STILL.with(std::cell::Cell::get)
+}
+
 /// How a sync's changes may move ([`PaintMotion::apply`]).
 #[derive(Clone, Copy)]
 enum Snap {
@@ -100,12 +105,7 @@ impl PaintMotion {
             |key| appearance(kernel, views, key, session),
             &mut self.owners,
         );
-        self.apply(
-            kernel,
-            sync,
-            engine,
-            Snap::Still(STILL.with(std::cell::Cell::get)),
-        )
+        self.apply(kernel, sync, engine, Snap::Still(is_still()))
     }
 
     /// Adopt the tree at boot, after its ordinary motion rows.

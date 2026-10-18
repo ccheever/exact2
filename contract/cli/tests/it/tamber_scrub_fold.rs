@@ -232,3 +232,34 @@ fn a_frame_patched_from_its_fold_is_its_full_compile() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A token a colour keyframe names is folded into the plan's `@keyframes`:
+/// its frame changes the design's shape, so the fold answers `rebuild`, as
+/// `propose` does, and the scrub is refused rather than patched over the
+/// old keyframe. A token only a row names stays live.
+#[test]
+fn a_keyframes_token_folds_as_a_rebuild() {
+    let dir = std::env::temp_dir().join(format!("exact2-scrub-keyframe-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "keyframes relight\n  from background-color=\"chip\"\n  to background-color=\"transparent\"\ncomponent App\n  view\n    column background-color=\"chip\"\n      text \"a\" color=\"ink\" animation=\"relight 1s\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber k\n\ntheme\n  chip = #cfced4\n  ink = #111111\n",
+    )
+    .unwrap();
+    let mut serve = Serve::start(&dir);
+    let files = serve.ask(json!({"method": "hello"}))["ok"]["files"].clone();
+    for (name, class) in [("chip", "rebuild"), ("ink", "live")] {
+        let op = json!({"op": "set-token", "name": name, "value": "#0a7aff"});
+        let fold = serve.ask(json!({"method": "scrub-fold", "ops": [op], "files": files}));
+        let proposed = serve.ask(json!({"method": "propose", "ops": [op], "files": files}));
+        assert_eq!(fold["ok"]["class"], class, "{name}: {fold}");
+        assert_eq!(proposed["ok"]["class"], class, "{name}: {proposed}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

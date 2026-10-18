@@ -46,16 +46,32 @@ pub struct Edit {
     pub scrub: Option<Scrub>,
 }
 
-/// A scrub's frame (LLP 1121 D13): the scrub's id and the frame's
-/// revision, rising through the scrub, its end's the highest. A build drops
-/// a frame or snapshot of the scrub it last applied one of whose revision
-/// is not above that one's, and applies a scrub's frames with no transition.
+/// A scrub's frame (LLP 1121 D13): the scrub's id, the frame's revision,
+/// rising over every frame of every scrub the design server sends (an end's
+/// included), and that server's run. A build drops a frame or snapshot of
+/// the run it last applied one of (or, with no run, of the scrub) whose
+/// revision is not above that one's, and applies a scrub's frames with no
+/// transition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scrub {
     /// The scrub's id.
     pub id: String,
     /// The frame's revision.
     pub rev: u64,
+    /// The design server's run, whose revisions rise across its scrubs.
+    pub run: Option<String>,
+}
+
+impl Scrub {
+    /// Whether this frame was sent before `last`, which was applied: of its
+    /// run (or, with none, its scrub) and not above it.
+    pub fn older(&self, last: &Scrub) -> bool {
+        let same = match (&self.run, &last.run) {
+            (Some(a), Some(b)) => a == b,
+            _ => self.id == last.id,
+        };
+        same && self.rev <= last.rev
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -226,6 +242,9 @@ impl Edit {
         });
         if let Some(s) = &self.scrub {
             v["scrub"] = serde_json::json!({"id": s.id, "rev": s.rev});
+            if let Some(run) = &s.run {
+                v["scrub"]["run"] = run.as_str().into();
+            }
         }
         v.to_string()
     }
@@ -264,6 +283,7 @@ impl Edit {
             Some(Scrub {
                 id: m.get("id")?.as_str()?.to_string(),
                 rev: m.get("rev")?.as_u64()?,
+                run: m.get("run").and_then(|r| r.as_str()).map(str::to_string),
             })
         });
         Some(Edit {

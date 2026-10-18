@@ -415,9 +415,12 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
     16 ms, and the others are answered `{scrub, superseded: true}`. An update back to the
     committed value previews the committed design, and the scrub stays open.
   - **Each frame a scrub sends is marked** (*1.11*): its batch and the snapshot carry `scrub`
-    `{id, rev}`, the scrub's id and a revision that rises over every frame it sends, its end's
-    included. A build drops a frame or snapshot of the scrub it last applied a frame of whose
-    `rev` is not above that one's, and applies a scrub's frames with no transition: an authored
+    `{id, rev, run}`, the scrub's id, a revision that rises over every frame of every scrub the
+    design server sends, ends included, and the server's run (a name per start: a restarted
+    server's revisions start again). A build drops a frame or snapshot of the run it last applied
+    a frame of (with no `run`, of the scrub) whose `rev` is not above that one's, so a polled
+    host's late fetch of an earlier scrub's frame never shows over a later scrub or its end; and
+    applies a scrub's frames with no transition: an authored
     `transition` on a row the frame sets neither starts nor goes on (a development preview that
     follows the tool's gesture; any other edit moves as authored).
   - **A frame set without compiling is checked** once the gesture rests (150 ms with no update):
@@ -800,7 +803,7 @@ A write reaches every running development build at once. Release builds take non
     `AccentColor` is the app's tint) and each node's rows; the web rewrites its role sheet
     (`{"op": "theme"}`) in the batch's one style update; Linux re-targets its paint and paints
     again; the JS target's development build sets the role's sheet property (below).
-  - `scrub` (*1.11*), on a scrub's batch and on the snapshot it leaves: `{id, rev}`, the frame's
+  - `scrub` (*1.11*), on a scrub's batch and on the snapshot it leaves: `{id, rev, run}`, the frame's
     mark (see [Scrub sessions](#scrub-sessions-12-llp-1121-d13-llp-1122-d6)).
   - `base` is the design digest it applies to, and `design` the new one. The JS target's batches
     add each token's custom property and its CSS per tuple (`prop`, `css`). A role override's

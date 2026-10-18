@@ -207,8 +207,9 @@ const tupleKey = t => {
  * its base is not this page's design. */
 function design(frame) {
   if (frame.structure !== Structure) return { live: "structure" };
-  // A scrub's frame not newer than the last of it applied: shown over already.
-  const mark = frame.scrub, older = mark && Scrubbed && Scrubbed.id === mark.id && mark.rev <= Scrubbed.rev;
+  // A frame sent before the last applied (its run's, or with none its
+  // scrub's): shown over already, a later scrub's or end's included.
+  const mark = frame.scrub, older = mark && Scrubbed && (mark.run != null && Scrubbed.run != null ? mark.run === Scrubbed.run : mark.id === Scrubbed.id) && mark.rev <= Scrubbed.rev;
   if (older) return { live: "applied" };
   if (frame.base != null && frame.base !== Design) return { live: "stale" };
   if (mark) Scrubbed = mark;

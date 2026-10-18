@@ -313,6 +313,7 @@ impl Lowerer<'_> {
             computed: said.computed,
             computed_measure: said.computed_measure,
             words,
+            folded: said.folded.clone(),
         };
         RETENTION.with(|r| *r.borrow_mut() = Some(retention.clone()));
         CANDIDATES.with(|c| {

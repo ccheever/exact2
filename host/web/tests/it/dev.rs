@@ -795,10 +795,15 @@ fn a_running_web_build_drops_a_scrub_frame_older_than_one_it_showed() {
     let c = plan("tamber t\n\ntheme\n  ink = #00ff00\n  page = #ffffff\n");
     let shape = design::shape(&a);
     let (ta, tb, tc) = (design::tokens(&a), design::tokens(&b), design::tokens(&c));
-    let mark = |mut e: design::Edit, id: &str, rev| {
-        e.scrub = Some(design::Scrub { id: id.into(), rev });
+    let marked = |mut e: design::Edit, id: &str, rev, run: Option<&str>| {
+        e.scrub = Some(design::Scrub {
+            id: id.into(),
+            rev,
+            run: run.map(str::to_string),
+        });
         e
     };
+    let mark = |e, id, rev| marked(e, id, rev, None);
     let (mut host, _) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
     let applied =
         |out: &str| out.starts_with("{\"live\":\"applied\"") && out.contains("\"design\"");
@@ -817,6 +822,32 @@ fn a_running_web_build_drops_a_scrub_frame_older_than_one_it_showed() {
     // Another scrub's, whatever its revision.
     let out = host.apply_live(&mark(design::batch(&shape, &tc, &ta).unwrap(), "scrub-2", 1).json());
     assert!(out.contains("rgba(17,17,17,1)"), "{out}");
+    // With the server's run (*1.11*), revisions order frames across its
+    // scrubs: an earlier scrub's snapshot fetched after a later one's end
+    // is dropped; another run's frame is taken.
+    let out = host.apply_live(
+        &marked(
+            design::batch(&shape, &ta, &tb).unwrap(),
+            "scrub-3",
+            10,
+            Some("r1"),
+        )
+        .json(),
+    );
+    assert!(out.contains("rgba(255,0,0,1)"), "{out}");
+    let out =
+        host.apply_live(&marked(design::snapshot(&shape, &tc), "scrub-2", 9, Some("r1")).json());
+    assert!(
+        !out.contains("rgba(0,255,0,1)"),
+        "an earlier scrub's frame: {out}"
+    );
+    assert_eq!(host.runner().design(), design::digest(&tb));
+    let out =
+        host.apply_live(&marked(design::snapshot(&shape, &tc), "scrub-1", 1, Some("r2")).json());
+    assert!(
+        out.contains("rgba(0,255,0,1)"),
+        "a restarted server's: {out}"
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -832,17 +863,33 @@ fn a_patched_scrub_frame_is_the_compiled_one() {
     std::fs::write(dir.join("app.contract"), "component App\n  view\n    column background-color=\"page\"\n      text \"a\" color=\"ink\"\n").unwrap();
     let mut s = Session::new(dir.join("app.contract"), dir.join("out.plan"));
     s.poll::<NoData>().expect("built").unwrap();
+    let digest = |text: &str| {
+        use sha2::Digest;
+        format!("{:x}", sha2::Sha256::digest(text))
+    };
+    let source = digest(tamber);
+    assert_eq!(s.design_source(), Some(source.as_str()));
+    let ink = [("ink".to_string(), vec!["#ff0000ff".to_string(); 2])];
+    // Folded over other bytes (or none named): compiled instead.
+    assert!(s
+        .patch(Some(&digest("tamber t\n")), &ink)
+        .unwrap()
+        .is_none());
+    assert!(s.patch(None, &ink).unwrap().is_none());
     let (patched, _) = s
-        .patch(&[
-            ("ink".into(), vec!["#ff0000ff".into(); 2]),
-            (
-                "page".into(),
-                vec![
-                    "light-dark(#ffffffff, #222222ff)".into(),
-                    "light-dark(#ffffffff, #000000ff)".into(),
-                ],
-            ),
-        ])
+        .patch(
+            Some(&source),
+            &[
+                ("ink".into(), vec!["#ff0000ff".into(); 2]),
+                (
+                    "page".into(),
+                    vec![
+                        "light-dark(#ffffffff, #222222ff)".into(),
+                        "light-dark(#ffffffff, #000000ff)".into(),
+                    ],
+                ),
+            ],
+        )
         .unwrap()
         .expect("patched");
     let edited = tamber
@@ -856,9 +903,20 @@ fn a_patched_scrub_frame_is_the_compiled_one() {
     assert_eq!(s.verified(&compiled), None);
     // `ink` is one value in every tuple: two would make it vary.
     assert!(s
-        .patch(&[("ink".into(), vec!["#ff0000ff".into(), "#00ff00ff".into()])])
+        .patch(
+            Some(&source),
+            &[("ink".into(), vec!["#ff0000ff".into(), "#00ff00ff".into()])]
+        )
         .unwrap()
         .is_none());
+    // A hand edit's build, its batch empty under the preview: the design
+    // it committed is the edit's, and a frame folded before it is not
+    // patched on it.
+    let hand = tamber.replace("#111111", "#333333");
+    std::fs::write(&design, &hand).unwrap();
+    s.poll::<NoData>().expect("built").unwrap();
+    assert_eq!(s.design_source(), Some(digest(&hand).as_str()));
+    assert!(s.patch(Some(&source), &ink).unwrap().is_none());
     let _ = std::fs::remove_dir_all(dir);
 }
 

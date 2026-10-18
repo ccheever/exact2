@@ -101,10 +101,11 @@ impl<D: DataSource> Runner<D> {
             roles: false,
             full: false,
         };
-        // A frame of the scrub last applied that is not newer: what it
-        // shows has been shown over already, and is dropped.
+        // A frame sent before the last applied (its run's, or with none its
+        // scrub's): what it shows has been shown over already, a later
+        // scrub's or end's included, and is dropped.
         if let (Some(frame), Some(last)) = (&edit.scrub, &self.live.scrubbed) {
-            if frame.id == last.id && frame.rev <= last.rev {
+            if frame.older(last) {
                 return Ok(nothing());
             }
         }

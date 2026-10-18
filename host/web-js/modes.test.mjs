@@ -115,6 +115,13 @@ test('a live batch sets each tuple rule on its base, and a stale one asks for th
   expect(dim.style.map.get('--x-ink')).toBe('#333333ff');
   expect(design(frame('d5', 3, ['#666666ff', '#777777ff'])).live).toBe('applied');
   expect(dim.style.map.get('--x-ink')).toBe('#777777ff');
+  // With the server's run (*1.11*), across its scrubs: an earlier scrub's
+  // frame fetched late is dropped; a restarted server's is taken.
+  expect(design(frame('d6', 10, ['#888888ff', '#999999ff'], { scrub: { id: 'scrub-3', rev: 10, run: 'r1' } })).live).toBe('applied');
+  expect(design(frame('d7', 9, ['#aaaaaaff', '#bbbbbbff'], { scrub: { id: 'scrub-2', rev: 9, run: 'r1' } })).live).toBe('applied');
+  expect(dim.style.map.get('--x-ink')).toBe('#999999ff');
+  expect(design(frame('d8', 1, ['#ccccccff', '#ddddddff'], { scrub: { id: 'scrub-1', rev: 1, run: 'r2' } })).live).toBe('applied');
+  expect(dim.style.map.get('--x-ink')).toBe('#ddddddff');
 });
 
 // Stage 6 C's follow-up: a type token is a property a row it writes; a

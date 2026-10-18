@@ -30,6 +30,9 @@ contract = { path = "../../contract/cli" }
 exact-bake = { path = "../../bake" }
 # A scrub's design text, a JSON string on the dev driver's stdin.
 serde_json = "1.0"
+# The design file's digest a scrub's frame was folded over, as the design
+# server names it.
+sha2 = "0.10"
 
 [dev-dependencies]
 serde_json = "1.0"

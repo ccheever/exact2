@@ -70,6 +70,10 @@ pub struct Session {
     /// The published plan's design shape, which a patched frame's batch is
     /// for.
     shape: String,
+    /// The SHA-256 (hex) of the design file's bytes `design`'s committed
+    /// tokens were compiled from: a scrub's frame folded over others is
+    /// not patched on them. None when the file moved during the build.
+    design_source: Option<String>,
     /// An open scrub's last preview (LLP 1121 stage 4, commit 6): its
     /// design shape and the design the builds run while it lasts.
     scrub: Option<(String, Vec<exact_runner::design::Token>)>,
@@ -142,6 +146,7 @@ impl Session {
             source_map: true,
             design: None,
             shape: String::new(),
+            design_source: None,
             scrub: None,
             released: false,
         }
@@ -157,6 +162,12 @@ impl Session {
     /// The source path.
     pub fn source(&self) -> &Path {
         &self.source
+    }
+
+    /// The SHA-256 (hex) of the design file's bytes the committed design
+    /// was compiled from, as the design server's `files` digests name it.
+    pub fn design_source(&self) -> Option<&str> {
+        self.design_source.as_deref()
     }
 
     /// Look once. `None` when the source has not changed since the last
@@ -227,6 +238,14 @@ impl Session {
         saved_ms: f64,
         design_only: bool,
     ) -> Result<Built, String> {
+        // The design file's bytes, before the compile reads them and after:
+        // the same, they are the ones it read.
+        let design_bytes = || {
+            use sha2::Digest;
+            let bytes = std::fs::read(contract::design_path(&self.source)?).ok()?;
+            Some(format!("{:x}", sha2::Sha256::digest(bytes)))
+        };
+        let design_before = design_bytes();
         let t = Instant::now();
         // Compile exactly the snapshot `poll` compared with `last`. Reading
         // the path again here can observe the middle of the next save and
@@ -297,6 +316,7 @@ impl Session {
         // stream publishes only its batch.
         write_atomic(&self.out, &bytes)?;
         self.design = Some((structure, tokens));
+        self.design_source = design_before.filter(|b| design_bytes().as_ref() == Some(b));
         self.shape = shape;
         Ok(Built {
             bytes,
@@ -326,10 +346,19 @@ impl Session {
     /// the design the builds run and the snapshot, as [`Session::scrub`]
     /// answers. `Ok(None)` when it cannot patch the frame (a row would gain
     /// or lose its slices, which is a structure change): the caller compiles
-    /// it instead. A name the plan keeps no row for changes nothing the
-    /// builds read.
-    pub fn patch(&mut self, values: &[(String, Vec<String>)]) -> Result<Option<Scrubbed>, String> {
+    /// it instead; so too when it was folded over design file bytes
+    /// (`source`, their SHA-256) the committed design was not compiled from
+    /// (a write or hand edit whose build has, or has not yet, landed). A
+    /// name the plan keeps no row for changes nothing the builds read.
+    pub fn patch(
+        &mut self,
+        source: Option<&str>,
+        values: &[(String, Vec<String>)],
+    ) -> Result<Option<Scrubbed>, String> {
         let (_, committed) = self.design.as_ref().ok_or("no plan is built yet")?;
+        if source.is_none() || source != self.design_source.as_deref() {
+            return Ok(None);
+        }
         let mut tokens = committed.clone();
         for (name, css) in values {
             let Some(t) = tokens.iter_mut().find(|t| t.name == *name) else {
@@ -578,10 +607,18 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
                     .map_err(|e| format!("scrub: {e}"))
                     .and_then(|text| session.scrub::<D>(text))
                     .map(|(b, s)| (b, Some(s))),
-                (Some("patch"), Some(values)) => {
-                    match serde_json::from_str::<Vec<(String, Vec<String>)>>(values)
+                (Some("patch"), Some(frame)) => {
+                    // `{source, values}`: the design file's digest it was
+                    // folded over, and its rows.
+                    match serde_json::from_str::<serde_json::Value>(frame)
+                        .and_then(|mut f| {
+                            let values = serde_json::from_value::<Vec<(String, Vec<String>)>>(
+                                f["values"].take(),
+                            )?;
+                            Ok((f["source"].as_str().map(str::to_string), values))
+                        })
                         .map_err(|e| format!("patch: {e}"))
-                        .and_then(|values| session.patch(&values))
+                        .and_then(|(source, values)| session.patch(source.as_deref(), &values))
                     {
                         Ok(Some((b, s))) => Ok((b, Some(s))),
                         Ok(None) => {
@@ -632,7 +669,13 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
             };
             let _ = writeln!(stdout, "scrubbed {id} {reply}");
         }
-        match session.poll::<D>() {
+        let built = session.poll::<D>();
+        // Each build's design file bytes, before what it says (an empty
+        // batch says nothing else): the served design's (LLP 1122 D5).
+        if let Some(Ok(_)) = &built {
+            let _ = writeln!(stdout, "source {}", session.design_source().unwrap_or("-"));
+        }
+        match built {
             // Nothing the builds read changed.
             Some(Ok(Built {
                 live: Some(live), ..

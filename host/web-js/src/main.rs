@@ -109,6 +109,9 @@ fn design_serve(input: &std::path::Path) -> ExitCode {
     let _every = modes::every(true);
     let mut held: Option<(String, exact_plan::Plan, modes::Declared)> = None;
     let mut out = std::io::stdout();
+    // What this process holds of the wide colour table between frames:
+    // nothing (a plan keeps its colours as text).
+    let holder = exact_kernel::style::wide::Holder::new();
     for line in std::io::stdin().lock().lines().map_while(Result::ok) {
         let request: serde_json::Value = serde_json::from_str(&line).unwrap_or_default();
         let id = request["id"].clone();
@@ -157,12 +160,10 @@ fn design_serve(input: &std::path::Path) -> ExitCode {
         };
         let _ = writeln!(out, "{reply}");
         let _ = out.flush();
-        // Each frame's wide colours stay interned (no holder sweeps them):
-        // past three quarters of the table it ends, and the loop starts
-        // another for the next frame.
-        if exact_kernel::style::wide::used() > 3072 {
-            break;
-        }
+        // The frame's wide colours are text in its reply now: this process
+        // holds none, so the table may sweep them (a sweep waits for a
+        // holder, and this one's empty mark closes the frame's batch).
+        holder.publish(exact_kernel::style::wide::WideMark::default());
     }
     ExitCode::SUCCESS
 }

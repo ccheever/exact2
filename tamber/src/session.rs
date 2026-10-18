@@ -109,6 +109,10 @@ pub struct Retention {
     pub computed_measure: bool,
     /// Every word the views' literals write, any of which may name a token.
     pub words: std::collections::BTreeSet<String>,
+    /// Every word a colour keyframe writes: a token (or a role's override)
+    /// one names is folded into the plan's `@keyframes`, so its value is
+    /// structure, and an edit of it rebuilds.
+    pub folded: std::collections::BTreeSet<String>,
 }
 
 impl Retention {
@@ -470,6 +474,13 @@ fn shape(f: &Folding, retention: Option<&Retention>, vocab: &Vocab) -> String {
             t.role,
             t.fixed
         ));
+        // A token a colour keyframe names, its value folded into the plan.
+        if retention.is_some_and(|r| {
+            r.folded.contains(name) || t.role.as_ref().is_some_and(|role| r.folded.contains(role))
+        }) {
+            let values: Vec<String> = t.values.iter().map(crate::Value::css).collect();
+            s.push_str(&format!("folded {name} {values:?}\n"));
+        }
     }
     s
 }

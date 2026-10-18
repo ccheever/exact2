@@ -106,7 +106,11 @@ impl MotionSync {
         // A clock timeline's joins wait for every row (LLP 1055.002): the
         // start a join takes does not depend on the order of the nodes.
         engine.hold_clock_joins();
+        // Under [`still`] (a scrub's frame), opacity, transforms and layout
+        // jump as paint does.
+        engine.set_still(paint::is_still());
         let applied = self.apply_rows(engine);
+        engine.set_still(false);
         engine.join_clocks();
         applied
     }

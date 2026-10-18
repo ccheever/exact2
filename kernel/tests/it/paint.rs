@@ -601,3 +601,79 @@ fn a_still_commit_starts_no_transition_and_stops_one_under_way() {
         "moves again, from the value it jumped to"
     );
 }
+
+/// Under `still` an opacity change (the engine's own rows, not paint's)
+/// jumps too: no transition starts, and one under way stops at the new
+/// value. Outside it the next change moves as authored.
+#[test]
+fn a_still_commit_jumps_an_opacity_transition() {
+    let mut k = Kernel::with_monospace();
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: {
+                let mut s = patch(&[(StyleId::Transition, "opacity 1s linear")]);
+                s.set_dynamic(StyleId::Opacity, &StyleValue::Number(1.0))
+                    .unwrap();
+                s
+            },
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let receipt = k.apply(0, 1, &ops).unwrap();
+    let mut engine = Engine::new();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    let node = motion_node(k.node(1).unwrap().key);
+    let mut at = 1;
+    let mut change = |k: &mut Kernel, engine: &mut Engine, opacity| {
+        at += 1;
+        let receipt = k
+            .apply(
+                0,
+                at,
+                &[Op::SetStyle {
+                    id: 1,
+                    patch: {
+                        let mut s = Box::new(StyleProps::default());
+                        s.set_dynamic(StyleId::Opacity, &StyleValue::Number(opacity))
+                            .unwrap();
+                        s
+                    },
+                }],
+            )
+            .unwrap();
+        k.motion_sync(&receipt).apply(engine).unwrap();
+    };
+    change(&mut k, &mut engine, 0.0);
+    engine.advance(0.5).unwrap();
+    assert_eq!(
+        engine.value(node, Property::Opacity),
+        Some(Value::scalar(0.5)),
+        "moving"
+    );
+    {
+        let _still = exact_kernel::motion::still();
+        change(&mut k, &mut engine, 0.75);
+        assert_eq!(
+            engine.value(node, Property::Opacity),
+            Some(Value::scalar(0.75)),
+            "stopped"
+        );
+        change(&mut k, &mut engine, 0.25);
+        assert_eq!(
+            engine.value(node, Property::Opacity),
+            Some(Value::scalar(0.25)),
+            "jumped"
+        );
+    }
+    change(&mut k, &mut engine, 1.0);
+    assert_eq!(
+        engine.value(node, Property::Opacity),
+        Some(Value::scalar(0.25)),
+        "moves again, from the value it jumped to"
+    );
+}
