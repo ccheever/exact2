@@ -1021,3 +1021,98 @@ fn sprites_and_textured_and_procedural_particles_take_both_fogs() {
         }
     }
 }
+
+/// Dots, textured, soft dots and soft textured particles, each its own draw,
+/// at one sample a pixel or four.
+struct LookQuads<const MSAA: bool>;
+impl<const MSAA: bool> Game for LookQuads<MSAA> {
+    const ID: &'static str = "look-quads";
+    const ASSETS: &'static [&'static str] = &["white.tex"];
+    const SAMPLES: SceneSamples = if MSAA {
+        SceneSamples::Four
+    } else {
+        SceneSamples::One
+    };
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn((Transform::at(0., 0., 5.), Camera::orthographic(4.)));
+        // A back wall the soft particles fade against.
+        w.spawn((
+            Transform::at(0., 0., -1.),
+            Mesh::cuboid(Vec3::new(8., 8., 0.2)),
+            Material::hex("#404040"),
+        ));
+        for (i, (texture, soft)) in [("", 0.), ("white.tex", 0.), ("", 0.3), ("white.tex", 0.3)]
+            .into_iter()
+            .enumerate()
+        {
+            let e = w.spawn((
+                Transform::at(i as f32 - 1.5, 0., 0.),
+                Emitter {
+                    rate: 0.,
+                    lifetime: 10.,
+                    speed: 0.,
+                    spread: 0.,
+                    gravity: Vec3::ZERO,
+                    size: [0.6, 0.6],
+                    color: [[1., 0.5, 0., 0.8]; 2],
+                    additive: false,
+                    ..Default::default()
+                }
+                .burst(1),
+            ));
+            w.insert(
+                e,
+                ParticleLook {
+                    texture: texture.into(),
+                    soft,
+                    ..Default::default()
+                },
+            );
+        }
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        emitter::step(w);
+    }
+}
+
+#[test]
+fn every_particle_pipeline_counts_through_its_probe_variant() {
+    counts_every_particle_pipeline::<false>();
+    counts_every_particle_pipeline::<true>();
+}
+fn counts_every_particle_pipeline<const MSAA: bool>() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<LookQuads<MSAA>, ModelExecutor, true>::default();
+    s.bind(&[], None).unwrap();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.asset(
+        "white.tex",
+        Ok(&bin::to_vec(&asset::TextureData {
+            width: 1,
+            height: 1,
+            mips: vec![vec![255; 4]],
+            ..Default::default()
+        })),
+    );
+    for now_ms in [0., 100.] {
+        fixture::render(&gpu, &mut s, &Frame { now_ms, ..frame() }).unwrap();
+    }
+    assert!(s.error().is_none(), "{:?}", s.error());
+    let reply = s.agent(r#"{"op":"state","look":true}"#).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    let draws = value["look"]["particles"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{reply}"));
+    let batches: Vec<_> = draws.iter().map(|d| d["batch"].as_str().unwrap()).collect();
+    assert_eq!(draws.len(), 4, "{batches:?}");
+    for draw in draws {
+        assert!(draw["covered"].as_u64() > Some(0), "{reply}");
+    }
+    assert!(
+        batches
+            .iter()
+            .any(|b| b.contains("white.tex") && b.ends_with("soft")),
+        "{batches:?}"
+    );
+}
