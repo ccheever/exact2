@@ -365,11 +365,11 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
     || gameParts.some((part, i) => ['tests', 'examples'].includes(part)
       && existsSync(resolve(root, gamePrefix, ...gameParts.slice(0, i), 'Cargo.toml')));
 }
-export function proofInputFiles(root, app, inventory) {
+export function proofInputFiles(root, app, inventory, ignoredDirectories = new Set()) {
   const top = inventory ? {status:0, stdout:root} : spawnSync('git', ['rev-parse','--show-toplevel'], {cwd:root, encoding:'utf8'});
   const repository = top.status === 0 ? top.stdout.trim() : root;
   const files = inventory ?? spawnSync('git', ['ls-files','-z','--cached','--others','--exclude-standard'], {cwd:repository, encoding:'utf8'});
-  const walk = (dir, prefix = '') => readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
+  const walk = (dir, prefix = '') => ignoredDirectories.has(resolve(dir)) ? [] : readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
     if (['.git','node_modules'].includes(entry.name) || (!prefix && ['target','.build','.shells','dist','dist.previous','dist-windows','artifacts'].includes(entry.name))) return [];
     const path = prefix + entry.name;
     return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
@@ -377,14 +377,21 @@ export function proofInputFiles(root, app, inventory) {
   // Fleet exports have no Git index; external games are outside exact2's index.
   // Git-ignored files are outputs or private apparatus, never authored inputs.
   const sources = files.status === 0 ? files.stdout.split('\0').filter(Boolean) : walk(repository);
+  const excluded = new Set();
+  for (const cwd of new Set([repository, app])) {
+    const ignored = spawnSync('git', ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], {cwd, encoding:'utf8'});
+    if (ignored.status === 0) for (const file of ignored.stdout.split('\0').filter(Boolean)) {
+      if (file.endsWith('/')) ignoredDirectories.add(resolve(cwd, file));
+      else excluded.add(relative(repository, resolve(cwd, file)).replaceAll('\\', '/'));
+    }
+  }
   sources.push(...walk(app).map(file => relative(repository, resolve(app, file)).replaceAll('\\', '/')));
-  const ignored = spawnSync('git', ['ls-files', '-z', '--others', '--ignored', '--exclude-standard'], {cwd:repository, encoding:'utf8'});
-  const excluded = new Set(ignored.status === 0 ? ignored.stdout.split('\0').filter(Boolean) : []);
   const prefix = relative(repository, app).replaceAll('\\', '/') + '/';
   return [...new Set(sources)].sort().filter(file => !excluded.has(file) &&
+    ![...ignoredDirectories].some(dir => resolve(repository, file).startsWith(dir + '/')) &&
     !proofInputExcluded(file, basename(app), prefix, repository) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
 }
-// Clean tracked bytes are identified by Git blobs. Dirty/ignored app inputs and
+// Clean tracked bytes are identified by Git blobs. Dirty app inputs and
 // products reuse their digest only while their full stat tuple is unchanged.
 // Nanosecond timestamps and inode identity catch edits restored before the next scan.
 const statKey = path => { const s=statSync(path, {bigint:true}); return [s.dev,s.ino,s.size,s.mtimeNs,s.ctimeNs].join(':'); };
@@ -404,12 +411,13 @@ export function proofInputs(root, app, cachePath) {
   const manifest = resolve(app, '.baked-assets.json');
   const generated = new Set(existsSync(manifest)
     ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : []);
-  const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined);
+  const ignoredDirectories = new Set();
+  const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined, ignoredDirectories);
   // File stats miss sources created, consumed and removed between scans. Walk
   // shared and app source directories, including empty ones, to retain edits.
   const directories = new Set();
   const sourceDirectories = dir => {
-    if (!existsSync(dir) || directories.has(dir)) return;
+    if (!existsSync(dir) || directories.has(dir) || ignoredDirectories.has(resolve(dir))) return;
     const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
     if (proofInputExcluded(file + 'input.rs', basename(app), prefix, root)) return;
     directories.add(dir);

@@ -111,8 +111,9 @@ cargo test -p exact-game-physics --release --test scale -- --ignored --nocapture
 cargo build -p exact-game-physics --profile web --target wasm32-unknown-unknown --example minimal
 ```
 
-`Collider::of(&mesh)` matches each dimensioned primitive. A plane makes a static
-1 cm slab with its top face at Y=0; assets require authored collision geometry.
+`Collider::of(&mesh)` supports cube, cuboid, sphere, capsule, cylinder and plane.
+A plane makes a static 1 cm slab with its top face at Y=0. Ring, torus, cone and
+assets require explicit collision geometry.
 
 The copyable controller composition is [tests/living.rs](tests/living.rs):
 `Move`/`Jump`/`Gravity` feed an upright unit-scale `CapsuleController` over a heightfield

@@ -451,3 +451,37 @@ test('ignored Rust directories are skipped while tracked files override ignore r
     expect(read).toThrow('authored proof inputs changed during build');
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
+
+
+test('external repositories apply their own ignores and excludes with tracked precedence', () => {
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-external-ignored-')));
+  const sdk = resolve(dir, 'sdk'), app = resolve(dir, 'external');
+  const git = (cwd, ...args) => { expect(spawnSync('git', args, {cwd}).status).toBe(0); };
+  try {
+    writeFixtureFile(sdk, 'engine/lib.rs', 'sdk');
+    writeFixtureFile(app, 'logic/src/lib.rs', 'game');
+    git(sdk, 'init', '-q'); git(app, 'init', '-q');
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'tracked');
+    git(app, 'add', 'logic/private/tracked.rs');
+    writeFixtureFile(app, '.gitignore', 'logic/private/\n');
+    writeFixtureFile(app, '.git/info/exclude', 'logic/excluded/\n');
+    writeFixtureFile(app, 'logic/private/generated.rs', 'ignored');
+    writeFixtureFile(app, 'logic/excluded/generated.rs', 'excluded');
+    const files = proofInputFiles(sdk, app);
+    expect(files).toContain('../external/logic/private/tracked.rs');
+    expect(files).toContain('../external/logic/src/lib.rs');
+    expect(files).not.toContain('../external/logic/private/generated.rs');
+    expect(files).not.toContain('../external/logic/excluded/generated.rs');
+    const before = proofInputs(sdk, app);
+    writeFixtureFile(app, 'logic/private/generated.rs', 'changed ignored');
+    writeFixtureFile(app, 'logic/excluded/generated.rs', 'changed excluded');
+    expect(proofInputs(sdk, app).all).toBe(before.all);
+    const read = proofInputReader(sdk, app); read();
+    writeFixtureFile(app, 'logic/excluded/new-output.rs', 'new excluded entry');
+    read();
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'changed tracked');
+    expect(proofInputs(sdk, app).authored).not.toBe(before.authored);
+    rmSync(resolve(app, '.git'), {recursive:true});
+    expect(proofInputFiles(sdk, app)).toContain('../external/logic/private/generated.rs');
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
