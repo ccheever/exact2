@@ -171,24 +171,32 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
         prop,
         value: value.clone(),
     };
-    let out = match (prop.kind(), value) {
-        (exact_kernel::PropKind::Str, v @ exact_plan::str_value!()) => {
-            PropValue::Str(v.text().into())
+    let out = if prop == PropId::Decorations {
+        PropValue::Str(
+            crate::decorations::from_value(value)
+                .map_err(|_| mismatch())?
+                .into(),
+        )
+    } else {
+        match (prop.kind(), value) {
+            (exact_kernel::PropKind::Str, v @ exact_plan::str_value!()) => {
+                PropValue::Str(v.text().into())
+            }
+            (exact_kernel::PropKind::Str, Value::Number(n)) => {
+                PropValue::Str(crate::stdlib::format_number(*n).into())
+            }
+            (exact_kernel::PropKind::Bool, Value::Bool(b)) => PropValue::Bool(*b),
+            (exact_kernel::PropKind::Int, Value::Number(n))
+                if n.is_finite()
+                    && n.fract() == 0.0
+                    && *n >= i64::MIN as f64
+                    && *n < -(i64::MIN as f64) =>
+            {
+                PropValue::Int(*n as i64)
+            }
+            (exact_kernel::PropKind::Float, Value::Number(n)) => PropValue::Float(*n),
+            _ => return Err(mismatch()),
         }
-        (exact_kernel::PropKind::Str, Value::Number(n)) => {
-            PropValue::Str(crate::stdlib::format_number(*n).into())
-        }
-        (exact_kernel::PropKind::Bool, Value::Bool(b)) => PropValue::Bool(*b),
-        (exact_kernel::PropKind::Int, Value::Number(n))
-            if n.is_finite()
-                && n.fract() == 0.0
-                && *n >= i64::MIN as f64
-                && *n < -(i64::MIN as f64) =>
-        {
-            PropValue::Int(*n as i64)
-        }
-        (exact_kernel::PropKind::Float, Value::Number(n)) => PropValue::Float(*n),
-        _ => return Err(mismatch()),
     };
     // `none` is no material, as CSS's `backdrop-filter: none` is no backdrop.
     if prop == PropId::BackgroundMaterial

@@ -1629,6 +1629,20 @@
       "kind": "str",
       "measure": true,
       "_comment": "@ref LLP 1126 D6: newline-separated host-formatted width candidates written by the runner, never an author."
+    },
+    {
+      "id": 277,
+      "name": "decorations",
+      "kind": "str",
+      "measure": true,
+      "_comment": "LLP 1114.007: the named JSON record over a plain textarea's source value: value, spans, blocks, hidden and atoms, with UTF-16 ranges. The compiler accepts TextDecorations and the bridge serializes it; a source string is part of binding identity."
+    },
+    {
+      "id": 278,
+      "name": "decorationStyles",
+      "kind": "str",
+      "measure": true,
+      "_comment": "LLP 1114.007: compiler-owned per-field named decoration declarations, including aliases visible in the textarea's source file. Not an authored attribute."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
