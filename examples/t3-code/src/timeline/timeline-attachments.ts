@@ -43,9 +43,9 @@ const isSentVideo = (attachment: Obj) => videoMimeType({ name: str(attachment.na
 const urls = new Map<string, { url: string; expiresAt: number }>();
 /** Signed preview URLs for the selected thread's sent images (useAssetUrls), cached until shortly before they expire. */
 type AttachmentUrl = { id: string; url: string; fill: string; hover: string; border: string; ink: string };
-export async function attachmentUrls(client: T3Client, native: Native | null | undefined, now: number): Promise<{ items: AttachmentUrl[] }> {
+export async function attachmentUrls(client: T3Client, native: Native | null | undefined, now: number, systemScheme?: string): Promise<{ items: AttachmentUrl[] }> {
   if (!native?.available || client.connection !== 'connected') return { items: [] };
-  await syncInlineDocuments(client, native, now);
+  await syncInlineDocuments(client, native, now, systemScheme);
   if (!client.threadId) return { items: await galleryUrls(client, native, now, new Set()) }; // a draft's Files preview
   const wanted: Obj[] = [];
   for (const row of arr(client.projection.visibleTurnItems)) {
