@@ -9,6 +9,10 @@ export const MOBILE_USAGE_PROVIDERS=[
   {id:'codex',driver:'codex',label:'Codex',light:'#3c3c43',dark:'#e6e6e6'}, {id:'claude',driver:'claudeAgent',label:'Claude Code',light:'#d97757',dark:'#d97757'},
   {id:'grok',driver:'grok',label:'Grok Build',light:'#52525b',dark:'#a1a1aa'}, {id:'cursor',driver:'cursor',label:'Cursor',light:'#8b8b8b',dark:'#8b8b8b'},
   {id:'opencode',driver:'opencode',label:'OpenCode',light:'#5b9bbd',dark:'#5b9bbd'}, {id:'antigravity',driver:'antigravity',label:'Antigravity',light:'#8c7bd1',dark:'#8c7bd1'}];
+const USAGE_MIX_COLORS={input:{light:'#848484',dark:'#737373'},cacheRead:{light:'#c0c0c0',dark:'#282828'},cacheWrite:{light:'#6d6d6d',dark:'#949494'},
+  output:{light:'#3c3c43',dark:'#e6e6e6'},other:{light:'#a3a3a3',dark:'#494949'},standard:{light:'#b8b8b8',dark:'#313131'},fast:{light:'#797979',dark:'#838383'},ultrafast:{light:'#3c3c43',dark:'#e6e6e6'}};
+const costSegments=(items:{id:keyof typeof USAGE_MIX_COLORS;label:string;value:number}[])=>items.filter(item=>item.value>0)
+  .map(item=>({id:item.id,label:item.label,weight:item.value,value:formatUsd(item.value),...USAGE_MIX_COLORS[item.id]}));
 export function mobileUsageProviderRows(providers:Readonly<ReturnType<typeof mergeUsage>['providers']>,tokens:boolean){
   return [...providers].sort((a,b)=>tokens?b.totalTokens-a.totalTokens:b.costUsd-a.costUsd).flatMap(total=>{
     const item=MOBILE_USAGE_PROVIDERS.find(item=>item.id===total.provider),fraction=tokens?total.tokenShare:total.costShare;
@@ -49,7 +53,13 @@ export function mobileUsagePresentation(input:Prepared|null,publish=true){
       bands:[...MOBILE_USAGE_PROVIDERS].reverse().map(provider=>{const band=period?.byProvider.get(provider.id),value=band?(tokens?band.totalTokens:band.costUsd):0;return {id:provider.id,light:provider.light,dark:provider.dark,height:peak?value/peak*180:0,value:tokens?formatTokens(value):formatUsd(value)};})};}),
     providers:mobileUsageProviderRows(merged.providers,tokens),
     totals:[{id:'tokens',label:'Tokens',value:formatTokens(merged.totalTokens)},{id:'sessions',label:'Sessions',value:formatCount(merged.sessions)},{id:'input',label:'Input',value:formatTokens(merged.uncachedInputTokens)},{id:'cache-read',label:'Cache read',value:formatTokens(merged.cachedInputTokens)},{id:'cache-write',label:'Cache write',value:formatTokens(merged.cacheCreationTokens)},{id:'output',label:'Output',value:formatTokens(merged.outputTokens)}],
-    costs:[{id:'cost',label:'Total cost',value:formatUsd(merged.costUsd)},{id:'savings',label:'Cache savings',value:formatUsd(merged.cacheSavingsUsd)},{id:'unpriced',label:'Unpriced records',value:formatPercent(merged.unpricedShare)},...Object.entries(merged.categoryCost).map(([id,value])=>({id:`category-${id}`,label:{input:'Input',cacheRead:'Cache read',cacheWrite:'Cache write',output:'Output',unsplit:'Unsplit'}[id]??id,value:formatUsd(value)})),...Object.entries(merged.speedCost).map(([id,value])=>({id:`speed-${id}`,label:id,value:formatUsd(value)}))],
+    hasCost:merged.costUsd>0,
+    costByType:costSegments([{id:'input',label:'Input',value:merged.categoryCost.input},{id:'cacheRead',label:'Cache read',value:merged.categoryCost.cacheRead},
+      {id:'cacheWrite',label:'Cache write',value:merged.categoryCost.cacheWrite},{id:'output',label:'Output',value:merged.categoryCost.output},
+      {id:'other',label:'Other',value:merged.categoryCost.unsplit>=0.005?merged.categoryCost.unsplit:0}]),
+    costBySpeed:merged.speedCost.fast+merged.speedCost.ultrafast>0?costSegments([{id:'standard',label:'Standard',value:merged.speedCost.standard},
+      {id:'fast',label:'Fast',value:merged.speedCost.fast},{id:'ultrafast',label:'Ultrafast',value:merged.speedCost.ultrafast}]):[],
+    costPremium:`${formatUsd(merged.speedCost.premium)} premium`,
     models:[...merged.models].sort((a,b)=>tokens?b.totalTokens-a.totalTokens:b.costUsd-a.costUsd).map(model=>{
       const palette=provider(model.provider),unknown=isModelCostUnknown(model);
       return {id:JSON.stringify([model.provider,model.model]),label:model.model,light:palette.light,dark:palette.dark,

@@ -257,7 +257,7 @@ test('Usage headline follows the metric while raw totals and chart window labels
     expect(cost.chart.map(period=>period.id)).toEqual(resolution==='day'?['2026-10-07','2026-10-08']:['2026-10-07T00:00:00.000Z','2026-10-07T01:00:00.000Z']);
     expect(cost.chart.map(period=>({id:period.id,label:period.label}))).toEqual(tokens.chart.map(period=>({id:period.id,label:period.label})));
     expect(cost.chartLegend).toEqual(tokens.chartLegend);expect(cost.chartLegend[0]?.label).toBe('Claude Code');
-    expect([cost.providers[0]?.value,cost.models[0]?.value,cost.costs.find(item=>item.id==='cost')?.value,tokens.providers[0]?.detail]).toEqual(['$0.83','$0.83','$0.83','$0.83']);
+    expect([cost.providers[0]?.value,cost.models[0]?.value,cost.costByType.find(item=>item.id==='other')?.value,tokens.providers[0]?.detail]).toEqual(['$0.83','$0.83','$0.83','$0.83']);
     expect(cost.chart[0]?.bands.find(band=>band.id==='claude')?.value).toBe('$0.83');
   }
 });
@@ -313,14 +313,60 @@ test('hourly Usage activity cannot borrow positive daily-only buckets',()=>{
     expect(hourly.chart[0]?.bands.every(band=>band.height===0)).toBe(true);
   }
 });
+test('Usage Cost bars retain raw dollar weights, neutral colors and premium across metrics',()=>{
+  const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'claude',hostId:'qa',resolvedHomePath:'/qa'},distinctSessions:1}],
+    buckets:[{provider:'claude',model:'qa',day:'2026-10-07',costUsd:10,records:1,unpricedRecords:0,totals:{uncachedInputTokens:100},
+      categoryCostUsd:{input:1,cacheRead:2,cacheWrite:3,output:1},fastCostUsd:2,ultrafastCostUsd:1,speedPremiumUsd:0.825}]};
+  const before=JSON.stringify(summary),input={tab:'usage',window:{sinceDay:'2026-10-07',untilDay:'2026-10-07',timeZone:'UTC',resolution:'day' as const},now,
+    presentations:new Map(),external:false,sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
+  for(const metric of ['cost','tokens','cost']){
+    const data=mobileUsagePresentation({...input,metric},false);
+    expect(data.hasCost).toBe(true);expect(data.costPremium).toBe('$0.83 premium');
+    for(const item of [...data.costByType,...data.costBySpeed])expect(Object.keys(item).sort()).toEqual(['dark','id','label','light','value','weight']);
+    expect(data.costByType.map(item=>[item.id,item.label,item.weight,item.value,item.light,item.dark])).toEqual([
+      ['input','Input',1,'$1.00','#848484','#737373'],['cacheRead','Cache read',2,'$2.00','#c0c0c0','#282828'],
+      ['cacheWrite','Cache write',3,'$3.00','#6d6d6d','#949494'],['output','Output',1,'$1.00','#3c3c43','#e6e6e6'],['other','Other',3,'$3.00','#a3a3a3','#494949'],
+    ]);
+    expect(data.costBySpeed.map(item=>[item.id,item.label,item.weight,item.value,item.light,item.dark])).toEqual([
+      ['standard','Standard',7,'$7.00','#b8b8b8','#313131'],['fast','Fast',2,'$2.00','#797979','#838383'],['ultrafast','Ultrafast',1,'$1.00','#3c3c43','#e6e6e6'],
+    ]);
+    expect([data.total,data.providers[0]?.value,data.models[0]?.value]).toEqual(Array(3).fill(metric==='cost'?'$10.00':'100'));
+    expect(data.models[0]?.id).toBe('["claude","qa"]');expect(data.chartLegend.map(item=>item.id)).toEqual(['claude']);
+    expect(data.models[0]?.detail).toBe(metric==='cost'?'100.0% of cost · 100 tokens':'100.0% of tokens · $10.00');
+    expect(JSON.stringify(summary)).toBe(before);
+  }
+});
+test('Usage Cost visibility keeps tiny positive sections, filters empty segments and gates speed independently',()=>{
+  const cases:[string,Obj,boolean,[string,number,string][],[string,number,string][]][]=[
+    ['zero',{costUsd:0},false,[],[]],['negative',{costUsd:-1},false,[],[]],
+    ['Other below threshold',{costUsd:0.0049},true,[],[]],['Other at threshold',{costUsd:0.005},true,[['other',0.005,'$0.01']],[]],
+    ['tiny split weights',{costUsd:0.003,categoryCostUsd:{input:0.001,cacheRead:0.002,cacheWrite:0,output:0}},true,[['input',0.001,'$0.00'],['cacheRead',0.002,'$0.00']],[]],
+    ['speed without type',{costUsd:0.0049,fastCostUsd:0.0049},true,[],[['fast',0.0049,'$0.00']]],
+    ['standard only',{costUsd:1,categoryCostUsd:{input:1}},true,[['input',1,'$1.00']],[]],
+    ['ultrafast only',{costUsd:1,categoryCostUsd:{input:1},ultrafastCostUsd:0.5},true,[['input',1,'$1.00']],[['standard',0.5,'$0.50'],['ultrafast',0.5,'$0.50']]],
+  ];
+  for(const [label,bucket,hasCost,types,speeds] of cases)for(const metric of ['cost','tokens']){
+    const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'claude',hostId:'qa',resolvedHomePath:'/qa'}}],
+      buckets:[{provider:'claude',model:'qa',day:'2026-10-07',totals:{uncachedInputTokens:1},...bucket}]};
+    const data=mobileUsagePresentation({tab:'usage',window:mobileUsageWindow(7,now),metric,now,presentations:new Map(),external:false,
+      sources:[{id:'qa',label:'QA',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
+    expect({case:label,visible:data.hasCost,types:data.costByType.map(item=>[item.id,item.weight,item.value]),speeds:data.costBySpeed.map(item=>[item.id,item.weight,item.value])})
+      .toEqual({case:label,visible:hasCost,types,speeds});
+    expect(data.costPremium).toBe('$0.00 premium');
+  }
+  expect(mobileUsagePresentation(null,false).hasCost).toBe(false);
+  const future=mobileUsagePresentation({tab:'usage',window:mobileUsageWindow(7,now),metric:'cost',now,presentations:new Map(),external:false,
+    sources:[{id:'qa',label:'QA',connected:true,summary:{contractVersion:7,costUsd:10,buckets:[]},error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
+  expect([future.hasCost,future.costByType,future.costBySpeed]).toEqual([false,[],[]]);
+});
 test('mobile USD formatting keeps reference rounding, signed zero, grouping and nonfinite output',()=>{
   expect([0.825,1.275,-0.825,-0.004,-0,0,1_234_567.891,NaN,Infinity,-Infinity].map(formatUsd))
     .toEqual(['$0.83','$1.28','-$0.83','-$0.00','-$0.00','$0.00','$1,234,567.89','$NaN','$∞','-$∞']);
 });
-for(const [label,value,expected] of [
-  ['half-cent',0.825,'$0.83'],['second half-cent',1.275,'$1.28'],['negative half-cent',-0.825,'-$0.83'],
-  ['negative rounds to zero',-0.004,'-$0.00'],['zero',0,'$0.00'],['grouping',1_234_567.891,'$1,234,567.89'],
-  ['NaN',NaN,'$0.00'],['positive infinity',Infinity,'$0.00'],['negative infinity',-Infinity,'$0.00'],
+for(const [label,value,expected,hasCost] of [
+  ['half-cent',0.825,'$0.83',true],['second half-cent',1.275,'$1.28',true],['negative half-cent',-0.825,'-$0.83',false],
+  ['negative rounds to zero',-0.004,'-$0.00',false],['zero',0,'$0.00',false],['grouping',1_234_567.891,'$1,234,567.89',true],
+  ['NaN',NaN,'$0.00',false],['positive infinity',Infinity,'$0.00',false],['negative infinity',-Infinity,'$0.00',false],
 ] as const)test(`Usage projection formats ${label} across cost fields and token details`,()=>{
   const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'claude',hostId:'host',resolvedHomePath:'/home'},distinctSessions:1}],
     buckets:[{provider:'claude',model:'model',day:'2026-10-07',costUsd:value,cacheSavingsUsd:value,categoryCostUsd:{input:value},fastCostUsd:value,totals:{uncachedInputTokens:1000}}]};
@@ -328,8 +374,10 @@ for(const [label,value,expected] of [
     sources:[{id:'a',label:'A',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]};
   const cost=mobileUsagePresentation({...input,metric:'cost'},false),tokens=mobileUsagePresentation({...input,metric:'tokens'},false);
   expect([cost.total,cost.providers[0]?.value,cost.models[0]?.value,cost.chart.find(period=>period.id==='2026-10-07')?.bands.find(band=>band.id==='claude')?.value,
-    ...['cost','savings','category-input','speed-fast'].map(id=>cost.costs.find(item=>item.id===id)?.value),tokens.providers[0]?.detail])
-    .toEqual(Array(9).fill(expected));
+    tokens.providers[0]?.detail]).toEqual(Array(5).fill(expected));
+  expect(cost.hasCost).toBe(hasCost);expect(tokens.hasCost).toBe(hasCost);
+  expect(cost.costByType.map(item=>item.value)).toEqual(hasCost?[expected]:[]);
+  expect(cost.costBySpeed.map(item=>item.value)).toEqual(hasCost?[expected]:[]);
 });
 
 function refreshBarrier(){
