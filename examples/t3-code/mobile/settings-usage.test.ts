@@ -6,7 +6,7 @@ import type { Native } from './shared/protocol';
 import { collectLimitAccounts, collectLimitPools, displayLimitWindows, type LimitPresentations } from './settings-usage-limits';
 import { mobileUsageConfig } from './settings-usage-types';
 import { mobileUsage, mobileUsageCommand, mobileUsageSelection, mobileUsageSnapshot, mobileUsageWindow, usageGrant } from './settings-usage';
-import { mobileUsagePresentation, mobileUsageAccount, mobileUsageProviderRows } from './settings-usage-view';
+import { mobileUsagePresentation, mobileUsageAccount, mobileUsageProviderRows, mobileUsageReveal } from './settings-usage-view';
 import { formatDateTimeShort, formatHourShort, formatUsd, mergeUsage } from './shared/pages-usage';
 import { mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
 import { ClientError } from './shared/protocol';
@@ -157,6 +157,49 @@ test('Account detail preserves positive pooled restoration for future and past r
     expect(detail.resets.length).toBeGreaterThan(0);expect(JSON.stringify(providers)).toBe(before);
   }
 });
+test('Account detail keeps native environment rows separate and names a hub source without inventing a sign-in',()=>{
+  const at=Date.parse('2026-10-07T12:00:00Z');
+  const native:LimitPresentations=new Map([
+    ['a',{entry:{target:{label:'Mac A'}},serverConfig:mobileUsageConfig({providers:[{...nativeAccount(limits,'shared@example.test'),displayName:'Work account'}]})}],
+    ['b',{entry:{target:{label:'Mac B'}},serverConfig:mobileUsageConfig({providers:[nativeAccount(limits,'shared@example.test')]})}],
+  ]);
+  const hub:LimitPresentations=new Map([['a',{entry:{target:{label:'Mac A'}},serverConfig:mobileUsageConfig({providers:[],usageLimitSources:[{id:'hub',label:'CLI Proxy',accounts:[{id:'account.json',driver:'codex',email:'hub@example.test',usageLimits:limits}]}]})}]]);
+  for(const item of [
+    {presentations:native,key:'a:one',title:'Signed in',rows:[{id:'a',label:'Mac A'},{id:'b',label:'Mac B'}]},
+    {presentations:hub,key:'hub:account.json',title:'Source',rows:[{id:'source',label:'CLI Proxy'}]},
+  ]){
+    const before=JSON.stringify([...item.presentations]);
+    mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,at),metric:'cost',now:at,presentations:item.presentations,external:false,sources:[]},true);
+    const detail=mobileUsageAccount(item.key,'primary','session',at);
+    expect(detail.present).toBe(true);expect(detail.sourceTitle).toBe(item.title);expect(detail.sourceItems).toEqual(item.rows);
+    expect(JSON.stringify([...item.presentations])).toBe(before);
+  }
+});
+test('Account detail uses pooled driver labels and medium-date short-time reset copy',()=>{
+  const at=Date.parse('2026-10-07T12:00:00Z'),resetsAt='2026-10-08T18:23:47Z';
+  const resetText=new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short'}).format(Date.parse(resetsAt));
+  for(const [driver,label] of [['codex','Codex'],['claudeAgent','Claude'],['cursor','cursor'],['grok','grok']] as const){
+    const providers=[{...nativeAccount({...limits,windows:[{...window('session',37.4),resetsAt}]},'detail@example.test'),driver}],before=JSON.stringify(providers);
+    presentedLimits(providers,at,true);const detail=mobileUsageAccount('a:one','primary','session',at);
+    expect([detail.driver,detail.label,detail.windowLabel,detail.remaining,detail.resets]).toEqual([driver,label,'Allowance','63% left',resetText]);
+    expect(JSON.stringify(providers)).toBe(before);
+  }
+  presentedLimits([{...nativeAccount({...limits,windows:[{...window(),resetsAt:undefined}]}),driver:'claudeAgent',displayName:'Configured Claude'}],at,true);
+  const named=mobileUsageAccount('a:one','primary','session',at);expect(named.label).toBe('Configured Claude');expect(named.resets).toBe('');
+});
+test('Account detail masks email as the primary does while preserving the existing per-key reveal state',()=>{
+  const at=Date.parse('2026-10-07T12:00:00Z'),providers=[nativeAccount(limits,'first@example.test'),{...nativeAccount(limits,'second@example.test'),instanceId:'two'}],before=JSON.stringify(providers);
+  presentedLimits(providers,at,true);
+  const hidden=mobileUsageAccount('a:one','primary','session',at);expect([hidden.hasEmail,hidden.revealed,hidden.email]).toEqual([true,false,'••••••@••••••']);
+  mobileUsageReveal('a:one');
+  expect(mobileUsageAccount('a:one','primary','session',at).email).toBe('first@example.test');
+  expect(mobileUsageAccount('a:two','primary','session',at).email).toBe('••••••@••••••');
+  presentedLimits(providers,at,true);expect(mobileUsageAccount('a:one','primary','session',at).revealed).toBe(true);
+  mobileUsageReveal('a:one');expect(mobileUsageAccount('a:one','primary','session',at).email).toBe('••••••@••••••');
+  expect(JSON.stringify(providers)).toBe(before);
+  presentedLimits([{...nativeAccount(limits),auth:{status:'authenticated'}}],at,true);
+  const absent=mobileUsageAccount('a:one','primary','session',at);expect([absent.hasEmail,absent.email]).toEqual([false,'']);
+});
 test('explicit empty selection stays empty; diagnostic permissions distinguish old session scopes',()=>{
   expect(mobileUsageSelection('null')).toBeNull();expect(mobileUsageSelection('[]')).toEqual([]);expect(()=>mobileUsageSelection('{}')).toThrow();
   expect(usageGrant({authenticated:true,scopes:['orchestration:read']})).toBe(true);expect(usageGrant({authenticated:true,scopes:['orchestration:read'],auth:{serverUpdateScope:'environment:maintain'}})).toBe(false);expect(usageGrant({authenticated:true,scopes:['diagnostics:read'],permissions:[]})).toBe(false);
@@ -181,7 +224,7 @@ test('usage rescan still runs after pricing refresh failure; selected empty set 
 });
 test('reset credit requires confirmation and current permission; real noCredit outcome is not success',async()=>{
   const {id,native,calls,permissions}=transport();const data=await mobileUsage('null','limits',windowJSON,'cost',now,native),key=data.pools[0]!.windows[0]!.columns[0]!.key;
-  expect(mobileUsageAccount(key,'primary','session',now).email).toBe('••••••••');expect((await mobileUsageCommand('redeem',id,key,now,native)).message).toContain('confirmation');expect(calls.some(call=>call.method==='provider.consumeResetCredit')).toBe(false);
+  expect(mobileUsageAccount(key,'primary','session',now).email).toBe('••••••@••••••');expect((await mobileUsageCommand('redeem',id,key,now,native)).message).toContain('confirmation');expect(calls.some(call=>call.method==='provider.consumeResetCredit')).toBe(false);
   permissions.splice(permissions.indexOf('providers:manage'),1);expect((await mobileUsageCommand('redeem-confirmed',id,key,now,native)).message).toContain('permission');
   permissions.push('providers:manage');expect((await mobileUsageCommand('redeem-confirmed',id,key,now,native)).message).toBe('No reset credit left.');expect(calls.filter(call=>call.method==='provider.consumeResetCredit')).toHaveLength(1);
 });

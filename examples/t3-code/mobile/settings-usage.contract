@@ -126,10 +126,14 @@ shape MobileUsageData
   costBySpeed: UsageCostSegment[]
   costPremium: string
   models: UsageModel[]
+shape UsageAccountSource
+  id: string
+  label: string
 shape MobileUsageAccountData
   present: bool
   error: string
   key: string
+  driver: string
   label: string
   email: string
   hasEmail: bool
@@ -139,7 +143,8 @@ shape MobileUsageAccountData
   remaining: string
   resets: string
   restores: string
-  source: string
+  sourceTitle: string
+  sourceItems: UsageAccountSource[]
   credits: string
   canRedeem: bool
   environmentId: string
@@ -436,6 +441,7 @@ component SettingsUsageAccount
     roles: SettingsTextRoles
     danger: string
     bottom: number
+    dark: bool
     reveal: action
     redeem: action
   view
@@ -444,20 +450,26 @@ component SettingsUsageAccount
         if not data.present
           text data.error color=colors.muted font-size=roles.body.size
         else
-          column background-color=colors.grouped border-radius=24 padding=14 gap=10.5
-            text data.label color=colors.foreground font-size=roles.title.size font-weight=500
+          column gap=7
+            row align-items="center" gap=7
+              ProviderIcon(driver=data.driver, size=24, dark=dark, iconUrl="")
+              text data.label flex=1 min-width=0 color=colors.foreground font-size=roles.title.size line-height=`${roles.title.line}px` font-weight=700
             if data.hasEmail
-              button appearance="none" press=reveal(data.key) min-height=44 aria-label=(data.revealed ? "Hide email" : "Show email")
-                text data.email color=colors.muted font-size=roles.body.size
+              button appearance="none" press=reveal(data.key) min-height=44 padding=0 display="flex" flex-direction="column" justify-content="center" text-align="start" aria-label=(data.revealed ? "Hide account email" : "Reveal account email")
+                text data.email color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
             if data.plan.length > 0
-              text data.plan color=colors.muted font-size=roles.footnote.size
-            text data.windowLabel color=colors.foreground font-size=roles.body.size
-            text data.remaining color=colors.foreground font-size=roles.largeTitle.size
+              text data.plan user-select="text" color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+          column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" padding=14 gap=10.5
+            text data.windowLabel color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+            text data.remaining color=colors.foreground font-size=roles.display.size line-height=`${roles.display.line}px` font-weight=700 font-variant-numeric="tabular-nums"
             if data.resets.length > 0
-              text `Resets ${data.resets}` color=colors.muted font-size=roles.body.size
+              text `Resets ${data.resets}` user-select="text" color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
             if data.restores.length > 0
-              text data.restores color=colors.muted font-size=roles.footnote.size
-            text data.source color=colors.muted font-size=roles.footnote.size
+              text data.restores color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+          column background-color=colors.grouped border-radius=24 corner-shape="-exact-continuous" padding=14 gap=7
+            text data.sourceTitle color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+            for item in data.sourceItems key=item.id
+              text item.label color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
           if data.credits.length > 0
             column background-color=colors.grouped border-radius=24 padding=14 gap=7
               text data.credits color=colors.muted font-size=roles.footnote.size
