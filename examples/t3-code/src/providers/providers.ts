@@ -1,3 +1,4 @@
+import { notifyChatGptCreated } from './provider-created-callback';
 import { providerSettingsWritable, providerWritable } from './provider-permissions';
 // T3 Code 9c161462c9 (MIT, LICENSE-T3), ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers. Every write reads fresh server
@@ -402,7 +403,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     // renderSetup's ManagedCodexSetup autoStart, in this dialog or (onAccountCreated) on the welcome's new row.
     chatgptCreated = { serial: wizardSerial, instanceId, displayName };
     Object.assign(codexFlow(host, instanceId), { autoStart: true, autoStartHandled: false, displayName });
-    onChatGptCreated?.(host, instanceId, displayName);
+    notifyChatGptCreated(host, instanceId, displayName);
     return '';
   }
   if (op === 'provider-hub-add' || op === 'provider-hub-remove') {
@@ -590,9 +591,7 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
 /** The picker's instance on a background computer (codex-setup-host.ts registers it). */
 let codexTargetResolver: ((host: ProviderHost, target: string) => ReturnType<typeof codexPicker> | null) | null = null;
 export function setCodexTargetResolver(resolver: typeof codexTargetResolver): void { codexTargetResolver = resolver; }
-/** The welcome's onAccountCreated (pages-welcome.ts registers it): the new row comes first and starts. */
-let onChatGptCreated: ((host: ProviderHost, instanceId: string, displayName: string) => void) | null = null;
-export function setChatGptCreatedHandler(handler: typeof onChatGptCreated): void { onChatGptCreated = handler; }
+export { setChatGptCreatedHandler } from './provider-created-callback';
 
 export const PROVIDER_OPS = ['provider-create', 'provider-add', 'provider-name', 'provider-display', 'provider-enabled', 'provider-remove', 'provider-reset',
   'provider-accent', 'provider-argument-add', 'provider-argument-remove', 'provider-argument-value', 'provider-field', 'provider-env-field', 'provider-env-add', 'provider-env-name', 'provider-env-value', 'provider-env-sensitive', 'provider-env-remove', 'provider-model-add',
