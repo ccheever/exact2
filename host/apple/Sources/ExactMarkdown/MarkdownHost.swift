@@ -7,6 +7,7 @@ import UIKit
 import AppKit
 #endif
 import ExactKit
+import CExact
 
 public enum ExactMarkdown {
     public static func install() { MarkdownLink.installed = MarkdownHost() }
@@ -17,6 +18,10 @@ final class MarkdownHost: MarkdownCapability {
         MarkupRuns.expand(source, base: base, color: color, boldText: boldText)
     }
     func editor() -> MarkdownEditing { MarkupEditor() }
+    func decorator() -> FieldDecorating { DecorationEditor() }
+    func measureDecorations(_ engine: TextEngine, request: ExactMeasureRequest, record: String, styles: String, root: Double, scale: Double, selection: NSRange?) -> ExactMetrics? {
+        DecorationMeasurement.measure(engine,request:request,record:record,styles:styles,root:root,scale:scale,selection:selection)
+    }
     func plain(_ source: String) -> String? { MarkupCommands.plain(source) }
     func format(_ node: NodeView, command: String, argument: String, selection: NSRange?) -> Bool {
         #if os(macOS)
