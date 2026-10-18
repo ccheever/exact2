@@ -12,6 +12,9 @@ use crate::vm::Frame;
 use exact_kernel::{Op, StyleProps, ViewId};
 use exact_plan::{Plan, Value};
 
+/// A looks row: style id, text, written.
+pub type Row = (u16, Value, bool);
+
 /// A node's looks as resolved: each state's rows as written, and what they
 /// read, to resolve again.
 #[derive(Debug, Clone, PartialEq)]
@@ -20,8 +23,8 @@ pub struct Looks {
     pub tuple: u32,
     /// The tokens they read, as `theme::name_bit`s.
     pub tokens: u64,
-    /// Each state and its rows: style id, text, written.
-    pub states: Vec<(u8, Vec<(u16, Value, bool)>)>,
+    /// Each state and its rows.
+    pub states: Vec<(u8, Vec<Row>)>,
 }
 
 impl Looks {
@@ -36,7 +39,7 @@ impl Looks {
 
 /// `rows` resolved into one patch; a row that does not parse is left out,
 /// as a static row's refusal is (its note is the build's).
-fn patch(rows: &[(u16, Value, bool)], plan: &Plan) -> StyleProps {
+fn patch(rows: &[Row], plan: &Plan) -> StyleProps {
     let mut patch = StyleProps::default();
     for (id, value, written) in rows {
         // An explicit clear (`unset`): written, no value, as a static row's.
