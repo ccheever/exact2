@@ -692,12 +692,13 @@ export function entryPlans(assets) {
  * manifest's cross-platform `app.name`, never the internal crate slug. */
 /** A dev generation's identity (LLP 1007 §6): the SHA-256 of the canonical
  * JSON of its plan, asset, module and Rust cards, each by its name, digest
- * and length, as a client checks it (host/web/dev.js `fetchGeneration`),
- * never by its url (an asset card captured from disk carries one). */
+ * and length, assets in UTF-8 order, as a client checks it (host/web/dev.js
+ * `fetchGeneration`), never by its url (an asset card captured from disk
+ * carries one). */
 export function devGenerationDigest(plan, assets, module = null, rust = null) {
   const card = ({ bytes, sha256 }) => ({ bytes, sha256 });
   return createHash('sha256').update(canonicalBytes({
-    plan: card(plan), assets: assets.map(({ name, sha256, bytes }) => ({ name, sha256, bytes })),
+    plan: card(plan), assets: assets.map(({ name, sha256, bytes }) => ({ name, sha256, bytes })).sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))),
     ...(module ? { module: Object.fromEntries(Object.entries(module).map(([key, value]) => [key, card(value)])) } : {}),
     ...(rust ? { rust: Object.fromEntries(Object.entries(rust).map(([kind, v]) => [kind, { module: card(v.module), receipt: card(v.receipt), ...(kind !== 'wasm' ? { target: v.target } : {}) }])) } : {}),
   })).digest('hex');

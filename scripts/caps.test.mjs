@@ -402,10 +402,12 @@ for (const [name, html, files, expectCode, expect] of [
 // manifest a client checks: its identity is over names, digests and lengths.
 {
   const origin = 'http://exact.test/', body = Buffer.from('payload');
-  const assets = assetCards(new Map(Array.from({ length: 3 }, (_, i) => [`assets/${i}.txt`, body])));
+  // An entry plan (`plans/`) among them, as a widget's entry rides a generation.
+  const assets = assetCards(new Map([...Array.from({ length: 3 }, (_, i) => [`assets/${i}.txt`, body]), ['plans/widget.plan', body]]));
   const card = name => ({ url: origin + name, bytes: body.length, sha256: sha256(body) });
   const module = Object.fromEntries(['native', 'receipt', 'web'].map(key => [key, { bytes: body.length, sha256: sha256(body) }]));
-  const generation = devGenerationDigest({ bytes: body.length, sha256: sha256(body) }, assets, module);
+  // Named in any order: the identity is over UTF-8 order, as a client sorts them.
+  const generation = devGenerationDigest({ bytes: body.length, sha256: sha256(body) }, [...assets].reverse(), module);
   const identity = { epoch: 'a'.repeat(32), seq: 1, generation, program: 'b'.repeat(64) };
   const envelope = { exact: 1, app: { id: 'com.exact.test' }, dev: identity, plan: card('app.plan'),
     assets: assets.map(a => ({ ...a, url: origin + a.name })), module: Object.fromEntries(Object.keys(module).map(key => [key, card(key)])) };
