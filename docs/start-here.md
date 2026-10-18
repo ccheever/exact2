@@ -58,6 +58,10 @@ refreshes it. `contract migrate app.contract` rewrites retired Contract syntax;
 mutation refusals too.
 Keep scratch files in `.exact/`: they do not make the build stale (a JSON file `app.ts` imports does).
 
+**To check a screen against a reference** (the original's screenshot, a design), drive to it and
+take `"screenshot .exact/home.png compare ref/home.png"`: it says in text, node by node, where
+the two differ, and draws `home.diff.png`, so neither picture needs viewing.
+
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
 point (`--scale 3`: the device's): no other simulator tool is needed ([ios-driving](recipes/ios-driving.md)).
 
@@ -277,13 +281,19 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|
+|transitions, keyframes, exit and layout animation|`motion`|
+|brand colours, light and dark, icon tokens|`theme`, `tamber`|
+|a module in Swift that `app.ts` asks; launch arguments|`native-module`|
+|app.json keys, `assets/`, the `modules` folder|`app-json`|
+|a section of the long guides, whole, by its heading|`bun exact.mjs docs <heading words>`|
 
 The others are named for their topic (`timers`, `money`…).
 
 **A name in question:** `bun exact.mjs contract vocab` prints the card, or read `docs/card.md` (the same
 text): every function, tag, part's call, test step, and how to do a screen, sheet, timer, colour,
 data, test. A lookup is for a name the card lacks or a compile error;
-`docs/contract-for-agents.md` and `reference.md` by section; `apps/shelf` is a whole app.
+`docs/contract-for-agents.md` and `reference.md` by section (`bun exact.mjs docs tabular numbers`
+prints one with its path and line); `apps/shelf` is a whole app.
 
 Consecutive `match` blocks in an action all run in order. Nest a match in the
 selected arm, or use `if`/`else`, for exclusive paths. Action reads still see

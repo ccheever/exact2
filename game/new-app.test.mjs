@@ -367,7 +367,8 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     // Where to start, not an order of steps (LLP 1116.012 D1): the nearest pattern, the guide, a name in question
     // answered by the card, `verify` when the features work and `verify ios` once at the end; `help` lists the verbs.
     assert.match(notes, /already in your instructions\. Start from the nearest pattern: `bun exact\.mjs\s+pattern` lists them and `pattern <name>` writes one/);
-    assert.match(notes, /When a name is in question, `bun exact\.mjs contract\s+vocab <name>` answers it/);
+    assert.match(notes, /`bun exact\.mjs contract vocab <name>` answers a\s+name/);
+    assert.match(notes, /`bun exact\.mjs docs <heading words>` a guide's\s+section/);
     assert.match(notes, /`bun exact\.mjs verify`\s+when the features work, and `verify ios` once at the end for an iPhone\s+app/);
     assert.match(notes, /`bun exact\.mjs help`\s+lists the verbs/);
     assert.doesNotMatch(notes, /after each edit|milestone/);

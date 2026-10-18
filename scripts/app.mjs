@@ -1164,6 +1164,17 @@ export function bakeSelection(graph, part) {
   return (part === 'gpu' ? gpu : part === 'host' ? [graph.root] : [...gpu,graph.root]).filter(Boolean);
 }
 
+/** What ships to an Apple device or an Android phone is optimized as one module: fat LTO
+ * makes the stripped binary smaller than thin — 4.8% on Apple, no slower to boot, for 16 s
+ * of a production build (LLP 1036.000 §8); 6.4% for Caltrain's Android library (16.6 →
+ * 15.6 MB), whose release build takes about a minute longer. Said on the command line and
+ * not in `[profile.release]`, which every developer tool builds with. Cargo's fingerprints
+ * keep thin and fat apart: a target directory used both ways (a macOS and a Linux bake on a
+ * Mac) recompiles, and never reuses the other's artifacts. */
+export function wholeProgram(kind, profile) {
+  return ['apple','ios','macos','tvos','android'].includes(kind) && profile === 'release' ? ['--config','profile.release.lto="fat"'] : [];
+}
+
 /** One actual target build, including the optional GPU artifact. Consumers
  * classify its completed receipt; compatibility is never recomputed in JS.
  * `check` runs `cargo check`: the build scripts (the bake) and the receipt,
@@ -1212,12 +1223,7 @@ export function buildBake(app, platform, target, options = {}) {
     // bundling its whole dependency graph into a 700 MB archive nobody reads. The archive the
     // app links is asked for here, where it is built to be launched.
     const archive=apple&&pkg.id===graph.root.id;
-    // What ships to an Apple device is optimized as one module: fat LTO makes the
-    // stripped binary 4.8% smaller than thin and no slower to boot, for 16 s of a
-    // production build (LLP 1036.000 §8). Said here and not in `[profile.release]`,
-    // which every developer tool builds with; only a bake builds for an Apple target
-    // at `release`, so nothing is compiled under both.
-    const whole=apple&&(options.profile??'release')==='release'?['--config','profile.release.lto="fat"']:[];
+    const whole=wholeProgram(kind,options.profile??'release');
     const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...whole,...(sized||watch?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(['linux','windows'].includes(kind)&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     if(archive&&options.link&&!env.EXACT_RUST_BUNDLE&&linkable(app,pkg))env.EXACT_BAKED=bakeOutside(app,platform,target,env);else delete env.EXACT_BAKED; // `link`: a TypeScript app's plan, which the link carries
     const result=buildCommand('cargo',args,app,env,'inherit');
