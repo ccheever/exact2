@@ -98,7 +98,9 @@ export class Session {
   private lastPong = 0;
   private nextPing = 0;
   /** The attempt whose connect flow is running, in whichever answer runs it; -1 when none is. */
-  private flowRunning = -1;
+  flowRunning = -1;
+  /** That flow, for the slot's answer to wait on (see `connectFlow`). */
+  flowPromise: Promise<string> | null = null;
   /** Why the last attempt failed: what a `connect` or `retry` that ran it replies. */
   private lastFailure: TransportFailure | null = null;
   /** When the next attempt starts (ms), while the ladder waits. */
@@ -299,8 +301,19 @@ export class Session {
   async connectFlow(attempt: number): Promise<string> {
     if (!this.wantsFlow(attempt)) return '';
     this.flowRunning = attempt;
-    try { return await this.runFlow(attempt); }
-    finally { if (this.flowRunning === attempt) this.flowRunning = -1; }
+    const flow = this.flowPromise = this.runFlow(attempt).finally(() => {
+      if (this.flowRunning === attempt) { this.flowRunning = -1; this.flowPromise = null; }
+    });
+    return flow;
+  }
+
+  /**
+   * Waits for a flow another answer started. A fetch made after its first await belongs to whichever pending answer
+   * settles next, so an answer that does not await the connect (the snapshot's relaunch and fleet passes) leaves its
+   * flow's later requests to no one once it has replied; the slot's answer waiting here takes them on.
+   */
+  async joinFlow(attempt: number): Promise<void> {
+    if (this.flowRunning === attempt && this.flowPromise) await this.flowPromise.catch(() => '');
   }
 
   private async runFlow(attempt: number): Promise<string> {

@@ -31,6 +31,25 @@ describe('pairing (authorization/remote.ts, resolver.ts)', () => {
     expect(status.presentation).toEqual({ scrollEnds: {} });
   });
 
+  test("a connect nobody awaits is joined by its slot's answer, which settles only once the flow has its URL", async () => {
+    const drive = new Drive(new FakeServer(ORIGIN));
+    let release: () => void = () => {};
+    // The ticket waits until the test lets it go, so the flow is still running when the slot's answer is asked.
+    drive.holds['/api/auth/websocket-ticket'] = new Promise<void>(resolve => { release = resolve; });
+    void drive.bridge.later({ op: 'connect', origin: ORIGIN, credential: 'code-1' });
+    const session = drive.transport.focused;
+    expect(session.flowRunning).toBe(session.attempt);
+    let joined = false;
+    void drive.transport.connect(0, 'focused', session.attempt, 0, drive.module).then(() => { joined = true; });
+    for (let round = 0; round < 10; round++) await new Promise(resolve => setTimeout(resolve, 0));
+    expect([joined, session.url]).toEqual([false, '']);
+    release();
+    for (let round = 0; round < 10 && !joined; round++) await new Promise(resolve => setTimeout(resolve, 0));
+    expect(joined).toBe(true);
+    expect(session.url).toStartWith('ws://127.0.0.1:4001/ws?wsTicket=');
+    expect(session.flowRunning).toBe(-1);
+  });
+
   test('a refused code saves nothing and names the reference error', async () => {
     const drive = new Drive(new FakeServer(ORIGIN));
     const reply = await drive.op(pairing(ORIGIN, 'wrong'));

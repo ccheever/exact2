@@ -123,6 +123,8 @@ export class Drive {
   module = { available: true, watch(_topic: string) {}, later: async (request: unknown) => this.moduleOp(request as Obj) };
   moduleCalls: Obj[] = [];
   primaryBearer = '';
+  /** A request to one of these paths waits for its promise before the server answers. */
+  holds: Record<string, Promise<void>> = {};
 
   constructor(...servers: FakeServer[]) {
     for (const server of servers) this.servers.set(server.origin, server);
@@ -130,6 +132,7 @@ export class Drive {
       const parsed = new URL(url);
       const server = this.servers.get(parsed.origin);
       if (!server || !server.up) throw new Error(`Could not connect to ${parsed.origin}`);
+      await this.holds[parsed.pathname];
       const reply = server.http(init.method ?? 'GET', parsed.pathname + parsed.search, init);
       return { status: reply.status, text: reply.body === undefined ? '' : JSON.stringify(reply.body) };
     };
