@@ -256,6 +256,16 @@ component StageThree
           stop offset=1 stop-color="#2563eb" stop-opacity=0
       polygon points="0,80 0,50 20,42 40,48 60,26 80,32 100,14 120,20 120,80" fill="url(#area)"
       polyline points="0,50 20,42 40,48 60,26 80,32 100,14 120,20" fill="none" stroke="#2563eb" stroke-width=2 stroke-linejoin="round"
+    // Restoring one opacity group's transform must not move the next group's bounds.
+    svg testId="fx-opacity-restore" class=Tile viewBox="0 0 120 80"
+      defs
+        linearGradient id="fade" x2=0 y2=1
+          stop offset=0 stop-color="#30a46c"
+          stop offset=1 stop-color="#30a46c" stop-opacity=0.2
+      g transform="translate(8 8)" opacity=0.5
+        path d="M0 0H48V64H0Z" fill="#2563eb"
+      g opacity=0.5
+        rect x=64 y=8 width=48 height=64 fill="url(#fade)"
     // An icon symbol, used three times: each instance inherits its `use`'s
     // colour; a template gradient reached through `href`.
     svg testId="fx-use" class=Tile viewBox="0 0 120 80"

@@ -24,8 +24,31 @@ import java.io.File
 interface NativeModule {
     fun create(context: Context, props: JSONObject): View
     fun update(view: View, props: JSONObject)
+    /** Bound before the first update. Keep this callback only until the next binding; a retired one is ignored. */
+    fun events(view: View, emit: (String, String) -> Unit) {}
     fun reset(view: View): Boolean = false
     fun destroy(view: View) {}
+}
+
+/** The app's optional module roster, compiled from `modules/android` as `class exact.app.Modules`. */
+interface NativeModules {
+    val modules: Map<String, NativeModule>
+
+    companion object {
+        /** Resolve the app's roster at its first module view, so apps without one load nothing. */
+        fun load(): Map<String, NativeModule> = object : AbstractMap<String, NativeModule>() {
+            override val entries: Set<Map.Entry<String, NativeModule>> by lazy {
+                val type = try { Class.forName("exact.app.Modules") } catch (e: ClassNotFoundException) { return@lazy emptySet() }
+                try {
+                    (type.getDeclaredConstructor().newInstance() as NativeModules).modules.entries
+                } catch (e: Exception) {
+                    val cause = (e as? java.lang.reflect.InvocationTargetException)?.targetException ?: e
+                    android.util.Log.e("exact", "native modules: exact.app.Modules could not be made: $cause")
+                    emptySet()
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -60,6 +83,10 @@ class Natives(
     private class Element(val id: Int, val kind: Int, var view: View, val node: RenderNode) {
         var props = ""
         var module: String? = null
+        var generation = 0
+        var slot = 0
+        var disabled = false
+        var eventBinding = 0
         var video: VideoSize? = null
         /** A video whose view still shows another source's last frame (a lent player's): drawn once its own first
          * frame is in the view, as a new TextureView draws nothing until then. */
@@ -297,12 +324,19 @@ class Natives(
 
     /** Op 28 seen while ingesting a stream: make or update the element; [row] draws it (0: not in a row). */
     fun ensure(id: Int, kind: Int, w: Int, h: Int, props: String, row: Int, fullWindow: Boolean = false) {
+        val json = if (kind == 2) JSONObject(props) else null
+        val module = json?.optString("module")
+        val generation = json?.optInt("generation") ?: 0
+        val slot = json?.optInt("slot") ?: 0
         var e = elements[id]
-        if (e == null || e.kind != kind) {
+        if (e == null || e.kind != kind || (kind == 2 && (e.generation != generation || e.slot != slot || e.module != module))) {
             e?.let { release(it) }
-            val module = if (kind == 2) JSONObject(props).optString("module") else null
             val created = if (lazy && row != 0 && ((kind == 0 && videos != null && lazyVideo) || kind == 1 || (kind == 2 && modules.containsKey(module)))) {
-                Element(id, kind, standIn, RenderNode("exact native")).also { it.parked = true; it.module = module; waiting++ }
+                Element(id, kind, standIn, RenderNode("exact native")).also {
+                    it.parked = true; it.module = module
+                    it.generation = generation; it.slot = slot
+                    waiting++
+                }
             } else create(id, kind, props) ?: return
             e = created
             elements[id] = e
@@ -314,6 +348,7 @@ class Natives(
         if (kind == 3) {
             presentation(e, e.fullWindow && windowCanvas)
         }
+        if (json != null) e.disabled = json.optBoolean("disabled")
         e.rows.add(row)
         e.wanted = props
         if (e.w != w || e.h != h) {
@@ -453,6 +488,7 @@ class Natives(
         e.parked = false; waiting--
         if (pooled(e.kind)) held++
         byView[view] = e
+        if (e.kind == 2) bindEvents(e)
         if (e.w > 0 && e.h > 0) place(e)
         apply(e, e.wanted)
         if (e.dirty) record(e)
@@ -494,7 +530,12 @@ class Natives(
         val view = obtain(kind, json, id) ?: return null
         if (view.parent == null) addView(view, LayoutParams(1, 1))
         val e = Element(id, kind, view, RenderNode("exact native"))
-        if (kind == 2) e.module = json.optString("module")
+        if (kind == 2) {
+            e.module = json.optString("module")
+            e.generation = json.optInt("generation")
+            e.slot = json.optInt("slot")
+            bindEvents(e)
+        }
         if (pooled(kind)) held++
         if (kind == 3) { if (view is TextureView) listen(e, view) else e.buffers = true }
         return e
@@ -592,6 +633,27 @@ class Natives(
         addView(view, LayoutParams(1, 1))
         if (e.w > 0 && e.h > 0) { place(e); askBuffers(e); record(e) }
         invalidate(); poll()
+    }
+
+    private fun bindEvents(e: Element) {
+        val binding = ++e.eventBinding
+        modules[e.module]?.events(e.view) { kind, payload ->
+            // Modules may reply asynchronously; retirement or reuse must never retarget that reply.
+            post {
+                if (elements[e.id] === e && !e.parked && e.eventBinding == binding) {
+                    Exact.moduleEvent(e.id, e.slot, e.generation, kind, payload)
+                }
+            }
+        }
+    }
+
+    /** A module button under an unscrolled tap. Other native input stays with its dedicated host. */
+    fun click(id: Int, slot: Int, generation: Int, x: Float, y: Float): Boolean {
+        val e = elements[id]?.takeIf { it.kind == 2 && !it.parked && it.slot == slot && it.generation == generation } ?: return false
+        if (e.disabled || !e.view.isEnabled || !e.view.isClickable) return false
+        e.view.translationX = x
+        e.view.translationY = y
+        return e.view.performClick()
     }
 
     private fun moduleProps(json: JSONObject): JSONObject =
@@ -694,6 +756,7 @@ class Natives(
 
     /** [e]'s view is kept for the next element of its kind, or goes. */
     private fun retire(e: Element) {
+        e.eventBinding++
         if (pooled(e.kind)) held--
         val module = e.module?.let { modules[it] }
         if (e.kind == 0) {

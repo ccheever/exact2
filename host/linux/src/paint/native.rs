@@ -93,6 +93,9 @@ impl Painter {
                 NativeKind::Module,
                 serde_json::json!({
                     "module": p.str(PropId::NativeViewModuleName),
+                    "generation": node.key.generation,
+                    "slot": node.key.index,
+                    "disabled": flag(PropId::Disabled),
                     "props": p.str(PropId::NativeViewProps),
                 }),
             ),
