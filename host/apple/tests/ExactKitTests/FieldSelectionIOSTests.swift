@@ -361,6 +361,7 @@ final class FieldSelectionIOSTests: XCTestCase {
         defer { window.isHidden = true; session.destroy() }
         let p = presenter(session:session)
         let node = try XCTUnwrap(p.views[2]), field = try XCTUnwrap(node.textArea)
+        XCTAssertTrue(field.becomeFirstResponder())
         let manager = try XCTUnwrap(field.undoManager)
         manager.groupsByEvent = false
         var inputs: [String] = [], beforeInput: [String] = []
