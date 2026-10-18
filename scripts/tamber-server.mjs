@@ -179,7 +179,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     events.push(event);
     if (events.length > KEPT) events.shift();
     const line = `data: ${JSON.stringify(event)}\n\n`;
-    for (const res of subscribers) res.write(line);
+    // One `to` a client (a hold's refusal, its owner's: theme2's 07:48 (c)) is that client's alone.
+    for (const res of subscribers) if (!event.to || res.client === event.to) res.write(line);
     for (const poll of polls) poll();
   };
   // The dev loop's running builds (LLP 1122 D4): registered on its streams,
@@ -453,9 +454,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (down) { json(res, 503, { error: { message: down } }); return true; }
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
       res.write(`data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() })}\n\n`);
-      subscribers.add(res);
       // `{client}`: its commands live while it is present (LLP 1122 D4).
       const client = typeof request?.client === 'string' && request.client ? request.client : null;
+      res.client = client;
+      subscribers.add(res);
       attend(client, 1);
       res.on('close', () => {
         subscribers.delete(res);
@@ -476,7 +478,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     async function longPoll() {
       const after = request?.after ?? seq;
       const answer = () => {
-        const since = events.filter(e => e.seq > after);
+        const since = events.filter(e => e.seq > after && (!e.to || e.to === request?.client));
         // Fewer kept than asked for, or a number from before this server
         // started: the client missed some, and reads again.
         const missed = (request?.epoch !== undefined && request.epoch !== epoch) || after > seq || after < seq && (events[0]?.seq ?? seq + 1) > after + 1;

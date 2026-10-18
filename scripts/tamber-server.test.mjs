@@ -1457,9 +1457,16 @@ test('a hold reaches its build and follows its site into the build\'s next plan'
   expect(events.find(e => e.event === 'held')).toMatchObject({ build: 'web-1', state: 'active' });
   // A rebuild: site 1 (line 7) is site 2 of the new plan.
   tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'status', scheme: 'light', revision: 0, planDigest: P2 }));
-  expect(frames.at(-1)).toEqual({ kind: 'hold', revision: held.body.ok.revision, hold: { site: 2, instance: [], state: 'active' } });
+  expect(frames.at(-1)).toMatchObject({ kind: 'hold', hold: { site: 2, instance: [], state: 'active' } });
+  expect(frames.at(-1).revision).toBeGreaterThan(held.body.ok.revision);
   // Let go.
   expect((await post({ method: 'hold', client: 'tool', build: 'web-1', state: null })).status).toBe(200);
   expect(frames.at(-1)).toMatchObject({ kind: 'hold', hold: null });
+  // A hold refused is its owner's answer: another client never sees it.
+  const hover = await post({ method: 'hold', client: 'tool', build: 'web-1', site: 2, instance: [], state: 'hover' });
+  tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'unsupported', what: 'hold', detail: 'no hover here', revision: hover.body.ok.revision }));
+  const seen = async (client) => (await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client }) })).body.events.filter(e => e.event === 'unsupported');
+  expect(await seen('tool')).toMatchObject([{ build: 'web-1', what: 'hold', detail: 'no hover here', to: 'tool' }]);
+  expect(await seen('other')).toEqual([]);
   await tamber.close();
 });

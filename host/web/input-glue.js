@@ -206,6 +206,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     };
     keyHold?.(null, true);
     showPress(el, true);
+    up.el = el;
     keyHold = up;
     addEventListener("keyup", up, true); el.addEventListener("blur", up);
   };
@@ -327,31 +328,40 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // @ref LLP 1122 D8, LLP 1121 stage 8 E — a held state, shown as the real one: `active` the press of the node the
   // press resolves to (its paint and scale, eased as a real press, at once on the agent's clock), `hover` and
   // `focus-visible` that node's look (`data-exact-held`, which the looks rules take beside `:hover` and
-  // `:focus-visible`), handlers never told. One at a time; a disabled node refuses one; real input on the node, its
-  // going or its disabling lets it go (`dropped(reason)`).
+  // `:focus-visible`; it snaps, an authored transition or not), handlers never told. One at a time; a disabled node
+  // refuses one; real input on the node, its going or its disabling lets it go (`dropped(reason)`). A real press on
+  // the node as it is held ends there: the hold has it (its release unpaints nothing).
   const DISABLED = ":disabled,[disabled]:not([disabled='false'])";
   let held = null;
   const watch = new MutationObserver(() => { if (!held?.el.isConnected) letGo("gone"); else if (held.el.closest(DISABLED)) letGo("disabled"); });
+  const snap = (el, change) => { const was = el.style.transition; el.style.transition = "none"; change(); getComputedStyle(el).opacity; el.style.transition = was; };
+  // `reason` null: let go unsaid (a dev loop's new generation, whose tree goes and whose hold the server replays).
   const letGo = (reason) => {
     if (!held) return;
     const h = held;
     held = null;
     watch.disconnect();
-    if (h.state === "active") showPress(h.el, false); else h.el.removeAttribute("data-exact-held");
-    h.dropped?.(reason);
+    if (h.state === "active") showPress(h.el, false); else snap(h.el, () => h.el.removeAttribute("data-exact-held"));
+    if (reason) h.dropped?.(reason);
   };
   (globalThis.exact ??= {}).hold = (el, state, dropped) => {
     if (state != null && !["active", "hover", "focus-visible"].includes(state)) return { error: "holdState is active, hover, focus-visible or null", malformed: true };
     letGo("replaced");
     if (state == null) return { held: null };
-    const node = state === "active" ? el?.closest?.("[data-exact-on~=press],button[data-button-style]") : el;
+    // `active`: the node with the press (or the link) the press resolves to, as a real press's (theme2's 07:48).
+    const node = state === "active" ? el?.closest?.("[data-exact-on~=press],a[data-view][href]") : el;
     if (!node?.isConnected || !root.contains(node)) return { reason: "gone", error: state === "active" ? "no press there: the node presses nothing, nor does any around it" : "the node is not on the page" };
     if (node.closest(DISABLED)) return { reason: "disabled", error: "a disabled node holds no state" };
     held = { el: node, state, dropped };
     watch.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled"] });
-    if (state === "active") showPress(node, true); else node.setAttribute("data-exact-held", state);
+    if (state === "active") {
+      if (press?.el === node) press = null;
+      if (keyHold?.el === node) { const up = keyHold; keyHold = null; removeEventListener("keyup", up, true); node.removeEventListener("blur", up); }
+      showPress(node, true);
+    } else snap(node, () => node.setAttribute("data-exact-held", state));
     return { held: state, el: node };
   };
+  globalThis.exact.holdQuiet = () => letGo(null);
   // What is held on `el`, for `layout` and inspect (LLP 1122 D8): its state and the rows that state shows, by their
   // wire names: a press's paint rows (`:active` lowered to them), else the state look's rows in the looks sheet
   // (its `[data-exact-held~=…]` rule). The rows' places are the server's to join, from the source map.
@@ -365,15 +375,26 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       for (const rule of list.flatMap(r => r instanceof CSSMediaRule ? [...r.cssRules] : [r])) {
         if (!rule.selectorText?.includes(`[data-exact-held~="${held.state}"]`) && !rule.selectorText?.includes(`[data-exact-held~=${held.state}]`)) continue;
         if (!el.matches(rule.selectorText)) continue;
-        for (const prop of rule.style) rows.push({ name: prop.replace(/^border-(top|right|bottom|left)-color$/, "border_color_$1").replace(/-/g, "_"), value: rule.style.getPropertyValue(prop).trim() });
+        for (const prop of rule.style) rows.push({ name: prop.replace(/^border-(top|right|bottom|left)-color$/, "border_color_$1").replace(/-/g, "_"), value: rule.style.getPropertyValue(prop).trim(), prop });
       }
     }
-    return { held: { state: held.state, rows } };
+    // A row a token or a role writes (`var(…)`, `light-dark(…)`) says the value it resolves to here; which token it
+    // is, this host can't say (`provenance: "incomplete"`).
+    let incomplete = false;
+    const cs = getComputedStyle(el);
+    for (const row of rows) {
+      const prop = row.prop ?? Object.keys(WIRE).find(k => WIRE[k] === row.name);
+      delete row.prop;
+      if (/\b(var|light-dark)\(/.test(row.value)) { incomplete = true; row.computed = cs.getPropertyValue(prop).trim(); }
+    }
+    return { held: { state: held.state, rows, ...(incomplete ? { provenance: "incomplete" } : {}) } };
   };
   // Real input on the held node: a press, a key, the pointer coming over it (a hover's), the focus (a focus's).
   for (const type of ["pointerdown", "keydown"]) root.addEventListener(type, e => { if (held?.el.contains(e.target)) letGo("input"); }, true);
-  root.addEventListener("pointerover", e => { if (held?.state === "hover" && held.el.contains(e.target)) letGo("input"); }, true);
-  root.addEventListener("focusin", e => { if (held?.state === "focus-visible" && held.el.contains(e.target)) letGo("input"); }, true);
+  // The pointer or the focus coming or going: its leaving the node, not moving within it.
+  const crosses = (e) => held.el.contains(e.target) !== held.el.contains(e.relatedTarget);
+  for (const type of ["pointerover", "pointerout"]) root.addEventListener(type, e => { if (held?.state === "hover" && crosses(e)) letGo("input"); }, true);
+  for (const type of ["focusin", "focusout"]) root.addEventListener(type, e => { if (held?.state === "focus-visible" && crosses(e)) letGo("input"); }, true);
   const release = (now = false) => { if (press) showPress(press.el, false, now); press = null; };
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;

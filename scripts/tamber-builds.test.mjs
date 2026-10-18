@@ -541,6 +541,7 @@ test('a hold is one a build, its client\'s, replayed only through one correspond
   const channel = buildChannel({ send: e => events.push(e), correspond: (from, to, site) => moves.get(`${from}>${to}:${site}`) ?? null });
   const a = stream(channel), b = stream(channel);
   const plan = (n) => n.repeat(64);
+  const web = () => channel.list().find(b => b.id === 'web-1');
   report(channel, { nonce: a.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'hold'], planDigest: plan('1') });
   register(channel, b.nonce, 'term-1', 'terminal');
   // Refused: malformed; told: a build that holds no state.
@@ -560,23 +561,49 @@ test('a hold is one a build, its client\'s, replayed only through one correspond
   a.close();
   const a2 = stream(channel);
   report(channel, { nonce: a2.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'hold'], planDigest: plan('1') });
-  expect(a2.frames.at(-1)).toEqual({ kind: 'hold', revision: hover.revision, hold: { site: 3, instance: [[0, 1]], state: 'hover' } });
+  // (At a new revision: the host's `replaced` of the one before is old news.)
+  const replayed = a2.frames.at(-1);
+  expect(replayed).toEqual({ kind: 'hold', revision: replayed.revision, hold: { site: 3, instance: [[0, 1]], state: 'hover' } });
+  expect(replayed.revision).toBeGreaterThan(hover.revision);
+  expect(report(channel, { nonce: a2.nonce, kind: 'held', state: null, reason: 'replaced', revision: hover.revision }).status).toBe(204);
+  expect(web().hold).toEqual({ site: 3, instance: [[0, 1]], state: 'hover' });
   // A rebuild on the same stream (a new planDigest): the one site that corresponds.
   report(channel, { nonce: a2.nonce, kind: 'status', planDigest: plan('2'), revision: 0 });
-  expect(a2.frames.at(-1)).toEqual({ kind: 'hold', revision: hover.revision, hold: { site: 5, instance: [[0, 1]], state: 'hover' } });
-  // Another rebuild with no single corresponding site: cleared, said so.
+  const moved = a2.frames.at(-1);
+  expect(moved).toEqual({ kind: 'hold', revision: moved.revision, hold: { site: 5, instance: [[0, 1]], state: 'hover' } });
+  expect(moved.revision).toBeGreaterThan(replayed.revision);
+  // Another rebuild with no single corresponding site: cleared, said so,
+  // and the build told to let it go.
   report(channel, { nonce: a2.nonce, kind: 'status', planDigest: plan('3'), revision: 0 });
   expect(events.find(e => e.event === 'hold-cleared')).toMatchObject({ build: 'web-1', client: 'other' });
-  expect(channel.list()[0].hold).toBe(null);
+  expect(a2.frames.at(-1)).toMatchObject({ kind: 'hold', hold: null });
+  expect(web().hold).toBe(null);
+  // A late report of the hold that was cleared cannot bring it back.
+  expect(report(channel, { nonce: a2.nonce, kind: 'held', state: 'hover', revision: moved.revision }).status).toBe(204);
+  expect(web().held).toBe(null);
   // Real input lets it go: not held any more, nor replayed.
   const again = channel.hold('tool', 'web-1', { site: 5, instance: [], state: 'active' }, plan('3'));
   report(channel, { nonce: a2.nonce, kind: 'held', state: null, reason: 'input', revision: again.revision });
   expect(events.at(-1)).toEqual({ event: 'held', build: 'web-1', state: null, reason: 'input' });
-  expect(channel.list()[0].hold).toBe(null);
+  expect(web().hold).toBe(null);
   // The client goes: its hold is let go.
   channel.hold('tool', 'web-1', { site: 5, instance: [], state: 'focus-visible' }, plan('3'));
   channel.clear('tool');
   expect(a2.frames.at(-1)).toMatchObject({ kind: 'hold', hold: null });
-  // A held report's fields are typed.
-  expect(report(channel, { nonce: a2.nonce, kind: 'held', state: 'pressed' }).status).toBe(400);
+  // A registration with no hold says so: a page that kept one lets it go.
+  const a3 = stream(channel);
+  report(channel, { nonce: a3.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'hold'], planDigest: plan('3') });
+  expect(a3.frames.at(-1)).toMatchObject({ kind: 'hold', hold: null });
+  // A hold refused is its frame's, to every client; an old one's is old news.
+  const iffy = channel.hold('tool', 'web-1', { site: 5, instance: [], state: 'hover' }, plan('3'));
+  expect(events.at(-1)).toMatchObject({ event: 'builds' });
+  report(channel, { nonce: a3.nonce, kind: 'unsupported', what: 'hold', detail: 'no hover', revision: iffy.revision - 1 });
+  expect(events.at(-1)).toMatchObject({ event: 'builds' });
+  report(channel, { nonce: a3.nonce, kind: 'unsupported', what: 'hold', detail: 'no hover', revision: iffy.revision });
+  expect(events.findLast(e => e.event === 'unsupported')).toEqual({ event: 'unsupported', build: 'web-1', what: 'hold', detail: 'no hover', to: 'tool' });
+  expect(web().unsupported).toBe(null);
+  expect(web().hold).toBe(null);
+  // A held report's fields are typed, its revision named.
+  expect(report(channel, { nonce: a3.nonce, kind: 'held', state: 'pressed', revision: iffy.revision }).status).toBe(400);
+  expect(report(channel, { nonce: a3.nonce, kind: 'held', state: null, reason: 'gone' }).status).toBe(400);
 });

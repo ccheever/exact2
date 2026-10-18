@@ -3632,3 +3632,13 @@ Built to the approved plan (`~/x2theme/x2p4-s8e-plan.md`; theme2's 07:48 ruling 
   - `tamber-server.test.mjs`: through the method, a present client, the next plan's site.
   - `host/web/tests/hold.test.mjs` (Chrome): `active` resolved to the press node with its paint and rows; no press there is `gone`; `hover` by its held rule with its rows; real input, disabling and going letting go; a disabled node refusing.
   - `tamber-inspect.test.mjs` (held rows joined), `agent-keys.test.mjs` (the CLI word), `looks.rs` (the held rules).
+- **After review round 1 (Astra, Grok):**
+  - Revisions: every hold frame, a replay included, has a new one, and only a report naming the last one sent counts (`held` requires it). A late echo or a superseded frame's `replaced` is dropped. A let-go at that revision ends the hold, an agent's hold in its place included.
+  - A registration with no hold is sent `hold: null`; a replay that finds no single site sends `hold: null` as well as `hold-cleared`. A hold or its end announces `builds`.
+  - A hold `unsupported` is checked against the hold revision, not the pin's; it ends the hold and goes to its owner alone (07:48 (c); an event's `to`, which the subscription and the long poll honour).
+  - The wasm dev loop's new generation lets the hold go unsaid (`exact.holdQuiet`, before the tree goes) and takes it again itself under the same plan; under another, the server's replay does once the status names it.
+  - The JS target: hold frames run one at a time, and one a newer frame replaced while it waited is dropped; the runtime is imported from beside `app.js`; `layout` and the selection carry `held`.
+  - No single view there lets the previous hold go too. Instance paths compare with sorted keys.
+  - `active` resolves to a press handler or a link only (07:48), not a bare styled button. A real press on the node as it is held ends there: its release leaves the held paint.
+  - Looks held snap, on and off, an authored transition or not. The pointer or the focus leaving the node lets a hover or a focus go.
+  - Held rows a token or a role writes carry `computed`, and the held answer says `provenance: "incomplete"`.

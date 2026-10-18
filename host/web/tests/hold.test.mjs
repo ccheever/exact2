@@ -99,6 +99,29 @@ check('a held state is the real one, until real input, its disabling or its goin
     expect(await dropped()).toEqual(['disabled']);
     expect((await hold('card', 'hover')).reason).toBe('disabled');
     await evaluate(`document.getElementById('card').removeAttribute('disabled')`);
+    // A look held snaps, an authored transition or not, on and off.
+    const now = () => evaluate(`getComputedStyle(document.getElementById('card')).backgroundColor`);
+    await evaluate(`document.getElementById('card').style.transition = 'background-color 10s linear'`);
+    expect((await hold('card', 'hover')).held).toBe('hover');
+    expect(await now()).toBe('rgb(255, 255, 0)');
+    // The pointer leaving the node lets a hover go; moving within it does not.
+    const cross = (type, from, to) => evaluate(`document.getElementById('${from}').dispatchEvent(new PointerEvent('${type}', { bubbles: true, relatedTarget: document.getElementById('${to}') }))`);
+    await cross('pointerout', 'label', 'card');
+    expect(await dropped()).toEqual([]);
+    await cross('pointerout', 'card', 'plain');
+    expect(await dropped()).toEqual(['input']);
+    expect(await now()).toBe('rgb(255, 255, 255)');
+    await evaluate(`document.getElementById('card').style.transition = ''`);
+    // A real press on the node as it is held ends there: its release leaves the held paint.
+    await evaluate(`document.getElementById('card').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, isPrimary: true, pointerId: 7 }))`);
+    expect((await hold('card', 'active')).held).toBe('active');
+    await evaluate(`document.getElementById('card').dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, isPrimary: true, pointerId: 7 }))`);
+    expect(await evaluate(`document.getElementById('card').hasAttribute('data-pressed')`)).toBe(true);
+    expect((await evaluate('exact.heldOf(document.getElementById("card"))')).held.state).toBe('active');
+    // A dev loop's new generation lets it go unsaid (dev.js holds it again).
+    await evaluate('exact.holdQuiet()');
+    expect(await dropped()).toEqual([]);
+    expect(await evaluate(`document.getElementById('card').hasAttribute('data-pressed')`)).toBe(false);
     // Its going lets it go.
     expect((await hold('card', 'active')).held).toBe('active');
     await evaluate(`document.getElementById('card').remove()`);

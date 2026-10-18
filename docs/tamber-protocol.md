@@ -955,21 +955,28 @@ The tool drives no input into an app; a command changes only what `prefer` would
     `press`, as a real press's), its paint and scale eased as a real press's (at once on the
     agent's clock); `hover` and `focus-visible` that node's look, at once. It reports `held`
     `{state, revision}` when it holds it, and `{state: null, reason, revision}` when it lets one go:
-    `input` (real input on the node: a press, a key, the pointer over it for a hover, the focus for
-    a focus), `disabled` (the node is or became disabled: one refuses a hold), `gone` (no single
-    view at that site and instance path, no press there for `active`, or the view went),
-    `replaced`. A host that can't hold that state answers `unsupported` with `what: "hold"` (iOS
-    for `hover`). A build that can says `hold` among its `capabilities`.
+    `input` (real input on the node: a press, a key, the pointer coming over it or leaving it for a
+    hover, the focus coming or going for a focus), `disabled` (the node is or became disabled: one
+    refuses a hold), `gone` (no single view at that site and instance path, no press there for
+    `active`, or the view went; a hold it held before is let go too), `replaced`. Every report
+    names the `revision` of the hold frame it answers. A host that can't hold that state answers
+    `unsupported` with `what: "hold"` and that `revision` (iOS for `hover`). A build that can says
+    `hold` among its `capabilities`. A web dev loop's new generation takes the hold again itself
+    under the same plan, unsaid; under another plan the server's replay does.
 - **Holds at the server** (*1.11*). `{method: "hold", client, build, site, instance, state}`
   (`state` null to let it go) needs write scope and a present client, and names a registered
   build that holds states (else 409, said so). The hold is its client's: let go on that build when
-  the client goes. A build that registers again is sent it again under the same plan; one that
-  runs another plan (a `status` whose `planDigest` moved, or its registration's) is sent it at the
-  one site of the new plan's map at the old site's source location, and when there is not exactly
-  one, the hold is cleared and every client told (`hold-cleared {build, client, reason}`). A
-  `held` report is every client's event (`held {build, state, reason}`), and one that lets a hold
-  go for `input`, `disabled` or `gone` ends it at the server too. Holds are not kept across a
-  server restart, as pins are not.
+  the client goes. A build that registers again is sent it again under the same plan (or `hold:
+  null` when the server holds none for it); one that runs another plan (a `status` whose
+  `planDigest` moved, or its registration's) is sent it at the one site of the new plan's map at
+  the old site's source location, and when there is not exactly one, the build is sent `hold:
+  null` and every client told (`hold-cleared {build, client, reason}`). Each frame, a replay
+  included, has a new revision. Only a report naming the last hold frame's revision counts (an
+  older one is dropped, 204): a `held` report is then every client's event (`held {build, state,
+  reason}`), and one that lets the hold go ends it at the server too; a hold `unsupported` ends it
+  and is its owner's `unsupported` event alone (theme2's 07:48 (c): `to` names the client, and no
+  other subscription or poll sees it). A hold or its end announces `builds`. Holds
+  are not kept across a server restart, as pins are not.
 - **A selection joined to source** (*1.3*, LLP 1122 D5). The server takes a `selected` report
   only while the build is in someone's inspect mode (*1.6*: one sent as it ended, or naming an
   `inspect` command since replaced, is refused, 409, and not published; a page's exit, `selected: null`, is published only for the build's

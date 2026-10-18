@@ -114,7 +114,7 @@ function reportRefused(r) {
   }
   if (r.kind === 'selected' && !maybe(r.inspect, v => Number.isSafeInteger(v) && v >= 0)) return '`inspect` is a whole number';
   if (r.kind === 'selected' && !maybe(r.click, v => typeof v === 'string' && v.length > 0 && v.length <= 64)) return '`click` is a string of 1 to 64 characters';
-  if (r.kind === 'held' && (!(r.state === null || HELD.includes(r.state)) || !maybe(r.reason, v => DROPS.includes(v)) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0))) return `a held report names its \`state\` (${HELD.join(', ')}, or null), a \`reason\` it let one go (${DROPS.join(', ')}) and the \`revision\``;
+  if (r.kind === 'held' && (!(r.state === null || HELD.includes(r.state)) || !maybe(r.reason, v => DROPS.includes(v)) || !(Number.isSafeInteger(r.revision) && r.revision >= 0))) return `a held report names its \`state\` (${HELD.join(', ')}, or null), a \`reason\` it let one go (${DROPS.join(', ')}) and its hold frame's \`revision\``;
   if (r.kind === 'unsupported' && (!maybe(r.what, v => text(v, 256)) || !maybe(r.detail, v => text(v, 4096)) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0))) return '`what` and `detail` are strings, and `revision` a whole number';
   return null;
 }
@@ -139,6 +139,9 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
   // id -> { client, hold, revision, plan }: the state held on that build, of
   // plan `plan`'s site (its planDigest when held).
   const holds = new Map();
+  // id -> the revision of the last hold frame sent it (a hold or null): a
+  // build's `held` or hold `unsupported` naming any other is old news.
+  const holdSent = new Map();
   let inspects = 0, holding = 0;
   let revision = 0, greeting = () => null;
   // A bearer credential for the report route: unguessable.
@@ -172,24 +175,37 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
   // A build with no pin is told so at revision 0: nothing for it to catch.
   const pinFrame = id => (pins.has(id) ? { kind: 'pin', revision: pins.get(id).revision, pin: pins.get(id).pin } : { kind: 'pin', revision: 0, pin: null });
   const sendPin = (id, f) => { sent.set(id, f.revision); frame(id, f); };
-  /** Build `id`'s hold sent again, as its plan `plan` (a planDigest) is now:
-   * as it is under the same plan, at the one site that corresponds under
-   * another, else let go with a diagnostic (LLP 1122 D8). */
-  const replayHold = (id, plan) => {
+  /** Build `id` sent `hold` (or null) at a new revision, the last it was sent. */
+  const sendHold = (id, hold) => {
+    const revision = ++holding;
+    holdSent.set(id, revision);
+    if (hold === null) holds.delete(id);
+    const b = builds.get(id);
+    if (hold === null && b) b.held = null;
+    frame(id, { kind: 'hold', revision, hold });
+    return revision;
+  };
+  /** Build `id`'s hold sent again (a new revision), as its plan `plan` (a
+   * planDigest) is now: as it is under the same plan, at the one site that
+   * corresponds under another, else let go with a diagnostic (LLP 1122 D8).
+   * With none, `always` (a registration) says so: a page that kept one
+   * across a reconnect, its owner gone meanwhile, lets it go. */
+  const replayHold = (id, plan, always = false) => {
     const h = holds.get(id);
-    if (!h) return;
+    if (!h) { if (always) sendHold(id, null); return; }
     if (h.plan && plan && h.plan !== plan) {
       const site = correspond(h.plan, plan, h.hold.site);
       if (site == null) {
-        holds.delete(id);
+        sendHold(id, null);
         log(`tamber: hold on ${id} cleared: no single site corresponds in its new plan`);
         send({ event: 'hold-cleared', build: id, client: h.client, reason: 'no single site corresponds in the build\'s new plan' });
+        announce();
         return;
       }
       h.hold = { ...h.hold, site };
     }
     h.plan = plan ?? h.plan;
-    frame(id, { kind: 'hold', revision: h.revision, hold: h.hold });
+    h.revision = sendHold(id, h.hold);
   };
 
   return {
@@ -303,12 +319,12 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
         // A stream is one build: another id registered on it replaces the
         // build it was, and that build's pin goes with it.
-        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); holds.delete(s.build); }
+        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); holds.delete(s.build); holdSent.delete(s.build); }
         s.build = r.id;
         builds.delete(r.id);
         builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, planDigest: r.planDigest ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
-        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); holds.delete(id); } }
+        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); holds.delete(id); holdSent.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
         // Its pin, or none, as the server holds it now (a reload is a new
         // document; a pin cleared while it was away is cleared there too).
@@ -320,7 +336,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         // whose owner went meanwhile leaves it).
         if (r.capabilities?.includes('inspect')) s.write({ kind: 'inspect', on: inspectors.has(r.id), seq: inspectSeq.get(r.id) ?? 0 });
         // And its hold, where its plan still has the site (a reload).
-        if (r.capabilities?.includes('hold')) replayHold(r.id, r.planDigest ?? null);
+        if (r.capabilities?.includes('hold')) replayHold(r.id, r.planDigest ?? null, true);
         announce();
         told(owners);
         return { status: 200, body: { id: r.id } };
@@ -353,14 +369,28 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         // The build's held state is every client's to know (theme2's 07:48
         // (c)); one it let go of itself (real input, disabled, its node
         // gone) is not held any more, nor replayed.
+        // Only a report of the last hold frame sent counts: one of an earlier
+        // frame (a late echo, the `replaced` of the frame that replaced it)
+        // is old news. A let-go at that revision ends the hold: the host's
+        // own (input, disabled, gone), or an agent's hold in its place.
         const h = holds.get(b.id);
-        if (Number.isSafeInteger(r.revision) && h && r.revision < h.revision) return { status: 204, body: null };
+        if (r.revision !== holdSent.get(b.id)) return { status: 204, body: null };
         b.held = { state: r.state ?? null, reason: r.reason ?? null };
-        if (r.state === null && ['input', 'disabled', 'gone'].includes(r.reason) && h && (!Number.isSafeInteger(r.revision) || r.revision === h.revision)) holds.delete(b.id);
+        if (r.state === null && h) { holds.delete(b.id); announce(); }
         log(`build ${b.id}: ${r.state ? `holds ${r.state}` : `let go${r.reason ? ` (${r.reason})` : ''}`}`);
         send({ event: 'held', build: b.id, state: r.state ?? null, reason: r.reason ?? null });
       } else if (r.kind === 'unsupported') {
         log(`build ${b.id}: unsupported ${r.what ?? '?'}`);
+        // A hold refused is its hold frame's, an answer to its owner alone
+        // (theme2's 07:48 (c)); a pin's is kept with the status.
+        if (r.what === 'hold') {
+          const h = holds.get(b.id);
+          if (r.revision !== holdSent.get(b.id) || !h) return { status: 204, body: null };
+          holds.delete(b.id);
+          send({ event: 'unsupported', build: b.id, what: 'hold', detail: r.detail ?? null, to: h.client });
+          announce();
+          return { status: 204, body: null };
+        }
         // One for a frame its status has already moved past is old news.
         const stale = Number.isSafeInteger(r.revision) && Number.isSafeInteger(b.status?.revision) && r.revision < b.status.revision;
         if (!stale) b.unsupported = { what: r.what ?? '', detail: r.detail ?? null, ...(Number.isSafeInteger(r.revision) ? { revision: r.revision } : {}) };
@@ -482,22 +512,23 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       const b = listed().find(b => b.id === id);
       if (!b) return { error: `no registered build \`${id}\`` };
       if (!b.capabilities?.includes('hold')) return { unsupported: `build \`${id}\` (${b.host}) holds no state` };
-      const revision = ++holding;
-      if (hold === null) holds.delete(id); else holds.set(id, { client, hold, revision, plan: plan ?? b.planDigest ?? null });
-      frame(id, { kind: 'hold', revision, hold });
+      const revision = sendHold(id, hold);
+      if (hold !== null) holds.set(id, { client, hold, revision, plan: plan ?? b.planDigest ?? null });
       log(`tamber: ${client} ${hold ? `held ${hold.state} on site ${hold.site}` : 'let go'} on ${id} (hold ${revision})`);
+      announce();
       return { build: id, revision };
     },
     /** Client `client` is gone: its pins are cleared on every build, and
      * its holds let go. */
     clear(client) {
-      for (const [id, h] of holds) if (h.client === client) { holds.delete(id); frame(id, { kind: 'hold', revision: ++holding, hold: null }); }
+      let letGo = false;
+      for (const [id, h] of holds) if (h.client === client) { sendHold(id, null); letGo = true; }
       for (const [id, owner] of outliners) if (owner === client) { outliners.delete(id); frame(id, { kind: 'outline', clear: true }); }
       const owners = new Map(inspectors);
       for (const [id, owner] of inspectors) if (owner === client) { inspectors.delete(id); const seq = ++inspects; inspectSeq.set(id, seq); frame(id, { kind: 'inspect', on: false, seq }); }
       told(owners);
       const mine = [...pins].filter(([, p]) => p.client === client).map(([id]) => id);
-      if (!mine.length) return;
+      if (!mine.length) { if (letGo) announce(); return; }
       revision += 1;
       for (const id of mine) { pins.delete(id); sendPin(id, { kind: 'pin', revision, pin: null }); }
       announce();

@@ -87,8 +87,14 @@ mod tests {
         );
         let at = |s: &str| css.find(s).unwrap_or_else(|| panic!("{s} in {css}"));
         assert!(at(":hover") < at("[data-exact-held~=hover]"), "{css}");
-        assert!(at("[data-exact-held~=hover]") < at(":focus-visible"), "{css}");
-        assert!(css.contains("[data-exact-held~=focus-visible]"), "a held state's rule: {css}");
+        assert!(
+            at("[data-exact-held~=hover]") < at(":focus-visible"),
+            "{css}"
+        );
+        assert!(
+            css.contains("[data-exact-held~=focus-visible]"),
+            "a held state's rule: {css}"
+        );
         assert!(css.contains("opacity:0.5!important"), "{css}");
         assert!(
             !css.contains("transition"),
