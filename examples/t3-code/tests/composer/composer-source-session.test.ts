@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { ComposerSourceSession, type ComposerSessionResult } from '../../src/composer/composer-source-session';
 import { applyComposerEdit } from '../../src/composer/composer-markdown-edit';
+import { composerMarkdown } from '../../src/composer/composer-markdown';
 
 function apply(session: ComposerSourceSession, owner: string, source: string, result: ComposerSessionResult): { source: string; start: number; end: number } {
   if (result.kind !== 'edit') throw new Error(`expected edit, got ${result.kind}`);
@@ -10,6 +11,118 @@ function apply(session: ComposerSourceSession, owner: string, source: string, re
 }
 const enter = { name: 'Enter', shift: false, command: false };
 describe('composer live source identity', () => {
+  const block = (session: ComposerSourceSession, source: string) => composerMarkdown(source, { blockOrigins: session.blockOrigins }).blocks[0];
+  function typed(source: string): ComposerSourceSession {
+    const session = new ComposerSourceSession();
+    session.observe('one', '');
+    for (let end = 1; end <= source.length; end++) session.observe('one', source.slice(0, end), 'insertText');
+    return session;
+  }
+  test('typing admits block gestures at the upstream boundary, without changing source', () => {
+    for (const source of ['-', '- ', '- [', '- [ ]', '>', '***', '___', '1.', '  - x']) {
+      const session = typed(source);
+      expect(block(session, source)?.kind).toBe('paragraph');
+      expect(session.matches('one', source)).toBe(true);
+    }
+    for (const [source, kind] of [['- a', 'list'], ['* ', 'list'], ['+ ', 'list'], ['003) ', 'list'], ['> ', 'quote'], ['## ', 'heading'], ['---', 'rule'], ['*** ', 'rule'], ['___ ', 'rule']] as const) {
+      expect(block(typed(source), source)?.kind).toBe(kind);
+    }
+    for (const source of ['- [ ] ', '- [X] ', '* [x] ', '+ [ ] ']) {
+      expect(block(typed(source), source)).toMatchObject({ kind: 'list', list: 'task', checked: /[xX]/.test(source) });
+    }
+    expect(block(typed('* [x]'), '* [x]')).toMatchObject({ kind: 'list', list: 'bullet' });
+    expect(block(typed('1. [x] '), '1. [x] ')).toMatchObject({ kind: 'list', list: 'ordered' });
+    expect(block(typed('* * *'), '* * *')).toMatchObject({ kind: 'list', list: 'bullet' });
+    // One insertText containing an entire non-gesture prefix is not a restore.
+    const chunk = typed('');
+    chunk.observe('one', '# body', 'insertText');
+    expect(block(chunk, '# body')?.kind).toBe('paragraph');
+  });
+  test('the inserted prefix, rather than the line suffix, admits a gesture in existing prose', () => {
+    const session = new ComposerSourceSession();
+    session.observe('one', 'body');
+    session.observe('one', '>body', 'insertText');
+    expect(block(session, '>body')?.kind).toBe('paragraph');
+    session.observe('one', '> body', 'insertText');
+    expect(block(session, '> body')?.kind).toBe('quote');
+    session.observe('one', '> # body', 'insertText');
+    expect(block(session, '> # body')?.kind).toBe('quote');
+  });
+  test('keys use the same effective blocks as projection before and after admission', () => {
+    const session = typed('- '), shiftEnter = { ...enter, shift: true };
+    const literal = apply(session, 'one', '- ', session.key('one', '- ', { start: 2, end: 2 }, shiftEnter));
+    expect(literal.source).toBe('- \n');
+    expect(block(session, literal.source)?.kind).toBe('paragraph');
+    const admitted = typed('- a');
+    expect(apply(admitted, 'one', '- a', admitted.key('one', '- a', { start: 3, end: 3 }, shiftEnter)).source).toBe('- a\n- ');
+    const task = typed('* [x] ');
+    expect(apply(task, 'one', '* [x] ', task.key('one', '* [x] ', { start: 6, end: 6 }, shiftEnter)).source).toBe('');
+  });
+  test('history restores live origins; paste, owner replacement and rich-mode entry parse restored Markdown', () => {
+    const session = typed('***');
+    session.observe('one', '*** ', 'insertText');
+    expect(block(session, '*** ')?.kind).toBe('rule');
+    session.observe('one', '***', 'historyUndo');
+    expect(block(session, '***')?.kind).toBe('paragraph');
+    session.observe('one', '*** ', 'historyRedo');
+    expect(block(session, '*** ')?.kind).toBe('rule');
+    session.observe('one', '***', 'historyUndo');
+    session.observe('one', '- [ ]', 'insertFromPaste');
+    expect(block(session, '- [ ]')).toMatchObject({ kind: 'list', list: 'task' });
+    session.observe('two', '***', 'insertText');
+    expect(block(session, '***')?.kind).toBe('rule');
+    const literal = typed('- ');
+    literal.observe('one', '- ', '', 'plain');
+    literal.observe('one', '- ', '', 'rich');
+    expect(block(literal, '- ')?.kind).toBe('list');
+  });
+  test('origins follow unaffected UTF16 line offsets, while paste replaces only touched policy', () => {
+    const session = typed('***');
+    session.observe('one', '😀\n***', 'insertFromPaste');
+    expect(composerMarkdown('😀\n***', { blockOrigins: session.blockOrigins }).blocks.map(block => block.kind)).toEqual(['paragraph', 'paragraph']);
+    session.observe('one', '😀\n***\n> quote', 'insertFromPaste');
+    expect(composerMarkdown('😀\n***\n> quote', { blockOrigins: session.blockOrigins }).blocks.map(block => block.kind)).toEqual(['paragraph', 'paragraph', 'quote']);
+    session.observe('one', '😀\n*** \n> quote', 'insertFromPaste');
+    expect(composerMarkdown('😀\n*** \n> quote', { blockOrigins: session.blockOrigins }).blocks.map(block => block.kind)).toEqual(['paragraph', 'rule', 'quote']);
+  });
+  test('source-signature history evicts block metadata at the existing source and character budgets', () => {
+    const session = typed('***');
+    // Distinct sources retain the same unadmitted first line. The oldest source
+    // eventually loses only its metadata, never its editable source or undo.
+    for (let n = 1; n <= 33; n++) session.observe('one', '***\n' + 'x'.repeat(n), 'insertText');
+    session.observe('one', '***', 'historyUndo');
+    expect(block(session, '***')?.kind).toBe('rule');
+    const large = typed('***');
+    for (let n = 1; n <= 4; n++) large.observe('one', '***\n' + String(n).repeat(70_000), 'insertText');
+    large.observe('one', '***', 'historyUndo');
+    expect(block(large, '***')?.kind).toBe('rule');
+  });
+  test('block origins share the 1024-origin history budget and live tracking stays bounded', () => {
+    const session = new ComposerSourceSession();
+    let source = Array(1025).fill('x').join('\n');
+    session.observe('one', source);
+    for (let n = 0; n < 1025; n++) {
+      source = source.slice(0, n * 2) + '-' + source.slice(n * 2 + 1);
+      session.observe('one', source, 'insertText');
+    }
+    expect(session.blockOrigins).toHaveLength(1024);
+    expect(composerMarkdown(source, { blockOrigins: session.blockOrigins }).blocks[0]?.kind).toBe('list');
+    expect(composerMarkdown(source, { blockOrigins: session.blockOrigins }).blocks[1024]?.kind).toBe('paragraph');
+    const history = new ComposerSourceSession();
+    let retained = Array(600).fill('x').join('\n');
+    history.observe('one', retained);
+    for (let n = 0; n < 600; n++) {
+      retained = retained.slice(0, n * 2) + '-' + retained.slice(n * 2 + 1);
+      history.observe('one', retained, 'insertText');
+    }
+    history.observe('one', retained + '\nbody', 'insertFromPaste');
+    expect(history.blockOrigins).toHaveLength(600);
+    // Two 600-origin signatures already exceed the origin budget despite
+    // fitting comfortably within the source-count and character budgets.
+    history.observe('one', retained, 'historyUndo');
+    expect(block(history, retained)?.kind).toBe('list');
+    expect(history.blockOrigins).toEqual([]);
+  });
   test('lengthened serialization retains the original closing gesture for that occurrence', () => {
     const session = new ComposerSourceSession(), source = '```ts\nx\n```';
     session.observe('one', source);
