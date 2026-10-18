@@ -35,7 +35,7 @@ final class T3CliCommand {
     private static func word(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
     var script: String {
         ["#!/bin/sh", "# \(Self.marker)", "export T3CODE_CLI_PATH=\(Self.word(launcher))",
-         "home=\(Self.word(home.path))", "export T3CODE_HOME=\"${T3CODE_HOME:-$home}\"",
+         "t3_home=\(Self.word(home.path))", "export T3CODE_HOME=\"${T3CODE_HOME:-$t3_home}\"",
          "app=\(Self.word(appExecutable))", "cli=\(Self.word(executable))",
          "if [ ! -x \"$app\" ] || [ ! -x \"$cli\" ]; then", "  echo \"\(Self.moved)\" >&2", "  exit 127", "fi",
          "exec \"$cli\" \"$@\"", ""].joined(separator: "\n")
