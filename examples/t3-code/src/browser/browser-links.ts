@@ -1,25 +1,26 @@
 // Where a link opens, the "Open links in" setting (MIT reference, see LICENSE-T3, T3 Code
-// 1e2ecbd975: apps/web/src/browser/browserLinkTarget.ts, useOpenLink.ts, openFileInPreview.ts `openUrlInPreview`;
-// apps/web/src/components/preview/openTerminalLinkInPreview.ts; components/ChatMarkdown.tsx's anchor;
-// components/settings/IntegrationsSettings.tsx `BrowserLinkTargetSetting`).
+// 9c161462c9: apps/web/src/browser/browserLinkTarget.ts, useOpenLink.ts, openFileInPreview.ts `openUrlInPreview`,
+// ElectronBrowserHost.tsx `onOpenLink`; apps/web/src/components/preview/openTerminalLinkInPreview.ts;
+// components/ChatMarkdown.tsx's anchor; components/settings/IntegrationsSettings.tsx `BrowserLinkTargetSetting`).
 //
 // Chat Markdown links (`chatlocal:link-open`, kind "link": ⌘ or Ctrl held is the way out of the in-app default),
 // check details and the published repository (kind "button", no modifier), a pull request link with no project to
-// open it beside, and terminal links all ask `resolveLinkTarget`. "app" opens a Browser tab beside the thread
+// open it beside, and terminal links all ask `resolveLinkTarget`. A chat link's ⌥-click opens the system browser unless
+// the setting and the click keep it in the app: `resolveLinkTarget` reads no ⌥, so it already lands there. "app" opens a Browser tab beside the thread
 // (`preview.open`); an in-app open that fails falls back to the system browser (`remoteEditorsOpen`, the clone's
 // shell.openExternal); a project script's `previewUrl` always opens in the app.
 import type { T3Client } from '../client/client';
-import { obj, str } from '../client/domain';
+import { arr, num, obj, str } from '../client/domain';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
 import { activeRef } from '../terminal/terminal-drawer-view';
-import { scopedThreadKey, type ScopedThreadRef } from '../terminal/terminal-ui-state';
+import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from '../terminal/terminal-ui-state';
 import { surfaceStore } from '../panel/panel-surfaces';
 import { pushToast } from '../shell/toast';
 import { browserHost, installBrowserCleanup, listPreviewSessions, openBrowserIn, openPreviewSession, syncNativeSessions } from './browser-surface';
-import type { PreviewSessionSnapshot, PreviewViewportSetting } from './browser-state';
+import { previewRuntimeTabId, type PreviewSessionSnapshot, type PreviewViewportSetting } from './browser-state';
 import { resolveBrowserOpenDefaults } from './browser-defaults';
-import { BrowserSettingsReadError } from './browser-profiles';
+import { BrowserSettingsReadError, DEFAULT_BROWSER_PROFILE_ID } from './browser-profiles';
 import { mediaFileReference } from '../media/media-reference';
 import { assetUrl } from '../settings/settings-b-icons';
 import { openHome } from '../pages/home-landing';
@@ -66,16 +67,57 @@ function openBesideThread(client: T3Client, ref: ScopedThreadRef, tabId: string)
   openBrowserIn(state, tabId, scopedThreadKey(ref));
 }
 
-/** openUrlInPreview: a new tab at the URL under the configured defaults (or the ones a caller already resolved), beside the thread. */
-export async function openUrlInPreview(client: T3Client, native: Native, ref: ScopedThreadRef, url: string, resolved?: BrowserDefaults): Promise<PreviewSessionSnapshot> {
+/** The panel's selected surface for a thread (selectSelectedRightPanelSurface). */
+const selectedSurface = (client: T3Client, ref: ScopedThreadRef): string | null => surfaceStore(client).panels.get(`${ref.environmentId}:${ref.threadId}`)?.active || null;
+
+/** openUrlInPreview: a new tab at the URL under the configured defaults (or the ones a caller already resolved), beside the
+ *  thread. `profileId` opens it under another profile; `background` opens it without switching the thread to it. */
+export async function openUrlInPreview(client: T3Client, native: Native, ref: ScopedThreadRef, url: string, resolved?: BrowserDefaults,
+  options: { profileId?: string; background?: boolean } = {}): Promise<PreviewSessionSnapshot> {
   installBrowserCleanup(client, native);
   // Read once, and refused while the settings are unread (BrowserSettingsReadError): never a tab born at the schema defaults.
   const host = browserHost(client), defaults = resolved ?? resolveBrowserOpenDefaults(client);
   await listPreviewSessions(client, native, ref); // the server's epoch first: the tab's native identity names it
-  const snapshot = await openPreviewSession((method, payload) => client.rpc(native, method, payload, true), host.store, ref, { url, viewport: defaults.viewport, profileId: defaults.profileId });
-  openBesideThread(client, ref, snapshot.tabId);
+  const previousActiveTabId = host.store.read(ref).activeTabId, surfaceBeforeOpen = selectedSurface(client, ref);
+  const snapshot = await openPreviewSession((method, payload) => client.rpc(native, method, payload, true), host.store, ref,
+    { url, viewport: defaults.viewport, profileId: options.profileId ?? defaults.profileId, ...(options.background ? { background: true } : {}) });
+  if (options.background) {
+    // The server's "opened" event activates the new tab; hand focus back, unless the person picked a tab, this one
+    // included, while the open was in flight.
+    if (previousActiveTabId && host.store.read(ref).activeTabId === snapshot.tabId && selectedSurface(client, ref) === surfaceBeforeOpen) host.store.setActiveTab(ref, previousActiveTabId);
+  } else openBesideThread(client, ref, snapshot.tabId);
   await syncNativeSessions(client, native);
   return snapshot;
+}
+
+/** Each tab's link requests taken so far, by runtime tab id. */
+const takenLinks = new WeakMap<T3Client, Map<string, number>>();
+/** ElectronBrowserHost `onOpenLink`: a `target="_blank"` link, a featureless `window.open` or a ⌘- or middle-click in a
+ *  tab's page (T3BrowserSession+Links.swift) opens as another tab of the same thread, so the page that held the link
+ *  stays where it is; the new tab keeps the source tab's profile so its cookies carry over. Each request opens once,
+ *  then the module forgets it (`browserOpenLinks`); a failed open is dropped, as the reference's command reports it. */
+export async function openRequestedLinks(client: T3Client, native: Native): Promise<void> {
+  const tabs = obj(client.presentation.browserTabs);
+  let taken = takenLinks.get(client);
+  if (!taken) { taken = new Map(); takenLinks.set(client, taken); }
+  for (const [key, state] of browserHost(client).store.active()) {
+    const ref = parseScopedThreadKey(key);
+    if (!ref) continue;
+    for (const source of Object.values(state.sessions)) {
+      const runtimeId = previewRuntimeTabId(ref, state.serverEpoch, source.tabId), requests = arr(obj(tabs[runtimeId]).openLinks).map(obj);
+      const before = taken.get(runtimeId) ?? 0;
+      let last = before;
+      for (const request of requests) {
+        const serial = num(request.serial), url = str(request.url);
+        if (serial <= last) continue;
+        last = serial; taken.set(runtimeId, serial);
+        if (!isWebUrl(url)) continue;
+        try { await openUrlInPreview(client, native, ref, url, undefined, { profileId: source.profileId ?? DEFAULT_BROWSER_PROFILE_ID, background: request.background === true }); }
+        catch (error) { if (letGo(error)) throw error; }
+      }
+      if (last > before) await client.raw(native, { op: 'browserOpenLinks', tab: runtimeId, taken: last });
+    }
+  }
 }
 
 /** openFileInPreview: a browser document (a page or a PDF) in a new Browser tab beside the thread. Inside the workspace
@@ -115,7 +157,7 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
   // `kind|meta+shift`: the press's own modifiers (app-window.contract linkOpen).
   const bar = pressed.indexOf('|'), kind = bar < 0 ? pressed : pressed.slice(0, bar), held = bar < 0 ? [] : pressed.slice(bar + 1).split('+').filter(Boolean);
   if (!url) return '';
-  if (kind === 'link' && url.startsWith('#')) return openFragmentLink(client, native, held);
+  if (kind === 'link' && url.startsWith('#')) return openFragmentLink();
   // ChatMarkdown leaves a mailto, irc or xmpp link's click to the desktop shell, whose window-open
   // handler opens only http(s) and remote-editor links (DesktopWindow.ts, parseSafeExternalUrl): nothing opens.
   if (kind === 'link' && !isWebUrl(url)) return '';
@@ -133,17 +175,12 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
   return '';
 }
 
-/** A Markdown `#fragment` link's click (ChatMarkdown `handleMarkdownFragmentClick`):
- *  it scrolls to an element with that id where the page has one (a GFM footnote or a raw-HTML id, neither of which the
- *  clone draws); with none the click goes on and sets the page's hash, which Electron's hash router (main.tsx
- *  `createHashHistory`) reads as the index route, whose IndexDraftLanding opens the draft of the most recently active
- *  project and the composer takes the focus (`sidebar:new-thread`, app.contract commandCompleted). A click with ⌘, ⌥, ⇧
- *  or ⌃ held the handler leaves to the shell, which opens nothing for it (a new window it denies). */
-export async function openFragmentLink(client: T3Client, native: Native, held: string[] = []): Promise<string> {
-  if (held.length) return '';
-  try { await openHome(client, native); }
-  catch (error) { if (letGo(error)) throw error; }
-  return 'sidebar:new-thread';
+/** A Markdown `#fragment` link's click (ChatMarkdown `handleMarkdownFragmentClick` at 9c161462c9): it never
+ *  follows the fragment or writes it to the hash, which the desktop's hash router would read as another route. The
+ *  transcript scrolls to the heading it names (markdown.contract `fragmentJump`); one that reaches here (an image
+ *  inside a fragment link) or names nothing does nothing. */
+export async function openFragmentLink(): Promise<string> {
+  return '';
 }
 
 /** openTerminalLinkInPreview: a terminal hyperlink where the setting says, unless ⌘ or Ctrl asked for the system

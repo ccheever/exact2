@@ -5,12 +5,15 @@
 // Picked images join the draft's image shelf (the SnapShot drafts, uploaded as
 // `image` attachments on send); other files become inline file chips
 // (composer-editor-attach.ts), and what cannot be attached is named in the error.
+// A PNG, JPEG or HEIC image longer than IMAGE_ATTACHMENT_MAX_EDGE is scaled to it as
+// it is staged (lib/imageCompression.ts prepareImageForAttachment, 9c161462c9).
 import { arr, obj, str, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { acceptAttachedFile, attachStagingLimit, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments } from './composer-editor-attach';
 import type { DraftFile } from './composer-editor-files';
 import { rememberVideoFrame } from './composer-attachments';
+import { IMAGE_ATTACHMENT_MAX_EDGE } from './image-attachment-size';
 
 export const MAX_ATTACHMENTS = 100; // PROVIDER_SEND_TURN_MAX_ATTACHMENTS
 
@@ -27,7 +30,7 @@ export function attachOffered(client: T3Client, question: { customAllowed: boole
 export async function attachFiles(client: T3Client, native: Native): Promise<string> {
   if (!client.projectId) throw new ClientError('Choose a project first.');
   const key = client.draftKey, imageChips = imagesGetChips(client);
-  const reply = await client.restAccess(native).call({ op: 'composerAttachPick', fileLimit: attachStagingLimit(client) });
+  const reply = await client.restAccess(native).call({ op: 'composerAttachPick', fileLimit: attachStagingLimit(client), imageMaxEdge: IMAGE_ATTACHMENT_MAX_EDGE });
   if (key !== client.draftKey) throw new ClientError('The draft changed while files were being chosen.');
   await addAttachedFiles(client, native, arr(reply.files), imageChips);
   return '';
@@ -41,7 +44,7 @@ export async function attachFiles(client: T3Client, native: Native): Promise<str
  */
 export async function takePastedFiles(client: T3Client, native: Native, key = client.draftKey): Promise<void> {
   const prose = imagesGetChips(client);
-  const files = arr(obj(await client.restAccess(native).call({ op: 'composerPasteTake', fileLimit: attachStagingLimit(client) })).files);
+  const files = arr(obj(await client.restAccess(native).call({ op: 'composerPasteTake', fileLimit: attachStagingLimit(client), imageMaxEdge: IMAGE_ATTACHMENT_MAX_EDGE })).files);
   const imageChips = prose && !files.some(file => file.asText === true);
   if (!files.length) return;
   if (key !== client.draftKey || !client.projectId) {
@@ -78,7 +81,8 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
     if (file.kind === 'too-large') { error = `'${name}' is too large to attach. Images can be up to 10 MB.`; continue; }
     if (file.kind === 'file') { const staged = acceptAttachedFile(client, file); if (staged.file) { chips.push(staged.file); reserved += 1; rememberVideoFrame(client, file); } else error = staged.error; continue; }
     if (file.kind !== 'image' || !/^[a-f0-9-]{36}$/i.test(str(file.id))) { error = `'${name}' can't be attached here: this app attaches images only.`; continue; }
-    accepted.push({ id: str(file.id), name, mimeType: 'image/png', sizeBytes: num(file.sizeBytes) });
+    accepted.push({ id: str(file.id), name, mimeType: 'image/png', sizeBytes: num(file.sizeBytes),
+      ...(file.downscalable === false ? { downscalable: false } : {}) });
     reserved += 1;
   }
   if (accepted.length) client.local.snapshotDrafts[key] = [...(client.local.snapshotDrafts[key] ?? []), ...accepted];

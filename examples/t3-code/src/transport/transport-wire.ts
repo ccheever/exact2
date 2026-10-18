@@ -1,5 +1,5 @@
 // The Effect RPC wire T3's server speaks over its socket, and the HTTP pieces every
-// connection shares (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: packages/client-runtime/src/rpc/
+// connection shares (T3 Code 9c161462c9, MIT, see LICENSE-T3: packages/client-runtime/src/rpc/
 // protocol.ts and session.ts frame JSON with effect's RpcSerialization.layerJson;
 // connection/compatibility.ts, supervisor.ts retryDelayMs, rpc/client.ts's expected-failure
 // retry; authorization/remote.ts bootstrapRemoteBearerSession; connection/errors.ts
@@ -199,6 +199,24 @@ export function exchangeForm(credential: string, scope = ''): string {
   };
   if (scope) fields.scope = scope;
   return form(fields);
+}
+
+/** The `reason` of a refused HTTP request's body (`invalid_scope`, `invalid_credential`, …), or ''. */
+export function failureReason(decoded: unknown): string {
+  return isObject(decoded) && typeof decoded.reason === 'string' ? decoded.reason : '';
+}
+
+/**
+ * A pairing's token exchange: the requested scopes, then `legacyScope` when the server answers
+ * `invalid_scope`. A server older than the permission split refuses the new scope names before it
+ * spends the one-time credential, so the second request may use it (remote-scopes.ts).
+ */
+export async function exchangeScopes<T>(scope: string, legacyScope: string, exchange: (scope: string) => Promise<T>): Promise<T> {
+  try { return await exchange(scope); }
+  catch (error) {
+    if (!legacyScope || legacyScope === scope || !(error instanceof TransportFailure) || error.reason !== 'invalid_scope') throw error;
+    return exchange(legacyScope);
+  }
 }
 
 /**

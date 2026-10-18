@@ -38,6 +38,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   if (op.startsWith('clone-')) return cloneCommand(client, native, storage, op, id, value); // project-clones-live.ts
   if (op.startsWith('automation-')) return automationCommand(client, native, op.slice(11), id, value); // scheduled-tasks-commands.ts
   const access = client.restAccess(native);
+  if (op === 'select-editor') { rememberEditor(client, value); return ''; }
   if (op === 'open-editor') {
     if (!id) throw new ClientError('This thread does not have a workspace path to open.');
     // OpenInPicker: remotely a deep link to this Mac's editor, never an editor run on the other machine (remote-open.ts).
@@ -122,7 +123,7 @@ const messageOf = (error: unknown) => error instanceof Error ? error.message : '
 
 /** The reference's failure toast titles for main-window actions (Sidebar.tsx, ChatView.tsx, useThreadActionMenu.ts). */
 const FAILURE_TITLES: Record<string, string> = {
-  'chat:settle': 'Failed to settle thread', 'chat:unsettle': 'Failed to un-settle thread', unsettle: 'Failed to un-settle thread',
+  'chat:settle': 'Failed to settle thread', 'chat:settle-advance': 'Failed to settle thread', 'chat:unsettle': 'Failed to un-settle thread', unsettle: 'Failed to un-settle thread',
   'chat:unsnooze': 'Failed to wake thread', 'chat:snooze': 'Failed to snooze thread',
   'shell:pin': 'Failed to pin thread', 'shell:unpin': 'Failed to unpin thread', 'shell:rename': 'Failed to rename thread',
   'shell:archive': 'Failed to archive thread', 'shell:delete': 'Failed to delete thread',

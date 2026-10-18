@@ -1,7 +1,7 @@
 // The pull request panel's host stack: the
 // `pullRequests.stack` read once the detail says the host keeps stacks, the saved membership the
 // thread links carry while it is out, the header's stack menu (n/m, layers top-down, "↳ base",
-// Merge stack, Rebase stack) and its confirmation. Sources: T3 Code (MIT, see LICENSE-T3)
+// Merge stack, Rebase stack) and its confirmation. Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3)
 // apps/web/src/components/pullRequest/{PullRequestStackMenu,PullRequestStackLayers,PullRequestStackHeader,
 // PullRequestStackLayerContent}.tsx, pullRequestStackSnapshot.ts (savedPullRequestStack,
 // pullRequestStackView: ported with their tests' names), apps/web/src/state/usePullRequestStack.ts, and the
@@ -43,11 +43,15 @@ export function savedPullRequestStack(links: readonly Obj[], reference: Referenc
   };
 }
 export type StackQuery = { data: PullRequestStack | null; isSuccess: boolean; isPending: boolean; error: string | null };
-/** pullRequestStackView: a fresh absence overrides saved membership; failed refreshes preserve available navigation. */
+/**
+ * pullRequestStackView: a fresh absence overrides saved membership; failed refreshes preserve available navigation.
+ * A background refresh keeps the last successful lookup fresh, so the stack's actions do not blink out every time
+ * the detail is read again.
+ */
 export function pullRequestStackView(query: StackQuery, saved: PullRequestStack | null) {
   const data = query.isSuccess ? query.data : (query.data ?? saved);
   return {
-    data, isFresh: query.isSuccess && !query.isPending,
+    data, isFresh: query.isSuccess,
     notice: data === null ? null : query.error ? 'Stack data may be stale. We couldn’t refresh it.' : !query.isSuccess || query.isPending ? 'Refreshing stack… Showing saved data.' : null,
   };
 }
@@ -194,7 +198,7 @@ export function presentStack(client: object, input: StackInput): PrStackView {
         ? `Merge #${number} and its unmerged layers below into ${stack.base} using ${input.mergeMethod}. GitHub checks their rules before merging or queueing them and rebases the remaining stack after merging.`
         : `Rebase the remote branches from bottom to top onto ${stack.base}. This rewrites branch history and may restart checks. If a layer fails, earlier updates remain.`,
       dialogLayers: layers.map(layer => layerView(layer, input.reference, number)),
-      dialogConfirm: pending ? 'Working…' : confirm === 'merge' ? 'Merge stack' : 'Rebase stack',
+      dialogConfirm: confirm === 'merge' ? 'Merge stack' : 'Rebase stack',
     });
   }
   return view;

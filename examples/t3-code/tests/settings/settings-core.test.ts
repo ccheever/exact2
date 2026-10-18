@@ -131,7 +131,7 @@ describe('general rows', () => {
     expect([row('default-permissions').label, row('default-permissions').icon, row('default-permissions').inheritance]).toEqual(['Full access', 'lock-open', 'default']);
     expect([row('snooze-limited-threads').checked, row('snooze-limited-threads').inheritance, row('snooze-limited-threads').resettable]).toEqual([true, 'environment', false]);
     expect([row('new-threads').label, row('worktree-submodules').label, row('days-before-auto-settle').value]).toEqual(['Current checkout', 'Recursive', '3']);
-    expect(row('version').value).toBe('0.0.46-nightly.20261004.1'); // this app's own release, not the server's
+    expect(row('version').value).toBe('0.1.1-nightly.20261018.3302'); // this app's own release, not the server's
   });
   test('project scope: overrides, t3.json and environment-wide rows', () => {
     const client = as(fake({ projectSettingsOverrides: { p1: { defaultRuntimeMode: 'approval-required' }, p2: { defaultRuntimeMode: 'approval-required' } } }));
@@ -350,6 +350,10 @@ describe('navigation and search', () => {
     expect(searchSettings('wrap', context)[0]!.id).toBe('word-wrap');
     expect(searchSettings('auto settle', { ...context, autoSettle: false }).map(item => item.id)).not.toContain('auto-settle-inactive-threads');
     expect(searchSettings('tailscale', context)).toEqual([]);
+    // The About rows (472ea7ec5f): Version by its update words, and Update track, both on General.
+    expect(searchSettings('check for updates', context).map(item => item.id)).toContain('app-version');
+    expect(searchSettings('update track', context)).toEqual([expect.objectContaining({ id: 'update-track', title: 'Update track', route: 'general' })]);
+    expect(searchSettings('nightly', context).map(item => [item.id, item.target])).toContainEqual(['update-track', 'update-track']);
     const result = settingsNavigation('send shortcut', context);
     expect([result.firstRoute, result.firstTarget, result.items[0]!.section]).toEqual(['general', 'setting-send-shortcut', 'General']);
     expect(scopeAvailable('environment-defaults', 'project')).toBe(false);
