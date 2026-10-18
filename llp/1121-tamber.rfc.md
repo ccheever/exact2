@@ -3555,3 +3555,51 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - hovering a child;
   - a disabled node, and a finger leaving no hover;
   - `press_paint_tests.rs` unchanged.
+
+### Stage 8, commit C1: the control-role table, measured (draft for theme2)
+
+- **`controls`** in `kernel/tables/schema.json`, beside `_metrics`: one row a (control, parameter),
+  `[control, parameter, ios, macos, web, linux, windows, terminal, android]`. A control is `switch`,
+  `checkbox`, `radio`, `range`, `progress` (with a value), `spinner` (`progress` without),
+  `select`, `button-prominent`, `field` or `textarea`, with a state
+  part's state after a `:` where the row is that state's (`button-prominent:disabled`); a parameter
+  is `accent-color` or a colour role (`Field`, `FieldText`, `placeholder`). Each host cell is
+  `exact`, `best-effort` or `none`, with `: why`. `build.rs` validates every part (the state too)
+  and emits `generated::CONTROLS`. No new role (theme2's ruling (1)); the off track waits for a
+  design that needs it.
+- **SCHEMA_DIGEST moves** to `0x278f_080f_af7d_307f` (every host a new binary; no host reads the
+  table). It lands in stage 8's break window with B's move, one new binary per host.
+- **Measured before it lands:** `scripts/measure-controls.mjs` over `scripts/fixtures/control-roles`
+  (the authored build against one with neither), on the web, the iOS simulator, macOS, the Linux
+  painter and the Android emulator. `docs/control-roles-measured.md` records every cell with its
+  ΔE00, pixels and provenance; `scripts/measure-controls.test.mjs` holds the table to it. Windows
+  is the Linux painter's row (inferred, not measured); the terminal is `none` by construction.
+- **What it found:** `accent-color` reaches every control on iOS but its spinner, and every one but
+  `select` and the spinner on the web, the painters and the Android reader; a disabled switch,
+  checkbox, radio or range is best-effort (dimmed) everywhere it is honoured. A disabled prominent button is the
+  platform's on iOS, the web and the painters, the author's on the reader. `Field` reaches only the
+  reader and the Mac's textarea, `FieldText` Apple's fields and the reader, `placeholder` every host
+  but the reader. Each `none` that is Exact's own gap says so (theme2's 07:32 ruling) and has a QUEUE
+  line. The Mac's accent cells are read from AppKit's API: its agent capture here is an inactive
+  window, which draws every control grey (QUEUE: measure in a key window).
+- **Round 1 (Astra, Grok):** Android's column is the Canvas reader (`--reader`, the fixture as an APK
+  in a scratch checkout), not the Linux host under adb; best-effort is theme2's rule; `progress`
+  is split from `spinner` and `field` from `textarea`; disabled switches, checkboxes, radios and ranges are rows;
+  a frame too small to read is `unmeasured` and fails the run.
+
+### Stage 8, commit C2: `tamber-unreachable` (draft for theme2)
+
+- **A lint** (`contract/lower/src/control_roles.rs`): for each target the app ships (app.json
+  `host`, `deploy.store`, `deploy.binaries` and its target crates, as icons read them), each
+  control the app draws, and each parameter it sets there, a `none` cell of `CONTROLS` warns once a
+  (target, control, parameter), at the override: `accent-color on macOS switches: NSSwitch draws
+  the system accent (the first at line N; LLP 1121 D9)`. `best-effort` says nothing (theme2's ruling (2)).
+- **Set** means an `accent-color` row on the control, an element around it or a class of either,
+  or the design's `AccentColor`; a field's parameter, the design's `Field`, `FieldText` or
+  `placeholder`, unless the field writes its own `background-color`, `color` or `::placeholder
+  color` (a node's own row wins over the role).
+- **The platform's own state** is a row: `button-prominent:disabled` (a prominent button that
+  writes `disabled`) names iOS's grey disabled glass, its why pointing at a styled pressable (D8).
+- **Tests:** `contract/cli/tests/it/control_roles.rs` (the Mac's switches warned, never the web's;
+  best-effort silent; nothing set, nothing judged; a field's own row exempting its role; the iOS
+  disabled glass line).
