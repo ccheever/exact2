@@ -42,6 +42,26 @@ async function ask(tamber, gate, { path, method = 'GET', headers = {}, peer = '1
   return { handled, status, body: text ? JSON.parse(text) : null };
 }
 
+test('close() signals the server\'s group only by a pid of its own: a missing, 0 or 1 pid ends the child by its own kill', async () => {
+  const kill = process.kill;
+  const groups = [];
+  // Recorded, never sent: a pid of 0 or 1 here would reach this test's own group, or every process.
+  process.kill = (pid, signal) => { if (signal === 0 || signal === undefined) return kill.call(process, pid, signal); groups.push(pid); return true; };
+  try {
+    for (const pid of [undefined, 0, 1]) {
+      let child;
+      const spawnServe = () => (child = Object.assign(fakeServe(), pid === undefined ? {} : { pid }));
+      const tamber = tamberServer({ appDir: '/nowhere', spawnServe, log: () => {} });
+      await tamber.ready;
+      await tamber.close();
+      expect(groups).toEqual([]);
+      expect(child.exitCode).toBe(0);
+    }
+  } finally {
+    process.kill = kill;
+  }
+});
+
 test('a stale selection asks its build again once per status, its status first; a current one is joined with the map the dev loop gives', async () => {
   const map = { digest: 'p1', sources: [{ file: 'exact:app', sha256: 'x' }], nodes: [{ file: 'exact:app', line: 3, col: 5, end_col: 9, component: 'App', chain: [], bindings: [{ row: 'background_color', origin: 'own' }] }] };
   const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, sourceMap: () => Buffer.from(JSON.stringify(map)) });

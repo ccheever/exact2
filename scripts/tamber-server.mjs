@@ -866,7 +866,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     for (const poll of polls) poll();
     if (child.exitCode !== null || child.signalCode !== null || down) return Promise.resolve();
     const exited = new Promise(ok => child.once('exit', () => ok(true)));
-    const signal = name => { try { process.kill(-child.pid, name); } catch { child.kill?.(name); } };
+    // Its group by pid only when that names a process of its own: a pid of 0
+    // or 1 (a stand-in's, or none yet) would signal this process's own group
+    // or every process this user may.
+    const group = Number.isInteger(child.pid) && child.pid > 1;
+    const signal = name => { try { if (!group) throw null; process.kill(-child.pid, name); } catch { child.kill?.(name); } };
     const within = ms => Promise.race([exited, new Promise(ok => setTimeout(() => ok(false), ms).unref?.())]);
     child.stdin.end();
     signal('SIGTERM');
