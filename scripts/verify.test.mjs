@@ -719,7 +719,7 @@ test('the largest text size: its findings once each with the screens they were o
   const lines = found.map((f) => line({ ...f, hint: largeRemedy(f) }, nodes));
   const wrap = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
   assert.equal(lines[0], `  squeezed Text "Party size"#4 [16,300 0×120]: its box is squeezed to no width, so none of its text shows; let it keep its words (no min-width: 0 or px width beside it), or ${wrap}`);
-  assert.match(lines[1], /: its text is 40 pt wider than its box, and spills; let its box grow with its text: no px width or height on it \(a rem size, or none\)$/);
+  assert.match(lines[1], /: its text is 40 pt wider than its box, and spills; give it room \(no px width on its box\), or wrap the row: .*; a word longer than any line breaks between syllables with `hyphens="auto"`$/);
   assert.equal(lines[2], `  overflow rsvp-maybe [220,300 240×64]: runs 58 pt past the 402-wide viewport's side, and nothing scrolls it; ${wrap}`);
   for (const l of lines) assert.doesNotMatch(l, /shrink|smaller|font-size/, 'a remedy never asks for a smaller text');
   const large = [
@@ -780,15 +780,17 @@ test('the largest text size: a clamped word wider than its box, drawn under the 
   assert.deepEqual(judge(obs, null, { host: 'ios' }).map((f) => [f.kind, f.id, f.detail.need ?? f.detail.by]), [['clipped', 15, [57, 0]], ['overlap', 16, [49, 77]]]);
 });
 
-// LLP 1116.021 follow-up (water-tracker, contacts, round 20): a label a list's row cuts is given an ellipsis or a taller row,
-// never the flex-wrap the row does not take; an iOS test end at a window the phone shows scaled measures no contrast or target.
+// A label a list's row cuts is hyphenated and its row grows taller, as UIKit's cells do at the accessibility sizes; never
+// the flex-wrap the row does not take, nor the line-clamp round 22's graders named a tell; an iOS test end at a window the
+// phone shows scaled measures no contrast or target.
 test('the largest text size in a list row; a scaled iOS test end', async () => {
   const { largeRemedy, scaledEnd } = await import('./verify.mjs');
   const cut = { kind: 'clipped', detail: { cut: [9, 0], by: 3 } }, over = { kind: 'clipped', detail: { need: [4, 0] } };
   for (const f of [cut, over]) {
-    assert.match(largeRemedy(f, { inRow: true }), /^ask for an ellipsis \(`line-clamp="1"`, or more lines\).*let the row grow taller/);
-    assert.doesNotMatch(largeRemedy(f, { inRow: true }), /flex-wrap/);
+    assert.match(largeRemedy(f, { inRow: true }), /^let a word longer than its line break between syllables \(`hyphens="auto"`\) and the row grow taller/);
+    assert.doesNotMatch(largeRemedy(f, { inRow: true }), /flex-wrap|line-clamp="/);
   }
+  assert.match(largeRemedy({ kind: 'clipped', detail: { need: [0, 12] } }, { inRow: true }), /^let the row grow taller with its text/);
   assert.match(largeRemedy(cut), /flex-wrap/);
   assert.match(largeRemedy({ kind: 'clipped', detail: { edge: 'bottom' } }, { inRow: true }), /let the page scroll/);
   const lines = ['  contrast day-2025-12-30\'s label "2025-12-30" [15,549 34×7]: 1:1 (#000000 on #000000), needs 4.5:1; use a role', '  target   add [300,20 16×16]: …', '  overlap  a [1,1 10×10]: …'];

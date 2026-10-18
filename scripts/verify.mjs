@@ -506,11 +506,17 @@ export const LARGEST = 'accessibility-extra-extra-extra-large', LARGEST_PX = 53;
 const LARGE_KINDS = new Set(['overflow', 'clipped', 'overlap', 'squeezed']), PAGES = 6;
 const WRAP = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
 /** The remedy for a finding at the largest size: never a smaller or fixed font. A text in a list's row (`inRow`) is cut by
- * the row, which wrapping does not change: UIKit's cells truncate a label or grow taller with it. */
+ * the row, which wrapping the row does not change: at the accessibility sizes UIKit's cells wrap a label, hyphenate a word
+ * longer than the line and grow taller, never truncating it (`UIListContentConfiguration`, iOS 27), so a `line-clamp`
+ * there reads as a tell (round 22's book-club and contacts took one from this remedy). */
 export function largeRemedy(f, { inRow = false } = {}) {
-  if (f.kind === 'clipped' && inRow && !f.detail?.edge) return 'ask for an ellipsis (`line-clamp="1"`, or more lines), as a cell truncates its label, or let the row grow taller with its text (no px height on the row or what it holds)';
+  if (f.kind === 'clipped' && inRow && !f.detail?.edge) {
+    const wide = (f.detail?.need ?? f.detail?.cut ?? [0])[0] > 0;
+    return `${wide ? 'let a word longer than its line break between syllables (`hyphens="auto"`) and ' : 'let '}the row grow taller with its text, as a cell does at this size (no px height on the row or what it holds; no \`line-clamp\`, which cuts what a cell shows whole)`;
+  }
   if (f.kind === 'clipped') return f.detail?.edge ? 'let the page scroll there (a scroll with flex=1 min-height=0)'
-    : f.detail?.need ? 'let its box grow with its text: no px width or height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
+    : f.detail?.need?.[0] > 0 ? `give it room (no px width on its box), or ${WRAP}; a word longer than any line breaks between syllables with \`hyphens="auto"\``
+    : f.detail?.need ? 'let its box grow with its text: no px height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
   if (f.kind === 'squeezed') return `let it keep its words (no min-width: 0 or px width beside it), or ${WRAP}`;
   return WRAP;
 }
