@@ -217,6 +217,15 @@ extension NodeView {
 }
 
 extension NodeView {
+    /// A field's text: its own `color`, else the design's `FieldText`, else
+    /// the platform's; an inherited colour never tints a field (LLP 1115 D4,
+    /// LLP 1121 D9).
+    /// A field of the author's own (`appearance="none"`) is their box, and
+    /// inherits as text does.
+    var fieldInk: NSColor {
+        showsOwnTextColor || !isNativeTextControl ? color("text_color", SystemColor.canvasText) : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
+    }
+
     /// Whether the author wrote the style row `key` on this node (it is false of a value the node only
     /// inherits and of a row the compiler implied), as iOS reads it.
     func wrote(_ key: String) -> Bool {

@@ -157,7 +157,8 @@ impl<D: DataSource> Host<D> {
         if let Some(l) = self.presence.leaving.iter().find(|l| l.view == view) {
             let shown = self.shown_paint(motion_node(l.key));
             let env = self.runner.kernel().env();
-            batch.style(view, &style::restyle_presented(&l.style, &env, &shown));
+            let own = l.animations.properties().contains(&Property::Color);
+            batch.style(view, &style::restyle_presented(&l.style, &env, &shown, own));
         }
     }
 

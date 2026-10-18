@@ -67,6 +67,12 @@ struct PressPaint {
 struct WeakNodeView { weak var view: NodeView? }
 
 extension NodeView {
+    /// Whether the text colour it shows is its own: written (a moving one
+    /// included, `style.rs`), or its own press's (LLP 1061 D7), not one an
+    /// ancestor's press lends it. A platform field takes no other (LLP 1115 D4).
+    var showsOwnTextColor: Bool {
+        wrote("text_color") || (pressPaint.down && style["press_color"] != nil)
+    }
     /// The rows of the pressed paint (LLP 1061 D7).
     static let pressPaintRows = ["press_opacity", "press_opacity_to", "press_background_color", "press_color"]
     /// Whether the author wrote this node's pressed look: a press scale or

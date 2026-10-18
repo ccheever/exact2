@@ -3077,8 +3077,12 @@ on `row` or `column` (CSS ignores them on flex and grid; write `view`).
 A text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
 `url`, `number` or no type, and `textarea` outside the Markdown editor) is the
 platform's own field by default (LLP 1104). On the web it inherits the page's
-font and colour, as a CSS reset does; other platforms use their control's own
-text style. Disabled and placeholder appearances are the platform's. To colour
+font, as a CSS reset does; other platforms use their control's own text style.
+Its text is its own `color`, else the design's `FieldText`, else the
+platform's field ink, on every host: a colour set on an ancestor never tints
+it (LLP 1115 D4, LLP 1121 D9). A field of your own (`appearance="none"`) and
+the Markdown editor inherit `color` as text does. Disabled and placeholder
+appearances are the platform's. To colour
 the placeholder, write CSS's `::placeholder` as a block under the field (its
 value may compute) or in a `style`; it admits `color` alone, with its own
 alpha, and without it the placeholder keeps the platform's colour (LLP 1104

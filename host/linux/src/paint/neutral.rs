@@ -299,7 +299,8 @@ pub(super) fn field(
     shape
 }
 
-/// A field's ink: the label's, the grey when disabled, and the node's own
+/// A field's ink: the design's FieldText (the label's where it doesn't
+/// override it, LLP 1121 D9), the grey when disabled, and the node's own
 /// `color` where its author wrote one. The page's `color` does not tint a
 /// surface the host paints.
 pub(super) fn field_ink(node: &NodeRef<'_>, dark: bool) -> [u8; 4] {
@@ -308,7 +309,7 @@ pub(super) fn field_ink(node: &NodeRef<'_>, dark: bool) -> [u8; 4] {
     } else if disabled(node) {
         role("GrayText", dark)
     } else {
-        role("-exact-label", dark)
+        role("FieldText", dark)
     }
 }
 
