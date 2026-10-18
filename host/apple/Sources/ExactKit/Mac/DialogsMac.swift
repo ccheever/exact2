@@ -165,8 +165,9 @@ final class DialogHost {
         // serves); its focus, the page's input gates and its sheet come as
         // `popUp` returns (`MenuHost.afterPopUp`), so the page's field keeps
         // the keyboard, and the session's one field editor, while the menu
-        // closes. Made inert inside `popUp`, it left the app no focus as the
-        // menu closed, and VoiceOver read that field again.
+        // closes, unless the action's `focus()` moves it into the dialog or a
+        // batch lands first (`sync`). Made inert inside `popUp`, it left the
+        // app no focus as the menu closed, and VoiceOver read that field again.
         if entry.sheet == nil || !presenter.menus.afterPopUp({ arrive(true) }) { arrive(false) }
     }
     func close(_ dialog: NodeView, restoreFocus: Bool = true, notify: Bool = true) {

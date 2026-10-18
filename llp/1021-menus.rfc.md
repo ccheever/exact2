@@ -562,10 +562,12 @@ brackets: there the hold lasts until the run loop is next in its default
 mode, and meanwhile the bar keeps the item, hidden (disabled before macOS
 15) if the press took its button away, and gains and moves nothing. A
 `<dialog>` the press opens is the modal inside the action, so the page is
-inert to the session at once; its focus, the page's input gates (its
-fields' enablement and the focus they give up) and its sheet come once
-`popUp` has returned, so the page's field keeps the keyboard while the menu
-closes. An alert-shaped one's `NSAlert` (a confirmation popover's too)
+inert to the session, and VoiceOver reaches only the dialog, at once; its
+focus, the page's input gates (its fields' enablement, the focus they give
+up, its nodes' accessibility-hidden state) and its sheet come once `popUp`
+has returned, so the page's field keeps the keyboard while the menu closes,
+unless the action's own `focus()` moves it into the dialog or a batch lands
+before `popUp` returns. An alert-shaped one's `NSAlert` (a confirmation popover's too)
 begins then. `beginSheet` returns only once the sheet is in, running the
 run loop meanwhile: a sheet begun inside `popUp` let the menu's close reach
 VoiceOver while it arrived, and a page field that gave up the focus there
@@ -576,9 +578,9 @@ too: told inside `popUp`, it named a modal whose sheet had not begun.
 Closing the menu neither sends VoiceOver to the trigger nor gives the focus
 back when the choice has moved the focus by then (a sheet's field is the
 first responder of the sheet's window, and the page window's still looks
-unmoved); a dialog or alert the choice opens takes the focus after the
-menu has closed, and VoiceOver's landing goes to it, the trigger being
-outside that modal. With no choice left awaiting a turn, what the text
+unmoved); a `<dialog>` the choice opens takes the focus after the menu has
+closed, and VoiceOver's landing goes to it, the trigger being outside that
+modal, while an alert's sheet is AppKit's to read. With no choice left awaiting a turn, what the text
 above says of one (a reset before it, a batch or a new presentation
 cancelling it) no longer arises. iOS is unchanged.
 

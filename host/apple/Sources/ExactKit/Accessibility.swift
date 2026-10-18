@@ -680,8 +680,8 @@ extension Presenter {
     /// VoiceOver is sent where the keyboard focus is once the commit that
     /// changed the modal or closed a menu has run its commands, so the
     /// landing is the element an opening commit's `focus()` or the focus
-    /// given back chose, not the one the batch left; for a menu's pick, as
-    /// `popUp` returns (`MenuHost.afterPopUp`).
+    /// given back chose, not the one the batch left; while a menu is
+    /// tracked, as its `popUp` returns (`MenuHost.afterPopUp`).
     func scheduleLanding() {
         guard !landing.scheduled else { return }
         landing.scheduled = true

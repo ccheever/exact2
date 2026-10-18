@@ -106,13 +106,14 @@ final class MenuHost: NSObject {
     }
     /// `work` runs as the menu AppKit is tracking returns from `popUp`, in
     /// that turn, after the menu's close; false, and nothing kept, when no
-    /// menu is tracked. What a pick opens arrives there: a dialog's focus and
-    /// sheet (`DialogHost.present`), an alert's sheet (`AlertHost.present`)
-    /// and VoiceOver's landing (`scheduleLanding`). `beginSheet` returns only
-    /// once the sheet is in, running the run loop meanwhile, so begun inside
-    /// `popUp` the menu's close reached VoiceOver while the sheet arrived; a
-    /// landing told there named a modal whose sheet had not begun; either way
-    /// VoiceOver read the page's old field first.
+    /// menu is tracked. What a pick opens arrives there: a dialog's focus,
+    /// the page's input gates under it and its sheet (`DialogHost.present`),
+    /// an alert's sheet (`AlertHost.present`) and VoiceOver's landing
+    /// (`scheduleLanding`). `beginSheet` returns only once the sheet is in,
+    /// running the run loop meanwhile, so begun inside `popUp` the menu's
+    /// close reached VoiceOver while the sheet arrived; a landing told there
+    /// named a modal whose sheet had not begun; either way VoiceOver read the
+    /// page's old field first.
     func afterPopUp(_ work: @escaping () -> Void) -> Bool {
         guard !trackedIn.isEmpty else { return false }
         afterTracking.append(work)
