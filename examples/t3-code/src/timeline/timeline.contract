@@ -1,3 +1,4 @@
+use ThreadFindView from "./thread-find.contract"
 // T3 MessagesTimeline rows (MIT, see LICENSE-T3), measured against the built
 // reference: a 736pt lane inside a 3rem scroll gutter, rows spaced by their own
 // bottom padding, hover-revealed metadata that keeps its layout space.
@@ -100,6 +101,8 @@ component TimelineRow
 // A sent message: attribution and intent above an 18pt bubble, then the
 // hover-revealed time, Edit from here and Copy message.
 component UserRow
+  inject
+    threadFind: ThreadFindView
   props
     message: Message
     documents: ChatDocument[]
@@ -144,7 +147,7 @@ component UserRow
           MessageAttachments(messageId=message.id, images=message.images, files=message.attachFiles, urls=attachments, local=local)
         // CollapsibleUserMessageBody: past 600 characters or 8 lines the body
         // clips to 11rem under a 1.75rem fade until "Show full message".
-        column max-height=(message.collapsible and not expanded ? "11rem" : "62500rem") overflow=(message.collapsible and not expanded ? "hidden" : "visible") mask-image=(message.collapsible and not expanded ? "linear-gradient(to bottom, #000000 0%, #000000 84%, #00000000 100%)" : "none")
+        column max-height=(message.collapsible and not (expanded or (threadFind.open and threadFind.query.trim() != "")) ? "11rem" : "62500rem") overflow=(message.collapsible and not (expanded or (threadFind.open and threadFind.query.trim() != "")) ? "hidden" : "visible") mask-image=(message.collapsible and not (expanded or (threadFind.open and threadFind.query.trim() != "")) ? "linear-gradient(to bottom, #000000 0%, #000000 84%, #00000000 100%)" : "none")
           if message.body != ""
             if documents.filter((doc) => doc.id == message.id).length > 0
               for document in documents.filter((doc) => doc.id == message.id) key=document.id
