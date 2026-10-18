@@ -574,6 +574,25 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     }
 }
 
+/// `style=`'s declarations come back as attributes that compile, a quote
+/// or a backslash in a value escaped as a string literal takes it.
+#[test]
+fn style_declarations_are_suggested_as_attributes_that_compile() {
+    let app = |attrs: &str| format!("component A\n  view\n    text \"a\" {attrs}\n");
+    let src = app(r#"style="font-family: \"Times New Roman\", serif; color: red""#);
+    let e = contract::compile(&src).unwrap_err();
+    let edit = e
+        .message
+        .split('`')
+        .nth(5)
+        .unwrap_or_else(|| panic!("{}", e.message));
+    assert_eq!(
+        edit,
+        r#"font-family="\"Times New Roman\", serif" color="red""#
+    );
+    contract::compile(&app(edit)).unwrap_or_else(|e| panic!("{edit}: {e}"));
+}
+
 #[test]
 fn the_element_lint_finds_nothing_in_any_app() {
     let apps = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps");

@@ -146,7 +146,8 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
         .filter(|d| !d.is_empty())
         .map(|d| {
             let (name, value) = d.split_once(':')?;
-            Some(format!("{}=\"{}\"", name.trim(), value.trim()))
+            let value = value.trim().replace('\\', "\\\\").replace('"', "\\\"");
+            Some(format!("{}=\"{value}\"", name.trim()))
         })
         .collect();
     match declarations {
