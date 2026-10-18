@@ -10,9 +10,9 @@ const native = { available: true } as Native;
 const html = { attachmentId: 'a', title: 'Report', height: 400 };
 const item = { id: 'i', type: 'dynamic_tool', status: 'completed', toolName: 'html_render', output: { htmlRender: html } };
 const ref = inlineReference(item)!;
-function fixture() {
+function fixture(renderItem = item) {
   const client = new T3Client(); client.threadId = 't'; client.environmentId = 'env'; client.generation = 1; client.origin = 'http://127.0.0.1:1';
-  client.thread = { projection: { thread: { id: 't' }, visibleTurnItems: [{ sourceThreadId: 't', sourceItemId: 'i', item }] } };
+  client.thread = { projection: { thread: { id: 't' }, visibleTurnItems: [{ sourceThreadId: 't', sourceItemId: 'i', item: renderItem }] } };
   return client;
 }
 
@@ -86,4 +86,23 @@ test('expanding and restoring a document keeps its source and ignores fullscreen
   await syncInlineDocuments(client, native, 1);
   expect(inlineDocumentView(client, key, ref)).toMatchObject({ fullscreen: false, src: initial.src, height: initial.height });
   expect(mints).toBe(1);
+});
+
+
+test('inline width selects responsive measurements and is retained while fullscreen', async () => {
+  const responsiveItem = { ...item, output: { htmlRender: { ...html, height: 600, heights: [[364, 560], [728, 200]], outline: 't2,2,100,5,1' } } };
+  const client = fixture(responsiveItem), responsiveRef = inlineReference(responsiveItem)!;
+  client.rpc = async () => ({ relativeUrl: '/api/assets/responsive', expiresAt: 10_000_000 });
+  const key = inlineDocumentKey(client, 't', 'i', responsiveRef);
+  await syncInlineDocuments(client, native, 0);
+  expect(inlineDocumentView(client, key, responsiveRef).height).toBe(200);
+  await inlineDocumentEvent(client, key, 'measure', '364|560');
+  const inline = inlineDocumentView(client, key, responsiveRef);
+  expect(inline.height).toBe(560);
+  expect(inline.outline[0]?.width).toBe(200);
+  await inlineDocumentEvent(client, key, 'fullscreen', 'open');
+  await inlineDocumentEvent(client, key, 'measure', '1280|840');
+  expect(inlineDocumentView(client, key, responsiveRef)).toMatchObject({ height: 560, outline: inline.outline });
+  await inlineDocumentEvent(client, key, 'fullscreen', 'close');
+  expect(inlineDocumentView(client, key, responsiveRef).height).toBe(560);
 });
