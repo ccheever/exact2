@@ -31,6 +31,8 @@ export function makeDocumentRuntime(client: T3Client, input: {
   const ask = (text: string): Promise<boolean> => {
     requireOwner();
     if (runtime.permission) return Promise.resolve(false);
+    runtime.fullscreen = false;
+    runtime.host.updateHostContext();
     return new Promise(resolve => { runtime.permission = { serial: ++permissionSerial, text, settle: resolve }; client.revision++; });
   };
   const target = { threadId: input.sourceThreadId, itemId: input.itemId };
