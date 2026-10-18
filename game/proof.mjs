@@ -513,10 +513,12 @@ export function lookSilence(app) {
 // The look result beside the simulation result (LLP 1127.000 D5): a tell no
 // silence names fails it; no picture on this host leaves it unverified.
 export function lookResult({pictures, tells, unavailable}, silence) {
-  const loud = tells.filter(t => !silence.has(t.name)), quiet = tells.filter(t => silence.has(t.name));
+  // One entry a tell: its first line and how many distinct lines (frames) told it.
+  const byName = list => [...Map.groupBy(list, t => t.name).values()].map(all => ({...all[0], times:all.length}));
+  const loud = byName(tells.filter(t => !silence.has(t.name))), quiet = byName(tells.filter(t => silence.has(t.name)));
   const status = loud.length ? 'FAIL' : pictures.length ? 'PASS' : 'UNVERIFIED';
   const detail = loud.length ? [...new Set(loud.map(t => t.name))].join(', ')
-    : pictures.length ? `${tells.length} tells${quiet.length ? `, ${quiet.length} silenced` : ''}` : unavailable ? 'no picture on this host' : 'no world was shown';
+    : pictures.length ? `${loud.length + quiet.length} tells${quiet.length ? `, ${quiet.length} silenced` : ''}` : unavailable ? 'no picture on this host' : 'no world was shown';
   return {status, detail, loud, quiet};
 }
 
@@ -796,14 +798,14 @@ export async function proof(meta, script) {
     const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg));
     const simulation = proofStatus({failures, expected:previousPins, pins, collecting, partial});
     const seen = lookResult(looks, silence);
-    for (const tell of seen.loud) check(`${tell.line} (silence it by name in app.json's game.look.silence only if the look is intended)`, false);
+    for (const tell of seen.loud) check(`${tell.line}${tell.times > 1 ? ` (and ${tell.times - 1} more frames)` : ''}; silence ${tell.name} in app.json's game.look.silence only if the look is intended`, false);
     const status = looking && seen.status === 'FAIL' ? 'FAIL' : simulation;
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
     writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable, simulation, ...(looking ? {look:{status:seen.status, detail:seen.detail, tells:looks.tells, silenced:seen.quiet.map(t => t.name), pictures:looks.pictures, pages:looks.pages, sheets:looks.sheets, unavailable:looks.unavailable}} : {})}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
     if (looking) {
       say(`simulation: ${simulation} · look: ${seen.status}, ${seen.detail}`);
-      for (const tell of seen.quiet) say(`look: silenced ${tell.name} by app.json (${tell.line})`);
+      for (const tell of seen.quiet) say(`look: silenced ${tell.name} by app.json (${tell.line}${tell.times > 1 ? `, and ${tell.times - 1} more frames` : ''})`);
       if (!looks.pictures.length && looks.unavailable) say(`look: no picture on this host (${looks.unavailable})`);
       for (const picture of [...looks.pages, ...looks.pictures]) say(`LOOK ${picture}`);
       for (const sheet of looks.sheets) say(`LOOK sheet ${sheet}`);
