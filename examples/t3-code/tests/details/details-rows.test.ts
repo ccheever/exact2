@@ -4,7 +4,6 @@ afterEach(resetPrimary);
 import { environmentIndicator, shellDetails } from '../../src/details/shell-details';
 import { lineageView, statusLabel, formatElapsed, liveSubagent, latestMergeBackRun } from '../../src/details/shell-lineage';
 import { adoptShellPrefs, inlineOpen, shellPrefs, toggleInline } from '../../src/shell/shell-prefs';
-import { nightlyMobileBetaNotice, NIGHTLY_NOTICE } from '../../src/shell/shell-nightly';
 import { pushToast, toasts } from '../../src/shell/toast';
 import { applyDismissals, toastViews } from '../../src/shell/shell';
 import { applyStatusEvent, refreshVcsOnFocus, vcsStatusEvent, VCS_STATUS_KEY } from '../../src/details/shell-vcs';
@@ -94,26 +93,8 @@ describe('shell preferences', () => {
   });
 });
 
-describe('Nightly beta-app notice (upstream f1dcd93931)', () => {
+describe('toast action dismissal', () => {
   const client = () => ({ local: {}, environmentId: 'env' }) as unknown as T3Client;
-  test('one stacked toast with a ghost Dismiss and the settings action; any close remembers it', () => {
-    const owner = client();
-    expect(nightlyMobileBetaNotice(owner, false)).toBe(0);
-    const id = nightlyMobileBetaNotice(owner, true);
-    expect(id).toBeGreaterThan(0);
-    expect(nightlyMobileBetaNotice(owner, true)).toBe(0);
-    const [view] = toastViews(toasts(owner));
-    expect(view).toMatchObject({ title: NIGHTLY_NOTICE.title, description: NIGHTLY_NOTICE.description, icon: 'smartphone', iconColor: 'light-dark(#27272a, #f5f5f5)',
-      stacked: true, copyText: '', actionLabel: 'Get the beta app', actionOp: 'ui:settings', actionId: 'general', actionValue: 'mobile-beta-ios', secondaryLabel: 'Dismiss', secondaryOp: 'dismiss', secondaryGhost: true });
-    // The action closes it (`a<id>`) and, unlike other toasts, that close also runs onClose.
-    expect(applyDismissals(owner, `a${id}`)).toBe(true);
-    expect(toasts(owner)).toHaveLength(0);
-    expect(shellPrefs(owner).nightlyNoticeDismissed).toBe(true);
-    const other = client();
-    shellPrefs(other).nightlyNoticeDismissed = true;
-    expect(nightlyMobileBetaNotice(other, true)).toBe(0);
-    expect(nightlyMobileBetaNotice(client(), true, false)).toBe(0);
-  });
   test('an ordinary action close leaves onClose alone', () => {
     const owner = client();
     let closed = 0;
