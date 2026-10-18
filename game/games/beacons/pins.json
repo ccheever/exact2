@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "0": "0x678050877109b354",
-    "90": "0x56d7b1520ecf2871"
+    "0": "0x28a83f80b6f1a5ad",
+    "90": "0xa4eefb7865f5f042"
   },
   "saves": {
-    "continuation": "b1789afc4b212d1ae0c596d8071ce9f7159efa18e2832ac79e7cf7eda096c47f"
+    "continuation": "ccee6262a73233cf33f8c0183e0c29752ba8982e8c3a9107cb7e03cc217fcdd4"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "fd7f4f9da33341fc9a9806d23a4e92a5552fc06245d619f8e6597bd5583ab61c",
+  "inputs": "a2767f19a5a8cf9be863db1833f205b49b149ade5e9c833f3e84ce0d97fbacfd",
+  "sourceInputs": "30400495071eaf2646d31bc92a47d6d3ad7f68558ce408df5e62f36fe7340110",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
+  "at": "4aadf3e8bf0a43c756069dc1518266ae2ceecb01",
+  "reason": "origin/main 07170a2db added saved Environment.tone_mapping and Fog.linear; every tick hash moved there, before LLP 1127.000"
 }
