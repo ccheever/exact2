@@ -48,7 +48,10 @@ NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and
    `apps/shelf/android` for one whose data is TypeScript (three files each, and a line in the root `Cargo.toml`'s
    `members`). A game's is generated in its `.shells/` (`game/app/shells.mjs`). An app with a GPU module (LLP 1009;
    every game) is built as a Linux bake is (`buildBake`): the module first, then the crate, whose bake records the
-   module's SHA-256;
+   module's product digest. The shared Linux/Android loader checks baked cards against that digest: on
+   macOS, signed 64-bit Mach-O code omits the signature and normalizes its three size fields, matching
+   `bake/src/receipt.rs::code_digest`; other files hash whole. Completed development receipts always
+   bind the whole file. Both the process cache and Android's persistent cache distinguish these digests;
 2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so`, the GPU module beside it under
    its own name, the app's `assets/` to `app/build/<app>/rust/assets/app/assets/`, and a GPU module's shaders
    (`gpu/shaders/*.wgsl`, as a Linux bake packs them) to `app/build/<app>/rust/assets/app/shaders/`, where the host
