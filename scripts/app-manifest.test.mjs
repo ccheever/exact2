@@ -26,7 +26,12 @@ test('protocol handlers require one in-app placeholder and distinct schemes', as
   try {
     save([{ protocol: 'web+links', url: '/open?u=%s' }]);
     assert.deepEqual(readManifest(dir, 'links').protocol_handlers, [{ protocol: 'web+links', url: '/open?u=%s' }]);
+    for (const distribution_only of [true, false]) {
+      save([{ protocol: 'web+links', url: '/open?u=%s', distribution_only }]);
+      assert.equal(readManifest(dir, 'links').protocol_handlers[0].distribution_only, distribution_only);
+    }
     for (const bad of [
+      [{ protocol: 'web+links', url: '/open?u=%s', distribution_only: 'true' }],
       [{ protocol: 'web+links', url: '/open' }],
       [{ protocol: 'web+links', url: '/open?u=%s&again=%s' }],
       [{ protocol: 'web+links', url: '//other/open?u=%s' }],
@@ -51,6 +56,31 @@ test('Apple bundles register declared protocol schemes and keep their templates'
     assert.match(plist, /<string>other<\/string>/);
     assert.match(plist, /<string>\/open\?u=%s<\/string>/);
   }
+});
+
+test('distribution-only handlers stay out of both Apple registration keys in local builds', async () => {
+  const { macInfoPlist, infoPlist } = await import('../host/apple/build.mjs');
+  const handler = { protocol: 'packaged', url: '/packaged?u=%s', distribution_only: true };
+  const app = { id: 'dev.exact.links', displayName: 'Links', manifest: {
+    protocol_handlers: [handler, { protocol: 'ordinary', url: '/ordinary?u=%s', distribution_only: false }],
+  } };
+  const development = { scheme: 'exact-dev-test', origins: ['http://localhost:8080'], token: 'abc' };
+  for (const generate of [options => macInfoPlist(app, options), options => infoPlist(app, true, options)]) {
+    const local = generate({ development });
+    assert.doesNotMatch(local, /packaged/);
+    assert.match(local, /<string>ordinary<\/string>/);
+    assert.match(local, /<string>exact-dev-test<\/string>/);
+    const shipped = generate({ distributed: true });
+    const compact = shipped.replace(/\s+/g, '');
+    assert.match(compact, /<key>CFBundleURLSchemes<\/key><array><string>packaged<\/string><string>ordinary<\/string><\/array>/);
+    assert.match(compact, /<key>ExactProtocolHandlers<\/key><array><dict><key>protocol<\/key><string>packaged<\/string><key>url<\/key><string>\/packaged\?u=%s<\/string><\/dict>/);
+    // Session.swift reads [[String: String]], so a build-only Boolean cannot reach this dictionary.
+    assert.doesNotMatch(shipped, /distribution_only/);
+  }
+  const only = { ...app, manifest: { protocol_handlers: [handler] } };
+  for (const local of [macInfoPlist(only), infoPlist(only)]) assert.doesNotMatch(local, /CFBundleURLTypes|ExactProtocolHandlers/);
+  assert.match(infoPlist(app, true, { distribution: { ExactBuildKind: 'release' } }), /<string>release<\/string>/);
+  assert.doesNotMatch(infoPlist(app, true, { distribution: { ExactBuildKind: 'release' } }), /packaged/);
 });
 
 test('an iOS app lists the schemes canOpenURL may ask about, and a malformed or 51st one is refused', async () => {
