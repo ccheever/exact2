@@ -520,6 +520,7 @@ component PrActionLayers
   view
     if actions.dialogOpen
       PrActionDialog(actions=actions, ref=ref, dark=dark, act=act, local=local)
+    DialogFinalFocus(open=actions.dialogOpen, owner="pr-action-dialog")
     // The stack's Dialog gives the focus back to the stack menu's trigger (dialog-trap.contract DialogFinalFocus).
     DialogFinalFocus(open=actions.stack.dialogOpen, owner="pr-stack-dialog")
     if actions.stack.dialogOpen
@@ -539,13 +540,11 @@ component PrdConfirmEscape
         button press=local("pr-ui-disarm", ref, "") aria-keyshortcuts="Escape" aria-label="Cancel confirmation" tabindex=-1 testId="pull-request-confirm-escape" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
           text "Cancel" font-size=1
 
-// Destructive source-branch confirmation (dialogs.confirm): branch, repository, Cancel and Delete branch.
-// Focus starts on Cancel and Tab stays on the two buttons (a stopgap for issues/closed/20261009-gui-dialog-action-commands.md, as AppConfirm's). The focus at
-// open is Cancel's `autofocus`, which takes it only when nothing holds it: the asking control lets go of
-// it first ("…" held it, given back by the closing menu). Cancel and Escape
-// give it back to the control that asked (Base UI's finalFocus): the primary button for its own merge or
-// auto-merge, "Approve workflows to run" for its approval, else "…".
+// Destructive source-branch confirmation: start on Cancel and restore the prior focus when it closes.
 component PrActionDialog
+  inject
+    dialogEntered: action
+    dialogSeated: string[]
   props
     actions: PrActionsView
     ref: string
@@ -556,7 +555,7 @@ component PrActionDialog
   action fromCancel(k: string, e: KeyboardEvent)
     if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
       preventDefault()
-      focus("pr-action-dialog-confirm")
+      focus(actions.pending ? "pr-action-dialog-cancel" : "pr-action-dialog-confirm")
   action dismiss
     local("pr-ui-cancel", ref, "")
     focus(opener)
@@ -566,7 +565,7 @@ component PrActionDialog
       focus("pr-action-dialog-cancel")
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="pr-action-dialog-overlay"
-      column width="100%" max-width="32rem" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" retainFocus=true role="alertdialog" aria-describedby="pr-action-dialog-description" aria-modal=true aria-label=actions.dialogTitle testId="pr-action-dialog"
+      column width="100%" max-width="32rem" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" retainFocus=true role="alertdialog" aria-describedby="pr-action-dialog-description" aria-modal=dialogSeated.includes("pr-action-dialog") aria-label=actions.dialogTitle testId="pr-action-dialog" id="pr-action-dialog" data-dialog-focus="open" focusin=dialogEntered("pr-action-dialog")
         DialogOpenFocus(target="pr-action-dialog-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text actions.dialogTitle font-size="1.25rem" font-weight=600 line-height="1.25rem" color=paInk() role="heading" aria-level=2 testId="pr-action-dialog-title"

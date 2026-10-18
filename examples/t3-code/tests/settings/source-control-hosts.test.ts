@@ -28,6 +28,7 @@ describe('source control host settings', () => {
   });
   test('token/account and generic field writes retain other redacted secrets and rescan', async () => {
     const { client, native } = await connected(), later = native.later.bind(native), patches: Obj[] = [];
+    client.scopes = [...client.scopes, 'settings:write'];
     let rescans = 0;
     native.later = async input => {
       const request = obj(input);
@@ -92,4 +93,14 @@ test('deleting the source branch requires a completed PR, capability and permiss
   expect(canDeletePullRequestBranch({ ...detail, state: 'open' })).toBe(false);
   expect(canDeletePullRequestBranch({ ...detail, capabilities: { ...detail.capabilities, deleteBranch: false } })).toBe(false);
   expect(canDeletePullRequestBranch({ ...detail, viewerPermissions: { actions: [] } })).toBe(false);
+});
+
+
+test('source-branch confirmation keeps Tab on Cancel while its destructive action is pending', () => {
+  const dialog = contractComponent('pages-pr-actions.contract', 'PrActionDialog');
+  for (const pending of [false, true]) for (const shiftKey of [false, true]) {
+    const focused: string[] = [];
+    dialog.call('fromCancel', {}, { actions: { pending }, preventDefault() {}, focus: (id: string) => focused.push(id) }, ['Tab', { shiftKey, metaKey: false, ctrlKey: false, altKey: false }]);
+    expect(focused).toEqual([pending ? 'pr-action-dialog-cancel' : 'pr-action-dialog-confirm']);
+  }
 });

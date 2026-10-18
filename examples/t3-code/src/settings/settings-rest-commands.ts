@@ -117,7 +117,8 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
   if (op === 'diag-open-logs') return openLogsFolder(client, native);
   if (op === 'host-credentials') {
     if (splitScope(scope).projectId) throw new ClientError('Source control host settings belong to the environment.');
-    return hostCredentialsCommand(client, native, params(value), () => { viewState(client).rescan++; });
+    const input = params(value), owner = environmentClient(client, input.environment || client.environmentId, native);
+    return hostCredentialsCommand(owner, native, input, () => { viewState(client).rescan++; });
   }
   if (op.startsWith('diag-')) return telemetryCommand(client, native, op, params(value)); // settings-a-telemetry.ts
   if (op === 'scoped-overrides') {

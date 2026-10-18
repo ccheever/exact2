@@ -23,7 +23,8 @@ import { providerBadge } from '../client/presentation';
 import { triggerModelName } from '../composer/composer-controls-model';
 import { watchDeviceHostStates } from '../client/live-streams';
 import { deviceStateOf, watchDevice } from '../device/device-surface'; // useDeviceState
-import { groupOfMember } from './projects-fleet';
+import { environmentClient, groupOfMember } from './projects-fleet';
+import { scopeRepresentative } from './settings-core-view';
 
 type Choice = { value: string; label: string; selected: boolean };
 type Layer = { key: string; label: string; value: string; effective: boolean; set: boolean };
@@ -248,7 +249,7 @@ export function fetchIntervalPatch(settings: Obj, raw: string): Obj {
   return { backgroundActivity: { schemaVersion: 1, profile: 'custom', baseProfile: base, overrides } };
 }
 
-const discoveries = new WeakMap<T3Client, { key: string; value: Obj; error: string }>();
+const discoveries = new WeakMap<T3Client, Map<string, { key: string; value: Obj; error: string }>>();
 function scopeError(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string): string {
   if (!native?.available || !client.ready || (environmentId !== "" && environmentId !== client.environmentId)) return 'Connect an environment to inspect its version control tools and hosting integrations.';
   if (projectId && !client.shell.projects.some(project => project.id === projectId)) return 'This scope is unavailable. Choose a connected environment and an existing checkout.';
@@ -260,28 +261,34 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
   const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, repositories: [] as ScopedRow[], text: [] as ScopedRow[],
     scanned: false, scanError: '', vcs: [] as ReturnType<typeof discoveryRows>['vcs'], providers: [] as ReturnType<typeof discoveryRows>['providers'], fetches: [fetchInterval({})], hostCredentials: [] as HostCredentials[] };
   if (!active) return empty;
-  const error = scopeError(client, native, environmentId, projectId);
-  if (error || !native) return { ...empty, error };
+  if (!native?.available) return { ...empty, error: 'Connect an environment to inspect its version control tools and hosting integrations.' };
   try {
-    const access = client.restAccess(native);
-    // useScopedSettings (SourceControlSettings.tsx): the connection's subscribed config, never a read per answer.
-    const config = client.config, settings = obj(config.settings);
-    if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
-    const rows = sourceControlRows(settings, projectId, environmentLabel(client), arr(config.providers), can(client, 'settings:write'));
     const legacy = !projectKey && projectId ? groupOfMember(client, projectId) : undefined;
+    if (projectId && !projectKey && !legacy) return { ...empty, error: 'This scope is unavailable. Choose a connected environment and an existing checkout.' };
     const scope = resolveScope(client, machine, legacy?.key ?? projectKey, checkout);
     const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope));
+    const representative = scopeRepresentative(scope);
+    if (!representative) return { ...empty, error: scope.message || 'Connect an environment to inspect its version control tools and hosting integrations.' };
+    const owner = environmentClient(client, representative.environmentId, native), access = owner.restAccess(native);
+    const selectedProjectId = str(scope.members.find(member => member.environmentId === owner.environmentId)?.id);
+    // The selected connection's subscribed config supplies both tools and ordinary preference rows.
+    const config = owner.config, settings = obj(config.settings);
+    if (selectedProjectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
+    const rows = sourceControlRows(settings, selectedProjectId, environmentLabel(owner), arr(config.providers), can(owner, 'settings:write'));
     for (const row of [...rows.repositories, ...rows.text]) row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
     // Discovery scans one machine's tools (server.discoverSourceControl); a rescan re-runs it.
-    const key = `${client.origin}:${client.generation}:${rescan}`;
-    let cached = discoveries.get(client);
+    const key = `${owner.origin}:${owner.generation}:${rescan}`;
+    let owned = discoveries.get(client);
+    if (!owned) { owned = new Map(); discoveries.set(client, owned); }
+    let cached = owned.get(owner.environmentId);
     if (!cached || cached.key !== key) {
       try { cached = { key, value: await access.request('server.discoverSourceControl', {}), error: '' }; }
       catch (failure) { if (letGo(failure)) throw failure; cached = { key, value: {}, error: failure instanceof Error ? failure.message : 'Could not scan the server environment.' }; }
-      discoveries.set(client, cached);
+      owned.set(owner.environmentId, cached);
     }
     const found = discoveryRows(cached.value);
-    return { ...empty, available: true, ...rows, scanned: true, scanError: cached.error, ...found, fetches: [fetchInterval(settings)], hostCredentials: hostCredentials(settings, cached.value, client.environmentId, rescan, client.writable && !projectId) };
+    return { ...empty, project: Boolean(selectedProjectId), available: true, ...rows, scanned: true, scanError: cached.error, ...found, fetches: [fetchInterval(settings)],
+      hostCredentials: hostCredentials(obj(owner.config.settings), cached.value, owner.environmentId, rescan, can(owner, 'settings:write') && scope.kind !== 'project' && scope.kind !== 'checkout' && !projectId) };
   } catch (failure) { return { ...empty, error: failure instanceof Error ? failure.message : 'Could not load settings.' }; }
 }
 

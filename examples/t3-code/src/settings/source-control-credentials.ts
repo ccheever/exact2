@@ -4,6 +4,7 @@ import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { redactedValue } from '../shared/redacted-text';
+import { requirePermission } from '../connections/command-permissions';
 
 
 export function groupGitHubAccounts(accounts: Obj[]) {
@@ -45,7 +46,8 @@ export type HostCredentials = ReturnType<typeof hostCredentials>[number];
 /** Read current settings before replacing either host map; redaction markers retain other secrets. */
 export async function hostCredentialsCommand(client: T3Client, native: Native, input: Record<string, string>, rescan: () => void): Promise<string> {
   if (input.environment && input.environment !== client.environmentId) throw new ClientError('That environment is no longer selected.');
-  if (!client.writable) throw new ClientError('This environment is read-only.');
+  if (!client.ready) throw new ClientError('Reconnect before changing source control host settings.');
+  requirePermission(client.scopes, 'settings:write');
   const access = client.restAccess(native), settings = await access.request('server.getSettings');
   const hosts = obj(settings.sourceControlHosts), kind = input.kind;
   if (!['github', 'gitcafe', 'bitbucket'].includes(kind)) throw new ClientError('Unsupported source control host.');
