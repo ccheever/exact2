@@ -147,6 +147,40 @@ final class DecorationEditorTests: XCTestCase {
         XCTAssertEqual(field.string,"hello")
     }
 
+    func testAuthoritativeDecorationEchoRestylesAnUnchangedNativeValueAndKeepsHistory() throws {
+        let original = "- [ ] task", checked = "- [x] task"
+        func metadata(_ source: String, _ on: Bool) throws -> String {
+            try record(source, blocks:[["name":"strong","start":0,"end":10,"marker":on ? "checkbox:on" : "checkbox:off"]], hidden:[["start":0,"end":6]])
+        }
+        let (p,_,field,editor) = try fixture(original,record:metadata(original,false))
+        let manager = try XCTUnwrap(field.undoManager)
+        manager.groupsByEvent = false
+        p.fieldSelections.setRangeText(["editor","x",3,4,"preserve","undo"])
+        XCTAssertEqual(field.string,checked)
+        XCTAssertEqual(editor.state["provisional"] as? Bool,true)
+        let selection = field.selectedRange()
+        func echo(_ source: String, _ on: Bool) throws {
+            p.apply(wireBatch([["op":"props","id":2,"set":["value":source,"decorations":try metadata(source,on)]]]))
+            XCTAssertEqual(editor.state["provisional"] as? Bool,false)
+            XCTAssertEqual(editor.blocks.last?.marker,on ? "checkbox:on" : "checkbox:off")
+            XCTAssertEqual(editor.hidden,[NSRange(location:0,length:6)])
+        }
+        try echo(checked,true)
+        XCTAssertEqual(field.selectedRange(),selection)
+        manager.undo()
+        XCTAssertEqual(field.string,original)
+        try echo(original,false)
+        XCTAssertTrue(manager.canRedo,"metadata does not clear native history")
+        manager.redo()
+        XCTAssertEqual(field.string,checked)
+        try echo(checked,true)
+        p.apply(wireBatch([["op":"props","id":2,"set":[:],"clear":["decorations"]]]))
+        XCTAssertNil(field.decorations)
+        XCTAssertEqual(field.string,checked)
+        XCTAssertEqual(field.accessibilityValue(),checked)
+        XCTAssertTrue(manager.canUndo)
+    }
+
     func testRangeGeometryWrapsScrollsAndBecomesUnavailableWhenDetached() throws {
         let source = String(repeating:"A wrapping field ",count:20)
         let (p,node,field,_) = try fixture(source,record:record(source))
