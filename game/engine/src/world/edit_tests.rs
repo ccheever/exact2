@@ -92,9 +92,7 @@ fn live_edits_are_stamped_saved_replayed_validated_and_refused_in_production() {
         .iter()
         .any(|e| e.line.contains("production bake")));
     assert!(!production.world.set_seen.get());
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.assert_pin("{}"))).is_err()
-    );
+    refuses_pin(&sim, "pin refused: run contains a set development edit");
     for _ in 0..4100 {
         sim.world().log("rollover");
     }
@@ -103,9 +101,7 @@ fn live_edits_are_stamped_saved_replayed_validated_and_refused_in_production() {
     assert!(replay
         .agent(r#"{"op":"state"}"#)
         .contains("\"developmentEdits\":true"));
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| replay.assert_pin("{}"))).is_err()
-    );
+    refuses_pin(&replay, "pin refused: run contains a set development edit");
 }
 
 #[test]
@@ -142,14 +138,10 @@ fn only_admitted_edits_poison_pins_and_clean_restore_cannot_clear_them() {
         .world()
         .save();
     sim.world_mut().load(&clean_world).unwrap();
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.assert_pin("{}"))).is_err()
-    );
+    refuses_pin(&sim, "pin refused: run contains a set development edit");
     sim.restore(&clean).unwrap();
     assert!(sim.world.set_seen.get());
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.assert_pin("{}"))).is_err()
-    );
+    refuses_pin(&sim, "pin refused: run contains a set development edit");
     let mut old = sim.world().save();
     old[7] = 4;
     assert!(sim
@@ -159,4 +151,59 @@ fn only_admitted_edits_poison_pins_and_clean_restore_cannot_clear_them() {
         .unwrap()
         .to_string()
         .contains("EXGAME v4 predates v5"));
+}
+
+fn matching_pin(sim: &Sim<Editable>) -> String {
+    format!(
+        r#"{{"game":"set-oracle","ticks":{{"{}":"0x{:016x}"}}}}"#,
+        sim.world().tick(),
+        sim.world().hash()
+    )
+}
+fn refuses_pin(sim: &Sim<Editable>, expected: &str) {
+    let pins = matching_pin(sim);
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.assert_pin(&pins)))
+        .unwrap_err();
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap();
+    assert!(message.contains(expected), "{message}");
+}
+#[test]
+fn raw_world_import_latches_before_restart_and_clean_restore() {
+    let mut edited = Sim::<Editable>::new(EditOptions::default()).unwrap();
+    edited
+        .world_mut()
+        .apply_set("set player Tuning.speed 8", true);
+    let poisoned = edited.world().save();
+    for restart in [false, true] {
+        let mut sim = Sim::<Editable>::new(EditOptions::default()).unwrap();
+        let clean = sim.save().unwrap();
+        sim.assert_pin(&matching_pin(&sim));
+        sim.world_mut().load(&poisoned).unwrap();
+        refuses_pin(&sim, "pin refused: run contains a set development edit");
+        if restart {
+            sim.bind(&[Value::Bool(true)], None).unwrap();
+        }
+        sim.restore(&clean).unwrap();
+        refuses_pin(&sim, "pin refused: run contains a set development edit");
+        sim.bind(&[Value::Bool(true)], None).unwrap();
+        refuses_pin(&sim, "pin refused: run contains a set development edit");
+    }
+}
+#[test]
+fn queued_set_refuses_pin_before_admission() {
+    let mut sim = Sim::<Editable>::new(EditOptions::default()).unwrap();
+    sim.advance(0., Clock::Seekable);
+    sim.post("set player Tuning.speed 8");
+    assert!(sim.agent(r#"{"op":"state"}"#).contains(r#""queuedSets":1"#));
+    refuses_pin(
+        &sim,
+        "pin refused: queued set development edit awaits admission",
+    );
+    sim.advance(17., Clock::Seekable);
+    assert!(sim.agent(r#"{"op":"state"}"#).contains(r#""queuedSets":0"#));
+    refuses_pin(&sim, "pin refused: run contains a set development edit");
 }

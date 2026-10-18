@@ -543,7 +543,7 @@ macro_rules! module {
                 <$game as $crate::exact_game::Game>::NAME,
                 <<$game as $crate::exact_game::Game>::Args as $crate::exact_game::Args>::FIELDS
                     .len(),
-                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default().development_edits(!matches!(option_env!("EXACT_UPDATE_TRUST"), Some("production")))),
+                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default().development_edits($crate::development_edits_allowed())),
             )],
             shaders: $shaders,
         };
@@ -575,3 +575,8 @@ mod test_device;
 
 #[cfg(test)]
 mod visibility_tests;
+
+/// Baked here so this crate's build-script environment edge owns the policy.
+pub fn development_edits_allowed() -> bool {
+    !matches!(option_env!("EXACT_UPDATE_TRUST"), Some("production"))
+}

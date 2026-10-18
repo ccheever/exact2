@@ -5,12 +5,21 @@ impl<G: Game> Sim<G> {
         self.development_edits = allowed;
     }
 
+    pub(crate) fn queued_sets(&self) -> usize {
+        self.queue.iter().filter(|q| matches!(&q.event, InputEvent::Message { text, .. } if crate::world::edit::command(text).is_some())).count()
+    }
+
     /// Assert a test hash against the game's single pins.json (included by its test).
     /// Unknown metadata fields are skipped by Data; no generated Rust is needed.
     pub fn assert_pin(&self, pins: &str) {
         assert!(
             !self.edits_admitted && !self.world.set_seen.get(),
             "pin refused: run contains a set development edit"
+        );
+        assert_eq!(
+            self.queued_sets(),
+            0,
+            "pin refused: queued set development edit awaits admission"
         );
         let (game, tick, got) = (G::ID, self.world.tick(), self.world.hash());
         #[derive(Default, crate::Data)]
