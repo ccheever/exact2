@@ -9,7 +9,7 @@
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } from './inspector';
 // The panel's controls and the grid's cells by kind.
-import { cellText, colourLiteral, panelOf } from './dials';
+import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
@@ -492,6 +492,13 @@ let lastFiles: Record<string, string> = {};
 // Each file change the poll has seen, and each fresh start of it: what a
 // design read follows (with the digests), not every event's `seq`.
 let fileChanges = 0;
+// Commits told (with fileChanges, what moves while a scrub is open).
+let commitsTold = 0;
+// The scrubs open on the server, any client's, as its events tell them:
+// while one is, a build's status or a frame re-reads nothing.
+const scrubsOpen = new Set<string>();
+// Each scrub opened or ended (two in one answer still move it).
+let scrubMoves = 0;
 const digestKey = (files: Record<string, string> = {}) => JSON.stringify(Object.keys(files).sort().map(f => [f, files[f]]));
 // Each read's stored values, axes and columns, by `<file>|<its digest>`; a few.
 const reads = new Map<string, { stored: Map<string, Stored[][]>; axes: Axis[]; columns: Column[] }>();
@@ -523,20 +530,6 @@ let heldToken = '';
 let heldAt = { epoch: '', revision: -1 };
 // The list as last sent, and the design read its swatches were drawn from.
 let heldRaw: any[] = [], heldDesign = -1;
-/** A value's sides, light and dark, as swatches show them: `light-dark(a,
- * b)` split at its top-level comma, else one value for both. */
-export function sides(v: string): [string, string] {
-  const m = /^light-dark\((.*)\)$/s.exec(v.trim());
-  if (!m) return [v.trim(), v.trim()];
-  let depth = 0;
-  for (let i = 0; i < m[1].length; i++) {
-    const c = m[1][i];
-    if (c === '(') depth++;
-    else if (c === ')') depth--;
-    else if (c === ',' && depth === 0) return [m[1].slice(0, i).trim(), m[1].slice(i + 1).trim()];
-  }
-  return [v.trim(), v.trim()];
-}
 /** An import's review (LLP 1122 D11) as the view lists it: the mapped
  * tokens with their values per mode, the role overrides it offers, the
  * values it could not map and why, and the count check. */
@@ -639,6 +632,7 @@ const opText = (o: any): string => {
 /** An event as the changeset keeps it. */
 function noted(e: any) {
   if (e.event === 'committed') {
+    commitsTold += 1;
     // What was written before the commit, in its files.
     for (const n of changeset) if (n.seq < e.seq && n.files.some(f => (e.files ?? []).includes(f))) n.committed = true;
     return;
@@ -1070,7 +1064,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
@@ -1119,7 +1113,7 @@ const sources: Sources = {
     // Where the changes start from: the files as the poll has them when it
     // starts again (the first answer, a gap it says it missed, a new run).
     const anew = !epoch || r.missed || (place.epoch && r.epoch !== place.epoch);
-    if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; if (r.missed) mine.length = 0; }
+    if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; if (r.missed) mine.length = 0; scrubsOpen.clear(); }
     // A gap in this run: said in the list, which is no longer complete.
     if (epoch && r.missed && r.epoch === place.epoch) {
       changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
@@ -1127,6 +1121,9 @@ const sources: Sources = {
     if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
     // The builds, as their events tell them.
     for (const e of (r.events ?? []) as any[]) {
+      // (The design server gone: its scrubs with it.)
+      if (e.event === 'down') { scrubMoves += 1; scrubsOpen.clear(); }
+      if (e.event === 'scrub') { scrubMoves += 1; if (e.reason === 'opened') scrubsOpen.add(String(e.scrub)); else scrubsOpen.delete(String(e.scrub)); if (scrubsOpen.size > 64) scrubsOpen.delete(scrubsOpen.values().next().value!); }
       // Each as it comes, so a reload told in one answer still ends a
       // selection (a build that went keeps its inspect mode at the server,
       // which tells it again when it is back).
@@ -1240,7 +1237,8 @@ const sources: Sources = {
     // What a commit would take now (a dry run, of the run the poll is on),
     // so Commit is on when there is something, writes from before the tool
     // opened among them, a refusal to say, or no answer (it says why when
-    // pressed). Read again with each poll answer.
+    // pressed). Read again with each poll answer (while a scrub is open,
+    // only when the files move or a commit is told).
     const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
     const refused = ((dry.reply.error as { refused?: unknown[] } | undefined)?.refused ?? []).length;
     const nothing = /nothing to commit|written nothing/.test(dry.error);

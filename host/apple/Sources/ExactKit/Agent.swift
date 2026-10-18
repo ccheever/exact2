@@ -315,6 +315,10 @@ public final class Agent {
             var reply = session.agent(json)
             var nativeSections = stateSections()
             for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
+            nativeSections["decorations"] = presenter.views.values.sorted { $0.id < $1.id }.compactMap { node -> [String: Any]? in
+                guard let editor = node.fieldDecorations else { return nil }
+                return ["id": Int(node.id), "applied": editor.state]
+            }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
             nativeSections["mediaSession"] = mediaSessionState() // LLP 1098 D10

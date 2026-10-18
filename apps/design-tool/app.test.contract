@@ -512,6 +512,40 @@ test "another design file is read when chosen, and a refused one shows its error
   expect tree missing "design-error"
   expect tree has "dial-accent-color"
 
+test "while a scrub is open a build's status reads no commit scope again, and the scrub's end does"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/refuse-commit" {"nothing": true} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  request POST "/__stub/event" {"events": [{"event": "builds", "builds": [{"id": "ios-1", "host": "ios", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-7", "reason": "opened"}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  // A dry commit read now would find an edit, and turn Commit on.
+  request POST "/__stub/refuse-commit" {"nothing": false} as ada
+  request POST "/__stub/event" {"events": [{"event": "build-status", "build": {"id": "ios-1", "host": "ios", "design": "d1", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}}, {"event": "build-status", "build": {"id": "ios-1", "host": "ios", "design": "d2", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  // Its end (another opened in the same answer still counts) reads it again.
+  request POST "/__stub/event" {"events": [{"event": "scrub", "client": "agent:codex", "scrub": "scrub-7", "reason": "cancelled"}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-8", "reason": "opened"}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect enabled "commit"
+  request POST "/__stub/refuse-commit" {"why": ""} as ada
+  request POST "/__stub/restart" {} as ada
+
 test "the changeset lists each write since the tool opened, and commit reports what it took or why not"
   type "name" "Ada"
   tap "save-name"

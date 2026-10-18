@@ -179,24 +179,32 @@ pub(crate) fn declare(
             }
         };
         for target in targets.iter().map(|t| t.name.as_str()) {
-            // Apple draws the SF Symbol (its hosts draw no path yet); every
-            // other host a template's path, and the web a file as written.
+            // Every host draws a template's path (Apple's page and widget
+            // hosts too, where no SF Symbol is given: stage 9 A; not yet a
+            // watch's), Apple an SF Symbol, and the web a file as written.
             let template = svg.as_ref().is_some_and(|s| s.not_template.is_none());
-            let drawn = if apple(target) {
-                icon.sf.is_some()
-            } else {
-                template || (target == "web" && svg.is_some())
-            };
+            let drawn = (template && target != "watchos")
+                || if apple(target) {
+                    icon.sf.is_some()
+                } else {
+                    target == "web" && svg.is_some()
+                };
             if drawn {
                 continue;
             }
             errors.push(match (&svg, &icon.svg) {
-                (Some(s), Some(file)) if !apple(target) => refuse(
+                // A one-colour SVG a watch doesn't draw yet: it needs the SF Symbol.
+                (Some(_), Some(_)) if template => refuse(
+                    "tamber-icon-missing",
+                    format!("{} has no source for {target}: a watch draws an icon only as an SF Symbol (an `sf` source)", icon.name),
+                ),
+                (Some(s), Some(file)) => refuse(
                     "tamber-icon-svg",
                     format!(
-                        "`{}`: `assets/{file}` is no one-colour shape ({}), and the app ships {target}, which draws an icon only as {TEMPLATE} (the web alone draws any SVG as written). To fix it, {}; or start from an SVG already in that form (Material Symbols' are){}",
+                        "`{}`: `assets/{file}` is no one-colour shape ({}), and the app ships {target}, which draws an icon only as {TEMPLATE}{} (the web alone draws any SVG as written). To fix it, {}; or start from an SVG already in that form (Material Symbols' are){}",
                         icon.name,
                         s.not_template.as_deref().unwrap_or(""),
+                        if apple(target) { " or as an SF Symbol (an `sf` source)" } else { "" },
                         s.fix,
                         without(target)
                             .map(|step| format!(". Not shipping {target}? {step} removes it"))

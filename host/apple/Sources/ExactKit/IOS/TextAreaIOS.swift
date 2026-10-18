@@ -145,9 +145,11 @@ package final class TextArea: UITextView {
             textUndo = NativeTextUndo(manager: manager, before: { [weak self] in
                 self?.markup?.applying = true
             }, after: { [weak self] in
-                guard let self, let editor = markup else { return }
-                editor.applying = false
-                editor.bookmark = selectedRange
+                guard let self else { return }
+                if let editor = markup {
+                    editor.applying = false
+                    editor.bookmark = selectedRange
+                }
                 owner?.textViewDidChange(self)
             })
         }
@@ -157,6 +159,23 @@ package final class TextArea: UITextView {
     weak var owner: NodeView?
     /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
     package var markup: MarkdownEditing?
+    private var decorationTap: DecorationTap?
+    package var decorations: FieldDecorating? {
+        didSet {
+            if decorations == nil { decorationTap?.detach(); decorationTap = nil }
+            else if decorationTap == nil { decorationTap = DecorationTap(self) }
+        }
+    }
+
+    package override var selectedRange: NSRange {
+        get { super.selectedRange }
+        set { super.selectedRange = markedTextRange == nil ? decorations?.selection(newValue, previous: super.selectedRange) ?? newValue : newValue }
+    }
+
+    package override var accessibilityValue: String? {
+        get { decorations?.projection?.value ?? super.accessibilityValue }
+        set { super.accessibilityValue = newValue }
+    }
 
     package override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
         owner?.presenter?.supersedePress() // composed text, as typed text
@@ -166,6 +185,7 @@ package final class TextArea: UITextView {
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
     package override func insertText(_ text: String) {
+        if markedTextRange == nil, let range = decorations?.replacement(selectedRange), range != selectedRange { selectedRange = range }
         owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
         owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
         // UIKeyInput (including the software keyboard) need not ask the
@@ -179,11 +199,23 @@ package final class TextArea: UITextView {
     }
 
     package override func deleteBackward() {
+        if markedTextRange == nil, selectedRange.length == 0, selectedRange.location > 0 {
+            let unit = ((text ?? "") as NSString).rangeOfComposedCharacterSequence(at: selectedRange.location - 1)
+            if let range = decorations?.replacement(unit), range != unit { selectedRange = range }
+        }
         owner?.presenter?.supersedePress()
         owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go, a deletion that changes nothing included (HeldState.swift)
+        func deleteSource() {
+            let smart = smartInsertDeleteType
+            // Atomic deletion owns exactly its source interval. UIKit's smart
+            // deletion can also consume an adjacent space for a selected word.
+            if markedTextRange == nil, decorations?.containsAtom(selectedRange) == true { smartInsertDeleteType = .no }
+            defer { smartInsertDeleteType = smart }
+            super.deleteBackward()
+        }
         if let selections = owner?.presenter?.fieldSelections {
-            selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
-        } else { super.deleteBackward() }
+            selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil, deleteSource)
+        } else { deleteSource() }
     }
 
     package override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -288,7 +320,9 @@ package final class TextArea: UITextView {
     /// The authored `::placeholder` colour (LLP 1104 D3); nil, UIKit's.
     var placeholderColor: UIColor?
     package override func draw(_ rect: CGRect) {
+        decorations?.draw(background: true)
         super.draw(rect)
+        decorations?.draw(background: false)
         if text.isEmpty, !placeholder.isEmpty {
             (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
@@ -365,6 +399,7 @@ extension NodeView {
         textArea = f
     }
     func configureMarkup() {
+        configureDecorations()
         guard let f = textArea as? TextArea else { return }
         #if os(iOS)
         f.pasteDelegate = props["markup"] == "markdown" ? nil : self
@@ -382,6 +417,7 @@ extension NodeView {
         guard let f = textArea else { return }
         configureMarkup()
         writeValue(props["value"] ?? "", into: f)
+        fieldDecorations?.restyle(self)
         #if !os(tvOS)
         f.isEditable = !disabled && props["editable"] != "false"
         #endif
@@ -462,6 +498,7 @@ extension NodeView {
             && (presenter?.fieldSelections.shouldEdit(self, range: range, replacement: text, marked: textView.markedTextRange != nil) ?? true)
     }
     package func textViewDidChange(_ textView: UITextView) {
+        if (textView as? TextArea)?.decorations?.styling == true { return }
         if let editor = (textView as? TextArea)?.markup, editor.applying || editor.styling { return }
         textView.setNeedsDisplay()
         if !disabled { typedText(textView.text ?? "") }
@@ -472,6 +509,7 @@ extension NodeView {
         presenter?.revealCaret(of: self)
     }
     package func textViewDidChangeSelection(_ textView: UITextView) {
+        if !fieldComposing { fieldDecorations?.restyle(self) }
         presenter?.fieldSelections.changed(self) // a plain textarea's `select` (x2apps codeedit #2)
         guard let f = textView as? TextArea, let editor = f.markup, !editor.applying, !editor.styling, f.markedTextRange == nil else { return }
         if f.isFirstResponder { editor.bookmark = f.selectedRange }

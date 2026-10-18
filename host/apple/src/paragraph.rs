@@ -590,6 +590,11 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, S
                 "symbolName".into(),
                 exact_kernel::apple_symbol_name(role).into(),
             );
+            // @ref LLP 1121 D10 — an svg-only icon's path, which Apple draws (stage 9 A).
+            if let Some((d, view_box)) = crate::icon_path::commands(role) {
+                out.insert("symbolPath".into(), d);
+                out.insert("symbolViewBox".into(), view_box.into());
+            }
         }
     }
     out

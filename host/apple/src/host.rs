@@ -1085,6 +1085,22 @@ impl<D: DataSource> Host<D> {
         self.resize_inner(width, height, Batch::new(), None)
     }
 
+    /// A placement root's resolved margins and whether its width is the author's
+    /// (`Kernel::placement_box`), as JSON `[left, top, right, bottom, authored]`;
+    /// an error names the view.
+    pub fn placement_box(&mut self, view: ViewId) -> String {
+        let kernel = self.runner.kernel();
+        let Some(key) = kernel.node(view).map(|n| n.key) else {
+            return serde_json::json!({"error": format!("no view {view}")}).to_string();
+        };
+        match kernel.placement_box(key) {
+            Some(b) => serde_json::to_string(&b).unwrap(),
+            None => {
+                serde_json::json!({"error": format!("view {view} is not laid out")}).to_string()
+            }
+        }
+    }
+
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> String {
         match self.runner.set_time(epoch_at_zero, utc_offset) {

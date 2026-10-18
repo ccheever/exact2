@@ -59,6 +59,7 @@
       }
     }
   ],
+  "data": ["privacy"],
   "live_activities": [
     {
       "kind": "departure",

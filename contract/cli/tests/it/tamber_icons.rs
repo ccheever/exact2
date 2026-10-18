@@ -73,15 +73,28 @@ fn a_shipped_target_without_a_source_is_refused() {
         e.message.contains("linux") && e.message.contains("more than one colour"),
         "{e:?}"
     );
-    // Apple draws the SF Symbol: an SVG alone is no source there.
+    // Apple draws a template's path too (stage 9 A): an SVG alone is a
+    // source there; a file of more than one colour needs an SF Symbol.
     let svg_only = "  icon.svg = icon(svg \"icons/reply.svg\")\n";
     let path = app("apple", "\"ios\": {}", svg_only, &view("symbol:icon.svg"));
-    let e = contract::compile_path(&path).unwrap_err();
-    assert_eq!(e.id, "tamber-icon-missing", "{e:?}");
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(
-        e.message.contains("icon.svg has no source for ios"),
+        plan.strings.iter().any(|s| s.starts_with("symbol:icon||")),
+        "an svg-only icon, no sf"
+    );
+    let two = "  icon.two = icon(svg \"icons/two.svg\")\n";
+    let path = app("apple-two", "\"ios\": {}", two, &view("symbol:icon.two"));
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-icon-svg", "{e:?}");
+    assert!(
+        e.message.contains("ios") && e.message.contains("an SF Symbol"),
         "{e:?}"
     );
+    // A watch draws only the SF Symbol yet: a one-colour SVG alone is no source there, said so.
+    let path = app("watch", "\"watchos\": {}", svg_only, &view("symbol:icon.svg"));
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-icon-missing", "{e:?}");
+    assert!(e.message.contains("a watch draws an icon only as an SF Symbol"), "{e:?}");
     let path = app("web-only", "\"web\": {}", design, &view("symbol:icon.two"));
     let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(

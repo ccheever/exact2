@@ -204,7 +204,6 @@ public final class ExactApp {
     public func refreshDelivery() {
         for session in sessions { session.apply(session.runtime.deliverySync()) }
     }
-
     func handleCommand(_ name: String) -> Bool { lifecycle?.handleCommand(name, app: self) ?? false }
 
     /// A session of this app: one runtime, unbooted until `boot` or its view's first layout.
@@ -698,8 +697,10 @@ public final class ExactSession {
         landFill()
     }
     private func wire() {
+        runtime.on { exact_set_decorated_measure(runtime.rt, DecorationMeasurements.read) }
         runtime.topLayer = { [weak self] in self?.presenter.openTopLayer ?? ([], nil) }
-        runtime.setInlineGeometry { [weak self] id in self?.presenter.inlineFrame(id) }
+        runtime.setInlineGeometry({ [weak self] id in self?.presenter.inlineFrame(id) },
+                                  range: { [weak self] id, start, end in self?.presenter.rangeFrame(id, start: start, end: end) })
         if ExactSession.asyncFills {
             // @ref LLP 1072 §8.5 — main does not wait for a canvas's draw.
             runtime.canvasDefer(true)

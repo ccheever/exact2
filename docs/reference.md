@@ -442,7 +442,51 @@ measures its `fit_content_height`. `snapshot_viewport` thus reads the current
 region's size; no app-visible slot selector is injected. The other slots' frames
 are not a shared surface layout. Rendering remains read-only, with the same
 clock, request, input and handler refusals as widgets. `time` and `progress`
-remain platform live views. Activity rendering and sends are separate host work.
+remain platform live views.
+
+The extension renders every activity through one `ActivityConfiguration` for
+the envelope type (`host/apple/widget/Activity.swift`, LLP 1126.001 WP10), a
+thin adapter over `ExactSnapshot`'s `ActivityResolver`: the attributes' `kind`
+names the plan, `plans/<kind>.plan` in the generation the attributes name,
+which is the one published under that name in the installed cohort or the
+bundle's embedded plans when their identity (`ExactWidgetGeneration`) makes
+that generation; any other generation is refused, the activity shows "Open
+<app>" until the app publishes again, and nothing is rendered in its place.
+The state is the envelope's when its shape digest is the registry's and the
+plan decodes it (then kept as the activity's last good state), else the last
+decodable state kept for the activity id (shown dimmed, the driver's outdated
+presentation; the system's `isStale` is the system's own), else the preview,
+redacted as a placeholder. A render is keyed by the activity, its generation,
+the state's bytes and every fact the session reads (the text size, Bold Text,
+contrast, transparency, the scheme, the display scale, the locale and time
+zone); the eight placements of one push share it. A placement's view answers
+the system's size proposals from the kernel (`ActivityRender`): the bake
+positions each placement's root absolutely at its region's top left, so in
+the region's viewport CSS 2.1 §10.3.7 gives a `width: auto` root the
+shrink-to-fit width (an authored `width` or `min-width` is kept, past the
+region too; a percentage resolves against the region; `margin: auto` is
+nothing; `flex-basis` does not apply, the root being no flex item), and the
+Lock Screen and expanded bottom roots, which the system sizes, take the
+region through `right: 0`. That one layout is measured and drawn: the region
+reports the root's margin box, a paragraph the region wrapped settles to its
+widest ink line, a content the region cannot hold is cut at the region, and
+each view draws the layout its size was measured from, whatever region's
+proposal last laid the session out. The Lock Screen placement sits inside the
+system's content margins or, where the system gives none, the standard
+layout margin for Live Activities on the Lock Screen, 14 points (Human
+Interface Guidelines, Live Activities: "The standard layout margin for Live
+Activities on the Lock Screen is 14 points"); its root's `background-color`
+is the `activityBackgroundTint`, its `background-image`'s gradient layers
+paint full bleed behind the margins over that tint, and both unsaid leave the
+system's material. A Live Activity's content is account content as a
+widget's is (D8): private on a locked phone but for a node that says
+`data-privacy="public"`, which Caltrain's placements do, a train's departure
+being nobody's account. A link in the Lock Screen or an expanded region is a
+`Link`; the first link of any placement is its URL. The development gallery
+shows the eight placements with the Island's geometry of one device (the
+iPhone 17 Pro's, `IslandGeometry`), its expanded regions allocated together
+as ActivityKit arranges them.
+The sends that start, update and end an activity are LLP 1126.001 WP9.
 
 The bake writes `plans/activities.json` and `activities/<kind>.schema.json` plus
 `activities/<kind>.d.ts` (exporting `State`, `Attributes` and `ContentState`). The

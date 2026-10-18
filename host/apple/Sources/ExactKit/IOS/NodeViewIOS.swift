@@ -586,9 +586,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
-            image = name.isEmpty ? nil : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
+            // An icon with no SF Symbol draws its own path (D10, stage 9 A).
+            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
             symbolFound = image != nil; if points <= 0 { image = nil }
-            if name.isEmpty, !source.hasPrefix("symbol:sf/"), symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
+            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") { symbolRefusal = nil }
             let leaf = symbolView ?? UIImageView()
             if symbolView == nil { symbolView = leaf; addSubview(leaf) }
@@ -599,7 +600,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // The symbol's size when the kernel's measurer could not say
             presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
-        symbolView?.tintColor = symbolTint // `nil` inherits UIKit's live tint
+        // An icon path is the node's tint, else its colour (D10); a symbol `nil` inherits UIKit's live tint.
+        symbolView?.tintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
     }
@@ -618,6 +620,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // `preserveAspectRatio` (`xMidYMid meet`) keeps it, and as the web
         // host's symbol mask draws it (LLP 1011 §4).
         default: leaf.contentMode = .scaleAspectFit
+        }
+        // An icon path is a vector: drawn again at the box it fills, not its em square stretched (UIKit scales a bitmap).
+        if props["symbolPath"] != nil, let image {
+            let side = max(content.width, content.height)
+            // (Centred, it is its em square again, whatever the box was before.)
+            if leaf.contentMode == .center { if leaf.image !== image { leaf.image = image } }
+            else if side > 0, leaf.image?.size.width != side { leaf.image = iconPathImage(side: side) }
         }
         // A square box clips nothing the content box does not.
         if cornerRadii(in: bounds).allSatisfy({ $0 == 0 }) { if leaf.layer.mask != nil { leaf.layer.mask = nil }; return }
@@ -996,7 +1005,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     // Resolve the same light-dark() wire value as the shared paragraph builder.
     // @ref LLP 1034 D1/D2
-    var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
+    package var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
     package func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
         style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) }
     }

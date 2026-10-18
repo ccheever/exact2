@@ -208,6 +208,11 @@ shape Changes
   // The files' digests as the poll has them: what a design read follows
   // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
   files: string
+  // Each answer, but while a scrub is open (any client's) only the files'
+  // changes, the commits told and scrubs opening or ending: what hello, the
+  // commit's dry run, a token's uses and a draft's proposal are read again
+  // on, so a scrub's frames and its builds' statuses cost no reads.
+  paced: string
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -542,7 +547,7 @@ component DesignTool
   resource inspected = loadSelection(changes.answer, design.answer) as shape Inspected else empty()
   mutation inspectSent as shape Pinned refreshes inspected
   state impactToken = ""
-  resource uses = loadUses(impactToken, changes.answer) as shape Uses else empty(ok=true)
+  resource uses = loadUses(impactToken, changes.paced) as shape Uses else empty(ok=true)
   mutation outlined as shape Pinned
   state draftName = ""
   // The long poll's place: the last sequence number seen, in which run, and
@@ -552,11 +557,12 @@ component DesignTool
   // The files as of the last answer: reads of the design follow these, not
   // `since`, so a stream of build statuses never reads a big design again.
   state filesAt = ""
+  state pacedAt = ""
   // A proposal's place in the poll: it follows every answer, at least one
   // each 25 s, but while a scrub is shown (its class moves without files:
   // the JS loop's builds, its design reader getting ready, which says
   // nothing), so a stream of scrub frames proposes nothing again.
-  state proposeAt = 0
+  state proposeAt = ""
   state asks = 0
   resource hello = loadHello() as shape Hello else empty(ok=true)
   derive client = `design-tool:${person}`
@@ -624,7 +630,7 @@ component DesignTool
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
-  resource scope = loadScope(client, changes.answer) as shape Scope else empty(open=0, refused=false, unavailable=false)
+  resource scope = loadScope(client, changes.paced) as shape Scope else empty(open=0, refused=false, unavailable=false)
   // The items of held proposals picked for "Accept picked"
   // (`<proposal>:<index>`), and the last change whose highlight has faded.
   state picked: string[] = []
@@ -684,16 +690,17 @@ component DesignTool
     after(3000, advance)
 
   action advance
-    // A change (the files' digests moved), another run, more missed than
-    // the server keeps, or no answer: read the files again.
-    if changes.missed or not hello.ok or not changes.ok or changes.seq != since
+    // A change (an answer, paced while a scrub is open), another run, more
+    // missed than the server keeps, or no answer: read the files again.
+    if changes.missed or not hello.ok or not changes.ok or changes.paced != pacedAt
       refresh hello
     if not design.ok
       refresh design
     since = changes.seq
     filesAt = changes.files
+    pacedAt = changes.paced
     if not scrubShown
-      proposeAt = changes.answer
+      proposeAt = changes.paced
     epoch = changes.epoch
     asks = asks + 1
   action reconnect
@@ -704,8 +711,9 @@ component DesignTool
       if changes.ok
         since = changes.seq
         filesAt = changes.files
+        pacedAt = changes.paced
         if not scrubShown
-          proposeAt = changes.answer
+          proposeAt = changes.paced
         epoch = changes.epoch
       asks = asks + 1
   action editName(v: string)
