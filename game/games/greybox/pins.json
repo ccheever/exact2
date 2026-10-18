@@ -1,17 +1,20 @@
 {
   "ticks": {
-    "0": "0x41e6f7a7fbccc126",
-    "90": "0x4d892b02503223cb"
+    "0": "0xa28d39d25aa334b7",
+    "90": "0x1dd0b2c4abc3cc01",
+    "98": "0x3e39671242e6ac85"
   },
   "saves": {
-    "continuation": "c4589053ef56077a92ddf40305e34c83e43bd4e008793c86163249ffa9d3fbb1"
+    "continuation": "687c9d130a350b6b7f9023de61d6b6fb2fc419970028ca8b97717255e0e12bda"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "4da9d338fb67b0e491566c8f65d83fbdcb68677fab22194e98f4e8ea4c811f9c",
+  "inputs": "a1dcc3a3fafd926c1a62fd8c5f6b3107e024f0b4aed32212180fcea3d4306712",
+  "sourceInputs": "fe9e28cdd3c9398e741d44a72b86ab82dec208fc597b7a245288136cc368ac59",
   "game": "greybox",
   "generated": "bun game/prove.mjs greybox --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "d668f3773434b3b5ae1ad6e246c474ea5654f567",
+  "reason": "Consume hashed BeaconLit events on the next tick and version saves as EXGAME v5"
 }
