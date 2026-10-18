@@ -4,16 +4,16 @@
     "1080": "0x1e5dd38f9b0ce70a"
   },
   "saves": {
-    "continuation": "3d5e3c8f6a57c946e57a737edbd47ea8ea5b255c2f5a10f2abc256fb821e6e4c"
+    "continuation": "1281660766dcd23f55c3e6e1cb581920bee88a6f19df6f68d35b523a782e3072"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "4b7d5cb042da73ad817fea6fef7a5a260ae65de3682fc1592758f815b601cfc4",
-  "sourceInputs": "be98365975107c7dd392163a499732083adda1b8866717eba678893cba388fa7",
+  "inputs": "3405923bfd0b7a8a6f1621ded724693964fcb005f17adad5e3681023302cb419",
+  "sourceInputs": "ea05810dc091048c0c7f57dfc77be878788753ffc444bf8c11dbd5401bfbe651",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "71cfed16ad8bbddc5d447cc83fb343f687f5ca07",
-  "reason": "Review round 1 of LLP 1127.003: trigger gestures and latches move from Input's saved copy into the InputGestures world resource, so the continuation save's bytes move; Rivals uses neither, and ticks 0 and 1080 are unchanged."
+  "at": "dafbc718b70afd2e658500f6291a35c37c49d3d0",
+  "reason": "Review round 2 of LLP 1127.003: Input's applied contexts and bindings leave its saved copy for the InputState resource, so the continuation save's bytes move; Rivals uses neither, and ticks 0 and 1080 are unchanged."
 }
