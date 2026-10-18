@@ -63,7 +63,7 @@ export async function learnRoutes(native: Native, fleet: Learner, focused: Focus
     if (entry.phase === 'connected' && Object.keys(entry.config).length) connected.push({ environmentId: entry.environmentId, config: entry.config, activeRouteId: str(entry.activeRouteId), fleet: key });
   }
   for (const live of connected) {
-    const reported = arr(live.config.directEndpoints).map(endpoint => ({ httpBaseUrl: str(endpoint.httpBaseUrl) })).filter(endpoint => endpoint.httpBaseUrl);
+    const reported = arr(live.config.directEndpoints).map(endpoint => ({ httpBaseUrl: str(endpoint.httpBaseUrl), kind: str(endpoint.kind) })).filter(endpoint => endpoint.httpBaseUrl);
     if (!Array.isArray(live.config.directEndpoints)) continue;
     const saved = savedEntry(fleet.saved, live.environmentId);
     if (!saved) continue;

@@ -6,7 +6,7 @@
 // "connected"`): a socket of its own (naming protocol 2) carries `server.updateServerWithProgress` (else
 // `server.updateServer`, a dropped boot-service/respawn socket being the handoff),
 // a desktop-managed result is committed with `server.commitDesktopUpdate`, and the
-// restart ends when the server's descriptor reports the target version (4 minutes),
+// restart ends when the server's descriptor reports the target version (32 minutes),
 // standing in for the lifecycle `ready` event (exact2 #126: no two-way socket in
 // the data source). Its job table is the per-environment store: this module reads
 // it, derives `ServerUpdateState`, and toasts each result once the focused (or

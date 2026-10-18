@@ -18,6 +18,7 @@
 /src/highlight/grammar.ts
 /src/highlight/grammar-*.ts
 /src/highlight/css-words.ts
+/src/highlight/shell-parser/
 /src/settings/settings-b-lucide.ts
 /src/settings/settings-icons.contract
 /src/settings/settings-brands.contract

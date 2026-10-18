@@ -82,6 +82,7 @@ component ChatColumn
     titleUi: action
     home: PagesHome
     commandPending: bool
+    lineageStopping: string
     command: action
     paletteShow: action
     foldHold: bool
@@ -263,14 +264,15 @@ component ChatColumn
   // reference's portaled popups do.
   view
     column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover hatch="t3-frame" data-frame="chat"
-      ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panel=panelUi, details=detailsAct, title=titleUi)
+      ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panel=panelUi, details=detailsAct, title=titleUi, command=command)
       if hero
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
           EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
       if data.messages.length == 0 and data.threadId != ""
-        // MessagesTimeline's empty state (no rows, not working): centred in the timeline under the docked composer; while
-        // the thread's detail loads the pane stays blank (hideEmptyPlaceholder: threadDetailLoading).
-        column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" align-items="center" justify-content="center" testId="empty-timeline"
+        // MessagesTimeline's empty state (no rows, not working): centred in the lane above the composer, which overlays the
+        // timeline (contentInsetEndAdjustment: the tail less its 12pt gap); while the thread's detail loads the pane stays
+        // blank (hideEmptyPlaceholder: threadDetailLoading).
+        column flex=1 min-height=0 width="100%" padding-right=laneInset padding-bottom=(overlaid ? max(0, data.transcriptTail - 12) : 0) box-sizing="border-box" align-items="center" justify-content="center" testId="empty-timeline"
           if not data.threadLoading and not data.running
             text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b4d, #8181814d)" testId="empty-timeline-hint"
       if data.messages.length > 0
@@ -326,7 +328,7 @@ component ChatColumn
       // (app-window.contract outsidePressDown): Base UI's outside press. Over a right panel sheet
       // (a narrow window) it is the window's (app-overlays.contract WindowOverlays), above the sheet.
       if detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen))
-        ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+        ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending, stopping=lineageStopping)
       // A device floated over the chat (device-workspace.contract), in the canvas's frame.
       if shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
         DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
@@ -337,11 +339,11 @@ component ChatColumn
         // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.
         box flex=1 min-height=0 padding-top=(branches.show ? "0.75rem" : "2.75rem")
-      AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command, openSetup=openProviderSettings)
+      AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command, openSetup=openProviderSettings, inset=laneInset)
       // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and becomes the header's
       // popover when no readable height (160pt) is left; its rows fold to the canvas's density (ThreadDetailsCard).
       if details.inline and canvas.cardShown
-        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending, stopping=lineageStopping)
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels
@@ -460,7 +462,7 @@ component PagesCover
           PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme=scheme, sidebarOpen=data.sidebarOpen, busy=commandPending, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
     // The main sidebar trigger is drawn here, whatever the page: after the chat and the page in paint and Tab order,
     // under the dialogs below, which cover the whole window as the reference's portaled dialogs cover SidebarControl.
-    SidebarToggle(open=data.sidebarOpen, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, artwork=data.look.artwork, inert=(toggleInert or (pageCover and utilityPage == "usage" and (usageConfirmOpen or usage.detail.open or usage.prices.open)) or prDetail.actions.dialogOpen or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
+    SidebarToggle(open=data.sidebarOpen, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, artwork=data.look.artwork, inert=(toggleInert or (pageCover and utilityPage == "usage" and (usageConfirmOpen or usage.detail.open or usage.prices.open)) or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
     // Usage's model and Model prices dialogs cover the whole window, sidebar included (pages-usage-dialogs).
     // A pooled segment's reset credit confirm, outside its popover (UsageLimitsPooled RedeemableSegmentPopup).
     if pageCover and utilityPage == "usage" and usageConfirmOpen

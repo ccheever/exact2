@@ -202,12 +202,52 @@ component PrList
   action linkMenuFor(link: string, label: string)
     linkMenuOf = link
     linkMenuLabel = label
+  state sweepGroup = ""
+  state sweepOriginY = 0
+  state sweepStartY = 0
+  state sweepY = 0
+  state sweepDragging = false
+  state sweepSuppress = false
+  state sweepRefs = [""].slice(0, 0)
+  action sweepDown(ref: string, group: string, kind: string, e: PointerEvent)
+    sweepSuppress = false
+    if kind == "close" and e.buttons == 1
+      sweepGroup = group
+      sweepOriginY = e.clientY
+      sweepStartY = e.clientY
+      sweepY = e.clientY
+      sweepDragging = false
+  action sweepMove(e: PointerEvent)
+    if sweepGroup != "" and e.buttons == 1
+      let nextY = e.clientY
+      let started = sweepDragging or max(nextY - sweepStartY, sweepStartY - nextY) >= 6
+      sweepY = nextY
+      sweepDragging = started
+      sweepRefs = page.groups.filter((group) => group.key == sweepGroup).map((group) => group.rows.filter((row) => started and row.speed.filter((item) => item.action == "close" and not item.disabled).length > 0 and frame(`pr-row-wrap-${row.key}`).y + frame(`pr-row-wrap-${row.key}`).height >= min(sweepOriginY, nextY) and frame(`pr-row-wrap-${row.key}`).y <= max(sweepOriginY, nextY)).map((row) => row.ref)).flat()
+  action sweepUp(e: PointerEvent)
+    if sweepDragging
+      sweepSuppress = true
+      act("close-batch", sweepRefs.join("\n"))
+    sweepGroup = ""
+    sweepDragging = false
+    sweepRefs = [""].slice(0, 0)
+  action sweepCancel
+    sweepGroup = ""
+    sweepDragging = false
+    sweepRefs = [""].slice(0, 0)
+    sweepSuppress = true
+  action quick(op: string, value: string)
+    if not sweepSuppress
+      act(op, value)
+    sweepSuppress = false
   // The controls row: wide, the search flexes and the buttons end at the
   // content edge; narrow, the buttons wrap greedily under the search. Each
   // menu names its reference alignment as a `position-area` and flips near
   // the window's edge.
   view
     column flex=1 min-width=0 height="100%" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="pull-requests-page"
+      if sweepDragging
+        button press=sweepCancel aria-label="Cancel closing pull requests" aria-keyshortcuts="Escape" tabindex=-1 title="" width=0 height=0 padding=0 border-width=0 opacity=0
       PrLinkMenu(menuId="pr-link-menu", link=linkMenuOf, openLabel=linkMenuLabel, pick=control("link-pick"))
       // With the panel open, the panel holds the page's Back (PrPanel), as only it knows which of its editors has the focus.
       if not panelOpen
@@ -235,7 +275,7 @@ component PrList
                     text `${group.count}` font-size="0.75rem" line-height="1rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#72727c80, #81818180)" flex-shrink=0
                     box flex=1 min-width="0.5rem" height=1 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
                   for row in group.rows key=row.key
-                    PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, linkMenuFor=linkMenuFor, diff=page.diffScheme, act=act, speedMode=page.speedMode, checks=page.checksPopover, stack=page.stackPopover)
+                    PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, linkMenuFor=linkMenuFor, diff=page.diffScheme, act=quick, sweeping=sweepRefs.includes(row.ref), sweepDown=sweepDown(row.ref, group.key), sweepMove=sweepMove, sweepUp=sweepUp, speedMode=page.speedMode, checks=page.checksPopover, stack=page.stackPopover)
               if page.errors.length > 0
                 column width="100%" gap="0.25rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box"
                   for note in page.errors key=note.key
@@ -717,6 +757,10 @@ component PrAvatar
 component PrRowButton
   props
     row: PrRow
+    sweeping: bool
+    sweepDown: action
+    sweepMove: action
+    sweepUp: action
     scheme: string
     diff: string
     compact: bool
@@ -731,7 +775,7 @@ component PrRowButton
   action hover(value: bool)
     over = value
   view
-    row position="relative" hover=hover width="100%" height="3.5rem" border-radius="0.5rem" background-color=(row.selected ? "light-dark(#f4f4f5, #ffffff0a)" : over ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") align-items="center" testId=`pr-row-wrap-${row.number}`
+    row id=`pr-row-wrap-${row.key}` position="relative" hover=hover width="100%" height="3.5rem" border-radius="0.5rem" background-color=(row.selected or sweeping ? "light-dark(#f4f4f5, #ffffff0a)" : over ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") align-items="center" testId=`pr-row-wrap-${row.number}`
       button press=select(row.ref) aria-label=`${row.stateLabel} #${row.number} ${row.title}` aria-current=(row.selected ? "true" : "") testId=`pr-row-${row.number}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" title=""
       row flex=1 min-width=0 height="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" gap="0.5rem" align-items="center" text-align="left" pointer-events="none"
         column width="1rem" flex-shrink=0 align-self="flex-start" margin-top="0.1875rem" position="relative" aria-label=row.stateLabel
@@ -778,7 +822,7 @@ component PrRowButton
             text row.age font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #818181)" flex-shrink=0
       // PullRequestSpeedActions: `display: visible || actionPending ? flex : none`.
       if row.speed.length > 0 and (speedMode or row.speedPending)
-        PrQuickActions(actions=row.speed, number=row.number, pending=row.speedPending, act=act)
+        PrQuickActions(actions=row.speed, number=row.number, pending=row.speedPending, act=act, sweepDown=sweepDown, sweepMove=sweepMove, sweepUp=sweepUp)
 
 // PullRequestListGhost: seven placeholder rows while the first answer is out.
 component PrGhost

@@ -66,7 +66,7 @@ class Parser {
   }
   static OPS = [/or(?!\w)/y, /and(?!\w)/y, /==|!=|<=|>=|<|>/y, /\+|-/y, /\*|\/(?!\/)|%/y];
   static METHODS = new Set(['isEmpty', 'toString', 'includes', 'startsWith', 'endsWith', 'trim', 'toLowerCase', 'slice',
-    'concat', 'indexOf', 'split', 'replaceAll', 'at', 'map', 'filter', 'join', 'toFixed']);
+    'concat', 'indexOf', 'split', 'replaceAll', 'at', 'map', 'flat', 'filter', 'join', 'toFixed']);
   binary(level: number): E {
     if (level === Parser.OPS.length) return this.unary();
     if (level === 2 && this.word('not')) return { k: 'one', x: this.binary(2) };
@@ -270,8 +270,8 @@ function measure() {
         chain = depth + 1;
       } else if (text === 'children') {
         if (fill) block(fill.lines, fill.file, depth, fill.env, fill.fill);
-      } else if (text === '::placeholder') {
-        // A field's `::placeholder` part: its declarations are the field's own values, at the field's site.
+      } else if (/^::?[a-z][\w-]*$/.test(text)) {
+        // Inline pseudo styles compile their declarations at the owning view's site.
         for (const line of body) site(depth, exprs(line.at, () => lineExprs(`part ${line.text}`)), env, line.at);
       } else if (/^[A-Z]/.test(text)) {
         const name = /^\w+/.exec(text)![0];

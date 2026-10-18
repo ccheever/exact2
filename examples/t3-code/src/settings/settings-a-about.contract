@@ -1,8 +1,8 @@
 // General → About (settings-a-about.ts): the Version row's
 // update button over the app's own delivery facts (LLP 1030 D7).
 use CoreRow from "./settings-core.contract"
-use CorePalette from "./settings-core.contract"
-use SettingsGhost from "./settings-core.contract"
+use CorePalette from "./settings-core-shared.contract"
+use SettingsGhost from "./settings-core-shared.contract"
 
 // The two delivery facts the About section reads (exactDelivery, by field name).
 shape AboutDelivery

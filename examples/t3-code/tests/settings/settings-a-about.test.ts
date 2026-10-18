@@ -18,7 +18,7 @@ describe('about: updates over the delivery facts', () => {
     const client = fakeClient();
     rememberDelivery(as(client), 'embedded', false);
     const [version, track] = aboutRows(client);
-    expect(version).toMatchObject({ id: 'version', value: '0.0.46-nightly.20261004.1', label: 'Check for Updates', value2: 'check', disabled: true, description: 'Current version of the application.' });
+    expect(version).toMatchObject({ id: 'version', value: '0.1.1-nightly.20261018.3302', label: 'Check for Updates', value2: 'check', disabled: true, description: 'Current version of the application.' });
     // resolveDefaultDesktopUpdateChannel: this client is a Nightly, so with nothing saved the track is Nightly.
     expect(track).toMatchObject({ id: 'update-track', title: 'Update track', description: 'Use stable releases or nightly builds. Switch back anytime.', label: 'Nightly', value: 'nightly', disabled: false });
     expect(track!.options.map(option => [option.label, option.selected])).toEqual([['Stable', false], ['Nightly', true]]);

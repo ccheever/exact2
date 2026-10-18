@@ -6,7 +6,7 @@
 import { preserveCitationDraft } from '../timeline/citation-draft';
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
-import { arr, messages, obj, str, type Obj } from '../client/domain';
+import { arr, messages, num, obj, str, type Obj } from '../client/domain';
 import { pushToast } from '../shell/toast';
 import { uuid } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 import { commandChords } from './composer-presentation';
@@ -422,6 +422,12 @@ export async function insertContext(client: T3Client, native: Native, kind: stri
     if (record) return '';
     saveTerminalContext(client, context);
     text = formatTerminalContextReference(context);
+  } else if (kind === 'pull-request') {
+    const parsed = obj(JSON.parse(target));
+    if (num(parsed.number) <= 0 || !/^https?:\/\//.test(str(parsed.url))) throw new ClientError('Unable to add to chat');
+    const record = pullRequestRecord({ number: num(parsed.number), title: str(parsed.title), url: str(parsed.url), headBranch: str(parsed.headBranch), baseBranch: str(parsed.baseBranch), state: str(parsed.state, 'open'), isDraft: parsed.isDraft === true });
+    reviewCommentRecords(client)[str(record.contextId)] = record;
+    text = `${contextLink('review-comment', str(record.contextId), str(record.label))} `;
   } else if (kind === 'citation') {
     // An assistant quote (AssistantCitationChip): `target` is its t3-citation:// href.
     if (!/^t3-citation:\/\/v1\/[^\s)]+$/.test(target)) throw new ClientError('Unable to add to chat');

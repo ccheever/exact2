@@ -5,8 +5,8 @@
 // families, and Cancel / Create theme. ThemeColorPicker's popover chooses a colour
 // (theme-color-picker.contract).
 use CoreIcon from "../settings/settings-core.contract"
-use CorePalette from "../settings/settings-core.contract"
-use SettingsGhost from "../settings/settings-core.contract"
+use CorePalette from "../settings/settings-core-shared.contract"
+use SettingsGhost from "../settings/settings-core-shared.contract"
 use EditorRow from "./settings-appearance-editor-shapes.contract"
 use ThemeRoleUsage from "./settings-appearance-editor-shapes.contract"
 use EditorView from "./settings-appearance-editor-shapes.contract"

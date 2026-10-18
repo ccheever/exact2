@@ -4,10 +4,11 @@
 // components/preview/openTerminalLinkInPreview.test.ts (7 + 1 `it.each` row; an interrupted open is a let-go
 // answer here), and RightPanelTabs.test.tsx's three `tabMuteMenuItem` tests (:253-283). Then the clone's rows:
 // `openLink` (useOpenLink: the setting, the modifier, the fallback), a chat link and a check's button through
-// `chatlocal:link-open`, a terminal link in the app, the tab menu's Mute row, and the "Open links in" setting.
+// `chatlocal:link-open`, a terminal link in the app, a page's target=_blank links (ElectronBrowserHost `onOpenLink`,
+// openUrlInPreview's `profileId` and `background`), the tab menu's Mute row, and the "Open links in" setting.
 import { describe, expect, it } from 'bun:test';
 import {
-  TerminalLinkPreviewOpenError, linkTargetPreference, openLink, openLinkFromUi, openTerminalLinkInPreview, resolveLinkTarget, resolveLinkTargetPreference, type BrowserLinkTarget,
+  TerminalLinkPreviewOpenError, linkTargetPreference, openLink, openLinkFromUi, openRequestedLinks, openTerminalLinkInPreview, resolveLinkTarget, resolveLinkTargetPreference, type BrowserLinkTarget,
 } from '../../src/browser/browser-links';
 import { tabAudioState, tabContextMenuItems, tabMuteMenuItem } from '../../src/panel/right-panel-tabs';
 import { browserTabMute } from '../../src/browser/browser-automation-tabs';
@@ -210,7 +211,7 @@ describe('links from the UI (chatlocal:link-open)', () => {
       expect(external(link.ops)).toEqual(['https://example.com/']);
       expect(link.ops.some(op => op.op === 'composerSendIntent')).toBe(false);
     }
-    for (const held of ['', 'alt', 'shift']) {
+    for (const held of ['', 'alt', 'shift']) { // ⌥ keeps the in-app default: resolveLinkTarget reads no ⌥
       const plain = linkClient({ modifiers: 'meta' }); // a recorded gesture is not this click's
       await chatLocal(plain.client, plain.native, 'link-open', `link|${held}`, 'https://example.com/');
       expect(plain.rpcs.some(call => call.method === 'preview.open')).toBe(true);
@@ -261,20 +262,15 @@ describe('links from the UI (chatlocal:link-open)', () => {
     await chatLocal(client, native, 'link-open', 'link', 'https://example.com/c');
     expect(external(ops)).toEqual(['https://example.com/c']);
   });
-  it('a fragment link leaves the thread for the most recently active project\'s draft; a modified click does nothing', async () => {
-    // The reference (measured 2026-10-12 on a fixture reply, CDP and its main process): a click on
-    // `[the notes](#notes)` finds no element with that id (handleMarkdownFragmentClick), so it goes on and sets the hash,
-    // `t3code://app/#notes`; the hash router reads it as the index route, whose IndexDraftLanding replaces it with the draft
-    // of the most recently active project (`#/draft/<id>`, "work") and the composer takes the focus. A cell's
-    // `[the summary](#summary)` does the same.
+  it('a fragment link keeps the active thread; the Markdown component handles scrolling', async () => {
     const projects = [{ id: 'p', title: 'Verification fixture', updatedAt: '2026-10-01T00:00:00Z' }, { id: 'work', title: 'work', updatedAt: '2026-10-05T00:00:00Z' }];
     const threads = [{ id: 'thread-1', projectId: 'p', updatedAt: '2026-10-03T00:00:00Z' }];
     for (const preference of ['app', 'system'] as const) {
       for (const url of ['#notes', '#summary']) {
         const { client, rpcs, ops, native } = linkClient({ preference });
         client.shell = { projects, threads, sequence: 1 };
-        expect(await openLinkFromUi(client, native, 'link|', url)).toBe('sidebar:new-thread');
-        expect([client.threadId, client.projectId]).toEqual(['', 'work']);
+        expect(await openLinkFromUi(client, native, 'link|', url)).toBe('');
+        expect([client.threadId, client.projectId]).toEqual(['thread-1', 'p']);
         expect(ops.map(op => op.op)).toEqual([]); // the click's own modifiers ride with it
         expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
         expect(toasts(client)).toEqual([]);
@@ -300,6 +296,56 @@ describe('links from the UI (chatlocal:link-open)', () => {
     const native: Native = { available: true, watch() {}, async later(request) { return obj(request).op === 'composerSendIntent' ? { ok: true, generation: 0, value: {} } : { ok: true, generation: 0, value: { opened: false } }; } };
     await openLinkFromUi(client, native, 'link', 'https://example.com/');
     expect(toasts(client).at(-1)).toMatchObject({ title: 'Unable to open link' });
+  });
+});
+
+describe('a page’s target=_blank links (ElectronBrowserHost onOpenLink)', () => {
+  const ref = { environmentId: 'local', threadId: 'thread-1' };
+  function pageClient() {
+    const link = linkClient(), host = browserHost(link.client);
+    host.store.reconcileServerSessions(ref, { sessions: [{ ...snapshot, tabId: 'tab-src', profileId: 'work', navStatus: { _tag: 'Success', url: 'https://src.test/', title: 'Source' } }], serverEpoch: 'epoch-1', revision: 1 });
+    host.listed.set(scopedThreadKey(ref), link.client.generation);
+    const panel = { surfaces: [], active: browserSurfaceId('tab-src'), visible: true, userRevision: 0 };
+    surfaceStore(link.client).panels.set('local:thread-1', panel);
+    const requests = (list: Obj[]) => { (link.client as unknown as { presentation: Obj }).presentation = { browserTabs: { [previewRuntimeTabId(ref, 'epoch-1', 'tab-src')]: { kind: 'Success', openLinks: list } } }; };
+    return { ...link, host, panel, requests };
+  }
+  it('opens a link as another tab of the thread under the source tab’s profile, once, and the module forgets it', async () => {
+    const { client, rpcs, ops, native, host, panel, requests } = pageClient();
+    requests([{ serial: 7, url: 'https://docs.test/a', background: false }]);
+    await openRequestedLinks(client, native);
+    await openRequestedLinks(client, native); // the same status again: nothing new
+    expect(rpcs.filter(call => call.method === 'preview.open').map(call => call.payload)).toEqual([{ threadId: 'thread-1', url: 'https://docs.test/a', viewport: { _tag: 'fill' }, profileId: 'work' }]);
+    expect(panel.active).toBe(browserSurfaceId('tab-1'));
+    expect(host.store.read(ref).activeTabId).toBe('tab-1');
+    expect(ops.filter(op => op.op === 'browserOpenLinks')).toEqual([{ op: 'browserOpenLinks', tab: previewRuntimeTabId(ref, 'epoch-1', 'tab-src'), taken: 7 }]);
+    expect(external(ops)).toEqual([]);
+  });
+  it('a background link (⌘- or middle-click) leaves the shown tab where it was; a non-web request opens nothing', async () => {
+    const { client, rpcs, native, host, panel, requests } = pageClient();
+    requests([{ serial: 3, url: 'https://docs.test/b', background: true }, { serial: 4, url: 'javascript:alert(1)', background: false }]);
+    await openRequestedLinks(client, native);
+    expect(rpcs.filter(call => call.method === 'preview.open').map(call => call.payload.url)).toEqual(['https://docs.test/b']);
+    expect(panel.active).toBe(browserSurfaceId('tab-src'));
+    expect(host.store.read(ref).activeTabId).toBe('tab-src');
+    expect(Object.keys(host.store.read(ref).sessions).sort()).toEqual(['tab-1', 'tab-src']);
+  });
+  it('the server’s "opened" event during a background open is handed back, unless the person picked a tab meanwhile', async () => {
+    for (const picked of [false, true]) {
+      const { client, native, host, panel, requests } = pageClient();
+      const request = client.request;
+      client.request = async (nativeArg, method, payload) => {
+        const answer = await request(nativeArg, method, payload);
+        if (method === 'preview.open') {
+          host.store.applyServerEvent(ref, { type: 'opened', threadId: 'thread-1', tabId: 'tab-1', snapshot: { ...snapshot, navStatus: { _tag: 'Loading', url: String(payload.url), title: '' } }, createdAt: snapshot.updatedAt, serverEpoch: 'epoch-1', revision: 2 });
+          if (picked) panel.active = 'files';
+        }
+        return answer;
+      };
+      requests([{ serial: 1, url: 'https://docs.test/c', background: true }]);
+      await openRequestedLinks(client, native);
+      expect(host.store.read(ref).activeTabId).toBe(picked ? 'tab-1' : 'tab-src');
+    }
   });
 });
 

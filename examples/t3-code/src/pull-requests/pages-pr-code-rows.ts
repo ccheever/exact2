@@ -2,7 +2,7 @@
 // diff items (shapes.contract DiffItem, drawn by diff.contract DiffRow) — the file headers with their
 // Viewed tick, the stacked or split rows, the hidden ranges, and what is pinned under a line: the
 // host's conversations, the pending comments of the review being written, and the open draft
-// (PullRequestCodeTab.tsx annotatedFiles/items over @pierre/diffs CodeView, T3 Code 1e2ecbd975, MIT,
+// (PullRequestCodeTab.tsx annotatedFiles/items over @pierre/diffs CodeView, T3 Code 9c161462c9, MIT,
 // see LICENSE-T3). The clone's thread diff panel draws the same rows (diff.ts diffSnapshot); the
 // kinds this tab adds are `pr-file`, `pr-thread`, `pr-pending` and `pr-draft` (pages-pr-code.contract).
 import { hunkRows, plain, ROW_LIMIT, type Row, type Segment } from '../diff/diff';
@@ -33,6 +33,7 @@ export type FileAnnotations = {
   draft: { position: PullRequestReviewPosition; label: string } | null;
 };
 export type RowsInput = {
+  sourceStats?: ReadonlyMap<string, { additions: number; deletions: number }>;
   files: PrDiffFile[];
   layout: 'stacked' | 'split';
   foldOverride: DiffFoldOverride;
@@ -69,7 +70,7 @@ export function codeRows(input: RowsInput): { items: CodeItem[]; truncated: bool
   for (const file of input.files) {
     const expanded = !isCollapsed(input, file);
     // PullRequestCodeTab renderHeaderMetadata: the hunks' sums, or the host's counts for a withheld file.
-    let additions = file.additions, deletions = file.deletions;
+    let { additions, deletions } = input.sourceStats?.get(file.path) ?? file;
     if (additions === 0 && deletions === 0) { const withheld = input.omitted.get(file.path); if (withheld) ({ additions, deletions } = withheld); }
     items.push({ ...BASE, id: `file:${file.path}`, kind: 'pr-file', path: file.path, name: file.path, status: file.status, letter: LETTER[file.status] ?? 'M', additions, deletions, expanded,
       markdown: /\.(md|mdx|markdown)$/i.test(file.path), label: input.viewedMark(file.path), entry: file.previous && file.previous !== file.path ? file.previous : '' });

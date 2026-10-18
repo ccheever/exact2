@@ -155,17 +155,19 @@ final class T3ComposerAttach {
     }
 
     /// One picked file as the client sees it; images are re-encoded as PNG drafts, plain files staged.
-    func stage(_ url: URL, fileLimit: Int = 0) -> [String: Any] {
+    /// `imageMaxEdge`: the long edge a PNG, JPEG or HEIC image is scaled down to (T3ImageFit), before its size is checked.
+    func stage(_ url: URL, fileLimit: Int = 0, imageMaxEdge: Int = 0) -> [String: Any] {
         let name = url.lastPathComponent
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         let kind = Self.kind(of: url)
         if kind == "file" { return stageFile(url, size: size, fileLimit: fileLimit) }
         guard kind == "image" else { return ["kind": kind, "name": name, "sizeBytes": size] }
-        // A PNG keeps its own bytes (and size: the chip and shelf report the file's); other types are re-encoded.
+        // A PNG within the edge keeps its own bytes (and size: the chip and shelf report the file's); other images are re-encoded.
         let original = try? Data(contentsOf: url)
+        let fitted = original.flatMap { T3ImageFit.fit($0, maxEdge: imageMaxEdge) }
         let isPNG = original.map { $0.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) && NSBitmapImageRep(data: $0) != nil } ?? false
-        guard let png = isPNG ? original : NSImage(contentsOf: url).flatMap({ $0.tiffRepresentation }).flatMap({ NSBitmapImageRep(data: $0) })
-                .flatMap({ $0.representation(using: .png, properties: [:]) }) else {
+        guard let png = fitted?.data ?? (isPNG ? original : NSImage(contentsOf: url).flatMap({ $0.tiffRepresentation }).flatMap({ NSBitmapImageRep(data: $0) })
+                .flatMap({ $0.representation(using: .png, properties: [:]) })) else {
             return ["kind": "unreadable", "name": name, "sizeBytes": size]
         }
         guard png.count <= Self.maxImageBytes else { return ["kind": "too-large", "name": name, "sizeBytes": png.count] }
@@ -175,21 +177,23 @@ final class T3ComposerAttach {
             try png.write(to: drafts.appendingPathComponent("\(id).png"), options: .atomic)
         } catch { return ["kind": "unreadable", "name": name, "sizeBytes": size] }
         let base = (name as NSString).deletingPathExtension
-        return ["kind": "image", "id": id, "name": "\(base.isEmpty ? "image" : base).png", "sizeBytes": png.count]
+        // Draft storage is PNG even for GIF/WebP; retain their exclusion from downscaling at upload.
+        return ["kind": "image", "id": id, "name": "\(base.isEmpty ? "image" : base).png", "sizeBytes": png.count,
+                "downscalable": original.map { T3ImageFit.downscalable($0) } ?? false]
     }
 
     func pick(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let generation = request["generation"] as? Int ?? 0
-        let fileLimit = request["fileLimit"] as? Int ?? 0
+        let fileLimit = request["fileLimit"] as? Int ?? 0, imageMaxEdge = request["imageMaxEdge"] as? Int ?? 0
         let finish = { (urls: [URL]) in
-            let files = urls.prefix(100).map { self.stage($0, fileLimit: fileLimit) }
+            let files = urls.prefix(100).map { self.stage($0, fileLimit: fileLimit, imageMaxEdge: imageMaxEdge) }
             reply(["ok": true, "generation": generation, "value": ["files": files]])
         }
         if let imports {
             let urls = (try? FileManager.default.contentsOfDirectory(at: imports, includingPropertiesForKeys: nil))?
                 .filter { !$0.lastPathComponent.hasPrefix(".") }.sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
             // A drive's files are consumed once, like a panel's selection.
-            let picked = urls.map { self.stage($0, fileLimit: fileLimit) }
+            let picked = urls.map { self.stage($0, fileLimit: fileLimit, imageMaxEdge: imageMaxEdge) }
             for url in urls { try? FileManager.default.removeItem(at: url) }
             return reply(["ok": true, "generation": generation, "value": ["files": picked]])
         }
