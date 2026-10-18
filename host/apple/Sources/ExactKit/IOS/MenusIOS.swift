@@ -410,6 +410,10 @@ final class MenuHost {
         presenter?.views.values.first { $0.props["id"] == name && ($0.props["popover"] != nil || isDialog($0)) }
     }
 
+    /// Whether the button over `node` is highlighted: it holds the press look.
+    func overlayHoldsPress(_ node: NodeView) -> Bool {
+        (overlays[node.id] as? InvokerButton).map { $0.isHighlighted && $0.pressing === node } ?? false
+    }
     func live(_ node: NodeView) -> Bool { presenter?.views[node.id] === node }
     /// `inBar`: the node is a bar item's button, which the page hides while
     /// the bar shows it: that hiding, and only that, does not count.
@@ -436,7 +440,7 @@ final class MenuHost {
                 return v
             }
             guard let self, let presenter = self.presenter, let invoker = current() else { return completion([]) }
-            if invoker.handlers.contains("press") { self.presenting(invoker) { presenter.press(invoker.id) } }
+            self.pressAsTouched(invoker)
             guard let invoker = current(), let invocation = presenter.invocation(of: invoker), invocation.opens else { return completion([]) }
             if self.isConfirmation(invocation.target) {
                 completion([])
@@ -1137,10 +1141,10 @@ final class MenuHost {
         // Both invoker actions fire, as on the web: the source's press first
         // (Session.press applies its batch synchronously), then what the
         // surviving source invokes now, which its press may have retargeted.
-        if dispatchPress, let source, source.handlers.contains("press") {
+        if dispatchPress, let source, pressTarget(of: source) != nil {
             guard confirmation == nil || confirmation?.finishing == true, !sheets.owns(pop), eligible(source), live(pop) else { return false }
             let token = source.incarnation
-            presenting(source) { presenter?.press(source.id) }
+            pressAsTouched(source)
             guard source.incarnation == token, presenter?.views[source.id] === source,
                   let now = presenter?.invocation(of: source), now.opens else { return false }
             if now.target !== pop {

@@ -6,14 +6,18 @@ import UIKit
 
 /// The transparent button `MenuHost` lays over an invoker, above its
 /// children: a touch anywhere in the invoker opens its menu, as on a UIButton
-/// whose subviews are its content. A child that is interactive itself (a
-/// field, a control, a link, a node with its own press or target) keeps its
-/// touches. Its highlight is the invoker's press look, as a UIButton's
-/// content dims while a finger holds it.
+/// whose subviews are its content. What the invoker's own hit test would
+/// reach without it keeps the touch when it is interactive itself: a field,
+/// a control, a link, a node with its own press or target, or a platform
+/// view that takes touches (a module's or a hatch's, with a recognizer).
+/// Its highlight is one holder of the invoker's press look, as a UIButton's
+/// content dims while a finger holds it; a press contact is the other.
 class InvokerButton: UIButton {
     weak var invoker: NodeView? { didSet { if pressing !== invoker { releasePress() } } }
     /// The node this button's highlight pressed, until it lets go.
-    private weak var pressing: NodeView?
+    private(set) weak var pressing: NodeView?
+    /// Inside the invoker's own hit test, which must not find this button.
+    private var resolving = false
     override var isHighlighted: Bool {
         didSet {
             guard isHighlighted != oldValue else { return }
@@ -35,17 +39,19 @@ class InvokerButton: UIButton {
         if superview == nil { releasePress() }
     }
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let hit = super.hitTest(point, with: event) else { return nil }
+        guard !resolving, let hit = super.hitTest(point, with: event) else { return nil }
         guard let invoker, superview === invoker else { return hit }
-        // What the point would reach without this button: the frontmost child.
-        for child in NodeView.hitOrder(invoker.subviews) where child !== self {
-            guard let under = child.hitTest(convert(point, to: child), with: event) else { continue }
-            var at: UIView? = under
-            while let view = at, view !== invoker {
-                if Self.interactive(view) { return nil }
-                at = view.superview
-            }
-            break
+        // No event: a touch's side effects (a paragraph's text interaction,
+        // a swipe row's cell) belong to the real pass, not this question.
+        resolving = true
+        let target = invoker.hitTest(convert(point, to: invoker), with: nil)
+        resolving = false
+        // Nothing there takes touches (`pointer-events: none`): nor does this.
+        guard let target else { return nil }
+        var at: UIView? = target
+        while let view = at, view !== invoker {
+            if Self.interactive(view) { return nil }
+            at = view.superview
         }
         return hit
     }
@@ -54,7 +60,8 @@ class InvokerButton: UIButton {
             #if os(iOS)
             if (view as? UITextView)?.isEditable == true { return true }
             #endif
-            return (view as? UIControl)?.isEnabled == true
+            if (view as? UIControl)?.isEnabled == true { return true }
+            return view.gestureRecognizers?.contains { $0.isEnabled } == true
         }
         if node.field != nil || node.textArea != nil || node.isSurfaceControl { return true }
         if node.kind == "button" || node.kind == "control" || node.handlers.contains("press") { return true }
@@ -63,6 +70,27 @@ class InvokerButton: UIButton {
 }
 
 extension MenuHost {
+    /// The node a touch on `source` presses, as a touch resolves it: its own
+    /// handler, else the nearest ancestor's, out of a presentation, none past
+    /// a disabled or inert node; and whether the press bubbled to it.
+    func pressTarget(of source: NodeView) -> (node: NodeView, bubbled: Bool)? {
+        guard let presenter, !source.inert else { return nil }
+        var at: UIView? = source
+        while let view = at {
+            if let node = view as? NodeView {
+                if node.disabled || node.authoredInert { return nil }
+                let box = presenter.pressBox(of: node, from: source)
+                if node.takesPress(bubbled: box !== node) { return (node, box !== node) }
+            }
+            at = presenter.listenerParent(of: view) ?? view.superview
+        }
+        return nil
+    }
+    /// Dispatches that press; the caller presents what `source` opens.
+    func pressAsTouched(_ source: NodeView) {
+        guard let (node, bubbled) = pressTarget(of: source) else { return }
+        presenting(source) { presenter?.press(node.id, bubbled: bubbled) }
+    }
     /// Another path owns activation; dispatch this node's handler alone.
     func withoutInvocation(of source: NodeView?, _ press: () -> Void) {
         let previous = invocationOwner
