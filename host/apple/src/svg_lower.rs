@@ -13,7 +13,7 @@ use exact_kernel::id::NodeKey;
 use exact_kernel::motion::MotionSync;
 use exact_kernel::{Kernel, NodeType};
 use exact_motion::animation::Keyframe;
-use exact_motion::{AnimationPlay, Easing, Engine, PlayedCurve, Property, Value};
+use exact_motion::{AnimationPlay, Easing, Engine, LinearStop, PlayedCurve, Property, Value};
 use std::fmt::Write as _;
 
 /// One CA keyframe track: key times, values and a cubic per segment.
@@ -75,6 +75,12 @@ fn forward(frames: &[Keyframe], default: &Easing, property: Property, underlying
                 t.values.push(b.2);
                 t.curves.push(c);
             }
+            None if matches!(easing, Easing::PiecewiseLinear(_)) && !property.is_color() => {
+                let Easing::PiecewiseLinear(stops) = easing else {
+                    unreachable!()
+                };
+                linear_keys(&mut t, a.0, b.0, stops, |p| a.2.lerp(b.2, p));
+            }
             None => {
                 let span = b.0 - a.0;
                 let mut xs: Vec<f64> = match easing {
@@ -102,6 +108,44 @@ fn forward(frames: &[Keyframe], default: &Easing, property: Property, underlying
         }
     }
     t
+}
+
+/// A `linear()` interval from `from` to `to` as keys at its own stops. Two
+/// stops at one input are a jump: the earlier output is held to a hair before
+/// it, as a step's is, so the later output holds at the input (CSS Easing 2
+/// §2.4). The track's first key takes the curve's output at its start, which
+/// need not be the keyframe's value.
+fn linear_keys(
+    t: &mut Track,
+    from: f64,
+    to: f64,
+    stops: &[LinearStop],
+    value: impl Fn(f64) -> Value,
+) {
+    let span = to - from;
+    let last = stops.len() - 1;
+    for (i, s) in stops.iter().enumerate() {
+        let jump = i < last && stops[i + 1].input == s.input;
+        let x = if jump { s.input - 1e-4 } else { s.input };
+        let at = from + span * x.clamp(0.0, 1.0);
+        let v = value(s.output);
+        match t.times.last() {
+            Some(prev) if at <= *prev && t.times.len() == 1 => {
+                t.values[0] = v;
+            }
+            // A jump at the interval's start: the new output a hair after it.
+            Some(prev) if at <= *prev => {
+                t.times.push(prev + span * 1e-4);
+                t.values.push(v);
+                t.curves.push(LINEAR);
+            }
+            _ => {
+                t.times.push(at);
+                t.values.push(v);
+                t.curves.push(LINEAR);
+            }
+        }
+    }
 }
 
 /// The same iteration played backwards: times mirrored, each cubic reversed

@@ -133,6 +133,26 @@ fn piecewise_linear_interpolates_between_stops() {
     close(curve.progress(0.5), 1.0);
 }
 
+/// Two stops at one input are a jump, and at that input the later stop's
+/// output holds (CSS Easing 2 §2.4), as Chrome answers.
+#[test]
+fn a_piecewise_linear_jump_takes_the_later_stop() {
+    let stop = |input, output| LinearStop { input, output };
+    let lit = Easing::PiecewiseLinear(vec![
+        stop(0.0, 1.0),
+        stop(0.25, 1.0),
+        stop(0.25, 0.0),
+        stop(1.0, 0.0),
+    ]);
+    close(lit.progress(0.0), 1.0);
+    close(lit.progress(0.2499), 1.0);
+    close(lit.progress(0.25), 0.0);
+    close(lit.progress(0.6), 0.0);
+    let from_one = Easing::PiecewiseLinear(vec![stop(0.0, 0.0), stop(0.0, 1.0), stop(1.0, 0.0)]);
+    close(from_one.progress(0.0), 1.0);
+    close(from_one.progress(0.5), 0.5);
+}
+
 #[test]
 fn invalid_easings_are_refused_by_name() {
     assert_eq!(

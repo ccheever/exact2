@@ -323,26 +323,22 @@ fn steps(count: u16, position: StepPosition, x: f64) -> f64 {
     current / jumps
 }
 
-/// CSS Easing Level 2 `linear()`: interpolate between the two stops that
-/// bracket `x`; before the first or after the last stop, hold that stop.
+/// CSS Easing 2 §2.4's `linear()`: interpolate between the last stop at or
+/// before `x` and the one after it, so at a jump (two stops at one input) the
+/// later stop's output holds.
 fn piecewise(stops: &[LinearStop], x: f64) -> f64 {
-    let first = stops[0];
-    let last = stops[stops.len() - 1];
-    if x <= first.input {
-        return first.output;
+    if stops.len() < 2 {
+        return stops.first().map_or(x, |s| s.output);
     }
-    if x >= last.input {
-        return last.output;
+    let a = stops
+        .iter()
+        .rposition(|s| s.input <= x)
+        .unwrap_or(0)
+        .min(stops.len() - 2);
+    let (a, b) = (stops[a], stops[a + 1]);
+    if a.input == b.input {
+        return b.output;
     }
-    for pair in stops.windows(2) {
-        let (a, b) = (pair[0], pair[1]);
-        if x >= a.input && x <= b.input {
-            if b.input == a.input {
-                return b.output;
-            }
-            let p = (x - a.input) / (b.input - a.input);
-            return a.output + (b.output - a.output) * p;
-        }
-    }
-    last.output
+    let p = ((x - a.input) / (b.input - a.input)).clamp(0.0, 1.0);
+    a.output + (b.output - a.output) * p
 }

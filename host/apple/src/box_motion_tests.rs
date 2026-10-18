@@ -430,3 +430,51 @@ component A
         assert!(!sampled("plain"), "ios: {ios_motion}");
     }
 }
+
+/// A `linear()` easing lowers to keys at its own stops, and two stops at one
+/// input are a jump, not a ramp to the next stop: a light lit for the first
+/// quarter of its cycle stays fully lit through it and dark after.
+#[test]
+fn a_linear_easings_jump_lowers_as_a_hold() {
+    let app = r##"keyframes level
+  from opacity=0
+  to opacity=1
+component A
+  state on = false
+  action go
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      box testId="lit" width=8 height=8 animation=(on ? "level 1s linear(1 0% 25%, 0 25% 100%) -250ms infinite" : "none")
+"##;
+    let plan = contract::compile(app).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    ios(&mut host);
+    let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    let spec = &specs(&on, id(&host, "lit")).expect("lowered")[0];
+    let nums = |k: &str| -> Vec<f64> {
+        spec[k]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_f64().unwrap())
+            .collect()
+    };
+    assert_eq!(spec["k"], "opacity");
+    let (t, v) = (nums("t"), nums("v"));
+    assert_eq!(v, [1.0, 1.0, 0.0, 0.0], "{t:?} {v:?}");
+    assert_eq!(t[0], 0.0);
+    assert!(
+        (t[1] - 0.2499).abs() < 1e-6 && t[2] == 0.25 && t[3] == 1.0,
+        "{t:?}"
+    );
+}
