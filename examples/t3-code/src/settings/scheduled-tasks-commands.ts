@@ -6,7 +6,7 @@
 // live list, never a fresh `scheduledTasks.list` once the stream has delivered.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
-import { ClientError, providerAvailable, type Native } from '../client/protocol';
+import { bridgeReply, ClientError, providerAvailable, type Native } from '../client/protocol';
 import { taskInput } from './scheduled-view';
 import { currentTasks, liveEnvironment, type LiveEnvironment } from '../client/live-streams';
 import { matchesScheduledTaskScope } from './scheduled-tasks';
@@ -45,7 +45,8 @@ export async function scheduledTaskCommand(client: T3Client, native: Native, sco
   if (input.action === 'copy-webhook') {
     const endpoint = webhookAddress(task.webhook ? obj(task.webhook) : undefined, environment.focused ? client.origin : str(fleet.entries.get(environment.key)?.origin));
     if (!endpoint.copyable) throw new ClientError('This webhook URL is not available yet.');
-    await native.later({ op: 'copyText', text: endpoint.address });
+    const reply = await bridgeReply(native, { op: 'copyText', text: endpoint.address });
+    if (!reply.ok) throw new ClientError(reply.error?.message || 'Could not copy webhook URL.');
     return 'task-webhook-keep';
   }
   if (input.action === 'rotate-webhook') {

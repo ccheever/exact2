@@ -321,6 +321,9 @@ component ScheduledEditor
   state confirmRotate = false
   action askRotate(on: bool)
     confirmRotate = on
+  action rotate
+    confirmRotate = false
+    rest("task", `action=rotate-webhook&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}`)
   state signatureEnabled = draft.signatureEnabled
   state signatureHeader = draft.signatureHeader
   state signatureEncoding = draft.signatureEncoding
@@ -550,7 +553,7 @@ component ScheduledEditor
                       row gap="0.5rem"
                         button press=askRotate(false) class=TkOutline
                           text "Cancel"
-                        button press=rest("task", `action=rotate-webhook&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}`) disabled=busy class=TkOutline testId="task-webhook-rotate-confirm"
+                        button press=rotate disabled=busy class=TkOutline testId="task-webhook-rotate-confirm"
                           text "Rotate"
                   text draft.note font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
                   text "Each request runs the prompt. Use {{body.path}}, {{headers.name}}, {{query.name}}, {{body}} or {{request}} in the prompt; only what it names reaches the agent." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"

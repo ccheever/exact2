@@ -95,3 +95,25 @@ test('deliveries load through their owner, retain the list, and expose the rende
   await deliveriesPage(client, environment, task, '', 0, 0);
   expect(calls).toEqual([['scheduledTasks.listWebhookDeliveries', { id: 'task' }], ['scheduledTasks.getWebhookDelivery', { id: 'task', deliveryId: 'd' }]]);
 });
+
+
+import { cleanupHasRules, databaseNotice } from '../../src/settings/storage-maintenance';
+import { adoptShellPrefs, shellPrefs } from '../../src/shell/shell-prefs';
+
+test('cleanup recognizes zero-day settled and custom project rules while off suppresses inherited worktree rules', () => {
+  expect(cleanupHasRules({ storageCleanup: { worktreeSettledAfterDays: 0 } })).toBe(true);
+  expect(cleanupHasRules({ storageCleanup: { worktreeAfterDays: 3 }, worktreeCleanup: { mode: 'off' } })).toBe(false);
+  expect(cleanupHasRules({ projectSettingsOverrides: { p: { worktreeCleanup: { mode: 'custom', rules: { worktreeOnDelete: true } } } } })).toBe(true);
+});
+
+test('database reclaim notices require a GiB without incremental vacuum and persist dismissal per environment', () => {
+  const status = { reclaimableBytes: 1.5 * 1024 ** 3, incrementalVacuumEnabled: false, compactCommand: 't3 doctor --compact' };
+  expect(databaseNotice(status, 'mac', 'Mac', [])).toMatchObject({ show: true, title: 'Reclaim 1.5 GiB on Mac', command: 't3 doctor --compact' });
+  expect(databaseNotice({ ...status, reclaimableBytes: 1024 ** 3 - 1 }, 'mac', 'Mac', []).show).toBe(false);
+  expect(databaseNotice({ ...status, incrementalVacuumEnabled: true }, 'mac', 'Mac', []).show).toBe(false);
+  const local = {}; adoptShellPrefs(local, { shell: { databaseStorageDismissals: ['mac', 3] } });
+  const dismissed = shellPrefs({ local }).databaseStorageDismissals;
+  expect(dismissed).toEqual(['mac']);
+  expect(databaseNotice(status, 'mac', 'Mac', dismissed).show).toBe(false);
+  expect(databaseNotice(status, 'remote', 'Remote', dismissed).show).toBe(true);
+});
