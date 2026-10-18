@@ -5,6 +5,7 @@
   "id": "com.exact.t3code.ios",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "assets/icon.png",
