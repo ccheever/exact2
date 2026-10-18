@@ -51,17 +51,37 @@ export function formatDayShort(day: string): string {
   if (!year || !month || !date) return day;
   return `${MONTHS[month - 1] ?? ''} ${date}`;
 }
-/** `3 PM` for an hourly bucket start, in this Mac's zone. */
-export function formatHourShort(hourStart: string): string {
+let dateTimeFormatters: Map<string, Intl.DateTimeFormat> | undefined;
+function dateTimeFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  if (options.timeZone === undefined) return new Intl.DateTimeFormat(locale, options);
+  const key = JSON.stringify([locale, options]);
+  dateTimeFormatters ??= new Map();
+  let formatter = dateTimeFormatters.get(key);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat(locale, options);
+    if (dateTimeFormatters.size >= 16) dateTimeFormatters.clear();
+    dateTimeFormatters.set(key, formatter);
+  }
+  return formatter;
+}
+/** Repeated fall-back hours include their zone so separate buckets remain distinguishable. */
+export function formatHourShort(hourStart: string, timeZone?: string): string {
   const at = new Date(hourStart);
   if (Number.isNaN(at.getTime())) return hourStart;
-  const hour = at.getHours();
-  return `${hour % 12 === 0 ? 12 : hour % 12} ${hour < 12 ? 'AM' : 'PM'}`;
+  const options = timeZone === undefined ? {} : { timeZone };
+  const hourFormat = dateTimeFormatter('en-US', { ...options, hour: 'numeric' });
+  const wallHourFormat = dateTimeFormatter('en-CA', {
+    ...options, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+  });
+  const wallHour = wallHourFormat.format(at);
+  const repeated = [-HOUR, HOUR].some(offset => wallHourFormat.format(new Date(at.getTime() + offset)) === wallHour);
+  return repeated ? dateTimeFormatter('en-US', { ...options, hour: 'numeric', timeZoneName: 'short' }).format(at) : hourFormat.format(at);
 }
 export function formatDateTimeShort(instant: string): string {
   const at = new Date(instant);
   if (Number.isNaN(at.getTime())) return instant;
-  return `${MONTHS[at.getMonth()]} ${at.getDate()}, ${formatHourShort(instant)}`;
+  const hour = at.getHours();
+  return `${MONTHS[at.getMonth()]} ${at.getDate()}, ${hour % 12 === 0 ? 12 : hour % 12} ${hour < 12 ? 'AM' : 'PM'}`;
 }
 export function enumerateDays(sinceDay: string, untilDay: string): string[] {
   const days: string[] = [];
