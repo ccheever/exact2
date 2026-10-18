@@ -309,23 +309,11 @@ export async function peekLogs(s, since) {
 export function takeWorldLogs(s, world) {
   const sessions = peekedWorldLogs.get(s), previous = sessions?.get(s.session) ?? [];
   if (!previous.length) return world;
-  const merged = [], latest = new Map();
-  const batch = row => row && !('error' in row) && Array.isArray(row.lines)
-    && Number.isSafeInteger(row.from) && Number.isSafeInteger(row.next) && row.next >= row.from;
-  for (const row of [...previous, ...(world ?? [])]) {
-    const index = latest.get(row?.canvas), before = merged[index];
-    // Errors and cursor gaps stay separate: a replacement can restore a later journal.
-    if (batch(row) && batch(before) && row.from === before.next) {
-      merged[index] = { ...before, ...row, from: before.from, lines: [...before.lines, ...row.lines],
-        ...(before.dropped != null || row.dropped != null ? { dropped: (before.dropped ?? 0) + (row.dropped ?? 0) } : {}) };
-    } else {
-      latest.set(row?.canvas, merged.length);
-      merged.push(row);
-    }
-  }
-  // Consume only after the complete merge succeeds, so a failed read can be retried.
+  // Equal cursor boundaries can belong to different canvas lifetimes. Keep each read's metadata.
+  const batches = [...previous, ...(world ?? [])];
+  // Consume only after collecting all rows succeeds, so a failed read can be retried.
   sessions?.delete(s.session);
-  return merged;
+  return batches;
 }
 export function driveNotes(s, { host, storage, origins = [] }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];

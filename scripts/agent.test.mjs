@@ -386,26 +386,29 @@ test('a native named store is kept unless the drive resets it, under its lock; a
 
 test('storage advice preserves canvas journal entries through the host seam', async () => {
   const { driveNotes } = await import('./agent-test.mjs');
-  const journal = ['loop wind on'], lines = [], calls = [];
-  let cursor = 0;
-  const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}), reset() {},
-    async ask(req) {
-      calls.push(req.op);
-      if (req.op !== 'logs') return { epoch: 0, clock: 0 };
-      const from = cursor; cursor = journal.length;
-      return { from: req.since, next: lines.length, lines: lines.slice(req.since),
-        world: [{ canvas: 7, from, next: cursor, lines: journal.slice(from) }] };
-    } };
-  const s = await open({ reuse: carrier });
-  carrier.host = 'linux';
-  await s.landed({ tapped: true });
-  assert.ok(calls.includes('logs'), 'the input ran the storage probe');
-  journal.push('beacon-1 lit');
-  await driveNotes(s, { host: 'linux' })('tap');
-  journal.push('sfx chime');
-  const logs = await s.logs();
-  assert.deepEqual(logs.world, [{ canvas: 7, from: 0, next: 3, lines: journal }]);
-  assert.deepEqual((await s.logs()).world[0].lines, [], 'the caller consumes each entry once');
+  for (const probe of [s => s.landed({ tapped: true }), s => driveNotes(s, { host: 'linux' })('tap')]) {
+    const journal = ['loop wind on'], lines = [], calls = [];
+    let cursor = 0;
+    const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}), reset() {},
+      async ask(req) {
+        calls.push(req.op);
+        if (req.op !== 'logs') return { epoch: 0, clock: 0 };
+        const from = cursor; cursor = journal.length;
+        return { from: req.since, next: lines.length, lines: lines.slice(req.since),
+          world: [{ canvas: 7, from, next: cursor, lines: journal.slice(from) }] };
+      } };
+    const s = await open({ reuse: carrier });
+    carrier.host = 'linux';
+    await probe(s);
+    assert.ok(calls.includes('logs'), 'the input ran the storage probe');
+    journal.push('beacon-1 lit', 'sfx chime');
+    const logs = await s.logs();
+    assert.deepEqual(logs.world, [
+      { canvas: 7, from: 0, next: 1, lines: journal.slice(0, 1) },
+      { canvas: 7, from: 1, next: 3, lines: journal.slice(1) },
+    ]);
+    assert.deepEqual((await s.logs()).world[0].lines, [], 'the caller consumes each entry once');
+  }
 });
 
 test('canvas journal errors survive before and after buffered entries', async () => {
@@ -423,7 +426,7 @@ test('canvas journal errors survive before and after buffered entries', async ()
   }
 });
 
-test('a failed journal merge retains the buffered entries for retry', async () => {
+test('a failed journal read retains the buffered entries for retry', async () => {
   const { peekLogs, takeWorldLogs } = await import('./agent-test.mjs');
   const entry = { canvas: 7, from: 0, next: 1, lines: ['saved entry'] };
   const s = { op: async () => ({ world: [entry] }) };
@@ -451,6 +454,11 @@ test('canvas journals separate restarted cursors and reset with a web reload', a
   await peekLogs(s, 0);
   assert.deepEqual((await s.logs()).world, [old, restored], 'a replacement with a later cursor retains its own span and dropped count');
   assert.deepEqual((await s.logs()).world, [], 'both lifetimes are consumed once');
+  const contiguous = { canvas: 7, from: 110, next: 4206, dropped: 110, lines: ['replacement at the old boundary'] };
+  pending = [old, contiguous];
+  await peekLogs(s, 0);
+  assert.deepEqual((await s.logs()).world, [old, contiguous], 'equal boundaries do not merge replacement metadata into the old lifetime');
+  assert.deepEqual((await s.logs()).world, [], 'equal-boundary lifetimes are consumed once');
   pending = [old];
   s.logCursor = 99;
   await peekLogs(s, 99);
