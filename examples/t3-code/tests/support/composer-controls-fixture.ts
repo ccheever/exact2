@@ -52,6 +52,7 @@ export class Fake implements Native {
     if (op === 'ack') { this.events = this.events.filter(event => Number(event.seq) > Number(request.through)); return this.ok({ latest: this.seq }); }
     if (op === 'request') {
       if (request.method === 'server.getConfig') return this.ok(this.config);
+      if (request.method === 'projects.readFile') return this.ok({ contents: '{}', truncated: false });
       if (request.method === 'vcs.refreshStatus') return this.ok({ isRepo: true, refName: this.branch });
       if (request.method === 'vcs.listRefs') return this.ok({ isRepo: true, hasPrimaryRemote: true, nextCursor: null, totalCount: 3,
         refs: [{ name: 'main', current: this.branch === 'main', isDefault: true, worktreePath: null }, { name: 'feature', current: this.branch === 'feature', isDefault: false, worktreePath: null },

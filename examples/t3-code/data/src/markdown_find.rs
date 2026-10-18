@@ -410,6 +410,50 @@ mod find_tests {
         }
     }
     #[test]
+    fn question_markdown_keeps_thread_links_and_find_positional_shapes() {
+        let href = "t3-thread://v1/thread/thread-1";
+        let result = Markdown
+            .query(
+                "renderQuestionMarkdown",
+                &[Value::list(vec![Value::record(vec![
+                    Value::str("question-1"),
+                    Value::str("request-1"),
+                    Value::str("Choose"),
+                    Value::str(&format!("Review [Thread]({href})?")),
+                ])])],
+            )
+            .unwrap();
+        let Value::Record(result) = result else {
+            panic!("transcript record")
+        };
+        let Value::List(documents) = &result[0] else {
+            panic!("document list")
+        };
+        assert_eq!(documents.len(), 1);
+        let Value::Record(document) = &documents[0] else {
+            panic!("document")
+        };
+        assert_eq!(document.len(), 3);
+        assert_eq!(document[0].as_str(), Some("question-1"));
+        assert_eq!(document[2], Value::list(vec![]));
+        let Value::List(blocks) = &document[1] else {
+            panic!("blocks")
+        };
+        let Value::Record(block) = &blocks[0] else {
+            panic!("block")
+        };
+        assert_eq!(block.len(), 20);
+        assert!(matches!(block[18], Value::Number(_)));
+        assert!(matches!(block[19], Value::List(_)));
+        let Value::List(runs) = &block[7] else {
+            panic!("runs")
+        };
+        assert!(runs.iter().all(|run| matches!(run, Value::Record(fields)
+            if fields.len() == 11 && matches!(fields[10], Value::List(_)))));
+        assert!(runs.iter().any(|run| matches!(run, Value::Record(fields)
+            if fields[5].as_str() == Some(href) && fields[1].as_str() == Some("Thread"))));
+    }
+    #[test]
     fn plan_title_precedes_body_occurrences() {
         let doc = find_document(
             document(Value::str("entry"), "needle body"),
