@@ -1,8 +1,8 @@
 // Starter: list-detail over your own REST server (server.ts), polled, every failure in words.
 // app.ts fetches with a bearer token, the persona's. Read failures fail the resource so a
 // same-persona refresh keeps its last valid list; writes answer refusals for the form.
-// Who is signed in is the bar's pull-down menu, kept with `persist` across
-// launches; the menu shows each person's name from the data module, never the token. `bun server.ts` serves the dev loop; `test` and `verify` run it
+// Who is signed in is the bar button that shows their name, a pull-down menu, kept
+// with `persist` across launches; it shows names from the data module, never the token. `bun server.ts` serves the dev loop; `test` and `verify` run it
 // themselves, on an empty database. A smaller app deletes what it doesn't need: the persona
 // switcher (`persona`, `people`, `signIn`, its bar button and menu, the `persona` argument of every
 // source), the delete (`askRemove`,
@@ -109,8 +109,9 @@ component App
             // the bar and the list. A control that stays goes in the bar; one that may scroll away, in the list.
             header display="flex" align-items="center" padding="8px 16px"
               text "Starter" role="heading" aria-level=1 flex=1
+              // Who is signed in, by name: a person icon alone does not say who.
               button popovertarget="persona-menu" aria-label=`Signed in as ${nameOf(people, persona)}` testId="persona"
-                image "symbol:person"
+                text nameOf(people, persona)
               button press=openAdd aria-label="Add Item" testId="add-item"
                 image "symbol:add"
             // Never show another persona's retained rows while this one loads or fails.
