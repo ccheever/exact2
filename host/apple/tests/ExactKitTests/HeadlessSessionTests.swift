@@ -26,7 +26,11 @@ final class HeadlessSessionTests: XCTestCase {
         XCTAssertTrue(try node("label", in: session.snapshot()).hasComputedLines)
         let padded = try node("padded", in: initial)
         XCTAssertEqual(padded.contentBox.origin, CGPoint(x: 8, y: 8))
+        #if os(macOS)
         XCTAssertEqual(padded.lines.first?.origin.y, 16)
+        #else
+        XCTAssertEqual(padded.lines.first?.origin.y, label.lines.first?.origin.y)
+        #endif
         XCTAssertEqual(try node("hairline", in: initial).frame.width, SessionFacts.defaultRootFontSize * 2)
         XCTAssertEqual(try node("hairline", in: initial).frame.height, 0.5)
         XCTAssertEqual(try node("body", in: initial).style["font_size"]?.number, Double(SessionFacts.defaultRootFontSize))
@@ -38,7 +42,13 @@ final class HeadlessSessionTests: XCTestCase {
         XCTAssertEqual(wrapped.lines.map(\.text).joined(), "alpha beta gamma")
         XCTAssertGreaterThan(wrapped.lines.count, label.lines.count)
         XCTAssertEqual(wrapped.frame.height, CGFloat(wrapped.lines.count) * 20)
+        #if os(macOS)
         XCTAssertEqual(wrapped.lines.map(\.origin.y), [16, 36, 56])
+        #else
+        // UIKit's SF ascent differs from AppKit's; padding must add no offset.
+        let baseline = try XCTUnwrap(label.lines.first).origin.y
+        XCTAssertEqual(wrapped.lines.map(\.origin.y), [baseline, baseline + 20, baseline + 40])
+        #endif
 
         let refreshed = try session.refresh()
         XCTAssertEqual(try node("label", in: refreshed).lines.map(\.text), wrapped.lines.map(\.text))
