@@ -903,7 +903,9 @@ const sources: Sources = {
     const top = undoStack.at(-1);
     if (!top?.rescope) return stacks(false, 'The last write has no other rung to move to.', '');
     const { ops, files } = top.rescope;
-    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files, ops }, WRITE_WAIT, top.token);
+    // Every file the move was worked out on, edited or not (a component's
+    // default in its Contract source decides what the param shows): `requires`.
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files, requires: files, ops }, WRITE_WAIT, top.token);
     if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     // Refused by the server (a file moved, a loop through another token), it is not offered again.

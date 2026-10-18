@@ -403,9 +403,10 @@ test('T3: Reset gives a param\'s line back byte for byte in one undo; a param ed
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
   git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
   let transactions = 0;
-  // Before the fifth transaction (the second re-scope), a hand edit.
+  // Before the fifth transaction (the second re-scope), a hand edit of the component's default.
   const tool = await proxied(app, request => {
-    if (request.method === 'transaction' && ++transactions === 5) writeFileSync(join(app, 'app.tamber'), `${readFileSync(join(app, 'app.tamber'), 'utf8')}// a hand edit\n`);
+    // (The component's own source: no file the move edits, but one it was worked out on.)
+    if (request.method === 'transaction' && ++transactions === 5) writeFileSync(join(app, 'app.contract'), readFileSync(join(app, 'app.contract'), 'utf8').replace('fill: color = "accent.fill"', 'fill: color = "surface.card"'));
   });
   try {
     const replies = await drive(tool.url, `design-tool-params-${process.pid}`, [
