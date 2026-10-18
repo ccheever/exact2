@@ -70,14 +70,15 @@ To explore the existing sample instead, run `bun game/dev.mjs beacons`.
 `--allow-host <name>`, repeatable, to serve the game through a tunnel such as
 `tuft host`; without it a request under any name but the printed ones gets 421).
 
-In another terminal, establish the new game's proof baseline:
+Once the game plays and its `proof.mjs` describes it, establish its proof baseline:
 
 ```sh
 bun game/prove.mjs ./my-game
 ```
 
-The first baseline requires Linux and web agreement in all three simulation modes,
-plus a Linux release run. Later invocations verify one GPU-less Linux run by default.
+This is a release step, not part of the edit loop: nothing before it waits on it, and
+cold it takes many minutes. The first baseline requires Linux and web agreement in all
+three simulation modes, plus a Linux release run. Later invocations verify one GPU-less Linux run by default.
 Use `bun my-game/proof.mjs web --screenshot-only` for pixels only; this reports
 `UNVERIFIED` because it skips gameplay checks. Its screenshot is
 `my-game/artifacts/web/game.png`. The starter includes movement, jumping, two
