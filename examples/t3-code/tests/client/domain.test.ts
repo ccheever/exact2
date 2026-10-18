@@ -116,16 +116,16 @@ describe("thread synchronization", () => {
   });
 
   test("a turn item type this build does not know is dropped, and a known one that does not decode still fails", () => {
-    const secret = turn("secret", 2, { type: "secret_request", requestId: "request-1" });
+    const secret = turn("secret", 2, { type: "future_turn_item", requestId: "request-1" });
     const loaded = state([turn("known", 1), secret]);
     expect(arr(loaded.projection.turnItems).map(item => item.id)).toEqual(["known"]);
     expect(arr(loaded.projection.visibleTurnItems).map(entry => [entry.sourceItemId, entry.position])).toEqual([["known", 0]]);
     expect(messages(loaded).map(message => message.body)).toEqual(["text known"]);
-    const skipped = applyThread(loaded, event("turn-item.updated", turn("later", 3, { type: "secret_request" }), 40));
+    const skipped = applyThread(loaded, event("turn-item.updated", turn("later", 3, { type: "future_turn_item" }), 40));
     expect(skipped.sequence).toBe(40);
     expect(skipped.projection).toBe(loaded.projection);
     const page = mergeHistory(state([turn("now", 5)], { historyCursor: "c", hasMoreHistory: true }),
-      { snapshotSequence: 10, items: [row(turn("old", 1)), row(turn("old-secret", 2, { type: "secret_request" }))], nextCursor: null, hasMoreHistory: false });
+      { snapshotSequence: 10, items: [row(turn("old", 1)), row(turn("old-secret", 2, { type: "future_turn_item" }))], nextCursor: null, hasMoreHistory: false });
     expect(arr(page.projection.visibleTurnItems).map(entry => entry.sourceItemId)).toEqual(["old", "now"]);
     expect(() => state([turn("broken", 1, { type: "assistant_message", text: 3 })])).toThrow("text");
   });

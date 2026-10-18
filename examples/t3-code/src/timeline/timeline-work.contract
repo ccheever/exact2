@@ -388,7 +388,7 @@ component WorkEntry
             for picture in entry.toolImages key=picture.id
               MediaActions(source=picture.source, tip=picture.name, local=mediaLocal, testId=`tool-media-${picture.id}`, elementId="")
                 for url in urls.filter((url) => url.id == picture.id) key=url.id
-                  button press=command("chatlocal:image-tool-open", picture.id, entry.id, 0) testId=`tool-image-${picture.id}` id=`tool-image-${picture.id}` aria-label="Preview tool output image" padding=0 border-width=0 background-color="#00000000" max-width="100%" display="flex"
+                  button press=command("chatlocal:image-tool-open", picture.id, entry.id, 0) testId=`tool-image-${picture.id}` id=`tool-image-${picture.id}` aria-label="Preview tool output image" title="" padding=0 border-width=0 background-color="#00000000" max-width="100%" display="flex"
                     image url.url aria-label="Tool output image" max-width="100%" max-height="16rem" object-fit="contain"
                 if urls.filter((url) => url.id == picture.id).length == 0
                   text (urls.filter((url) => url.id == `failed:${picture.id}`).length > 0 ? "Image unavailable" : "Loading image…") font-size=codeSize color="light-dark(#71717b, #818181)"
