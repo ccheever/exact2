@@ -109,6 +109,48 @@ pinned to Snapback4 0.4.29: install that version for the server. A new app
 made this way and tested as written against 0.4.29 (2026-10-16): both of the
 guestbook's tests pass.
 
+### Updating an inherited app
+
+After the Exact checkout moves, run these in the app:
+
+```sh
+bun exact.mjs update
+bun exact.mjs contract migrate app.contract
+bun exact.mjs lock
+bun exact.mjs contract build app.contract --json --errors-only
+```
+
+`migrate` rewrites retired Contract spellings (`list<T>`, free string/array
+calls, `when` and `each`). It does not rewrite TypeScript business logic.
+`lock` refreshes the app's Cargo lock against this checkout. A CI gate uses
+`build --json --errors-only`: exit zero and `[]` mean no errors; ordinary
+`--json` includes advisory warnings too.
+
+**Breaking change (2026-10-16):** Snapback mutation sources with a bool `ok`
+field return `ok: true` on success. Replace `{ok: false}` replies with
+`throw refused(why)` and render `failure(slot)`; the mutation's `then` runs
+only on success. Before:
+
+```ts
+if (fate.state === 'failed') return { ok: false, message: fate.why.code };
+```
+
+After (import `refused` from `./snapback4/snapback.ts`):
+
+```ts
+if (fate.state === 'failed') throw refused(fate.why);
+return { ok: true, message: '' };
+```
+
+```
+derive sendError = match failure(posted) { case some(f) => f.code, case none => "" }
+```
+
+Put the derive in the component holding `posted`, and map codes to reader-facing text. A refused `send` keeps the
+slot's previous successful reply, so matching the reply alone cannot detect a
+failure. `pending(posted)`, `failed(posted)` and `failure(posted)` describe the
+current request; a refusal runs no `then`.
+
 ### Upgrading a wave-10-era app
 
 Delete app-local stamp scripts (such as `stamp-device.mjs`) and their build hooks.
@@ -174,7 +216,19 @@ try {
 
 Sessions live in Exact's app-scoped secret store (`secret.keep <key>`): the
 Keychain on Apple, the user's private secret files on Linux, and the app's
-web storage. Use a separate key for each origin. `open` drops malformed or
+web storage. Use a separate key for each origin. Keys must match
+`[a-z0-9._-]{1,64}`; a URL containing `:` or `/` is not a key. For example,
+for `http://127.0.0.1:4400` use `snapback-http-127.0.0.1-4400`, and for
+`https://api.example.com` use `snapback-https-api.example.com`:
+
+```ts
+const sessionKey = 'snapback-http-127.0.0.1-4400';
+export const grants = `net.fetch ${origin}\nsecret.keep ${sessionKey}`;
+// Pass the same key: auth: { store, key: sessionKey, now }
+```
+
+Choose a distinct stable key for each origin, including protocol and port.
+`open` drops malformed or
 expired stored sessions and refreshes within 60 seconds of expiry using the
 supplied Contract time. `refreshSession(now)` also rotates explicitly and
 stores the replacement before returning. `E_AUTH` on refresh forgets the
@@ -215,6 +269,7 @@ const viewers = Snapback.switcher((key: string) => ({ app: appId, origin,
 
 Bare `use identity` permits guests: call `await db.guest()` before any read,
 then keep its session in the same `auth` store as a password session.
+A guest session is a session: `await db.logout()` before `signup` or `login`.
 `await db.authConfig()` reads `GET /auth/config` and reports `guests`, `password`
 and `development`. `use identity password` removes guests. A complete tested guest
 and mixed persona/password recipe is [here](../docs/recipes/snapback-auth.md).
@@ -791,7 +846,8 @@ Generate the declaration, start `bun exact.mjs backend`, and run
 `bun exact.mjs test web`. The same UI works on `serve`; omit `fresh` there
 and use a unique signup email. `restore(now)` validates stored sessions and
 refreshes within 60 seconds of expiry; `refreshSession(now)` rotates explicitly.
-Use a different secret key for each origin. Auth operations serialize across Exact's
+Use a different secret key for each origin, such as `snapback-http-127.0.0.1-4400`
+(the key grammar and example are [above](#personas-and-password-accounts)). Auth operations serialize across Exact's
 per-source secret facades; a late auth reply never overwrites a changed session.
 An old-token request denied during refresh waits for auth to finish before
 invalidating, so it cannot discard the replacement token. A later poll still
@@ -1013,7 +1069,9 @@ Run `bun exact.mjs contract types app.contract -o app.contract.d.ts`,
 The README retest command executes this example along with the guestbooks.
 The existing [password example](#a-complete-online-password-app)
 adds login and periodic session refresh. Remove persona controls for production;
-`serve` refuses persona headers. Use a distinct secret key for each backend origin.
+`serve` refuses persona headers. Use a distinct secret key for each backend origin,
+such as `snapback-https-api.example.com`; keys contain only lowercase letters,
+digits, dots, underscores and hyphens, at most 64 characters.
 
 ### Live resources on the online adapter
 
@@ -1129,6 +1187,17 @@ See [navigation](../docs/recipes/navigation-stack.md).
 A PDF picker needs `input type="file" accept="application/pdf"` and an app manifest
 handler such as `"file_handlers": [{"action":"/", "accept":{"application/pdf":[".pdf"]}}]`.
 Give the input an `id` for `showPicker` and a `testId` for `pick`.
+
+Look up the admitted vocabulary before choosing a platform name:
+
+| Need | Contract / manifest |
+| --- | --- |
+| Colour roles | `contract vocab color background-color`; use `-exact-label`, `-exact-secondary-label`, `-exact-system-red`, rather than UIKit role names |
+| List indexing | `xs.at(i)` is an option: `match xs.at(i) { case some(x) => x.title, case none => "" }`; no unchecked `xs[i]` |
+| Time | `performanceNow()` for durations; `resource time = exactTime() as shape Clock` with `epochAtZero: number`, then `time.epochAtZero + performanceNow()` for epoch milliseconds |
+| Symbols | `contract vocab symbol` lists roles; literal unknown roles fail the build. Computed sources still need runtime checks. `symbol:sf/<name>` draws only on Apple |
+| Source mounts | `app.json`'s `typescript.sources` maps module names to directories relative to the app, such as `"backend": "../snapback/generated"` |
+| File pickers | Both Contract `accept` and manifest `file_handlers` (the PDF example above) |
 
 A generic helper forwarding record arguments needs the same constraint as the
 adapter: `function helper<A extends Record<string, unknown>>(args: A) { … }`.
@@ -1350,7 +1419,7 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   largest id as the newest: give the table a `time` the mutation sets (`at:
   now`) and read in its index's order (`last 50 by byTime`). A test file
   cannot know a minted id either, so a `testId` built from one is out of
-  its reach. Reach a row by position, from `for`'s index (`each note, i in
+  its reach. Reach a row by position, from `for`'s index (`for note, i in
   board.notes key=note.id` with ``testId=`note-${i}` ``, as the guestbook
   does: `expect text "note-0" == …`), by what it shows (`tap "<its exact
   text or label>"`), or through a derive of the row the test made (the
