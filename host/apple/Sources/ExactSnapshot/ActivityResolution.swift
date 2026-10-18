@@ -7,6 +7,9 @@
 import SwiftUI
 import WidgetKit
 import ExactCore
+import os
+
+private let resolverLog = Logger(subsystem: "dev.exact.widgets", category: "activity")
 
 /// What the envelope says about one activity (`ExactActivityAttributes` and
 /// its `ContentState`), with the state as the JSON bytes the plan decodes.
@@ -142,7 +145,12 @@ public enum ActivityResolver {
         let envelope = request.stateShape == registry?.shape ? request.state : nil
         var resolved: (state: Data?, outdated: Bool)
         do { resolved = try stateCache?.resolve(envelope, accepts: accepts) ?? (nil, false) }
-        catch { resolved = (nil, false) }
+        catch {
+            // The group's store failed (a write, a directory): said in the
+            // log, and a state the plan accepts is still the state shown.
+            resolverLog.error("activity \(request.kind, privacy: .public) \(request.activityID, privacy: .public): state cache: \(String(describing: error), privacy: .public)")
+            resolved = (nil, false)
+        }
         if resolved.state == nil, let envelope, accepts(envelope) { resolved = (envelope, false) }
         if let state = resolved.state, let render = booted[state] ?? (try? boot(state)) {
             return ActivityRendering(request: request, facts: facts, render: render, root: root, outdated: resolved.outdated, placeholder: false)
@@ -158,10 +166,12 @@ public enum ActivityResolver {
 
 /// The renders alive in a process, keyed by the request and the facts: the
 /// eight placements of one push share one session (one session per
-/// activity, D9), and a state the system asks for again (another region)
-/// is not booted twice; any fact that shapes the layout keys a new one.
-/// Bounded: an activity's older renders leave as new ones come; a failed
-/// resolution is kept by nobody.
+/// activity, D9), and a state the system asks for again (another region,
+/// the Lock Screen's scheme beside the Island's, Bold Text) is not booted
+/// twice. When a render is kept, the activity's renders of another request
+/// (an older state, a generation) leave, its fact variants of this request
+/// stay, and one entry stands per key even when two misses race; a failed
+/// resolution is kept by nobody. Bounded, oldest first.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 public final class ActivityRenders {
     public static let shared = ActivityRenders()
@@ -178,12 +188,18 @@ public final class ActivityRenders {
         lock.unlock()
         let made = try ActivityResolver.resolve(request, facts: facts, sources: sources, stateCache: stateCache, at: date)
         lock.lock(); defer { lock.unlock() }
-        kept.removeAll { $0.key.request.activityID == request.activityID && $0.key.request == request && $0.key.facts != facts }
+        if let found = kept.first(where: { $0.key == key }) { return found.rendering }
+        kept.removeAll { $0.key.request.activityID == request.activityID && $0.key.request != request }
         kept.append((key, made))
         if kept.count > limit { kept.removeFirst(kept.count - limit) }
         return made
     }
     public var count: Int { lock.lock(); defer { lock.unlock() }; return kept.count }
+    /// The renders kept for an activity, by request: a test's view of the eviction.
+    public func kept(for activityID: String) -> [ActivityRendering] {
+        lock.lock(); defer { lock.unlock() }
+        return kept.filter { $0.key.request.activityID == activityID }.map(\.rendering)
+    }
 }
 
 /// One placement of a rendering, as the system archives it: the driver's

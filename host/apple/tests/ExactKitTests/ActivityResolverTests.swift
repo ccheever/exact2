@@ -85,14 +85,16 @@ final class ActivityResolverTests: XCTestCase {
         // Another cohort's generation of the same name is refused too.
         let foreign = ActivitySources(groupRoot: f.group, embeddedRoot: f.embedded, embeddedGeneration: "e1", compatibility: "cohort-b")
         XCTAssertThrowsError(try ActivityResolver.resolve(request(f), facts: facts, sources: foreign, stateCache: nil))
-        // The cache keeps no failed resolution, and keeps the named generation's render apart from current's.
+        // The cache keeps no failed resolution; an activity restarted under another generation is another
+        // request, so the earlier generation's render leaves when the new one is kept.
         let renders = ActivityRenders(limit: 4)
         XCTAssertThrowsError(try renders.rendering(for: request(f, generation: unknown), facts: facts, sources: f.sources, stateCache: nil))
         XCTAssertEqual(renders.count, 0)
         let a = try renders.rendering(for: request(f), facts: facts, sources: f.sources, stateCache: nil)
         let b = try renders.rendering(for: request(f, generation: f.generations["pub2"]!.lastPathComponent), facts: facts, sources: f.sources, stateCache: nil)
         XCTAssertNotEqual(a.root.standardizedFileURL, b.root.standardizedFileURL)
-        XCTAssertEqual(renders.count, 2)
+        XCTAssertEqual(renders.count, 1)
+        XCTAssertTrue(renders.kept(for: "activity-1").first === b)
     }
 
     /// The shape-digest gate and the kept state: an envelope of another
@@ -151,6 +153,42 @@ final class ActivityResolverTests: XCTestCase {
         // The full state bytes key the render: two states of one digest are two renders.
         XCTAssertFalse(try renders.rendering(for: request(f, state: Self.other), facts: facts, sources: f.sources, stateCache: nil) === base)
         XCTAssertLessThanOrEqual(renders.count, 8)
+    }
+
+    /// The cache's insert: an activity's renders of another request leave,
+    /// its fact variants of the current request stay, two activities stand
+    /// side by side, and a state the activity moved past is not kept.
+    func testTheCacheKeepsFactVariantsAndDropsAnActivitysOlderRequests() throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let renders = ActivityRenders(limit: 8)
+        let cache = f.cache("activity-1")
+        let dark = ActivityFacts(displayScale: 2, preferences: [.dark], rootFontSize: 17, locale: "en-US", timeZone: TimeZone(identifier: "America/Los_Angeles")!)
+        // X, a malformed payload before any good state: the placeholder, cached.
+        let x = request(f, state: Self.wrongShape)
+        let first = try renders.rendering(for: x, facts: facts, sources: f.sources, stateCache: cache)
+        XCTAssertTrue(first.placeholder)
+        // Y, good, in both schemes: the fact variants share the request and stay together; X's placeholder leaves.
+        let y = request(f)
+        let light = try renders.rendering(for: y, facts: facts, sources: f.sources, stateCache: cache)
+        let darker = try renders.rendering(for: y, facts: dark, sources: f.sources, stateCache: cache)
+        XCTAssertFalse(light === darker)
+        XCTAssertEqual(renders.kept(for: "activity-1").count, 2, "Y's two variants, X gone")
+        XCTAssertTrue(try renders.rendering(for: y, facts: facts, sources: f.sources, stateCache: cache) === light)
+        XCTAssertTrue(try renders.rendering(for: y, facts: dark, sources: f.sources, stateCache: cache) === darker)
+        // X again: resolved afresh, it shows Y as the kept state, outdated, never the old placeholder.
+        let again = try renders.rendering(for: x, facts: facts, sources: f.sources, stateCache: cache)
+        XCTAssertFalse(again === first)
+        XCTAssertTrue(again.outdated); XCTAssertFalse(again.placeholder)
+        XCTAssertTrue(try texts(again).contains("Palo Alto to San Jose"))
+        XCTAssertEqual(renders.kept(for: "activity-1").count, 1, "Y's variants left when X came")
+        // A second activity stands beside the first.
+        let second = try renders.rendering(for: request(f, id: "activity-2", state: Self.other), facts: facts, sources: f.sources, stateCache: f.cache("activity-2"))
+        XCTAssertTrue(try texts(second).contains("Redwood City to San Jose"))
+        XCTAssertEqual(renders.kept(for: "activity-1").count, 1); XCTAssertEqual(renders.kept(for: "activity-2").count, 1)
+        XCTAssertTrue(try renders.rendering(for: x, facts: facts, sources: f.sources, stateCache: cache) === again)
+        // One entry per key, whatever the order of two misses: a second resolve of an equal key answers the first.
+        XCTAssertEqual(renders.count, 2)
     }
 
     /// The presentation: the placeholder redacted, the kept state dimmed
