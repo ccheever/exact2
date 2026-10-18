@@ -70,6 +70,13 @@ shape UsageValue
   id: string
   label: string
   value: string
+shape UsageCostSegment
+  id: string
+  label: string
+  weight: number
+  value: string
+  light: string
+  dark: string
 shape UsageModel
   id: string
   label: string
@@ -105,7 +112,10 @@ shape MobileUsageData
   chart: UsageBar[]
   providers: UsageProvider[]
   totals: UsageValue[]
-  costs: UsageValue[]
+  hasCost: bool
+  costByType: UsageCostSegment[]
+  costBySpeed: UsageCostSegment[]
+  costPremium: string
   models: UsageModel[]
 shape MobileUsageAccountData
   present: bool
@@ -250,7 +260,14 @@ component SettingsUsage
                       view flex=(1 - provider.fraction)
                     text `${provider.share} · ${provider.detail}` color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
             UsageValues(title="Totals", items=data.totals, colors=colors, roles=roles)
-            UsageValues(title="Cost", items=data.costs, colors=colors, roles=roles)
+            if data.hasCost
+              column gap=7
+                SettingsSectionLabel(title="Cost", colors=colors, roles=roles)
+                column background-color=colors.grouped border-radius=24 overflow="hidden"
+                  UsageCostBar(label="By type", segments=data.costByType, aside="", dark=dark, colors=colors, roles=roles)
+                  if data.costBySpeed.length > 0
+                    view border-top-width=1 border-top-style="solid" border-top-color=colors.borderSubtle
+                      UsageCostBar(label="By speed", segments=data.costBySpeed, aside=data.costPremium, dark=dark, colors=colors, roles=roles)
             if data.models.length > 0
               column gap=7
                 SettingsSectionLabel(title="By model", colors=colors, roles=roles)
@@ -262,6 +279,30 @@ component SettingsUsage
                         text model.label color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` line-clamp=1
                         text model.detail color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
                       text model.value flex-shrink=0 color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-variant-numeric="tabular-nums"
+component UsageCostBar
+  props
+    label: string
+    segments: UsageCostSegment[]
+    aside: string
+    dark: bool
+    colors: SettingsColors
+    roles: SettingsTextRoles
+  view
+    if segments.length > 0
+      column gap=10.5 padding=14
+        row align-items="baseline" justify-content="space-between" gap=10.5
+          text label flex-shrink=0 color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+          if aside.length > 0
+            text aside flex-shrink=0 color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-variant-numeric="tabular-nums"
+        row height=7 gap=1.75
+          for segment in segments key=segment.id
+            view height="100%" flex=segment.weight border-radius=3.5 background-color=(dark ? segment.dark : segment.light)
+        row flex-wrap="wrap" column-gap=14 row-gap=5.25
+          for segment in segments key=segment.id
+            row align-items="center" gap=5.25 flex-shrink=0
+              view width=7 height=7 border-radius=3.5 flex-shrink=0 background-color=(dark ? segment.dark : segment.light)
+              text segment.label flex-shrink=0 color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+              text segment.value flex-shrink=0 color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-variant-numeric="tabular-nums"
 component UsageValues
   props
     title: string
