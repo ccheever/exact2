@@ -73,6 +73,13 @@ fn a_fresh_boot_on_the_pages_clock_starts_where_it_reads() {
     );
     bridge.advance(60_500., 0);
     assert_eq!(ticks(&bridge), 0.0);
+    // A first dev generation, booted fresh through `boot_plan`, the same.
+    let mut fresh = Bridge::<NoData>::new();
+    fresh.set_live_clock(Some(page));
+    let len = fresh.input_write(&plan);
+    fresh.boot_plan(len, NoData, 400., 400., "/");
+    let due = fresh.host.as_ref().unwrap().runner().timer_due_ms();
+    assert_eq!(due, Some(61_000.0));
     // The agent's clock boots at zero.
     bridge.set_live_clock(None);
     bridge.boot(&plan, NoData, 400., 400., "/");
