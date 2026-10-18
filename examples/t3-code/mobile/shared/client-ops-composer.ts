@@ -1,7 +1,7 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
 // Adapted body from examples/t3-code/client-ops-composer.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
 // Mobile 365aa87982: send admission, retained options and independent model-pick ownership differ.
-// Mobile 365aa87982: a started thread's model, option and mode picks stay local until Send keeps them.
+// Mobile 365aa87982: a started thread's model, option and mode picks are local saved settings; Send carries them to the server and keeps them.
 import { mobileNewTaskDirectText, mobileNewTaskMessageContext as withMessageContext, mobileNewTaskSendGuard } from '../mobile-new-task-context-send';
 import { mobileModelSelectionUnavailable } from '../model-availability';
 import { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';
