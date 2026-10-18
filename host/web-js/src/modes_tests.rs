@@ -547,6 +547,11 @@ fn state_looks_are_sheet_rules_for_the_nodes_set() {
         "`:active` is no look: {}",
         out.css
     );
+    assert!(
+        !out.css.contains("#exact-root [data-exact-looks"),
+        "a look sits under the shell's #exact-root press paint: {}",
+        out.css
+    );
     assert!(out.css.contains("var(--x-surface-card"), "{}", out.css);
     assert!(
         out.css.contains("opacity:unset!important"),

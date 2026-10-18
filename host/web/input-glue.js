@@ -251,6 +251,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const endPaint = (el, state) => {
     if (paints.get(el) !== state) return;
     paints.delete(el);
+    if (!paints.size) sheets.disconnect();
     state.observer.disconnect();
     state.animation.cancel();
     el.removeAttribute("data-exact-painting");
@@ -263,6 +264,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     paint(el, state, Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)));
   };
   globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el); });
+  // So does a live edit that reaches it through a sheet (a state look's rule, the theme's) or the root's
+  // modes and tokens (the JS target's), which change no style of the node's own (LLP 1121 D8).
+  const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el); });
   // `now`: the press ends at once (the window or the page went), as it does
   // for a node no longer in the page.
   const showPaint = (el, down, now = false) => {
@@ -272,6 +276,10 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!state) {
       state = { observer: new MutationObserver(() => repaint(el)) };
       state.observer.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
+      if (!paints.size) {
+        sheets.observe(document.head, { childList: true, subtree: true, characterData: true });
+        sheets.observe(document.documentElement, { attributes: true });
+      }
       paints.set(el, state);
     }
     state.to = down ? 1 : 0;
@@ -323,7 +331,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // tap gesture a synthesized touch never makes.
     const touch = e.pointerType === "touch";
     const el = e.target.closest?.(touch ? "[data-exact-on~=press],button,a[data-view][href]" : "[data-exact-on~=press],button[data-button-style]");
-    if (!el || !root.contains(el) || el.closest(":disabled,[disabled='true']")) return;
+    if (!el || !root.contains(el) || el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a box says `disabled` (LLP 1121 D8)
     // @ref LLP 1077 D14 — `-exact-press-haptic` plays at the press, as Apple's does:
     // `navigator.vibrate` where the browser has it (not desktop, not iOS
     // Safari), with `haptic()`'s two lengths (workout F4).

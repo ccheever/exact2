@@ -249,6 +249,11 @@ fn active_and_the_press_paint_are_one_spelling() {
         "lower-unknown-attr",
         "lowering's row, never an author's"
     );
+    assert_eq!(
+        refused("style Card\n  -exact-press-opacity-to = 0.5\n\ncomponent App\n  view\n    column\n      text \"b\"\n"),
+        "lower-unknown-attr",
+        "nor in a style"
+    );
 }
 
 /// Looks are by node, then state, whatever order the source writes the

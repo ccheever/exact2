@@ -333,10 +333,21 @@ pub fn sites(
         .chain(aliases.iter().map(|a| kind_of(a)))
         .collect();
     let mut out = Vec::new();
-    for (i, node) in plan.nodes.iter().enumerate() {
+    // Each node's rows, then each `:hover` and `:focus-visible` look's, read
+    // at the node (LLP 1121 D8).
+    let range = |r: &exact_plan::BindingsRange| r.start as usize..(r.start + r.len) as usize;
+    let rows = (plan.nodes.iter().enumerate())
+        .map(|(i, node)| (i, range(&node.bindings), None))
+        .chain(plan.looks.iter().map(|l| {
+            let state = if l.state == 1 {
+                "hover"
+            } else {
+                "focus-visible"
+            };
+            (l.node.0 as usize, range(&l.bindings), Some(state))
+        }));
+    for (i, range, look) in rows {
         let site = &map["nodes"][i];
-        let range =
-            node.bindings.start as usize..(node.bindings.start + node.bindings.len) as usize;
         for b in &plan.bindings[range] {
             if b.kind != BindingKind::Style {
                 continue;
@@ -390,6 +401,9 @@ pub fn sites(
             }
             if !via.is_null() {
                 at["via"] = via;
+            }
+            if let Some(state) = look {
+                at["state"] = state.into();
             }
             out.push(at);
         }

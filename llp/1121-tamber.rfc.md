@@ -3452,9 +3452,16 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - The rows are `!important` over the inline base, and below the shell's pressed-paint rules, which are `#exact-root`-scoped. So the press paint shows over a hover.
   - They have no transition: a look snaps, under Reduce Motion too.
   - The sheet goes with the last plan at a boot. An explicit clear (`unset`) crosses written with no value, as a static row's.
+- **Round 2:**
+  - A text with a look never folds into its parent's box (`element::folded`, `holds_folded`).
+  - The glue takes no press on a box whose `disabled` is any value but "false".
+  - The press paint re-reads what's beneath when a sheet or the root changes under a hold (a look's rule, the theme, the JS target's modes).
+  - `-exact-press-opacity-to` is refused in a `style` block, not suggested for a typo, and not described by `contract vocab`.
+  - `uses` lists a token a `:hover` or `:focus-visible` row reads, at its node, with its state.
+  - **Deviation (QUEUE):** on the web, a node's own `transition` on a property a look sets times the look's change. The look rule can't keep it out.
 - **The JS target** (`host/web-js`):
   - The static tree applies each node's looks rows (`SetLooks`), and the template carries their declarations. A varying token's sentinel becomes its `var()`, as in a class, and look declarations join the sentinel scan.
-  - Each distinct set of looks is one rule group, `[data-exact-looks="N"]`, after the classes; the node takes `data-exact-looks`.
+  - Each distinct set of looks is one rule group, `[data-exact-looks="N"]`, after the classes, as unscoped as wasm's, so the shell's pressed paint wins over it; the node takes `data-exact-looks`.
   - `:active` reaches the page as D7's custom properties through the template.
 - **Tests:**
   - `state_parts.rs` and `state_looks.rs`: each lowering, the refusals, one spelling, the internal row, retired state 0, looks re-sent by a live token (and not by one only the base reads), `unset`.

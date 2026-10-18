@@ -2391,8 +2391,10 @@ down" "screenshot x.png" "tap up"` shows it. Nothing waits on the runner and no
 state changes. `-exact-press-color` reaches the node's text as `color` does
 (a text with its own colour keeps it). Any of them, 1 included, replaces the
 platform's unsaid press: iOS's dim, the Mac's darkening, a list row's cell
-highlight. Contract has no `:active` and no pressed block, so these are paint
-only; a press that changes layout is app state. Do not draw a press from
+highlight. An `:active` state part (below) says the same paint, with an
+opacity that is what the node shows pressed rather than a share; write each
+paint one way or the other, not both. These are paint only; a press that
+changes layout is app state. Do not draw a press from
 `pointerdown`/`pointerup` state: each touch then waits on the runner. Say
 nothing to get the platform's own.
 

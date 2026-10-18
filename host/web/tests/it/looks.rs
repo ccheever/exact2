@@ -93,3 +93,15 @@ fn a_nodes_looks_are_page_rules_that_follow_a_live_token() {
         "{out}"
     );
 }
+
+/// A text with a look of its own keeps its box: it never folds into its
+/// parent's (LLP 1007.001), where its look would paint nothing.
+#[test]
+fn a_text_with_a_look_keeps_its_box() {
+    let src = "component App\n  view\n    column testId=\"box\"\n      text \"t\" testId=\"t\"\n        :hover\n          opacity = 0.5\n";
+    let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e:?}"));
+    let (_, boot) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
+    let text = created(&boot, "t");
+    assert!(!text.contains("display:contents"), "{text}");
+    assert!(boot.contains("{\"op\":\"looks\""), "{boot}");
+}

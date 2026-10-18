@@ -85,6 +85,13 @@ check('a hover look composes over the base, under the press paint', async () => 
     // The base moves while pressed: a row the press doesn't paint shows the new base.
     await evaluate(`Object.assign(document.getElementById('card').style, { backgroundColor: '#eeeeee', borderRightColor: '#123456' })`);
     expect(await look()).toEqual(['color(srgb 0 0 1)', 'rgb(18, 52, 86)', '0.60']);
+    // A live edit of the look beneath (its sheet, not the node's style) is what the press eases over now.
+    const beneath = () => evaluate(`document.getElementById('card').getAnimations().map(a => a.effect.getKeyframes()[0]['--exact-press-base-background']).find(Boolean)`);
+    expect(await beneath()).toBe('rgb(255, 255, 0)');
+    await evaluate(`(s => { s.textContent = s.textContent.replace('255,255,0', '0,255,255'); })(document.getElementById('exact-looks'))`);
+    await evaluate('new Promise(ok => setTimeout(ok, 0))');
+    expect(await beneath()).toBe('rgb(0, 255, 255)');
+    await evaluate(`(s => { s.textContent = s.textContent.replace('0,255,255', '255,255,0'); })(document.getElementById('exact-looks'))`);
     await mouse('mouseReleased', card);
     expect(await look()).toEqual(['rgb(255, 255, 0)', 'rgb(18, 52, 86)', '0.80']); // the hover again
     await mouse('mouseMoved', away);
@@ -106,6 +113,11 @@ check('a hover look composes over the base, under the press paint', async () => 
     await evaluate(`document.getElementById('card').setAttribute('disabled', '')`);
     await mouse('mouseMoved', card);
     expect(await look()).toEqual(['rgb(238, 238, 238)', 'rgb(18, 52, 86)', '1.00']);
+    // Nor a press: no paint, no scale.
+    await mouse('mousePressed', card, 1);
+    expect(await evaluate(`['data-pressed', 'data-exact-painting'].map(a => document.getElementById('card').hasAttribute(a))`)).toEqual([false, false]);
+    expect(await look()).toEqual(['rgb(238, 238, 238)', 'rgb(18, 52, 86)', '1.00']);
+    await mouse('mouseReleased', card);
   } finally {
     await cdp.send('Target.closeTarget', { targetId });
   }

@@ -9,6 +9,9 @@ mod live;
 // A node's state looks as page rules (LLP 1121 D8, stage 8 B).
 #[path = "looks.rs"]
 pub(crate) mod looks;
+// What the page has of each view.
+#[path = "mirror.rs"]
+pub(crate) mod mirror;
 // MIDI's messages from the page (LLP 1125 D6–D8), told as a fact is.
 #[path = "midi.rs"]
 mod midi;

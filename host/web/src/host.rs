@@ -19,6 +19,7 @@ use exact_runner::{
     Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
     RunnerError, SurfaceOutcome, Timed, Work,
 };
+use mode::mirror::Mirror;
 
 #[path = "auth.rs"]
 mod auth;
@@ -35,9 +36,7 @@ pub mod document;
 mod element;
 #[path = "template.rs"]
 pub mod template;
-use element::{
-    css_style, css_style_named, host_css, in_button, props_for, svg_props, tag_for, Mirror,
-};
+use element::{css_style, css_style_named, host_css, in_button, props_for, svg_props, tag_for};
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;

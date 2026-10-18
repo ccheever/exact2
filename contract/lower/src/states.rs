@@ -47,7 +47,7 @@ const ACTIVE_ROWS: [(&str, &str); 4] = [
 
 /// The press's absolute opacity, lowering's row for `:active`'s `opacity`
 /// (never an author's: `lower-unknown-attr`).
-pub(crate) const PRESS_OPACITY_TO: &str = "-exact-press-opacity-to";
+pub const PRESS_OPACITY_TO: &str = "-exact-press-opacity-to";
 
 /// The four sides' colour rows, top, right, bottom, left.
 const SIDES: [&str; 4] = [

@@ -168,3 +168,17 @@ fn uses_names_an_active_rows_own_line() {
     assert_eq!(sites[0]["state"], "active");
     assert_eq!(sites[0]["line"], 8, "the `:active` row's line: {sites:?}");
 }
+
+/// A token a `:hover` row reads is used at its node, as that state's.
+#[test]
+fn uses_finds_a_hover_looks_token() {
+    let path = app(
+        "uses-hover",
+        &[("app.tamber", DESIGN), ("app.contract", VIEW)],
+    );
+    let (plan, map) = contract::compile_path_mapped(&path).unwrap();
+    let map: serde_json::Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
+    let sites = contract::tamber_uses::sites(&plan, &map, "ink", &Default::default(), &[]);
+    assert_eq!(sites.len(), 4, "a border colour's four sides: {sites:?}");
+    assert!(sites.iter().all(|s| s["state"] == "hover"), "{sites:?}");
+}

@@ -80,6 +80,7 @@ pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
+pub use states::PRESS_OPACITY_TO;
 pub use theme::vocab as tamber_vocab;
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
 pub use theme::{retention, synthetic_candidates};
@@ -343,6 +344,12 @@ fn lower_with_sites(
             // state takes is the fold's (`states`, LLP 1121 D8).
             let name =
                 contract_syntax::state::state_of(&a.name).map_or(a.name.as_str(), |(_, row)| row);
+            // Lowering's own row for `:active`'s opacity (LLP 1121 D8).
+            let name = if name == states::PRESS_OPACITY_TO {
+                ""
+            } else {
+                name
+            };
             match tags::attr(name) {
                 Some(tags::AttrTarget::Styles(_) | tags::AttrTarget::Flex | tags::AttrTarget::Shorthand) => {}
                 Some(tags::AttrTarget::Prop(p)) if p.styleable() => {} // LLP 1069.011 D12
@@ -355,7 +362,9 @@ fn lower_with_sites(
                     span: a.span,
                 }),
                 None => {
-                    let hint = fields::placeholder_hint(&a.name)
+                    let hint = (name.is_empty() && !a.name.is_empty())
+                        .then(|| "; the press's opacity is `opacity` in an `:active` part (LLP 1121 D8)".to_string())
+                        .or_else(|| fields::placeholder_hint(&a.name))
                         .or_else(|| tags::renamed(&a.name).map(|n| format!("; `{}` is spelled `{n}` here", a.name)))
                         .or_else(|| tags::similar_attr(&a.name, true).map(|n| format!("; did you mean `{n}`?")))
                         .unwrap_or_default();
