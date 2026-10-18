@@ -38,21 +38,23 @@ const publish = operations => () => {
   }
 };
 // The module never sees the browser socket. Operations belong to the current
-// mutation's answer, or to the socket's own mapper while it answers `open` or
-// a `message` (`answering.mapper`); rt.js publishes them only after the
-// commit that settles that turn stands.
+// mutation's answer, to the socket's own mapper while it answers `open` or a
+// `message` (`answering.mapper`), or to a resource's answer while its source
+// runs, the one turn of it this page can tie to it (LLP 1016.000 D7, the
+// amendment of 2026-10-18). rt.js publishes them only after the commit that
+// settles that turn, or that ran that source, stands.
 function handle(transport, owner) {
   const encoder = new TextEncoder();
   answering.sockets = true;
   const turn = () => answering.mapper?.owner === owner ? answering.mapper : answering.call;
   const stage = (op, data, reason, size = 0) => {
-    const call = turn(), mapper = !!call && call === answering.mapper;
-    if (!mapper && !call?.mutation) throw new Error(`socket.${op} is only available in a mutation's synchronous source or its socket's own mapper`);
-    if (owner.signal.aborted || owner.active?.() === false) throw new DOMException('the socket is not open', 'InvalidStateError');
-    if (!mapper && call.fetched) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
+    const call = turn(), mapper = !!call && call === answering.mapper, answer = !!call && !mapper && !call.mutation;
+    if (!mapper && !call?.mutation && !answer) throw new Error(`socket.${op} is only available in a mutation's or a resource's synchronous source, or its socket's own mapper`);
+    if (owner.signal.aborted || owner.active?.() === false || answer && !owner.resource) throw new DOMException('the socket is not open', 'InvalidStateError');
+    if (!mapper && !answer && call.fetched) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
     // Overload fails a mapper's snapshot, caught or not.
     const over = e => { if (mapper && e.name === 'QuotaExceededError') call.overload = e; return e; };
-    const kind = mapper ? 'mapper call' : 'mutation';
+    const kind = mapper ? 'mapper call' : answer ? 'answer' : 'mutation';
     const operations = call.socketOps ??= [];
     if (operations.length >= 256) throw over(new DOMException(`socket ${kind} exceeds 256 operations`, 'QuotaExceededError'));
     if (operations.some(x => x.transport === transport && x.op === 'close')) throw new DOMException('the socket is not open', 'InvalidStateError');
