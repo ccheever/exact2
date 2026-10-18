@@ -24,9 +24,19 @@ public enum WidgetContainer {
         }
     }
     public static var updateBase: URL? { root?.appendingPathComponent("Library/Application Support", isDirectory: true) }
-    private static var compatibility: String {
+    /// The baked compatibility id (LLP 1030 D3a): the cohort a generation belongs to.
+    package static var compatibility: String {
         let object = (try? JSONSerialization.jsonObject(with: Runtime.bakedCompat())) as? [String: Any]
         return object?["id"] as? String ?? ""
+    }
+    /// A generation's name: the digest of its cohort and its publication
+    /// (a signed bake or accepted delivery identifies the bytes already).
+    /// An embedded bundle's is the one its `ExactWidgetGeneration` makes.
+    package static func generationDigest(compatibility: String, publicationID: String) -> String {
+        let stamp = Data((compatibility + "\n" + publicationID).utf8)
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        _ = stamp.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(stamp.count), &hash) }
+        return hash.map { String(format: "%02x", $0) }.joined()
     }
     /// No lock, selection, repair or network access: read the pointer once and
     /// keep its immutable directory for this entire invocation. Stage 1 keeps
@@ -131,10 +141,7 @@ public enum WidgetContainer {
     package static func publish(_ assets: AssetResolver, root: URL, kinds: [String], compatibility: String, typescript: Bool = false) throws -> Bool {
         // A signed bake or accepted delivery identifies the bytes already. An
         // unchanged launch reads only current, without opening any asset.
-        let stamp = Data((compatibility + "\n" + assets.publicationID).utf8)
-        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        _ = stamp.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(stamp.count), &hash) }
-        let digest = hash.map { String(format: "%02x", $0) }.joined()
+        let digest = generationDigest(compatibility: compatibility, publicationID: assets.publicationID)
         let base = root.appendingPathComponent("widget-generations", isDirectory: true)
         let current = base.appendingPathComponent("current")
         if (try? String(contentsOf: current, encoding: .utf8)) == digest {
