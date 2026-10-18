@@ -63,7 +63,7 @@ test('close() signals the server\'s group only by a pid of its own: a missing, 0
 });
 
 test('the server reads the app\'s component params, again for a new plan or after a failed read, and a selection names a param row on the param rung; neither event carries an IR token (LLP 1122 T3)', async () => {
-  const IR = 'param.f1a2b.Card.fill';
+  const IR = 'param.f1a2b3c4d.Card.fill';
   const components = [{ identity: 'app.contract#Card', name: 'Card', params: [{ name: 'app.contract#Card.fill', short: 'Card.fill', token: IR, default: 'ink', set: null }] }];
   let describes = 0;
   const serve = () => {
@@ -86,7 +86,7 @@ test('the server reads the app\'s component params, again for a new plan or afte
   const map = { digest: 'p1', sources: [{ file: 'exact:app', sha256: 'x' }], nodes: [{ file: 'exact:app', line: 3, col: 5, end_col: 9, component: 'Card', chain: [], bindings: [{ row: 'background_color', origin: 'own' }] }] };
   const port = 8803;
   const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
-  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: serve, log: () => {}, sourceMap: () => Buffer.from(JSON.stringify(map)) });
+  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: serve, log: () => {}, sourceMap: digest => Buffer.from(JSON.stringify({ ...map, digest: digest ?? 'p1' })) });
   await tamber.ready;
   const settled = async () => { for (let i = 0; i < 100 && describes < 1; i++) await Bun.sleep(5); await Bun.sleep(5); };
   await settled();
@@ -110,6 +110,14 @@ test('the server reads the app\'s component params, again for a new plan or afte
   // The report as published too (`selected`): every one named by the param, or left out.
   expect(all.filter(e => e.event === 'selected').at(-1).selected.rows[0].token.names).toEqual(['app.contract#Card.fill']);
   expect(JSON.stringify(all)).not.toContain(IR);
+  // A new plan: read again, its names kept meanwhile but no alias offered.
+  const p2 = { ...selected, planDigest: 'p2' };
+  expect(report({ kind: 'selected', selected: p2, plan: 'g1', design: 'd1', revision: 0 }).status).toBe(204);
+  expect((await events()).filter(e => e.event === 'selection').at(-1).rows[0].editable).toEqual({ rung: 'param', param: 'app.contract#Card.fill', short: 'Card.fill', modes: '' });
+  for (let i = 0; i < 100 && describes < 3; i++) await Bun.sleep(5);
+  await Bun.sleep(5);
+  expect(report({ kind: 'selected', selected: p2, plan: 'g1', design: 'd1', revision: 0 }).status).toBe(204);
+  expect((await events()).filter(e => e.event === 'selection').at(-1).rows[0].editable.token).toBe('ink');
   await tamber.close();
 });
 

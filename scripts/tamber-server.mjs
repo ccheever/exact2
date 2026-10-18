@@ -371,18 +371,22 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // file change empties the map until the read answers (a row reading a
   // param is read-only meanwhile, said so); a read that fails is tried
   // again at the next change. A new plan (`plan`) reads them again too.
+  // While a new plan's read is out, the names stand but no alias is offered
+  // (one may have moved with a package's component).
   const params = { key: null, plan: null, map: new Map(), reading: 0 };
   const learnParams = (files, plan = params.plan) => {
     const key = files ? JSON.stringify(Object.entries(files).sort()) : params.key;
     if (params.key === key && params.plan === plan) return;
     if (files && params.key !== key) params.map = new Map();
+    else params.map = new Map([...params.map].map(([ir, p]) => [ir, { ...p, token: null }]));
     params.key = key; params.plan = plan;
     const at = ++params.reading;
+    const failed = () => { if (at === params.reading) { params.key = null; params.plan = null; } };
     ask({ method: 'describe' }).then(r => {
       if (at !== params.reading) return;
       if (r?.ok?.ir) params.map = paramsOf(r.ok.ir);
-      else params.key = null;
-    }, () => { if (at === params.reading) params.key = null; });
+      else failed();
+    }, failed);
   };
   const refresh = () => ask({ method: 'hello' }, { wait: first ? 0 : answerMs, done: read });
   // The app's directory (where a new design beside it appears) and the

@@ -101,32 +101,33 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
 
 test('a row that reads a component param joins on the param rung, by its full name and the token it aliases; no IR param token reaches a client (LLP 1122 T3)', () => {
   const ir = { tokens: [{ name: 'primary_500', role: null }, { name: 'radius.md', role: null }, { name: '-exact-label', role: 'label' }], components: [{ identity: 'post.contract#PostButton', name: 'PostButton', params: [
-    { name: 'post.contract#PostButton.fill', short: 'PostButton.fill', token: 'param.f1a2b.PostButton.fill', default: 'primary_500', set: null },
-    { name: 'post.contract#PostButton.radius', short: 'PostButton.radius', token: 'param.f1a2b.PostButton.radius', default: 'radius.md', set: { value: '6px', whens: 0 } },
-    { name: 'post.contract#PostButton.height', short: null, token: 'param.f1a2b.PostButton.height', default: '32px', set: null },
-    { name: 'post.contract#PostButton.ink', short: 'PostButton.ink', token: 'param.f1a2b.PostButton.ink', default: 'label', set: null },
-    { name: 'post.contract#PostButton.edge', short: 'PostButton.edge', token: 'param.f1a2b.PostButton.edge', default: 'primary_500', set: { value: 'radius.md', whens: 1 } },
+    { name: 'post.contract#PostButton.fill', short: 'PostButton.fill', token: 'param.f1a2b3c4d.PostButton.fill', default: 'primary_500', set: null },
+    { name: 'post.contract#PostButton.radius', short: 'PostButton.radius', token: 'param.f1a2b3c4d.PostButton.radius', default: 'radius.md', set: { value: '6px', whens: 0 } },
+    { name: 'post.contract#PostButton.height', short: null, token: 'param.f1a2b3c4d.PostButton.height', default: '32px', set: null },
+    { name: 'post.contract#PostButton.ink', short: 'PostButton.ink', token: 'param.f1a2b3c4d.PostButton.ink', default: 'label', set: null },
+    { name: 'post.contract#PostButton.edge', short: 'PostButton.edge', token: 'param.f1a2b3c4d.PostButton.edge', default: 'primary_500', set: { value: 'radius.md', whens: 1 } },
   ] }] };
   const params = paramsOf(ir);
   // Its alias: the value the app has (the line's, else the default) when that is one declared token.
-  expect(params.get('param.f1a2b.PostButton.fill')).toEqual({ param: 'post.contract#PostButton.fill', short: 'PostButton.fill', token: 'primary_500' });
-  expect(params.get('param.f1a2b.PostButton.radius').token).toBe(null);
-  // A role override's spelling names its token; a param with `when` lines aliases none.
-  expect(params.get('param.f1a2b.PostButton.ink').token).toBe('-exact-label');
-  expect(params.get('param.f1a2b.PostButton.edge').token).toBe(null);
+  expect(params.get('param.f1a2b3c4d.PostButton.fill')).toMatchObject({ param: 'post.contract#PostButton.fill', short: 'PostButton.fill', token: 'primary_500' });
+  expect(params.get('param.f1a2b3c4d.PostButton.radius').token).toBe(null);
+  // A role override, by any spelling of its role, names its token; a param with `when` lines aliases none.
+  expect(paramsOf({ ...ir, components: [{ params: [{ name: 'x#C.a', short: 'C.a', token: 'param.f00000000.C.a', default: '-Exact-Label', set: null }] }] }).get('param.f00000000.C.a').token).toBe('-exact-label');
+  expect(params.get('param.f1a2b3c4d.PostButton.ink').token).toBe('-exact-label');
+  expect(params.get('param.f1a2b3c4d.PostButton.edge').token).toBe(null);
   const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-param-'));
   const post = joinPath(dir, 'post.contract');
   writeFileSync(post, 'post');
   const map = { digest: 'p1', sources: [{ file: post, sha256: sha('post') }], nodes: [{ file: post, line: 9, col: 5, end_col: 11, component: 'PostButton', chain: [], bindings: [
     { row: 'background_color', origin: 'own' }, { row: 'height', origin: 'own' }, { row: 'border_color', origin: 'own' }, { row: 'color', origin: 'own' }] }] };
-  const ir_ = n => `param.f1a2b.PostButton.${n}`;
+  const ir_ = n => `param.f1a2b3c4d.PostButton.${n}`;
   // A synthetic token is named by its whole expression, IR names inside it.
   const mix = `color-mix(in oklab, ${ir_('fill')} 50%, black)`;
   const selected = { node: 1, site: 0, instance: [], tuple: {}, rows: [
     { name: 'background_color', value: '#1083fe', source: 'authored', token: { names: [ir_('fill')], text: ir_('fill'), modes: 'dark-style=dim', implied: false } },
     { name: 'height', value: 32, source: 'authored', token: { names: [ir_('height')], text: ir_('height'), modes: '', implied: false } },
     { name: 'border_color', value: '#000', source: 'authored', token: { names: [mix], text: mix, modes: '', implied: false } },
-    { name: 'color', value: '#fff', source: 'authored', token: { names: ['param.f9999.Other.x'], text: 'param.f9999.Other.x', modes: '', implied: false } },
+    { name: 'color', value: '#fff', source: 'authored', token: { names: ['param.f99999999.Other.x'], text: 'param.f99999999.Other.x', modes: '', implied: false } },
     { name: 'text_color', value: '#fff', source: 'inherited', from: 2, token: { names: [ir_('fill')], text: ir_('fill'), modes: '', implied: false } },
   ] };
   const s = join({ id: 'web-1' }, selected, map, { params });
@@ -138,6 +139,14 @@ test('a row that reads a component param joins on the param rung, by its full na
   // A param this server has not read (its describe not answered yet): read-only, said so.
   expect(s.rows[3].editable).toMatchObject({ rung: null, reason: expect.stringContaining('has not read yet') });
   expect(s.rows[3].token.names).toEqual([]);
+  // The JS target's custom property for it, in a dynamic row's text; a token that only looks like one is left be.
+  const dyn = join({ id: 'web-1' }, { ...selected, rows: [
+    { name: 'border_color', value: '#000', source: 'dynamic', token: { names: ['post.contract#PostButton.fill'], text: 'color-mix(in oklab, var(--x-param-f1a2b3c4d-PostButton-fill) 50%, black)', modes: '', implied: false } },
+    { name: 'color', value: '#000', source: 'authored', token: { names: ['ui.param.face.fill'], text: 'ui.param.face.fill', modes: '', implied: false } },
+  ] }, map, { params });
+  expect(dyn.rows[0].token.text).toBe('color-mix(in oklab, post.contract#PostButton.fill 50%, black)');
+  expect(dyn.rows[1].token).toMatchObject({ names: ['ui.param.face.fill'], text: 'ui.param.face.fill' });
+  expect(dyn.rows[1].editable).toMatchObject({ rung: 'token', token: 'ui.param.face.fill' });
   // Inherited, it links the param.
   expect(s.rows[4].editable).toMatchObject({ rung: null, link: 'post.contract#PostButton.fill' });
   expect(JSON.stringify(s)).not.toMatch(/param\.f[0-9a-f]+\./);

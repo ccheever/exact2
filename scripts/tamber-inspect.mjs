@@ -105,35 +105,44 @@ function designMoved(map, build, served, file, read) {
 // token is named by its whole expression, and is no token to edit.
 const declared = name => /^-?[A-Za-z_][\w.-]*$/.test(name);
 
-// The IR's name for a component param (LLP 1121 D15: `param.f<hash>.Card.x`),
-// which no author or tool writes; anywhere in a name, since a synthetic
-// token is named by its whole expression.
-const IR_PARAM = /param\.f[0-9a-f]+\.[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)*/g;
+// The IR's name for a component param (contract/lower/src/params.rs:
+// `param.f<8 hex>.<Component>.<param>`), which no author or tool writes;
+// anywhere in a name, since a synthetic token is named by its whole
+// expression, but only as a whole word. The JS target's pages write it as
+// a custom property (`var(--x-param-f<8 hex>-Card-fill)`, modes.rs).
+const IR_PARAM = /(?<![\w.-])param\.f[0-9a-f]{8}\.[A-Za-z_][\w-]*\.[A-Za-z_][\w-]*(?![\w.-])/g;
+const CSS_PARAM = /var\(--x-param-f[0-9a-f]{8}-[\w-]+\)/g;
+// A role's spelling as the checker reads it: any case, `-exact-` or not.
+const roleKey = name => String(name).toLowerCase().replace(/^-exact-/, '');
 
 /** Each IR param token's param, from `describe`'s `components` (tamber/1.10):
  * its full and short names, and the token it aliases directly (LLP 1122 D6:
  * its value as the app has it, the line's or the default, when that names
- * one declared token, a role override by its role's spelling too). A param
+ * one declared token, a role override by any spelling of its role). A param
  * with `when` lines aliases none: which branch wins is the copy's. */
 export function paramsOf(ir) {
-  const tokens = new Map();
-  for (const t of ir?.tokens ?? []) { tokens.set(t.name, t.name); if (t.role) tokens.set(t.role, t.name); }
+  const names = new Set((ir?.tokens ?? []).map(t => t.name));
+  const roles = new Map((ir?.tokens ?? []).filter(t => t.role).map(t => [roleKey(t.role), t.name]));
+  const tokenOf = v => (names.has(v) ? v : roles.get(roleKey(v)) ?? null);
   const out = new Map();
   for (const c of ir?.components ?? []) for (const p of c.params ?? []) {
     if (typeof p.token !== 'string') continue;
     const written = String(p.set?.value ?? p.default ?? '').trim();
-    const token = (p.set?.whens ?? 0) === 0 ? tokens.get(written) ?? null : null;
-    out.set(p.token, { param: p.name, short: p.short ?? null, token });
+    const token = (p.set?.whens ?? 0) === 0 && written ? tokenOf(written) : null;
+    out.set(p.token, { param: p.name, short: p.short ?? null, token, css: `var(--x-${p.token.replace(/[^A-Za-z0-9_-]/g, '-')})` });
   }
   return out;
 }
 
-/** `text` with each IR param token in it named by its param's full name,
- * or "a component param" where `params` has none (not read yet); and
- * whether one was. */
+/** `text` with each IR param token in it, or the custom property a page
+ * writes for one, named by its param's full name, or "a component param"
+ * where `params` has none (not read yet); and whether one was. */
 function rename(text, params) {
   let unread = false;
-  const out = String(text).replace(IR_PARAM, n => { const p = params.get(n); if (!p) unread = true; return p ? p.param : 'a component param'; });
+  const css = new Map([...params.values()].map(p => [p.css, p]));
+  const out = String(text)
+    .replace(IR_PARAM, n => { const p = params.get(n); if (!p) unread = true; return p ? p.param : 'a component param'; })
+    .replace(CSS_PARAM, v => { const p = css.get(v); if (!p) unread = true; return p ? p.param : 'a component param'; });
   return { out, unread };
 }
 

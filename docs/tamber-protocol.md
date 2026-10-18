@@ -1002,9 +1002,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
   as the token rung's (the client reads the branch that won by `explain`). A row's `token.names`
   and `text`, in the `selection` event and the published `selected` report alike, name a param by
   its full name, never by the IR token the plan names it by, also inside a synthetic token's
-  expression; one the server has not read yet (its `describe` of the app, read again when the
+  expression or as the custom property a JS page writes for it (`var(--x-param-…)`); one the server has not read yet (its `describe` of the app, read again when the
   app's files change, for a new plan, and after a failed read) is left out, and the row is
-  read-only, said so. A row reached through a param links it by its full name. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
+  read-only, said so; while a new plan's read is out the names stand and no `token` is offered. A
+  row whose one name is a param (an inherited or dynamic one) links it by its full name. A client
+  that knows no `param` rung offers no edit for it. Else `{rung: null, reason, link?}` (a row reached by inheritance, a dynamic
   expression, a boundary, or an expression over tokens links its token, never this node's edit;
   a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place, and its edit is `set-state`'s
