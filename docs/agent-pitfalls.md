@@ -1459,3 +1459,7 @@ drag whose target is no longer valid. The runtime journal names
 each passed-over target view and the owner once, then reports it again only after
 its valid bindings disappear and return. Read it with
 `bun scripts/agent.mjs web logs` (or the native host).
+
+- The root file's first component is the app root. A fixture component placed
+  above it changes which component receives routes and may declare resources.
+  Keep resources on the root and pass their values to child components.

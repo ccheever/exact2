@@ -268,7 +268,9 @@ pub(crate) fn visit_preserved(
 }
 
 fn breakable_space(cluster: &str) -> bool {
-    cluster.chars().all(char::is_whitespace)
+    cluster
+        .chars()
+        .all(|c| matches!(c, ' ' | '\t' | '\r' | '\n' | '\u{c}'))
         && !matches!(cluster, "\u{a0}" | "\u{202f}" | "\u{2007}" | "\u{feff}")
 }
 

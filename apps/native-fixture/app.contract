@@ -40,7 +40,11 @@ shape Provider
 shape Providers
   items: Provider[]
 
+shape SurfaceClock
+  epochAtZero: number
+
 component NativeFixture
+  resource surfaceClock = exactTime() as shape SurfaceClock
   state popoverValue = ""
   state popoverSearch = ""
   action popoverChange(v: string)
@@ -445,6 +449,13 @@ component NativeFixture
                       text "Open in…"
                 if e.name == "home"
                   column testId="fixture" gap=8 padding=12
+                    text testId="live-time-line"
+                      text "Updated "
+                      time datetime=(surfaceClock.epochAtZero - 120000) format="relative" testId="live-time"
+                        text "Two minutes ago"
+                      text " here"
+                    time datetime=surfaceClock.epochAtZero format="timer" testId="live-timer"
+                    progress start=surfaceClock.epochAtZero end=(surfaceClock.epochAtZero + 120000) aria-label="Timed progress" testId="live-progress"
                     row gap=6 flex-wrap="wrap"
                       button press=detail testId="detail" padding=6 background-color="#e5e7eb"
                         text "Detail"

@@ -129,6 +129,11 @@ extension NodeView {
                 }
             }
         }
+        if props["text"] == nil, props["markup"] != "markdown" {
+            runs = zip(inlineText.filter(\.paints), runs).flatMap { leaf, run in
+                leaf.padding(run).map { [run, $0] } ?? [run]
+            }
+        }
         // A fitted paragraph is drawn at the scale the kernel's layout chose
         // for it, as it was measured (`-exact-fit`, LLP 1116.001 D1.4).
         let fit = props["fitScale"].flatMap(Float.init) ?? 1

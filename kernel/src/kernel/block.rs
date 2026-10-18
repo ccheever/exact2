@@ -301,6 +301,7 @@ impl Kernel {
         root: u32,
         offer: Offer,
     ) -> Result<LayoutReceipt, LayoutError> {
+        crate::time::prepare_padding(&mut self.arena, self.measurer.as_mut());
         let mut receipt = layout::compute(
             &mut self.arena,
             engine(&mut self.layout),

@@ -61,6 +61,7 @@ pub mod sorted;
 pub mod style;
 pub mod svg;
 pub mod text;
+pub mod time;
 pub mod timeline;
 pub mod transform;
 pub mod txn;

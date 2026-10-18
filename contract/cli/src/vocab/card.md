@@ -56,7 +56,8 @@ input | value type inputmode min max step maxlength placeholder enterkeyhint aut
 textarea | value placeholder maxlength enterkeyhint | input change select selectionchange beforeinput
 select | value disabled | change
 option | value
-progress | value max
+time | datetime format
+progress | value max or start end
 list | listStyle appearance virtualized refreshing scroll-start | reachstart reachend refresh
 scroll | scrollTop navigationScroll keyboardDismissMode | scroll scrollend
 dialog | closedby | cancel close

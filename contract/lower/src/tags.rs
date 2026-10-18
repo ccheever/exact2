@@ -104,6 +104,12 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
+        "time" => Tag {
+            node_type: NodeType::Text,
+            fixed_styles: &[(StyleId::WhiteSpace, "nowrap")],
+            fixed_props: &[(PropId::SemanticTag, "time")],
+            positional: None,
+        },
         "text" => Tag {
             node_type: NodeType::Text,
             fixed_styles: &[],
@@ -386,6 +392,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         return Some(target);
     }
     Some(match name {
+        "datetime" => AttrTarget::Prop(PropId::Datetime),
+        "format" => AttrTarget::Prop(PropId::TimeFormat),
+        "start" => AttrTarget::Prop(PropId::Start),
+        "end" => AttrTarget::Prop(PropId::End),
         // handlers (the web's events, LLP 1005 §3)
         "loadedmetadata" => AttrTarget::Handler("loadedmetadata"),
         "durationchange" => AttrTarget::Handler("durationchange"),

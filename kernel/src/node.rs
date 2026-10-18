@@ -32,6 +32,17 @@ impl NodeFacts<'_> {
 }
 
 impl<'a> NodeRef<'a> {
+    /// Invisible advance after an inline live time, at its inherited font.
+    pub fn time_padding(&self) -> Option<crate::TextRun<'a>> {
+        let pad = self.arena.time_padding.get(&self.slot)?;
+        let mut style = self.text_style();
+        style.letter_spacing = pad.spacing;
+        Some(crate::TextRun {
+            text: pad.text.as_str().into(),
+            style,
+        })
+    }
+
     /// This node's [`NodeFacts`].
     pub fn facts(&self) -> NodeFacts<'a> {
         NodeFacts {
@@ -42,6 +53,16 @@ impl<'a> NodeRef<'a> {
             is_root: self.is_root,
             inline_run: self.is_inline_run(),
         }
+    }
+}
+
+impl crate::Kernel {
+    /// Live text with a reserved width; empty without that presentation.
+    pub fn reserved_text(&self) -> impl Iterator<Item = ViewId> + '_ {
+        self.arena()
+            .time_slots
+            .iter()
+            .map(|s| self.arena().local_id(s))
     }
 }
 

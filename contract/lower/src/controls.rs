@@ -415,7 +415,9 @@ pub(crate) fn check_progress(
     if tag != "progress" {
         return Ok(());
     }
-    let valued = attrs.iter().any(|a| a.name == "value");
+    let valued = attrs
+        .iter()
+        .any(|a| matches!(a.name.as_str(), "value" | "start"));
     if let Some(a) = attrs.iter().find(|a| match a.name.as_str() {
         "type" | "aria-valuenow" | "aria-valuemin" | "aria-valuemax" => true,
         "max" => !valued,

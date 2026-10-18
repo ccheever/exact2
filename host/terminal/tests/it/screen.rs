@@ -607,3 +607,15 @@ fn native_button_wrap_and_bound_title_remeasure_the_painted_face() {
     assert_eq!((f.width, f.height), (7. * COLUMN, ROW));
     assert!(vt.text(false).contains('界') && !vt.text(false).contains("First"));
 }
+
+#[test]
+fn live_time_ticks_in_the_terminal_without_an_app_task() {
+    let plan = contract::compile("component App\n  view\n    text\n      text \"Updated \"\n      time datetime=-120000 format=\"relative\" testId=\"live-time\"\n      text \" here\"\n").unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 4).unwrap();
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    assert!(vt.text(false).replace('\u{a0}', " ").contains("2 min. ago"));
+    host.tick(60_000.);
+    vt.render(&mut host);
+    assert!(vt.text(false).replace('\u{a0}', " ").contains("3 min. ago"));
+}

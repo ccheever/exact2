@@ -27,6 +27,12 @@ pub(crate) fn text_palette(
             color,
             source: node.id,
         });
+        if node.time_padding().is_some() {
+            out.push(RunPaint {
+                color,
+                source: node.id,
+            });
+        }
     } else {
         for child in node.children() {
             if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
@@ -66,6 +72,9 @@ pub(super) fn text_backgrounds(
     };
     if node.props.str(PropId::Text).is_some() {
         out.push(inherited);
+        if node.time_padding().is_some() {
+            out.push(inherited);
+        }
     } else {
         for child in node.children() {
             if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
