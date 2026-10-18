@@ -96,6 +96,7 @@ const NOT_MODAL: Record<string, string> = {
   'citation-comment.contract "citation-comment"': 'Popover (AssistantCitationChip\'s comment)',
   'diff.contract "diff-base-picker"': 'Popover',
   'markdown.contract `Terminal excerpt, ${chip.label}`': 'Popover',
+  'markdown.contract `Quoted assistant text: ${chip.label}`': 'Popover (AssistantCitationChip)',
   'markdown.contract "context-chip-details"': 'Popover',
   'model-picker.contract "model-dialog"': 'ProviderModelPicker PopoverPopup',
   'pages-pr-actions.contract testId': 'Popover (the freshness card)',

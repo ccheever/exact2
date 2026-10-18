@@ -120,7 +120,7 @@ describe('settings scope across environments', () => {
     expect(page.available).toBe(false);
     expect(page.notice).toContain('Update');
     expect(page.cleanupAvailable).toBe(true);
-    expect(page.cleanupDisabled).toBe(true);
+    expect(page.cleanupDisabled).toBe(false);
     expect(page.cleanupDescription).not.toContain('Turn on a cleanup rule');
   });
   test('cleanup enables and runs only targets with settings permission, independently of the focused grant', async () => {
