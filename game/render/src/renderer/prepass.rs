@@ -63,6 +63,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if !self.prepass_active {
             return 0;
         }
+        self.probe_stage(super::probe::Stage::Prepass);
         pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
         let mut draws = 0;

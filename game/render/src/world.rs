@@ -241,7 +241,7 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Shape {
     Box,
     Sphere,
@@ -563,6 +563,20 @@ impl Feed {
         renderer: &mut crate::renderer::RendererWithAssets<ASSETS>,
     ) -> Result<(), RenderError> {
         self.feed_to(world, renderer)
+    }
+    /// Each primitive shape's mesh, named, for the look frame's draw listing.
+    pub(crate) fn shape_names(&self) -> Vec<(MeshId, String)> {
+        (self.shapes.iter())
+            .map(|((shape, viewmodel), &group)| {
+                let name = format!("{shape:?}").to_lowercase();
+                let name = if *viewmodel {
+                    name + " (viewmodel)"
+                } else {
+                    name
+                };
+                (self.groups[group].mesh, name)
+            })
+            .collect()
     }
     pub(crate) fn trace_camera(&self, alpha: f32) -> [f64; 3] {
         self.scene.trace_camera(alpha)

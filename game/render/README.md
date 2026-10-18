@@ -703,6 +703,54 @@ Capacity errors precede history swaps and propagate through the surface ABI;
 failed draws are not presented. Invalid viewports skip drawing and preserve the
 input viewport, while a finite seekable clock can still advance.
 
+## Look frames
+
+Under the agent's clock only, a canvas answers a few questions about its picture
+from a look frame: the tick the agent's clock has reached, drawn once offscreen at
+the canvas's size with the renderer's probe armed (`renderer/probe.rs`), and read
+back. A look frame runs no simulation tick and moves no hash; a live frame carries
+none of it. A canvas that draws (web, Apple, a Linux host under `EXACT_GPU_RENDER=1`)
+draws its look frame with its own renderer. A device-less one, the GPU-less proof
+host, makes a device on its first look frame where the machine has an adapter
+(`exact_gpu::fixture::device`) and keeps a renderer for it beside its headless
+state; without an adapter, or for a model-capable module (preparing models and
+textures would change the headless world's asset bookkeeping), it answers
+`unavailable: "no picture on this host: …"`. On the web the readback lands on the
+page's next turn: a request answers `pending: "readback"` until it has, and the
+driver asks again.
+
+- **Tells** (`tells.rs`): the frame's final target, as shown, gives a 64-bin
+  histogram of linear relative luminance, its mean and the fraction of pixels white
+  in every channel. A tell fires on a mean below 0.02 (`near-black`) or above 0.95
+  (`near-white`), more than 5% of pixels clipped (`clipped`), particles submitted
+  to the camera with no sample covered (`particles-uncovered`), and a shadowed sun
+  whose cascades kept no caster after culling (`no-shadow-casters`). Each writes a
+  `look: …` line to the world's journal once per change. Tells see brightness and
+  coverage, not colour or composition: a grey meadow, a model facing backwards and
+  an overflowing panel take a look at the picture.
+- **Coverage**: an occlusion query around each draw of the forward and translucent
+  passes. It answers whether any sample passed the depth test, not how many (Metal's
+  visibility results are Boolean in wgpu, and WebGPU promises only zero or not).
+- **Draws**: each draw in pass order (occluders, sun shadow cascades, the depth
+  prepass, forward, translucent) with its batch (a primitive shape, or a model and
+  material), winding, pipeline variant, instances submitted and kept after culling
+  (from the indirect arguments), whether it covered a sample, and what it wrote.
+- **Visible**: one word for an entity and its reason, in this order: `hidden`,
+  `hidden-ancestor <name>`, `opacity 0`, `asset-pending <model>`, `lod-hidden <d> m`,
+  `custom-material` (never culled), `frustum`, `occluded` (dropped by the depth
+  pyramid this frame), `outside-cascade <n>` (drawn, beyond every sun cascade) or
+  `drawn`. The cull's camera and cascade lists answer for meshes; sprites and
+  emitters, culled on the CPU, answer `drawn` or `frustum`.
+- **Views**: the game's camera; an orbit at a yaw, pitch and distance from the
+  centre of the box around every drawn entity's origin; or an orthographic plan
+  from above. Presentation only.
+
+The readback is the colour target (its size is `look.readbackBytes`), the query
+results and, for a culled frame, the indirect arguments and compacted lists.
+`tests/tells.rs` holds the negative controls: a near-black scene, particles spawned
+under the ground and a shadowed sun with no caster in reach each trip their tell on
+both paths, and the same scenes corrected trip none.
+
 ## Residency across restore
 
 `Models.loaded[name].digest` and `Models.textures[name].digest` use the engine's

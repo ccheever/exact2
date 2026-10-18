@@ -1,6 +1,7 @@
 //! The frame's passes, each reading one resolved frame state.
 //! @ref llp/1046.006.000-render-hooks.rfc.md#d3-optional-services-the-scene-copy
 use super::draw::Resolved;
+use super::probe::{Drew, Probe, Stage};
 use super::*;
 use crate::hooks::CustomMaterial;
 
@@ -40,6 +41,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         view: u32,
         group: usize,
     ) {
+        let drew = Drew::Group {
+            group,
+            view,
+            variant: None,
+        };
+        let began = self.probe_begin(pass, drew);
         if self.cull.direct {
             let mesh = &self.meshes[self.batches[self.cull.groups[group].batch].mesh.0];
             bound.scene(pass, &self.scene_binds[self.current], 0);
@@ -48,11 +55,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 mesh.base_vertex,
                 self.cull.groups[group].range.clone(),
             );
-            return;
+        } else {
+            let (offset, draw) = self.cull.draw(view, group);
+            bound.scene(pass, &self.culled_binds[self.current], offset);
+            pass.draw_indexed_indirect(&self.cull.indirect.raw, draw);
         }
-        let (offset, draw) = self.cull.draw(view, group);
-        bound.scene(pass, &self.culled_binds[self.current], offset);
-        pass.draw_indexed_indirect(&self.cull.indirect.raw, draw);
+        Probe::end(pass, began);
     }
 
     pub(crate) fn draw_outline_group<'a>(
@@ -90,6 +98,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let cache = shadows.cached.as_ref();
         for i in 0..shadows.count as usize {
             let view = 1 + i as u32;
+            self.probe_stage(Stage::SunShadow(i as u8));
             let stamped = cache.is_some()
                 && timing::encoder_stamp(&self.device, encoder, frame.timestamps, i as u32, false);
             if let Some(cache) = cache {
@@ -196,6 +205,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
         let mut bound = Bound::default();
+        self.probe_stage(Stage::Occluders);
         for &(index, offset) in &occlusion.groups {
             pass.set_bind_group(1, &occlusion.uniforms_bind, &[offset]);
             self.draw_group(&mut pass, &mut bound, 0, index);
@@ -335,12 +345,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 }
                 timing::writes(frame.timestamps, 3)
             },
-            occlusion_query_set: None,
+            occlusion_query_set: self.probe_queries(Stage::Forward),
             multiview_mask: None,
         });
         if state.direct {
             state.draws += self.draw_depth_prepass(&mut pass, state.size, true);
         }
+        self.probe_stage(Stage::Forward);
         self.scene_viewport(&mut pass, state.size, false);
         let mut layer = false;
         let variant = state.variant;
@@ -357,43 +368,38 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     bound.group(&mut pass, 3, &binds.instances.as_ref().unwrap().1);
                 } else {
                     let material = &self.models.materials[material.0];
-                    let pipeline = self.pipelines.model_variant(
-                        &self.device,
-                        variant
-                            + crate::pipeline::PREPASS * usize::from(self.prepass_active)
-                            + 64 * usize::from(material.untextured)
-                            + 128
-                                * usize::from(self.shadows.as_ref().is_some_and(|s| s.count == 1))
-                            + 4 * usize::from(material.double_sided)
-                            + 16 * usize::from(group.mirrored)
-                            + 32 * usize::from(
-                                material.alpha == exact_game::asset::AlphaMode::Opaque
-                                    && !self.batch_fading(group.batch),
-                            )
-                            + crate::pipeline::MODEL_DIRECT * usize::from(state.direct)
-                            + crate::pipeline::MODEL_BILINEAR * usize::from(state.bilinear)
-                            + crate::pipeline::MODEL_LIGHTS
-                                * usize::from(self.lights.info[0] != 0. || frame.fill.is_some()),
-                        false,
-                    );
+                    let key = variant
+                        + crate::pipeline::PREPASS * usize::from(self.prepass_active)
+                        + 64 * usize::from(material.untextured)
+                        + 128 * usize::from(self.shadows.as_ref().is_some_and(|s| s.count == 1))
+                        + 4 * usize::from(material.double_sided)
+                        + 16 * usize::from(group.mirrored)
+                        + 32 * usize::from(
+                            material.alpha == exact_game::asset::AlphaMode::Opaque
+                                && !self.batch_fading(group.batch),
+                        )
+                        + crate::pipeline::MODEL_DIRECT * usize::from(state.direct)
+                        + crate::pipeline::MODEL_BILINEAR * usize::from(state.bilinear)
+                        + crate::pipeline::MODEL_LIGHTS
+                            * usize::from(self.lights.info[0] != 0. || frame.fill.is_some());
+                    self.probe_variant(key);
+                    let pipeline = self.pipelines.model_variant(&self.device, key, false);
                     bound.pipeline(&mut pass, pipeline);
                     bound.group(&mut pass, 2, material.bind.as_ref().unwrap());
                     bound.group(&mut pass, 3, self.models.bind.as_ref().unwrap());
                 }
             } else {
-                let pipeline = self.pipelines.forward_variant(
-                    &self.device,
-                    variant
-                        + 4 * usize::from(group.mirrored)
-                        + (state.primitive
-                            & if self.batch_fading(group.batch) {
-                                !crate::pipeline::EARLY
-                            } else {
-                                usize::MAX
-                            })
-                        + crate::pipeline::PREPASS * usize::from(self.prepass_active),
-                );
-                bound.pipeline(&mut pass, pipeline);
+                let key = variant
+                    + 4 * usize::from(group.mirrored)
+                    + (state.primitive
+                        & if self.batch_fading(group.batch) {
+                            !crate::pipeline::EARLY
+                        } else {
+                            usize::MAX
+                        })
+                    + crate::pipeline::PREPASS * usize::from(self.prepass_active);
+                self.probe_variant(key);
+                bound.pipeline(&mut pass, self.pipelines.forward_variant(&self.device, key));
             }
             if group.range.start != self.batches[group.batch].slots.start {
                 state.draws += 1;
@@ -409,8 +415,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.scene_viewport(&mut pass, state.size, false);
         }
         for draw in self.quads.draws.iter().filter(|d| self.quads.opaque(d)) {
+            let began = self.probe_begin(&mut pass, Drew::quads(draw));
             self.quads
                 .draw::<ASSETS>(&mut pass, draw, &self.models.textures, state.direct);
+            Probe::end(&mut pass, began);
             state.draws += 1;
         }
         if H::ENABLED {
@@ -426,6 +434,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.scene_viewport(&mut pass, state.size, false);
         }
         let hulls = self.draw_outlines(&mut pass, state.size, state.direct);
+        if hulls.draws > 0 {
+            self.probe_note(Drew::Fixed("outline hulls"));
+        }
         state.draws += hulls.draws;
         state.hull_instances += hulls.instances;
         state.hull_triangles += hulls.triangles;
@@ -437,6 +448,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             });
             pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
             pass.draw(0..3, 0..1);
+            self.probe_note(Drew::Fixed("sky"));
             state.draws += 1;
         }
         if H::ENABLED {
@@ -506,9 +518,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 }
                 timing::writes(frame.timestamps, timing::TRANSLUCENT)
             },
-            occlusion_query_set: None,
+            occlusion_query_set: self.probe_queries(Stage::Translucent),
             multiview_mask: None,
         });
+        self.probe_stage(Stage::Translucent);
         self.scene_viewport(&mut pass, state.size, false);
         state.draws += self.translucent(&mut pass, frame, state, state.size);
     }
@@ -576,9 +589,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 }
                 timing::writes(frame.timestamps, 20)
             },
-            occlusion_query_set: None,
+            occlusion_query_set: self.probe_queries(Stage::Translucent),
             multiview_mask: None,
         });
+        self.probe_stage(Stage::Translucent);
         self.scene_viewport(&mut pass, state.size, false);
         let start = (!time.seekable).then(crate::perf::Stamp::now);
         hooks
@@ -732,10 +746,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
                 let mesh = &self.meshes[batch.mesh.0];
+                let began = self.probe_begin(pass, Drew::Blended { batch: index });
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
+                Probe::end(pass, began);
             } else {
+                let began = self.probe_begin(pass, Drew::quads(draw));
                 self.quads
                     .draw::<ASSETS>(pass, draw, &self.models.textures, state.direct);
+                Probe::end(pass, began);
             }
             draws += 1;
         }

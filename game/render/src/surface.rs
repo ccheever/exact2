@@ -1,4 +1,5 @@
 mod args;
+mod look;
 mod render;
 mod textures;
 
@@ -6,7 +7,7 @@ use crate::{
     perf::{Perf, Stamp},
     Feed,
 };
-use exact_game::{Clock, Game, Sim, World};
+use exact_game::{Clock, Data, Game, Sim, World};
 use exact_gpu::{
     wgpu, AssetError, Frame, InputEvent, Lifecycle, Restore, Surface, SurfaceError, Value,
 };
@@ -79,6 +80,7 @@ pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H
     audio_requested: bool,
     hidden: bool,
     interrupted: bool,
+    look: look::Look<ASSETS>,
 }
 impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     fn check_primitive_assets(&mut self) -> Result<(), SurfaceError> {
@@ -718,6 +720,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     }
     fn agent(&mut self, request: &str) -> Option<String> {
         self.reported = false;
+        if let Some(reply) = self.look(request) {
+            return Some(reply);
+        }
         let sim = self.sim.as_mut()?;
         match crate::trace::request(request) {
             Ok(Some(crate::trace::Request::Arm { entity, frames })) => {

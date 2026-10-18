@@ -138,3 +138,72 @@ fn parent_visibility_pixels_remove_mesh_model_shadow_and_light_without_a_tick() 
     );
     assert_eq!(surface.sim().unwrap().world().tick(), 0);
 }
+
+/// `state world:<entity> visible` for model states (LLP 1127.000 D4).
+struct ModelStates;
+impl Game for ModelStates {
+    const ID: &'static str = "visible-model-states";
+    const ASSETS: &'static [&'static str] = &["crate.model"];
+    const STREAMED: &'static [&'static str] = &["pending.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(0., 3., 6.).looking_at(Vec3::ZERO, Vec3::Y),
+                Camera::default(),
+            ),
+        );
+        w.spawn_named(
+            "crate",
+            (Transform::at(1., 0.7, 0.), Mesh::asset("crate.model")),
+        );
+        w.spawn_named(
+            "pending",
+            (Transform::at(-1., 0.7, 0.), Mesh::asset("pending.model")),
+        );
+        w.spawn_named(
+            "lodded",
+            (
+                Transform::at(0., 0.6, -24.),
+                Mesh::asset("crate.model"),
+                exact_game::ModelLod {
+                    levels: Vec::new(),
+                    hide: Some(5.),
+                },
+            ),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+
+#[test]
+fn visible_names_a_pending_model_and_a_hidden_level() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<ModelStates, exact_game_render::ModelExecutor, true>::default();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.bind(&[], None).unwrap();
+    let mut model: exact_game::asset::Model =
+        exact_game::bin::from_slice(include_bytes!("../../../bake/tests/fixtures/crate.model"))
+            .unwrap();
+    model.materials.fill(Default::default());
+    model.textures.clear();
+    s.asset("crate.model", Ok(&exact_game::bin::to_vec(&model)));
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    fixture::render(&gpu, &mut s, &frame(20.)).unwrap();
+    let mut word = |name: &str| {
+        let reply = s
+            .agent(&format!(
+                r#"{{"op":"state","entity":"{name}","visible":true}}"#
+            ))
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        value["visible"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{reply}"))
+            .to_owned()
+    };
+    assert_eq!(word("crate"), "drawn");
+    assert_eq!(word("pending"), "asset-pending pending.model");
+    assert_eq!(word("lodded"), "lod-hidden 30 m");
+}

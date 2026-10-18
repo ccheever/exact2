@@ -4,6 +4,7 @@ mod local;
 mod passes;
 pub(crate) use passes::Bound;
 mod prepass;
+pub(crate) mod probe;
 pub(crate) mod shadow_cache;
 use crate::buffers::{bytes, Buffer, Targets};
 use crate::pipeline::Pipelines;
@@ -124,6 +125,8 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     custom_bindings: Option<crate::hooks::MaterialBindings>,
     hook_targets: Option<crate::hooks::HookTargets>,
     pub(crate) hook_metrics: Option<Box<crate::hooks::metrics::Metrics>>,
+    /// A look frame's instruments, armed for one encode (`probe.rs`).
+    pub(crate) probe: Option<probe::Probe>,
 }
 
 // Use the uploaded affine records and the same presence test as transform.wgsl.
@@ -402,6 +405,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             custom_bindings: None,
             hook_targets: None,
             hook_metrics: None,
+            probe: None,
             counts: Stats {
                 draws: 1,
                 triangles: 1,

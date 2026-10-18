@@ -620,7 +620,7 @@ impl<const OUTLINED: bool, const SINGLE: bool> Game for MaterialGame<OUTLINED, S
                 },
             )
             .unwrap();
-        w.spawn((Transform::default(), mesh));
+        w.spawn_named("panel", (Transform::default(), mesh));
         w.spawn((Transform::at(0., 0., 5.), Camera::default()));
         if args.caster {
             // Between the sun and the panel's upper right, out of the camera's way.
@@ -758,6 +758,14 @@ fn custom_material_samples<const SINGLE: bool>() {
     assert!(surface.error().is_none(), "{:?}", surface.error());
     let center = image.at(32, 32);
     assert!(center[1] > 150 && center[0] < 20, "{center:?}");
+    // The game's vertex shader may move it, so the cull keeps it whole.
+    let visible = surface
+        .agent(r#"{"op":"state","entity":"panel","visible":true}"#)
+        .unwrap();
+    assert!(
+        visible.contains(r#""visible":"custom-material""#),
+        "{visible}"
+    );
     assert_eq!(surface.sim().unwrap().world().hash(), hash);
     assert_eq!(surface.sim().unwrap().world().save(), save);
 }
