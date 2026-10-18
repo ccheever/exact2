@@ -13,6 +13,6 @@
   "sourceInputs": "d9c650cf8e7cd337a9a76d9cef6d9dc508fa61b4cbfc0ad7a344fe3164e5d84c",
   "game": "wind-fixture",
   "generated": "bun game/prove.mjs wind-fixture --repin --hosts 'linux,web'",
-  "at": "688a13b7b79861b6a07058f069a0d6889e65e953",
-  "reason": "2e49129cb: EXSIM v7 header; 07170a2db: generated-model Environment.tone_mapping and Fog.linear fields change the saved model identity"
+  "at": "3a8051badc0372dbba4eb2dba9339f5fe17be45b",
+  "reason": "2e49129cb: EXSIM v7 header; 07170a2db: MeshData.outline, MaterialData.rim and Node.posable extend the generated-model identity"
 }
