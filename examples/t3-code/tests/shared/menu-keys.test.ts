@@ -195,7 +195,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     const owner = contractComponent(file, name), calls: unknown[][] = [];
     const scope: Env = { ...await helpers, ...effects(calls), [itemName]: items, section: 'models', rowId: 'model', rowRef: 'repo:42',
       selectId: 'select', menuId: 'popup', popId: 'row-popup', idPrefix: 'account-', t: { id: 'thread' }, row: { id: 'row' },
-      environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
+      projects: [{ id: 'project' }], environments: [{ id: 'env' }], environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
       host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' }, testId: 'rail-trigger' };
     const popup = value(command[1]!, scope), sourceId = value(command[2]!, scope);
     expect(sourceId).not.toBe(popup);
