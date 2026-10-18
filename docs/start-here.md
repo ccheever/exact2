@@ -92,6 +92,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |an entry or settings form|`grouped-form`|
 |rows added and removed in a form|`editable-rows`|
 |a write that may be refused|`after-a-write`|
+|a failure the person must acknowledge (an alert with OK)|`error-alert`|
 |tabular digits: numeric columns or values changing in place|`numeric-readout`|
 |a number field, a stepper's `step`|`number-field`, `stepper`|
 |a chat that opens at its newest message|`chat-thread`|

@@ -327,14 +327,18 @@ component App
   `input`, so the action's `press` reads `draft`. Return presses the first action that is not
   destructive (nothing while it is disabled), unless the field has a `submit`, which then has
   Return alone. `disabled=(draft == "")` on Save dims it while the field is empty.
-- An alert has no outside: Escape and Back cancel it, a tap beside it does nothing. Leave
+- An alert that only tells ("Couldn't save.") is a `text` and one closing button, no action:
+  the platform's one-button alert. Set the message in state, then `showModal(id)`
+  (`contract vocab error-alert`). Leave `closedby` unwritten: iOS has no dismissible form of it.
+- An alert has no outside: Escape and Back cancel it (the Mac's one-button alert takes Return,
+  not Escape, as AppKit's does), a tap beside it does nothing. Leave
   `closedby` unwritten; `closedby="any"` asks for the platform's dismissible form in its place
   (an action sheet on an iPhone, a dialog a click outside closes on the web).
 - Several actions and no `text` make an action sheet (an "Open in…" chooser): from the
   bottom of an iPhone, its Cancel drawn, when it has a Cancel; a popover at its invoker
   when it has none.
 
-More: docs/recipes/navigation-stack.md
+More: docs/recipes/navigation-stack.md, docs/recipes/error-alert.md
 
 ## date: the date, the time and the day
 names: day, today, clock, time, Date, exactTime

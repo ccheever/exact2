@@ -184,7 +184,9 @@ impl Lowerer<'_> {
     /// Its rows are text, text fields when it is an alert (a prompt),
     /// actions (a `button` with `press` that hides it) and at most one
     /// cancel (a `button` without `press` that hides it), with at least one
-    /// action. What a literal shows breaks that is refused;
+    /// action unless it is an alert with no field: text and its one
+    /// button, the platform's one-button alert ("Couldn't save." and OK). What a
+    /// literal shows breaks that is refused;
     /// a value known only at run time is left to the host. Returns whether
     /// it is a confirmation whose rows are an alert's ([`alert_shaped`]),
     /// which decides the `closedby` a `dialog` implies and may take.
@@ -326,11 +328,14 @@ impl Lowerer<'_> {
         if let Some(field) = fields.first().filter(|_| !alert) {
             return refuse(field, "a text field belongs to the alert's shape, a prompt: with it one cancel and at most three buttons in all, none under `for`".into());
         }
-        if actions == 0 {
+        // A chooser with nothing to choose is no presentation, and a
+        // prompt's answer goes to an action; an alert's one button (text
+        // and its cancel) is the platform's own.
+        if actions == 0 && (!alert || !fields.is_empty()) {
             return err(
                 "lower-alertdialog",
                 format!(
-                    "alertdialog `{id}` has no action: give it a `button` with `press` and {how}"
+                    "alertdialog `{id}` has no action: give it a `button` with `press` and {how}, or make it an alert that tells, with explanatory `text` and its one closing `button`"
                 ),
                 span,
             );

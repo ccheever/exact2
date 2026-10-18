@@ -277,6 +277,11 @@ fn a_confirmation_or_chooser_shape_compiles() {
         "dialog id=\"c\" role=\"dialog\" aria-modal=true closedby=\"any\"\n  column gap=12\n    text \"Delete account?\"\n    row\n      button commandfor=\"c\" command=\"close\"\n        text \"Cancel\"\n      button press=go commandfor=\"c\" command=\"close\"\n        text \"Delete\"".into(),
         // Not an alertdialog: a menu takes any rows, `hr` among them.
         format!("column id=\"c\" popover=\"auto\" role=\"menu\"\n  button press=go popovertarget=\"c\" popovertargetaction=\"hide\"\n    text \"Go\"\n  hr\n{CANCEL}"),
+        // Text and one closing button: the platform's one-button alert,
+        // which tells ("Couldn't save.") and has nothing to choose
+        // (Charlie, 2026-10-18), as a `dialog` and as a popover.
+        "dialog id=\"c\" role=\"alertdialog\" aria-label=\"Couldn't save\"\n  text \"The disk is full.\"\n  button commandfor=\"c\" command=\"close\"\n    text \"OK\"".into(),
+        format!("column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  text \"Saved.\"\n{CANCEL}"),
     ] {
         if let Err(e) = contract::compile(&app(&body)) {
             panic!("{body}\n{e}");
@@ -315,7 +320,10 @@ fn a_shape_the_native_sheet_cannot_present_is_refused_naming_the_row() {
             format!("{open}\n{action}\n  for s in items key=s\n    button popovertarget=\"c\" popovertargetaction=\"hide\"\n      text s"),
             "inside `for`",
         ),
-        (format!("{open}\n  text \"Sure?\"\n{CANCEL}"), "has no action"),
+        // With no action and not an alert, there is nothing to present.
+        (format!("{open}\n{CANCEL}"), "has no action"),
+        (format!("{open}\n  text \"Sure?\""), "has no action"),
+        (format!("{open}\n  input placeholder=\"Name\"\n{CANCEL}"), "has no action"),
         (
             "dialog id=\"c\" role=\"alertdialog\" closedby=\"none\"\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Go\"".into(),
             "closedby=\"any\"",
@@ -353,6 +361,11 @@ fn an_alert_shaped_dialog_implies_closerequest_and_a_chooser_any() {
             vec![text, &delete, &keep, cancel],
             "closerequest",
             "three buttons are still an alert's",
+        ),
+        (
+            vec![text, cancel],
+            "closerequest",
+            "text and its one button",
         ),
         (vec![&delete, cancel], "any", "no text: a chooser"),
         (vec![text, &delete], "any", "no cancel"),
