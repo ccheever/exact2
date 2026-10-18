@@ -51,7 +51,11 @@ fn named(p: &Presenter<()>, name: &str) -> ViewId {
 }
 
 fn row_y(p: &mut Presenter<()>) -> f32 {
-    let row = named(p, "row20");
+    named_y(p, "row20")
+}
+
+fn named_y(p: &mut Presenter<()>, name: &str) -> f32 {
+    let row = named(p, name);
     p.boxes().iter().find(|b| b.id == row).unwrap().rect.1
 }
 
@@ -259,12 +263,13 @@ fn an_environment_relayout_anchors_before_clamping() {
         assert_eq!(p.after_commit(), None);
         let port = named(&p, "port");
         p.scroll_to(port, (0., top)).unwrap();
-        let before = row_y(&mut p);
+        let anchor = if top == 648. { "row30" } else { "row17" };
+        let before = named_y(&mut p, anchor);
         assert!(p.host.set_safe_area([0.; 4]).unwrap());
         p.dirty = true;
         p.clamp_scroll();
         assert_eq!(p.scroll_of(port), (0., top - 48.));
-        assert_eq!(row_y(&mut p), before);
+        assert_eq!(named_y(&mut p, anchor), before);
     }
 }
 
@@ -348,10 +353,10 @@ fn selection_descends_into_partly_visible_wrappers_and_clamps_at_the_end() {
     let mut p = boot_source(&end);
     let port = named(&p, "port");
     p.scroll_to(port, (0., 648.)).unwrap();
-    let before = row_y(&mut p);
+    assert_eq!(named_y(&mut p, "row30"), 0.);
     fold(&mut p);
     assert_eq!(p.scroll_of(port), (0., 580.));
-    assert_eq!(row_y(&mut p), before + 20.);
+    assert_eq!(named_y(&mut p, "row30"), 20.);
 }
 
 #[test]
