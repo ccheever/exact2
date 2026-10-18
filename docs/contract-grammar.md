@@ -1572,10 +1572,11 @@ While an input method composes in a text field or a textarea (Japanese kana
 before its kanji, pinyin, a Korean syllable), `input` fires at every change
 with the composing text in the value, as the DOM's does, on every host that
 composes (the web, macOS, iOS, Android): "に", "にほ", "にほん", then "日本".
-Contract has no `compositionstart`, `compositionend` or `isComposing`, so an
-action cannot tell composing text from committed text; it is handed the
-field's value and should treat it as that. On macOS and iOS the commit of
-what is composed as it stands changes no text and is not another `input`;
+Contract has no `compositionstart` or `compositionend` handlers. An input
+action can inspect `InputEvent.isComposing` to distinguish composition edits
+from other edits; the value includes the current composing text. On macOS and
+iOS the commit of what is composed as it stands changes no text and is not
+another `input`;
 `change` is still the end of the editing. An action that writes the value it
 was handed back (a controlled input) changes nothing in the field, and the
 composition goes on. One that writes a different value (trimmed,
@@ -1604,9 +1605,8 @@ Exact fires one noncancelable `input` after a successful replacement, even
 when the value is unchanged. Wire `input` to update your bound value. Its
 `InputEvent.inputType` is `insertReplacementText`. This type also describes
 hatch replacements and browser spelling corrections; it does not identify
-a `setRangeText` call uniquely. The DOM event also carries replacement `data`;
-Contract does not expose `data` yet. The browser
-still delivers its own `select`/`selectionchange` events. Chrome delivers
+a `setRangeText` call uniquely. The event's `data` carries the replacement
+text. The browser still delivers its own `select`/`selectionchange` events. Chrome delivers
 `select` after the added input, only when the selection changes; native
 hosts queue replacement selects after the action's commands and report the
 field's current value and selection at delivery. macOS Chrome resets direction
