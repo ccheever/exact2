@@ -814,6 +814,58 @@ fn pad_states_keep_their_report_times_and_forgotten_pads_are_not_replayed() {
     done(p, path);
 }
 
+/// LLP 1127.003 D2: a pad's report times survive the route from the reader
+/// to the canvas, through the first report choosing which canvas has the
+/// pads, so a 150 ms press stays 150 ms and a 210 ms one 210 ms. The rows are
+/// those `game/render`'s `pad_rows_tap_and_hold_by_their_report_times` sends
+/// into a world.
+#[test]
+fn pad_report_times_survive_the_read_and_the_first_owner() {
+    use crate::gamepad::{read, Change, Fetch, Layout, Opened, State};
+    for release in [250., 310.] {
+        let (mut p, path) = fixture();
+        assert_eq!(
+            p.focus, None,
+            "the first canvas that takes input has the pads"
+        );
+        let state = State::new([None; 8], Layout::Positional);
+        let mut pads = vec![(
+            (),
+            Opened {
+                index: 0,
+                state,
+                announced: false,
+            },
+        )];
+        // BTN_EAST down at 100 ms on the device's clock, up at `release`; the
+        // host's clock reads 1000 ms more.
+        let report =
+            |value, at| Fetch::Changes(vec![(Change::Key(0x131, value), at), (Change::Report, at)]);
+        let mut rows = Vec::new();
+        for (fetched, now) in [(report(1, 100.), 120.), (report(0, release), release + 20.)] {
+            let mut fetched = Some(fetched);
+            for (index, reading, at) in
+                read(&mut pads, (now, now + 1000.), |_| fetched.take().unwrap())
+            {
+                let r = reading.unwrap();
+                p.hardware_pad(index, true, r.buttons, r.axes, at);
+                let (to, _, event) = last_input(&p);
+                rows.push((to, event["buttons"][1].clone(), event["at"].clone()));
+            }
+        }
+        let to = rows[0].0;
+        assert_eq!(
+            rows,
+            [
+                (to, json!(0.), json!(1100.)),
+                (to, json!(1.), json!(1100.)),
+                (to, json!(0.), json!(release + 1000.)),
+            ]
+        );
+        done(p, path);
+    }
+}
+
 #[test]
 fn hardware_typing_stays_in_editor_and_repeats_but_button_repeat_does_not_activate() {
     let (mut p, path) = fixture();

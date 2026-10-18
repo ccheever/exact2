@@ -519,7 +519,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             check_due = None;
             p.check_update();
         }
-        let mut events = input.read();
+        let mut events = input.read(wall());
         if let Some(v) = vnc.as_mut() {
             events.extend(v.take_events());
         }

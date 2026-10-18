@@ -56,19 +56,13 @@ pub(super) fn dispatch<D: DataSource>(
             p.system_back(now_ms);
         }
         InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
-        // The report's own time in the host's clock, so buffered edges keep their spacing.
+        // The report's own time, as the read converted it.
         InputEvent::Pad {
             index,
             connected,
             reading,
-            age_ms,
-        } => p.hardware_pad(
-            index,
-            connected,
-            reading.buttons,
-            reading.axes,
-            now_ms - f64::from(age_ms),
-        ),
+            at,
+        } => p.hardware_pad(index, connected, reading.buttons, reading.axes, at),
         // The same targeted path as VNC and agent keys: text, Escape blur and a
         // canvas's held keys (`hardware_key`). Escape also ends a pointer hold.
         InputEvent::Key {

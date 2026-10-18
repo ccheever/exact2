@@ -45,8 +45,8 @@ pub enum InputEvent {
         connected: bool,
         /// Its buttons and axes.
         reading: PadReading,
-        /// How long before the read the device reported it, milliseconds.
-        age_ms: f32,
+        /// When the device reported it, in the host's clock (milliseconds).
+        at: f64,
     },
     /// A keyboard edge. Translate US codes at dispatch, keeping the queue compact.
     Key {
@@ -112,7 +112,7 @@ type Ranges = [(i32, i32); 2];
 pub struct Input {
     devices: Vec<(Device, Option<Ranges>)>,
     // A pad, its index, its state, and whether its connection was reported.
-    pads: Vec<(Device, u8, crate::gamepad::State, bool)>,
+    pads: Vec<(Device, crate::gamepad::Opened)>,
     keyboard: Keyboard,
 }
 
@@ -128,7 +128,16 @@ impl Input {
                 if pads.len() < MAX_PADS {
                     nonblocking(&d);
                     let state = pad::open(&path, &d);
-                    pads.push((d, pads.len() as u8, state, false));
+                    let index = pads.len() as u8;
+                    let announced = false;
+                    pads.push((
+                        d,
+                        crate::gamepad::Opened {
+                            index,
+                            state,
+                            announced,
+                        },
+                    ));
                 }
                 continue;
             }
@@ -182,66 +191,50 @@ impl Input {
         devices.chain(pads).map(|d| d.as_raw_fd()).collect()
     }
 
-    /// Each pad's changes since the last read: its connection first, then
-    /// its state at each report that changed it, all pads' readings in the
-    /// order their devices reported them.
-    fn read_pads(&mut self, out: &mut Vec<InputEvent>) {
-        use crate::gamepad::{change, chronological};
+    /// Each pad's changes since the last read (`gamepad::read`), at their
+    /// reports' times moved into the host's clock by `now_ms`, its time at
+    /// this read.
+    fn read_pads(&mut self, now_ms: f64, out: &mut Vec<InputEvent>) {
+        use crate::gamepad::{change, Fetch};
         let epoch_ms = |t: std::time::SystemTime| {
             t.duration_since(std::time::UNIX_EPOCH)
                 .map_or(0., |d| d.as_secs_f64() * 1000.)
         };
-        let now = epoch_ms(std::time::SystemTime::now());
-        let mut readings = Vec::new();
-        self.pads.retain_mut(|(d, index, state, announced)| {
-            let index = *index;
-            if !std::mem::replace(announced, true) {
-                readings.push((index, Some(state.reading), now));
+        let now = (epoch_ms(std::time::SystemTime::now()), now_ms);
+        let readings = crate::gamepad::read(&mut self.pads, now, |d| match d.fetch_events() {
+            Ok(events) => Fetch::Changes(
+                events
+                    .filter_map(|e| {
+                        let at = epoch_ms(e.timestamp());
+                        Some((change(e.event_type().0, e.code(), e.value())?, at))
+                    })
+                    .collect(),
+            ),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                Fetch::Nothing
             }
-            let events = match d.fetch_events() {
-                Ok(events) => events,
-                Err(e)
-                    if matches!(
-                        e.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
-                    ) =>
-                {
-                    return true
-                }
-                Err(_) => {
-                    readings.push((index, None, now));
-                    return false;
-                }
-            };
-            let changes: Vec<_> = events
-                .filter_map(|e| {
-                    Some((
-                        change(e.event_type().0, e.code(), e.value())?,
-                        epoch_ms(e.timestamp()),
-                    ))
-                })
-                .collect();
-            for (reading, at) in state.events(changes) {
-                readings.push((index, Some(reading), at));
-            }
-            true
+            Err(_) => Fetch::Gone,
         });
-        // `None` is a disconnect, at its time like a reading.
-        chronological(&mut readings);
         for (index, reading, at) in readings {
             out.push(InputEvent::Pad {
                 index,
                 connected: reading.is_some(),
                 reading: reading.unwrap_or_default(),
-                age_ms: (now - at).max(0.) as f32,
+                at,
             });
         }
     }
 
-    /// Everything that arrived since the last read.
-    pub fn read(&mut self) -> Vec<InputEvent> {
+    /// Everything that arrived since the last read; `now_ms` is the host's
+    /// clock at this read.
+    pub fn read(&mut self, now_ms: f64) -> Vec<InputEvent> {
         let mut out = Vec::new();
-        self.read_pads(&mut out);
+        self.read_pads(now_ms, &mut out);
         let mut gone = Vec::new();
         for (index, (d, absolute)) in self.devices.iter_mut().enumerate() {
             let events = match d.fetch_events() {

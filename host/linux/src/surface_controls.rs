@@ -280,7 +280,8 @@ impl<D: DataSource> Presenter<D> {
                 .input(view, serde_json::json!({"t":"blur","at":self.host.now()}));
         }
         // The pads leave their canvas; the next pad state finds one again.
-        self.move_pads(None, None);
+        let now = self.host.now();
+        self.move_pads(None, None, now);
         if let Some(e) = self.set_focus(None, self.host.now()) {
             eprintln!("exact: {e}");
         }
@@ -305,7 +306,7 @@ impl<D: DataSource> Presenter<D> {
         };
         let target = self.pad_target();
         if target != self.pads.owner {
-            return self.move_pads(target, (!connected && was).then_some(index));
+            return self.move_pads(target, (!connected && was).then_some(index), at);
         }
         if let Some(view) = target.filter(|_| connected || was) {
             self.send_pad(view, index, connected.then_some((buttons, axes)), at);
@@ -325,23 +326,24 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn pads_follow_focus(&mut self) {
         let target = self.pad_target();
         if target != self.pads.owner {
-            self.move_pads(target, None);
+            let now = self.host.now();
+            self.move_pads(target, None, now);
         }
     }
     /// The old canvas hears every pad go (and `gone`, one that just did); the
-    /// new one hears every connected pad as it is now.
-    fn move_pads(&mut self, target: Option<u32>, gone: Option<u8>) {
+    /// new one hears every connected pad as it is now. `at` is the move's
+    /// time: the report's that caused it, or the focus change's.
+    fn move_pads(&mut self, target: Option<u32>, gone: Option<u8>, at: f64) {
         let readings: Vec<_> = self.pads.readings.iter().map(|(i, r)| (*i, *r)).collect();
-        let now = self.host.now();
         if let Some(old) = self.pads.owner.take() {
             for index in readings.iter().map(|(i, _)| *i).chain(gone) {
-                self.send_pad(old, index, None, now);
+                self.send_pad(old, index, None, at);
             }
         }
         self.pads.owner = target;
         if let Some(view) = target {
             for (index, reading) in readings {
-                self.send_pad(view, index, Some(reading), now);
+                self.send_pad(view, index, Some(reading), at);
             }
         }
     }
@@ -349,7 +351,8 @@ impl<D: DataSource> Presenter<D> {
     /// them while unfocused): no canvas receives them again until each pad
     /// reports itself.
     pub fn forget_pads(&mut self) {
-        self.move_pads(None, None);
+        let now = self.host.now();
+        self.move_pads(None, None, now);
         self.pads.readings.clear();
     }
     fn send_pad(&mut self, view: u32, index: u8, reading: Option<([f32; 17], [f32; 4])>, at: f64) {

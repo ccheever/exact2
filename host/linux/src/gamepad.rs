@@ -53,9 +53,74 @@ pub fn change(kind: u16, code: u16, value: i32) -> Option<Change> {
     }
 }
 /// Several pads' readings in the order they happened: by time, then by pad
-/// index, so a buffered read across devices is delivered chronologically.
+/// index. The sort is stable (`slice::sort_by`), so readings with equal keys
+/// keep the order they were read in.
 pub fn chronological<T>(readings: &mut [(u8, T, f64)]) {
     readings.sort_by(|a, b| a.2.total_cmp(&b.2).then(a.0.cmp(&b.0)));
+}
+/// What one read found on a pad's device.
+pub enum Fetch {
+    /// Its events since the last read, each with its time in the device's
+    /// clock (evdev's, CLOCK_REALTIME unless a reader asks for another).
+    Changes(Vec<(Change, f64)>),
+    /// Nothing waiting.
+    Nothing,
+    /// The device is gone.
+    Gone,
+}
+/// A pad the reader has open.
+pub struct Opened {
+    /// Its index, in the order the pads were opened.
+    pub index: u8,
+    /// Its state, first as read when it opened.
+    pub state: State,
+    /// Whether a read has delivered it yet.
+    pub announced: bool,
+}
+/// One read across the pads, through `fetch`: each pad's readings since the
+/// last, as (pad, reading or `None` once it is gone, time), in the order they
+/// happened. A pad's first read delivers the state it opened with ahead of
+/// its reports, stamped no later than the first of them, so they follow it;
+/// a pad gone is a disconnect at the read. Times move into the host's clock
+/// by one origin, `now`: the device clock's time and the host's, sampled
+/// together.
+pub fn read<D>(
+    pads: &mut Vec<(D, Opened)>,
+    now: (f64, f64),
+    mut fetch: impl FnMut(&mut D) -> Fetch,
+) -> Vec<(u8, Option<Reading>, f64)> {
+    let (device_now, host_now) = now;
+    let mut readings = Vec::new();
+    pads.retain_mut(|(device, pad)| {
+        let fetched = fetch(device);
+        if !std::mem::replace(&mut pad.announced, true) {
+            let first = match &fetched {
+                Fetch::Changes(changes) => changes.first().map(|(_, at)| *at),
+                _ => None,
+            };
+            let at = first.map_or(device_now, |at| at.min(device_now));
+            readings.push((pad.index, Some(pad.state.reading), at));
+        }
+        match fetched {
+            Fetch::Nothing => true,
+            Fetch::Gone => {
+                readings.push((pad.index, None, device_now));
+                false
+            }
+            Fetch::Changes(changes) => {
+                for (reading, at) in pad.state.events(changes) {
+                    readings.push((pad.index, Some(reading), at));
+                }
+                true
+            }
+        }
+    });
+    chronological(&mut readings);
+    let host = |at: f64| host_now - (device_now - at).max(0.);
+    readings
+        .into_iter()
+        .map(|(index, reading, at)| (index, reading, host(at)))
+        .collect()
 }
 /// Xbox drivers name the face buttons by letter: the device's driver is `xpad`
 /// or `xone…`, or its vendor is Microsoft's (0x045e, hid-microsoft).
@@ -332,5 +397,74 @@ mod tests {
         );
         assert_eq!(layout_for(None, 0x057e), Layout::Positional);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+    /// The first read of a pad opened with South held whose release waits in
+    /// the device's buffer ends released, and of one opened neutral whose
+    /// press waits ends pressed: the state at open goes ahead of its reports.
+    #[test]
+    fn a_first_read_delivers_the_open_state_before_its_reports() {
+        for held in [true, false] {
+            let mut state = device(Layout::Positional);
+            state.key(0x130, i32::from(held));
+            let mut pads = vec![(
+                (),
+                Opened {
+                    index: 0,
+                    state,
+                    announced: false,
+                },
+            )];
+            let raw = [(1, 0x130, i32::from(!held), 100.), (0, 0, 0, 100.)];
+            let mut fetched = Some(Fetch::Changes(
+                raw.iter()
+                    .filter_map(|&(t, c, v, at)| Some((change(t, c, v)?, at)))
+                    .collect(),
+            ));
+            // The device's clock reads 150 ms as the host's reads 1150 ms.
+            let readings = read(&mut pads, (150., 1150.), |_| fetched.take().unwrap());
+            let south: Vec<_> = readings
+                .iter()
+                .map(|(i, r, at)| (*i, r.map(|r| r.buttons[0]), *at))
+                .collect();
+            let (open, after) = (f32::from(u8::from(held)), f32::from(u8::from(!held)));
+            assert_eq!(south, [(0, Some(open), 1100.), (0, Some(after), 1100.)]);
+            assert!(read(&mut pads, (200., 1200.), |_| Fetch::Nothing).is_empty());
+        }
+    }
+    /// A pad that opened and went before its first read connects, then
+    /// disconnects, at the one time the read knows.
+    #[test]
+    fn a_pad_opened_and_gone_before_a_read_connects_then_disconnects() {
+        let opened = |index| Opened {
+            index,
+            state: device(Layout::Positional),
+            announced: false,
+        };
+        let mut pads = vec![(true, opened(0)), (false, opened(1))];
+        let gone = |gone: &mut bool| if *gone { Fetch::Gone } else { Fetch::Nothing };
+        let readings: Vec<_> = read(&mut pads, (150., 1150.), gone)
+            .into_iter()
+            .map(|(i, r, at)| (i, r.is_some(), at))
+            .collect();
+        assert_eq!(
+            readings,
+            [(0, true, 1150.), (0, false, 1150.), (1, true, 1150.)]
+        );
+        assert_eq!(pads.len(), 1);
+    }
+    /// Equal keys keep the order they were read in.
+    #[test]
+    fn chronological_order_is_stable() {
+        let mut readings: Vec<(u8, usize, f64)> = (0..64)
+            .map(|n| ((n % 3) as u8, n, f64::from((n % 5) as u8)))
+            .collect();
+        chronological(&mut readings);
+        for pair in readings.windows(2) {
+            let ((ia, na, ta), (ib, nb, tb)) = (pair[0], pair[1]);
+            assert!(
+                (ta, ia) < (tb, ib) || ((ta, ia) == (tb, ib) && na < nb),
+                "{pair:?}"
+            );
+        }
     }
 }
