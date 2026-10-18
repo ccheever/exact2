@@ -4,6 +4,7 @@
 // packages/shared/src/projectSettings.ts. Server rows read and write the connected
 // environment's ServerSettings (server.updateSettings); device rows are the
 // reference ClientSettings, saved in this app's own preferences file.
+import { changeCliCommand } from './cli-command';
 import { installedFonts } from '../appearance/appearance-fonts';
 import { pushToast } from '../shell/toast';
 import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
@@ -676,6 +677,7 @@ export function scopeTarget(client: T3Client, context: ServerContext): ScopedSet
 
 export async function applyCoreSetting(client: T3Client, native: Native, id: string, value: string): Promise<string> {
   const target = parseCoreTarget(id);
+  if (target.row === 'cli-command') return changeCliCommand(client, native, value);
   const local = client.local as unknown as LocalPrefs;
   const key = SERVER_ROW_KEYS[target.row];
   if (target.row === 'theme-import' || target.row === 'theme-save' || target.row === 'theme-remove') return applyThemeCommand(local, target.row, value);

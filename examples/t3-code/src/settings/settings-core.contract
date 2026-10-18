@@ -213,6 +213,7 @@ shape SettingsCore
   scopeEnvironment: string // the scope's representative environment; Settings' own setup links open Providers there
   scopeKey: string
   sections: CoreSection[]
+  cliSections: CoreSection[]
   // The Project page's Model row (General's default-model row in the project scope), or none.
   projectModel: CoreRow[]
   restoreCount: number

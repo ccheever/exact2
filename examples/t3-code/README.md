@@ -89,6 +89,20 @@ build (that marker), a production-trust bake or a distributed bundle (`--distrib
 (`T3WebInspection.swift`; each web view writes a `t3.inspection:` line to stderr). There is no
 View › Toggle Developer Tools: an inspector for the app's own UI stays out of exact2 (#101).
 
+## Desktop command
+
+An installed distribution exposes **Settings → General → t3 command**. Install creates the
+launcher in `<T3 home>/bin/t3` and an owned link in a writable command directory; Remove
+removes only links written by T3 Code. Another `t3` earlier on PATH is preserved and reported.
+The launcher passes `T3CODE_CLI_PATH`, preserves an explicit `T3CODE_HOME`, and invokes the
+app's installed server executable. Development builds hide this row. Availability uses the
+app's distribution-only protocol-handler metadata; it does not change the local backend's
+separate `distribution.json` home/port policy described above.
+
+The desktop bootstrap secret stays in native memory and the server's stdin envelope.
+Its HMAC credential changes every twelve hours, including a fresh exchange after suspend.
+Project icon selection also accepts macOS `.icns` files; the embedded server converts them.
+
 ## Connect to a server
 
 Start an existing T3 installation with `t3`, or use its normal source-checkout startup command,
@@ -176,8 +190,7 @@ server to come back on the new version and shares that state with Settings › C
   `html-script-regex.ts`; every right-panel tab (Files, files, the
   pull request list, the Diff, the Device surface with its device, pull request details and
   attachments) is kept per thread across launches, `saved-panel.ts`, `saved-surfaces.ts`;
-  the Diff's preview of a project outside the server's root is asked again at the server's cwd
-  as DiffPanel does, `diff-outside-root.ts`), Linked pull requests (rows, Copy link, Open, Watch for changes / Stop
+  diffs keep the project's requested cwd, including projects outside the server's launch directory), Linked pull requests (rows, Copy link, Open, Watch for changes / Stop
   watching, Unlink), the Pull request surface (`pr-surface.ts`, `pr-attachment*`: the thread's or a link's
   pull request in the Pull Requests page's detail panel, opened from the chooser's P, the
   details card's `#N` rows with "Show N more", and pull request links; `pr-row*`: with the

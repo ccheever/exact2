@@ -21,6 +21,7 @@ import { hostChecks, hostEditorView } from '../device/settings-a-hosts';
 import { libraryCards, removalPicks } from '../appearance/settings-a-collections';
 import { installedFonts } from '../appearance/appearance-fonts';
 import { fontDiffPreview } from '../appearance/settings-font-previews';
+import { readCliCommand } from './cli-command';
 import { groupOfMember } from './projects-fleet';
 
 /** The scope sentence keys each label on its text, so a changed label remounts (a reused one-line text kept its old string). */
@@ -88,6 +89,9 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   let sections: CoreSection[] = [];
   if (active && route === 'general' && scope.kind !== 'unavailable') sections = generalSections(client, context);
   if (active && route === 'appearance') sections = appearanceSections(prefs, true, await installedFonts(client, native));
+  const cli = active && route === 'general' ? await readCliCommand(client, native) : null;
+  if (cli) sections = sections.length ? sections.map(section => section.id === 'about' ? { ...section, rows: [...section.rows, cli] } : section)
+    : [{ id: 'about', title: 'About', collapsible: false, toggle: false, rows: [cli] }];
   sections = sections.map(section => ({ ...section, rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })) }));
   // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: the Project page's Model row is General's, in the project scope.
   const projectModel = active && route === 'projects' && project ? generalSections(client, context).flatMap(section => section.rows).filter(row => row.id === 'default-model').map(row => ({ ...row, divider: false })) : [];
@@ -109,7 +113,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     representative: String(scope.members[0]?.id ?? ''), scopeKey: `${machine}|${projectKey}|${checkout}`,
     // A setup link inside Settings opens Providers on this environment (ProjectDefaultsSettings.tsx:60-62, 168-173; SettingsPanels.tsx:3260-3266); '' offers none.
     scopeEnvironment: scope.kind === 'unavailable' ? '' : scopeRepresentative(scope)?.environmentId ?? '',
-    sections, projectModel, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
+    sections, cliSections: cli ? [{ id: 'about', title: 'About', collapsible: false, toggle: false, rows: [cli] }] : [], projectModel, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
     appearanceMode: device.appearanceMode, tiles: modeTiles(device.appearanceMode, prefs, custom), themes: libraryCards(prefs, custom, removalPicks(client, dialogKind === 'remove' ? dialogSubject : '')), typographyAdvanced: prefs.typographyAdvanced, themeLight: prefs.themeLight,
     palette: palette(paint.prefs, paint.custom, paint.mode), editor: editorView(draft, custom), themeImport: importView(client), interfaceFont: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', interfaceSize: prefs.fontSizeInterface, codeSize: prefs.fontSizeCode, codePreview: fontDiffPreview(prefs.diffColorScheme),
     wordWrap: prefs.wordWrap, panelDuration: prefs.panelAnimationDurationMs,
