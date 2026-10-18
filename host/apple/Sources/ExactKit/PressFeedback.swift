@@ -104,7 +104,8 @@ extension NodeView {
     /// Mac's pressed effect (LLP 1115.000 D6, `tintPress`,
     /// Mac/PressLookMac.swift).
     func pressChanged() {
-        if pressed { pressHaptic() }
+        if !pressed { heldInput("active") } // a real release lets a held press go (HeldState.swift)
+        if pressed, !HeldState.setting { pressHaptic() } // a held press plays none
         // What a press shows goes at its release whatever the style says now:
         // an authored look the style dropped while held included.
         if !pressed { paintPress(false); aimPress(false, release: true) }

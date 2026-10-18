@@ -1147,6 +1147,7 @@ package final class Presenter {
                 blocks.destroyed(id)
                 stickies.forget(id)
                 forgetFlight(id)
+                views[id]?.holdGone()
                 if endExit(id) { continue }
                 release(id, forget: true)?.removeFromSuperview()
             case .roots:

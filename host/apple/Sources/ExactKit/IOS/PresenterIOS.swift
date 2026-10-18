@@ -939,6 +939,7 @@ package final class Presenter {
                 if flats.isFlat(id) { flats.promote(id) }
                 views[id]?.applyColumns(op.payload)
             case .destroy:
+                views[id]?.holdGone()
                 elements.destroyed(id)
                 stickies.forget(id)
                 forgetFlight(id)

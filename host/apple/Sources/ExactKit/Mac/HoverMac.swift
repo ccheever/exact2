@@ -41,9 +41,14 @@ extension Presenter {
                 && NodeView.look("hover", in: $0.style) != nil
         }
         for held in lookHovered {
-            if let view = held.view, !next.contains(where: { $0 === view }) { view.lookState(hovered: false) }
+            // The pointer leaving a held hover's node lets it go (HeldState.swift), as on the web.
+            if let view = held.view, !next.contains(where: { $0 === view }) { view.heldInput("hover"); view.lookState(hovered: false) }
         }
-        for view in next { view.lookState(hovered: true) }
+        // The pointer coming over it lets one go too (moving within it does not).
+        for view in next {
+            if !lookHovered.contains(where: { $0.view === view }) { view.heldInput("hover") }
+            view.lookState(hovered: true)
+        }
         lookHovered = next.map { WeakNodeView(view: $0) }
     }
 }

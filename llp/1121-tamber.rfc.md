@@ -3671,3 +3671,14 @@ Built to the approved plan (`~/x2theme/x2p4-s8e-plan.md`; theme2's 07:48 ruling 
 - **After the re-check (Astra):** a frame bound at arrival could still address the old plan once the new runner was in. The server now names the plan a hold's site addresses (`hold {revision, hold, plan}`), and every host takes a frame of another plan as nothing, unsaid, for the replay to correspond. Ended revisions are forgotten at a lower revision (a new server's), and a refusal ends its revision too.
 - **After the second re-check (Astra):** a hold from before a new stream (a server restart, a reconnect) neither ends a revision nor reports a let-go on the new one (ended revisions and reports are scoped to the stream and the server's run), so a new revision of the same number still applies and the new server's hold is not ended by the old one's. The protocol's `hold` bullet names `plan`.
 
+### Stage 8, commit E2: held states on Apple (iOS and Mac) (draft for theme2)
+
+- **`HeldState.swift`.** One hold an app, on the host's own tracking, handlers never told:
+  - `active`: `pressed` on the node the press resolves to (up to the innermost node with a `press` handler, 07:48), through the same `pressChanged`, so D7's press paint and scale ease as a real press's (at once on the agent's clock). A held press plays no haptic. A real release on the node lets it go (`input`).
+  - `hover` (the Mac): `lookState(hovered: true)`. The pointer coming over the node or leaving it lets it go; moving within it does not. iOS answers `hover` unsupported (D8; the iPad pointer is later).
+  - `focus-visible`: `lookState(focus: true)`; the focus ring's change lets it go.
+  - A disabled node refuses one; its disabling (`disabled`) and its going (`gone`) let it go.
+- **The build channel** (`BuildChannel.swift`, `Inspect.swift`): `hold` among the capabilities; `hold {revision, hold}` resolves the site and instance path to exactly one view (structural instance compare), as `refresh` does, and reports `held`/`unsupported` with the frame's revision. No single view lets the previous hold go too; the same frame taken again replaces nothing.
+- **A dev loop's new generation** (`ExactApp.applyTogether`): a held node going with the old tree is let go unsaid, and the hold frame is taken again after the swap under the same plan (`rehold`); under another plan the server's replay does, as on the web.
+- **The agent**: `{"op":"tap","id":V,"holdState":…}` on both platforms; `layout`'s node and the inspect selection carry `held {state, rows}` (the press rows by wire name for `active`, the look's rows otherwise).
+- **Tests** (`HeldStateTests`, Mac and iOS): a held press is the real press with its paint and rows until a real release; a disabled node refuses and its disabling and going let go; a new generation lets a hold go unsaid; the Mac's held hover goes when the pointer comes or leaves, not as it moves within; iOS holds no hover.

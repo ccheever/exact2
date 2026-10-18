@@ -100,6 +100,7 @@ extension NodeView {
     /// The looks again, as they hold now: after a change the flags don't
     /// show (the node's `disabled`).
     func relook() {
+        if disabled, HeldState.view === self { HeldState.letGo("disabled") } // a disabled node holds no state
         guard let base = pressPaint.lookBase else { return }
         restyleForPress(pressPainted(looked(base)))
         refreshPressOpacity()
@@ -384,6 +385,7 @@ extension NodeView {
     /// A view taken for another node keeps nothing of a press, and the
     /// views its press recoloured go back to their own.
     func dropPressPaint() {
+        holdGone()
         for held in pressPaint.inked where held.view !== self { held.view?.endPressStandIn() }
         paintLayer?.removeAnimation(forKey: "pressOpacity")
         paintLayer?.removeAnimation(forKey: "lookOpacity")
