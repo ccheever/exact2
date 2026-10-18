@@ -27,6 +27,9 @@ shape SettingsColors
   switchOff: string
   secondaryBorder: string
   link: string
+  warning: string
+  warningBorder: string
+  warningForeground: string
 shape SettingsTextRole
   size: number
   line: number

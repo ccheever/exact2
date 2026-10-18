@@ -101,6 +101,7 @@ shape MobileUsageData
   emptyMessage: string
   environments: UsageEnvironment[]
   notices: UsageNotice[]
+  limitWarnings: UsageNotice[]
   duplicateMessage: string
   links: UsageLink[]
   cursor: UsageCursor[]
@@ -179,11 +180,12 @@ component SettingsUsage
             text "Usage" color=colors.foreground font-size=roles.footnote.size
         if data.error.length > 0
           text data.error color=danger role="alert" font-size=roles.footnote.size
-        for environment in data.environments key=environment.id
-          if environment.status.length > 0
-            text `${environment.label}: ${environment.status}` color=colors.muted font-size=roles.footnote.size
-        for notice in data.notices key=notice.id
-          text notice.text color=colors.muted font-size=roles.footnote.size
+        if data.tab == "usage"
+          for environment in data.environments key=environment.id
+            if environment.status.length > 0
+              text `${environment.label}: ${environment.status}` color=colors.muted font-size=roles.footnote.size
+          for notice in data.notices key=notice.id
+            text notice.text color=colors.muted font-size=roles.footnote.size
         for link in data.links key=link.url
           column padding=14 gap=7 border-radius=24 background-color=colors.grouped
             button press=command("open-link", "", link.url) disabled=link.disabled min-height=44
@@ -234,6 +236,12 @@ component SettingsUsage
                         UsageLimitAccountRow(item=item, ordinal=(itemIndex + 1), windowId=window.windowId, kind=window.kind, colors=colors, roles=roles, account=account)
           if data.cursorPoolInsertAt == data.pools.length
             UsageCursorLimits(items=data.cursor, colors=colors, roles=roles, dark=dark, command=command)
+          if data.limitWarnings.length > 0
+            row align-items="flex-start" gap=7 margin-top=3.5 padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 border-width=1 border-style="solid" border-radius=10.5 border-color=colors.warningBorder background-color=colors.warning role="alert" aria-live="polite"
+              t3-symbol symbol-name="exclamationmark.triangle" symbol-tint=colors.warningForeground width=16 height=16 flex-shrink=0
+              column flex=1 min-width=0 gap=1.75
+                for notice in data.limitWarnings key=notice.id
+                  text notice.text color=colors.warningForeground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
         else
           row gap=7 align-items="center"
             row flex=1 border-radius=7 background-color=colors.subtle padding=2
