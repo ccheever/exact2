@@ -54,8 +54,10 @@ public typealias ActivityReport = @convention(c) (UnsafeMutableRawPointer?, Unsa
         }
     }
     private func publish() {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
         let entries: [[String: Any]] = live.values.sorted { $0.id < $1.id }.map { activity in
-            let data = (try? JSONEncoder().encode(activity.content.state.state)) ?? Data("null".utf8)
+            let data = (try? encoder.encode(activity.content.state.state)) ?? Data("null".utf8)
             return ["id": activity.id, "kind": activity.attributes.kind, "state": String(decoding: data, as: UTF8.self),
                     "activityState": state(activity), "token": tokens[activity.id].map { $0 as Any } ?? NSNull()]
         }

@@ -53,6 +53,19 @@ shape DeliveryState
 shape Viewport
   pointer: string
 
+// @ref LLP 1126.001 WP9 — tokens are asynchronous device facts, including after a relaunch.
+shape ActivityHandle
+  id: string
+shape ActivityFact
+  id: string
+  kind: string
+  state: string
+  activityState: string
+  token: option<string>
+shape Activities
+  activities: ActivityFact[]
+  frequentPushesEnabled: bool
+
 component Caltrain
   // The seeded schedule's day; `tick` reads the clock from it, so a tick a
   // suspension skipped leaves the time right
@@ -76,6 +89,20 @@ component Caltrain
   state deckLoaded = false
   state deckLoads = 0
   state deckMessage = ""
+
+  state trainDelay = 0
+  mutation activitySend as shape ActivityHandle
+  resource activities = exactActivities() as shape Activities
+  derive tracked = first(activities.activities.filter(a => a.kind == "departure" and (a.activityState == "active" or a.activityState == "stale")))
+  derive trackedId = match tracked { case some(a) => a.id, case none => "" }
+  derive departureState = DepartureState(station=station.name, headsign="San Francisco", train=101, at=seededEpoch + 600000 + trainDelay, status=(trainDelay > 0 ? "Delayed by 10 minutes" : "On time"))
+  action startTracking
+    send activitySend = startActivity("departure", departureState)
+  action delayTrain
+    send activitySend = updateActivity(trackedId, DepartureState(departureState, at=departureState.at + 600000, status="Delayed by 10 minutes"))
+    trainDelay = trainDelay + 600000
+  action endTracking
+    send activitySend = endActivity(trackedId, DepartureState(departureState, status="Arrived"), "immediate")
 
   resource location = defaultLocation() as shape Location
   derive selectedId = match stationId { case some(id) => id, case none => "mv" }
@@ -172,6 +199,15 @@ component Caltrain
         // The sky or the plain page around the same content, written once:
         // `Sky` declares a slot and the content is what is indented under it.
         Sky(on=skyOn, material=material, selectedId=selectedId, dim=tv)
+          row gap=8 padding=12
+            button press=startTracking testId="start-activity"
+              text "Follow train"
+            button press=delayTrain testId="delay-train"
+              text "Delay train"
+            button press=endTracking testId="end-activity"
+              text "End activity"
+          for a in activities.activities key=a.id
+            text `${a.kind}: ${a.activityState}` testId=`activity-${a.id}`
           Content(tv=tv, station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=chooseScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate, reloadApp=reloadApp)
       // @ref LLP 1048.003 D1 — a link preview's summary; the title stays the app's.
       head description="The next Caltrain departures, north and south, from the station nearest you."

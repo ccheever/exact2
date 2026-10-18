@@ -113,3 +113,25 @@ fn close_acts_only_on_a_dialog_open_modally_and_popover_actions_only_as_a_popove
     press(&mut host, "a-close");
     assert!(open(&host).is_empty());
 }
+
+#[test]
+fn caltrain_builds_in_the_terminal_and_refuses_activity_sends_at_runtime() {
+    let plan = caltrain::build().unwrap();
+    let mut app = caltrain::boot(plan.clone(), exact_kernel::Kernel::with_monospace()).unwrap();
+    let data = std::mem::take(app.data());
+    let mut host =
+        crate::host::Host::boot(plan, data, crate::host::Mode::Fullscreen, 80, 24).unwrap();
+    assert!(host.runner.resource("activities").is_some());
+    for (action, send) in [
+        ("startTracking", "startActivity"),
+        ("delayTrain", "updateActivity"),
+        ("endTracking", "endActivity"),
+    ] {
+        host.act(action);
+        assert!(host
+            .runner
+            .journal()
+            .any(|line| line.contains(&format!("{send} is not linked into this artifact"))));
+        assert!(!host.runner.has_pending());
+    }
+}

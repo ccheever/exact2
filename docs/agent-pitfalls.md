@@ -626,6 +626,14 @@ screen, 2026-10-16.)
 
 ## Actions
 
+- **A send reads a derive from before the action's writes.** An action's writes
+  commit together; reading a derive after assigning one of its inputs still reads
+  the previous commit's derive. Build the next record explicitly for the send,
+  for example `DepartureState(current, at=current.at + 600000, status="Delayed")`,
+  and assign local state in the same action. Caltrain's activity update sent
+  "On time" after incrementing its delay until it built that next record
+  (`apps/caltrain/app.contract`, LLP 1126.001 WP9).
+
 - **A name refused as reserved.** `none`, `some`, `true`, `false` and the expression
   words (`if`, `for`, `match`, `and`, …) cannot name a state, a parameter or a `let`
   (`syntax-expected-name`); nor can `length` name a function or action in a file

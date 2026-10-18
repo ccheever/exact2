@@ -215,8 +215,11 @@ impl Cx<'_, '_> {
                     crate::activities::send(source, args, scope, shapes, *span)?;
                 }
                 let mut params = Vec::with_capacity(args.len());
-                for arg in args {
-                    params.push(crate::source_argument(arg, source, scope, shapes)?);
+                for (i, arg) in args.iter().enumerate() {
+                    params.push(match crate::activity_option_type(source, i) {
+                        Some(ty) => ty,
+                        None => crate::source_argument(arg, source, scope, shapes)?,
+                    });
                 }
                 let result = self.ct.mutations[mi].clone();
                 crate::record_source(self.ct, source, params, result, *span)?;

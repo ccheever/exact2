@@ -335,6 +335,9 @@ as in `apps/caltrain/activities.contract`. Each send answers a shape with
 `id: string`:
 
 ```contract
+shape DepartureState
+  status: string
+  at: number
 shape ActivityHandle
   id: string
 
@@ -346,6 +349,8 @@ component App
     send activity = updateActivity(id, state, some("Train delayed"), none)
   action finish(id: string, state: DepartureState)
     send activity = endActivity(id, state, "immediate")
+  view
+    text "Train"
 ```
 
 `state` is a record, checked against the entry's state shape at runtime.

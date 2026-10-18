@@ -206,6 +206,8 @@ component App
     send started = startActivity("train", State(title="🚆", count=101))
   action update
     send started = updateActivity("a", State(title="Delayed", count=102), some("Train delayed"), some(1000))
+  action clear
+    send started = updateActivity("a", State(title="Cleared", count=102), none, none)
   action end
     send started = endActivity("a", State(title="Arrived", count=103), "immediate")
   view
@@ -249,6 +251,7 @@ component App
         for (action, command, title) in [
             ("start", "startActivity", "🚆"),
             ("update", "updateActivity", "Delayed"),
+            ("clear", "updateActivity", "Cleared"),
             ("end", "endActivity", "Arrived"),
         ] {
             r.act(action, vec![]).unwrap();

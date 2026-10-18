@@ -46,3 +46,13 @@ pub(crate) fn send(
     }
     Ok(())
 }
+
+/// The optional update arguments have fixed types, including a bare `none`.
+/// Lowering uses the same types for the send's baked argument descriptors.
+pub fn option_type(name: &str, index: usize) -> Option<Ty> {
+    match (name, index) {
+        ("updateActivity", 2) => Some(Ty::Option(Box::new(Ty::String))),
+        ("updateActivity", 3) => Some(Ty::Option(Box::new(Ty::Number))),
+        _ => None,
+    }
+}

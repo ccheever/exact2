@@ -46,3 +46,6 @@ libc = "0.2"
 rustix = { version = "1.1", features = ["termios", "event", "stdio"] }
 # Resize signals wake the existing socket, with no signal thread.
 signal-hook = { version = "0.3", default-features = false }
+
+[dev-dependencies]
+caltrain = { path = "../../apps/caltrain" }

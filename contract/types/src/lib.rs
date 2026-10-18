@@ -19,6 +19,7 @@
 
 mod actions;
 mod activities;
+pub use activities::option_type as activity_option_type;
 mod bounds;
 mod calls;
 mod checks;

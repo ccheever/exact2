@@ -81,9 +81,10 @@ impl Lowerer<'_> {
                     "startActivity" | "updateActivity" | "endActivity"
                 );
                 let mut types = Vec::new();
-                for arg in args {
+                for (i, arg) in args.iter().enumerate() {
                     let ty = expr::compile(self, asm, arg, scope, locals)?;
                     if activity {
+                        let ty = contract_types::activity_option_type(source, i).unwrap_or(ty);
                         types.push(self.ty_id(&ty)?.0.to_string());
                     }
                 }

@@ -52,15 +52,16 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     // hoverId, hoverOn, searchFocused, lastKey (the events beyond press and
     // change, LLP 1005 §3); deckLoaded, deckLoads, and deckMessage (the
     // iframe fixture, @ref LLP 1020 M1); and `nav`, the routes table's
-    // location (LLP 1038 D2), there for `render=build` (LLP 1048.003 D5).
-    assert_eq!(a.slots.len(), 17);
+    // location (LLP 1038 D2), there for `render=build` (LLP 1048.003 D5);
+    // and the activity's delay and mutation reply (LLP 1126.001 WP9).
+    assert_eq!(a.slots.len(), 19);
     // Seven data-crate resources, `delivery` — the runner's own
     // `exactDelivery` (LLP 1030 D7), read by the update banner — and
-    // `viewport`, whose `pointer` says a TV.
-    assert_eq!(a.resources.len(), 9);
+    // `viewport`, whose `pointer` says a TV, and `exactActivities`.
+    assert_eq!(a.resources.len(), 10);
     // …and `activateUpdate`, the banner's `deliveryActivate`, and
-    // `reloadApp`, the header's Reload.
-    assert_eq!(a.actions.len(), 19);
+    // `reloadApp`, the header's Reload, and the three activity actions.
+    assert_eq!(a.actions.len(), 22);
     assert_eq!(a.timers.len(), 1);
     assert!(
         a.resources.iter().all(|r| r.initial.len == 0),
@@ -269,7 +270,7 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
         Some("San Francisco")
     );
     let carried = r.carry();
-    assert_eq!(carried.slots.len(), 17);
+    assert_eq!(carried.slots.len(), 19);
     assert_eq!(carried.now_ms, 30_000.0);
 
     // The edited plan: unbaked (no compiled data) and with a visible change.
@@ -370,4 +371,21 @@ fn hover_focus_and_keys_reach_their_actions() {
         err,
         Err(exact_runner::RunnerError::NoHandler { event: "hover", .. })
     ));
+}
+
+#[test]
+fn an_explicit_activity_update_sends_the_changed_state() {
+    let mut app = caltrain::boot(caltrain::build().unwrap(), Kernel::with_monospace()).unwrap();
+    app.link_activities();
+    app.set_activities(r#"{"activities":[{"id":"train-id","kind":"departure","state":"{}","activityState":"active","token":null}],"frequentPushesEnabled":false}"#).unwrap();
+    app.act("delayTrain", vec![]).unwrap();
+    let requests = app.take_requests();
+    assert_eq!(requests.len(), 1);
+    let payload = std::str::from_utf8(&requests[0].request.body).unwrap();
+    assert!(
+        payload.contains("\"status\":\"Delayed by 10 minutes\""),
+        "{payload}"
+    );
+    assert!(payload.contains("\"at\":1787916600000"), "{payload}");
+    assert!(payload.contains("\"train-id\""), "{payload}");
 }
