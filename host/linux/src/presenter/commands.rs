@@ -89,6 +89,10 @@ impl<D: DataSource> Presenter<D> {
                 "postMessage" => {
                     let arg = |i: usize| c.args.get(i).and_then(exact_plan::Value::as_str);
                     let (text, name) = (arg(0).unwrap_or_default(), arg(1).unwrap_or_default());
+                    if arg(2) == Some("iframe") {
+                        self.host.log("postMessage: iframe replies are unavailable on Linux".into());
+                        continue;
+                    }
                     let event = serde_json::json!({"t":"message","text":text,"at":self.host.now()});
                     if !self.surfaces.post(name, event) {
                         self.host.log(format!(

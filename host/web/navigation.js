@@ -1081,24 +1081,21 @@ export const reportPlace = () => (pagePlace ??= placeReporter(launched()))();
 // A store write in the page (LLP 1018 D6, LLP 1116 D5, LLP 1027 D4): a secret or state the quota refuses sets the kept answers aside, a cache the runner bounds together, and is tried once more, the kept answers put back if it fails again; a kept answer it refuses leaves the older one, which the next launch may still match, and is said.
 export function storeInPage(storage, name, value, warn = console.warn) { const key = name.startsWith("exact.state.") ? name : "exact.secret." + name, write = () => value == null ? storage.removeItem(key) : storage.setItem(key, value);
   try { try { write(); } catch (e) { if (name.startsWith("exact.kept.") || !/quota/i.test(e?.name ?? "")) throw e; const aside = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(k => k?.startsWith("exact.secret.exact.kept.")).map(k => [k, storage.getItem(k)]); for (const [k] of aside) storage.removeItem(k); try { write(); } catch (again) { for (const [k, v] of aside) try { storage.setItem(k, v); } catch {} throw again; } } } catch (e) { warn("exact: store", name, String(e)); } }
-// An iframe guest's origin as authored when its `src` or `sandbox` was
-// committed (an opaque sandbox posts as "null"), which a `message` from it must match.
-const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
+// The authored document owns the channel. A later load revokes it until the app commits a new source.
+const iframeOrigins = new WeakMap();
 export function commitGuestOrigin(el) {
-  const opaque = opaqueSandbox(el.getAttribute("sandbox"));
-  let origin = null;
-  if (!opaque) {
-    const src = el.getAttribute("src");
-    try { origin = !src || src === "about:blank" ? location.origin : new URL(src, document.baseURI).origin; }
-    catch { origin = null; }
-    if (origin === "null") origin = null;
-  }
-  iframeOrigins.set(el, { origin, opaque });
+  const src = el.getAttribute("src"), sandbox = el.getAttribute("sandbox"), previous = iframeOrigins.get(el);
+  if (previous?.src === src && previous?.sandbox === sandbox) return;
+  if (previous) el.removeEventListener("load", previous.loaded);
+  const opaque = opaqueSandbox(sandbox); let origin = null;
+  if (!opaque) { try { origin = !src || src === "about:blank" ? location.origin : new URL(src, document.baseURI).origin; } catch {} if (origin === "null") origin = null; }
+  const state = { src, sandbox, origin, opaque, committed: false, revoked: false };
+  state.loaded = () => { if (iframeOrigins.get(el) !== state) return; if (state.committed) state.revoked = true; state.committed = true; };
+  iframeOrigins.set(el, state); el.exactFrameChannel = state; el.addEventListener("load", state.loaded);
 }
 export function guestMessageAuthorized(el, eventOrigin) {
-  const committed = iframeOrigins.get(el);
-  if (!committed) return false;
-  return committed.opaque ? eventOrigin === "null" : eventOrigin === committed.origin;
+  const state = iframeOrigins.get(el);
+  return Boolean(state && !state.revoked && (state.opaque ? eventOrigin === "null" : eventOrigin === state.origin));
 }
 
 // Controlled values restore after options change or refused type; a person's action keeps their choice, including a cleared date (LLP1069.001 D4, kanban2 #5).

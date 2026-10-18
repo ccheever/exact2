@@ -1,0 +1,16 @@
+// Ordered iframe replies and generation ownership, driven by IframePostMessageTests.
+component App
+  state seen = ""
+  state target = "guest"
+  action heard(text: string)
+    seen = text
+  action reply
+    postMessage("one", target)
+    postMessage("two", target)
+  view
+    column
+      iframe id="guest" src="about:blank" message=heard width=300 height=180 testId="guest"
+      iframe id="sibling" src="about:blank" message=heard width=300 height=180 testId="sibling"
+      button press=reply testId="reply"
+        text "Reply"
+      text seen testId="seen"

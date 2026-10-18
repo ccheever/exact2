@@ -106,12 +106,24 @@ impl Lowerer<'_> {
                 if name == "share" {
                     share_pictures(&self.root.view, args)?;
                 }
+                let iframe = name == "postMessage"
+                    && !matches!(args.get(1), Some(Expr::Str(target, _)) if self.canvas_targets.contains(target));
                 let args = expr::command_args(name, args);
                 for arg in &args {
                     expr::compile_or_none(self, asm, *arg, scope, locals)?;
                 }
+                // An absent iframe must drop, never enter the canvas's pending queue.
+                if iframe {
+                    expr::compile_or_none(
+                        self,
+                        asm,
+                        Some(&Expr::Str("iframe".into(), *span)),
+                        scope,
+                        locals,
+                    )?;
+                }
                 let name = self.b.str(name);
-                asm.command(name, args.len() as u16);
+                asm.command(name, args.len() as u16 + u16::from(iframe));
             }
             Stmt::If {
                 cond,
@@ -229,4 +241,41 @@ fn share_pictures(view: &[Node], args: &[Expr]) -> Result<(), LowerError> {
         ),
         None => Ok(()),
     }
+}
+
+pub(crate) fn canvas_targets(nodes: &[Node]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for node in nodes {
+        match node {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } => {
+                if tag == "canvas" {
+                    for a in attrs.iter().filter(|a| a.name == "surface") {
+                        if let Expr::Ident(name, _) | Expr::Call(name, _, _) = &a.value {
+                            out.insert(name.clone());
+                        }
+                    }
+                }
+                out.extend(canvas_targets(children));
+            }
+            Node::Use { children, .. } => out.extend(canvas_targets(children)),
+            Node::When {
+                then, otherwise, ..
+            } => {
+                out.extend(canvas_targets(then));
+                out.extend(canvas_targets(otherwise));
+            }
+            Node::Each { body, .. } => out.extend(canvas_targets(body)),
+            Node::Match { some, none, .. } => {
+                out.extend(canvas_targets(&some.1));
+                out.extend(canvas_targets(none));
+            }
+            Node::Children { .. } => {}
+        }
+    }
+    out
 }

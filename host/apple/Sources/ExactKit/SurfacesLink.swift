@@ -60,6 +60,7 @@ package protocol Canvases: AnyObject {
     func loadIfNeeded()
     func surfaceWork(_ op: [String: Any], generation: Int)
     func post(_ name: String, _ text: String)
+    func hasSurface(_ name: String) -> Bool
     func period(_ ms: Double)
     func tick(now: Double) -> Bool
     func settle(now: Double)
@@ -172,6 +173,7 @@ final class NoCanvases: Canvases {
     func loadIfNeeded() {}
     func surfaceWork(_ op: [String: Any], generation: Int) {}
     func post(_ name: String, _ text: String) {}
+    func hasSurface(_ name: String) -> Bool { false }
     func period(_ ms: Double) {}
     func tick(now: Double) -> Bool { false }
     func settle(now: Double) {}

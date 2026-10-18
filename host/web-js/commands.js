@@ -29,7 +29,10 @@ export const commands = say => ({
   // The inverse of `message=`: text into the named surface, every post in
   // order, held until the GPU glue loads and drains `pendingPosts`
   // (gpu-glue.js); 64 a surface, as every host bounds them.
-  postMessage: (text, name) => {
+  postMessage: (text, name, kind) => {
+    const live = [...document.querySelectorAll('#exact-root *')].filter(e => !e.hasAttribute('data-exiting'));
+    if (kind === "iframe") { const captured = live.filter(e => e.localName === 'iframe' && e.id === name).map(e => [e, e.exactFrameChannel]); import('./frame-messages.js').then(m => m.postFrameMessage(text, name, null, say, captured)); return; }
+    if (live.some(e => e.localName === 'iframe' && e.id === name)) return say(`postMessage: canvas name collides with an iframe id "${name}"`);
     const x = globalThis.exact ??= {}, at = x.now?.() ?? performance.now();
     if (x.gpu) x.gpu.post(name, text, at);
     else if ((x.pendingPosts ??= []).filter(p => p.name === name).length >= 64) say(`postMessage: dropped: 64 posts already wait for surface "${name}"`);

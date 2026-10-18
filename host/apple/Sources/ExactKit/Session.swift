@@ -1131,7 +1131,17 @@ public final class ExactSession {
                 }
                 if name == "postMessage" {
                     let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""
-                    app.deliver { [weak self] in self?.canvases.post(surface, text) }
+                    let iframe = args.count > 2 && args[2] as? String == "iframe"
+                    app.deliver { [weak self] in
+                        guard let self else { return }
+                        if self.webviews.hasFrame(surface) && self.canvases.hasSurface(surface) {
+                            fputs("exact: postMessage: ambiguous iframe id and canvas surface \(surface)\n", stderr)
+                        } else if iframe {
+                            self.webviews.postMessage(surface, text)
+                        } else if self.webviews.hasFrame(surface) {
+                            fputs("exact: postMessage: canvas name collides with an iframe id \(surface)\n", stderr)
+                        } else { self.canvases.post(surface, text) }
+                    }
                     continue
                 }
                 if name == "focus" || name == "selectText" {

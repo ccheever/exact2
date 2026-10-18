@@ -174,6 +174,7 @@ extension CanvasesHost {
     static let postBound = 64
     /// `postMessage(text, name)`: one message event for the live canvas of that
     /// surface name with the lowest view id, stamped now, held until one is live.
+    func hasSurface(_ name: String) -> Bool { entries.values.contains { $0.name == name } }
     func post(_ name: String, _ text: String) {
         guard pendingPosts.filter({ $0.name == name }).count < CanvasesHost.postBound else {
             fputs("exact: postMessage: dropped: \(CanvasesHost.postBound) posts already wait for surface \"\(name)\"\n", stderr)

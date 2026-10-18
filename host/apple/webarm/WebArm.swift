@@ -203,6 +203,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     var direct = false
     /// A direct guest navigated itself: its later documents' messages are
     /// not the app's (the wrapper's `navigated`).
+    var documentNonce: String?
     var revoked = false
     /// The origin a direct guest's messages must come from.
     var expectedOrigin: String?
@@ -263,7 +264,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         // it before the page's listeners, as an iframe's post never reaches
         // its own window, and hands it to the app (@ref LLP 1020 D2).
         controller.addUserScript(WKUserScript(
-            source: "addEventListener('message', e => { if (e.source !== window) return; e.stopImmediatePropagation(); let p = e.data; if (typeof p !== 'string') { try { p = JSON.stringify(p) } catch { return } } if (typeof p === 'string') window.webkit.messageHandlers.exactFrame.postMessage(p) }, true)",
+            source: "(() => { const replies = new WeakSet(), nonce = Array.from(crypto.getRandomValues(new Uint32Array(4)), n => n.toString(16)).join('-'); globalThis.__exactHostReply = (text, expected) => { if (expected !== nonce) return; const e = new MessageEvent('message', {data:text, source:window}); replies.add(e); window.dispatchEvent(e); }; addEventListener('message', e => { if (replies.has(e) || e.source !== window) return; e.stopImmediatePropagation(); let p = e.data; if (typeof p !== 'string') { try { p = JSON.stringify(p) } catch { return } } if (typeof p === 'string') window.webkit.messageHandlers.exactFrame.postMessage(p) }, true); window.webkit.messageHandlers.exactAgent.postMessage({document:nonce}); })()",
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true,
             in: world))
@@ -332,6 +333,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
 
     func markLoading() {
         guestFrame = nil
+        documentNonce = nil
         emit(kind: 3)
     }
 
@@ -358,6 +360,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         guard !invalidated else { return }
         generation += 1
         guestFrame = nil
+        documentNonce = nil
         serving = true
         revoked = false
         if error == nil, let file = src.flatMap(localFile) {
@@ -483,11 +486,17 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
           const inner = document.getElementById('exact-frame');
           const guestOrigin = \(expectedOrigin);
           let committed = false;
+          let connected = false;
           let navigated = false;
           window.__exactRevokeGuest = () => { navigated = true; };
+          window.__exactHostReply = (text, expectedGeneration) => {
+            if (expectedGeneration !== \(generation) || navigated || (!committed && !connected) || guestOrigin === null) return;
+            inner.contentWindow.postMessage(text, guestOrigin === 'null' ? '*' : guestOrigin);
+          };
           addEventListener('message', event => {
             if (event.source !== inner.contentWindow) return;
             if (navigated || guestOrigin === null || event.origin !== guestOrigin) return;
+            connected = true;
             let payload = event.data;
             if (typeof payload !== 'string') {
               try { payload = JSON.stringify(payload); } catch { return; }
@@ -624,6 +633,10 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         }
         if message.name == "exactAgent" {
             if let body = message.body as? [String: Any] {
+                if let nonce = body["document"] as? String, direct, !revoked, message.frameInfo.isMainFrame,
+                   let expectedOrigin, WebArm.spelled(message.frameInfo.securityOrigin) == expectedOrigin {
+                    documentNonce = nonce
+                }
                 // `AssetScheme` logs its own misses.
                 if localGuest, let failed = body["failed"] as? String, !failed.hasPrefix("\(AssetScheme.scheme):") {
                     FileHandle.standardError.write(Data("exact: iframe \(src ?? ""): \(failed) did not load (\(WebArm.whyFailed(failed)))\n".utf8))
@@ -713,6 +726,16 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         // A direct guest's document loaded: the iframe's `load`.
         emit(kind: 2)
         if suppressLoad { suppressLoad = false } else { emit(kind: 0) }
+    }
+
+    func postMessage(_ text: String) {
+        guard !invalidated, !servePending, !revoked else { return }
+        if direct {
+            guard let documentNonce else { return }
+            webView.evaluateJavaScript("globalThis.__exactHostReply?.(\(javascript(text)), \(javascript(documentNonce)))", in: nil, in: world) { _ in }
+        } else {
+            webView.evaluateJavaScript("window.__exactHostReply?.(\(javascript(text)), \(generation))")
+        }
     }
 
     func snapshot(token: UInt32) {
@@ -819,6 +842,11 @@ public func exactWebSetDocument(_ handle: UnsafeMutableRawPointer?, _ bytes: Uns
 @_cdecl("exact_web_set_sandbox")
 public func exactWebSetSandbox(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ present: UInt32) {
     arm(handle)?.setSandbox(present == 0 ? nil : String(decoding: UnsafeBufferPointer(start: bytes, count: Int(length)), as: UTF8.self))
+}
+
+@_cdecl("exact_web_post_message")
+public func exactWebPostMessage(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32) {
+    arm(handle)?.postMessage(String(decoding: UnsafeBufferPointer(start: bytes, count: Int(length)), as: UTF8.self))
 }
 
 @_cdecl("exact_web_snapshot")
