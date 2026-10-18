@@ -345,7 +345,9 @@ final class NodePool {
     /// (`rebind` drops the paint it shows).
     private func lookAtRest(_ recognizer: UIGestureRecognizer, of v: NodeView) -> Bool {
         #if os(iOS)
-        return recognizer === v.lookHoverRecognizer && recognizer.state == .possible
+        guard recognizer === v.lookHoverRecognizer, recognizer.state == .possible else { return false }
+        // (Not a hover held there: the hold's own recognizer goes with the hold.)
+        return MainActor.assumeIsolated { !(HeldState.view === v && HeldState.state == "hover") }
         #else
         return false
         #endif
@@ -493,6 +495,7 @@ extension NodeView {
     /// Parked (`NodePool`): what `forget` drops, except the view's presenter
     /// and its symbol glyph view, which the next row reuses.
     func recycle() {
+        holdGone() // a held state goes with its node, parked under its row (HeldState.swift)
         cancelPressContact()
         pressContact = nil
         scrollEnd?.reset()

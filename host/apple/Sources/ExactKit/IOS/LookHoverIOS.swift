@@ -39,19 +39,17 @@ extension NodeView {
     }
 
     @objc func lookHovering(_ g: UIHoverGestureRecognizer) {
+        // The look first, then the hold: letting the hold go can take a
+        // hold's own recognizer off, and with it what it showed.
         switch g.state {
-        case .began: HeldState.lookHovered(self, true); lookState(hovered: true)
-        case .ended: HeldState.lookHovered(self, false); lookState(hovered: false)
+        case .began: lookState(hovered: true); HeldState.lookHovered(self, true)
+        case .ended: lookState(hovered: false); HeldState.lookHovered(self, false)
         // Cancelled (the recognizer turned off, as inspect mode does to every
-        // one): no crossing, so a hold stays; whether the pointer is over is
-        // known again at its next begin.
-        case .cancelled, .failed: HeldState.lookUnknown(self); lookState(hovered: false)
+        // one): no crossing. What showed stays, until its next begin or end
+        // says where the pointer is.
         default: break
         }
     }
 
-    /// Whether it has its look recognizer for the hold: put on for a hover
-    /// held on a node with no look, and off again after (`lookHover`).
-    var lookHoverInstalled: Bool { lookHoverRecognizer != nil }
 }
 #endif
