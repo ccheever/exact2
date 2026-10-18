@@ -2,6 +2,9 @@
 // Sources: packages/client-runtime/src/state/{shellReducer,orchestrationV2Projection,
 // threadHistoryMerge}.ts and packages/shared/src/orchestrationV2Timeline.ts.
 // Wire protocol reference: T3 4f7760e6, orchestration v2. No T3 runtime dependency.
+// Forward compatibility (reference 9c161462c9, packages/contracts/src/orchestrationV2.ts): a turn
+// item whose type this build does not know is dropped from snapshots and history pages, and its
+// `turn-item.updated` only advances the sequence; a known type that does not decode still fails.
 
 export type Json = null | boolean | number | string | Json[] | Obj;
 export interface Obj { [key: string]: Json | undefined }
@@ -114,8 +117,22 @@ const updateArrays: Record<string, string> = {
   "context-transfer.updated": "contextTransfers",
 };
 const otherEvents = new Set([
-  "provider-session.detached", "run.background-work-cancelled", "checkpoint.rollback-requested",
+  "provider-session.detached", "run.background-work-cancelled", "checkpoint.rollback-requested", "thread.pull-request-link-updated",
 ]);
+/** threadPullRequestKeysEqual (pages-pr-links-logic.ts), which the callers pass so this module imports nothing. */
+export type SameLink = (left: Obj, right: Obj) => boolean;
+const sameUrl: SameLink = (left, right) => typeof left.url === "string" && left.url === right.url;
+
+const TURN_ITEM_TYPES = [
+  "notification", "user_message", "assistant_message", "reasoning", "proposed_plan", "todo_list",
+  "user_input_request", "file_change", "command_execution", "file_search", "web_search", "approval_request",
+  "checkpoint", "run_interrupt_request", "run_interrupt_result", "system_notice", "error", "compaction",
+  "handoff", "fork", "thread_created", "subagent", "dynamic_tool",
+];
+/** hasUnknownUnionTag: an object whose `type` is a string this build does not know. */
+function isUnknownTurnItem(value: unknown): boolean {
+  return isObject(value) && typeof value.type === "string" && !TURN_ITEM_TYPES.includes(value.type);
+}
 
 function validateTurnItem(value: unknown, path: string): Obj {
   const item = entity(value, path);
@@ -124,12 +141,7 @@ function validateTurnItem(value: unknown, path: string): Obj {
   nullableString(item.nodeId, `${path}.nodeId`);
   integer(item.ordinal, `${path}.ordinal`);
   oneOf(item.status, ["idle", "pending", "running", "waiting", "completed", "failed", "cancelled", "interrupted"], `${path}.status`);
-  const type = oneOf(item.type, [
-    "notification", "user_message", "assistant_message", "reasoning", "proposed_plan", "todo_list",
-    "user_input_request", "file_change", "command_execution", "file_search", "web_search", "approval_request",
-    "checkpoint", "run_interrupt_request", "run_interrupt_result", "system_notice", "error", "compaction",
-    "handoff", "fork", "thread_created", "subagent", "dynamic_tool",
-  ], `${path}.type`);
+  const type = oneOf(item.type, TURN_ITEM_TYPES, `${path}.type`);
   if (["user_message", "assistant_message", "reasoning"].includes(type)) string(item.text, `${path}.text`, true);
   if (["assistant_message", "reasoning", "proposed_plan"].includes(type)) boolean(item.streaming, `${path}.streaming`);
   if (["user_message", "assistant_message"].includes(type)) string(item.messageId, `${path}.messageId`);
@@ -245,14 +257,19 @@ export function applyShell(current: Shell, value: unknown): Shell {
 
 export function threadSnapshot(value: unknown): ThreadState {
   const snapshot = object(value, "thread snapshot");
-  const projection = object(snapshot.projection, "thread snapshot.projection");
-  validateEntity(projection.thread, "threads", "projection.thread");
+  const received = object(snapshot.projection, "thread snapshot.projection");
+  validateEntity(received.thread, "threads", "projection.thread");
+  const projection: Obj = { ...received };
   for (const family of projectionArrays) {
-    objects(projection[family], `projection.${family}`).forEach((item, index) => {
+    const items = objects(received[family], `projection.${family}`);
+    const known = family === "turnItems" ? items.filter(item => !isUnknownTurnItem(item))
+      : family === "visibleTurnItems" ? items.filter(row => !isUnknownTurnItem(row.item)) : items;
+    known.forEach((item, index) => {
       const path = `projection.${family}[${index}]`;
       if (family === "visibleTurnItems") validateRow(item, path);
       else validateEntity(item, family, path);
     });
+    if (known.length !== items.length) projection[family] = family === "visibleTurnItems" ? renumber(known) : known;
   }
   const historyCursor = snapshot.historyCursor === undefined ? null : nullableString(snapshot.historyCursor, "historyCursor");
   const hasMore = snapshot.hasMoreHistory === undefined ? false : boolean(snapshot.hasMoreHistory, "hasMoreHistory");
@@ -296,7 +313,7 @@ function upsertRow(projection: Obj, item: Obj): Obj[] {
   return renumber(rows);
 }
 
-export function applyThread(state: ThreadState, value: unknown): ThreadState {
+export function applyThread(state: ThreadState, value: unknown, sameLink: SameLink = sameUrl): ThreadState {
   const item = object(value, "thread stream");
   if (item.kind === "snapshot") return threadSnapshot(item);
   if (item.kind === "synchronized") return state;
@@ -311,12 +328,17 @@ export function applyThread(state: ThreadState, value: unknown): ThreadState {
   string(event.threadId, "event.threadId");
   string(event.occurredAt, "event.occurredAt");
   const payload = object(event.payload, "event.payload");
+  if (family === "turnItems" && isUnknownTurnItem(payload)) return { ...state, sequence };
   if (threadEvents.has(type)) validateEntity(payload, "threads", "event.payload");
   else if (family) validateEntity(payload, family, "event.payload");
   else if (type === "provider-session.detached") string(payload.providerSessionId, "event.payload.providerSessionId");
   else if (type === "run.background-work-cancelled") {
     string(payload.runId, "event.payload.runId");
     objects(payload.restartCancelledBackgroundWork, "event.payload.restartCancelledBackgroundWork");
+  } else if (type === "thread.pull-request-link-updated") {
+    string(payload.host, "event.payload.host");
+    string(payload.repository, "event.payload.repository");
+    integer(payload.number, "event.payload.number");
   } else if (type === "checkpoint.rollback-requested") {
     string(payload.scopeId, "event.payload.scopeId");
     string(payload.checkpointId, "event.payload.checkpointId");
@@ -333,6 +355,11 @@ export function applyThread(state: ThreadState, value: unknown): ThreadState {
   } else if (type === "run.background-work-cancelled") {
     projection.runs = arr(projection.runs).map(run => run.id === payload.runId
       ? { ...run, restartCancelledBackgroundWork: payload.restartCancelledBackgroundWork } : run);
+  } else if (type === "thread.pull-request-link-updated") {
+    // applyThreadPullRequestLinkUpdate: only the link the event names changes. The event comes from
+    // servers that keep `pullRequests`, so a thread without the list has nothing to update.
+    const thread = obj(projection.thread);
+    if (Array.isArray(thread.pullRequests)) projection.thread = { ...thread, pullRequests: thread.pullRequests.map(link => isObject(link) && sameLink(link, payload) ? payload : link) };
   } else if (type === "provider-session.detached") {
     projection.providerSessions = arr(projection.providerSessions).filter(session => session.id !== payload.providerSessionId);
   } else if (family === "turnItems") {
@@ -365,7 +392,8 @@ function rowKey(row: Obj): string { return JSON.stringify([row.sourceThreadId, r
 export function mergeHistory(state: ThreadState, value: unknown): ThreadState {
   const page = object(value, "history page");
   integer(page.snapshotSequence, "history page.snapshotSequence");
-  const older = objects(page.items, "history page.items").map((row, index) => validateRow(row, `history page.items[${index}]`));
+  const older = objects(page.items, "history page.items").filter(row => !isUnknownTurnItem(row.item))
+    .map((row, index) => validateRow(row, `history page.items[${index}]`));
   const historyCursor = nullableString(page.nextCursor, "history page.nextCursor");
   const hasMore = boolean(page.hasMoreHistory, "history page.hasMoreHistory");
   const current = state.projection;

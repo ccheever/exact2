@@ -1,6 +1,6 @@
 // The Effect RPC wire, addresses, the token exchange form and the retry policy (transport-wire.ts).
 import { describe, test, expect } from 'bun:test';
-import { decode, encode, failure, origin, path, credential, exchangeForm, failureMessage, compatibility, canSelfUpdate,
+import { decode, encode, failure, origin, path, credential, exchangeForm, exchangeScopes, failureMessage, compatibility, canSelfUpdate,
   retryDelayMs, streamRetryMs, retriesStream, request, TransportFailure, pullRequestUnavailable, random, randomBytes, refillRandom, uuid } from '../../src/transport/transport-wire';
 import { Inbox } from '../../src/transport/transport-inbox';
 import { stableJSON, pullRequestDiffBody, socketURL } from '../../src/transport/transport-session';
@@ -132,4 +132,14 @@ describe('request bodies', () => {
     expect(() => pullRequestDiffBody({ number: 4, repository: 'o/r', projectId: 'p', path: '/etc' })).toThrow(TransportFailure);
     expect(() => pullRequestDiffBody({ number: 0, repository: 'o/r', projectId: 'p' })).toThrow('prDiff takes');
   });
+});
+
+test('pairing retries only an invalid_scope refusal with the legacy grant', async () => {
+  const attempts: string[] = [];
+  const exchange = async (scope: string) => { attempts.push(scope); if (scope === 'new') throw new TransportFailure('HTTP', 'Unknown scope', false, 'invalid_scope'); return 'bearer'; };
+  expect(await exchangeScopes('new', 'old', exchange)).toBe('bearer');
+  expect(attempts).toEqual(['new', 'old']);
+  attempts.length = 0;
+  await expect(exchangeScopes('new', 'old', async scope => { attempts.push(scope); throw new TransportFailure('Authentication', 'Spent', false, 'invalid_credential'); })).rejects.toThrow('Spent');
+  expect(attempts).toEqual(['new']);
 });
