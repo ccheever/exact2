@@ -1015,14 +1015,18 @@ The tool drives no input into an app; a command changes only what `prefer` would
   `planDigest` moved, or its registration's) is sent it at the one site of the new plan's map at
   the old site's source location and call-site chain: a component called at two places is two
   copies there, one copy a chain (its sites, such as a `button "…"` and its label, told apart by
-  their order). With the same calls in both plans, the copy with that chain; with as many copies
-  whose calls moved, the copy of the same rank in source order, where each pair has the same
-  calls' files and components and the copies share calls alike; else the copy whose calls did not
-  move (so with copies added or removed, a line another call now has is taken as unmoved; and a
-  slot filled at two outlets is one copy, its outlets told apart by their order). When there is
-  not exactly one, the build is sent `hold: null` and every client told (`hold-cleared {build,
-  client, reason}`). Each frame, a replay included, has a new revision, and the build's `held` in
-  a listing is null until it reports on that frame. Only a report naming the last hold frame's revision counts (an
+  their order). With the same calls in both plans, the copy with that chain; with as many copies,
+  the copy of the same rank in source order where each pair has the same calls' files and
+  components, the copies share calls alike, and each file's calls moved as one edit there moves
+  them (those above it by none, those below by one count of lines), else the unmoved copies kept and the rest so among
+  themselves (one call moved: the one left over); with copies added or removed, the copy whose
+  calls did not move. So a call moved past another clears the hold (or, landing on another's old line, takes that line's), and two calls swapped onto
+  each other's lines, or a copy added or removed while a line another call had is taken, are
+  taken by their lines; and a slot filled at two outlets is one copy, its outlets told apart by
+  their order. When there is not exactly one, the build is sent `hold: null` and every client
+  told (`hold-cleared {build, client, reason}`). Each frame, a replay included, has a new
+  revision, and the build's `held` in a listing is null until it reports on that frame. Only a
+  report naming the last hold frame's revision counts (an
   older one is dropped, 204): a `held` report is then every client's event (`held {build, state,
   reason}`), and one that lets the hold go ends it at the server too; a hold `unsupported` ends it
   and is its owner's `unsupported` event alone (theme2's 07:48 (c): `only` names the client, and no

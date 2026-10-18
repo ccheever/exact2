@@ -214,7 +214,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // maps (a component called twice is two sites there); none otherwise.
     correspond: (from, to, site) => {
       const b = mapOf(to);
-      return b && !staleMap(b) ? correspondingSite(mapOf(from), b, site) : null;
+      // (A map it cannot read through is no correspondence: cleared, said so.)
+      try { return b && !staleMap(b) ? correspondingSite(mapOf(from), b, site) : null; } catch (e) { log(`tamber: no correspondence for a hold: ${e.message}`); return null; }
     },
     selected: (build, report, ask) => {
       if (!current(build, report)) {

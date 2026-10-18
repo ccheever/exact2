@@ -192,9 +192,10 @@ test('a held site corresponds in a new plan by its place and call-site chain: ea
   expect(correspondingSite(was, plan(4, 9), 2)).toBe(2);
   // In another order in the new plan's sites: found by its chain, not its index.
   expect(correspondingSite(was, { nodes: [plan(4, 9).nodes[0], plan(4, 9).nodes[2], plan(4, 9).nodes[1]] }, 2)).toBe(1);
-  // A line written above the second call: the first by its chain, the second as the other one left.
+  // A line written above the second call: the first by its chain, the second the one left over (and two
+  // left over, by rank among themselves).
   expect(correspondingSite(was, plan(4, 10), 2)).toBe(2);
-  expect(correspondingSite(was, plan(4, 10), 1)).toBe(1);
+  expect(correspondingSite(plan(4, 9, 14), plan(4, 10, 15), 3)).toBe(3);
   // A line above both: by rank in source order.
   expect(correspondingSite(was, plan(5, 10), 1)).toBe(1);
   expect(correspondingSite(was, plan(5, 10), 2)).toBe(2);
@@ -222,6 +223,20 @@ test('a held site corresponds in a new plan by its place and call-site chain: ea
   expect(correspondingSite(wrapped, { nodes: [inner(3, 4), inner(6, 4)] }, 1)).toBe(null);
   expect(correspondingSite(wrapped, { nodes: [inner(3, 4), inner(6, 4)] }, 0)).toBe(0);
   expect(correspondingSite(wrapped, { nodes: [inner(3, 5), inner(3, 10)] }, 1)).toBe(1);
+  // A call cut and pasted above the other (4, 9 to 3, 5): not ranked (the files' calls moved unevenly), the held one cleared.
+  expect(correspondingSite(was, plan(3, 5), 2)).toBe(null);
+  expect(correspondingSite(was, plan(3, 5), 1)).toBe(null);
+  // Used at two depths (direct, and inside a card), a line above both: by rank, each file evenly; none thrown.
+  const card = l => ({ ...def, chain: [{ file: '/a/card.contract', line: 3, col: 5, end_col: 9, component: 'Card' }, call(l)] });
+  const depths = { nodes: [{ ...def, chain: [call(4)] }, card(8)] };
+  expect(correspondingSite(depths, { nodes: [{ ...def, chain: [call(5)] }, card(9)] }, 1)).toBe(1);
+  expect(correspondingSite(depths, { nodes: [{ ...def, chain: [call(5)] }, card(9)] }, 0)).toBe(0);
+  // A third call in another file, unmoved, while lines are written above Home's two: each by rank in its file.
+  const foot = { ...def, chain: [{ file: '/a/foot.contract', line: 10, col: 7, end_col: 17, component: 'Footer' }] };
+  expect(correspondingSite({ nodes: [...plan(4, 9).nodes, foot] }, { nodes: [...plan(9, 14).nodes, foot] }, 2)).toBe(2);
+  expect(correspondingSite({ nodes: [...plan(4, 9).nodes, foot] }, { nodes: [...plan(9, 14).nodes, foot] }, 3)).toBe(3);
+  // A line removed between them (4, 9 to 4, 8): the one below by the edit.
+  expect(correspondingSite(was, plan(4, 8), 2)).toBe(2);
   // A copy called from another file is not one called here.
   expect(correspondingSite(was, { nodes: [...plan(5).nodes, { ...def, chain: [{ ...call(10), file: '/a/other.contract' }] }] }, 2)).toBe(null);
 });

@@ -277,10 +277,13 @@ export function sitesAt(map, source) {
  * copy, told apart by their order). The same calls in both plans: the copy
  * with this one's chain. As many copies, their calls moved (a line written
  * above them): the copy of the same rank in source order, where each pair
- * is of one shape (its calls' files and components) and the copies share
- * calls alike (two under one call in one plan are so in the other). Else
- * (copies added or removed, or regrouped): the copy whose calls did not
- * move. Null when none, or no single one, corresponds. */
+ * is of one shape (its calls' files and components), each file's calls
+ * moved by one count of lines (so none moved past another) and the copies
+ * share calls alike (two under one call in one plan are so in the other);
+ * else the copies whose calls did not move are themselves, and the rest go
+ * by that rule among themselves (one call moved: the one left over). With
+ * copies added or removed, the copy whose calls did not move. Null when
+ * none, or no single one, corresponds. */
 export function correspondingSite(from, to, site) {
   const node = from?.nodes?.[site];
   if (!node || !to?.nodes) return null;
@@ -299,17 +302,43 @@ export function correspondingSite(from, to, site) {
   // This site among its copy's sites: the same place in a copy of as many.
   const pick = c => (c && c.length === was[g].length ? c[was[g].indexOf(site)] : null);
   if (was.length === now.length && wasKeys.every(k => nowKeys.includes(k))) return pick(now[nowKeys.indexOf(wasKeys[g])]);
+  // A pairing of old copies with new ones holds where each pair is of one
+  // shape, the pairs share calls alike (two under one call in one plan are
+  // so in the other), and each file's calls moved as one edit there moves
+  // them: those above it by none, those below by one count of lines (a call
+  // moved past another, or a pairing that crosses, moves them otherwise).
+  const shape = ch => ch.map(c => `${c.file}#${c.component ?? ''}`).join('>');
+  const place = x => (x ? at(x) : '');
+  const oneEdit = moves => {
+    const files = new Map();
+    for (const [x, y] of moves) files.set(x.file, [...(files.get(x.file) ?? []), [x.line, y.line - x.line]]);
+    return [...files.values()].every(list => {
+      const d = list.sort((a, b) => a[0] - b[0]).map(([, k]) => k), last = d.at(-1);
+      return d.every((k, i) => k === last || (k === 0 && d.slice(0, i).every(z => z === 0)));
+    });
+  };
+  const holds = pairs => {
+    const o = ([c]) => chainOf(from, was[c]), m = ([, n]) => chainOf(to, now[n]);
+    return pairs.every(p => shape(o(p)) === shape(m(p)))
+      && oneEdit(pairs.flatMap(p => o(p).map((x, j) => [x, m(p)[j]])))
+      && pairs.every(p => pairs.every(q => o(p).every((x, j) => (at(x) === place(o(q)[j])) === (place(m(p)[j]) === place(m(q)[j])))));
+  };
+  const all = list => list.map((_, i) => i);
+  // As many copies: all by rank; else the unmoved ones themselves and the
+  // rest by rank among themselves (one call moved: the one left over).
   if (was.length === now.length) {
-    const shape = ch => ch.map(c => `${c.file}#${c.component ?? ''}`).join('>');
-    const alike = was.every((c, i) => shape(chainOf(from, c)) === shape(chainOf(to, now[i])) && was.every((d, l) => chainOf(from, c).every((x, j) => (at(x) === at(chainOf(from, d)[j])) === (at(chainOf(to, now[i])[j]) === at(chainOf(to, now[l])[j])))));
-    if (alike) return pick(now[g]);
+    const byRank = all(was).map(i => [i, i]);
+    if (holds(byRank)) return pick(now[g]);
+    const w = all(was).filter(i => !nowKeys.includes(wasKeys[i])), n = all(now).filter(i => !wasKeys.includes(nowKeys[i]));
+    const moved = w.map((c, i) => [c, n[i]]), kept = all(was).filter(i => !w.includes(i)).map(i => [i, nowKeys.indexOf(wasKeys[i])]);
+    if (w.includes(g)) return holds([...kept, ...moved]) ? pick(now[n[w.indexOf(g)]]) : null;
   }
   return pick(now[nowKeys.indexOf(wasKeys[g])]);
 }
 // The same node, by its place (a lowered state row's binding is not it).
 const same = (a, b) => a && a.file === b.file && a.line === b.line && a.col === b.col;
-// Two call-site chains in source order: by each call's line, then column.
-const cmp = (a, b) => { for (let k = 0; k < Math.min(a.length, b.length); k++) { const d = (a[k].line - b[k].line) || (a[k].col - b[k].col); if (d) return d; } return a.length - b.length; };
+// Two call-site chains in source order: by each call's file, line, then column.
+const cmp = (a, b) => { for (let k = 0; k < Math.min(a.length, b.length); k++) { const d = (a[k].file < b[k].file ? -1 : a[k].file > b[k].file ? 1 : 0) || (a[k].line - b[k].line) || (a[k].col - b[k].col); if (d) return d; } return a.length - b.length; };
 
 /** Whether a report is the build's latest: its plan, design and pin
  * revision those of its latest status. */
