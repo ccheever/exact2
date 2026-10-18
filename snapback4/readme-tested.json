@@ -41,7 +41,7 @@
     "snapback4/online/projection.ts": "45b05724a82a558b3cb5d4e2fc8f1f4e6b65e9ec7adacf9e025e8a7e7d5148c4",
     "snapback4/ts/release.ts": "9b657e46c2cf12e0f8f6982f31b98d8fc29dae3d7602c96cb7b5d2a512555cc5",
     "snapback4/online/release.ts": "9b657e46c2cf12e0f8f6982f31b98d8fc29dae3d7602c96cb7b5d2a512555cc5",
-    "game/new.mjs": "86bfae293603d78312af19147dd2c653f6fe1930de44161e995f111c54c576ee",
+    "game/new.mjs": "0d9d48f6155a85cfc3b7e7c003c54db93817f4770dc513a465aa9ed76bab3aef",
     "contract/cli/src/typescript.rs": "5c8cfe05bd3ede52d190e52c1b20c0d7faf9f0b7e5fdc982c7157d66679b16cd",
     "js/bake/src/typescript.mjs": "d5fb60e98cc1dea065cbd64b01a0e07247681c02d814ce29d0ab0c398d7686f2",
     "host/web-js/agent.js": "1fb9117979da2b1b361a49ce4a79e85f932545ef7cff99c2f03ab3a3a10f245a",
