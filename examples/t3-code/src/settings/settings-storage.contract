@@ -86,7 +86,8 @@ component StoragePanel
         SettingsSection(title="Worktrees", sectionId="storage-worktrees")
           if data.directorySupported
             SettingsRow(title="Worktree location", description="Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder.", first=true, rowId="storage-directory-row")
-              StorageDirectory(scope=data.writeScope, mixed=data.directoryMixed, value=data.directory, busy=busy, rest=rest, restInput=restInput)
+              for directory in [data.directory] key=`${data.writeScope}:${data.directoryMixed}:${directory}`
+                StorageDirectory(scope=data.writeScope, mixed=data.directoryMixed, value=directory, busy=busy, rest=rest, restInput=restInput)
           if data.project
             SettingsRow(title="Automatic worktree cleanup", description=data.modeDescription, first=true, rowId="storage-row-mode")
               SettingsSelect(selectId="storage-mode", label="Automatic worktree cleanup", valueLabel=data.modeLabel, empty=false, value="", width=160, disabled=busy, options=data.modes, choose=restInput("storage", `scope=${encodeURIComponent(data.writeScope)}&key=mode&value=`))
