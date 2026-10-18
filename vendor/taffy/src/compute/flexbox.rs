@@ -1519,7 +1519,11 @@ fn determine_container_main_size(
     // margin is added (patch 14's order), or a margin was lost to the floor.
     let item_main_length = |child: &FlexItem| {
         let padding_border_sum = (child.padding + child.border).main_axis_sum(dir);
-        child.flex_basis.maybe_clamp(child.min_size.main(dir), child.max_size.main(dir)).max(padding_border_sum)
+        // EXACT PATCH 46: use the minimum that flexing enforces, including
+        // the content-based automatic minimum (CSS Flexbox §4.5).
+        child.flex_basis
+            .maybe_clamp(Some(child.resolved_minimum_main_size), child.max_size.main(dir))
+            .max(padding_border_sum)
             + child.margin.main_axis_sum(dir)
     };
 
@@ -1573,7 +1577,11 @@ fn determine_container_main_size(
                     return f32_max(size, f32_min(max_content_size, main_axis_available_space));
                 }
 
-                if lines.len() > 1 {
+                // EXACT PATCH 45: a column's auto height follows its longest line;
+                // definite available space limits wrapping, not the used height.
+                // Rows retain the available-width floor for fit-content sizing.
+                // https://www.w3.org/TR/css-flexbox-1/#algo-main-container
+                if constants.is_row && lines.len() > 1 {
                     f32_max(size, main_axis_available_space)
                 } else {
                     size

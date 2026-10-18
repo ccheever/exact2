@@ -192,7 +192,7 @@ export function commit(f, what = "commit") {
     if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
     Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued); Ov.restore(writes);
     Store.restore(store);
-    for (const go of Out) go.refused?.(e?.message ?? e); Out = []; Commands = []; Landed = []; Refused = e; // what would have gone says so (ts-stream.js)
+    for (const go of Out) go.refused?.(e?.message ?? e); Out = []; Commands = []; Landed = []; Refused = e; // what would have gone says so (ts-stream.js, ts-data.js)
     say(`refused ${what}: ${e.message}`); Why = why(step, e instanceof Refusal ? e.message : String(e)); // `String`: a TypeError's name too
     if (!(e instanceof Refusal)) console.error(e);
     Restoring = true; try { settle(); } catch {} finally { Restoring = false; }
@@ -431,7 +431,7 @@ function closeLetGo() {
   }
 }
 function ask(source, args, name, mutation = false) {
-  const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name, mutation);
+  let a; try { a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name, mutation); } catch (e) { Out.push(...(data.thrown?.() ?? [])); throw e; } // what a resource's source sent before it threw goes if the commit stands (ts-data.js)
   return a && a.then ? { promise: a } : a;
 }
 /** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
@@ -495,7 +495,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
       if (r.ticket && equal(a, r.ticket.args)) return r.value;
     }
     let ans;
-    try { ans = ask(source, a, name); }
+    try { ans = ask(source, a, name); Out.push(...(ans?.effects ?? [])); } // what its source sent on a socket goes once this commit stands (LLP 1016.000 D7, amended 2026-10-18)
     catch (e) {
       if (e instanceof Refusal) throw e;
       if (e.refuse && !reconciling) throw new Failed(`resource ${name}: ${e.message}`);

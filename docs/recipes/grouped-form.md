@@ -67,7 +67,7 @@ test "Save waits for a name, saying why; Enter saves"
 - Leave a field in a grouped row unsaid: each platform draws its own, as it does a switch, a
   date picker and a menu (`select` of `option "Metric" value="metric"`).
 - A quantity from 1 to 99 is `input type="number" min=1 max=99 step=1`: the platform draws its
-  stepper; the field stays editable and its `value` is text (`parseNumber` it).
+  stepper, which adds `step`; the field stays editable and its `value` is text (`parseNumber` it).
 - A `text` and a control in a row are a title and its accessory; any other is a flex row.
   Save is disabled until valid, the reason in the section's `footer`; red under a field is a
   refusal the data sent back ([after-a-write](after-a-write.md)), kept until a Save succeeds.

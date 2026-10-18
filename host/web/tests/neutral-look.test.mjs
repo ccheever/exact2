@@ -160,6 +160,7 @@ const fixture = `
     <div data-exact-progress id="spinner" style="display:grid;width:20px;height:20px"></div><div data-exact-progress data-exact-said="color" id="spinner-said" style="display:grid;width:20px;height:20px"></div>
     <div role="radiogroup" id="segments" style="display:flex"><button type="button" role="radio" aria-checked="true" data-native data-button-style="bordered" id="chosen" style="display:grid"><span data-exact-text>Day</span></button><button type="button" role="radio" aria-checked="false" data-native data-button-style="bordered" id="segment" style="display:grid"><span data-exact-text>Week</span></button></div>
     <div data-exact-on="press" id="pressable" style="width:120px;height:40px"></div>
+    <button data-exact-said="background-color" id="filled" style="width:120px;height:40px;background-color:#2f6b3f;color:#ffffff">Add</button>
     <div data-exact-text id="paragraph">A <a data-view href="/x" id="inline">link</a> in it.</div>
     <div data-liststyle="inset-grouped" id="list" style="background-color:light-dark(rgb(242, 242, 247), rgb(0, 0, 0))"><section><div id="card" style="border-radius:26px;background-color:light-dark(rgb(255, 255, 255), rgb(28, 28, 30))"><div>Row</div></div></section></div>
     <div data-liststyle="inset-grouped" data-exact-said="background-color" id="list-said" style="background-color:rgb(1, 2, 3)"></div>
@@ -259,6 +260,10 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // The unsaid hover: a wash over a pressable nobody styled, and a link in running text underlines.
       await page.hover('#pressable');
       expect([at('hover'), await page.evaluate(() => css('pressable', 'backgroundImage') !== 'none')]).toEqual([at('hover'), true]);
+      // A button its author filled washes in its own ink, at the filled button's share (LLP 1129 D1).
+      await page.hover('#filled');
+      const wash = await page.evaluate(() => [rgba(css('filled', 'backgroundImage').match(/rgba?\([^)]*\)|color\([^)]*\)/)[0]), color('filled')]);
+      expect([at('filled'), wash[0]]).toEqual([at('filled'), [...wash[1].slice(0, 3), 0.12]]);
       await page.hover('#inline');
       expect([at('link'), await page.evaluate(() => css('inline', 'textDecorationLine'))]).toEqual([at('link'), 'underline']);
       await page.mouse.move(1, 1);

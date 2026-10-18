@@ -543,6 +543,9 @@ pub struct Painter {
     /// The control under a pointer that hovers, and the one a contact holds
     /// down (`presenter/feedback.rs`), which the neutral look washes.
     pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
+    /// The background the last box painted shows, its states' over its own,
+    /// which its `background-clip: text` fills with (`text_clip`).
+    clipped: Option<(ViewId, [u8; 4])>,
     /// Each hosted text field's content box in its own border box (x, y,
     /// width, height), as last walked (`field.rs`, LLP 1115.001 D8).
     pub(crate) field_content: HashMap<ViewId, [f32; 4]>,
@@ -654,6 +657,7 @@ impl Painter {
             flatten: None,
             ringless: None,
             feedback: (None, None),
+            clipped: None,
             field_content: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
@@ -900,12 +904,7 @@ impl Painter {
             .any(|p| !p.fragments().is_empty())
             .then(|| pixmap.clone());
         self.damage.dark = self.dark;
-        self.damage.caret = scene.focus.is_some_and(|id| {
-            scene
-                .kernel
-                .node(id)
-                .is_some_and(|n| n.node_type == NodeType::TextInput)
-        });
+        self.damage.focus_ink = damage::field_focus_ink(scene.kernel, scene.focus);
         Ok(Frame {
             pixmap,
             boxes: walk.boxes,
@@ -1067,11 +1066,12 @@ impl Painter {
         let paints_self = paints(walk.scene.kernel, node.id, walk.reveal);
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
-        // LLP 1062 D5): background, border sides and shadow; then a press's
-        // background (LLP 1061 D7).
+        // LLP 1062 D5): background, border sides and shadow; then its states,
+        // its looks and a press's background (LLP 1061 D7, LLP 1121 D8).
         let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark)
             .presented(&shown.colors)
-            .pressed(node.style, shown.press_paint, self.dark);
+            .states(node, &shown, self.dark);
+        self.clipped = Some((node.id, paint.background));
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));

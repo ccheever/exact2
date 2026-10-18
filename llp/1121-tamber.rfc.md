@@ -3479,3 +3479,127 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
     - a disabled box taking none.
   - The kernel's op round trip and its refusals; `modes_tests.rs`, the JS target's rule group.
   - LLP 1061's press tests unchanged.
+
+### Stage 8, commit B2: Apple (iOS and Mac) (draft for theme2)
+
+- **The absolute press opacity** (`PressPaint.swift`). `press_opacity_to` is a pressed paint row: it makes the node `authorsPress`, so there is no dim and no ink wash. A full press takes away `shown − to`, where "shown" is a hover or focus look's opacity, else the node's own, through the same additive `pressOpacity` animation. That depth is recomputed when the base moves live or a look comes or goes mid-press. A hand-written `press_opacity` keeps D7's share.
+- **Looks** (`host/apple/src/looks.rs`). The node's style dictionary carries `"looks": {"hover": {…}, "focus_visible": {…}}`. Each look's rows are written as the style's own (colour pairs, roles), and its opacity is a number.
+- **How Swift shows them.** Swift keeps the engine's style (`presented` → `looked` → `pressPainted`).
+  - While the pointer hovers the node (the Mac) or its focus is visible, the look's background, border colours and shadow stand in, at once. The focus's go over the hover's, and the press's paint goes over both.
+  - The look's opacity is an additive `lookOpacity` layer animation that snaps.
+  - None of this applies on a disabled node.
+- **Mac hover** (`Mac/HoverMac.swift`). `setHoverPath` passes its whole path to `hoverLooks`. So a node shows its `:hover` look whether or not it hears `hover`, and only nodes with a handler get the runner's hover event. The native-module `hover(_:_:)` moved to that file too (PresenterMac.swift is at its cap).
+- **iOS** has no hover (an iPad pointer's hover is a later step), and no focus-visible yet.
+- **Round 1:**
+  - A pressed share is of what shows, a look's opacity included, as on the web and Linux.
+  - A change of `disabled` shows or drops the looks at once (`relook`).
+  - A depth re-aimed mid-ease re-aims from what shows (`segment`).
+  - A look's `currentcolor` is the node's colour, and a row a look clears crosses null (an opacity as 1), so the base's goes.
+  - A re-entrant hover publishes only the newer path's looks, for views still attached.
+- **Round 2:**
+  - The press's opacity fade is always `-depth × progress` of the press's own ease, held or easing either way. So a look's opacity that comes or goes mid-press moves what shows at once, as on the web and Linux, and the tracked segment is gone.
+  - A side a look clears is the node's colour (`currentcolor`).
+  - An opacity or background track a press row or a look names stays sampled by the engine, not Core Animation, so the additive layers compose on the rendered value.
+  - A sheet's or a popover's own window shows `:hover` looks through its pointer tracking.
+  - QUEUE: looks on an inline run, which have no view; and a look that comes while a track already plays.
+- **Round 3 (the last):**
+  - An opacity or background animation that a press row or a look names is engine-sampled on both platforms, in the common eligibility, not only for box-lowered properties.
+  - The press's clock moves on every press and release, a depth of 0 included.
+  - The opacity fade is the press's own ease, the same curve and start (`beginTime`), so what shows is `-depth × progress` at every frame.
+  - A press easing out reads its depth from a new style too.
+  - A sheet's or a popover's window keeps its hovered path on a child's exit.
+- **Tests:**
+  - `StateLooksTests` (Mac and iOS):
+    - `:active`'s paint with its absolute 0.6 (depth 0.4) and no dim;
+    - a base change while pressed;
+    - on the Mac, hover and focus looks at once, with the press easing from the hover's 0.8 to 0.6, then back;
+    - a disabled node taking none.
+  - `looks.rs`'s dictionary test. `PressPaintTests` and `PressFeedback*Tests` are unchanged.
+
+
+### Stage 8, commit B3: Linux, and Android through it (draft for theme2)
+
+- **The absolute press opacity** (`press.rs`, `press::present`). After the hover and focus looks' opacity, the press moves `shown.opacity` toward `press_opacity_to` by its progress. `press_opacity` keeps the share. `press_opacity_to` counts as pressed paint (`paints`), so a list row's wash stands aside.
+- **Looks** (`paint/presented.rs`, `BoxPaint::states`). While its `:hover` and then its `:focus-visible` look hold (`Presented.looks`), their background, border colours and shadow replace the box's own, at once. The press's background goes over them.
+- **When a look holds** (`presenter/feedback.rs`, `refresh_looks`):
+  - `:hover`: the mouse's hit and its ancestors that have one, as CSS matches. A finger hovers nothing.
+  - `:focus-visible`: the focus where its ring shows.
+  - A node whose looks change is marked for kept rows, and none applies on a disabled node.
+- **Round 1:**
+  - The engine's presentation cache starts from the committed style (`unpresented`), so a look's or a press's opacity is never kept in it.
+  - The hover looks follow a resting pointer through `hover_at`, as hover handlers do.
+  - A focus with no `:focus-visible` look marks nothing.
+  - A look's `currentcolor` is the node's colour, and a cleared opacity is 1.
+  - On Android's Canvas reader, an opacity, background or colour track the host paints over (a press row, a look naming it) is not lowered: the engine samples it, and the composed value is drawn.
+- **Round 2:**
+  - A reader layer takes the opacity as its alpha only when it plays the opacity. Otherwise the painter draws it, so a lowered scale under a look's or a press's opacity fades once. Before this, a style opacity under 1 with a lowered transform faded twice.
+  - The hover looks follow the point while a contact is held (`follow_pointer`).
+  - A row a look clears is CSS's initial: transparent, `currentcolor` or no shadow. `paints_over` counts a cleared row.
+  - A look's `currentcolor` follows a colour transition.
+  - A disabled node shows no press, its release ease included.
+  - The shown opacity is clamped before the press composes on it.
+  - QUEUE: a look that comes while a track already plays on the reader.
+- **Round 3 (the last):**
+  - An engine-sampled animation is never also a reader track, beside a transition that keeps the node's layer open.
+  - A colour transition stays engine-sampled where a look reads `currentcolor`.
+  - The hover looks follow a display's acknowledged frame (`follow_pointer` after `display_complete`).
+  - A `background-clip: text` background shows the states' colour.
+  - A look painted or taken off, and a focus with a look, take the full painter rather than flow damage.
+  - Not done (nit): an inset border's shading of a look's side colour.
+- **Android** replays the display list Linux records, so it needs no Kotlin change.
+- **A follow-up for every host** (theme2's 08:13 ruling): a `:hover`, `:focus-visible` or `:active` part on a run inside a paragraph is `lower-state-target`: a run's press, hover and focus are its paragraph's. A run has no view on Apple and no box on Linux, and D7's press rows paint no run there either, so `:active` is refused with them. Runner-known `:disabled` and `:checked` on a run fold as before. Android forwards no mouse hover, so it shows none.
+- **Tests:** `presenter/looks_tests.rs`:
+  - the hover at once with its 0.8;
+  - the press easing to its absolute 0.5 with the hover's border beneath;
+  - the hover again after the lift;
+  - hovering a child;
+  - a disabled node, and a finger leaving no hover;
+  - `press_paint_tests.rs` unchanged.
+
+### Stage 8, commit C1: the control-role table, measured (draft for theme2)
+
+- **`controls`** in `kernel/tables/schema.json`, beside `_metrics`: one row a (control, parameter),
+  `[control, parameter, ios, macos, web, linux, windows, terminal, android]`. A control is `switch`,
+  `checkbox`, `radio`, `range`, `progress` (with a value), `spinner` (`progress` without),
+  `select`, `button-prominent`, `field` or `textarea`, with a state
+  part's state after a `:` where the row is that state's (`button-prominent:disabled`); a parameter
+  is `accent-color` or a colour role (`Field`, `FieldText`, `placeholder`). Each host cell is
+  `exact`, `best-effort` or `none`, with `: why`. `build.rs` validates every part (the state too)
+  and emits `generated::CONTROLS`. No new role (theme2's ruling (1)); the off track waits for a
+  design that needs it.
+- **SCHEMA_DIGEST moves** to `0x278f_080f_af7d_307f` (every host a new binary; no host reads the
+  table). It lands in stage 8's break window with B's move, one new binary per host.
+- **Measured before it lands:** `scripts/measure-controls.mjs` over `scripts/fixtures/control-roles`
+  (the authored build against one with neither), on the web, the iOS simulator, macOS, the Linux
+  painter and the Android emulator. `docs/control-roles-measured.md` records every cell with its
+  ΔE00, pixels and provenance; `scripts/measure-controls.test.mjs` holds the table to it. Windows
+  is the Linux painter's row (inferred, not measured); the terminal is `none` by construction.
+- **What it found:** `accent-color` reaches every control on iOS but its spinner, and every one but
+  `select` and the spinner on the web, the painters and the Android reader; a disabled switch,
+  checkbox, radio or range is best-effort (dimmed) everywhere it is honoured. A disabled prominent button is the
+  platform's on iOS, the web and the painters, the author's on the reader. `Field` reaches only the
+  reader and the Mac's textarea, `FieldText` Apple's fields and the reader, `placeholder` every host
+  but the reader. Each `none` that is Exact's own gap says so (theme2's 07:32 ruling) and has a QUEUE
+  line. The Mac's accent cells are read from AppKit's API: its agent capture here is an inactive
+  window, which draws every control grey (QUEUE: measure in a key window).
+- **Round 1 (Astra, Grok):** Android's column is the Canvas reader (`--reader`, the fixture as an APK
+  in a scratch checkout), not the Linux host under adb; best-effort is theme2's rule; `progress`
+  is split from `spinner` and `field` from `textarea`; disabled switches, checkboxes, radios and ranges are rows;
+  a frame too small to read is `unmeasured` and fails the run.
+
+### Stage 8, commit C2: `tamber-unreachable` (draft for theme2)
+
+- **A lint** (`contract/lower/src/control_roles.rs`): for each target the app ships (app.json
+  `host`, `deploy.store`, `deploy.binaries` and its target crates, as icons read them), each
+  control the app draws, and each parameter it sets there, a `none` cell of `CONTROLS` warns once a
+  (target, control, parameter), at the override: `accent-color on macOS switches: NSSwitch draws
+  the system accent (the first at line N; LLP 1121 D9)`. `best-effort` says nothing (theme2's ruling (2)).
+- **Set** means an `accent-color` row on the control, an element around it or a class of either,
+  or the design's `AccentColor`; a field's parameter, the design's `Field`, `FieldText` or
+  `placeholder`, unless the field writes its own `background-color`, `color` or `::placeholder
+  color` (a node's own row wins over the role).
+- **The platform's own state** is a row: `button-prominent:disabled` (a prominent button that
+  writes `disabled`) names iOS's grey disabled glass, its why pointing at a styled pressable (D8).
+- **Tests:** `contract/cli/tests/it/control_roles.rs` (the Mac's switches warned, never the web's;
+  best-effort silent; nothing set, nothing judged; a field's own row exempting its role; the iOS
+  disabled glass line).

@@ -1127,3 +1127,15 @@ The cut was the smallest one. Left in the reader:
   a book's page. Nothing of this host's is missing for it; the loader has no door for a remote source.
 - `exact new` writes no `android/` crate.
 - **The benchmark still builds its own copy** of the reader, which no longer matches this repository's JNI names.
+
+## The Material reference
+
+`reference/` is Compose Material 3 at the pinned version (`gradle/libs.versions.toml`), drawn on Robolectric's native
+graphics, and the oracle that compares it with Exact's drawing of the same specimens (LLP 1115.001.001). It is in no
+app. On a machine with the SDK, Java 21 (`JAVA_HOME`) and Cargo:
+
+    bun host/android/reference/oracle.mjs            # draw both sides, compare, report
+    bun host/android/reference/oracle.mjs --compare  # compare what is already drawn
+
+The report is `reference/build/oracle/report.html`. `specimens.json` lists the specimens, their probes and the planted
+defects; each specimen's Exact half is `apps/material-specimens/specimens/<id>.contract`.

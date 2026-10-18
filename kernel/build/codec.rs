@@ -747,3 +747,47 @@ fn hex_rgba(hex: &str) -> [u8; 4] {
         if h.len() == 8 { byte(6) } else { 255 },
     ]
 }
+
+fn write_controls(w: &mut String, rows: &[[String; 9]]) {
+    w.push_str(concat!(
+        "/// How a host honours a control's parameter (LLP 1121 D9).\n",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
+        "pub enum Fidelity {\n",
+        "    /// As written.\n    Exact,\n",
+        "    /// Honoured, but the platform alters it.\n    BestEffort,\n",
+        "    /// Not honoured: the platform's own stands.\n    None,\n",
+        "}\n",
+        "/// The hosts a control row has a column for, in its order.\n",
+        "pub const CONTROL_HOSTS: [&str; 7] = [\"ios\", \"macos\", \"web\", \"linux\", \"windows\", \"terminal\", \"android\"];\n",
+        "/// A control's parameter and each host's fidelity for it, with why.\n",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
+        "pub struct ControlRow {\n",
+        "    /// The control (`switch`, `field`, …).\n    pub control: &'static str,\n",
+        "    /// A state part's state where the row is that state's (`disabled`).\n    pub state: Option<&'static str>,\n",
+        "    /// `accent-color`, or the colour role it reads.\n    pub parameter: &'static str,\n",
+        "    /// Per host, in `CONTROL_HOSTS`' order.\n    pub hosts: [(Fidelity, &'static str); 7],\n",
+        "}\n",
+    ));
+    w.push_str("/// The control-role table (LLP 1121 D9).\npub const CONTROLS: &[ControlRow] = &[\n");
+    for [control, parameter, hosts @ ..] in rows {
+        let (name, state) = control.split_once(':').map_or((control.as_str(), None), |(n, s)| (n, Some(s)));
+        let cells: Vec<String> = hosts
+            .iter()
+            .map(|cell| {
+                let (f, why) = cell.split_once(": ").unwrap_or((cell.as_str(), ""));
+                let f = match f {
+                    "exact" => "Exact",
+                    "best-effort" => "BestEffort",
+                    _ => "None",
+                };
+                format!("(Fidelity::{f}, {why:?})")
+            })
+            .collect();
+        let _ = writeln!(
+            w,
+            "    ControlRow {{ control: {name:?}, state: {state:?}, parameter: {parameter:?}, hosts: [{}] }},",
+            cells.join(", ")
+        );
+    }
+    w.push_str("];\n");
+}

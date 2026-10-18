@@ -466,7 +466,9 @@ sends ordered, never-coalesced protocol frames (LLP 1016.000 D7). T3 Code's
 subscribe/Ack/Ping protocol and queued Supabase/Convex consumers justify the
 expansion. No take named; the approved feature ruling admits it. Ambient
 WebSocket globals remain refused. TypeScript on the web JS target and the
-native hosts has it; D7 lists the host deviations and what remains.
+native hosts has it; D7 lists the host deviations and what remains. D7's
+amendments let the mapper answer its own frames (2026-10-16) and an answer
+in flight send its own requests (2026-10-18).
 
 
 **Expanded (Charlie, 2026-10-08, issue #283; focus lane, 2026-10-12):**

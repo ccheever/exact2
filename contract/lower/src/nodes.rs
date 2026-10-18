@@ -284,6 +284,28 @@ impl Lowerer<'_> {
             self.link_colour(tag, parent_tag, expanded, children)
                 .map(|e| ("color", e)),
         );
+        // A run inside a paragraph has no box of its own on every host: its
+        // hover, focus and press are its paragraph's (theme2's 08:13 ruling;
+        // D7's press rows paint no run on Apple or Linux either).
+        // (A run is a text node under a text node, as the kernel has it: under
+        // `text`, `time` or `option` alike.)
+        if parent_tag
+            .and_then(tags::tag)
+            .is_some_and(|p| p.node_type == NodeType::Text)
+            && t.node_type == NodeType::Text
+        {
+            let host = |a: &&Attr| {
+                contract_syntax::state::state_of(&a.name)
+                    .is_some_and(|(s, _)| matches!(s, "active" | "hover" | "focus-visible"))
+            };
+            if let Some(a) = expanded.iter().find(host) {
+                return err(
+                    "lower-state-target",
+                    "a state part on a run inside a paragraph: a run's press, hover and focus are its paragraph's; put the part on the paragraph or make the run a box (LLP 1121 D8)",
+                    a.span,
+                );
+            }
+        }
         // The press's absolute opacity is lowering's, from `:active`.
         if let Some(a) = expanded
             .iter()

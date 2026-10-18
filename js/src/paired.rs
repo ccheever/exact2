@@ -103,19 +103,21 @@ impl Paired {
 /// The bytecode's SHA-256, hashed once per process for the same bytes: a
 /// render server makes a module per request from one bytecode, and asks
 /// each for its revision (the page's checkpoint names it). A few recent
-/// bytecodes are kept, compared byte for byte.
-pub(crate) fn revision_of(bytecode: &[u8]) -> String {
-    static KNOWN: std::sync::Mutex<Vec<(Vec<u8>, String)>> = std::sync::Mutex::new(Vec::new());
+/// bytecodes are kept, shared with their modules rather than copied, and
+/// compared byte for byte.
+pub(crate) fn revision_of(bytecode: &std::sync::Arc<[u8]>) -> String {
+    type Known = Vec<(std::sync::Arc<[u8]>, String)>;
+    static KNOWN: std::sync::Mutex<Known> = std::sync::Mutex::new(Vec::new());
     let mut known = KNOWN
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((_, hash)) = known.iter().find(|(bytes, _)| bytes.as_slice() == bytecode) {
+    if let Some((_, hash)) = known.iter().find(|(bytes, _)| bytes[..] == bytecode[..]) {
         return hash.clone();
     }
-    let hash = format!("{:x}", Sha256::digest(bytecode));
+    let hash = format!("{:x}", Sha256::digest(&bytecode[..]));
     if known.len() == 4 {
         known.remove(0);
     }
-    known.push((bytecode.to_vec(), hash.clone()));
+    known.push((bytecode.clone(), hash.clone()));
     hash
 }

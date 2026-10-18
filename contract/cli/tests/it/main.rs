@@ -33,6 +33,7 @@ mod collection_start;
 mod color_scheme;
 mod color_spaces;
 mod compose;
+mod control_roles;
 mod controls;
 mod corpus;
 mod dataset;
