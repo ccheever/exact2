@@ -2,7 +2,7 @@ import { afterEach, test, expect } from 'bun:test';
 
 afterEach(resetPrimary);
 import { connectionsProjection, connectionsPage, environmentStatus, runConnectionOp, savedStatus, statusText, versionMismatch, compareSemver,
-  machineKind, decodePrefs, loadPreference, summarizeLoad, summarizeRouting, routingKey, type ConnectionHost } from '../../src/connections/connections';
+  environmentMcpUrl, machineKind, decodePrefs, loadPreference, summarizeLoad, summarizeRouting, routingKey, type ConnectionHost } from '../../src/connections/connections';
 import { fleet, phaseOf, environmentKey, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 import { initialShell } from '../../src/client/domain';
@@ -206,4 +206,16 @@ test('trace IDs copy, preferences persist on this device, and icon writes need a
   await expect(runConnectionOp(native, 'load-weight', 'env-b', '42', true)).rejects.toThrow('Choose a load preference.');
   await expect(runConnectionOp(native, 'environment-icon', environmentKey('https://remote.example.com', 'env-b'), 'cloud', true)).rejects.toThrow('Connect to this environment to change its icon.');
   await expect(runConnectionOp(native, 'environment-icon', environmentKey('https://remote.example.com', 'env-b'), 'toaster', true)).rejects.toThrow('Choose one of the listed icons.');
+});
+
+test('MCP URLs prefer the connected direct route and skip SSH forwards', async () => {
+  const source = { origin: 'http://127.0.0.1:16473', phase: 'connected' as const, activeRouteId: 'lan', routes: [
+    { id: 'ssh', origin: 'http://127.0.0.1:16555', kind: 'ssh' }, { id: 'public', origin: 'https://example.com/base?token=secret#hash' }, { id: 'lan', origin: 'http://192.168.1.20:3773' },
+  ] };
+  expect(environmentMcpUrl(source)).toBe('http://192.168.1.20:3773/mcp');
+  expect(environmentMcpUrl({ ...source, phase: 'error' })).toBe('https://example.com/mcp');
+  expect(environmentMcpUrl({ ...source, routes: [source.routes[0]!] })).toBe('');
+  const native = new FakeTransport();
+  await runConnectionOp(native, 'environment-mcp', '', 'http://192.168.1.20:3773/mcp');
+  expect(native.copied).toEqual(['http://192.168.1.20:3773/mcp']);
 });
