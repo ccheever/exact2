@@ -11,6 +11,7 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf } from './dials';
 import { componentsOf } from './components';
+import { paramInfoOf, rescopeOf, type ParamInfo, type Rescope } from './rescope';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
 import { partsOf } from './parts';
 export { joined, missing, partsOf } from './parts';
@@ -158,6 +159,10 @@ export function columnsOf(axes: Axis[]): Column[] {
 
 type When = { axis: string; value: string };
 const whenOf = (text: string): When[] => text.split(' ').filter(Boolean).map(w => { const [axis, value] = w.split('='); return { axis, value }; });
+// A param's name as its `params` line spells it: its short name where one
+// param answers it (else the full one), from the newest design read.
+let paramNames = new Map<string, string>();
+const lineName = (param: string) => paramNames.get(param) ?? param;
 const whenText = (w: When[]) => w.map(c => `${c.axis}=${c.value}`).sort().join(' ');
 
 /** The branch a cell shows (LLP 1122 D6's target branch), as the checker
@@ -209,7 +214,7 @@ export function inputsOf(value: string, names: string[], dials: string[]): { tok
 // its answer), so it keeps nothing; the shown one is the newest kept, and
 // what follows it (a cell's branch, contrast) names it.
 type Stored = { css: string; srgb: string; residual: boolean; note: string; value: string };
-type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string; kinds: Map<string, string>; params: Set<string> };
+type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string; kinds: Map<string, string>; params: Map<string, ParamInfo> };
 const snapshots = new Map<number, Snapshot>();
 // Design reads, and reads of the app design's axes (either kind): only the
 // newest of the second sets the axes a selection is placed by.
@@ -269,9 +274,10 @@ function opOf(file: string, kind: string, target: string, when: string, value: s
   const on = file ? { file } : {};
   switch (kind) {
     case 'set-dial': return { op: kind, name: target, value, ...on };
-    // A param's line is the app design's (LLP 1121 D15), whichever file is open.
-    case 'set-param': return { op: kind, name: target, when: whenOf(when), value };
-    case 'unset-param': return { op: kind, name: target, when: whenOf(when) };
+    // A param's line is the app design's (LLP 1121 D15), whichever file is
+    // open, written by its short name where that names one param.
+    case 'set-param': return { op: kind, name: lineName(target), when: whenOf(when), value };
+    case 'unset-param': return { op: kind, name: lineName(target), when: whenOf(when) };
     case 'set-token': return { op: kind, name: target, when: whenOf(when), value, ...on };
     case 'add-token': return { op: kind, name: target, value, ...on };
     case 'rename-token': return { op: kind, from: target, to: value, ...on };
@@ -371,7 +377,7 @@ const keyOf = (file: string, kind: string, target: string, when: string, value: 
 // them, and `session` counts those.
 // Each with the token of the server run that issued its inverse.
 // An accepted proposal's entry keeps its proposer: its redo is theirs.
-type Entry = { inverse: string; ops: Record<string, unknown>[]; label: string; token: string; client?: string };
+type Entry = { inverse: string; ops: Record<string, unknown>[]; label: string; token: string; client?: string; rescope?: Rescope | null };
 const undoStack: Entry[] = [], redoStack: Entry[] = [];
 let session = 0;
 /** The stacks emptied: another run of the server has none of their
@@ -386,7 +392,7 @@ function forget(run: string, still = false) {
   undoStack.length = 0; redoStack.length = 0; mine.length = 0; session += 1;
   if (run) forgotRuns.add(run);
 }
-const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session, note: '', carried: [] as string[] });
+const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session, note: '', carried: [] as string[], rescope: undoStack.at(-1)?.rescope?.text ?? '' });
 /** Who moved a file a refused write or undo found moved: its client, or
  * "changed on disk". */
 const byWhom = (reply: Reply) => {
@@ -681,6 +687,17 @@ const fileWords = (n: Noted, f: string) => `${f}: ${n.values.get(f)?.join('; ') 
  * named, until measured), who. */
 const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server keeps the last 256), so this list may be incomplete.' : `${n.files.map(f => `${f}: ${n.values.get(f)?.join('; ') || tokensIn(n, f).join(', ') || 'edited'}`).join('; ') || 'the design: edited'} · ${n.who}${n.acceptedBy ? `, accepted by ${n.acceptedBy}` : ''}${n.redoneBy ? `, redone by ${n.redoneBy}` : ''}`;
 
+/** The re-scope an edit of the app's design would offer once written (D6),
+ * read from the design as it is before the write. */
+async function rescopeFor(file: string, op: Record<string, unknown>, token: string): Promise<Rescope | null> {
+  const snap = snapshots.get(issued);
+  if (file || !snap || snap.file !== '' || (op.op !== 'set-param' && op.op !== 'set-token')) return null;
+  return rescopeOf(op as { op: string; name: string; when: When[]; value: string }, snap.params, async name => {
+    const { error, reply } = await call('/__tamber', { method: 'explain', token: name }, 15000, token);
+    return error ? null : (reply.ok as { value: string; whens: { when: When[]; value: string }[] });
+  });
+}
+
 const sources: Sources = {
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
@@ -768,7 +785,8 @@ const sources: Sources = {
       if (number === issued) {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
-        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: new Set((ir.components ?? []).flatMap((c: { params: { name: string }[] }) => c.params.map(p => p.name))) });
+        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir) });
+        paramNames = new Map([...snapshots.get(number)!.params].map(([name, p]) => [name, p.short]));
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
@@ -836,6 +854,7 @@ const sources: Sources = {
     try { read = JSON.parse(review || '{}'); } catch { /* none */ }
     if (read.key !== key || !read.files || !read.token) return stacks(false, 'Review the change before applying it.', '');
     const op = opOf(file, kind, target, when, value);
+    const move = await rescopeFor(file, op, read.token);
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
     const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops: [op] }, WRITE_WAIT, read.token);
@@ -844,8 +863,27 @@ const sources: Sources = {
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     // A write that changed no byte has no inverse, and leaves redo be.
-    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: read.token }); redoStack.length = 0; wroteMine(reply.ok); }
+    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: read.token, rescope: move }); redoStack.length = 0; wroteMine(reply.ok); }
     return stacks(true, '', kind.split('-')[0], key);
+  },
+  rescopeLast: async ([client]) => {
+    // The last write moved to the other rung: its inverse and the new write,
+    // one transaction, to the server run it was written to; undone as one.
+    const at = session;
+    const top = undoStack.at(-1);
+    if (!top?.rescope) return stacks(false, 'The last write has no other rung to move to.', '');
+    const ops = top.rescope.ops;
+    const proposed = await call('/__tamber', { method: 'propose', ops }, 15000, top.token);
+    if (proposed.error === RESTARTED) forget(proposed.used);
+    if (session !== at) return stacks(false, RESTARTED, '');
+    if (proposed.error) return stacks(false, proposed.error, '');
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: (proposed.reply.ok as { files: Record<string, string> }).files, ops }, WRITE_WAIT, top.token);
+    if (error === RESTARTED) forget(used);
+    if (session !== at) return stacks(false, RESTARTED, '');
+    if (error) return stacks(false, byWhom(reply) ? `Not moved: ${byWhom(reply)} since.` : error, '');
+    const inverse = (reply.ok as { inverse: string | null }).inverse;
+    if (inverse) { undoStack.push({ inverse, ops, label: top.rescope.text.replace(/^Apply to/, 'moved to').replace(/ instead$/, ''), token: top.token }); redoStack.length = 0; wroteMine(reply.ok); }
+    return stacks(true, '', 'rescope');
   },
   scrubFrame: async ([ask, , file, kind, target, when, value, client, review]) => {
     // Scrub live pressed: a session for this edit, opened on the digests

@@ -437,6 +437,9 @@ shape Written
   // carried to the proposal that replaced it.
   note: string
   carried: string[]
+  // The last write moved to its other rung (LLP 1122 D6's re-scope, T3):
+  // what the offer says, or "" where it has none.
+  rescope: string
 
 // The session changeset (LLP 1122 D9): each write since the tool opened,
 // in plain words, with the diff under the tool's own.
@@ -638,7 +641,7 @@ component DesignTool
   // The stacks as the last write left them, unless a new run of the
   // server has emptied them since (a write that found the restart itself is
   // newer than the poll, and says so).
-  derive stack = match written { case some(w) => (w.session >= changes.session ? w : Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="", carried=[])), case none => Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="", carried=[]) }
+  derive stack = match written { case some(w) => (w.session >= changes.session ? w : Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="", carried=[], rescope="")), case none => Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="", carried=[], rescope="") }
   derive draftKey = `${file}␟${editKind}␟${editTarget}␟${editWhen}␟${editValue}`
   // A cell's edit whose branch the grid no longer shows (another client
   // changed it): not applied, lest it make a `when` no one asked for.
@@ -763,6 +766,9 @@ component DesignTool
     editTarget = name
     editWhen = ""
     editValue = ""
+  action rescope
+    if not pending(written)
+      send written = rescopeLast(client)
   action toggleInspect
     if not pending(inspectSent)
       send inspectSent = sendInspect(client, not inspected.inspecting)
@@ -1401,6 +1407,9 @@ component DesignTool
                   text `Undo (${stack.undo})`
                 button press=redo disabled=(stack.redo == 0 or pending(written)) testId="redo"
                   text `Redo (${stack.redo})`
+                if stack.rescope != ""
+                  button press=rescope disabled=pending(written) testId="rescope"
+                    text stack.rescope
                 if not stack.ok
                   text stack.error color="-exact-system-red" white-space="pre-wrap" flex=1 testId="write-error"
                 else if stack.note != ""

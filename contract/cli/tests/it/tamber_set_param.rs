@@ -191,6 +191,61 @@ fn set_param_writes_the_apps_value_and_undo_restores_the_default() {
     );
 }
 
+/// LLP 1122 T3 (D6's re-scope): a param edit moved to the token it aliases,
+/// and back, is one transaction of the edit's inverse and the new write, and
+/// one undo restores the bytes; a `when` branch moves to the same branch.
+#[test]
+fn a_re_scope_between_a_param_and_its_token_is_one_transaction_and_one_undo() {
+    let dir = app("rescope");
+    let mut s = Serve::start(&dir);
+    let read = || std::fs::read_to_string(dir.join("app.tamber")).unwrap();
+    let compact = json!([{"axis": "density", "value": "compact"}]);
+    // The param edit, then re-scoped to its token: the line goes, the token takes the value.
+    let edit = s.write(&dir, json!([{"op": "set-param", "name": "PostButton.radius", "value": "8px"}]));
+    assert!(edit["ok"]["inverse"].is_string(), "{edit}");
+    let edited = read();
+    let moved = s.write(&dir, json!([
+        {"op": "unset-param", "name": "PostButton.radius"},
+        {"op": "set-token", "name": "radius.md", "when": [], "value": "8px"},
+    ]));
+    assert!(moved["ok"]["inverse"].is_string(), "{moved}");
+    assert_eq!(read(), DESIGN.replace("radius.md = 12px", "radius.md = 8px"));
+    // One undo: the param edit as it was.
+    s.ask(json!({"method": "undo", "client": "t", "inverse": moved["ok"]["inverse"]}));
+    assert_eq!(read(), edited);
+    s.ask(json!({"method": "undo", "client": "t", "inverse": edit["ok"]["inverse"]}));
+    assert_eq!(read(), DESIGN);
+    // A param's `when` line (its own line first) re-scoped to the token's
+    // same branch, which the transaction adds; never its default.
+    let line = s.write(&dir, json!([{"op": "set-param", "name": "PostButton.radius", "value": "radius.md"}]));
+    assert!(line["ok"]["inverse"].is_string(), "{line}");
+    let when = s.write(&dir, json!([{"op": "set-param", "name": "PostButton.radius", "when": compact, "value": "4px"}]));
+    assert!(when["ok"]["inverse"].is_string(), "{when}");
+    let with_when = read();
+    let to_token = s.write(&dir, json!([
+        {"op": "unset-param", "name": "PostButton.radius", "when": compact},
+        {"op": "set-token", "name": "radius.md", "when": compact, "value": "4px"},
+    ]));
+    assert!(to_token["ok"]["inverse"].is_string(), "{to_token}");
+    let text = read();
+    assert!(text.contains("  radius.md = 12px
+    when density=compact: 4px
+"), "{text}");
+    assert!(text.contains("  PostButton.radius = radius.md
+") && !text.contains("compact: 4px
+
+params"), "{text}");
+    // And back: the token's branch goes, the param's `when` line returns.
+    let to_param = s.write(&dir, json!([
+        {"op": "unset-token-when", "name": "radius.md", "when": compact},
+        {"op": "set-param", "name": "PostButton.radius", "when": compact, "value": "4px"},
+    ]));
+    assert!(to_param["ok"]["inverse"].is_string(), "{to_param}");
+    assert_eq!(read(), with_when);
+    s.ask(json!({"method": "undo", "client": "t", "inverse": to_param["ok"]["inverse"]}));
+    assert_eq!(read(), text);
+}
+
 #[test]
 fn a_param_set_out_of_range_or_by_an_unknown_name_is_refused() {
     let dir = app("refused");

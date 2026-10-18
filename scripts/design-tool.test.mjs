@@ -336,6 +336,46 @@ test('a dial edit and a Dim cell edit each write one line, undo gives the bytes 
   }
 }, 900_000);
 
+test('T3: Reset gives a param\'s line back byte for byte in one undo, and a param edit re-scoped to the token it aliases is one transaction undone in one step', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-params-'));
+  const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
+  writeFileSync(join(app, 'app.tamber'), original);
+  writeFileSync(join(app, 'app.contract'), readFileSync(resolve(ROOT, 'apps/design-tool/stub/app.contract'), 'utf8'));
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
+  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
+  const tool = await proxied(app);
+  try {
+    const replies = await drive(tool.url, `design-tool-params-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      // Reset: the line goes; undo gives it back.
+      'tap param-Card.pad-reset', 'clock data', 'state', 'tap apply', 'clock data', 'clock +1', 'clock data', 'tap undo', 'clock data',
+      // A param edit, applied; then moved to the token it aliases, and undone.
+      'clock +1', 'clock data', 'type dial-app.contract#Card.fill-field #ff0000', 'type dial-app.contract#Card.fill-field key Enter', 'clock data', 'state',
+      'tap apply', 'clock data', 'clock +1', 'clock data', 'state', 'tap rescope', 'clock data', 'clock +1', 'clock data', 'state', 'tap undo', 'clock data',
+    ]);
+    const states = replies.filter(r => r.resources);
+    expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true });
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['transaction', true], ['undo', true], ['transaction', true], ['transaction', true], ['undo', true]]);
+    const pad = '  Card.pad = 12px';
+    expect(edit(original, tool.writes[0].after)).toEqual({ at: original.split('\n').indexOf(pad), removed: [pad], added: [] });
+    expect(tool.writes[1].after).toBe(original);
+    // The param edit: one new line in the params block.
+    expect(edit(original, tool.writes[2].after).added).toEqual(['  Card.fill = #ff0000']);
+    expect(states[2].derives.stack.rescope).toBe('Apply to the token accent.fill instead');
+    // Re-scoped: the param's line gone and the token's value the edit's, in one write.
+    const moved = tool.writes[3].after;
+    expect(moved).not.toContain('Card.fill =');
+    expect(moved).toContain('  accent.fill = #ff0000\n');
+    expect(edit(original, moved).removed).toEqual(['  accent.fill = accent']);
+    // One undo: the param edit as it was.
+    expect(tool.writes[4].after).toBe(tool.writes[2].after);
+    expect(states[3].derives.stack.rescope).toBe('');
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
 test('expressions are kept unless pinned, "only this mode" adds a when, redo writes it again, and tokens are added, renamed and removed; undo restores an unformatted line', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-ops-'));
   // Not in fmt's layout: undo must give these bytes back, not fmt's.
