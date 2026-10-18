@@ -136,3 +136,27 @@ for (const identity of ['generation', 'environment', 'origin', 'thread'] as cons
     expect(reads).toEqual([{ origin: 'http://127.0.0.1:1', payload: { threadId: 't', itemId: 'i', uri: 'ui://weather/1' } }]);
   });
 }
+
+test('a suspended cached MCP drain cannot mint the next document on a replacement connection', async () => {
+  const appItem = { ...item, toolName: 'weather.forecast', output: { t3McpApp: { attachmentId: 'mcp', server: 'weather', tool: 'forecast', resourceUri: 'ui://weather' } } };
+  const client = fixture(appItem), appRef = inlineReference(appItem)!;
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const firstStarted = new Promise<void>(resolve => { started = resolve; });
+  const mints: string[] = [];
+  client.rpc = async (_native, method) => {
+    if (method === 'assets.createUrl') { mints.push(client.origin); return { relativeUrl: '/api/assets/document', expiresAt: 10_000_000 }; }
+    if (method === 'mcpApps.readResource') { started(); await gate; return { contents: [] }; }
+    return {};
+  };
+  const key = inlineDocumentKey(client, 't', 'i', appRef);
+  await syncInlineDocuments(client, native, 0);
+  const config = JSON.parse(decodeURIComponent(inlineDocumentView(client, key, appRef).src.split('#')[1]!));
+  await inlineDocumentEvent(client, key, 'message', JSON.stringify({ t3Document: config.token, message: { jsonrpc: '2.0', id: 1, method: 'resources/read', params: { uri: 'ui://weather/current' } } }));
+  client.thread!.projection.visibleTurnItems = [{ sourceThreadId: 't', item: appItem }, { sourceThreadId: 't', item: { ...item, id: 'next' } }];
+  const syncing = syncInlineDocuments(client, native, 1);
+  await firstStarted;
+  client.origin = 'http://127.0.0.1:2';
+  release(); await syncing;
+  expect(mints).toEqual(['http://127.0.0.1:1']);
+});
