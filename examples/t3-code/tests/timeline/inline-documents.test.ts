@@ -1,0 +1,68 @@
+import { expect, test } from 'bun:test';
+import { T3Client } from '../../src/client/client';
+import type { Native } from '../../src/client/protocol';
+import { obj } from '../../src/client/domain';
+import { inlineDocumentEvent, inlineDocumentKey, inlineDocumentView, inlineReference, syncInlineDocuments } from '../../src/timeline/inline-documents';
+import { timelineEntries } from '../../src/timeline/timeline-rows';
+import { transcriptRows } from '../../src/timeline/timeline-presentation';
+
+const native = { available: true } as Native;
+const html = { attachmentId: 'a', title: 'Report', height: 400 };
+const item = { id: 'i', type: 'dynamic_tool', status: 'completed', toolName: 'html_render', output: { htmlRender: html } };
+const ref = inlineReference(item)!;
+function fixture() {
+  const client = new T3Client(); client.threadId = 't'; client.environmentId = 'env'; client.generation = 1; client.origin = 'http://127.0.0.1:1';
+  client.thread = { projection: { thread: { id: 't' }, visibleTurnItems: [{ sourceThreadId: 't', sourceItemId: 'i', item }] } };
+  return client;
+}
+
+test('completed render tools become standalone timeline rows instead of grouped tool output', () => {
+  const client = fixture();
+  expect(timelineEntries({ rows: obj(client.thread?.projection).visibleTurnItems, attempts: [], nodes: [] })).toMatchObject([{ kind: 'document', document: { kind: 'html', reference: html } }]);
+  expect(transcriptRows(client)).toMatchObject([{ kind: 'inline-document', inlineDocuments: [{ title: 'Report', src: '' }] }]);
+  expect(inlineReference({ ...item, status: 'running' })).toBeNull();
+});
+
+test('signed URLs are chosen once and retain the mounted document through refreshes', async () => {
+  const client = fixture(), calls: unknown[] = [];
+  client.rpc = async (_native, method, payload) => { calls.push({ method, payload }); return { relativeUrl: '/api/assets/a?bucket=1', expiresAt: 100 }; };
+  const key = inlineDocumentKey(client, 't', 'i', ref);
+  await syncInlineDocuments(client, native, 0);
+  const initial = inlineDocumentView(client, key, ref);
+  expect(initial.src).toStartWith('http://127.0.0.1:1/api/assets/a?bucket=1#t3-theme=');
+  await syncInlineDocuments(client, native, 1_000_000);
+  expect(calls).toHaveLength(1);
+  expect(inlineDocumentView(client, key, ref).src).toBe(initial.src);
+  inlineDocumentEvent(client, key, 'loaded', '');
+  inlineDocumentEvent(client, key, 'message', JSON.stringify({ jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { height: 250 } }));
+  expect(inlineDocumentView(client, key, ref)).toMatchObject({ ready: true, height: 250 });
+});
+
+test('a failed URL mint remains an error until an explicit retry and never spins on refresh', async () => {
+  const client = fixture(); let calls = 0;
+  client.rpc = async () => { calls++; throw new Error('offline'); };
+  const key = inlineDocumentKey(client, 't', 'i', ref);
+  await syncInlineDocuments(client, native, 0);
+  await syncInlineDocuments(client, native, 1);
+  expect(calls).toBe(1);
+  expect(inlineDocumentView(client, key, ref).error).toBe('offline');
+  inlineDocumentEvent(client, key, 'retry', '');
+  client.rpc = async () => ({ relativeUrl: '/api/assets/retry', expiresAt: 10_000_000 });
+  await syncInlineDocuments(client, native, 2);
+  expect(inlineDocumentView(client, key, ref)).toMatchObject({ error: '', ready: false });
+  expect(inlineDocumentView(client, key, ref).src).toContain('/api/assets/retry');
+});
+
+test('a reply from the previous connection never publishes into the replacement frame', async () => {
+  const client = fixture(); let resolve!: (value: unknown) => void;
+  client.rpc = () => new Promise(done => { resolve = done; });
+  const pending = syncInlineDocuments(client, native, 0);
+  client.generation++;
+  resolve({ relativeUrl: '/api/assets/stale', expiresAt: 10_000_000 });
+  await pending;
+  const key = inlineDocumentKey(client, 't', 'i', ref);
+  expect(inlineDocumentView(client, key, ref).src).toBe('');
+  client.rpc = async () => ({ relativeUrl: '/api/assets/new', expiresAt: 10_000_000 });
+  await syncInlineDocuments(client, native, 0);
+  expect(inlineDocumentView(client, key, ref).src).toContain('/api/assets/new');
+});

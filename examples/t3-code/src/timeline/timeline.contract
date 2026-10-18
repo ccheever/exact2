@@ -1,3 +1,4 @@
+use InlineDocumentFrame from "./inline-documents.contract"
 // T3 MessagesTimeline rows (MIT, see LICENSE-T3), measured against the built
 // reference: a 736pt lane inside a 20pt scroll gutter, rows spaced by their own
 // bottom padding, hover-revealed metadata that keeps its layout space.
@@ -331,6 +332,9 @@ component TimelineContent
     attachments: AttachmentUrl[]
   view
     column width="100%"
+      if message.kind == "inline-document"
+        for document in message.inlineDocuments key=document.key
+          InlineDocumentFrame(document=document, local=local)
       if message.kind == "assistant"
         // The answer is a citation's jump target (app-main.contract ChatColumn citePlace).
         column id=`cite-${message.id}` width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"

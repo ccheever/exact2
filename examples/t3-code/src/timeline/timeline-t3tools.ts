@@ -117,7 +117,7 @@ const SERVER_ALIASES = new Set(['t3-code', 't3_code', 't3code']);
 const own = (name: string) => Object.prototype.hasOwnProperty.call(TOOLS, name);
 
 /** resolveT3McpToolName: the loose provider prefixes, gated by the inventory. */
-function resolveName(value: string): string | null {
+export function resolveName(value: string): string | null {
   const label = value.replace(/\s+(?:complete|completed)\s*$/i, '').trim();
   const mcp = /^mcp__(.+?)__(.+)$/i.exec(label);
   if (mcp) return SERVER_ALIASES.has(mcp[1]!.toLowerCase()) ? mcp[2]! : null;
@@ -125,7 +125,7 @@ function resolveName(value: string): string | null {
   if (namespaced) return namespaced[1] ?? null;
   const prefixed = /^(?:mcp[-_]{1,2})?t3[-_ ]?code(?:__|[-_.:/ ])(.+)$/i.exec(label);
   const candidate = prefixed?.[1] ?? label;
-  return own(candidate) ? candidate : null;
+  return own(candidate) || candidate === 'html_render' ? candidate : null;
 }
 export function t3ToolDefinition(toolName: string | null | undefined): T3ToolDefinition | null {
   const name = toolName ? resolveName(toolName) : null;

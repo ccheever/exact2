@@ -1,3 +1,4 @@
+use InlineDocument from "../timeline/inline-documents.contract"
 use CodeHighlight from "../timeline/markdown.contract"
 use MermaidDiagram from "../timeline/markdown.contract"
 use MarkdownEnv from "../timeline/markdown.contract"
@@ -140,6 +141,7 @@ shape Message
   collapsible: bool
   code: CodeHighlight[]
   diagrams: MermaidDiagram[]
+  inlineDocuments: InlineDocument[]
   setup: WorktreeSetupView[]
   timeTip: string
   actionsTimeTip: string
