@@ -106,7 +106,7 @@ pub fn tag(name: &str) -> Option<Tag> {
         },
         "time" => Tag {
             node_type: NodeType::Text,
-            fixed_styles: &[(StyleId::WhiteSpace, "nowrap")],
+            fixed_styles: &[],
             fixed_props: &[(PropId::SemanticTag, "time")],
             positional: None,
         },

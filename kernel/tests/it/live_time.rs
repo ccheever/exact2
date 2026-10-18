@@ -69,24 +69,32 @@ fn live_time_keeps_its_frame_and_following_sibling_when_its_text_ticks() {
 }
 
 #[test]
-fn inline_time_keeps_the_paragraphs_breaks_and_the_following_text_in_place() {
+fn inline_time_uses_natural_runs_and_can_grow() {
     let mut k = Kernel::with_monospace();
-    let mut ops = Vec::new();
-    for (id, node_type) in [
-        (1, NodeType::View),
-        (2, NodeType::Text),
-        (3, NodeType::Text),
-        (4, NodeType::Text),
-        (5, NodeType::Text),
-        (6, NodeType::Text),
-    ] {
-        ops.push(Op::CreateView { id, node_type });
+    let mut row = StyleProps::default();
+    row.set_dynamic(StyleId::Display, &StyleValue::Text("flex".into()))
+        .unwrap();
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::AttachRoot { id: 1 },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(row),
+        },
+    ];
+    for id in 2..=5 {
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::Text,
+        });
     }
     ops.extend([
-        Op::AttachRoot { id: 1 },
         Op::SetChildren {
             id: 1,
-            children: vec![2, 6],
+            children: vec![2],
         },
         Op::SetChildren {
             id: 2,
@@ -110,31 +118,17 @@ fn inline_time_keeps_the_paragraphs_breaks_and_the_following_text_in_place() {
         Op::SetProp {
             id: 5,
             prop: PropId::Text,
-            value: " in this feed".into(),
-        },
-        Op::SetProp {
-            id: 6,
-            prop: PropId::Text,
-            value: "Following paragraph".into(),
+            value: " here".into(),
         },
     ]);
     k.apply(0, 1, &ops).unwrap();
-    k.compute_layout(1, Offer::definite(200., 200.)).unwrap();
-    let before = (k.node(2).unwrap().frame, k.node(6).unwrap().frame);
-    let width = |k: &Kernel| {
-        let node = k.node(4).unwrap();
-        let runs = node.text_runs();
-        MonospaceMeasurer::default()
-            .measure(&TextMeasureRequest {
-                runs: &runs,
-                paragraph: node.paragraph(),
-                width: AxisOffer::MaxContent,
-                height: AxisOffer::MaxContent,
-                exclusions: &[],
-            })
-            .width
-    };
-    let reserved = width(&k);
+    k.compute_layout(1, Offer::definite(1000., 200.)).unwrap();
+    let before = k.node(2).unwrap().frame.width;
+    let runs = k.node(2).unwrap().text_runs();
+    assert_eq!(
+        runs.iter().map(|r| &*r.text).collect::<Vec<_>>(),
+        ["Updated ", "9 min. ago", " here"]
+    );
     k.apply(
         0,
         2,
@@ -145,11 +139,6 @@ fn inline_time_keeps_the_paragraphs_breaks_and_the_following_text_in_place() {
         }],
     )
     .unwrap();
-    k.compute_layout(1, Offer::definite(200., 200.)).unwrap();
-    assert!(
-        (reserved - width(&k)).abs() < 0.01,
-        "{reserved} -> {}",
-        width(&k)
-    );
-    assert_eq!(before, (k.node(2).unwrap().frame, k.node(6).unwrap().frame));
+    k.compute_layout(1, Offer::definite(1000., 200.)).unwrap();
+    assert!(k.node(2).unwrap().frame.width > before);
 }

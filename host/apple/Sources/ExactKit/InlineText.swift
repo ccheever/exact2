@@ -29,7 +29,6 @@ struct InlineText {
         self.id = id; self.parent = parent; self.props = props
         var value = style.run
         value.text = props["text"] ?? ""
-        if props["semanticTag"] == "time", props["textReservation"] != nil { value.text = value.text.replacingOccurrences(of: " ", with: "\u{a0}") }
         value.href = props["href"] ?? ""
         lightRun = value
         darkColor = style.darkColor
@@ -41,14 +40,8 @@ struct InlineText {
         self.handlers = handlers; self.paints = paints
     }
 
-    var text: String { lightRun.text + (props["timePaddingText"] ?? "") }
+    var text: String { lightRun.text }
 
-    func padding(_ base: Run) -> Run? {
-        guard let text = props["timePaddingText"], let spacing = props["timePaddingSpacing"].flatMap(Float.init) else { return nil }
-        var value = base; value.text = text; value.letterSpacing = CGFloat(spacing)
-        value.href = ""; value.decoration = ""
-        return value
-    }
     /// A run with an `href`: the web's `<a>` in its paragraph.
     var isLink: Bool { !(props["href"] ?? "").isEmpty }
     /// The run in its paragraph owner's traits: `contrast` and `elevated`

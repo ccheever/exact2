@@ -808,9 +808,7 @@ impl MonospaceMeasurer {
                         });
                     }
                     tokens.push(Token::Break);
-                } else if ch.is_whitespace()
-                    && !matches!(ch, '\u{a0}' | '\u{202f}' | '\u{2007}' | '\u{feff}')
-                {
+                } else if ch.is_whitespace() {
                     if !pending_word.is_empty() {
                         tokens.push(Token::Word {
                             glyphs: std::mem::take(&mut pending_word),

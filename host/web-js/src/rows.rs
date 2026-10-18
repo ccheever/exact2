@@ -46,10 +46,14 @@ impl Em<'_> {
                 });
             }
             let live = self.uses.rt("liveTime");
-            let reserve = !row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
-                b.kind == BindingKind::Style
-                    && (b.id == StyleId::Width as u16 || b.id == StyleId::MaxWidth as u16)
-            });
+            let inline = row
+                .parent
+                .is_some_and(|p| plan.nodes[p.0 as usize].node_type == NodeType::Text as u8);
+            let reserve = !inline
+                && !row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
+                    b.kind == BindingKind::Style
+                        && (b.id == StyleId::Width as u16 || b.id == StyleId::MaxWidth as u16)
+                });
             let _ = write!(
                 self.out,
                 "{live}({e},()=>[{}],{reserve});",

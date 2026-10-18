@@ -614,8 +614,8 @@ fn live_time_ticks_in_the_terminal_without_an_app_task() {
     let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 4).unwrap();
     let mut vt = Vt::new(&mut host);
     vt.render(&mut host);
-    assert!(vt.text(false).replace('\u{a0}', " ").contains("2 min. ago"));
+    assert!(vt.text(false).contains("2 min. ago"));
     host.tick(60_000.);
     vt.render(&mut host);
-    assert!(vt.text(false).replace('\u{a0}', " ").contains("3 min. ago"));
+    assert!(vt.text(false).contains("3 min. ago"));
 }

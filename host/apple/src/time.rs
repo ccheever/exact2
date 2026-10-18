@@ -54,16 +54,3 @@ pub fn format(f: TimeFormatFn, ctx: *mut c_void, r: &TimeRequest<'_>) -> Option<
     bytes.truncate(n);
     String::from_utf8(bytes).ok()
 }
-
-pub(crate) fn padding_props(
-    node: &exact_kernel::NodeRef<'_>,
-    out: &mut exact_kernel::SortedMap<String, String>,
-) {
-    if let Some(pad) = node.time_padding() {
-        out.insert("timePaddingText".into(), pad.text.into_owned());
-        out.insert(
-            "timePaddingSpacing".into(),
-            pad.style.letter_spacing.to_string(),
-        );
-    }
-}

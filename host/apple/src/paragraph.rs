@@ -561,7 +561,6 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, S
     if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
         out.insert(PropId::Text.name().to_string(), shown);
     }
-    crate::time::padding_props(node, &mut out);
     style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
     if let Some(scale) = fit_scale(node) {
         out.insert("fitScale".into(), scale);

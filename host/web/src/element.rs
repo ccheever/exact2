@@ -219,8 +219,8 @@ pub fn host_css_of(
     {
         css.push_str("display:block;");
     }
-    if tag == "time" && node.is_inline_run() && !node.style.mask.has(StyleId::Display) {
-        css.push_str("display:inline-block;");
+    if tag == "time" && !node.is_inline_run() && !node.style.mask.has(StyleId::Display) {
+        css.push_str("display:block;");
     }
     css = button_css::face(node, css);
     if node.node_type == NodeType::Canvas {

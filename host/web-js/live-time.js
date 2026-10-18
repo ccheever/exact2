@@ -50,7 +50,7 @@ export function liveTime(e, read, reserve = true) {
     const font = typeof getComputedStyle === 'function' ? getComputedStyle(e) : null;
     const keys = ['font', 'fontVariantNumeric', 'fontFeatureSettings', 'fontVariationSettings', 'letterSpacing', 'fontKerning', 'fontOpticalSizing'];
     const stamp = `${datetime}/${format}/${locale}/${timeZone}/${keys.map(k => font?.[k]).join('/')}`;
-    if (stamp !== reserved) {
+    if (reserve && stamp !== reserved) {
       const strings = [text];
       if (format === 'relative') {
         const relative = new Intl.RelativeTimeFormat(locale, { style: 'short', numeric: 'always' });
@@ -85,7 +85,7 @@ export function liveTime(e, read, reserve = true) {
   effect(() => { values = read(); update(); if (!clock.agent) drive(); });
   const moved = () => { if (timer.due <= clock.now) update(); };
   Clocked.push(moved);
-  const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(() => update()) : null;
+  const resized = reserve && typeof ResizeObserver === 'function' ? new ResizeObserver(() => update()) : null;
   resized?.observe(e);
   onEnd(() => { resized?.disconnect(); clock.timers.splice(clock.timers.indexOf(timer), 1); Clocked.splice(Clocked.indexOf(moved), 1); });
 }

@@ -225,6 +225,9 @@ pub(crate) fn reserve(
     m: &mut dyn TextMeasurer,
     metrics: &mut TextMetrics,
 ) {
+    if arena.is_inline_run(slot) {
+        return;
+    }
     let Some(values) = arena.props(slot).str(PropId::TextReservation) else {
         return;
     };
@@ -249,83 +252,6 @@ pub(crate) fn reserve(
         let candidate = m.measure(&request);
         metrics.width = metrics.width.max(candidate.width);
         metrics.height = metrics.height.max(candidate.height);
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct Padding {
-    pub(crate) text: String,
-    pub(crate) spacing: f32,
-}
-
-// Inline time is an atomic run followed by invisible advance. Both measuring
-// and painting read these same runs; only the time's glyphs change on a tick.
-pub(crate) fn prepare_padding(arena: &mut crate::arena::NodeArena, m: &mut dyn TextMeasurer) {
-    let slots: Vec<_> = arena.time_slots.iter().collect();
-    for slot in slots {
-        arena.time_padding.remove(&slot);
-        if !arena.is_inline_run(slot) {
-            continue;
-        }
-        let mut actual = Vec::new();
-        arena.text_runs(slot, &mut actual);
-        let Some(run) = actual.first() else {
-            continue;
-        };
-        let style = run.style;
-        let measure = |m: &mut dyn TextMeasurer, runs: &[TextRun<'_>]| {
-            m.measure(&TextMeasureRequest {
-                runs,
-                paragraph: arena.paragraph(slot),
-                width: AxisOffer::MaxContent,
-                height: AxisOffer::MaxContent,
-                exclusions: &[],
-            })
-            .width
-        };
-        let current = measure(m, &actual);
-        let mut widest = current;
-        for value in arena
-            .props(slot)
-            .str(PropId::TextReservation)
-            .unwrap_or("")
-            .lines()
-        {
-            widest = widest.max(measure(
-                m,
-                &[TextRun {
-                    text: value.into(),
-                    style,
-                }],
-            ));
-        }
-        let gap = widest - current;
-        // A shaper may hang trailing spaces, even a nonbreaking one. Measure
-        // them between visible marks; averaging avoids rounded glyph metrics.
-        let padded = format!("|{}|", "\u{a0}".repeat(1024));
-        let space = (measure(
-            m,
-            &[TextRun {
-                text: padded.into(),
-                style,
-            }],
-        ) - measure(
-            m,
-            &[TextRun {
-                text: "||".into(),
-                style,
-            }],
-        )) / 1024.0;
-        if gap > 0.01 && space > 0.0 && gap.is_finite() && space.is_finite() {
-            let count = (gap / space).ceil().clamp(1.0, 4096.0) as usize;
-            arena.time_padding.insert(
-                slot,
-                Padding {
-                    text: "\u{a0}".repeat(count),
-                    spacing: style.letter_spacing + gap / count as f32 - space,
-                },
-            );
-        }
     }
 }
 

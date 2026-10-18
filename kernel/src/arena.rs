@@ -57,8 +57,6 @@ pub struct NodeArena {
     // @ref LLP 1043.000 §3 D4 — no per-node vector or allocation.
     pub(crate) flow: IdMap<u32, crate::flow::FlowState>,
     pub(crate) exclusion_slots: SlotSet,
-    pub(crate) time_slots: SlotSet,
-    pub(crate) time_padding: IdMap<u32, crate::time::Padding>,
     /// @ref LLP 1093 D7 — multi-column containers and their last cuts.
     pub(crate) frag: crate::fragment::FragState,
     /// Slots whose style writes a row in `rem`/`em` (LLP 1069.000 D3).
@@ -158,8 +156,6 @@ impl Clone for NodeArena {
             frames: self.frames.clone(),
             flow: self.flow.clone(),
             exclusion_slots: self.exclusion_slots.clone(),
-            time_slots: self.time_slots.clone(),
-            time_padding: self.time_padding.clone(),
             frag: self.frag.clone(),
             relative_slots: self.relative_slots.clone(),
             symbols_owed: self.symbols_owed.clone(),
@@ -682,23 +678,11 @@ impl NodeArena {
                             *boundary,
                         ))
                     };
-                    let shown = if self.is_inline_run(slot) && self.time_slots.contains(slot) {
-                        shown.replace(' ', "\u{a0}").into()
-                    } else {
-                        shown
-                    };
                     boundary.push(text);
                     let mut style = rows.style();
                     // Bold Text (LLP 1115.000 D12.3), as `text_style` reads it.
                     self.embolden(slot, &mut style);
                     out.push(TextRun { text: shown, style });
-                    if let Some(pad) = self.time_padding.get(&slot) {
-                        style.letter_spacing = pad.spacing;
-                        out.push(TextRun {
-                            text: pad.text.as_str().into(),
-                            style,
-                        });
-                    }
                 } else {
                     for child in &self.children[s] {
                         if self.node_types[*child as usize] == NodeType::Text {
@@ -815,8 +799,6 @@ impl NodeArena {
     pub(crate) fn free_slot(&mut self, slot: u32) {
         self.field_content.remove(&slot);
         self.exclusion_slots.remove(slot);
-        self.time_slots.remove(slot);
-        self.time_padding.remove(&slot);
         self.frag.forget(slot);
         self.relative_slots.remove(slot);
         self.symbols_owed.remove(slot);
@@ -970,9 +952,6 @@ impl NodeArena {
         id: PropId,
         value: PropValue,
     ) -> Option<PropValue> {
-        if id == PropId::TextReservation {
-            self.time_slots.insert(slot);
-        }
         let old = self.props[slot as usize].set(id, value);
         if old.is_none() {
             bump(&mut self.prop_counts, id as usize, true);
@@ -982,10 +961,6 @@ impl NodeArena {
 
     /// Clear a prop; the value it had.
     pub(crate) fn remove_prop(&mut self, slot: u32, id: PropId) -> Option<PropValue> {
-        if id == PropId::TextReservation {
-            self.time_slots.remove(slot);
-            self.time_padding.remove(&slot);
-        }
         let old = self.props[slot as usize].remove(id);
         if old.is_some() {
             bump(&mut self.prop_counts, id as usize, false);

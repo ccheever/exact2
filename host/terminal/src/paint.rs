@@ -531,9 +531,6 @@ fn run_paints(
                 style.link = grid.link(url);
             }
             out.push(RunPaint { id: node.id, style });
-            if node.time_padding().is_some() {
-                out.push(RunPaint { id: node.id, style });
-            }
             return;
         }
         for child in node.child_nodes().filter(|n| n.node_type == NodeType::Text) {
@@ -569,7 +566,8 @@ fn run_paints(
         grid,
         &mut out,
     );
-    // Own text stops both walks; a live time also has its invisible advance.
+    // Text and its inline Text descendants have one canonical run per
+    // text prop, including empty text. Both walks stop at an own text prop.
     debug_assert_eq!(out.len(), runs.len());
     for (paint, run) in out.iter_mut().zip(runs) {
         paint.style.bold = run.style.font_weight >= 600;
