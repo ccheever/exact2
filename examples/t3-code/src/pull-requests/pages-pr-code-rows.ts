@@ -33,6 +33,7 @@ export type FileAnnotations = {
   draft: { position: PullRequestReviewPosition; label: string } | null;
 };
 export type RowsInput = {
+  finding?: boolean;
   sourceStats?: ReadonlyMap<string, { additions: number; deletions: number }>;
   files: PrDiffFile[];
   layout: 'stacked' | 'split';
@@ -102,7 +103,7 @@ export function codeRows(input: RowsInput): { items: CodeItem[]; truncated: bool
       }
     };
     const push = (row: Row | { left: Row; right: Row }, key: string) => {
-      if (++rows > ROW_LIMIT) return;
+      if (++rows > (input.finding ? 100_000 : ROW_LIMIT)) return;
       const common = { ...BASE, id: `line:${file.path}:${key}`, path: file.path, expanded, gutter, pinned: utility.pinned };
       if ('left' in row) {
         items.push({ ...common, kind: 'split', leftTone: row.left.tone, leftNumber: row.left.number, leftSegments: row.left.segments, rightTone: row.right.tone, rightNumber: row.right.number,
@@ -143,7 +144,7 @@ export function codeRows(input: RowsInput): { items: CodeItem[]; truncated: bool
     if (loaded && file.hunks.length > 0) hidden(Math.max(0, newLines.length - (loaded.newContents.endsWith('\n') ? 1 : 0) - newNext + 1), file.hunks.length, newNext, newNext - oldNext, true);
     items.push({ ...BASE, id: `pad:${file.path}`, kind: 'pad', path: file.path, expanded });
   }
-  return { items, truncated: rows > ROW_LIMIT };
+  return { items, truncated: rows > (input.finding ? 100_000 : ROW_LIMIT) };
 }
 
 /** The hidden range a gap press opens: how many lines it hides, from the file's contents. */

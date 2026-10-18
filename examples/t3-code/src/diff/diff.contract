@@ -1,3 +1,4 @@
+use DiffFindBar from "./diff-find.contract"
 // The changes side panel (wide) and sheet (narrow), measured against T3's served
 // right panel: DiffPanel header/toolbar, @pierre/diffs file headers and rows.
 // Every patch comes from the server's diff APIs; nothing here invents content.
@@ -64,6 +65,11 @@ component DiffPanelBody
   state hovered = ""
   // diff-review: the open comment draft's text (AnnotatableCodeView draftText), kept here so a scrolled-away row keeps it.
   state draftText = ""
+  action findOp(op: string, value: string)
+    local(`diff-find-${op}`, "", value)
+  action findJump(e: IntersectionObserverEntry)
+    if data.diffFind.target != ""
+      scrollIntoView("diff-list", data.diffFind.target, offset=-48, behavior="instant")
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
   action editDraft(text: string)
@@ -78,12 +84,16 @@ component DiffPanelBody
     command("diffreview", "save", draftText, 0)
     draftText = ""
   view
-    column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #191919)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") testId="diff-panel" role=(sheet ? "dialog" : "region") aria-label="Diff"
+    column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #191919)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") testId="diff-panel" pointerdown=local("diff-find-focus", "", "") focusin=local("diff-find-focus", "", "") role=(sheet ? "dialog" : "region") aria-label="Diff"
       // The shared tab bar (every open surface, "+", the layout controls; the details toggle in a sheet).
       PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=false, ui=ui, details=details, local=local, scheme="", searchFocused=false)
       // A sheet's toolbar sits 6pt lower over the same content top (served reference at 840).
       column margin-top=(sheet ? "0.375rem" : "0px")
         DiffToolbar(data=data, command=command)
+      if data.diffFind.open
+        DiffFindBar(find=data.diffFind, op=findOp, prefix="diff")
+        for navigation in [data.diffFind.navigation] key=navigation
+          box intersect=findJump width=0 height=0 position="absolute" pointer-events="none"
       row flex=1 min-height=0 width="100%" margin-top=(sheet ? "0.375rem" : "0.75rem")
         column flex=1 min-width=0 min-height=0
           if data.diffError != ""
