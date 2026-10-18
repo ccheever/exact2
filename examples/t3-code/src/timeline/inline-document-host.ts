@@ -9,6 +9,8 @@ import { makeMcpAppHost, mcpAppStyleVariables, mcpResourceBytes, McpAppHostRefus
 import type { McpAppReference } from './mcp-app';
 import type { HtmlRenderTheme } from './html-render';
 
+let nextPermissionSerial = 0;
+
 type Job = { run: (native: Native, storage?: Files) => Promise<unknown>; resolve: (value: unknown) => void; reject: (error: unknown) => void };
 export type DocumentRuntime = {
   host: McpAppHost; jobs: Job[]; deadlines: Map<() => void, number>; now: number;
@@ -18,9 +20,9 @@ export type DocumentRuntime = {
 export function makeDocumentRuntime(client: T3Client, input: {
   app: McpAppReference; sourceThreadId: string; itemId: string; conversationThreadId: string;
   post: (message: unknown) => void; theme: () => HtmlRenderTheme; owned: () => boolean;
+  beforePermission?: () => void;
   height: (height: number) => void; width: () => number; viewportHeight: () => number; canExpand: () => boolean;
 }): DocumentRuntime {
-  let permissionSerial = 0;
   const runtime: DocumentRuntime = { host: null!, jobs: [], deadlines: new Map(), now: 0, permission: null, closed: false, fullscreen: false, owned: input.owned };
   const requireOwner = () => { if (!runtime.owned() || runtime.closed) { disposeDocumentRuntime(runtime); throw new McpAppHostRefusal('This document is no longer open.'); } };
   const queue = <T>(run: (native: Native, storage?: Files) => Promise<T>): Promise<T> => {
@@ -31,9 +33,10 @@ export function makeDocumentRuntime(client: T3Client, input: {
   const ask = (text: string): Promise<boolean> => {
     requireOwner();
     if (runtime.permission) return Promise.resolve(false);
+    input.beforePermission?.();
     runtime.fullscreen = false;
     runtime.host.updateHostContext();
-    return new Promise(resolve => { runtime.permission = { serial: ++permissionSerial, text, settle: resolve }; client.revision++; });
+    return new Promise(resolve => { runtime.permission = { serial: ++nextPermissionSerial, text, settle: resolve }; client.revision++; });
   };
   const target = { threadId: input.sourceThreadId, itemId: input.itemId };
   const context = (): McpAppHostContext => ({
