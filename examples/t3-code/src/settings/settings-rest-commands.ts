@@ -19,7 +19,9 @@ import { bitbucketCommand } from './settings-a-bitbucket';
 import { browserProfilesLocal } from '../browser/browser-profiles-settings';
 import { deviceHostsCommand } from '../device/settings-a-hosts';
 import { deviceScopedCommand } from '../device/settings-integrations-scope';
-import { applyDeviceSetting } from './settings-core'; // "Open links in"
+import { planProjectOverridesClear, persistScopedSettingsPatch, scopedPlanNotice } from './scoped-settings-plan';
+import { postScopedNotice, scopeEnvironments, scopedWriter } from './settings-scope-sources';
+import { PROJECT_SCOPED, applyDeviceSetting } from './settings-core'; // "Open links in"
 import { copyThreadReference } from '../sidebar/thread-reference'; // ⇧⌘C copies the PR link or the thread ID
 import { byEnvironment, environmentClient, groupOfMember } from './projects-fleet';
 import { fleetThreadId, parseFleetThreadId } from '../connections/settings-b-fleet';
@@ -115,6 +117,15 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
   if (op === 'diag-open-logs') return openLogsFolder(client, native);
   if (op === 'bitbucket') return bitbucketCommand(client, native, str(params(value).environment), params(value), () => { viewState(client).rescan++; });
   if (op.startsWith('diag-')) return telemetryCommand(client, native, op, params(value)); // settings-a-telemetry.ts
+  if (op === 'scoped-overrides') {
+    const input = params(value);
+    if (!PROJECT_SCOPED.has(input.key)) throw new ClientError('That setting has no project overrides.');
+    const environments = scopeEnvironments(client), entries = arr(JSON.parse(input.entries)).map(entry => ({ environmentId: str(entry.environmentId), projectId: str(entry.projectId) }));
+    const plan = planProjectOverridesClear(environments, entries, [input.key]);
+    const result = await persistScopedSettingsPatch(plan, scopedWriter(client, native, environments), () => {});
+    postScopedNotice(client, scopedPlanNotice(plan, result));
+    return '';
+  }
   if (op.startsWith('hosts-')) return deviceHostsCommand(client, native, op, params(value), splitScope(scope).projectId !== ''); // settings-a-hosts.ts
   // A background environment's project (Settings › Projects over every environment): its writes go through that
   // environment under its own project id (projects-fleet.ts).
@@ -164,7 +175,7 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
       return '';
     }
     let patch: Obj;
-    try { patch = op === 'fetch-interval' ? fetchIntervalPatch(settings, str(input.value)) : scopedPatch(settings, projectId, str(input.key), str(input.value)); }
+    try { patch = op === 'fetch-interval' ? fetchIntervalPatch(settings, str(input.value)) : scopedPatch(settings, projectId, str(input.key), str(input.value), arr(config.providers)); }
     catch (error) { throw new ClientError(error instanceof Error ? error.message : 'Could not save this setting.'); }
     if (op === 'fetch-interval' && projectId) throw new ClientError('This setting is environment-wide and cannot be overridden by a project.');
     const updated = await access.request('server.updateSettings', { patch }, true);

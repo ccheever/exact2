@@ -444,7 +444,7 @@ export function diffSnapshot(client: T3Client, now: number) {
 export function headerStat(file: { additions: number; deletions: number }, aligned: boolean): { statAligned: boolean; addText: string; delText: string } {
   const { additions, deletions } = file;
   if (aligned) return { statAligned: true, addText: `+${compactCount(additions)}`, delText: `-${compactCount(deletions)}` };
-  return { statAligned: false, addText: additions > 0 || deletions === 0 ? `+${additions}` : '', delText: deletions > 0 || additions === 0 ? `-${deletions}` : '' };
+  return { statAligned: false, addText: additions > 0 || deletions === 0 ? `+${additions.toLocaleString()}` : '', delText: deletions > 0 || additions === 0 ? `-${deletions.toLocaleString()}` : '' };
 }
 /** The open draft's textarea took the focus (true) or let it go (false), on the thread that shows. */
 export function noteDraftFocus(client: T3Client, focused: boolean): void {

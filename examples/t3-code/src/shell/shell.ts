@@ -1,3 +1,4 @@
+import { updateEverythingPass, updateEverythingState } from '../sidebar/update-everything';
 // The window shell's projection (MIT reference: apps/web/src/components/ui/
 // toast.tsx, chat/ChatHeader.tsx, chat/PanelLayoutControls.tsx,
 // RightPanelTabs.tsx RightPanelEmptyState, threadActionMenu.logic.ts):
@@ -19,7 +20,6 @@ import { diffNotGit } from '../diff/diff';
 import { threadNotifications, providerUpdates, nativeNotifyStatus, reportWindowFacts, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from '../client/protocol-reader'; // answered requests whose answer was let go end on the next shell read
-import { nightlyMobileBetaNotice } from './shell-nightly';
 import { permissionUpdateNotices } from './permission-update-notice';
 import { pullRequestPanelTarget } from '../panel/shell-pr';
 import { composerFileView } from '../composer/composer-chip-file';
@@ -270,7 +270,6 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   // A closed toast's onClose may change saved preferences (shell-prefs.ts): write them now.
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
   const state = shellState(client);
-  nightlyMobileBetaNotice(client, client.preferencesLoaded); // shell-nightly.ts
   permissionUpdateNotices(client, client.preferencesLoaded);
   if (native?.available) {
     native.watch('t3.notify');
@@ -278,6 +277,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     await reportWindowFacts(client, native, page.visible, page.focused);
     noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
     await providerUpdates(client, storage);
+    updateEverythingPass(client, native, now);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await threadNotifications(client, native, state.status); // every connected environment: the focus and the fleet (shell-notify.ts)
     if (tracking(client)) await settleLiveTraces(client, native);
@@ -288,7 +288,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   const menu = titleMenu(client, now);
   return {
-    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client),
+    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client),
     ...(await activationOpen(client, native, state.status)), // openRequest, openThreadId: a clicked notification's thread or a `t3 app` request (desktop-activation.ts)
     keyRightPanel: commandShortcut(client.config, 'rightPanel.toggle'), keyThreadPanel: commandShortcut(client.config, 'threadPanel.toggle'),
     keyTerminal: commandShortcut(client.config, 'terminal.toggle'), keyNewThread: commandShortcut(client.config, 'chat.new'),

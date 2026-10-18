@@ -11,9 +11,9 @@ import type { ResolvedSettingsScope, ScopeMember } from './settings-scope';
 
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = ['worktreeCleanup', 'defaultModelSelection', 'defaultRuntimeMode', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin',
   'worktreeSubmodules', 'defaultAutoPull', 'defaultProjectScripts', 'enableAgentBrowserAccess', 'enableAgentDeviceAccess', 'textGenerationModelSelection',
-  'sourceControlWriterModelSelection', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod',
+  'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'sourceControlWritingStyle', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'pullRequestMergeMethod',
   'sidebarAutoSettleOnMerge', 'sidebarAutoSettleAfterDays', 'continueThreadsAfterServerUpdate', 'responseStreamingMode'] as const;
-const NULLABLE_PROJECT_SETTINGS_OVERRIDES = new Set(['defaultModelSelection', 'sourceControlWriterModelSelection', 'pullRequestMergeMethod', 'sidebarAutoSettleAfterDays']);
+const NULLABLE_PROJECT_SETTINGS_OVERRIDES = new Set(['defaultModelSelection', 'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'pullRequestMergeMethod', 'sidebarAutoSettleAfterDays']);
 export const PROJECT_FILE_BACKED_SETTINGS: Record<string, { field: string; builtIn: string }> = {
   defaultThreadEnvMode: { field: 'defaultThreadEnvMode', builtIn: 'local' }, worktreeSubmodules: { field: 'worktreeSubmodules', builtIn: 'recursive' } };
 const SERVER_KEYS = new Set(['worktreeCleanup', 'storageCleanup', 'responseStreamingMode', 'enableProviderUpdateChecks', 'continueThreadsAfterServerUpdate', 'enableAgentBrowserAccess',
@@ -22,7 +22,7 @@ const SERVER_KEYS = new Set(['worktreeCleanup', 'storageCleanup', 'responseStrea
   'snoozeLimitedThreads', 'autoResumeLimitedThreads', 'sidebarAutoSettleOnMerge', 'backgroundActivity', 'automaticGitFetchInterval', 'providerHealthRefreshInterval',
   'backgroundActivityProfile', 'defaultTheme', 'defaultThemeSetAt', 'environmentIcon', 'defaultThreadEnvMode', 'newWorktreesStartFromOrigin', 'worktreeSubmodules',
   'addProjectBaseDirectory', 'textGenerationModelSelection', 'branchNamingMode', 'branchNamePrefix', 'branchNameInstructions', 'sourceControlWritingStyle',
-  'sourceControlWriterModelSelection', 'pullRequestMergeMethod', 'providers', 'providerInstances', 'observability', 'bitbucket', 'sourceControlHosts', 'usageLimitSources',
+  'sourceControlWriterModelSelection', 'reviewGuideModelSelection', 'reviewGuidesEnabled', 'pullRequestMergeMethod', 'providers', 'providerInstances', 'observability', 'bitbucket', 'sourceControlHosts', 'usageLimitSources',
   'cursorKeychainUsageEnabled', 'usagePriceOverrides', 'usageModelAliases']);
 const CLIENT_KEYS = new Set(['notificationMode', 'inAppNotificationsEnabled', 'diffColorScheme', 'chatWidth', 'loadBalancingEnabled', 'loadBalancingWeights', 'appearanceContrast',
   'panelAnimationDurationMs', 'confirmQuit', 'confirmThreadArchive', 'confirmThreadDelete', 'confirmThreadUnpin', 'diffFilesCollapsed', 'diffIgnoreWhitespace', 'diffLayout',
@@ -159,7 +159,9 @@ export function scopedSettingsSource(targets: readonly Pick<ScopedSettingsTarget
   return sources.size > 1 ? 'mixed' : sources.has('project') ? 'project' : sources.has('t3.json') ? 't3.json' : 'environment';
 }
 
-export interface ScopedServerWrite { readonly environmentId: string; readonly label: string; readonly patch: Obj }
+export interface ScopedServerWrite { readonly environmentId: string; readonly label: string; readonly patch: Obj;
+  /** The environment's settings before the write, to tell a dropped key from a saved one. */
+  readonly previous: Obj }
 export type ScopedSettingsPlan = { clientPatch: Obj; hasClientWrite: boolean; serverWrites: ScopedServerWrite[]; unavailableReason: string | null };
 
 function projectOverrideWrites(scope: Extract<ResolvedSettingsScope, { kind: 'project' | 'checkout' }>, environments: readonly ScopedSettingsEnvironment[],
@@ -172,7 +174,7 @@ function projectOverrideWrites(scope: Extract<ResolvedSettingsScope, { kind: 'pr
     const settings = environment.serverConfig.settings;
     const entry = update(obj(overridesOf(settings)[member.id]), settings, member.id);
     const existing = writes.get(member.environmentId);
-    writes.set(member.environmentId, { environmentId: member.environmentId, label: environment.label,
+    writes.set(member.environmentId, { environmentId: member.environmentId, label: environment.label, previous: settings,
       patch: { projectSettingsOverrides: { ...obj(existing?.patch.projectSettingsOverrides), [member.id]: entry } } });
   }
   return [...writes.values()];
@@ -209,12 +211,15 @@ export function planScopedSettingsPatch(scope: ResolvedSettingsScope, environmen
       }
       return next;
     }))
-    : scope.kind === 'all' || scope.kind === 'environment' ? connectedEnvironments.map(environment => ({
-      environmentId: environment.environmentId, label: environment.label,
-      patch: environment.serverConfig?.settings.worktreeCleanup != null && serverPatch.storageCleanup && Object.keys(storage).some(key => key.startsWith('worktree'))
-        ? { ...serverPatch, worktreeCleanup: { mode: 'custom', rules: { ...resolveWorktreeCleanup(environment.serverConfig.settings, null),
-          ...Object.fromEntries(Object.entries(storage).filter(([key]) => key.startsWith('worktree'))) } } }
-        : serverPatch }))
+    : scope.kind === 'all' || scope.kind === 'environment' ? connectedEnvironments.flatMap(environment => {
+      const previous = environment.serverConfig?.settings;
+      if (!previous) return [];
+      return [{ environmentId: environment.environmentId, label: environment.label, previous,
+        patch: previous.worktreeCleanup != null && serverPatch.storageCleanup && Object.keys(storage).some(key => key.startsWith('worktree'))
+          ? { ...serverPatch, worktreeCleanup: { mode: 'custom', rules: { ...resolveWorktreeCleanup(previous, null),
+            ...Object.fromEntries(Object.entries(storage).filter(([key]) => key.startsWith('worktree'))) } } }
+          : serverPatch }];
+    })
     : [];
   const hasClientWrite = Object.keys(clientPatch).length > 0;
   const hasWrite = hasClientWrite || serverWrites.length > 0;
@@ -255,28 +260,67 @@ export function planProjectOverridesClear(environments: readonly ScopedSettingsE
     const environment = byId.get(environmentId);
     if (!environment?.serverConfig || environment.connection.phase !== 'connected') continue;
     const existing = writes.get(environmentId);
-    writes.set(environmentId, { environmentId, label: environment.label,
+    writes.set(environmentId, { environmentId, label: environment.label, previous: environment.serverConfig.settings,
       patch: { projectSettingsOverrides: { ...obj(existing?.patch.projectSettingsOverrides), [projectId]: clearProjectSettingsOverrides(environment.serverConfig.settings, projectId, keys) } } });
   }
   const serverWrites = [...writes.values()];
   return { clientPatch: {}, hasClientWrite: false, serverWrites, unavailableReason: serverWrites.length > 0 ? null : 'Connect the environments to reset these overrides.' };
 }
 
-/** Wait for every target so a failed environment does not hide successful or later writes. */
-export async function persistScopedSettingsPatch(plan: ScopedSettingsPlan,
-  persistServer: (input: { environmentId: string; input: { patch: Obj } }) => Promise<{ readonly _tag: 'Success' | 'Failure' }>, persistClient: (patch: Obj) => void) {
-  if (plan.hasClientWrite) persistClient(plan.clientPatch);
-  const results = await Promise.allSettled(plan.serverWrites.map(({ environmentId, patch }) => persistServer({ environmentId, input: { patch } })));
-  const failedEnvironments = plan.serverWrites.filter((_, index) => { const result = results[index]; return result?.status !== 'fulfilled' || result.value._tag === 'Failure'; });
-  return { failedEnvironments, savedEnvironmentCount: plan.serverWrites.length - failedEnvironments.length };
+/**
+ * Whether a server kept `before` where `value` asked for a change. Objects are
+ * compared field by field, so a nested key an older server dropped is caught
+ * even when a sibling field saved. A null clears the field; strings may come
+ * back trimmed.
+ */
+function writeWasDropped(value: unknown, before: unknown, saved: unknown): boolean {
+  if (value === null) return before != null && settingsEqual(saved, before);
+  if (isPlainObject(value) && !Array.isArray(before) && !Array.isArray(saved)) {
+    const field = (source: unknown, key: string) => isPlainObject(source) ? source[key] : undefined;
+    return Object.entries(value).some(([key, next]) => writeWasDropped(next, field(before, key), field(saved, key)));
+  }
+  const unchanged = typeof value === 'string' && typeof before === 'string' ? value.trim() === before : settingsEqual(value, before);
+  return !unchanged && settingsEqual(saved, before);
 }
 
-/** useRunScopedPlan's toasts: the warning for a refused plan, the error naming environments that did not save. */
-export function scopedPlanNotice(plan: Pick<ScopedSettingsPlan, 'unavailableReason'>, result?: { failedEnvironments: readonly { label: string }[]; savedEnvironmentCount: number }):
+/** An older server drops keys it does not know, top-level or nested, and still succeeds. Left unreported, the row stays mixed forever. */
+function droppedSettingKeys(write: ScopedServerWrite, saved: Obj | undefined): string[] {
+  if (saved === undefined) return [];
+  return Object.entries(write.patch).flatMap(([key, value]) => writeWasDropped(value, write.previous[key], saved[key]) ? [key] : []);
+}
+
+export type FailedEnvironment = ScopedServerWrite & { readonly message: string };
+export type ScopedPersistResult = { failedEnvironments: FailedEnvironment[]; savedEnvironments: ScopedServerWrite[]; savedEnvironmentCount: number };
+
+/** Wait for every target so a failed environment does not hide successful or later writes. */
+export async function persistScopedSettingsPatch(plan: ScopedSettingsPlan,
+  persistServer: (input: { environmentId: string; input: { patch: Obj } }) => Promise<{ readonly _tag: 'Success' | 'Failure'; readonly error?: unknown; readonly value?: Obj }>,
+  persistClient: (patch: Obj) => void): Promise<ScopedPersistResult> {
+  if (plan.hasClientWrite) persistClient(plan.clientPatch);
+  const results = await Promise.allSettled(plan.serverWrites.map(({ environmentId, patch }) => persistServer({ environmentId, input: { patch } })));
+  const saved = (index: number) => {
+    const result = results[index];
+    return result?.status === 'fulfilled' && result.value._tag === 'Success' && droppedSettingKeys(plan.serverWrites[index]!, result.value.value).length === 0;
+  };
+  const failedEnvironments = plan.serverWrites.flatMap((environment, index): FailedEnvironment[] => {
+    if (saved(index)) return [];
+    const result = results[index];
+    if (result?.status === 'fulfilled' && result.value._tag === 'Success') return [{ ...environment, message: 'This environment does not support this setting. Update T3 Code on it.' }];
+    const error: unknown = result?.status === 'rejected' ? result.reason : result?.status === 'fulfilled' ? result.value.error : undefined;
+    return [{ ...environment, message: error instanceof Error ? error.message : 'The save failed. Try reconnecting and saving again.' }];
+  });
+  const savedEnvironments = plan.serverWrites.filter((_, index) => saved(index));
+  return { failedEnvironments, savedEnvironments, savedEnvironmentCount: savedEnvironments.length };
+}
+
+/** useRunScopedPlan's toasts: the warning for a refused plan, the error naming each environment that did not save and why. */
+export function scopedPlanNotice(plan: Pick<ScopedSettingsPlan, 'unavailableReason'>, result?: Pick<ScopedPersistResult, 'savedEnvironmentCount'> & {
+  failedEnvironments: readonly { label: string; message: string }[]; savedEnvironments: readonly { label: string }[] }):
   { kind: 'warning' | 'error'; title: string; description: string } | null {
   if (plan.unavailableReason) return { kind: 'warning', title: 'Setting not saved', description: plan.unavailableReason };
   if (!result || result.failedEnvironments.length === 0) return null;
   const saved = result.savedEnvironmentCount > 0;
   return { kind: 'error', title: saved ? 'Setting saved on some environments' : 'Setting not saved',
-    description: `Could not update ${result.failedEnvironments.map(environment => environment.label).join(', ')}.${saved ? ' The other selected environments saved the change.' : ''}` };
+    description: [...result.failedEnvironments.map(({ label, message }) => `Could not save on ${label}: ${message}`),
+      ...(saved ? [`Saved on ${result.savedEnvironments.map(({ label }) => label).join(', ')}.`] : [])].join('\n') };
 }

@@ -5,6 +5,8 @@
 // ImageChipButton, UnresolvedChip), ThreadContextChip.tsx and ChatMarkdown's
 // MarkdownFileLink tooltip (the link's full path). Contract matches each chip
 // to its parsed run by `href` (markdown.contract ChipView).
+import { isWindowsAbsolutePath } from '../media/media-reference';
+import { inlineCodeFilePathCandidate } from './inline-code-files';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { fileIconToken } from '../shared/timeline-files';
 import type { T3Client } from '../client/client';
@@ -112,7 +114,7 @@ export function fileLinkTarget(href: string, root: string): string {
   let target = href.trim();
   try { target = decodeURI(target); } catch { /* keep the raw spelling */ }
   target = target.replace(/^file:\/\//i, '').replace(/#L(\d+)(?:C(\d+))?$/i, (_all, line: string, column?: string) => `:${line}${column ? `:${column}` : ''}`);
-  if (target.startsWith('~') || target.startsWith('/') || !root) return target;
+  if (target.startsWith('~') || target.startsWith('/') || isWindowsAbsolutePath(target) || !root) return target;
   const parts: string[] = [];
   for (const part of `${root.replace(/\/+$/, '')}/${target}`.split('/')) {
     if (part === '.' || (part === '' && parts.length > 0)) continue;
@@ -156,17 +158,29 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     if (link.image || !markdownLinkHref(link.href).startsWith('t3-file:')) continue;
     add({ href: `t3-file:${link.href}`, kind: 'link', label: link.label, size: '', tip: fileLinkTarget(link.href, root), detail: '', icon: fileIconToken(link.href), target: '' });
   }
+  if (root) for (const match of text.matchAll(/(`+)([^`]+)\1/g)) {
+    const code = match[2]!.trim(), candidate = inlineCodeFilePathCandidate(code);
+    if (candidate === null) continue;
+    const cwd = media.cwd || root;
+    const fromRoot = !/^(?:~|\.{1,2})[\\/]/.test(candidate) && candidate.replace(/:\d+(?::\d+)?$/, '').includes('/')
+      && (root === cwd || root.startsWith(`${cwd.replace(/\/+$/, '')}/`));
+    const target = fileLinkTarget(candidate, fromRoot ? cwd : root), position = /:(\d+)(?::\d+)?$/.exec(candidate);
+    const path = candidate.replace(/:\d+(?::\d+)?$/, ''), name = path.replaceAll('\\', '/').split('/').pop() || path;
+    add({ href: `t3-inline-code:${code}`, kind: 'link', label: `${name}${position ? ` · L${position[1]}` : ''}`, size: '', tip: target, detail: '', icon: fileIconToken(path), target: '' });
+  }
   // An image's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
   for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...chip, owner });
   noteMarkdownDocument(owner, text, root, media); // the image's press opens the preview over this document's images
   return chips;
 }
 
-/** AssistantCitationChip: the quote (or its comment) cut at 64 characters; "View source" opens the cited thread at the answer.
- * Each `[Assistant quote](t3-citation://…)` is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
+/** AssistantCitationChip (T3 Code 9c161462c9): the label is the quote (or its comment) cut at 64 characters; its popover
+ * shows the quote (`tip`) and the comment (`size`), and "Go to source" opens the cited thread (`target`) at the answer
+ * (`detail`). Each `[Assistant quote](t3-citation://…)` is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
 function citationChip(href: string): Omit<ChipView, 'id' | 'owner'> {
   const citation = parseAssistantCitationHref(href);
-  return { href, kind: 'citation', label: citation ? assistantCitationLabel(citation) : '', size: '', tip: 'View source', detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
+  return { href, kind: 'citation', label: citation ? assistantCitationLabel(citation) : '', size: citation?.comment ?? '', tip: citation?.text ?? '',
+    detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
 }
 const UNAVAILABLE = 'This context is no longer available.';
 function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[]): Omit<ChipView, 'id' | 'owner'> {

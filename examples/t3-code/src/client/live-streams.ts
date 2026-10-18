@@ -16,8 +16,12 @@ import { letGo } from './let-go';
 
 export const SCHEDULED_TASKS_KEY = 'scheduled-tasks';
 export const PROJECT_CLONES_KEY = 'project-clones';
-export const LIVE_KEYS = [SCHEDULED_TASKS_KEY, PROJECT_CLONES_KEY];
-const METHODS: Record<string, string> = { [SCHEDULED_TASKS_KEY]: 'scheduledTasks.subscribe', [PROJECT_CLONES_KEY]: 'subscribeProjectClones' };
+export const STORAGE_REPORT_KEY = 'storage-cleanup-report';
+export const DEVICE_HOSTS_KEY = 'settings-device-hosts';
+export const LIVE_KEYS = [SCHEDULED_TASKS_KEY, PROJECT_CLONES_KEY, STORAGE_REPORT_KEY, DEVICE_HOSTS_KEY];
+const deviceHostsWanted = new Set<string>();
+const cleanupWanted = new Set<string>();
+const METHODS: Record<string, string> = { [SCHEDULED_TASKS_KEY]: 'scheduledTasks.subscribe', [PROJECT_CLONES_KEY]: 'subscribeProjectClones', [STORAGE_REPORT_KEY]: 'server.getStorageCleanupReport', [DEVICE_HOSTS_KEY]: 'subscribeDeviceState' };
 
 type Stream = { id: string; floor: number; maxSeen: number; value: Obj[] | null; error: string; tried: boolean; subscribes: number };
 type Streams = { generation: number; streams: Record<string, Stream> };
@@ -43,7 +47,7 @@ function apply(stream: Stream, key: string, entry: Obj): void {
   const raw = entry.value, item = obj(raw);
   if (item._retryDue || item._streamEnded) { stream.id = ''; stream.tried = false; return; }
   if (item._transportError) { stream.error = str(obj(item._transportError).message, 'The live stream ended.'); return; }
-  const list = key === PROJECT_CLONES_KEY ? (Array.isArray(raw) ? raw : null) : (Array.isArray(item.tasks) ? item.tasks : null);
+  const list = (key === STORAGE_REPORT_KEY || key === DEVICE_HOSTS_KEY) ? raw === null ? [] : [item] : key === PROJECT_CLONES_KEY ? (Array.isArray(raw) ? raw : null) : (Array.isArray(item.tasks) ? item.tasks : null);
   if (list) { stream.value = list.map(obj); stream.error = ''; }
 }
 
@@ -61,7 +65,7 @@ export async function watchLive(client: T3Client, native: Native | null | undefi
   const owned = streamsOf(client, client.generation);
   for (const key of LIVE_KEYS) {
     const stream = owned.streams[key]!;
-    if (stream.id || stream.tried || (key === PROJECT_CLONES_KEY && !cloneTracking(client.config))) continue;
+    if (stream.id || stream.tried || (key === PROJECT_CLONES_KEY && !cloneTracking(client.config)) || (key === STORAGE_REPORT_KEY && !cleanupWanted.has(client.environmentId)) || (key === DEVICE_HOSTS_KEY && !deviceHostsWanted.has(client.environmentId))) continue;
     stream.tried = true; stream.floor = stream.maxSeen;
     try {
       const reply = await client.restAccess(native).call({ op: 'subscribe', key, method: METHODS[key], payload: {} });
@@ -85,7 +89,7 @@ export async function liveFleetPass(call: (request: Obj) => Promise<Obj>, entry:
   const owned = streamsOf(entry, entry.generation);
   for (const key of LIVE_KEYS) {
     const stream = owned.streams[key]!;
-    if (stream.id || stream.tried || (key === PROJECT_CLONES_KEY && !cloneTracking(entry.config))) continue;
+    if (stream.id || stream.tried || (key === PROJECT_CLONES_KEY && !cloneTracking(entry.config)) || (key === STORAGE_REPORT_KEY && !cleanupWanted.has(entry.environmentId)) || (key === DEVICE_HOSTS_KEY && !deviceHostsWanted.has(entry.environmentId))) continue;
     stream.tried = true; stream.floor = stream.maxSeen;
     try {
       const reply = await call({ op: 'subscribe', key, method: METHODS[key], payload: {} });
@@ -109,7 +113,7 @@ const listOf = (owner: object, generation: number, key: string): LiveList => {
  */
 export type LiveEnvironment = {
   environmentId: string; label: string; focused: boolean; connected: boolean; config: Obj; shell: Shell; key: string;
-  tasks: LiveList; clones: LiveList; request: (method: string, payload?: Obj, write?: boolean) => Promise<Obj>; ids: (count: number) => Promise<string[]>;
+  tasks: LiveList; clones: LiveList; cleanup: LiveList; devices: LiveList; request: (method: string, payload?: Obj, write?: boolean) => Promise<Obj>; ids: (count: number) => Promise<string[]>;
 };
 const environmentLabel = (config: Obj, fallback: string) => str(obj(config.environment).label, fallback);
 
@@ -118,7 +122,7 @@ export function liveEnvironments(client: T3Client, native: Native | null | undef
   const out: LiveEnvironment[] = [];
   if (client.environmentId) {
     out.push({ environmentId: client.environmentId, label: environmentLabel(client.config, 'This environment'), focused: true, connected: client.ready,
-      config: client.config, shell: client.shell, key: '', tasks: listOf(client, client.generation, SCHEDULED_TASKS_KEY), clones: listOf(client, client.generation, PROJECT_CLONES_KEY),
+      config: client.config, shell: client.shell, key: '', tasks: listOf(client, client.generation, SCHEDULED_TASKS_KEY), clones: listOf(client, client.generation, PROJECT_CLONES_KEY), cleanup: listOf(client, client.generation, STORAGE_REPORT_KEY), devices: listOf(client, client.generation, DEVICE_HOSTS_KEY),
       request: (method, payload = {}, write = false) => {
         if (!native?.available) throw new ClientError('Open this app on macOS to connect to T3 Code.');
         return client.restAccess(native).request(method, payload, write);
@@ -130,7 +134,7 @@ export function liveEnvironments(client: T3Client, native: Native | null | undef
     const saved = source.saved.find(candidate => str(candidate.environmentId) === entry.environmentId);
     out.push({ environmentId: entry.environmentId, label: environmentLabel(entry.config, str(saved?.label, entry.environmentId)), focused: false,
       connected: entry.phase === 'connected' && entry.synchronized === entry.generation, config: entry.config, shell: entry.shell, key: entry.key,
-      tasks: listOf(entry, entry.generation, SCHEDULED_TASKS_KEY), clones: listOf(entry, entry.generation, PROJECT_CLONES_KEY),
+      tasks: listOf(entry, entry.generation, SCHEDULED_TASKS_KEY), clones: listOf(entry, entry.generation, PROJECT_CLONES_KEY), cleanup: listOf(entry, entry.generation, STORAGE_REPORT_KEY), devices: listOf(entry, entry.generation, DEVICE_HOSTS_KEY),
       request: async (method, payload = {}) => {
         if (!native?.available) throw new ClientError('Open this app on macOS to connect to T3 Code.');
         const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'request', method, payload, generation: entry.generation });
@@ -158,4 +162,30 @@ export function liveEnvironment(client: T3Client, native: Native | null | undefi
 export async function currentTasks(environment: LiveEnvironment): Promise<Obj[]> {
   if (environment.tasks.value) return environment.tasks.value;
   return arr((await environment.request('scheduledTasks.list', {})).tasks);
+}
+
+/** Storage's last-run report is watched only once that page selects a supported environment. */
+export async function watchStorageReports(client: T3Client, native: Native, environmentIds: readonly string[]): Promise<void> {
+  for (const id of environmentIds) cleanupWanted.add(id);
+  if (environmentIds.includes(client.environmentId)) await watchLive(client, native);
+  await Promise.all([...fleet.entries.values()].filter(entry => environmentIds.includes(entry.environmentId) && entry.phase === 'connected').map(async entry => {
+    const call = async (request: Obj) => {
+      const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { ...request, generation: entry.generation });
+      if (!reply.ok) throw new ClientError(reply.error?.message || 'Could not watch cleanup reports.');
+      return obj(reply.value);
+    };
+    await liveFleetPass(call, entry);
+  }));
+}
+
+/** Integrations watches background device states through those machines' existing inboxes. */
+export async function watchDeviceHostStates(client: T3Client, native: Native, environmentIds: readonly string[]): Promise<void> {
+  for (const id of environmentIds) if (id !== client.environmentId) deviceHostsWanted.add(id);
+  await Promise.all([...fleet.entries.values()].filter(entry => environmentIds.includes(entry.environmentId) && entry.environmentId !== client.environmentId && entry.phase === 'connected').map(async entry => {
+    await liveFleetPass(async request => {
+      const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { ...request, generation: entry.generation });
+      if (!reply.ok) throw new ClientError(reply.error?.message || 'Could not watch device hosts.');
+      return obj(reply.value);
+    }, entry);
+  }));
 }

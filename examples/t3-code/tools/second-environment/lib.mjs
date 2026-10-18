@@ -20,6 +20,11 @@ export const example = join(checkout, "examples/t3-code");
 export const ENVIRONMENTS = {
   second: { port: 16510, label: "Lane Second" },
   third: { port: 16511, label: "Lane Third" },
+  fourth: { port: 16512, label: "Lane Studio" },
+  fifth: { port: 16513, label: "Lane Studio" },
+  sixth: { port: 16514, label: "Lane Sixth" },
+  seventh: { port: 16515, label: "Lane Seventh" },
+  eighth: { port: 16516, label: "Lane Eighth" },
 };
 /** The port "This machine" (the app's embedded server) gets in a drive with `--local`. */
 export const LOCAL_PORT = 16500;
@@ -358,7 +363,7 @@ async function seedPullRequestThread(paths, name, conn, projectId, live, { timeo
 }
 
 /** Projects and threads for `name`, through the running server's API. Idempotent by title. */
-export async function seed(paths, name, seeds = SEEDS[name] ?? [], { turns = false, limits = false, pullRequest = false } = {}) {
+export async function seed(paths, name, seeds = SEEDS[name] ?? [{ repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: [`Shared notes on ${name}`] }], { turns = false, limits = false, pullRequest = false } = {}) {
   const running = recorded(paths, name);
   if (!running) throw new Error(`${name}: no fixture server running`);
   const conn = await connect(`http://127.0.0.1:${running.port}`, pairingToken(paths, name, "Fixture seed"));

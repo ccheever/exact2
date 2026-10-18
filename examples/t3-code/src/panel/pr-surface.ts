@@ -1,5 +1,5 @@
 // The thread's pull request beside the thread (MIT reference,
-// see LICENSE-T3, upstream f90b77d809):
+// see LICENSE-T3, upstream 9c161462c9):
 // - the details card's rows under the branch select (components/chat/
 //   ThreadDetailsPrRows.tsx, ThreadDetailsPrRow.tsx, BranchToolbarBranchSelector
 //   panel mode: displayedPr / prNumber / prUrl / panelPrLabel), "Show N more"
@@ -11,6 +11,7 @@
 //   RightPanelTabs.tsx surfaceTitle "#N" and PullRequestSurfaceIcon).
 // The surface body is the Pull Requests page's detail panel over the window's
 // one `prDetail` resource (pages-pr-detail.ts), fed this surface's reference.
+import { sharedPullRequestLinks, sharedPullRequestSummary } from '../pull-requests/pages-pr-shared';
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -27,6 +28,8 @@ export type PrRow = {
   key: string; label: string; tooltip: string; icon: string; state: string; tinted: boolean; target: string; url: string; aria: string;
   split: boolean; checks: string; checksCount: string; checksAria: string; action: string; actionTarget: string; actionLabel: string; actionTooltip: string; actionDisabled: boolean;
   extra: RowExtra; // The hand-offs, Merge, the checks popover and the tooltip card
+  /** The server watches this open pull request for the thread: the row's eye, which stops the watch (`watchKey`, linked-prs.ts's key). */
+  watching: boolean; watchKey: string; stopWatchLabel: string;
 };
 export type PrRowsView = { show: boolean; rows: PrRow[]; rest: PrRow[]; moreLabel: string; expanded: boolean; merge: MergeAsk };
 /** ThreadDetailsPrRows' expanded state, per thread so a scheme rebuild of the card keeps it. */
@@ -56,7 +59,7 @@ export const lifecycleIcon = (key: string) => key === 'draft' ? 'git-pull-reques
 type Pr = { number: number; url: string; title: string; state: string; isDraft: boolean; provider: string };
 /** prStatusIndicator(pr, provider).tooltip: "PR #72 - Open: Title". */
 export function statusTooltip(pr: Pr): string { return `${shortName(pr.provider)} #${pr.number} - ${STATE_LABEL[lifecycle(pr.state, pr.isDraft)]}: ${pr.title}`; }
-function snapshotPr(link: Obj): Pr | null {
+export function snapshotPr(link: Obj): Pr | null {
   const snapshot = snapshotOf(link);
   return snapshot ? { number: num(link.number), url: str(link.url), title: str(snapshot.title), state: str(snapshot.state, 'open'), isDraft: snapshot.isDraft === true, provider: providerOfUrl(str(link.url)) } : null;
 }
@@ -65,14 +68,16 @@ function vcsPr(value: unknown, provider: unknown): Pr | null {
   return pr && num(pr.number) > 0 ? { number: num(pr.number), url: str(pr.url), title: str(pr.title), state: str(pr.state, 'open'), isDraft: pr.isDraft === true, provider: str(obj(provider).kind, 'github') } : null;
 }
 
+/** "Open pull requests in T3 Code" (client setting pullRequestLinksOpenInApp, default on): off, every pull request link is an ordinary one. */
+export const prLinksOpenInApp = (client: { local?: object }): boolean => obj(obj(client.local).clientSettings).pullRequestLinksOpenInApp !== false;
 /**
  * useOpenPrLink without a modifier: the project this environment reads the link through (its own
  * repository, else, where links are many-per-thread, any project on the link's host). Null keeps
- * the link an ordinary one.
+ * the link an ordinary one, as does "Open pull requests in T3 Code" turned off.
  */
 export function prTarget(client: T3Client, url: string): PrTarget | null {
   const parsed = parseChangeRequestUrl(url), capabilities = caps(client);
-  if (!parsed || capabilities.pullRequests !== true) return null;
+  if (!parsed || capabilities.pullRequests !== true || !prLinksOpenInApp(client)) return null;
   const projects = client.shell.projects, many = capabilities.threadPullRequests === true;
   const project = findProjectForChangeRequest(projects, parsed) ?? (many ? findProjectOnChangeRequestHost(projects, parsed) : undefined);
   if (!project) return null;
@@ -95,18 +100,15 @@ export const prSurfaceId = (target: PrTarget) =>
 
 /** PullRequestSurfaceIcon: the linked snapshot's lifecycle glyph in its tone, else the muted pull request glyph. */
 export function prTabIcon(client: T3Client, target: PrTarget): { icon: string; state: string } {
-  if (caps(client).threadPullRequests === true && target.host) {
-    let newest: Obj | null = null;
-    for (const thread of client.shell.threads) for (const link of visiblePullRequests(thread.pullRequests)) {
-      if (linkKey(link) !== linkKey(target)) continue;
-      if (!newest || str(snapshotOf(link)?.syncedAt) > str(snapshotOf(newest)?.syncedAt)) newest = link;
-    }
-    const snapshot = newest ? snapshotOf(newest) : null;
-    if (snapshot) { const key = lifecycle(str(snapshot.state, 'open'), snapshot.isDraft === true); return { icon: lifecycleIcon(key), state: key }; }
-  }
-  // Without a linked snapshot the tab follows the loaded detail (newestPullRequestSummary(detail, …)).
   const detail = caps(client).pullRequests === true ? peekDetail(client, tabReference(client, target)) : null;
-  if (detail) { const key = lifecycle(str(detail.state, 'open'), detail.isDraft === true); return { icon: lifecycleIcon(key), state: key }; }
+  let snapshot: Obj | null = null;
+  for (const thread of client.shell.threads) for (const link of visiblePullRequests(thread.pullRequests)) {
+    if (linkKey(link) !== linkKey(target) || !snapshotOf(link)) continue;
+    const incoming = snapshotOf(link)!;
+    if (!snapshot || str(incoming.syncedAt) > str(snapshot.syncedAt)) snapshot = incoming;
+  }
+  const summary = sharedPullRequestSummary(client, target, detail ?? snapshot);
+  if (summary) { const key = lifecycle(str(summary.state, 'open'), summary.isDraft === true); return { icon: lifecycleIcon(key), state: key }; }
   return { icon: 'git-pull-request-arrow', state: '' };
 }
 /** PullRequestSurfaceIcon's detail read: the surface's project, its host where links are many-per-thread. */
@@ -123,9 +125,12 @@ export function forgetRowDetail(client: T3Client): void { forgetDetails(client);
 // classifyPullRequestChecks, pullRequestChecksState and resolveThreadPanelPullRequestAction live in pr-row-logic.ts.
 export { checksState, checksRollup, rowAction } from '../details/pr-row-logic';
 
-function simpleRow(client: T3Client, number: number, url: string, label: string, pr: Pr | null): PrRow {
+function simpleRow(client: T3Client, number: number, url: string, label: string, pr: Pr | null, link: Obj | null = null): PrRow {
   const target = prTarget(client, url);
+  // ThreadDetailsPrRows stopWatching: only a watched link gets the eye, and the server ends a watch when the pull request closes.
+  const watching = link?.watch != null && (pr?.state ?? 'open') === 'open';
   return {
+    watching, watchKey: watching ? linkKey(link!) : '', stopWatchLabel: `Stop watching #${number}`,
     key: `pr-${number}-${url}`, label, tooltip: pr ? statusTooltip(pr) : `Pull request #${number}`,
     // ChangeRequestStatusIcon(state) without isDraft: the glyph follows the lifecycle, the tone the draft-aware status.
     icon: pr ? lifecycleIcon(lifecycle(pr.state, false)) : 'git-pull-request-arrow', state: pr ? lifecycle(pr.state, pr.isDraft) : '', tinted: !!pr,
@@ -142,7 +147,7 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
   const none: PrRowsView = emptyPrRows();
   const thread = client.shell.threads.find(entry => entry.id === input.threadId);
   const capabilities = caps(client), many = capabilities.threadPullRequests === true;
-  const links = arr(thread?.pullRequests);
+  const links = sharedPullRequestLinks(client, arr(thread?.pullRequests), input.projectId);
   const current = many ? currentPullRequestLink(links) : null;
   const linkedPr = current ? snapshotPr(current) : null;
   // branchPr: the status read's pull request when it reports the thread's own branch.
@@ -153,7 +158,7 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
   const number = current ? num(current.number) : displayed?.number ?? 0, url = current ? str(current.url) : displayed?.url ?? '';
   if (!number || !url) return none;
   const label = `#${number}${displayed?.title.trim() ? `: ${displayed.title}` : ''}`;
-  const main = simpleRow(client, number, url, label, displayed);
+  const main = simpleRow(client, number, url, label, displayed, current);
   // ThreadDetailsPrRow's reference: read through the thread's project on the host.
   const project = client.shell.projects.find(entry => entry.id === (thread ? str(thread.projectId) : input.projectId));
   const repository = repositorySelector(obj(project?.repositoryIdentity));
@@ -161,16 +166,24 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
     ? current ? { projectId: str(project.id), host: str(current.host), repository: str(current.repository), number }
       : repository ? { projectId: str(project.id), repository, number } : null
     : null;
-  const detail = native?.available ? await readDetail(client, native, reference, input.now) : null;
+  const loaded = native?.available ? await readDetail(client, native, reference, input.now) : null;
+  const summary = reference ? sharedPullRequestSummary(client, reference, loaded) : null;
+  const detail = loaded && summary ? { ...loaded, ...summary } : loaded;
+  if (summary) {
+    const key = lifecycle(str(summary.state, 'open'), summary.isDraft === true);
+    Object.assign(main, { icon: lifecycleIcon(loaded ? key : lifecycle(str(summary.state, 'open'), false)), state: key, tinted: true, label: `#${number}${str(summary.title).trim() ? `: ${str(summary.title)}` : ''}` });
+  }
   if (detail && reference) {
     const key = lifecycle(str(detail.state, 'open'), detail.isDraft === true);
     // The split row's checks, trailing action and tooltip card (pr-row.ts).
     Object.assign(main, { icon: lifecycleIcon(key), state: key, tinted: true, split: true },
       rowExtra(client, detail, reference, { key: main.key, lifecycleKey: key, rightGap: input.rightGap ?? 0, inline: input.inline === true }));
+    // `detail?.state ?? pr?.state`: the host's answer decides whether the watch still runs.
+    if (str(detail.state, 'open') !== 'open') Object.assign(main, { watching: false, watchKey: '' });
   }
   // ThreadDetailsPrRows: the other visible links, in the list's order, behind "Show N more".
   const rest = current === null ? [] : listLines(resolveChains(links)).map(line => line.link).filter(link => linkKey(link) !== linkKey(current))
-    .map(link => { const pr = snapshotPr(link), snapshot = snapshotOf(link); return simpleRow(client, num(link.number), str(link.url), `#${num(link.number)}${snapshot ? `: ${str(snapshot.title)}` : ''}`, pr); });
+    .map(link => { const pr = snapshotPr(link), snapshot = snapshotOf(link); return simpleRow(client, num(link.number), str(link.url), `#${num(link.number)}${snapshot ? `: ${str(snapshot.title)}` : ''}`, pr, link); });
   const expanded = rest.length > 0 && expandedThreads.get(client)?.has(client.draftKey) === true;
   return { show: true, rows: [main], rest: expanded ? rest : [], moreLabel: rest.length ? (expanded ? 'Show less' : `Show ${rest.length} more`) : '', expanded, merge: mergeAsk(client) };
 }

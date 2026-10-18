@@ -314,9 +314,13 @@ function terminalMetadataEvent(item: Obj): TerminalMetadataStreamEvent | null {
 
 /** Running subprocesses in one background environment, never a same-named local thread. */
 export function fleetTerminalProcessCount(environmentId: string, threadId: string, source: EnvironmentFleet = fleet): number {
+  return fleetRunningTerminalIds(environmentId, threadId, source).length;
+}
+/** The background environment's terminals of the thread that run a child process, in the server's order. */
+export function fleetRunningTerminalIds(environmentId: string, threadId: string, source: EnvironmentFleet = fleet): string[] {
   const entry = [...source.entries.values()].find(candidate => candidate.environmentId === environmentId);
-  if (!entry || entry.phase !== 'connected' || entry.synchronized !== entry.generation) return 0;
-  return (entry.terminalMetadata ?? []).filter(terminal => terminal.threadId === threadId && terminal.hasRunningSubprocess).length;
+  if (!entry || entry.phase !== 'connected' || entry.synchronized !== entry.generation) return [];
+  return (entry.terminalMetadata ?? []).filter(terminal => terminal.threadId === threadId && terminal.hasRunningSubprocess).map(terminal => terminal.terminalId);
 }
 
 /** The app's one fleet: background environments outlive any single answer. */

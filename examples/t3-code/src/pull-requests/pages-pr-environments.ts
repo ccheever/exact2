@@ -4,6 +4,7 @@
 // as the pull request code uses it (MIT, see LICENSE-T3: packages/client-runtime/src/connection/
 // {registry,githubRoutingPermissions}.ts, state/pullRequestRouting.ts): the router asks it which
 // servers are connected, local and trusted, and sends each routed request through it.
+import { observePullRequestSummary } from './pages-pr-shared';
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
@@ -104,12 +105,16 @@ export function routerHost(client: T3Client, native: Native, originId: string, s
  * pull request was listed on (a background one's row), which is stripped before it is sent; the router then reads
  * or writes through whichever server the reader shares GitHub with (pullRequestRouting.ts).
  */
-export function routedPullRequestRequest(client: T3Client, native: Native, method: string, payload: Obj, write: boolean, share = false): Promise<Obj> {
+export async function routedPullRequestRequest(client: T3Client, native: Native, method: string, payload: Obj, write: boolean, share = false): Promise<Obj> {
   const { environmentId, ...rest } = payload;
   // An invalidation names its pull request inside `reference`; the marker rides there too.
   const reference = obj(rest.reference), nested = str(reference.environmentId);
   if (nested) { const { environmentId: _nested, ...plain } = reference; rest.reference = plain; }
-  return pullRequestRouter.request(routerHost(client, native, pullRequestServer(client, str(environmentId) || nested, rest), fleet, share), method, rest, write);
+  const origin = pullRequestServer(client, str(environmentId) || nested, rest);
+  const answer = await pullRequestRouter.request(routerHost(client, native, origin, fleet, share), method, rest, write);
+  if (method === 'pullRequests.detail' || method === 'pullRequests.summary') observePullRequestSummary(client, origin || client.environmentId, rest, answer);
+  if (method === 'pullRequests.list') for (const entry of arr(answer.entries)) observePullRequestSummary(client, origin || client.environmentId, entry, entry);
+  return answer;
 }
 /** The server a pull request request belongs to: the one it was listed on, else the one its project lives on. */
 export const pullRequestServer = (client: T3Client, environmentId: string, payload: Obj, source: EnvironmentFleet = fleet): string =>

@@ -220,15 +220,20 @@ describe('the chrome row and the native host', () => {
     expect(browserView(client, surface)).toMatchObject({ failed: true, live: false, failHost: 'localhost:16699', failMessage: 'Connection refused', failLabel: 'ERR_CONNECTION_REFUSED' });
   });
 
-  it('handleSubmitUrl: a good address loads in the tab web view; one the rules refuse does nothing', async () => {
+  it('handleSubmitUrl: a good address loads in the tab web view, other text searches for it; one the rules refuse does nothing', async () => {
     const { client, native } = fakeClient(() => ({}));
     const state = emptyPanel();
     opened(client, state, idle('tab-1'));
     await browserLocal(client, module, state, 'navigate', 'tab-1', 'localhost:16651');
     await browserLocal(client, module, state, 'navigate', 'tab-1', 'ftp://example.com');
     await browserLocal(client, module, state, 'navigate', 'tab-1', '   ');
-    expect(native.map(call => call.payload)).toEqual([{ op: 'browserNavigate', tab: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), url: 'http://localhost:16651/', profile: 'default', environment: 'local' }]);
-    expect(browserHost(client).store.read(threadRef).recentlySeenUrls).toEqual(['http://localhost:16651/']);
+    await browserLocal(client, module, state, 'navigate', 'tab-1', 'how to center a div');
+    const tab = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), search = 'https://duckduckgo.com/?q=how%20to%20center%20a%20div';
+    expect(native.map(call => call.payload)).toEqual([
+      { op: 'browserNavigate', tab, url: 'http://localhost:16651/', profile: 'default', environment: 'local' },
+      { op: 'browserNavigate', tab, url: search, profile: 'default', environment: 'local' },
+    ]);
+    expect(browserHost(client).store.read(threadRef).recentlySeenUrls).toEqual([search, 'http://localhost:16651/']);
   });
 
   it('Back, Forward, Refresh and Hard reload go to the tab web view; Open in system browser opens its URL', async () => {

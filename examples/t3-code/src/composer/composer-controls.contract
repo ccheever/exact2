@@ -236,13 +236,11 @@ component ProviderUnavailable
       CcIcon(name="circle-alert", size=(xs ? 12 : 16), color="light-dark(#71717a, #818181)", weight=2)
       text label font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over and not disabled ? "light-dark(#27272a, #f5f5f5)" : xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)") white-space="nowrap"
 
-// The traits trigger: its label, or a bolt for a speed trait; icon-only
-// compact layouts show the brain glyph instead of the label.
+// The traits trigger: the brain glyph, then the label ("High Fast · 1M"),
+// which icon-only compact layouts leave out.
 component TraitsTrigger
   props
     label: string
-    aria: string
-    speed: string
     iconOnly: bool
     xs: bool
     open: bool
@@ -254,18 +252,13 @@ component TraitsTrigger
     over = value
   view
     box position="relative" display="flex" flex-direction="row" align-items="center" min-width=0 max-width="12rem" flex-shrink=(iconOnly ? 0 : 1) hatch="t3-anchor" data-anchor="traits"
-      button press=press hover=hover class=Control aria-label=aria aria-expanded=open aria-keyshortcuts=keyEffort testId="reasoning-effort" disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=0 max-width="12rem" flex-shrink=(iconOnly ? 0 : 1) height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.6875rem") padding-right=(xs ? "0.4375rem" : "0.6875rem") padding-top=0 padding-bottom=0 gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
-        if speed != ""
-          box display="flex" flex-shrink=0 opacity=0.8
-            CcIcon(name=(speed == "ultrafast" ? "ultrafast" : "zap"), size=(xs ? 12 : 16), color=(xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#27272a, #f5f5f5)"), weight=2)
-        else
-          if iconOnly
-            CcIcon(name="brain", size=(xs ? 12 : 16), color="light-dark(#71717a, #818181)", weight=2)
+      button press=press hover=hover class=Control aria-label=label aria-expanded=open aria-keyshortcuts=keyEffort testId="reasoning-effort" disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=0 max-width="12rem" flex-shrink=(iconOnly ? 0 : 1) height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.6875rem") padding-right=(xs ? "0.4375rem" : "0.6875rem") padding-top=0 padding-bottom=0 gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+        CcIcon(name="brain", size=(xs ? 12 : 16), color="light-dark(#71717a, #818181)", weight=2)
         if not iconOnly and label != ""
           text label font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#27272a, #f5f5f5)" : xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)") line-clamp=1 min-width=0
         box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0 opacity=(xs ? 0.5 : 1)
           CcIcon(name="chevron-down", size=(xs ? 12 : 14), color="light-dark(#71717a, #818181)", weight=2.25)
-      TipBubble(label=aria, side="top", align="center", offset=(xs ? 28 : 32), inset=0, shown=over)
+      TipBubble(label=label, side="top", align="center", offset=(xs ? 28 : 32), inset=0, shown=over)
 
 component RuntimeTrigger
   props
@@ -527,9 +520,9 @@ component ComposerFooter
         else
           if not clusterHidden
             ModelTrigger(data=data, xs=resting, open=modelsOpen, label=(not resting or not narrow), keyModels=keyModels, disabled=locked, press=openModels)
-            if (data.composer.traitsLabel != "" or data.composer.traitsSpeed != "") and not traitsOut
+            if data.composer.traitsLabel != "" and not traitsOut
               ToolbarSeparator(xs=resting)
-              TraitsTrigger(label=data.composer.traitsLabel, aria=data.composer.traitsAria, speed=data.composer.traitsSpeed, iconOnly=traitsIcon, xs=resting, open=(optionsOpen == "effort"), disabled=locked, keyEffort=data.composer.keyEffort, press=openOptions("effort"))
+              TraitsTrigger(label=data.composer.traitsLabel, iconOnly=traitsIcon, xs=resting, open=(optionsOpen == "effort"), disabled=locked, keyEffort=data.composer.keyEffort, press=openOptions("effort"))
             if not modeOut
               ToolbarSeparator(xs=resting)
               RuntimeTrigger(label=data.composer.runtimeLabel, tip=data.composer.runtimeDescription, icon=data.composer.runtimeIcon, iconOnly=runtimeIcon, xs=resting, open=(optionsOpen == "runtime"), disabled=locked, keyMode=data.composer.keyMode, press=openOptions("runtime"))
@@ -1067,7 +1060,7 @@ component NoticeRow
         row flex-grow=1 flex-shrink=1 min-width=0 max-width=`calc(100% - ${1.75 * rem}px)` gap="0.25rem" align-items="center" testId=`notice-content-${notice.id}`
           if notice.machines.length > 0
             // The multi-machine banner's title opens its machine list (auto-balance.contract).
-            NoticeMachines(notice=notice, busy=busy, command=command, still=still)
+            NoticeMachines(notice=notice, busy=busy, command=command)
           else
             if notice.tip != ""
               // The title's tooltip: "<server> X → Y", or the update status in full.
