@@ -26,6 +26,7 @@ pub mod idioms;
 pub mod inline;
 pub mod lexer;
 mod midi;
+pub mod migrate;
 mod notfound;
 pub mod params;
 pub mod parser;

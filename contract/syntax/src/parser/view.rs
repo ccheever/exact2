@@ -17,10 +17,10 @@ impl Parser {
             if self.at_ident("if") {
                 otherwise = vec![self.node()?];
             } else if self.at_ident("when") {
-                return self.err(
-                    "syntax-else-keyword",
-                    "a view branches with `if`: write `else if`",
-                );
+                let span = self.peek().span;
+                self.retired_view(span, "if");
+                self.retired.last_mut().unwrap().id = "syntax-else-keyword";
+                otherwise = vec![self.node_if(span)?];
             } else {
                 self.after_else("if")?;
                 otherwise = self.required_block(span, "else", |p| p.node())?;
