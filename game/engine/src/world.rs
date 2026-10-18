@@ -483,13 +483,6 @@ impl World {
             _ => self.fresh.contains(&e),
         }
     }
-    /// A supplied local interpolation start for this tick; renderer history only.
-    /// Cleared with freshness, excluded from saves, and keyed by incarnation.
-    pub fn interpolation_origin(&self, e: Entity) -> Option<crate::Transform> {
-        self.contains(e)
-            .then(|| self.interpolation_origins.get(&e).copied())
-            .flatten()
-    }
     pub(crate) fn mark_fresh(&mut self, e: Entity) {
         let slot = &mut self.state.slots[e.index as usize];
         if !slot.fresh {
