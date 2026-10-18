@@ -89,4 +89,4 @@ component SettingsAutomation
       else if data.route == "settingsUsage"
         SettingsUsage(data=data.usage, colors=colors, roles=roles, danger=danger, bottom=bottom, dark=dark, days=data.days, local=local, command=usage, account=account, refresh=refreshUsage)
       else if data.route == "settingsUsageAccount"
-        SettingsUsageAccount(data=data.account, colors=colors, roles=roles, danger=danger, bottom=bottom, reveal=reveal, redeem=redeem)
+        SettingsUsageAccount(data=data.account, colors=colors, roles=roles, danger=danger, bottom=bottom, dark=dark, reveal=reveal, redeem=redeem)
