@@ -5,6 +5,46 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { webCompiler } from './module.mjs';
 
+test.each([false, true])('optional hook warnings are confined to authored imports (authored: %s)', authored => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..');
+  mkdirSync(resolve(root, 'target'), { recursive: true });
+  const dir = mkdtempSync(resolve(root, 'target/web-js-warnings-'));
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Warnings', app: { id: 'test.warnings', name: 'Warnings' } }));
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    text "Warnings"\n');
+    writeFileSync(resolve(dir, 'app.ts'), `${authored ? "import { value } from './ts-data.js';" : "const value = 'ok';"}
+export const appId = 'test.warnings';
+export const grants = '';
+export const answer = () => value as never;
+`);
+    // The author's file has the glue's basename and probes the same names.
+    writeFileSync(resolve(dir, 'ts-data.js'), "import * as source from './empty.js';\nexport const value = [source.kept, source.overlay, source.other].join(',');\n");
+    writeFileSync(resolve(dir, 'empty.js'), 'export {};\n');
+    const out = resolve(dir, 'dist');
+    const result = spawnSync(process.execPath, ['host/web-js/build.mjs', 'warnings', '--out', out], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8',
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(readFileSync(resolve(out, '.gen/server.js'), 'utf8')).toContain('__start');
+    const stderr = result.stderr.replace(/\x1b\[[0-9;]*m/g, '');
+    if (authored) {
+      for (const name of ['kept', 'overlay', 'other']) {
+        expect(stderr).toContain(`BuildMessage: Import "${name}" will always be undefined`);
+        expect(stderr).toContain(`[IMPORT_IS_UNDEFINED] Import \`${name}\` will always be undefined`);
+      }
+      expect(stderr).toContain('.gen/typescript/ts-data.js:');
+      expect(stderr).not.toContain('.gen/ts-data.js:');
+      expect(stderr.match(/BuildMessage: Import /g)).toHaveLength(3);
+    } else {
+      expect(stderr).not.toContain('IMPORT_IS_UNDEFINED');
+      expect(stderr).not.toContain('will always be undefined');
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 30000);
+
 test('production lazy host modules ignore agent storage and entropy parameters', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
