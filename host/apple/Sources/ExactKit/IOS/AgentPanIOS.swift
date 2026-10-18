@@ -43,6 +43,10 @@ struct FingerReach {
     var href: String?
     var action: HeldNode?
     var path: PressPath?
+    /// With no press target: the path to the invoker the lift activates.
+    var invocation: PressPath?
+    /// A native control in the reached node took the touch (`controlTakesTouch`).
+    var consumed = false
     var presentations: [() -> Bool] = []
     var presentationsOpen: Bool { (path?.presentationsOpen ?? true) && presentations.allSatisfy { $0() } }
 }
@@ -194,10 +198,14 @@ extension Agent {
         let href = element == nil && run == nil && node.inlineActivationTarget(at: local) == nil ? node.inlineLink(at: local) : nil
         let action = element == nil ? node.activationTarget(at: p) : nil
         var reach = FingerReach(reached: HeldNode(node), element: element, run: run?.id, href: href, action: action.map(HeldNode.init))
+        reach.consumed = node.controlTakesTouch(at: p)
         // An inline run or link takes the touch first: no press crosses then.
         if run == nil, href == nil, let action {
             let path = PressPath(from: node, to: action, presenter: presenter)
             if path.bubbled { reach.path = path } else { reach.presentations = presenter.pressLifetimes(from: node, to: action) }
+        } else if element == nil, run == nil, href == nil, !reach.consumed, let invoker = presenter.menus.invoker(from: node) {
+            // As a real touch's contacts up to the invoker, cancelled for good.
+            reach.invocation = PressPath(from: node, to: invoker, presenter: presenter)
         }
         return reach
     }
@@ -229,7 +237,7 @@ extension Agent {
         // As `touchesEnded`: a node the events took away, gave to another
         // node (`NodePool.rebind`) or disabled ends the touch there, with no
         // activation, no press and no focus change.
-        guard reach.presentationsOpen, reach.path?.isLive(in: presenter) ?? true,
+        guard reach.presentationsOpen, reach.path?.isLive(in: presenter) ?? true, reach.invocation?.isLive(in: presenter) ?? true,
               let node = reach.reached?.live(in: presenter), !node.disabled else { return ["pressed": NSNull()] }
         if let run = reach.run, !node.inert, node.activateInline(run) { return ["pressed": Int(run)] }
         if let href = reach.href {
@@ -261,9 +269,16 @@ extension Agent {
         // The press, its target checked after the focus's callbacks too.
         var pressed: Any = NSNull()
         if let element = reach.element, let node = reach.reached?.live(in: presenter), !node.disabled, !node.inert { presenter.press(element, held: held); pressed = Int(element) }
-        if reach.presentationsOpen, let target = stillPresses(reach) {
-            presenter.press(target.id, held: held, bubbled: reach.path?.bubbled ?? (presenter.pressBox(of: target, from: node) !== target))
-            pressed = Int(target.id)
+        if reach.element == nil, reach.presentationsOpen, reach.reached?.live(in: presenter) === node {
+            let target = stillPresses(reach)
+            if target != nil || reach.action == nil && reach.invocation?.isLive(in: presenter) == true {
+                presenter.menus.activating(from: node, pressing: target, consumed: reach.consumed) {
+                    if let target {
+                        presenter.press(target.id, held: held, bubbled: reach.path?.bubbled ?? (presenter.pressBox(of: target, from: node) !== target))
+                        pressed = Int(target.id)
+                    }
+                }
+            }
         }
         return ["pressed": pressed]
     }

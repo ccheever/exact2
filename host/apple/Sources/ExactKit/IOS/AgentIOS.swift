@@ -555,11 +555,10 @@ extension Agent {
             if let reply = recognizedPan(phase, req) { return reply }
             return ["phase": phase, "delivery": "unsupported", "reason": "no held contact across requests on iOS (LLP 1080.000 P3)"]
         }
-        // The painted popovers under the agent (LLP 1021 D4): a tap opens,
-        // closes or dismisses them first, then is delivered as any tap.
+        // Light-dismiss before resolving the tap's press.
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil {
-            presenter.menus.agentTap(node)
+            presenter.menus.agentTap(node, landing: tapLanding(req, node: node))
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
@@ -761,6 +760,13 @@ extension Agent {
         if let avoided { reply["avoided"] = ["middle": [Agent.r2(b.midX), Agent.r2(b.midY)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
         if let why = unreached { reply["unreached"] = "Contract's pointer listeners heard it, but it \(why)" }
         return reply
+    }
+
+    /// At a point, the view a finger there lands on, as `PopoverTouch` sees it; nil without one.
+    func tapLanding(_ req: [String: Any], node: NodeView) -> UIView? {
+        guard ["at", "x", "y"].contains(where: { req[$0] != nil }), let point = tapPoint(req, node: node),
+              point.x.isFinite, point.y.isFinite else { return nil }
+        return node.window?.hitTest(windowPoint(point), with: nil)
     }
 
     /// A control's padding follows the ordinary press path when a point is given.
@@ -1103,7 +1109,13 @@ extension Agent {
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
                     f.heard = nil
                 } else if presenter.controls.radioKey(focus, name, held: held) { // x2apps survey #2
-                } else if focus.handlers.contains("press") || focus.defaultLink != nil, name == "Enter" || (name == " " && focus.props["href"] == nil) { presenter.press(focus.id) }
+                } else {
+                    #if os(iOS)
+                    _ = focus.activateKey(name)
+                    #else
+                    if focus.handlers.contains("press") || focus.defaultLink != nil, name == "Enter" || (name == " " && focus.props["href"] == nil) { presenter.press(focus.id) }
+                    #endif
+                }
             }
             return ["typed": Int(v.id), "key": key, "value": Agent.shownValue(v.textArea?.text ?? v.field?.text ?? "", of: v), "delivery": "recognized"]
         }
