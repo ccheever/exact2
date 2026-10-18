@@ -767,7 +767,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     }
     css.push('}');
     for (i, looks) in em.looks.iter().enumerate() {
-        let at = format!("[data-exact-looks=\"{}\"]", i + 1);
+        let at = format!("#exact-root [data-exact-looks=\"{}\"]", i + 1);
         css.push_str(&exact_web::host::template::look_rules(&at, looks));
     }
     // The classes that set a scheme read the theme's text on it.

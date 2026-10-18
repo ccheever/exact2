@@ -341,10 +341,11 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                 let rows = crate::look_rows();
                 let mut last = None;
                 for (state, patch) in looks {
-                    // Each state once, ascending; only the look rows.
+                    // Each state once, ascending; only the look rows, set
+                    // or cleared.
                     if *state > crate::LOOK_FOCUS_VISIBLE
                         || last.is_some_and(|l| l >= *state)
-                        || !patch.mask.minus(rows).is_empty()
+                        || !patch.mask.union(patch.written).minus(rows).is_empty()
                         || patch.validate_domain().is_err()
                     {
                         return Err(ApplyError::LookRow {

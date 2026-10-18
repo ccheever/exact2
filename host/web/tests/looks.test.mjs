@@ -2,7 +2,8 @@
 // writes into the page's looks sheet (src/host/looks.rs), over a node's inline
 // base, with the shell's CSS and the input glue. `:active` is the press glue's
 // `data-pressed`; the unsaid 65% stands aside; rows a look doesn't name show the
-// base, also a base that moves while pressed; a disabled node takes none.
+// base, also a base that moves while pressed; the press look eases, under Reduce
+// Motion too; a disabled node takes none.
 import { expect, beforeAll, afterAll } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -22,12 +23,15 @@ const check = need('chrome', unavailable);
 const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0];
 // As `looks::rules` writes them for an `:active` (a red face, a green top border) and a `:hover` (a blue face).
 const ease = '120ms cubic-bezier(.16,1,.3,1)';
-const rules = '@media (hover:hover){[data-view="3"]:hover:not(:disabled,[disabled="true"]){background-color:rgba(0,0,255,1)!important;}}'
-  + '[data-view="3"][data-pressed]:not(:disabled,[disabled="true"]){background-color:rgba(255,0,0,1)!important;border-top-color:rgba(0,255,0,1)!important;}'
-  + `[data-view="3"][data-exact-easing]{transition:background-color ${ease},border-top-color ${ease}!important}`;
+const on = ':not(:disabled,[disabled]:not([disabled="false"]))';
+const rules = `@media (hover:hover){#exact-root [data-view="3"]:hover${on}{background-color:rgba(0,0,255,1)!important;}}`
+  + `#exact-root [data-view="3"][data-pressed]${on}{background-color:rgba(255,0,0,1)!important;border-top-color:rgba(0,255,0,1)!important;}`
+  + `#exact-root [data-view="3"][data-exact-easing]{transition:background-color ${ease},border-top-color ${ease}!important}`
+  + `#exact-root [data-view="4"][data-pressed]${on}{background-color:rgba(255,0,0,1)!important;}`;
 const page = sheet + `<style id="exact-looks">${rules}</style>
 <div id="exact-root" style="padding:20px">
   <div id="card" data-view="3" data-exact-on="press" data-exact-look="active hover" tabindex="0" style="width:100px;height:100px;background-color:#ffffff;border:2px solid #000000">c</div>
+  <button id="key" data-view="4" data-exact-on="press" data-exact-look="active" style="background-color:#ffffff">k</button>
   <div id="away" style="height:100px"></div>
 </div>
 <script type="module">
@@ -80,6 +84,8 @@ check('a look composes over the base on the host\'s own press and hover', async 
     expect(await look()).toEqual(['rgb(0, 0, 255)', 'rgb(0, 0, 0)', 'rgb(0, 0, 0)', '1']); // :hover
     await mouse('mousePressed', card, 1);
     expect(await easing()).toBe(true); // its rows ease on the press curve
+    // From where it was: the transition was set before the press turned.
+    expect(await evaluate(`getComputedStyle(document.getElementById('card')).backgroundColor`)).not.toBe('rgb(255, 0, 0)');
     // Only the authored overlay: red over the hover, the top border green, no 65%.
     expect(await look()).toEqual(['rgb(255, 0, 0)', 'rgb(0, 255, 0)', 'rgb(0, 0, 0)', '1']);
     expect(await easing()).toBe(false);
@@ -91,16 +97,23 @@ check('a look composes over the base on the host\'s own press and hover', async 
     await mouse('mouseMoved', away);
     expect(await look()).toEqual(['rgb(238, 238, 238)', 'rgb(0, 0, 0)', 'rgb(18, 52, 86)', '1']);
 
-    // Reduce Motion: the colours snap.
+    // Reduce Motion: the colours still ease, as the pressed paint's do (the press is feedback).
     await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     await mouse('mousePressed', card, 1);
-    expect(await easing()).toBe(false);
+    expect(await easing()).toBe(true);
     expect(await look()).toEqual(['rgb(255, 0, 0)', 'rgb(0, 255, 0)', 'rgb(18, 52, 86)', '1']);
     await mouse('mouseReleased', card);
     await call('Emulation.setEmulatedMedia', { features: [] });
 
-    // A disabled node takes no look: no hover, no press.
-    await evaluate(`document.getElementById('card').setAttribute('disabled', 'true')`);
+    // Space holds a button with an `:active` look down, as a pointer does.
+    await evaluate(`document.getElementById('key').focus()`);
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+    await settle();
+    expect(await evaluate(`[document.getElementById('key').hasAttribute('data-pressed'), getComputedStyle(document.getElementById('key')).backgroundColor]`)).toEqual([true, 'rgb(255, 0, 0)']);
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+
+    // A disabled node takes no look: no hover, no press (a box says `disabled` as the host writes it).
+    await evaluate(`document.getElementById('card').setAttribute('disabled', '')`);
     await mouse('mouseMoved', card);
     await mouse('mousePressed', card, 1);
     expect(await look()).toEqual(['rgb(238, 238, 238)', 'rgb(0, 0, 0)', 'rgb(18, 52, 86)', '1']);

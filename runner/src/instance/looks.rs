@@ -39,6 +39,13 @@ impl Looks {
 fn patch(rows: &[(u16, Value, bool)], plan: &Plan) -> StyleProps {
     let mut patch = StyleProps::default();
     for (id, value, written) in rows {
+        // An explicit clear (`unset`): written, no value, as a static row's.
+        if bridge::unsets(*id, value) {
+            if let Some(style) = exact_kernel::StyleId::from_bit(*id as u32).filter(|_| *written) {
+                patch.written.set(style);
+            }
+            continue;
+        }
         if let Ok(style) = bridge::set_plan_style(&mut patch, *id, value, plan) {
             match written {
                 true => patch.written.set(style),

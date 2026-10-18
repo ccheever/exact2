@@ -204,6 +204,13 @@ pub fn static_tree(
             let mut patch = exact_kernel::StyleProps::default();
             for row in look.bindings.iter().map(|b| plan.binding(b)) {
                 let v = literal(plan, plan.code(row.expr)).ok_or("a look's row is literal")?;
+                if bridge::unsets(row.id, &v) {
+                    let style = StyleId::from_bit(row.id as u32).ok_or("unknown style")?;
+                    if row.written {
+                        patch.written.set(style);
+                    }
+                    continue;
+                }
                 bridge::set_binding_style(&mut patch, row, &v, plan)
                     .map_err(|e| format!("node {i}: {e:?}"))?;
             }

@@ -81,7 +81,8 @@ pub fn declarations(
 /// transition on the press curve, both ways.
 pub fn rules(at: &str, looks: &[(u8, String)]) -> String {
     let mut out = String::new();
-    let enabled = ":not(:disabled,[disabled=\"true\"])";
+    // A disabled box says `disabled` (a bool's text; none, or "false", is enabled).
+    let enabled = ":not(:disabled,[disabled]:not([disabled=\"false\"]))";
     let rank = |state: u8| {
         [LOOK_HOVER, LOOK_FOCUS_VISIBLE, LOOK_ACTIVE]
             .iter()
@@ -123,7 +124,7 @@ impl<D: DataSource> Host<D> {
         };
         let fonts = &self.font_names;
         let looks = declarations(node.looks(), |l| crate::css::css_text(l, fonts).0);
-        let rules = rules(&format!("[data-view=\"{id}\"]"), &looks);
+        let rules = rules(&format!("#exact-root [data-view=\"{id}\"]"), &looks);
         let m = self.mirror.entry(id).or_default();
         if rules != m.looks {
             batch.looks(id, &rules);

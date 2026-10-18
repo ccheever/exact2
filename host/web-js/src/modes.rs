@@ -728,6 +728,9 @@ fn written(parts: &[Option<Parts>]) -> String {
         for v in p.props.values() {
             out.push_str(v);
         }
+        for (_, look) in &p.looks {
+            out.push_str(look);
+        }
     }
     out
 }

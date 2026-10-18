@@ -512,11 +512,12 @@ fn the_design_readers_structure_moves_for_what_the_plan_keeps() {
 /// its press; a node without looks has neither.
 #[test]
 fn state_looks_are_sheet_rules_for_the_nodes_set() {
-    let view = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"card\" press=go background-color=\"#ffffff\"\n        :active\n          background-color = \"surface.card\"\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"brand\"\n        text \"c\"\n      column testId=\"same\" press=go\n        :active\n          background-color = \"surface.card\"\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"brand\"\n        text \"d\"\n      column testId=\"plain\" press=go\n        text \"p\"\n";
+    let view = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"card\" press=go background-color=\"#ffffff\"\n        :active\n          background-color = \"surface.card\"\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"brand\"\n        text \"c\"\n      column testId=\"same\" press=go\n        :active\n          background-color = \"surface.card\"\n          -exact-press-scale = 0.95\n        :hover\n          border-color = \"brand\"\n        text \"d\"\n      column testId=\"plain\" press=go\n        text \"p\"\n      column testId=\"cleared\" press=go opacity=0.5\n        :active\n          opacity = \"unset\"\n        text \"u\"\n";
     let out = emitted("looks", DESIGN, view);
     assert!(out.js.contains("\"data-exact-looks\":\"1\""), "{}", out.js);
-    assert!(
-        !out.js.contains("\"data-exact-looks\":\"2\""),
+    assert_eq!(
+        out.js.matches("\"data-exact-looks\":\"1\"").count(),
+        2,
         "one set for both: {}",
         out.js
     );

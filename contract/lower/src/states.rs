@@ -357,6 +357,22 @@ impl Lowerer<'_> {
                 );
             }
         }
+        // `:active` is the press D7's pressed paint shows on (theme2's 05:28
+        // ruling (3)): the same paint said twice is refused, naming both.
+        for (state, row, _) in parts.iter().filter(|(s, ..)| *s == "active") {
+            let paint = match row.name.as_str() {
+                "background-color" => "-exact-press-background-color",
+                "opacity" => "-exact-press-opacity",
+                _ => continue,
+            };
+            if base.iter().any(|a| a.name == paint) {
+                return err(
+                    "lower-state-press-paint",
+                    format!("`{}` in `:{state}` and `{paint}` both say the pressed {}: keep one (LLP 1121 D8, LLP 1061 D7)", row.name, if paint.ends_with("opacity") { "opacity" } else { "background" }),
+                    row.span,
+                );
+            }
+        }
         // The conditions, from what the node writes; a state it never
         // writes never holds (`lower-state-dead`, a lint).
         let written = |name: &str| {

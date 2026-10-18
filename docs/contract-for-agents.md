@@ -3108,8 +3108,8 @@ their rows never inherit (`background-color`, `border-color`, `opacity`,
 host applies them on its own tracking, over the node's rows (rows a part doesn't
 name show the base, also a base that changes while pressed), `:hover` then
 `:focus-visible` then `:active`: `:active` is the host's own press of the
-innermost node with a `press`, easing on its press curve (colours snap under
-Reduce Motion), its `-exact-press-scale` the press's scale, and it replaces the
+innermost node with a `press`, easing on its press curve (under Reduce Motion
+too, as the press is feedback), its `-exact-press-scale` the press's scale, and it replaces the
 host's unsaid press look (no 65% dim on top). A disabled node takes none.
 The web (both targets) does this today; Apple, Linux and Android follow (LLP
 1121 stage 8 B). A part

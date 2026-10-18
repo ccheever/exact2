@@ -3435,18 +3435,23 @@ verifying build (not reproduced in three replays).
   the plan and FORMAT_DIGEST are unchanged.
 - **The web (wasm)** (`host/web/src/host/looks.rs`). A node with looks gets `data-exact-look` (its
   states) and a `looks` batch op: one rule per state in the page's `#exact-looks` sheet, `:hover` (under
-  `@media (hover:hover)`), `:focus-visible`, then `[data-pressed]`, each `:not(:disabled,[disabled="true"])`,
-  rows `!important` over the inline base. So rows a look doesn't name show the base, a base that
+  `@media (hover:hover)`), `:focus-visible`, then `[data-pressed]`, under `#exact-root` (over the shell's
+  pressed paint), none on a disabled node (`:disabled`, or a box's `disabled` of any value but "false"),
+  rows `!important` over the inline base; the sheet goes with the last plan at a boot. An explicit clear
+  (`unset`) crosses written with no value, as a static row's. So rows a look doesn't name show the base, a base that
   changes while pressed included, and a disabled node takes none. An `:active` look's
   `-exact-press-scale` is written as the node's own press scale (it only shows while pressed). The
   unsaid 65% rule stands aside for `[data-exact-look~="active"]` (no double dim), and the press glue
   tracks such a node at scale 1 too.
 - **The ease** (ruling (b)): while the press factor animates, the glue sets `data-exact-easing`,
   whose rule transitions the `:active` look's properties on the press curve (120 ms,
-  `cubic-bezier(.16,1,.3,1)`), both ways. Not set on the agent's clock, nor under Reduce Motion, where
-  the colours snap. Deviation: the CSS transition interpolates in the browser's own way (sRGB for
+  `cubic-bezier(.16,1,.3,1)`), both ways, under Reduce Motion too, as D7's pressed paint (theme2's
+  05:28 ruling (2): the press is feedback; `:hover` and `:focus-visible` snap). Not on the agent's clock. Deviation: the CSS transition interpolates in the browser's own way (sRGB for
   colours, shadow by shadow), not by the factor's numbers. While it runs (120 ms), the transition
   list replaces an authored `transition` on that node.
+- **`lower-state-press-paint`** (theme2's 05:28 ruling (3)): an `:active` `background-color` or `opacity`
+  on a node, or its class, that also writes `-exact-press-background-color` or `-exact-press-opacity`
+  is refused, naming both (`contract/lower/src/states.rs`).
 - **The JS target** (`host/web-js`): the static tree applies each node's `looks` rows (`SetLooks`), and
   the template carries their declarations. A varying token's sentinel becomes its `var()`, as in a
   class. Each distinct set of looks is one rule group, `[data-exact-looks="N"]`, after the classes.
@@ -3457,7 +3462,7 @@ verifying build (not reproduced in three replays).
   - `host/web/tests/it/looks.rs`: the attribute, the rules in order, the press scale, a live batch
     re-sending the rules, and a node without looks writing neither.
   - `host/web/tests/looks.test.mjs` (Chrome): hover, a press showing only the overlay with no 65%, a
-    base change while pressed, the ease set and cleared, Reduce Motion snapping, a disabled node taking none.
+    base change while pressed, the ease set and cleared, Reduce Motion still easing, a disabled node taking none.
   - `modes_tests.rs`: the JS target's rule group, shared by two nodes, with a varying token as its `var()`.
   - The kernel's op round trip and its refusals.
   - LLP 1061's press tests (`press.test.mjs`, `neutral-look.test.mjs`) unchanged.

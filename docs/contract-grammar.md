@@ -151,7 +151,9 @@ and `-exact-tint-color`, and fold into the node's own rows, `:checked` under
 `background-color`, `border-color`, `opacity`, `box-shadow` and
 `-exact-press-scale`, each a literal (`lower-state-literal`; a token's name is
 one). Another row is `lower-state-row`; a part on a native control or a list's
-row is `lower-state-target`. The node's block wins over its class's, row by row.
+row is `lower-state-target`. An `:active` `background-color` or `opacity` beside the
+same paint's `-exact-press-` row (LLP 1061 D7) is `lower-state-press-paint`.
+The node's block wins over its class's, row by row.
 
 A length attribute's string is CSS's own text, read by the kernel: a px or
 other absolute length, a percentage, a viewport length, `auto`,
