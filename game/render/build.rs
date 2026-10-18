@@ -1,6 +1,11 @@
 use std::{env, fs, path::Path};
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=EXACT_UPDATE_TRUST");
+    println!(
+        "cargo:rustc-env=EXACT_UPDATE_TRUST={}",
+        env::var("EXACT_UPDATE_TRUST").unwrap_or_else(|_| "development".into())
+    );
     let out = env::var_os("OUT_DIR").unwrap();
     // @ref llp/1046.006.000-render-hooks.rfc.md#d2-the-frame-as-data-frameview
     let frame = fs::read_to_string("src/shaders/frame.wgsl").unwrap();

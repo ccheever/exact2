@@ -8,7 +8,6 @@
 //! only where the host's per-view cache says something changed. The kernel
 //! is the single source of truth; the cache is a memo of what the page has
 //! already been told.
-
 use crate::batch::Batch;
 use crate::css;
 use crate::motion::{Lowered, Motion, Still};
@@ -19,6 +18,7 @@ use exact_runner::{
     Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
     RunnerError, SurfaceOutcome, Timed, Work,
 };
+use mode::mirror::Mirror;
 
 #[path = "auth.rs"]
 mod auth;
@@ -121,17 +121,6 @@ impl std::fmt::Display for HostError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-struct Mirror {
-    props: SortedMap<String, String>,
-    css: String,
-    children: Vec<ViewId>,
-    /// Created inside a `<button>`, where a container is a `<span>`.
-    in_button: bool,
-    /// Created with handlers (a text that has some is never folded).
-    handled: bool,
 }
 
 /// What a host links that is generic over its data source (LLP 1047 D3):
@@ -933,7 +922,9 @@ impl<D: DataSource> Host<D> {
                         self.head_dirty = true;
                         continue;
                     }
-                    self.mirror.remove(&id);
+                    if self.mirror.remove(&id).is_some_and(|m| !m.looks.is_empty()) {
+                        batch.looks(id, "");
+                    }
                     self.layers.forget(id);
                     self.exclusions.remove(&id);
                     if let Some(drag) = self.drag {
@@ -1374,6 +1365,10 @@ impl<D: DataSource> Host<D> {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
+                if let Some(raw) = props.get("data-decoration-styles") {
+                    let css = crate::css::decoration_styles(raw, &self.font_names);
+                    props.insert("data-decoration-styles".into(), css);
+                }
                 svg_props(self.runner.kernel(), &node, &mut props);
                 let css = host_css(kernel, &node, css, tag);
                 let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
@@ -1399,8 +1394,10 @@ impl<D: DataSource> Host<D> {
                 children: Vec::new(),
                 in_button,
                 handled: !kinds.is_empty(),
+                looks: String::new(),
             },
         );
+        self.emit_looks(id, batch);
         self.keys.insert(key, id);
     }
 
@@ -1433,6 +1430,10 @@ impl<D: DataSource> Host<D> {
             .zip(crate::link::linked().materials)
             .and_then(|(name, material)| (material.1)(name));
         let mut props = props_for(&node);
+        if let Some(raw) = props.get("data-decoration-styles") {
+            let css = crate::css::decoration_styles(raw, &self.font_names);
+            props.insert("data-decoration-styles".into(), css);
+        }
         element::router_press(&mut props, self.runner.press_writes_router(id));
         svg_props(self.runner.kernel(), &node, &mut props);
         let css = self.view_css(&node);
@@ -1456,6 +1457,7 @@ impl<D: DataSource> Host<D> {
             batch.style(id, &css);
             m.css = css;
         }
+        self.emit_looks(id, batch);
         if let Some(note) = note {
             self.runner.log(note);
         }

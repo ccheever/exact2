@@ -1,17 +1,19 @@
 {
   "ticks": {
-    "0": "0xe4a8cfcdccd41d7a",
-    "1080": "0xf0f3b95bede822ab"
+    "0": "0x68106967367bba41",
+    "1080": "0x1e5dd38f9b0ce70a"
   },
   "saves": {
-    "continuation": "50332b6ed849e8302c6419e7b1462f8216f138eab6f053a355099d78b415788d"
+    "continuation": "fb7228f320ecd6e1e2d4219836b5c6ce52cfd191d3fca8ee6bc4266e5a57a6b1"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "9de1f8789b9a95b5d64d23a2f6b50b4dfc92b003b5b1516d98062c48d5b9fec9",
+  "inputs": "0e3580d0e1ae109278fcf10ba20c78725586c2089318309cc8001c744a6ff755",
+  "sourceInputs": "abc78712eca22c6ee88456c18be5db097a564327b2b9b1ea0be79238c5aea2d1",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+  "at": "6419855d6257b681461c72dc257e33e6375017fb",
+  "reason": "EXGAME v5 (developmentEdits): continuation bytes differ by the version byte only; tick hashes unchanged"
 }

@@ -179,7 +179,11 @@ fn part(name: &str) -> Option<Part> {
 
 fn entry(name: &str) -> Option<Entry> {
     let tag = tags::tag(name).map(|t| tag_json(name, &t));
-    let attr = tags::attr(name).map(|a| attr_json(name, &a));
+    // Lowering's own row for `:active`'s opacity is no attribute (LLP 1121 D8).
+    let attr = (name != contract_lower::PRESS_OPACITY_TO)
+        .then(|| tags::attr(name))
+        .flatten()
+        .map(|a| attr_json(name, &a));
     let value_of: Vec<&'static str> = vocab::attrs()
         .into_iter()
         .filter(|(n, a)| rows_of(n, a).iter().any(|r| r.enum_names().contains(&name)))
@@ -405,6 +409,12 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         if name == "navigationSplit" {
             println!("  on a stack's root route (LLP 1116.004 D1.2). A wide window (900 px and up on the web) shows a stack whose root route is a list whose rows push beside its top, as a split view does, with nothing to write: a row pushes when it draws the disclosure, an `image \"symbol:forward-chevron\"` (the chevron an iOS list draws) in a `link`, or in a `button` or pressable whose action writes the router (`push`, `open`, `go`); a chevron on a row that only selects is decoration, and its route is left unsplit, `navigationSplit=\"none\"` said for you. The list is a 320-wide column, its chevrons hidden and the row whose press pushed the detail marked; the top route is the detail beside it (a detail a row pushed has no Back), a `navigationPresentation=\"modal\"` route stays a sheet, and a phone pushes. The router is unchanged: a push from a row while a detail shows stacks it, so `replace` there to swap the detail. \"none\" keeps the stack pushed; a number is the column's width and splits a list the rule does not find. While nothing is selected the detail pane shows the platform's placeholder (\"No Selection\", centred, in the secondary label's colour); \"placeholder\" on a box in the root route (an `EmptyState`) is your own instead, shown only there and then and laid out nowhere else. A root `tablist` left as the tabs recipe places it is a sidebar on the same window. docs/recipes/navigation-stack.md");
         }
+        if matches!(
+            name,
+            "transition" | "animation" | "-exact-exit-animation" | "-exact-layout-transition"
+        ) {
+            println!("  how motion is written, and what animates: `contract vocab motion` (docs/recipes/motion.md)");
+        }
         if name == "-exact-fit" {
             println!("  on a `text`: \"shrink\" draws a line too wide for its box smaller until it fits, down to half its size, as UIKit's adjustsFontSizeToFitWidth (a timer's readout at the largest text size); with `white-space=\"nowrap\"` the whole line fits, else its longest word (LLP 1116.001 D1.4)");
         }
@@ -519,6 +529,8 @@ fn refused(name: &str) -> String {
     let near = named_like(name);
     if !near.is_empty() {
         out += &format!("; try {}", near.join(", "));
+    } else if means(name).is_none() {
+        out += "; `bun exact.mjs docs <words>` prints the guides' section on a topic";
     }
     out
 }
@@ -552,6 +564,26 @@ const MEANS: &[(&[&str], &str)] = &[
     (
         &["clipboard", "pasteboard", "UIPasteboard"],
         "copying is the host command `copyText(text)` (`contract vocab copyText`)",
+    ),
+    (
+        &[
+            "keyframes",
+            "@keyframes",
+            "Animated",
+            "Reanimated",
+            "LayoutAnimation",
+            "withSpring",
+            "withTiming",
+        ],
+        "transitions, keyframes, exit and layout animation are the recipe `motion`",
+    ),
+    (
+        &["NativeModules", "TurboModule", "requireNativeModule", "ExactModule"],
+        "a module in Swift that `app.ts` asks is the recipe `native-module`",
+    ),
+    (
+        &["useColorScheme", "Appearance", "darkMode"],
+        "colours, light and dark, are the recipe `theme`",
     ),
 ];
 
@@ -681,7 +713,7 @@ fn function_text(f: &Function) -> String {
 fn command_text(name: &str) -> String {
     let what = match name {
         "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
-        "setRangeText" => "; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText), no undo step. Markdown, Windows, Android and terminal are not supported yet (LLP 1069.001)",
+        "setRangeText" => "; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText), no undo step by default. The core also accepts a third argument \"undo\" for the current selection or sixth argument \"undo\" after selectionMode; host undo adoption is pending (LLP 1114.007). Markdown, Windows, Android and terminal are not supported yet (LLP 1069.001)",
         "setMode" => "; `setMode(\"dark-style\", \"dim\")` sets one of the window's app modes, an axis of the app's design (`app.tamber`) and one of its values; a subtree pins its own with `-exact-mode` (LLP 1121 D5)",
         "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"125%\")` sets a percentage of the host's size that keeps following it (Dynamic Type, the browser's setting); `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3, LLP 1121 D6)",
         _ => "",
@@ -711,6 +743,9 @@ fn kind(a: &AttrTarget) -> &'static str {
 }
 
 fn prop_type(p: PropId) -> String {
+    if p == PropId::Decorations {
+        return "TextDecorations(value, spans, blocks, hidden, atoms)".into();
+    }
     format!("{:?}", tags::prop_ty(p)).to_lowercase()
 }
 
@@ -737,6 +772,9 @@ const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the au
 
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
+    if name == "decorations" {
+        return Some("plain `textarea`; host adoption pending (LLP 1114.007)");
+    }
     // `title` is every element's, HTML's tooltip; `head`'s is the document's.
     if tags::HEAD_FIELDS.contains(&name) && name != "title" {
         return Some("`head`");

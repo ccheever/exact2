@@ -436,7 +436,29 @@ pub struct Gpu {
     pub queue: wgpu::Queue,
 }
 
+/// Run `f` holding Android's swapchain lock. Acquiring threads present
+/// there while the presenter's thread configures or releases other
+/// canvases' surfaces, and wgpu-hal tears a Vulkan swapchain down after
+/// `vkDeviceWaitIdle`, which requires the device's every queue to be
+/// externally synchronized: wgpu-core's own lock orders a present against
+/// submits, not against that. Each holds this for its call alone.
+pub(crate) fn swapchains<R>(f: impl FnOnce() -> R) -> R {
+    #[cfg(target_os = "android")]
+    static SWAPCHAINS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    #[cfg(target_os = "android")]
+    let _held = SWAPCHAINS.lock().unwrap_or_else(|e| e.into_inner());
+    f()
+}
+
 mod recovery;
+
+/// Frames a presented canvas may have queued for the compositor. Android
+/// takes a third: on a Galaxy Note 9 (Adreno 630, Android 10) at 150
+/// Castle Town players, its present waits on the GPU's frame before, and
+/// two in flight held frames to the GPU's pace whenever its governor
+/// lowered the clock (55-59 fps a tour stop, with stretches near 40; with
+/// three, 58-60).
+const FRAME_LATENCY: u32 = if cfg!(target_os = "android") { 3 } else { 2 };
 
 struct Instance {
     surface: Box<dyn Surface>,
@@ -585,7 +607,7 @@ impl Module {
         }
         for inst in self.instances.values_mut() {
             let format = if let (Some(target), Some(config)) = (&inst.presentation, &inst.config) {
-                target.configure(&gpu.device, config);
+                swapchains(|| target.configure(&gpu.device, config));
                 view_format(config)
             } else {
                 if inst.config.is_some() {
@@ -720,7 +742,8 @@ impl Module {
         let surface = factory();
         let hdr = target::configure(&*surface, &gpu.adapter, &caps, &mut config);
         config.present_mode = wgpu::PresentMode::AutoVsync;
-        target.configure(&gpu.device, &config);
+        config.desired_maximum_frame_latency = FRAME_LATENCY;
+        swapchains(|| target.configure(&gpu.device, &config));
         let id = self.insert(surface, Some((target, config)))?;
         if let Some(inst) = self.instances.get_mut(&id) {
             inst.hdr = hdr;
@@ -778,13 +801,14 @@ impl Module {
         };
         let caps = target.get_capabilities(&gpu.adapter);
         config.present_mode = wgpu::PresentMode::AutoVsync;
+        config.desired_maximum_frame_latency = FRAME_LATENCY;
         let features = gpu.device.features();
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail::<()>(format!("no canvas {id}")).is_some();
         };
         inst.alpha_modes = caps.alpha_modes.clone();
         inst.hdr = target::configure(&*inst.surface, &gpu.adapter, &caps, &mut config);
-        target.configure(&gpu.device, &config);
+        swapchains(|| target.configure(&gpu.device, &config));
         inst.seen = Default::default();
         inst.presentation = Some(SurfaceRef::new(target));
         inst.config = Some(config);

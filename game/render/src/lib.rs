@@ -42,6 +42,8 @@ mod ssao;
 mod surface;
 mod timing;
 mod trace;
+#[cfg(test)]
+mod translucent_tests;
 pub mod world;
 
 /// Simulation vocabulary, also used by module! without a direct dependency.
@@ -543,7 +545,7 @@ macro_rules! module {
                 <$game as $crate::exact_game::Game>::NAME,
                 <<$game as $crate::exact_game::Game>::Args as $crate::exact_game::Args>::FIELDS
                     .len(),
-                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default()),
+                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default().development_edits($crate::development_edits_allowed())),
             )],
             shaders: $shaders,
         };
@@ -584,3 +586,8 @@ mod test_device;
 
 #[cfg(test)]
 mod visibility_tests;
+
+/// Baked here so this crate's build-script environment edge owns the policy.
+pub fn development_edits_allowed() -> bool {
+    env!("EXACT_UPDATE_TRUST") != "production"
+}

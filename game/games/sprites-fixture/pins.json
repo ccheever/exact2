@@ -3,16 +3,16 @@
     "300": "0x4884240fd15afc36"
   },
   "saves": {
-    "continuation": "4d451ecdb089077d96f8c387248a8e6b672441202c9e2a7b53abbfef09b4273b"
+    "continuation": "bfe4bea33e73d634f6aed6726bdf56855630c1271aeb9fb50de6ba77b0f48978"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "fece63a635e04a693f35ac605c4cda83ed09975e458a1f64138daf86a4e70453",
-  "sourceInputs": "4e52f90b108508603b9a94fd34f3706964f5824f26964af935d20a2515720108",
+  "inputs": "0d20e9731c62f1639411d97a1e573a090672469fae3fc465a079175d2170fc69",
+  "sourceInputs": "375c405b859f57e59f46dff05c9547a378f407f796a2d11c2a6f5f103647e469",
   "game": "sprites-fixture",
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
-  "at": "5e0b86344d607e3c12af40be038c0f350d204690",
-  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear extend the hash stream; f5ad281e8: EXGAME v5 world save magic"
+  "at": "888a7904529cd916cc394ec0ac1b0c1ba8d23d8d",
+  "reason": "07170a2db: saved Environment.tone_mapping (Aces) extends the world hash stream and simulation save; fog is None"
 }

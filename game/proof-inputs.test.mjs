@@ -1,4 +1,5 @@
 import {test, expect} from 'bun:test';
+import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync, renameSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
@@ -455,4 +456,79 @@ test('a baked table transaction is an asset product; its authored JSON owns prov
     writeFileSync(resolve(app,'movement.json'),'{"speed":8}');
     expect(proofInputs(root,app).authored).not.toBe(after.authored);
   } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('ignored Rust directories are skipped while tracked files override ignore rules', () => {
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-ignored-'))), app = resolve(dir, 'game/games/sample');
+  const git = (...args) => { const r = spawnSync('git', args, {cwd:dir}); expect(r.status).toBe(0); };
+  try {
+    git('init', '-q');
+    writeFixtureFile(app, 'app.contract', 'plan');
+    writeFixtureFile(dir, 'private/generated.rs', 'ignored');
+    writeFixtureFile(app, 'private/generated.rs', 'ignored app output');
+    writeFixtureFile(dir, 'private/tracked.rs', 'tracked source');
+    writeFixtureFile(dir, 'excluded/generated.rs', 'info exclude');
+    git('add', 'private/tracked.rs');
+    writeFixtureFile(dir, '.gitignore', 'private/\n');
+    writeFixtureFile(dir, '.git/info/exclude', 'excluded/\n');
+    const files = proofInputFiles(dir, app);
+    expect(files).not.toContain('private/generated.rs');
+    expect(files).not.toContain('game/games/sample/private/generated.rs');
+    expect(files).not.toContain('excluded/generated.rs');
+    expect(files).toContain('private/tracked.rs');
+    const read = proofInputReader(dir, app); read();
+    writeFixtureFile(dir, 'private/generated.rs', 'changed output');
+    read();
+    writeFixtureFile(dir, 'private/tracked.rs', 'changed source');
+    expect(read).toThrow('authored proof inputs changed during build');
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+
+test('external repositories apply their own ignores and excludes with tracked precedence', () => {
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'proof-external-ignored-')));
+  const sdk = resolve(dir, 'sdk'), app = resolve(dir, 'external');
+  const git = (cwd, ...args) => { expect(spawnSync('git', args, {cwd}).status).toBe(0); };
+  try {
+    writeFixtureFile(sdk, 'engine/lib.rs', 'sdk');
+    writeFixtureFile(app, 'logic/src/lib.rs', 'game');
+    git(sdk, 'init', '-q'); git(app, 'init', '-q');
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'tracked');
+    git(app, 'add', 'logic/private/tracked.rs');
+    writeFixtureFile(app, '.gitignore', 'logic/private/\n');
+    writeFixtureFile(app, '.git/info/exclude', 'logic/excluded/\n');
+    writeFixtureFile(app, 'logic/private/generated.rs', 'ignored');
+    writeFixtureFile(app, 'logic/excluded/generated.rs', 'excluded');
+    const files = proofInputFiles(sdk, app);
+    expect(files).toContain('../external/logic/private/tracked.rs');
+    expect(files).toContain('../external/logic/src/lib.rs');
+    expect(files).not.toContain('../external/logic/private/generated.rs');
+    expect(files).not.toContain('../external/logic/excluded/generated.rs');
+    const before = proofInputs(sdk, app);
+    writeFixtureFile(app, 'logic/private/generated.rs', 'changed ignored');
+    writeFixtureFile(app, 'logic/excluded/generated.rs', 'changed excluded');
+    expect(proofInputs(sdk, app).all).toBe(before.all);
+    const read = proofInputReader(sdk, app); read();
+    writeFixtureFile(app, 'logic/excluded/new-output.rs', 'new excluded entry');
+    read();
+    const ignoredSibling = writeFixtureFile(app, 'logic/private/new-output.rs', 'new ignored sibling');
+    read();
+    writeFileSync(ignoredSibling + '.tmp', 'replacement');
+    renameSync(ignoredSibling + '.tmp', ignoredSibling);
+    read();
+    rmSync(ignoredSibling);
+    read();
+    // Even a reverted tracked edit must invalidate the in-flight proof.
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'temporary authored bytes');
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'tracked');
+    expect(read).toThrow('authored proof inputs changed during build');
+    const stable = proofInputReader(sdk, app); stable();
+    const transient = writeFixtureFile(app, 'logic/src/transient.rs', 'consumed source');
+    rmSync(transient);
+    expect(stable).toThrow('authored proof inputs changed during build');
+    writeFixtureFile(app, 'logic/private/tracked.rs', 'changed tracked');
+    expect(proofInputs(sdk, app).authored).not.toBe(before.authored);
+    rmSync(resolve(app, '.git'), {recursive:true});
+    expect(proofInputFiles(sdk, app)).toContain('../external/logic/private/generated.rs');
+  } finally { rmSync(dir, {recursive:true, force:true}); }
 });

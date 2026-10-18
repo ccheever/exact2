@@ -152,7 +152,11 @@ fn drive<D: DataSource>(data: D, source: &str, n: usize, within: Duration) -> Dr
         .expect("the fixture's Contract compiles")
         .encode();
     let links = Links {
-        io: Some(IoLinks { endow, start }),
+        io: Some(IoLinks {
+            endow,
+            start,
+            ..IoLinks::LINKED
+        }),
         ..Links::ALL
     };
     let mut bridge = Bridge::with_links(links);

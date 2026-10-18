@@ -1,7 +1,6 @@
 // The async lane's skip rule for the semantics checks (scripts/async-inputs.mjs).
-// Inputs are temporary files; the help regression launches Bun without lane setup.
+// Inputs are temporary files; the help check starts only the CLI usage path.
 import { afterAll, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -101,6 +100,11 @@ test('a gated check is skipped on a pass under its inputs, and runs when the gat
   expect(failed).toEqual({ error: 'no graph' });
 });
 
+test('the lane tests in-repo game pins outside the engine workspace', () => {
+  const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
+  expect(steps.find(([name]) => name === 'game-pins')).toEqual(['game-pins', 'bun', ['game/app/shells.mjs', '--test']]);
+});
+
 test('the semantics run as four gated checks, and only a finished run is an outcome', () => {
   const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
   expect(steps.filter(step => step[3]).map(([name]) => name)).toEqual(['lean', 'vm-extract', 'difftest', 'difftest-js']);
@@ -114,11 +118,10 @@ test('the semantics run as four gated checks, and only a finished run is an outc
   expect(outcomeOf(0, true)).toBe('fail');
 });
 
-
-test('async help exits before creating its worktree', () => {
+test('async help exits before creating or checking out its worktree', () => {
   const worktree = join(dir, 'help-must-not-create');
-  const result = spawnSync(process.execPath, [new URL('./async.mjs', import.meta.url).pathname, '--help', '--worktree', worktree], {encoding:'utf8', timeout:10000});
-  expect(result.status).toBe(0);
-  expect(result.stdout).toContain('Usage: bun scripts/async.mjs');
+  const result = Bun.spawnSync([process.execPath, 'scripts/async.mjs', '--help', '--worktree', worktree]);
+  expect(result.exitCode).toBe(0);
+  expect(new TextDecoder().decode(result.stdout)).toContain('Usage:');
   expect(existsSync(worktree)).toBe(false);
 });

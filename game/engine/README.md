@@ -115,6 +115,38 @@ uses saved arguments; a canvas uses `Sim::restore_bound` to retain current app
 bindings. Keep state that should travel with a save in components or resources,
 and app-owned settings in live arguments.
 
+## Tick diagnostics
+
+`let _s = w.span("enemies");` measures until the guard drops and captures the
+caller's source line. Drop the guard before returning from `Game::tick`; guards
+retained beyond a tick produce no named trace interval. Spans aggregate by name per tick. Nested spans are exclusive;
+`tick.other` is reserved for time outside every span. Physics, animation, emitters,
+audio and followers open their own spans when stepped. Diagnostics are outside
+saves and hashes, expose no elapsed time to gameplay, and do no clock or allocation
+work until a host arms them. `perf world:world` arms and reads p50, p95, maximum and
+mean milliseconds per tick; `perf world:world during "clock +1000"` reads only the
+ticks the operation added. Rings retain 16,384 ticks; an expired difference refuses.
+
+## Tick admission
+
+Everything that changes a world from outside the tick enters through the tick-stamped
+input queue, in stamp order, applied at the start of the tick its stamp falls in:
+keys and pads, messages, `set`, a replaced table. Everything the tick itself produces
+for a later tick enters a hashed world queue: typed events, sequence markers.
+Messages and typed events do not coalesce or reorder; overflow journals a named refusal.
+Device input is normalized within one projected tick boundary and across only
+other moves/wheels, never across a key, contact edge or message: pointer moves with
+the same contact and buttons keep the latest position/stamp and sum deltas; control
+moves with the same action/contact keep the latest position/stamp; wheels sum
+at the earlier wheel's stamp. Duplicate key states are omitted. At the 1,024-event
+bound a new message refuses. A device event displaces the oldest move, otherwise
+the oldest non-message; if all entries are messages it refuses the new device event.
+A displaced pointer's deltas join its next queued event when one exists. Each
+kind journals once per overflow episode, which ends below capacity. Paused input
+updates held state directly without tick edges or queued wheel deltas.
+Tables, pads and sequence markers use this contract when admitted;
+this engine currently admits keys, pointers, controls, wheels, messages and typed events.
+
 ## HUD and events
 
 Publish ordinary scalars with `w.publish("lit", count)`. For a structured HUD,
@@ -131,7 +163,17 @@ Contract JSON. Record publication rejects enum variants and integers outside
 publication accepts u8/u16/u32 and i8/i16/i32; larger integers can use the checked
 record path. See the [HUD example](../README.md#publications-and-events).
 
-`w.emit("won")` queues a string for the canvas's `message=` handler. Undelivered
+`#[derive(Default, Event)] struct Hit { target: Entity, damage: f32 }` declares
+a simulation event. The derive implements `TypedEvent`. Call `w.register_event::<Hit>()` in `Game::register` and
+`w.emit_event(Hit { .. })` in the tick. The next tick reads `input.events::<Hit>()`
+in emission order; every tick replaces that delivered batch, even when empty.
+`#[event(capacity = 32)]` overrides the default 256 emissions per type per tick.
+Overflow leaves the queue unchanged and journals one named refusal per type per tick.
+Pending and delivered batches are resources, saved and hashed; restoring before delivery
+reproduces the next tick. `state world events` lists delivered batches with their tick;
+`state world events Hit` filters by type. Same-tick consequences are function calls.
+
+`w.emit("won")` is the presentation path: it queues a string for the canvas's `message=` handler. Undelivered
 messages save in order and stay outside the simulation hash. The journal is
 telemetry; reading it does not change the world.
 
@@ -147,6 +189,27 @@ the world and post commands. A full input queue (1,024 events) refuses a new pos
 with a journal line (one per overflow episode) and counts it in `state`'s `input.refusedPosts`; device events
 never displace a message. `Sim::post(text)` does the same in tests.
 
+## Development edits
+
+Post `set player Character.speed 8` to the canvas (`Sim::post` in tests). The
+message uses the same stamped input queue as every post and applies at the start
+of its next tick. The target resolves by name then. Values are scalars or strings decoded against the field's `Data` schema; strings
+use JSON quotes. Structured fields and arrays refuse. Unknown names, unknown fields,
+wrong types and non-finite values refuse by name without changing a component.
+The whole candidate is decoded and validated before replacement. Production bakes
+refuse `set` by name. The complete `set entity Component.field value` form reserves the message only
+when the edit succeeds. Refused forms journal and remain available to `input.messages()`;
+other `set` messages are ordinary gameplay messages. A saved sticky diagnostic records
+successful edits after admission. Simulation provenance survives consecutive raw-world
+loads, restart and restore;
+host-session provenance also survives canvas removal and remount, even within one
+agent operation. Neither depends on retained journal lines. State exposes `queuedSets`;
+`pin` and `pinSave` refuse while a complete edit command awaits admission in any
+observed session. `pinSave` also checks the saved marker and retained input queue.
+`prove.mjs` and `Sim::assert_pin` refuse a run carrying that diagnostic: put tuning
+that a pin should accept in the authored files. Arguments tune settings a save
+should not carry.
+
 ## Movement, animation and sound
 
 `w.character("player").step(direction, jump)` moves a `Character` and reports its
@@ -157,10 +220,14 @@ actual displacement and contact state. Collision movement uses the separate
 new followers and preserves saved poses. It then steps after each tick. Call
 `scene::follow(w)` inside the tick to choose an earlier order; it will not step
 twice. Primitive dimensions belong to `Mesh`;
-`Collider::of(&mesh)` supplies matching collision geometry.
+`Collider::of(&mesh)` supplies matching collision geometry for cube, cuboid, sphere, capsule, cylinder and plane. Ring, torus and cone require an explicitly authored collider.
 
-Retarget `Glow(Tween)` or `Lit(Spring)` once, using `w.tick_end()`. The renderer
-samples them between ticks; keep authored emission or light intensity constant.
+Retarget a glow through its row handle: `w.require_mut::<Glow>("beacon").glow_to(1.0, 0.5)`,
+or `beacon.glow_to(1.0, 0.5)` on the row from `nearest_xz_mut`. Handles also offer
+`name()`, `tint([r, g, b])` (authored linear colour) and `offset(x, y, z)` (local
+simulation metres). The related components must already exist; row leases still apply.
+Retarget `Lit(Spring)` using `lit.to(w.tick_end(), intensity)`. The renderer
+samples both between ticks; keep authored emission or light intensity constant.
 Negative light overshoot clamps to zero. See [effects](../render/README.md#effects).
 
 Animation order is explicit: `let motion = animation::step(w)`, apply root motion,
@@ -400,7 +467,7 @@ NaNs canonicalize and negative zero survives. Their JSON output is a bytes/hash
 summary, while input accepts numeric arrays. Summaries cannot be loaded as data.
 Other vectors remain structural sequences.
 
-World saves are versioned and columnar: the entity table and each component
+World saves (EXGAME v5) are columnar: the entity table and each component
 storage store their rows' shape (tags, field and variant names, sequence lengths)
 once and their scalars as run-length or dictionary-coded columns, so repeated
 values cost nothing per entity and no name or entity key is repeated per row.

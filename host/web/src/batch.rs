@@ -350,6 +350,15 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"looks","id":…,"css":…}`: a view's state-look rules for the
+    /// page's looks sheet (LLP 1121 D8), `""` to drop them.
+    pub fn looks(&mut self, id: u32, css: &str) {
+        let mut s = text!("{{\"op\":\"looks\",\"id\":{},\"css\":", id);
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
     /// `{"op":"style","id":…,"css":…}` — the whole `cssText`.
     pub fn style(&mut self, id: u32, css: &str) {
         let mut s = text!("{{\"op\":\"style\",\"id\":{},\"css\":", id);

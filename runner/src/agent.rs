@@ -20,6 +20,7 @@ use exact_kernel::{NodeRef, PropValue, RowValue, StyleId};
 use exact_plan::{BindingKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
+mod looks;
 mod row;
 /// A row's value as `node` prints it: the JS target's inspect table (LLP 1122 T2b) writes the same words.
 pub use row::row_json;
@@ -442,6 +443,17 @@ fn token_json<D: DataSource>(runner: &Runner<D>, id: u32, row: StyleId, s: &mut 
     let Some((names, text, modes, implied)) = runner.row_token(id, row) else {
         return;
     };
+    token_fields(&names, &text, &modes, implied, s);
+}
+
+/// `,"token":{…}` (`token_json`'s).
+pub(super) fn token_fields(
+    names: &[String],
+    text: &str,
+    modes: &str,
+    implied: bool,
+    s: &mut String,
+) {
     s.push_str(",\"token\":{\"names\":[");
     for (i, n) in names.iter().enumerate() {
         if i > 0 {
@@ -450,9 +462,9 @@ fn token_json<D: DataSource>(runner: &Runner<D>, id: u32, row: StyleId, s: &mut 
         quote(n, s);
     }
     s.push_str("],\"text\":");
-    quote(&text, s);
+    quote(text, s);
     s.push_str(",\"modes\":");
-    quote(&modes, s);
+    quote(modes, s);
     let _ = write!(s, ",\"implied\":{implied}}}");
 }
 
@@ -558,7 +570,11 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         }
         source::write(runner, &node, row, own, own && dynamic(row), &mut s);
     }
-    s.push_str("},\"props\":{");
+    s.push('}');
+    // @ref LLP 1121 D8 — its state looks' rows, each as a style row is (its
+    // value, the token it read), for inspect on a held state (LLP 1122 D8).
+    looks::write(runner, &node, &mut s);
+    s.push_str(",\"props\":{");
     props_json(&node, &mut s);
     let f = node.frame;
     let (px, py) = node

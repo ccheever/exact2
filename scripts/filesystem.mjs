@@ -3,7 +3,7 @@
 // and the checkout's node_modules, installed from its lock when it has none or one did not finish (`installedModules`).
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -42,16 +42,18 @@ function executable() {
   // Cargo protects compilation, but releases its lock before we can exec.
   // Another profile can replace its public binary in that gap. Hold this
   // bootstrap claim through capture, then execute immutable captured bytes.
-  // This is not the helper's stream lock; stale build claims are never stolen.
+  // This is not the helper's stream lock; a verifiably dead builder can be replaced.
   mkdirSync(directory, { recursive: true });
   const claim = resolve(directory, '.bootstrap.lock'), owner = `${process.pid}-${randomBytes(12).toString('hex')}`;
-  claimBuild(claim, owner);
+  const releaseTicket = buildTicket(resolve(directory, '.bootstrap.claims'), owner);
+  try { claimBuild(claim, owner); } catch (error) { releaseTicket(); throw error; }
   let held = true;
   const release = () => {
     if (!held) return;
     held = false;
     process.removeListener('exit', release);
-    if (existsSync(claim) && readFileSync(claim, 'utf8') === owner) rmSync(claim);
+    try { if (existsSync(claim) && readFileSync(claim, 'utf8') === owner) rmSync(claim); }
+    finally { releaseTicket(); }
   };
   process.once('exit', release);
   try {
@@ -76,8 +78,8 @@ function executable() {
  * has no duration while that process runs: callers take the claim in turn, some two hundred
  * of them in a cold workspace check, and a fixed bound fails everything still in line
  * together on a loaded Mac. `unowned` bounds only the state with nobody to wait on: a
- * claim that names no running process, which is never taken (LLP 1030.002 D3) and so
- * fails. `now` is the clock that bound reads; a test advances it. */
+ * malformed claim that names no process. A claim whose owner has verifiably exited
+ * is taken over immediately. `now` is the clock that bound reads; a test advances it. */
 export const helperBuildWait = { now: () => Date.now(), unowned: 60_000 };
 const readClaim = (path) => {
   try { return readFileSync(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
@@ -97,6 +99,47 @@ function pidRecycled(pid, claim) {
   const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
   return Date.parse(ps.stdout?.trim() ?? '') > written + 1000;
 }
+// Bakery tickets serialize bootstrap acquisition and recovery without removing another
+// live caller's claim. Each caller publishes choosing, then its ordered ticket atomically.
+function buildTicket(directory, owner) {
+  mkdirSync(directory, { recursive: true });
+  const mine = resolve(directory, owner), ready = `${mine}.ready`;
+  let held = true;
+  const release = () => {
+    if (!held) return;
+    held = false;
+    process.removeListener('exit', release);
+    rmSync(mine, { force: true }); rmSync(ready, { force: true });
+  };
+  const owners = () => readdirSync(directory).filter(name => /^\d+-[0-9a-f]{24}$/.test(name));
+  const recycled = new Map();
+  const live = name => {
+    const pid = Number(name.split('-')[0]);
+    if (!pidRuns(pid)) return false;
+    const now = Date.now(), before = recycled.get(name);
+    if (!before || now - before.at > 10_000) recycled.set(name, { at: now, value: pidRecycled(pid, resolve(directory, name)) });
+    return !recycled.get(name).value;
+  };
+  // Empty (including a writer interrupted while publishing) means choosing.
+  const ticket = name => Number(readClaim(resolve(directory, name))) || 0;
+  writeFileSync(mine, '', { flag: 'wx' });
+  process.once('exit', release);
+  try {
+    const number = owners().filter(live).reduce((max, name) => Math.max(max, ticket(name)), 0) + 1;
+    writeFileSync(ready, String(number), { flag: 'wx' }); renameSync(ready, mine);
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    for (;;) {
+      const waiting = owners().some(name => {
+        if (name === owner || !live(name)) return false;
+        const value = ticket(name);
+        return value === 0 || value < number || (value === number && name < owner);
+      });
+      if (!waiting) return release;
+      helperBuildWait.now();
+      Atomics.wait(pause, 0, 0, 25);
+    }
+  } catch (error) { release(); throw error; }
+}
 // One condition, the claim is free, and one bound, `unowned`. Nothing notifies, so it polls.
 function claimBuild(claim, owner) {
   const pause = new Int32Array(new SharedArrayBuffer(4));
@@ -109,9 +152,20 @@ function claimBuild(claim, owner) {
     const now = helperBuildWait.now(), pid = Number(/^(\d+)-[0-9a-f]{24}$/.exec(text)?.[1]);
     if (text !== seen) { seen = text; since = now; recycled = pid > 0 && pidRuns(pid) && pidRecycled(pid, claim); }
     const running = pid > 0 && !recycled && pidRuns(pid);
+    if (pid > 0 && !running) {
+      // Move the observed claim aside, compare its token, and preserve a replacement.
+      // Never unlink a path on the strength of an earlier read of it.
+      const aside = `${claim}.${owner}.dead`;
+      try { renameSync(claim, aside); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+      if (readClaim(aside) !== text) {
+        try { linkSync(aside, claim); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+      }
+      rmSync(aside, { force: true });
+      continue;
+    }
     if (!running && now - since >= helperBuildWait.unowned) {
       const why = pid > 0 ? `pid ${pid} ${recycled ? 'is a later process, not its builder' : 'has stopped'}` : `it reads ${JSON.stringify(text)}, which names no process`;
-      throw new Error(`filesystem helper: nothing has been building it for ${Math.round((now - since) / 1000)} s, yet its build claim is held (${claim}: ${why}). This is the tooling's own helper, not the code being built. A stale claim is never taken automatically: remove it only after verifying its owner has exited.`);
+      throw new Error(`filesystem helper: nothing has been building it for ${Math.round((now - since) / 1000)} s, yet its build claim is held (${claim}: ${why}). This is the tooling's own helper, not the code being built. A malformed claim cannot be recovered automatically. Remove it after verifying no builder owns it, or set EXACT_FILESYSTEM_HELPER to this checkout's intact digest-named capture.`);
     }
     Atomics.wait(pause, 0, 0, 25);
   }

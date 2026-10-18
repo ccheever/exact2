@@ -174,6 +174,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // unsaid dim needs nothing here: it is the browser's own `:active`.)
     if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || declaresPress(el))) return keyed(el);
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
+    if (el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a disabled box takes no press by key either (LLP 1121 D8)
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
     event.preventDefault();
     el.click();
@@ -205,6 +206,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     };
     keyHold?.(null, true);
     showPress(el, true);
+    up.el = el;
     keyHold = up;
     addEventListener("keyup", up, true); el.addEventListener("blur", up);
   };
@@ -225,7 +227,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // beneath, which this piece reads again whenever the node's style or class
   // changes, the scheme flips, or the press turns. Its `color` reaches the
   // subtree as CSS's does.
-  const PAINT = ["--exact-press-opacity", "--exact-press-background-color", "--exact-press-color"];
+  // `:active`'s opacity is the press's absolute target (`--exact-press-opacity-to`,
+  // LLP 1121 D8), eased from what shows at the press, a hover look's included.
+  const PAINT = ["--exact-press-opacity", "--exact-press-opacity-to", "--exact-press-background-color", "--exact-press-color"];
   const declaresPress = el => !!el.style.getPropertyValue("--exact-press") || PAINT.some(p => el.style.getPropertyValue(p));
   const paints = new Map();
   const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
@@ -249,6 +253,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const endPaint = (el, state) => {
     if (paints.get(el) !== state) return;
     paints.delete(el);
+    if (!paints.size) sheets.disconnect();
     state.observer.disconnect();
     state.animation.cancel();
     el.removeAttribute("data-exact-painting");
@@ -261,6 +266,11 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     paint(el, state, Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)));
   };
   globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el); });
+  // So does a live edit that reaches it through a sheet (a state look's rule, the theme's) or the root's
+  // modes and tokens (the JS target's), which change no style of the node's own (LLP 1121 D8).
+  const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el); });
+  // The JS target writes its tokens and tuples through the CSSOM, which no observer sees: it calls this (modes.js).
+  (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el); };
   // `now`: the press ends at once (the window or the page went), as it does
   // for a node no longer in the page.
   const showPaint = (el, down, now = false) => {
@@ -270,6 +280,10 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!state) {
       state = { observer: new MutationObserver(() => repaint(el)) };
       state.observer.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
+      if (!paints.size) {
+        sheets.observe(document.head, { childList: true, subtree: true, characterData: true });
+        sheets.observe(document.documentElement, { attributes: true });
+      }
       paints.set(el, state);
     }
     state.to = down ? 1 : 0;
@@ -311,6 +325,106 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return box;
   };
   let press = null;
+  // @ref LLP 1122 D8, LLP 1121 stage 8 E — a held state, shown as the real one: `active` the press of the node the
+  // press resolves to (its paint and scale, eased as a real press, at once on the agent's clock), `hover` and
+  // `focus-visible` that node's look (`data-exact-held`, which the looks rules take beside `:hover` and
+  // `:focus-visible`; it snaps, an authored transition or not), handlers never told. One at a time; a disabled node
+  // refuses one; real input on the node, its going or its disabling lets it go (`dropped(reason)`). A real press on
+  // the node as it is held ends there: the hold has it (its release unpaints nothing).
+  const DISABLED = ":disabled,[disabled]:not([disabled='false'])";
+  let held = null;
+  // (A leaving view, `data-exiting`, is gone as it starts to leave.)
+  const watch = new MutationObserver(() => { if (!held?.el.isConnected || held.el.closest("[data-exiting]")) letGo("gone"); else if (held.el.closest(DISABLED)) letGo("disabled"); });
+  const snap = (el, change) => { const was = el.style.transition; el.style.transition = "none"; change(); getComputedStyle(el).opacity; el.style.transition = was; };
+  // `reason` null: let go unsaid (a dev loop's new generation, whose tree goes and whose hold the server replays).
+  const letGo = (reason) => {
+    if (!held) return;
+    const h = held;
+    held = null;
+    watch.disconnect();
+    if (h.state === "active") showPress(h.el, false); else snap(h.el, () => h.el.removeAttribute("data-exact-held"));
+    if (reason) h.dropped?.(reason);
+  };
+  (globalThis.exact ??= {}).hold = (el, state, dropped) => {
+    if (state != null && !["active", "hover", "focus-visible"].includes(state)) return { error: "holdState is active, hover, focus-visible or null", malformed: true };
+    letGo("replaced");
+    if (state == null) return { held: null };
+    // `active`: the innermost node with a press handler, as a real press's (theme2's 07:48); none there is `gone`.
+    const node = state === "active" ? el?.closest?.("[data-exact-on~=press]") : el;
+    if (!node?.isConnected || !root.contains(node) || node.closest("[data-exiting]")) return { reason: "gone", error: state === "active" ? "no press there: the node presses nothing, nor does any around it" : "the node is not on the page" };
+    if (node.closest(DISABLED)) return { reason: "disabled", error: "a disabled node holds no state" };
+    held = { el: node, asked: el, state, dropped };
+    watch.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled", "data-exiting"] });
+    if (state === "active") {
+      if (press?.el === node) press = null;
+      if (keyHold?.el === node) { const up = keyHold; keyHold = null; removeEventListener("keyup", up, true); node.removeEventListener("blur", up); }
+      showPress(node, true);
+    } else snap(node, () => node.setAttribute("data-exact-held", state));
+    return { held: state, el: node };
+  };
+  globalThis.exact.holdQuiet = () => letGo(null);
+  // What is held on `el` (or on the press it resolved to, `el` named), for `layout` and inspect (LLP 1122 D8): its
+  // state and the rows that state shows, by their
+  // wire names: a press's paint rows (`:active` lowered to them), else the state look's rows in the looks sheet
+  // (its `[data-exact-held~=…]` rule). The rows' places are the server's to join, from the source map.
+  const WIRE = { "--exact-press": "press_scale", "--exact-press-background-color": "press_background_color", "--exact-press-color": "press_color", "--exact-press-opacity": "press_opacity", "--exact-press-opacity-to": "press_opacity_to" };
+  // `ask`: the runner's agent (the wasm page): the rows as `layout` says the press's own (its D7 rows, `:active`
+  // lowered to them) or its look's, each with the token it read (LLP 1121 D8, stage 9 E). Without one (the JS
+  // target) they are the CSS the page holds, a varying token named where modes.js knows it. Either names the node
+  // the state is held on (the press it resolved to, when named on a node inside it).
+  globalThis.exact.heldOf = (el, ask = null) => {
+    if (!held || (held.el !== el && held.asked !== el)) return null;
+    el = held.el;
+    // (The wasm page numbers its elements `data-view`; the JS target its own way, a link's `data-view` an empty marker.)
+    const view = /^\d+$/.test(el.dataset?.view ?? "") ? Number(el.dataset.view) : globalThis.$exactViewId?.(el) ?? null;
+    const node = ask && view != null ? ask({ op: "node", id: view, plan: true }) : null;
+    if (node && !node.error) {
+      const own = held.state === "active" ? Object.fromEntries(Object.entries(node.style ?? {}).filter(([name]) => Object.values(WIRE).includes(name)))
+        : node.looks?.[held.state === "hover" ? "hover" : "focus_visible"] ?? {};
+      const rows = Object.entries(own).map(([name, row]) => ({ name, value: row.value, ...(row.token ? { token: row.token } : {}) }));
+      return { held: { state: held.state, node: view, site: node.site ?? null, instance: node.instance ?? [], rows } };
+    }
+    const rows = [];
+    if (held.state === "active") for (const [prop, name] of Object.entries(WIRE)) { const value = el.style.getPropertyValue(prop).trim(); if (value) rows.push({ name, value, prop }); }
+    else for (const sheet of document.styleSheets) {
+      let list; try { list = [...sheet.cssRules]; } catch { continue; }
+      for (const rule of list.flatMap(r => r instanceof CSSMediaRule ? [...r.cssRules] : [r])) {
+        if (!rule.selectorText?.includes(`[data-exact-held~="${held.state}"]`) && !rule.selectorText?.includes(`[data-exact-held~=${held.state}]`)) continue;
+        if (!el.matches(rule.selectorText)) continue;
+        // A custom property is the look's own (`--exact-hover-wash`), not a row.
+        for (const prop of rule.style) if (!prop.startsWith("--")) rows.push({ name: prop.replace(/^border-(top|right|bottom|left)-color$/, "border_color_$1").replace(/-/g, "_"), value: rule.style.getPropertyValue(prop).trim(), prop });
+      }
+    }
+    // A row a token or a role writes (`var(…)`, `light-dark(…)`) says the value it resolves to here, and the token
+    // where modes.js names it; a token reference (`var(--x-…)`) it can't name leaves the answer
+    // `provenance: "incomplete"` (a literal pair or a host's own property names none to miss).
+    let incomplete = false;
+    const cs = getComputedStyle(el);
+    for (const row of rows) {
+      const prop = row.prop;
+      delete row.prop;
+      if (!/\b(var|light-dark)\(/.test(row.value)) continue;
+      row.computed = cs.getPropertyValue(prop).trim();
+      const token = globalThis.exact.modes?.token?.(el, prop, row.value);
+      if (token) row.token = token;
+      // Each token reference on its own: one modes.js can't name leaves the answer incomplete, whatever else it named.
+      const refs = new Set([...row.value.matchAll(/var\((--x-[\w-]+)/g)].map(m => m[1]));
+      if ([...refs].some(ref => !globalThis.exact.modes?.token?.(el, prop, `var(${ref})`))) incomplete = true;
+    }
+    const site = el.dataset?.site != null ? Number(el.dataset.site) : null;
+    // (Its instance path is the inspect table's, where the page has one: `exact.instanceOf`, inspect-dev.js.)
+    const instance = site != null ? globalThis.exact.instanceOf?.(el) ?? null : null;
+    const answer = { held: { state: held.state, node: view, site, ...(instance ? { instance } : {}), rows, ...(incomplete ? { provenance: "incomplete" } : {}) } };
+    // (The element, unsaid in JSON: a host that numbers its views another way names it from this.)
+    Object.defineProperty(answer.held, "el", { value: el, enumerable: false });
+    return answer;
+  };
+  // Real input on the held node: a press, a key, the pointer coming over it (a hover's), the focus (a focus's).
+  for (const type of ["pointerdown", "keydown"]) root.addEventListener(type, e => { if (held?.el.contains(e.target)) letGo("input"); }, true);
+  // The pointer or the focus coming or going: its leaving the node, not moving within it.
+  const crosses = (e) => held.el.contains(e.target) !== held.el.contains(e.relatedTarget);
+  for (const type of ["pointerover", "pointerout"]) root.addEventListener(type, e => { if (held?.state === "hover" && crosses(e)) letGo("input"); }, true);
+  for (const type of ["focusin", "focusout"]) root.addEventListener(type, e => { if (held?.state === "focus-visible" && crosses(e)) letGo("input"); }, true);
   const release = (now = false) => { if (press) showPress(press.el, false, now); press = null; };
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
@@ -321,7 +435,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // tap gesture a synthesized touch never makes.
     const touch = e.pointerType === "touch";
     const el = e.target.closest?.(touch ? "[data-exact-on~=press],button,a[data-view][href]" : "[data-exact-on~=press],button[data-button-style]");
-    if (!el || !root.contains(el) || el.closest(":disabled,[disabled='true']")) return;
+    if (!el || !root.contains(el) || el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a box says `disabled` (LLP 1121 D8)
     // @ref LLP 1077 D14 — `-exact-press-haptic` plays at the press, as Apple's does:
     // `navigator.vibrate` where the browser has it (not desktop, not iOS
     // Safari), with `haptic()`'s two lengths (workout F4).

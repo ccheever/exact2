@@ -1,0 +1,20 @@
+# Code review: Apple's absolute press opacity and looks (LLP 1121 stage 8 B2), round 3, 2026-10-18 (grok)
+
+- **Family:** xAI. Grok 4.7 via the grok CLI, reasoning effort xhigh, edits denied, a throwaway worktree.
+- **Scope:** `6e0a4a694..11bede53c`, the commit and its rounds 1 and 2.
+- **Method:** one brief (sha256 `09b221de7ab584374e1666e1b125e30bca554d1d89a3c7fecaccce1ab6e33dc0`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** RIGHT WITH CHANGES (blocking: opacity-only keyframes still delegated; should-fix: zero depth leaving the clock). QUEUE entries judged acceptable..
+- **Disposition:** post-round fixes, as Astra's 1 and 2.
+
+---
+
+**RIGHT WITH CHANGES**
+
+Round 1 is fixed: a `disabled` change calls `relook()` (`PresenterMac.swift:45`, `PresenterIOS.swift:67`); a cleared opacity crosses as 1 and a cleared shadow as null; `currentcolor` is the node’s colour; a hand-written share is of what shows (0.5 of a hover at 0.8 displays 0.4, matching the web’s `base * share`); a re-entrant hover publishes only the newer path, and only for a view that still has a window. Round 2’s cleared border is the node’s colour (`looks.rs:56`), and a sheet or popover window takes `:hover` through `trackPointer` → `hoverLooks(from:)`. The press fade on a press whose ease was aimed is `-depth × progress`, including on the way out.
+
+Two QUEUE entries are acceptable. An inline run has no view: `BatchShapes.swift` skips `looks`, the run keeps its base paint, and theme2 still has to refuse a state part on a run or carry the look. A look that arrives after a track has already been handed to Core Animation is a fair follow-up once the static case below is fixed. Neither discharges that case.
+
+1. **BLOCKING** — `host/apple/src/svg_lower.rs:664` (the check) and `host/apple/src/svg_lower.rs:413` (where an opacity track falls through). `paints_over` is only consulted from `box_eligible`, and `eligibility` calls that only when `boxed` is true: `box_motion` and a property in `BOX_LOWERED` (`svg.rs:46`, translate, scale, rotate, background-color). `box_motion` is iOS-only (`host.rs:481`). Opacity is lowered on both platforms (`svg.rs:29`) and is not in `BOX_LOWERED`, so a node whose only animated paint is opacity takes the `else { false }` branch and stays on Core Animation. The look and the press are additive animations on `opacity` (`PressPaint.swift:308`, `PressPaint.swift:141`); they add to the keyframe’s presented value, while `pressDepth` and `applyLookOpacity` subtract the model `alpha` / `alphaValue`. Model 1, keyframe held at 0.4, hover 0.8 shows 0.2. A press to absolute 0.6 shows 0. The same split hits a hand-written share. **Fix:** in `eligibility`, sample the node when any animated property is one `paints_over` names, on both platforms, before the `boxed` branch. Add a test with `box_motion` false: a node with `press_opacity_to` or a hover opacity look and an opacity animation is `node_sampled`.
+
+2. **SHOULD-FIX** — `host/apple/Sources/ExactKit/PressPaint.swift:137`. `fadePressOpacity` returns before `ease.aim` whenever `depth` is 0, so the clock stays where it was. A press that starts at the target (`press_opacity_to` equal to what shows, or `press_opacity` 1) never aims at 1. A later look or base change while the finger is down computes `toValue` as `-depth * ease.to` (`PressPaint.swift:253`) with `ease.to` still 0, so the additive eases toward no press. The other way: depth is aimed at 1, then becomes 0 while held (the animation is removed), then the finger lifts. The release also skips `aim`, and `factor` stays 1. The next `relook` passes `pressPaint.down || progress > 0` (`PressPaint.swift:246`) and installs a full press additive on a node that is up. **Fix:** aim even when the fade is removed. On the way down, `ease.aim(1)` before the zero-depth return so a later depth uses the press’s real progress. On the way up with depth 0, set the ease to rest (`from` 0, `to` 0) so a later look does not see a press still in flight. Cover both with a test that reads `fromValue` after the depth returns.

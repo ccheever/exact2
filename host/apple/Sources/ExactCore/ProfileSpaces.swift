@@ -2,7 +2,7 @@
 // batch boundary. Views and text workers never consult another session's assets.
 import CoreGraphics
 import Foundation
-import CryptoKit
+import CommonCrypto
 
 public enum ProfileSpaces {
     /// A decoded value owns its immutable profile beyond cache eviction.
@@ -21,7 +21,9 @@ public enum ProfileSpaces {
 
     package static func bind(_ name: String, resolver: AssetResolver?) -> Handle? {
         guard name.hasPrefix("icc:"), let data = resolver?.bytes(String(name.dropFirst(4))) else { return nil }
-        let key = "icc-sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        _ = data.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(data.count), &hash) }
+        let key = "icc-sha256:" + hash.map { String(format: "%02x", $0) }.joined()
         lock.lock(); defer { lock.unlock() }
         if let found = cache[key] { return found }
         guard let space = CGColorSpace(iccData: data as CFData) else { return nil }

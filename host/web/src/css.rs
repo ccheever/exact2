@@ -5,7 +5,9 @@
 //! Unsupported rows are reported in [`Skipped`].
 
 mod clears;
+mod decorations;
 mod fonts;
+pub use decorations::decoration_styles;
 pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
 use exact_kernel::style::ColorValue;
@@ -347,11 +349,21 @@ fn css_text_in(
                 out.push_str(";--exact-accent:");
                 let start = out.len();
                 declared(&mut out, id, &value);
-                if &out[start..] == "auto" {
+                let auto = &out[start..] == "auto";
+                if auto {
                     out.truncate(start);
                     out.push_str("AccentColor");
                 }
                 out.push(';');
+                // An authored accent, apart from the page's own in
+                // --exact-accent: what a spinner reads (LLP 1121 D9). The
+                // page's sheet takes a bound or live one from the element
+                // that writes --exact-accent itself (neutral.css).
+                if !auto {
+                    out.push_str("--exact-accent-said:");
+                    declared(&mut out, id, &value);
+                    out.push(';');
+                }
             }
             // @ref LLP 1077 D14 — host-owned feedback, as `-exact-press-scale`: a
             // custom property input-glue.js reads from the pressed element's
@@ -595,6 +607,8 @@ fn spell_property(out: &mut String, id: StyleId) {
         // @ref LLP 1061 D7 — the pressed paint: custom properties input-glue.js
         // reads from the pressed element's own style, as `--exact-press`.
         StyleId::PressOpacity => return out.push_str("--exact-press-opacity"),
+        // `:active`'s opacity, lowered (LLP 1121 D8).
+        StyleId::PressOpacityTo => return out.push_str("--exact-press-opacity-to"),
         StyleId::PressBackgroundColor => return out.push_str("--exact-press-background-color"),
         StyleId::PressColor => return out.push_str("--exact-press-color"),
         StyleId::PositionType => return out.push_str("position"),
@@ -708,6 +722,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::FlexShrink
             | StyleId::Opacity
             | StyleId::PressOpacity
+            | StyleId::PressOpacityTo
             | StyleId::Order
             | StyleId::ColumnCount
             | StyleId::Widows

@@ -48,6 +48,9 @@ impl<G: Game> Sim<G> {
         if let Some(reason) = self.assets_unready() {
             return Err(DataError::new(reason));
         }
+        self.world
+            .set_seen
+            .set(self.edits_admitted || self.world.set_seen.get());
         let world_us = self.exact_world_us();
         let mut queue: Vec<_> = self.queue.iter().cloned().collect();
         for e in &mut queue {
@@ -183,6 +186,10 @@ impl<G: Game> Sim<G> {
         // before the presenter has drained that payload into the current device.
         next.textures = std::mem::take(&mut self.textures);
         next.paranoid = self.paranoid;
+        next.development_edits = self.development_edits;
+        next.edits_admitted =
+            self.edits_admitted || self.world.set_seen.get() || next.world.set_seen.get();
+        next.world.set_seen.set(next.edits_admitted);
         next.restarted = self.restarted;
         *self = next;
         Ok(())

@@ -303,9 +303,131 @@ export function pinRevision(app, sourceInputs) {
   }
   refuse(revision);
 }
-export function pinRecorder(previous, app, check, collecting = false) {
+/** Admission markers decide pin provenance; gameplay can log arbitrary text. */
+export function assertNoLiveEdits(worlds, journals = []) {
+  const rows = Array.isArray(worlds) ? worlds : [worlds, ...(worlds?.world ?? [])];
+  const edited = rows.some(w => w?.developmentEdits || w?.sessionDevelopmentEdits);
+
+  const lines = journals.flatMap(j => j.lines ?? []);
+  const line = lines.find(l => /(?:^| tick=\d+ )set\s+\S+\s+[^.\s]+\.[^.\s]+\s+\S/.test(l));
+  if (edited) throw new Error(`pin refused: run contains a set development edit${line ? ': ' + line : ''}`);
+}
+
+export function editProvenance() {
+  let refusal;
+  const pending = new Map();
+  return {
+    observe(worlds, journals, session = 'default') {
+      const rows = Array.isArray(worlds) ? worlds : [worlds, ...(worlds?.world ?? [])];
+      pending.set(session, rows.some(w => w?.queuedSets > 0));
+      try { assertNoLiveEdits(worlds, journals); } catch (error) { refusal ??= error; }
+    },
+    assert() {
+      if (refusal) throw refusal;
+      if ([...pending.values()].some(Boolean)) throw new Error('pin refused: queued set development edit awaits admission');
+    },
+  };
+}
+// Read only provenance fields; walk skipped values to preserve the binary name table.
+// Tags and bounds follow engine/src/data/bin.rs. This does not restore gameplay.
+function savedFields(bytes, magic, fields) {
+  const fail = reason => { throw new Error(`pinSave refused: invalid ${magic.startsWith('EXSIM') ? 'EXSIM v7' : 'EXGAME v5'} save: ${reason}`); };
+  if (!bytes.subarray(0, magic.length).equals(Buffer.from(magic, 'binary'))) fail('unsupported format');
+  if (bytes.length > 2 * 1024 ** 3) fail('load size limit');
+  let pos = magic.length;
+  const names = [], utf8 = new TextDecoder('utf-8', {fatal:true, ignoreBOM:true});
+  const take = n => {
+    if (!Number.isSafeInteger(n) || n < 0 || n > bytes.length - pos) fail('truncated value');
+    const part = bytes.subarray(pos, pos += n); return part;
+  };
+  const byte = () => take(1)[0];
+  const variable = () => {
+    let n = 0n;
+    for (let shift = 0n; shift < 70n; shift += 7n) {
+      const b = byte();
+      if (shift === 63n && b > 1) fail('varint overflow');
+      n |= BigInt(b & 127) << shift;
+      if (b < 128) return n;
+    }
+    fail('varint overflow');
+  };
+  const text = () => {
+    const n = Number(variable());
+    if (n > 64 * 1024 ** 2) fail('string size limit');
+    try { return utf8.decode(take(n)); } catch { fail('invalid string'); }
+  };
+  const name = () => {
+    const n = variable();
+    if (n === 0n) { const s = text(); names.push(s); return s; }
+    if (n > BigInt(names.length)) fail('unknown name index');
+    return names[Number(n - 1n)];
+  };
+  const value = (keep, depth = 0) => {
+    if (depth >= 256) fail('nesting limit');
+    const tag = byte();
+    switch (tag) {
+      case 0: case 1: return Boolean(tag);
+      case 2: case 3: return variable();
+      case 4: take(4); return;
+      case 5: take(8); return;
+      case 6: return text();
+      case 7: {
+        const n = Number(variable()), out = keep ? [] : null;
+        if (!Number.isSafeInteger(n) || n > bytes.length - pos) fail('sequence size limit');
+        for (let i = 0; i < n; i++) { const item = value(keep, depth + 1); if (keep) out.push(item); }
+        return out;
+      }
+      case 8: {
+        const out = Object.create(null), seen = new Set();
+        for (let field = byte(); field !== 0; field = byte()) {
+          if (field !== 1) fail('expected field');
+          const key = name();
+          if (seen.has(key)) fail('duplicate field');
+          seen.add(key);
+          const retain = keep === true || keep instanceof Set && keep.has(key);
+          const item = value(retain, depth + 1);
+          if (retain) out[key] = item;
+        }
+        return out;
+      }
+      case 9: {
+        variable(); const variant = name(), item = value(keep, depth + 1);
+        return keep ? {variant, value:item} : null;
+      }
+      case 10: return null;
+      case 11: return value(keep, depth + 1);
+      case 12: case 13: case 14: case 15: {
+        const part = take(Number(variable())); return keep ? part : null;
+      }
+      default: fail('unknown value tag');
+    }
+  };
+  if (bytes[pos] !== 8) fail('expected record');
+  const out = value(new Set(fields));
+  if (pos !== bytes.length) fail('trailing data');
+  return out;
+}
+function assertSaveEdits(bytes) {
+  const saved = savedFields(bytes, 'EXSIM\0\x07', ['world', 'queue']);
+  if (!Buffer.isBuffer(saved.world) || !Array.isArray(saved.queue))
+    throw new Error('pinSave refused: invalid EXSIM v7 world or queue');
+  const world = savedFields(saved.world, 'EXGAME\0\x05', ['developmentEdits']);
+  if (world.developmentEdits !== undefined && typeof world.developmentEdits !== 'boolean')
+    throw new Error('pinSave refused: invalid developmentEdits marker');
+  if (world.developmentEdits) throw new Error('pinSave refused: save contains a set development edit');
+  // Rust char::is_whitespace uses Unicode White_Space, unlike JS trim/\s.
+  const completeSet = text => {
+    const words = text.split(/\p{White_Space}+/u).filter(Boolean), path = words[2]?.split('.') ?? [];
+    return words[0] === 'set' && words.length >= 4 && path.length === 2 && path.every(Boolean);
+  };
+  if (saved.queue.some(q => q?.event?.variant === 'Message'
+      && typeof q.event.value?.text === 'string' && completeSet(q.event.value.text)))
+    throw new Error('pinSave refused: save contains a queued set development edit awaiting admission');
+}
+export function pinRecorder(previous, app, check, collecting = false, provenance = editProvenance()) {
   const pins = {ticks:{}, saves:{}};
   const record = (section, key, got) => {
+    provenance.assert();
     const expected = previous[section]?.[key];
     if (key in pins[section]) check(`pin ${key} repeated consistently`, pins[section][key] === got);
     pins[section][key] = got;
@@ -315,10 +437,18 @@ export function pinRecorder(previous, app, check, collecting = false) {
   return {pins,
     pin(tick, state) {
       if (state?.tableEdits) check(`pin ${tick} refused: development table edits are in the journal`, false);
+      provenance.assert();
+      provenance.observe([state]);
+      provenance.assert();
       check(`pin ${tick} sampled at expected tick (got ${state?.tick})`, state?.tick === tick && /^0x[0-9a-f]{16}$/.test(state?.hash));
       record('ticks', String(tick), state?.hash);
     },
-    pinSave(key, path) { record('saves', key, createHash('sha256').update(readFileSync(path)).digest('hex')); },
+    pinSave(key, path) {
+      provenance.assert();
+      const bytes = readFileSync(path);
+      assertSaveEdits(bytes);
+      record('saves', key, createHash('sha256').update(bytes).digest('hex'));
+    },
   };
 }
 // Gameplay assertions can succeed before a game's first baseline exists.
@@ -354,7 +484,7 @@ export function facilityReport(replies) {
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`, root = resolve(import.meta.dir, '..')) {
   const gamePrefix = file.startsWith(appPrefix) ? appPrefix : file.startsWith('game/') ? 'game/' : null;
   const gameParts = gamePrefix === null ? [] : file.slice(gamePrefix.length).split('/').slice(0, -1);
-  return /^(issues|\.claude)\//.test(file)
+  return (/^(issues|\.claude)\//.test(file) && !file.startsWith(appPrefix))
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
     || (file.startsWith(appPrefix) && gameNonInput(file.slice(appPrefix.length)))
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css|modulemap)$/.test(file)
@@ -368,24 +498,33 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
     || gameParts.some((part, i) => ['tests', 'examples'].includes(part)
       && existsSync(resolve(root, gamePrefix, ...gameParts.slice(0, i), 'Cargo.toml')));
 }
-export function proofInputFiles(root, app, inventory) {
+export function proofInputFiles(root, app, inventory, ignoredDirectories = new Set()) {
   const top = inventory ? {status:0, stdout:root} : spawnSync('git', ['rev-parse','--show-toplevel'], {cwd:root, encoding:'utf8'});
   const repository = top.status === 0 ? top.stdout.trim() : root;
   const files = inventory ?? spawnSync('git', ['ls-files','-z','--cached','--others','--exclude-standard'], {cwd:repository, encoding:'utf8'});
-  const walk = (dir, prefix = '') => readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
+  const walk = (dir, prefix = '') => ignoredDirectories.has(resolve(dir)) ? [] : readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
     if (['.git','node_modules'].includes(entry.name) || (!prefix && ['target','.build','.shells','dist','dist.previous','dist-windows','artifacts'].includes(entry.name))) return [];
     const path = prefix + entry.name;
     return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
   });
   // Fleet exports have no Git index; external games are outside exact2's index.
-  // Always include the app's own inputs, even when its defaults are gitignored.
+  // Git-ignored files are outputs or private apparatus, never authored inputs.
   const sources = files.status === 0 ? files.stdout.split('\0').filter(Boolean) : walk(repository);
+  const excluded = new Set();
+  for (const cwd of new Set([repository, app])) {
+    const ignored = spawnSync('git', ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], {cwd, encoding:'utf8'});
+    if (ignored.status === 0) for (const file of ignored.stdout.split('\0').filter(Boolean)) {
+      if (file.endsWith('/')) ignoredDirectories.add(resolve(cwd, file));
+      else excluded.add(relative(repository, resolve(cwd, file)).replaceAll('\\', '/'));
+    }
+  }
   sources.push(...walk(app).map(file => relative(repository, resolve(app, file)).replaceAll('\\', '/')));
   const prefix = relative(repository, app).replaceAll('\\', '/') + '/';
-  return [...new Set(sources)].sort().filter(file =>
+  return [...new Set(sources)].sort().filter(file => !excluded.has(file) &&
+    ![...ignoredDirectories].some(dir => resolve(repository, file).startsWith(dir + '/')) &&
     !proofInputExcluded(file, basename(app), prefix, repository) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
 }
-// Clean tracked bytes are identified by Git blobs. Dirty/ignored app inputs and
+// Clean tracked bytes are identified by Git blobs. Dirty app inputs and
 // products reuse their digest only while their full stat tuple is unchanged.
 // Nanosecond timestamps and inode identity catch edits restored before the next scan.
 const statKey = path => { const s=statSync(path, {bigint:true}); return [s.dev,s.ino,s.size,s.mtimeNs,s.ctimeNs].join(':'); };
@@ -405,19 +544,16 @@ export function proofInputs(root, app, cachePath) {
   const manifest = resolve(app, '.baked-assets.json');
   const generated = new Set([prefix + 'assets/exact-tables.json', ...(existsSync(manifest)
     ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : [])]);
-  const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined);
+  const ignoredDirectories = new Set();
+  const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined, ignoredDirectories);
   // File stats miss sources created, consumed and removed between scans. Walk
   // shared and app source directories, including empty ones, to retain edits.
   const directories = new Set();
   const sourceDirectories = dir => {
-    if (!existsSync(dir) || directories.has(dir)) return;
+    if (!existsSync(dir) || directories.has(dir) || ignoredDirectories.has(resolve(dir))) return;
     const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
     if (proofInputExcluded(file + 'input.rs', basename(app), prefix, root)) return;
     directories.add(dir);
-    // The app root also contains the generated manifest. All its entry changes
-    // require a rerun, as do entry changes inside the generated asset tree.
-    const state = file === prefix || file.startsWith(prefix + 'assets/') ? assetState : authoredState;
-    state.push([file, statKey(dir)]);
     for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name.localeCompare(b.name)))
       if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) sourceDirectories(resolve(dir, entry.name));
   };
@@ -452,6 +588,24 @@ export function proofInputs(root, app, cachePath) {
   // The repository walk excludes other apps at their shared parent, and an
   // external app may be outside root. Always scan this app's whole input tree.
   sourceDirectories(resolve(app));
+  // A Git-ignored directory can contain tracked sources. New untracked entries
+  // there are ignored too; only its identity and the tracked files' full stats
+  // matter. Other directories retain timestamps to catch transient sources.
+  const ignoredMixed = new Set();
+  for (const cwd of new Set([resolve(root), resolve(app)])) {
+    const paths = [...directories].filter(dir => dir === cwd || dir.startsWith(cwd + '/'));
+    const ignored = spawnSync('git', ['check-ignore', '--no-index', '-z', '--stdin'], {
+      cwd, input:paths.map(dir => dir + '/').join('\0') + '\0', encoding:'utf8',
+    });
+    if (ignored.status === 0) for (const path of ignored.stdout.split('\0').filter(Boolean)) ignoredMixed.add(resolve(path));
+  }
+  for (const dir of directories) {
+    const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
+    // Generated manifest/asset entry changes still require a rerun.
+    const state = file === prefix || file.startsWith(prefix + 'assets/') ? assetState : authoredState;
+    const key = statKey(dir);
+    state.push([file, ignoredMixed.has(dir) ? key.split(':').slice(0, 2).join(':') : key]);
+  }
   groups.authored.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
 }
@@ -557,7 +711,8 @@ export async function proof(meta, script) {
     if (!ok) failures.push(label);
     return ok;
   };
-  const {pins, pin, pinSave} = pinRecorder(previousPins, app, check, collecting);
+  const provenance = editProvenance();
+  const {pins, pin, pinSave} = pinRecorder(previousPins, app, check, collecting, provenance);
   // The GPU-less host has no process tree to discover: retain the process
   // handles from the carrier and await them. Global ps can block indefinitely
   // on this Mac; an optional web descendant audit is bounded and never delays
@@ -605,10 +760,13 @@ export async function proof(meta, script) {
     let closed = false;
     const close = async () => { if (!closed) {
       try {
+        const journal = (await raw.logs({all:true})).world ?? [];
+        const state = await raw.state();
+        try { provenance.observe(state, journal, id); provenance.assert(); } catch (error) { check(error.message, false); }
         if (compareParanoid || process.env.EXACT_PROOF_COMPARE === '1') {
           const state = await raw.op({op:'state', ...await raw.target('world'), world:true});
           const world = state.world;
-          const logs = (await raw.logs()).world ?? [];
+          const logs = journal;
           finalWorlds.push({session:id, tick:world?.tick, hash:world?.hash,
             published:world?.published,
             // Native hosts own incremental journal cursors, even for since:0.
@@ -632,10 +790,12 @@ export async function proof(meta, script) {
     return new Proxy(raw, {get(target, method) {
       if (method === 'close') return close;
       // world(name) runs with the proxy as its receiver: its operations stay recorded.
-      if (!['tap','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
+      if (!['op','tap','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
       return async (...args) => {
         try {
+          provenance.observe(await raw.state(), [], id);
           const reply = await target[method](...args);
+          provenance.observe(await raw.state(), method === 'logs' ? reply.world : [], id);
           if (method === 'state') worldObservations(observations, id)(reply);
           replies.push({session:id, method, args, reply, clock:target.now});
           return reply;

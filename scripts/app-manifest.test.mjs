@@ -26,7 +26,12 @@ test('protocol handlers require one in-app placeholder and distinct schemes', as
   try {
     save([{ protocol: 'web+links', url: '/open?u=%s' }]);
     assert.deepEqual(readManifest(dir, 'links').protocol_handlers, [{ protocol: 'web+links', url: '/open?u=%s' }]);
+    for (const distribution_only of [true, false]) {
+      save([{ protocol: 'web+links', url: '/open?u=%s', distribution_only }]);
+      assert.equal(readManifest(dir, 'links').protocol_handlers[0].distribution_only, distribution_only);
+    }
     for (const bad of [
+      [{ protocol: 'web+links', url: '/open?u=%s', distribution_only: 'true' }],
       [{ protocol: 'web+links', url: '/open' }],
       [{ protocol: 'web+links', url: '/open?u=%s&again=%s' }],
       [{ protocol: 'web+links', url: '//other/open?u=%s' }],
@@ -51,6 +56,31 @@ test('Apple bundles register declared protocol schemes and keep their templates'
     assert.match(plist, /<string>other<\/string>/);
     assert.match(plist, /<string>\/open\?u=%s<\/string>/);
   }
+});
+
+test('distribution-only handlers stay out of both Apple registration keys in local builds', async () => {
+  const { macInfoPlist, infoPlist } = await import('../host/apple/build.mjs');
+  const handler = { protocol: 'packaged', url: '/packaged?u=%s', distribution_only: true };
+  const app = { id: 'dev.exact.links', displayName: 'Links', manifest: {
+    protocol_handlers: [handler, { protocol: 'ordinary', url: '/ordinary?u=%s', distribution_only: false }],
+  } };
+  const development = { scheme: 'exact-dev-test', origins: ['http://localhost:8080'], token: 'abc' };
+  for (const generate of [options => macInfoPlist(app, options), options => infoPlist(app, true, options)]) {
+    const local = generate({ development });
+    assert.doesNotMatch(local, /packaged/);
+    assert.match(local, /<string>ordinary<\/string>/);
+    assert.match(local, /<string>exact-dev-test<\/string>/);
+    const shipped = generate({ distributed: true });
+    const compact = shipped.replace(/\s+/g, '');
+    assert.match(compact, /<key>CFBundleURLSchemes<\/key><array><string>packaged<\/string><string>ordinary<\/string><\/array>/);
+    assert.match(compact, /<key>ExactProtocolHandlers<\/key><array><dict><key>protocol<\/key><string>packaged<\/string><key>url<\/key><string>\/packaged\?u=%s<\/string><\/dict>/);
+    // Session.swift reads [[String: String]], so a build-only Boolean cannot reach this dictionary.
+    assert.doesNotMatch(shipped, /distribution_only/);
+  }
+  const only = { ...app, manifest: { protocol_handlers: [handler] } };
+  for (const local of [macInfoPlist(only), infoPlist(only)]) assert.doesNotMatch(local, /CFBundleURLTypes|ExactProtocolHandlers/);
+  assert.match(infoPlist(app, true, { distribution: { ExactBuildKind: 'release' } }), /<string>release<\/string>/);
+  assert.doesNotMatch(infoPlist(app, true, { distribution: { ExactBuildKind: 'release' } }), /packaged/);
 });
 
 test('an iOS app lists the schemes canOpenURL may ask about, and a malformed or 51st one is refused', async () => {
@@ -133,4 +163,54 @@ test('the manifest orientation locks the iPhone, and an unknown one is refused',
     save('upright');
     assert.throws(() => readManifest(dir, 'o'), /is not one of/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('document handlers and TypeScript source mounts accept their manifest shapes and reject guessed ones', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-author-shapes-'));
+  const base = { name: 'Reader', app: { id: 'dev.exact.reader', name: 'Reader' } };
+  const read = extra => { writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...base, ...extra })); return readManifest(dir, 'reader'); };
+  const file_handlers = [{ action: '/', accept: { 'text/markdown': ['.md'] } }];
+  const sources = { backend: '../generated', snapback4: '../runtime' };
+  try {
+    const manifest = read({ file_handlers, typescript: { sources } });
+    assert.deepEqual(manifest.file_handlers, file_handlers);
+    assert.deepEqual(manifest.typescript.sources, sources);
+    assert.throws(() => read({ file_handlers: { 'text/markdown': ['.md'] } }), /file_handlers:.*array/);
+    assert.throws(() => read({ file_handlers: [{ action: '/', accept: ['text/markdown'] }] }), /file_handlers\[0\].accept:.*object/);
+    assert.throws(() => read({ typescript: { sources: ['../generated'] } }), /typescript.sources:.*object/);
+    assert.throws(() => read({ typescript: { sources: { backend: { path: '../generated' } } } }), /typescript.sources.backend:.*string/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('watchFamilies admits only the four accessory families', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-watch-families-'));
+  try {
+    const write = watchFamilies => writeFileSync(resolve(dir,'app.json'), JSON.stringify({name:'Watch', app:{id:'com.exact.watch', name:'Watch'}, widgets:[{kind:'train',families:['systemSmall'],watchFamilies,component:'Card',props:'Props',refresh:'refresh',preview:{}}]}));
+    const families = ['accessoryCircular','accessoryRectangular','accessoryInline','accessoryCorner'];
+    write(families); assert.deepEqual(readManifest(dir,'watch').widgets[0].watchFamilies, families);
+    for (const family of ['systemSmall','systemMedium','systemLarge','systemExtraLarge']) {
+      write([family]); assert.throws(() => readManifest(dir,'watch'), /watchFamilies/);
+    }
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('activity labels reject whitespace and control characters in schema validation', async () => {
+  const {validate} = await import('./app.mjs');
+  const schema = await Bun.file(new URL('./app.schema.json', import.meta.url)).json();
+  const activity = schema.properties.live_activities.items;
+  for (const key of ['title', 'description']) {
+    const label = activity.properties[key];
+    assert.deepEqual(validate('Next train 🚆', label, key, schema), []);
+    for (const blank of ['', ' ', '   ', '\u00a0', '\u2003']) {
+      assert.ok(validate(blank, label, key, schema).length, `${key}: blank label`);
+    }
+    for (const code of [...Array.from({length:32}, (_, i) => i), ...Array.from({length:33}, (_, i) => i + 127), 0x2028, 0x2029]) {
+      for (const value of [`bad${String.fromCodePoint(code)}label`, `label${String.fromCodePoint(code)}`]) {
+        assert.ok(validate(value, label, key, schema).length, `${key}: ${code}`);
+      }
+    }
+  }
 });

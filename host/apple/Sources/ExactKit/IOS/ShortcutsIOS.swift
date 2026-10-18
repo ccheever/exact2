@@ -105,6 +105,7 @@ extension Presenter {
     func performShortcut(_ command: UIKeyCommand) {
         guard let input = command.input else { return }
         supersedePress() // a key ends a live press's handoff, as `keyDown` does
+        heldKey() // and a hold on the focused node (HeldState.swift)
         let held = KeyCodes.held(command.modifierFlags)
         // Every input is named back to ARIA's key first, a one-character one
         // too (`"\r"` is Enter, review B2); UIKit gives Backspace and Delete

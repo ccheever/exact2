@@ -8,7 +8,15 @@ use contract_syntax::{Expr, Span};
 
 /// The compiler shapes an app builds as it builds its own: the Media
 /// Session's `MediaMetadata`, by the API's constructor (LLP 1098 D1).
-pub const COMPILER_RECORDS: &[&str] = &["MediaMetadata"];
+pub const COMPILER_RECORDS: &[&str] = &[
+    "MediaMetadata",
+    "TextDecorations",
+    "TextDecorationSpan",
+    "TextDecorationBlock",
+    "TextDecorationHidden",
+    "TextDecorationAtom",
+    "TextDecorationRange",
+];
 
 /// Whether `name(…)` builds a record: a shape the app declares or one of
 /// [`COMPILER_RECORDS`], never another compiler shape (`Router`,
@@ -117,4 +125,51 @@ pub(crate) fn infer_record(
         }
     }
     Ok(Ty::Record(shape.to_owned()))
+}
+
+/// A refusal that names two shapes with the same fields, told that a shape
+/// is its name: the euxy port declared `Port` in one file and `PortRow` in
+/// another and met only `expects PortRow[], given Port[]`. The edit keeps
+/// the shape a `use` brings, which is the one already shared.
+pub(crate) fn nominal(e: &mut TypeError, shapes: &Shapes, file: &contract_syntax::File) {
+    let mut named: Vec<&str> = Vec::new();
+    // The odd pieces are inside backticks.
+    for quoted in e.message.split('`').skip(1).step_by(2) {
+        let words = quoted.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'));
+        for w in words.filter(|w| shapes.declared.contains(*w)) {
+            if !named.contains(&w) {
+                named.push(w);
+            }
+        }
+    }
+    let fields = |name: &str| {
+        let mut f = shapes.map.get(name).cloned().unwrap_or_default();
+        f.sort_by(|a, b| a.0.cmp(&b.0));
+        f
+    };
+    let pair = named.iter().enumerate().find_map(|(i, a)| {
+        named[i + 1..]
+            .iter()
+            .find(|b| fields(a) == fields(b))
+            .map(|b| (*a, *b))
+    });
+    let Some((a, b)) = pair else {
+        return;
+    };
+    // Whether a shape is declared in the refused line's file; the loader
+    // has merged the used files' declarations by now, each with its span.
+    let here = |name: &str| {
+        file.shapes
+            .iter()
+            .find(|s| s.name == name)
+            .map(|s| s.span.source_id == e.span.source_id)
+    };
+    let edit = match (here(a), here(b)) {
+        (Some(false), Some(true)) => format!("write `{a}` for `{b}`, naming `{a}` in the `use` of the file that declares it, and delete `shape {b}`"),
+        (Some(true), Some(false)) => format!("write `{b}` for `{a}`, naming `{b}` in the `use` of the file that declares it, and delete `shape {a}`"),
+        _ => "declare it once, in a file both use, and `use` it in the other".to_string(),
+    };
+    e.message.push_str(&format!(
+        "; `{a}` and `{b}` have the same fields, but a shape matches only itself, by name: {edit}"
+    ));
 }

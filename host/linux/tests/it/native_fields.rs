@@ -139,8 +139,9 @@ fn native_paint_is_materials_filled_field() {
         let line = over(role("-exact-secondary-label", dark), fill);
         assert!(near(pixel(&mut p, "native", 50, h - 1), line));
         assert_eq!(pixel(&mut p, "native", 50, h - 2), fill);
-        // Disabled: `onSurface` at 4 % for the container, its foot at 38 %.
-        let off = over(look_fade(role("CanvasText", dark), 0.04), page);
+        // Disabled: the enabled container, as Compose Material 3 draws it
+        // (`TextFieldDefaults.colors`), and its foot `onSurface` at 38 %.
+        let off = fill;
         assert!(near(pixel(&mut p, "disabled", 50, 4), off));
         assert!(near(
             pixel(&mut p, "disabled", 50, h - 1),

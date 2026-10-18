@@ -245,9 +245,10 @@ fn publication_drain_is_full_and_journal_is_an_indexed_ring() {
     assert_eq!(s.world().journal().len(), 4096);
     let reply = s.agent(r#"{"op":"logs","since":0}"#);
     assert!(reply.contains(&format!("\"from\":{}", next - 4096)));
+    assert!(reply.contains(&format!("\"dropped\":{}", next - 4096)));
     assert_eq!(
         s.agent(&format!("{{\"op\":\"logs\",\"since\":{next}}}")),
-        format!("{{\"tick\":0,\"next\":{next},\"from\":{next},\"lines\":[]}}")
+        format!("{{\"tick\":0,\"next\":{next},\"from\":{next},\"dropped\":0,\"lines\":[]}}")
     );
 }
 #[test]

@@ -157,6 +157,7 @@ struct State {
     free: Free,
     busy: RefCell<Vec<std::borrow::Cow<'static, str>>>,
 }
+type ComponentEdit = fn(&mut World, Entity, &str, &str) -> Result<(), DataError>;
 type StorageFactory = fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>;
 #[derive(Clone, Copy)]
 struct Registration {
@@ -167,6 +168,7 @@ struct Registration {
     ambient: bool,
     // A presentation component: outside saves, hashes and observation.
     presentation: bool,
+    edit: Option<ComponentEdit>,
 }
 
 #[derive(Clone, Copy)]
@@ -214,6 +216,7 @@ pub struct World {
     hash_cache: std::cell::Cell<Option<(u64, u64)>>,
     // Paged digests behind hash and observation; never saved.
     digests: RefCell<digest::Digests>,
+    pub(crate) spans: std::rc::Rc<RefCell<crate::diagnostics::Spans>>,
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     pub(crate) followed: std::cell::Cell<bool>,
@@ -229,6 +232,8 @@ pub struct World {
     names: RefCell<Option<Vec<(u64, u32)>>>,
     pub(crate) alive_mask: Vec<u64>,
     rng: storage::Singleton<Rng>,
+    pub(crate) event_types: BTreeMap<&'static str, crate::events::Registration>,
+    pub(crate) event_overflow: RefCell<BTreeSet<&'static str>>,
     registry: BTreeMap<&'static str, Registration>,
     components: BTreeMap<&'static str, Box<dyn Erased>>,
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
@@ -238,6 +243,7 @@ pub struct World {
     pub(crate) animation_runtime: RefCell<Option<Box<dyn std::any::Any>>>,
     journal: RefCell<VecDeque<Event>>,
     journal_next: std::cell::Cell<u64>,
+    pub(crate) set_seen: std::cell::Cell<bool>,
     pub(crate) published_pending: std::cell::Cell<bool>,
     published: RefCell<BTreeMap<String, crate::values::Stored>>,
     /// Each published value's exact JSON, encoded once per change (`take_published`).
@@ -252,6 +258,11 @@ pub struct World {
 const MAGIC: &[u8; 8] = b"EXGAME\0\x05";
 
 impl World {
+    /// Measure a named region of the tick; nested spans account exclusive time.
+    #[track_caller]
+    pub fn span(&self, name: &'static str) -> crate::diagnostics::Span {
+        crate::diagnostics::Span::open(&self.spans, name, Location::caller())
+    }
     /// Start at tick zero. A zero tick rate is a programmer error.
     pub fn new(hz: u32, seed: u64) -> Self {
         assert!(hz > 0, "world hz must be positive");
@@ -265,6 +276,7 @@ impl World {
             observed_epoch: 0,
             hash_cache: std::cell::Cell::new(None),
             digests: RefCell::default(),
+            spans: Default::default(),
             changing: Vec::new(),
             observation: ObservationState::Unknown,
             in_tick: false,
@@ -281,6 +293,8 @@ impl World {
             alive_mask: vec![],
             names: RefCell::new(None),
             rng,
+            event_types: BTreeMap::new(),
+            event_overflow: RefCell::default(),
             registry: BTreeMap::new(),
             components: BTreeMap::new(),
             resources: BTreeMap::new(),
@@ -288,6 +302,7 @@ impl World {
             animation_runtime: RefCell::new(None),
             journal: RefCell::new(VecDeque::new()),
             journal_next: std::cell::Cell::new(0),
+            set_seen: Default::default(),
             published_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
             published_text: RefCell::new(BTreeMap::new()),
@@ -348,6 +363,9 @@ impl World {
         C::register(self);
         let reg = self.registration::<C>(C::NAME);
         reg.make = Some(storage::make::<C>);
+        if !C::PRESENTATION {
+            reg.edit = Some(Self::edit_component::<C>);
+        }
         reg.presentation = C::PRESENTATION;
         self
     }
@@ -368,6 +386,7 @@ impl World {
             resource_size: 0,
             ambient: false,
             presentation: false,
+            edit: None,
         });
         assert_eq!(reg.id, id, "duplicate component name {}", name);
         reg
@@ -689,6 +708,10 @@ impl World {
         let (s, i) = (self.storage::<C>()?, e.index as usize);
         s.get_mut(i, &self.leases, at)
             .unwrap_or_else(|_| self.refuse(s.row_conflict(i, true, &self.leases, at)))
+            .map(|mut row| {
+                row.owner = Some((self, e));
+                row
+            })
     }
     /// Copy one row out, refusing only a live exclusive lease on it.
     pub(crate) fn copied_at<C: Component + Copy>(&self, e: Entity, at: At) -> Option<C> {
@@ -1113,6 +1136,10 @@ impl World {
         self.state.write(w);
         w.field("rng");
         self.rng.get(at).unwrap().write(w);
+        if self.set_seen.get() {
+            w.field("developmentEdits");
+            true.write(w);
+        }
         for (kind, storages) in [
             ("components", &self.components),
             ("resources", &self.resources),
@@ -1162,6 +1189,8 @@ impl World {
         let tables = next.assets.tables.clone();
         next.assets = std::mem::take(&mut self.assets);
         next.assets.tables = tables;
+        next.set_seen
+            .set(self.set_seen.get() || next.set_seen.get());
         *self = next;
         Ok(())
     }
@@ -1169,6 +1198,7 @@ impl World {
     pub(crate) fn registered_scratch(&self) -> Self {
         let mut scratch = Self::new(self.hz(), 0);
         scratch.registry = self.registry.clone();
+        scratch.event_types = self.event_types.clone();
         scratch.derived_publications = self.derived_publications.clone();
         scratch.attachments = self.attachments;
         scratch.detach = self.detach;
@@ -1185,7 +1215,7 @@ impl World {
             return Err(DataError::new("save exceeds load size limit"));
         }
         if bytes.starts_with(b"EXGAME\0\x04") {
-            return Err(DataError::new("restore refused: EXGAME v4 predates v5 tableInputs; recreate the save; no cross-version migration before 1.0"));
+            return Err(DataError::new("restore refused: EXGAME v4 predates v5 development-edit provenance; no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`"));
         }
         bytes.strip_prefix(MAGIC).ok_or_else(|| {
             DataError::new(format!(
@@ -1238,6 +1268,11 @@ impl World {
                 "assetIdentity" => self.assets.read_identity(r)?,
                 "tableInputs" => self.read_tables(r)?,
                 "rng" => self.rng().read(r)?,
+                "developmentEdits" => {
+                    let mut seen = false;
+                    seen.read(r)?;
+                    self.set_seen.set(seen);
+                }
                 "messages" => self.messages.borrow_mut().read(r)?,
                 "components" | "resources" => {
                     if seen & 1 == 0 {
@@ -1301,6 +1336,7 @@ impl World {
                 _ => r.skip()?,
             }
         }
+        self.validate_event_queues()?;
         self.assets.require_identity(seen & 16 != 0)?;
         self.validate_tables_restore(seen & 32 != 0)?;
         if seen & 15 != 15 {
@@ -1451,3 +1487,11 @@ mod required_tests {
         }
     }
 }
+
+pub(crate) mod edit;
+#[cfg(test)]
+mod edit_tests;
+mod handle;
+
+mod builders;
+pub use builders::{PropBuilder, SpriteBuilder};

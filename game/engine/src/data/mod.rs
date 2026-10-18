@@ -80,6 +80,13 @@ pub trait Data: Sized + Default + 'static {
     /// Persisted table identity. The derive captures the declaring module and type name.
     /// Manual table records must provide their own stable, qualified identity.
     const TYPE_ID: &'static str = "";
+    /// Development edit of one declared scalar field; custom formats refuse by default.
+    fn set_field(&mut self, field: &str, _text: &str) -> Result<(), DataError> {
+        Err(DataError::new(format!(
+            "unknown or uneditable field {field}"
+        )))
+    }
+
     /// Whether any nested spring is still moving. Derives walk non-transient fields.
     fn moving(&self, _now: crate::Now) -> bool {
         false
@@ -361,4 +368,19 @@ pub(crate) fn f64_bits(n: f64) -> u64 {
 }
 pub(crate) fn type_name<T>() -> &'static str {
     std::any::type_name::<T>().rsplit("::").next().unwrap()
+}
+
+/// Decode and check finite JSON before replacing a live-edit candidate's field.
+#[doc(hidden)]
+pub fn edit_field<T: Data>(value: &mut T, text: &str) -> Result<(), DataError> {
+    // Edits deliberately accept only scalar and string fields. Data's general
+    // decoder defaults missing record members and array tails.
+    let current = json::to_string(value)?;
+    if current.starts_with(['{', '[']) || text.trim_start().starts_with(['{', '[']) {
+        return Err(DataError::new("set accepts only scalar or string fields"));
+    }
+    let candidate: T = json::from_str(text)?;
+    json::to_string(&candidate)?;
+    *value = candidate;
+    Ok(())
 }

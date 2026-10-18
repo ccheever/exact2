@@ -97,13 +97,17 @@ impl<D: DataSource> Host<D> {
 
     /// The size a text field's own font starts at, `px` points, where the
     /// page's initial 16 is not it: a shell that hosts the platform's field
-    /// sets it by the device's font scale (LLP 1115.001 D8). Laid out again
-    /// when a field read it; whether anything changed.
+    /// sets it by the device's font scale (LLP 1115.001 D8), and under the
+    /// Material look a button's with it, whose title is label-large in sp.
+    /// Laid out again when a field read it; whether anything changed.
     pub fn set_field_font_size(&mut self, px: f32) -> Result<bool, String> {
         let kernel = self.runner.kernel_mut();
         let mut styles = crate::paint::control::control_text_styles();
         styles.field.size = px;
         styles.textarea.size = px;
+        if crate::paint::look::material() {
+            styles.button.size = px;
+        }
         let env = exact_kernel::Env {
             control_text_styles: Some(styles),
             ..kernel.env().clone()

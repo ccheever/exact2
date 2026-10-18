@@ -242,21 +242,27 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Shape {
+pub(super) enum Shape {
     Box,
     Sphere,
     Cylinder,
     Plane,
     Capsule,
+    Ring(u32),
+    Torus(u32),
+    Cone,
 }
 impl Shape {
-    fn of(mesh: &Mesh) -> Result<Self, RenderError> {
+    pub(super) fn of(mesh: &Mesh) -> Result<Self, RenderError> {
         Ok(match mesh {
             Mesh::Box { .. } => Self::Box,
             Mesh::Sphere { .. } => Self::Sphere,
             Mesh::Cylinder { .. } => Self::Cylinder,
             Mesh::Plane { .. } => Self::Plane,
             Mesh::Capsule { .. } => Self::Capsule,
+            Mesh::Ring { inner, outer } => Self::Ring((inner / outer).to_bits()),
+            Mesh::Torus { radius, tube } => Self::Torus((tube / radius).to_bits()),
+            Mesh::Cone { .. } => Self::Cone,
             Mesh::Asset(name) => {
                 return Err(RenderError::Scene(format!(
                     "Mesh.Asset({name}): asset meshes are not implemented"
@@ -264,13 +270,16 @@ impl Shape {
             }
         })
     }
-    fn geometry(self) -> (Vec<Vertex>, Vec<u32>) {
+    pub(super) fn geometry(self) -> (Vec<Vertex>, Vec<u32>) {
         let (mut vertices, indices) = match self {
             Self::Box => shapes::cube(),
             Self::Sphere => shapes::sphere(24),
             Self::Cylinder => shapes::cylinder(24),
             Self::Plane => shapes::plane(),
             Self::Capsule => shapes::capsule(0.5, 2.0, 24),
+            Self::Ring(ratio) => shapes::ring(f32::from_bits(ratio) * 0.5, 0.5, 48),
+            Self::Torus(ratio) => shapes::torus(0.5, f32::from_bits(ratio) * 0.5, 48),
+            Self::Cone => shapes::cone(0.5, 1., 32),
         };
         let half = vertices.len() / 2;
         for (i, v) in vertices.iter_mut().enumerate() {
@@ -285,13 +294,16 @@ impl Shape {
         (vertices, indices)
     }
 }
-fn dimensions(mesh: &Mesh) -> [f32; 3] {
+pub(super) fn dimensions(mesh: &Mesh) -> [f32; 3] {
     match mesh {
         Mesh::Box { size } => size.to_array(),
         Mesh::Sphere { radius } => [2.0 * radius; 3],
         Mesh::Cylinder { radius, height } => [2.0 * radius, *height, 2.0 * radius],
         Mesh::Plane { width, depth } => [*width, 1.0, *depth],
         Mesh::Capsule { radius, height } => [2.0 * radius, height * 0.5 - radius, 2.0 * radius],
+        Mesh::Ring { outer, .. } => [2. * outer, 1., 2. * outer],
+        Mesh::Torus { radius, .. } => [2. * radius; 3],
+        Mesh::Cone { radius, height } => [2. * radius, *height, 2. * radius],
         Mesh::Asset(_) => [1.0; 3], // Refused before any upload.
     }
 }
@@ -444,7 +456,7 @@ pub struct Feed {
     groups: Vec<Group>,
     shapes: BTreeMap<(Shape, bool), usize>,
     batches: Vec<Batch>,
-    draw_entities: Vec<(exact_game::Entity, bool)>,
+    draw_entities: Vec<(exact_game::Entity, bool, bool)>,
     visibility: visibility::Visibility,
     parent_changes: visibility::ParentChanges,
     slots: Vec<u32>,
@@ -634,7 +646,7 @@ impl Feed {
             || next.lod != old.lod
             || next.live != old.live
             || next.membership != old.membership;
-        let draw_entities = if batches {
+        let draw_entities = if batches || next.material != old.material {
             // Entity/parent/visibility revisions include cameras, particles and
             // gameplay-only rows. Rebuild draw records only if their effective
             // membership changed, or a draw's own mesh/LOD/assets changed.
@@ -642,7 +654,14 @@ impl Feed {
             let entities: Vec<_> = w
                 .query::<(&Mesh, &Transform)>()
                 .iter()
-                .map(|(entity, _)| (entity, self.visibility.get(w, entity)))
+                .map(|(entity, _)| {
+                    (
+                        entity,
+                        self.visibility.get(w, entity),
+                        w.get::<Material>(entity)
+                            .is_some_and(|m| (0.0..1.0).contains(&m.color[3])),
+                    )
+                })
                 .collect();
             batches = initial
                 || next.assets != old.assets
@@ -685,12 +704,13 @@ impl Feed {
             let has_offsets = w.query::<&exact_game::Offset>().iter().next().is_some();
             let globals = w.globals();
             let world_pose = |e| {
-                if has_offsets {
-                    scene::drawn(w, e)
-                } else {
-                    globals.get(e)
-                }
-                .map(scene::decompose)
+                scene::primitive_endpoint(w, e, || {
+                    if has_offsets {
+                        scene::drawn(w, e)
+                    } else {
+                        globals.get(e)
+                    }
+                })
             };
             let rebuilt = initial
                 || parent_changed
@@ -923,7 +943,7 @@ impl Feed {
             for group in &mut self.groups {
                 group.slots.clear();
             }
-            for ((e, (mesh, _)), &(expected, visible)) in
+            for ((e, (mesh, _)), &(expected, visible, translucent)) in
                 w.query::<(&Mesh, &Transform)>().iter().zip(drawn)
             {
                 debug_assert_eq!(e, expected);
@@ -937,7 +957,7 @@ impl Feed {
                     self.dimensions.resize(slot + 1, [1.0; 3]);
                 }
                 self.dimensions[slot] = dimensions(mesh);
-                if !visible {
+                if !visible || translucent {
                     continue;
                 }
                 let viewmodel = w.has::<ViewModel>(e);

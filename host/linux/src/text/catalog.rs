@@ -254,32 +254,13 @@ impl Catalog {
         catalog
     }
 
-    /// The installed faces plus every face in `dir`, `sans` its sans-serif
-    /// (fixtures over the machine's fallback).
+    /// Whether a glyph actually rendered from a colour bitmap strike.
     #[cfg(test)]
-    pub(super) fn installed_with(dir: &Path, sans: &str) -> Self {
-        let installed = fonts::installed();
-        let mut registry = Registry {
-            collection: installed.collection.clone(),
-            files: installed.files.clone(),
-            ..Registry::default()
-        };
-        registry.add(super::font_cache::scan(dir));
-        let mut catalog =
-            Self::with_collection(registry.collection, Arc::new(registry.files), "en-US");
-        let generics = fonts::Generics {
-            sans: sans.into(),
-            ..installed.generics.clone()
-        };
-        catalog.settle_generics(&generics);
-        catalog
-    }
-
-    /// Whether a glyph renders as a colour image (a bitmap or colour outline).
-    #[cfg(test)]
-    pub(super) fn renders_color(&mut self, key: GlyphKey) -> bool {
-        self.render(key)
-            .is_some_and(|i| i.content == swash::scale::image::Content::Color)
+    pub(super) fn renders_color_bitmap(&mut self, key: GlyphKey) -> bool {
+        self.render(key).is_some_and(|i| {
+            matches!(i.source, Source::ColorBitmap(_))
+                && i.content == swash::scale::image::Content::Color
+        })
     }
 
     /// The same faces and plan families for another document language: its
@@ -423,7 +404,8 @@ impl Catalog {
                         FontWeight::new(f32::from(face.weight)),
                         parsed.axes(),
                         parsed.charmap_index(),
-                    );
+                    )
+                    .with_pinned_weight();
                     staged.push((face.weight, face.italic, info));
                 }
                 if failed || staged.len() != family.faces.len as usize {

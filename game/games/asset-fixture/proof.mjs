@@ -55,7 +55,8 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
       let fixtureLoseReplacement = false, replacementLosses = 0, lossDuringSecondRecovery = false;
       const fixtureRequest = GPUAdapter.prototype.requestDevice;
       GPUAdapter.prototype.requestDevice = async function(...args) {
-        if (fixtureFailDevice) { fixtureFailDevice = false; fixtureDeviceFailures++; throw new Error('transient fixture device failure'); }
+        // A missing adapter is terminal; device creation failures retain bounded retries.
+        if (fixtureFailDevice) { fixtureFailDevice = false; fixtureDeviceFailures++; throw new Error('fixture device creation failed once'); }
         fixtureDevice = await fixtureRequest.apply(this, args); fixtureDevice.addEventListener('uncapturederror',e=>fixtureErrors.push(e.error.message));
         if (fixtureLoseReplacement) { fixtureLoseReplacement=false; replacementLosses++; lossDuringSecondRecovery=!!recoveringDevice; fixtureDevice.destroy(); await fixtureDevice.lost; }
         return fixtureDevice;
@@ -182,8 +183,8 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
       check('late restore refusal stays on the fresh surface', state.restored===false && state.restoreError?.includes('restore refused'), state.restoreError);
       await refused.world('world').run(100);
       check('fresh world runs after deferred refusal', (await refused.state()).world[0].tick===6);
-      const lines = (await refused.logs()).world?.flatMap(w=>w.lines) ?? [];
-      const again = (await refused.logs()).world?.flatMap(w=>w.lines) ?? [];
+      const lines = (await refused.logs()).world?.flatMap(w=>Array.isArray(w.lines) ? w.lines : []) ?? [];
+      const again = (await refused.logs()).world?.flatMap(w=>Array.isArray(w.lines) ? w.lines : []) ?? [];
       check('late restore refusal is journalled exactly once', lines.filter(l=>l.includes('restore refused')).length===1 && !again.some(l=>l.includes('restore refused')));
       await refused.close();
     }

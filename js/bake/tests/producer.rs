@@ -1489,3 +1489,6 @@ fn windows_imported_packages_keep_identity_through_real_bakes() {
         assert_eq!(std::fs::read_to_string(f.0.join(name)).unwrap(), text);
     }
 }
+
+#[path = "producer/widgets.rs"]
+mod widgets;

@@ -111,10 +111,9 @@ extension Picker {
     /// iOS: a scratch copy under the suggested name, handed to the
     /// exporting document picker, which moves a copy where the person says.
     func presentSave(view: UInt32, file: URL, name: String) {
-        guard var controller = session.presenter.root.window?.rootViewController else {
+        guard let controller = ViewPresentation.presenter(for: session.presenter.views[view] ?? session.presenter.root) else {
             session.log("saveFile: refused: no window"); saveCancelled(view); return
         }
-        while let presented = controller.presentedViewController { controller = presented }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("exact-export-\(UUID().uuidString)", isDirectory: true)
         let staged = dir.appendingPathComponent(name)
         do {

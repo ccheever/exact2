@@ -13,6 +13,7 @@ import { duringOp } from './agent-drag.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 import { serverUrl } from './verify.mjs';
+import { backendOriginSelection } from '../js/bake/src/typescript.mjs';
 import { devicePreflight, mountsSnapback } from '../snapback4/web/device-build.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
@@ -159,6 +160,16 @@ export function fetchOrigins(dist) {
 }
 /** The loopback ones: a backend on this machine the tests talk to. */
 export const loopbackOrigins = (dist) => fetchOrigins(dist).filter((o) => /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(o));
+/** The source that selected the built backend, with a stale build stated explicitly. */
+export function backendOriginSource(app, origin, env=process.env) {
+  const dir=typeof app==='string' ? app : app.dir;
+  if (!dir) return 'built net.fetch grant';
+  const selected=backendOriginSelection(dir,env);
+  if (selected?.origin===origin) return selected.source;
+  let code=''; try { code=readFileSync(resolve(dir,'app.ts'),'utf8'); } catch { /* no TypeScript source */ }
+  const literal=/\bconst\s+origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(code)?.[1]?.replace(/\/+$/,'');
+  return !selected && literal===origin ? 'app.ts origin literal' : 'built net.fetch grant (rebuild after changing the backend selection)';
+}
 const listening = (origin, ms = 1000) => new Promise((done) => {
   const { hostname, port, protocol } = new URL(origin), socket = connect({ host: hostname.replace(/^\[|\]$/g, ''), port: Number(port || (protocol === 'https:' ? 443 : 80)) });
   const end = (ok) => { socket.destroy(); done(ok); };
@@ -172,7 +183,7 @@ export async function backendPreflight(app, dist, say = console.error) {
   const down = [];
   for (const origin of loopbackOrigins(dist)) if (!(await listening(origin))) down.push(origin);
   if (!down.length) return devicePreflight(app, fetchOrigins(dist));
-  const what = `no backend at ${down.join(', ')}: nothing listens there, and app.ts fetches it (a net.fetch grant)`;
+  const what = `no backend at ${down.map(origin=>`${origin} (source: ${backendOriginSource(app,origin)})`).join(', ')}: nothing listens there, and app.ts fetches it (a net.fetch grant)`;
   if (!mountsSnapback(app)) return say(`note: ${what}; a test that loads from it fails`);
   throw new Error(`${what}. The app's Snapback client cannot open data that has never synced, so every test would fail. Start the server first, from the backend's directory (\`npx snapback4 dev --port ${new URL(down[0]).port || 80}\`, seeded if the tests read seeded rows), then run the tests again.`);
 }
@@ -213,12 +224,12 @@ export function rosterRefusalNote(reset, schema, refusals) {
  * `{reset: true, seeded, generation}`). An origin that is no snapback4 dev server (no `/dev/status` with a `storeId`) is
  * left alone. Nothing to reset, an origin that does not answer, or a server older than the door (404) refuses the test
  * with what to do. Returns a line for each server reset. */
-export async function resetBackends(origins, rows = null, ms = 10000) {
+export async function resetBackends(origins, rows = null, ms = 10000, app = null) {
   const said = [];
   for (const origin of origins) {
     let status;
     try { const r = await fetch(`${origin}/dev/status`, { signal: AbortSignal.timeout(ms) }); status = r.ok ? await r.json().catch(() => null) : null; }
-    catch (e) { throw new Error(`fresh: nothing answered at ${origin} (${e.cause?.code ?? e.message}): start \`snapback4 dev --port ${new URL(origin).port || 80}\` there first`); }
+    catch (e) { throw new Error(`fresh: nothing answered at ${origin}${app ? ` (source: ${backendOriginSource(app,origin)})` : ''} (${e.cause?.code ?? e.message}): start \`snapback4 dev --port ${new URL(origin).port || 80}\` there first`); }
     if (typeof status?.storeId !== 'string') continue;
     const r = await fetch(`${origin}/dev/reset`, { method: 'POST', signal: AbortSignal.timeout(ms), ...(rows ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) } : {}) });
     const text = await r.text();
@@ -271,11 +282,30 @@ export function backendFetchPrefixes(tests, origins) {
 export function refusedReplies(lines) {
   const refused = new Map();
   for (const l of Array.isArray(lines) ? lines : []) {
-    const m = (typeof l === 'string' ? l : JSON.stringify(l)).match(/request \d+ \(([^)]+)\) failed and is no longer pending: (?:it ends unsent|it is not retried): (.*)$/);
+    const m = (typeof l === 'string' ? l : JSON.stringify(l)).match(/request \d+ \(([^)]+)\) failed and is no longer pending: (?:it ends unsent|it is not retried): (.*)$/)
+      ?? (typeof l === 'string' ? l : JSON.stringify(l)).match(/send ([^ ]+) failed: (.*); it ends unsent$/);
     if (m) refused.set(m[1], m[2]);
   }
   return refused;
 }
+/** Assert a mutation's observed refusal, preserving only its matching journal lines for verify. */
+export function refusalExpectation(logs, target) {
+  const lines=Array.isArray(logs?.lines) ? logs.lines : [];
+  for (let i=lines.length-1;i>=0;i--) {
+    const why=refusedReplies([lines[i]]).get(target);
+    if (why==null) continue;
+    const expected=[String(lines[i])];
+    // A failed reply's transaction line precedes the request's terminal failure.
+    for (let j=/\brequest \d+ \(/.test(String(lines[i])) ? i-1 : -1;j>=0;j--) {
+      const line=String(lines[j]).replace(/^t=\d+(?:\.\d+)?\s+/, '');
+      if (/^request \d+ /.test(line)) break;
+      if (line.startsWith(`refused reply ${target};`) && line.endsWith(`: ${why}`)) { expected.push(String(lines[j])); break; }
+    }
+    return { expected };
+  }
+  return { message: `expected mutation ${JSON.stringify(target)} to refuse, but no refused reply was observed; clock data or clock settle lands a send` };
+}
+
 const replyNote = (name, why) => `mutation ${name}'s reply was refused: ${why}; its slot keeps what it had and its \`then\` does not run`;
 /** The notes a CLI drive writes on stderr beside its replies, each once (LLP 1102 §3.17; app farm round 1, where a
  * shape refusal lived only in `logs` and an early `tree` showed an empty list): a drive with no scratch store whose
@@ -290,6 +320,31 @@ export const STORAGE_NOTE = 'this drive names no --storage, so the app\'s storag
  *  beside the hold under `--touch platform` (Share.swift, DocumentPickers.swift). */
 const HELD_SHEETS = { share: 'share sheet', pick: 'photo or file picker', 'open-file': 'document picker', 'open-directory': 'document picker', 'save-file': 'document picker', export: 'export sheet', auth: 'sign-in sheet' };
 const SHOWN_SHEETS = ['share', 'open-file', 'open-directory', 'save-file'];
+// Native and web canvas journals advance their own cursors on every wire read.
+// Advice owns no journal entries: keep its batches until the caller asks for logs.
+const peekedWorldLogs = new WeakMap();
+export function resetLogs(s) {
+  peekedWorldLogs.delete(s);
+  s.logCursor = 0;
+}
+export async function peekLogs(s, since) {
+  let sessions = peekedWorldLogs.get(s);
+  if (!sessions) peekedWorldLogs.set(s, sessions = new Map());
+  const session = s.session, reply = await s.op({ op: 'logs', since });
+  // A probe started before a reload belongs to the old page, even if it replies later.
+  if (reply.world?.length && peekedWorldLogs.get(s) === sessions)
+    sessions.set(session, [...(sessions.get(session) ?? []), ...reply.world]);
+  return reply;
+}
+export function takeWorldLogs(s, world) {
+  const sessions = peekedWorldLogs.get(s), previous = sessions?.get(s.session) ?? [];
+  if (!previous.length) return world;
+  // Equal cursor boundaries can belong to different canvas lifetimes. Keep each read's metadata.
+  const batches = [...previous, ...(world ?? [])];
+  // Consume only after collecting all rows succeeds, so a failed read can be retried.
+  sessions?.delete(s.session);
+  return batches;
+}
 export function driveNotes(s, { host, storage, origins = [] }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
@@ -319,7 +374,7 @@ export function driveNotes(s, { host, storage, origins = [] }) {
     // sources were refused their storage reads as an app bug (the euxy port). Not here when an input's reply said it.
     if (storage === undefined && !said.has('storage') && !s.storageSaid && ++probes <= 20) {
       try {
-        const j = await bounded(s.op({ op: 'logs', since: peek }), 3000);
+        const j = await bounded(peekLogs(s, peek), 3000);
         if (Array.isArray(j?.lines)) {
           peek = j.next;
           if (j.lines.some((l) => STORAGE_REFUSED.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', STORAGE_NOTE);
@@ -328,7 +383,7 @@ export function driveNotes(s, { host, storage, origins = [] }) {
     }
     if (!(end || early || (host === 'web' && INPUTS.includes(op)))) return;
     try {
-      const j = await bounded(s.op({ op: 'logs', since: replies }), 3000);
+      const j = await bounded(peekLogs(s, replies), 3000);
       if (Array.isArray(j?.lines)) replies = j.next;
       for (const [name, why] of refusedReplies(j?.lines)) note(`reply ${name} ${why}`, replyNote(name, why));
       const state = await bounded(s.state(), 3000);
@@ -376,8 +431,10 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * time it reached, as a `reload` relaunches, LLP 1116.009 D1; `restart`: on the web, the `reload` step itself, run on the session so the page loads
  * again on its route and storage at that date, LLP 1116.010 D6; `typed`: the ids the test typed since its last other input, a draft; `touched`: every id it typed) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
  * `end.keep` keeps the test's store for a later launch (the result's `store`), which the caller then removes.
+ * `atStep(s, { name, line, op })` runs on the session after each input step (and `reload`) lands; returning 'stop' ends
+ * that test there, 'done' every test from there (verify's tour of the screens the tests pass through).
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, port } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, atStep, port } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   if (host === 'web' && !url) await backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
   // A fetch prefix outside every grant fails nothing (sb4 farm wave 4, lane 070: an origin moved in app.ts only).
@@ -410,8 +467,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const tag = base || host === 'android' ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
   sweepTestStores(base, storage);
   const server = serverUrl(selected.dir); // where a `request` line's path is (LLP 1116.006 D8)
+  let done = false;
   for (const [n, t] of tests.entries()) {
-    const failures = [];
+    if (done) break;
+    const failures = [], expectedRefusals = [];
+    const refusalCursors = new Map();
     let end = null;
     const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
@@ -448,7 +508,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       if (warning) notes.push(warning);
     }
     // `fresh`: the backend emptied (and seeded) before the app opens; a refusal fails this test at its line.
-    if (reset) try { await resetBackends(backends, freshRows(file, reset.seed)); } catch (e) {
+    if (reset) try { await resetBackends(backends, freshRows(file, reset.seed), 10000, selected); } catch (e) {
       results.push({ name: t.name, failures: [`${t.name}: line ${reset.line}: ${e.message}`], notes });
       continue;
     }
@@ -488,7 +548,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const now = await s.state().catch((e) => { throw new Error(`reload: could not read the fault table to carry: ${e.message}`); });
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
       facts.epoch = await reached();
-      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
+      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; resetLogs(s); s.notes = notes; return; }
       await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
@@ -514,7 +574,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const fail = async (message) => {
       const state = await s.state().catch(() => ({}));
       const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('')
-        + [...refusedReplies((await s.op({ op: 'logs', since: 0 }).catch(() => null))?.lines)].map(([name, why]) => ` (${replyNote(name, why)})`).join('');
+        + [...refusedReplies((await peekLogs(s, 0).catch(() => null))?.lines)].map(([name, why]) => ` (${replyNote(name, why)})`).join('');
       if (unpolled != null) return failures.push(`${message}${failed} (line ${unpolled} wrote to the server, and the clock has not moved past the app's next read since: \`clock +<its poll's ms>\`, then \`clock data\`)`);
       if (input != null) return failures.push(`${message}${failed} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
       const pending = (state.pending ?? []).filter((p) => !p.device).map((p) => p.name);
@@ -590,7 +650,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               }
               delivered(await s.type(st.target, text)); input = st.line; break;
             }
-            case 'reload': await reload(); await data(); input = null; loaded = true; break;
+            case 'reload': await reload(); refusalCursors.clear(); expectedRefusals.length = 0; await data(); input = null; loaded = true; break;
             case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
             case 'pick': {
@@ -619,6 +679,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size');
               if (f?.unshown) failures.push(`${at}: ${f.message}`);
               else if (f) await fail(`${at}: ${f.message}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
+              break;
+            }
+            case 'expect-refusal': {
+              const logs=await s.op({op:'logs',since:refusalCursors.get(st.target) ?? 0});
+              const refusal=refusalExpectation(logs,st.target);
+              if (refusal.message) await fail(`${at}: ${refusal.message}`);
+              else { expectedRefusals.push(...refusal.expected); refusalCursors.set(st.target,logs.next); }
               break;
             }
             case 'expect-disabled': {
@@ -692,6 +759,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             default: failures.push(`${at}: unknown step ${st.op}`);
           }
           if (closedAt == null) await mutationClock.advance(s);
+          if (atStep && closedAt == null && (INPUTS.has(st.op) || st.op === 'reload')) {
+            const next = await atStep(s, { name: t.name, line: st.line, op: st.op });
+            if (next === 'done') done = true;
+            if (next === 'stop' || next === 'done') break;
+          }
         } catch (e) {
           failures.push(`${at}: ${e.message}`);
           break;
@@ -699,13 +771,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       }
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
-      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, epoch: first, env: env ?? {} }), reached: await reached(), typed: [...typed], touched: [...touched], ...(s.host === 'web' ? { restart: async () => { await reload(); await data(); } } : {}) }).catch((e) => ({ error: e.message }));
+      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, epoch: first, env: env ?? {} }), reached: await reached(), typed: [...typed], touched: [...touched], expectedRefusals: [...expectedRefusals], ...(s.host === 'web' ? { restart: async () => { await reload(); await data(); } } : {}) }).catch((e) => ({ error: e.message }));
       // A failed test shows what the data module logged, the last lines of it (sb4 farm wave 7, E1: 093 rendered
       // values into the view to see them; `logs` had them all along). Advice only.
       if (failures.length && closedAt == null) try {
         const state = await s.state();
         const mutations = new Map(Object.entries(state.mutationFailures ?? {}).map(([name, failure]) => [name, `${failure.code}: ${failure.message}`]));
-        const refusal = rosterRefusalNote(reset, schema, mutations.size ? mutations : refusedReplies((await s.op({op: 'logs', since: 0}))?.lines));
+        const refusal = rosterRefusalNote(reset, schema, mutations.size ? mutations : refusedReplies((await peekLogs(s, 0))?.lines));
         if (refusal) notes.push(refusal);
         const logs = await Promise.race([s.logs(), new Promise((done) => setTimeout(() => done(null), 3000))]);
         const said = (logs?.host ?? []).filter((l) => /^console\.\w+: /.test(l));
@@ -752,7 +824,7 @@ export async function reloadWeb(s) {
   }
   const now=await s.state();
   await s.carrier.reset({keep:true, failFetch: now.faults ? faultSpecOf(now.faults) : undefined});
-  s.now=0; s.logCursor=0;
+  s.now=0; resetLogs(s);
   return {reloaded:true};
 }
 

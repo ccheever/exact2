@@ -205,7 +205,9 @@ impl<G: Game> Sim<G> {
             }
         }
         if self.setup_pending && self.required_ready() {
+            self.edits_admitted |= self.world.set_seen.get();
             self.world = Self::build(&self.args, self.world.assets.clone());
+            self.world.set_seen.set(self.edits_admitted);
             self.setup_pending = false;
             self.asset_mesh_revision = u64::MAX;
         }

@@ -56,7 +56,9 @@ object Native {
      * innermost first: its id, flags (bit 0 it takes a sideways drag from here, bit 1 one up or down, bit 2 its
      * rows are a node the reader can move), its revision, then as float bits its offset (x, y), its farthest offset
      * (x, y) and the box it shows in (x, y, width, height). exact2 tells the reader of each of them from then on
-     * ([scrollers]). */
+     * ([scrollers]). After the scrollers: the native module button under the point (0: none), then its painted
+     * box x, y, width and height as float bits, in pixels, its allocation slot and generation, and how many long
+     * presses a node has taken so far (wrapping). */
     @JvmStatic external fun under(x: Float, y: Float): IntArray
     /** What exact2 tells the reader of the text fields it hosts (LLP 1115.001 D8), when that is not what this last
      * returned (else null): a count, then for each field, in tree order: its id, its generation (moved on when its
@@ -70,6 +72,9 @@ object Native {
     /** Hosted field [id], known at [generation], took the focus (a finger tapped it) or lost it. On the host's
      * thread, as every `field` call is; what one says of a generation exact2 has moved on from is dropped. */
     @JvmStatic external fun fieldFocused(id: Int, generation: Int, focused: Boolean)
+    /** Hosted field [id], known at [generation], had real input that may change nothing exact2 hears of: a finger
+     * down in it, a key down. A state held on it (LLP 1122 D8) lets go. */
+    @JvmStatic external fun fieldInput(id: Int, generation: Int)
     /** Hosted field [id] holds [value] after the person's edit number [seq], its selection at [start] to [end]
      * (UTF-16 units). Composing text is part of the value: exact2 fires `input` as the text composes. */
     @JvmStatic external fun fieldEdited(id: Int, generation: Int, seq: Int, value: String, start: Int, end: Int)
@@ -83,6 +88,8 @@ object Native {
      * key said it does: 0 Enter with no action, 2 done, 3 go, 4 next, 5 previous, 6 search, 7 send, 16 Tab, 17
      * Shift+Tab. exact2 does that: Enter's `key` handlers, `change` and `submit`, then the move or the leave. */
     @JvmStatic external fun fieldAction(id: Int, generation: Int, action: Int)
+    /** A module event, checked against the allocation generation carried by its painted view. */
+    @JvmStatic external fun moduleEvent(id: Int, slot: Int, generation: Int, kind: String, payload: String)
     /** The reader moved scroller [id] by ([dx], [dy]) px, knowing revision [rev] of it. exact2 clamps the move to
      * the scroller's travel, and drops one sent under a revision the app's own scroll has moved on from. */
     @JvmStatic external fun scrolled(id: Int, dx: Float, dy: Float, rev: Int)

@@ -2,8 +2,8 @@
 //! whether it scrolls (a glass group on a scroller, a route's scroller, a
 //! scroll ancestor). CSS Overflow 3 §3.1 as the kernel's `style.rs` lays it
 //! out: the last of `overflow`, `overflow-x` and `overflow-y` wins per axis,
-//! and beside an axis that is not `visible`, `visible` computes to `auto`
-//! (no row admits `clip`).
+//! and beside a scrolling axis, `visible` computes to `auto` and `clip`
+//! computes to `hidden`.
 use contract_syntax::{Attr, Expr};
 
 /// One way the rows can come out: each axis's computed value, `None` where
@@ -76,7 +76,8 @@ impl<'a> Overflow<'a> {
             cases = next;
         }
         let computed = |v: Option<&'a str>, other: Option<&str>| match (v, other) {
-            (Some("visible"), Some(o)) if o != "visible" => Some("auto"),
+            (Some("visible"), Some(o)) if !matches!(o, "visible" | "clip") => Some("auto"),
+            (Some("clip"), Some(o)) if !matches!(o, "visible" | "clip") => Some("hidden"),
             _ => v,
         };
         Overflow(
@@ -88,13 +89,13 @@ impl<'a> Overflow<'a> {
     }
 
     /// Whether some case may scroll on either axis: a known axis that is
-    /// neither `visible` nor `hidden`, or a known non-`visible` axis beside a
+    /// neither `visible`, `clip` nor `hidden`, or a known non-`visible` axis beside a
     /// computed one (a `visible` there would compute to `auto`).
     pub(crate) fn may_scroll(&self) -> bool {
-        let scrolls = |v: &str| !matches!(v, "visible" | "hidden");
+        let scrolls = |v: &str| !matches!(v, "visible" | "hidden" | "clip");
         self.0.iter().any(|case| match *case {
             (Some(x), Some(y)) => scrolls(x) || scrolls(y),
-            (Some(k), None) | (None, Some(k)) => k != "visible",
+            (Some(k), None) | (None, Some(k)) => !matches!(k, "visible" | "clip"),
             (None, None) => false,
         })
     }
@@ -104,7 +105,7 @@ impl<'a> Overflow<'a> {
     pub(crate) fn scrolls_y(&self) -> Option<bool> {
         let each = self.0.iter().map(|case| match *case {
             (_, None) | (None, Some("visible")) => None,
-            (_, Some(y)) => Some(!matches!(y, "visible" | "hidden")),
+            (_, Some(y)) => Some(!matches!(y, "visible" | "hidden" | "clip")),
         });
         let mut all = each.collect::<Option<Vec<bool>>>()?.into_iter();
         let first = all.next()?;
@@ -115,9 +116,10 @@ impl<'a> Overflow<'a> {
     /// computed x beside a `visible` y is not counted: before the
     /// two-value split no x row made a scroll ancestor.
     pub(crate) fn may_scroll_y(&self) -> bool {
-        self.0
-            .iter()
-            .any(|case| case.1.is_none_or(|y| !matches!(y, "visible" | "hidden")))
+        self.0.iter().any(|case| {
+            case.1
+                .is_none_or(|y| !matches!(y, "visible" | "hidden" | "clip"))
+        })
     }
 }
 
@@ -162,6 +164,20 @@ mod tests {
     /// CSS Overflow 3 §3.1: a `visible` axis beside a scrolling or hidden one
     /// computes to `auto`; the last row of an axis wins, a later literal over
     /// an earlier computed one; `""` and `"unset"` declare nothing.
+    #[test]
+    fn clip_axes_do_not_create_a_scroll_ancestor() {
+        for value in ["clip", "clip visible", "visible clip"] {
+            let rows = [row("overflow", lit(value))];
+            let overflow = Overflow::of(&rows, "visible");
+            assert!(!overflow.may_scroll() && !overflow.may_scroll_y());
+            assert_eq!(overflow.scrolls_y(), Some(false));
+        }
+        assert_eq!(
+            cases(&[row("overflow", lit("clip auto"))], "visible"),
+            [known("hidden", "auto")]
+        );
+    }
+
     #[test]
     fn each_axis_computes_as_css_does() {
         assert_eq!(

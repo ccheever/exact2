@@ -953,8 +953,14 @@ test('device guest sessions persist and bind a partition after public auth disco
     expect(sibling.session?.principal).toBe(db.session?.principal);
     await sibling.close();
     await expect(db.guest()).rejects.toMatchObject({code: 'E_AUTH'});
+    await expect(db.signup('guest-upgrade@example.com', 'correct-horse-battery-staple')).rejects.toMatchObject({code: 'E_AUTH'});
+    await expect(db.login('guest-upgrade@example.com', 'correct-horse-battery-staple')).rejects.toMatchObject({code: 'E_AUTH'});
     await db.logout();
     expect(store.get('session')).toBeNull();
+    expect(await db.signup('guest-upgrade@example.com', 'correct-horse-battery-staple')).toMatchObject({ok: true, session: {principal: expect.stringMatching(/^user:/)}});
+    await db.logout();
+    expect(await db.login('guest-upgrade@example.com', 'correct-horse-battery-staple')).toMatchObject({ok: true, session: {principal: expect.stringMatching(/^user:/)}});
+    await db.logout();
   } finally {await db.close();}
 });
 

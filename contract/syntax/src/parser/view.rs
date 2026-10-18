@@ -14,13 +14,13 @@ impl Parser {
         if self.at_ident("else") {
             self.next();
             // `else if` is an `else` whose one node is the next `if`.
-            if self.at_ident("if") {
+            if self.at_ident("if") || self.at_ident("when") {
+                let retired = self.at_ident("when");
+                let first = self.retired.len();
                 otherwise = vec![self.node()?];
-            } else if self.at_ident("when") {
-                return self.err(
-                    "syntax-else-keyword",
-                    "a view branches with `if`: write `else if`",
-                );
+                if retired {
+                    self.retired[first].id = "syntax-else-keyword";
+                }
             } else {
                 self.after_else("if")?;
                 otherwise = self.required_block(span, "else", |p| p.node())?;

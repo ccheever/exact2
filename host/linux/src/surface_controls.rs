@@ -578,18 +578,28 @@ impl<D: DataSource> Presenter<D> {
 
     /// Pointer activation returns HUD button focus to its input canvas after press.
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
+        self.press_at_after_down(x, y, now_ms, None)
+    }
+
+    pub(crate) fn press_at_after_down(
+        &mut self,
+        x: f32,
+        y: f32,
+        now_ms: f64,
+        field_focus_before_down: Option<Option<ViewId>>,
+    ) -> Option<ViewId> {
         // An open select menu takes the press: a row, or light dismiss.
         if let Some(select) = self.menu_press(x, y) {
             return Some(select);
         }
         let hit = self.hit(x, y)?;
-        self.note_press(hit, false);
-        let focus = !self.pointerdown_prevents_focus(hit);
+        self.note_press_from(hit, false, field_focus_before_down.unwrap_or(self.focus));
+        let focus = field_focus_before_down.is_none() && !self.pointerdown_prevents_focus(hit);
         // A popover's invoker, or a dialog's button: the top layer's, where
         // a shell presents one (`presenter/top.rs`); else refused.
         if let Some(invoker) = self.top_invoker(hit) {
             if self.has_windows() && focus {
-                self.focus_for_press(hit, now_ms, self.direct());
+                self.focus_for_press(hit, (x, y), now_ms, self.direct());
             }
             return self.invoke(invoker, now_ms, true);
         }
@@ -605,7 +615,7 @@ impl<D: DataSource> Presenter<D> {
             return Some(control);
         }
         if focus {
-            self.focus_for_press(hit, now_ms, self.direct());
+            self.focus_for_press(hit, (x, y), now_ms, self.direct());
         }
         if self.press_range(hit, x) || self.toggle_control(hit, now_ms) {
             return Some(hit);
@@ -632,7 +642,13 @@ impl<D: DataSource> Presenter<D> {
     /// gives the focus without its ring (LLP 1115.001 D7.6: no focus ring in
     /// touch mode, as the web's `:focus-visible`); a mouse's shows it, as it
     /// did, and so does a focus a key or the app moves there after.
-    pub(crate) fn focus_for_press(&mut self, hit: ViewId, now_ms: f64, direct: bool) {
+    pub(crate) fn focus_for_press(
+        &mut self,
+        hit: ViewId,
+        point: (f32, f32),
+        now_ms: f64,
+        direct: bool,
+    ) {
         let mut focus = Some(hit);
         while let Some(id) = focus {
             if self.focusable(id) {
@@ -656,7 +672,7 @@ impl<D: DataSource> Presenter<D> {
         }
         // A press in a text field puts its caret there (x2apps codeedit #2).
         if let Some(id) = focus.filter(|id| self.focus == Some(*id)) {
-            self.press_field(id);
+            self.press_field(id, point.0, point.1);
         }
     }
 
@@ -682,7 +698,7 @@ impl<D: DataSource> Presenter<D> {
     /// pointer's `down`. False when the canvas refuses it.
     pub(crate) fn canvas_contact_down(&mut self, hit: ViewId, x: f32, y: f32, at: f64) -> bool {
         self.note_press(hit, false);
-        self.focus_for_press(hit, at, self.direct());
+        self.focus_for_press(hit, (x, y), at, self.direct());
         self.input_surface(hit)
             .is_some_and(|view| self.canvas_pointer(view, "down", 1, x, y, at))
     }

@@ -1248,8 +1248,9 @@ fn document<D: DataSource + 'static>(
     let (rendered, html) = match rendered {
         Ok(done) => done,
         Err(error) => {
-            println!("render {location} 500 {ms:.1}ms error={error:?}");
-            let _ = std::io::stdout().flush();
+            crate::log(format_args!(
+                "render {location} 500 {ms:.1}ms error={error:?}"
+            ));
             if let Some((mut flush, _, _)) = flush {
                 flush.send(UNAVAILABLE_AFTER_HEAD.as_bytes());
                 flush.end();
@@ -1271,7 +1272,7 @@ fn document<D: DataSource + 'static>(
         }
     };
     let status = rendered.status(notfound);
-    println!(
+    crate::log(format_args!(
         "render {location} {status} {ms:.1}ms answers={} pending={} bytes={}{}",
         rendered.state.answers.len(),
         rendered.state.pending.len(),
@@ -1281,8 +1282,7 @@ fn document<D: DataSource + 'static>(
             (true, false) => " flushed",
             _ => "",
         }
-    );
-    let _ = std::io::stdout().flush();
+    ));
     let streamed = flush.is_some();
     if let Some((mut flush, head, _)) = flush.take() {
         if !streamed_body {
@@ -1376,7 +1376,7 @@ fn sitemap<D: DataSource + 'static>(shared: &Shared, data: fn() -> D) -> Respons
         match listed {
             Ok(found) => locations.extend(found),
             Err(error) => {
-                println!("sitemap 503 error={error:?}");
+                crate::log(format_args!("sitemap 503 error={error:?}"));
                 return Response::text(503, "the sitemap's pages didn't answer\n")
                     .header("Cache-Control", "no-store")
                     .header("Retry-After", "1");

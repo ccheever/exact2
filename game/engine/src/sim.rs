@@ -3,6 +3,7 @@ use crate::{Args, ArgumentKind, PointerPhase};
 use std::{collections::VecDeque, marker::PhantomData};
 
 mod assets;
+mod diagnostics;
 mod paranoid;
 mod snapshot;
 
@@ -196,6 +197,8 @@ pub struct Sim<G: Game> {
     paranoid_skipped: u64,
     // An edit through world_mut since the last present: the next advance presents.
     present_owed: bool,
+    pub(crate) development_edits: bool,
+    pub(crate) edits_admitted: bool,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -213,41 +216,6 @@ impl<G: Game> Sim<G> {
         sim.load_assets(loader).map_err(|e| e.to_string())?;
         Ok(sim)
     }
-    /// Assert a test hash against the game's single pins.json (included by its test).
-    /// Unknown metadata fields are skipped by Data; no generated Rust is needed.
-    pub fn assert_pin(&self, pins: &str) {
-        assert_eq!(
-            self.table_edits(),
-            0,
-            "pin refused: development table edits are in the journal"
-        );
-        let (game, tick, got) = (G::ID, self.world.tick(), self.world.hash());
-        #[derive(Default, crate::Data)]
-        struct Pins {
-            game: String,
-            ticks: std::collections::BTreeMap<String, String>,
-        }
-        let pins: Pins = crate::json::from_str(pins).unwrap_or_else(|error| {
-            panic!("pins.json game <invalid>, expected `{game}`: {error}; run bun game/prove.mjs {game}")
-        });
-        assert!(
-            pins.game == game,
-            "pins.json game `{}`, expected `{game}`; run bun game/prove.mjs {game}",
-            if pins.game.is_empty() {
-                "<missing>"
-            } else {
-                &pins.game
-            }
-        );
-        let expected = pins
-            .ticks
-            .get(&tick.to_string())
-            .unwrap_or_else(|| panic!("pin {tick} missing; run bun game/prove.mjs {game}"));
-        let got = format!("0x{got:016x}");
-        assert!(expected == &got,
-            "pin {tick} differs (expected {expected}, got {got}); if the change is intended: bun game/prove.mjs {game} --repin");
-    }
-
     /// Override EXACT_GAME_PARANOID for this simulation.
     pub fn paranoid(mut self, mode: Paranoid) -> Self {
         self.paranoid = Self::reconstruction(mode);
@@ -412,6 +380,8 @@ impl<G: Game> Sim<G> {
             paranoid_owed: false,
             paranoid_skipped: 0,
             present_owed: false,
+            development_edits: true,
+            edits_admitted: false,
             game: PhantomData,
         })
     }
@@ -479,6 +449,8 @@ impl<G: Game> Sim<G> {
             self.setup_pending = !world.assets.ready();
             self.ready_hint = None;
             self.asset_mesh_revision = u64::MAX;
+            self.edits_admitted |= self.world.set_seen.get();
+            world.set_seen.set(self.edits_admitted);
             self.world = world;
             self.world_us = 0;
             self.live_time = None;
@@ -906,8 +878,10 @@ impl<G: Game> Sim<G> {
             self.world.observe(&mut self.observations[0]);
         }
         while self.world.tick() < target {
+            self.world.spans.borrow_mut().begin(self.world.tick() + 1);
             self.world.begin_tick();
             self.input.clear_edges();
+            self.world.deliver_events(&mut self.input);
             let end = (self.world.tick() as u128 + 1) * 1_000_000;
             let mut delivered = false;
             while self.queue.front().is_some_and(|e| {
@@ -916,7 +890,18 @@ impl<G: Game> Sim<G> {
                     stamp < end || (clock == Clock::Live && stamp == end)
                 })
             }) {
-                self.input.apply(self.queue.pop_front().unwrap().event);
+                let event = self.queue.pop_front().unwrap().event;
+                if let InputEvent::Message { text, .. } = &event {
+                    if crate::world::edit::command(text).is_some()
+                        && self.world.apply_set(text, self.development_edits)
+                    {
+                        self.edits_admitted = true;
+                    } else {
+                        self.input.apply(event);
+                    }
+                } else {
+                    self.input.apply(event);
+                }
                 delivered = true;
             }
             self.restored = false;
@@ -930,6 +915,7 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            self.world.spans.borrow_mut().end();
             // Present only what can be observed: the last two ticks of an advance
             // (the renderer interpolates between them). It is pure, so skipping
             // the rest of a long seek changes nothing; paranoid modes present
