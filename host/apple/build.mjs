@@ -54,7 +54,7 @@ import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory,
 import { keptModules } from './modules.mjs';
 import { quiet, quietFor } from './quiet.mjs';
 import { keptCrates } from './crates.mjs';
-import { linkable, linkedBakeDir, linkedPlanArgs } from '../../scripts/linked-plan.mjs';
+import { linkable, linkedPlanArgs, placeLinkedPlan } from '../../scripts/linked-plan.mjs';
 import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets };
 import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, installedBuild, macIdentity, phone, replacedNote, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
@@ -818,7 +818,7 @@ async function main(args) {
     if (ios && !device && !existsSync(resolve(expected.scratch, `${sole}-entitlements.plist`))) return null;
     let claim;
     try { claim = claimBuildOutput(app, expected.swiftLock); } catch { return null; }
-    const step = startApple('swift', [...swiftArgs, ...entitledArgs(expected.scratch, sole), ...linkedPlanArgs(was.plan && linkedBakeDir(cargoEnv, ios ? 'ios' : 'macos', target)), '--product', sole], resolve(webBuildDir, 'swift-compile.log'),
+    const step = startApple('swift', [...swiftArgs, ...entitledArgs(expected.scratch, sole), ...linkedPlanArgs(was.plan && resolve(expected.scratch, 'plan')), '--product', sole], resolve(webBuildDir, 'swift-compile.log'),
       { cwd: pkg, env: swiftEnv(expected.capture, expected.composition, was.link) });
     beside.push(step);
     return { claim, step };
@@ -1136,8 +1136,10 @@ async function main(args) {
       writeFileSync(answer, swiftBinDir);
     }
     const archive = buildReceipt.products.find(made => made.path === resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`))?.sha256;
+    // The linked plan and compat.json, as the bake verified them, where this app alone links from (and its next early build).
+    const linkedPlan = buildReceipt.linkedPlan ? placeLinkedPlan(resolve(linkRoot, 'plan'), bakedPlan, readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.json`)), bakedCompat.id) : null;
     for (const p of products) {
-      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', '@executable_path/Frameworks'] : []), ...linkedPlanArgs(buildReceipt.linkedPlan)];
+      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p), ...(shared ? ['-Xlinker', '-rpath', '-Xlinker', '@executable_path/Frameworks'] : []), ...linkedPlanArgs(linkedPlan?.dir)];
       let entitled = null;
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
@@ -1150,7 +1152,7 @@ async function main(args) {
       // swift build does not see the Rust archive (or that plist, or a linked plan) change, so the executable is
       // dropped to be linked again: 0.4 s, and it was every build's. A development build drops only one linked from
       // other bytes, which `<product>.linked` beside it says: the archive's hash, whose it is, the plist, the plan's.
-      const linked = resolve(swiftBinDir, `${p}.linked`), from = JSON.stringify({ archive: archive ?? null, libDir, lib: env.EXACT_LIB ?? null, link: appleLink, entitled, shared: shared?.xcframework ?? null, plan: buildReceipt.linkedPlan ? ['app.plan', 'compat.json'].reduce((h, f) => h.update(readFileSync(resolve(buildReceipt.linkedPlan, f))), createHash('sha256')).digest('hex') : null });
+      const linked = resolve(swiftBinDir, `${p}.linked`), from = JSON.stringify({ archive: archive ?? null, libDir, lib: env.EXACT_LIB ?? null, link: appleLink, entitled, shared: shared?.xcframework ?? null, plan: linkedPlan?.digest ?? null });
       const same = cargoProfile === HOST_DEV && archive && existsSync(resolve(swiftBinDir, p)) && existsSync(linked) && readFileSync(linked, 'utf8') === from;
       if (!same) for (const stale of [p, `${p}.linked`]) rmSync(resolve(swiftBinDir, stale), { force: true });
       // The early build was this one's when nothing it linked from has changed.

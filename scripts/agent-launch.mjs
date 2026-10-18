@@ -770,9 +770,11 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   const inputs = info ? depInfoInputs(null, info, app.workspace) : [];
   const replaced = inputs.filter(path => products.has(path) && fileDigest(path) !== products.get(path)).map(shown);
   // A linked plan's bake ran before Cargo: the dep-info names what it wrote, its record what it read.
-  let baked = []; try { baked = JSON.parse(readFileSync(resolve(build.linkedPlan, 'inputs.json'), 'utf8')).paths; } catch { /* no linked plan */ }
+  // A record gone or unreadable says nothing of what it read: the build is stale.
+  let baked = [], unread = [];
+  if (build?.linkedPlan) { const at = resolve(build.linkedPlan, 'inputs.json'); try { baked = JSON.parse(readFileSync(at, 'utf8')).paths; if (!Array.isArray(baked)) throw new Error(); } catch { baked = []; unread = [shown(at)]; } }
   const tools = info ? [...depInfoNewer(since, null, info, app.workspace), ...watchedNewer(since, baked)].filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
-  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...replaced])];
+  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...unread, ...replaced])];
 }
 
 /** A web `dist/`: app and shared runtime sources newer than its build marker.
