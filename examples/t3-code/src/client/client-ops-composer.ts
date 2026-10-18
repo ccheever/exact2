@@ -8,7 +8,7 @@ import { projectCloneBlock } from '../shell/project-clones-live';
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { forgetDraftThreadId, launchThreadId } from '../composer/draft-thread-id';
-import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission } from '../composer/composer-controls';
+import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission, sendQueuesBehindSetup, isCompacting } from '../composer/composer-controls';
 import { additiveGesture, fanoutSelections, fanoutSupported, sendFanout, setFanout, toggleFanout } from '../composer/composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from '../composer/composer-controls-commands';
 import { keepsFullHistory, resumeCompactionTokens, setKeepFullHistory } from '../composer/composer-controls-resume';
@@ -19,7 +19,9 @@ import { fanoutBase, serverThreadWorkspace, workspaceStrategy } from '../compose
 import { composerSelection } from '../composer/composer-provider-selection'; // the sent selection
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from '../composer/composer-controls-usage';
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from '../composer/composer-feedback';
-import { withMessageContext } from '../composer/composer-editor';
+import { threadContextRecords, withMessageContext } from '../composer/composer-editor';
+import { projectPendingUserInputAnswer } from '../timeline/thread-links';
+import { pendingThreadImports } from '../composer/composer-thread-import';
 import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } from '../browser/browser-annotation'; // an annotation's send
 import { pressGesture, sendIntent } from '../composer/composer-editor-intent';
 import { launchTitle } from '../composer/composer-editor-title';
@@ -28,6 +30,7 @@ import { composerFileAttachments } from '../composer/composer-editor-files';
 import { activeInput, composerInput, composerRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload } from '../composer/requests';
 import { releaseHeldRequests } from '../composer/composer-typing-guard';
 import { threadPhase } from '../composer/composer-presentation';
+import { refreshNewThreadContext } from '../composer/new-thread-context';
 import { autoBalanceSend } from '../composer/auto-balance';
 import { fleet } from '../connections/settings-b-fleet'; // favorites from another environment's catalog
 import { obj, str, arr, type Obj } from './domain';
@@ -72,6 +75,7 @@ export async function composerOps(this: T3Client, op: string, id: string, value:
 export async function composerWrites(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
   let resultMessage = '';
   try {
+    if (['send', 'submit-answers', 'advance-question', 'pick-option'].includes(op) && pendingThreadImports(this)) throw new ClientError('Still bringing attached context into this message. Send again once its chip resolves.');
     // A request held while the user typed (composer-typing-guard.ts) leaves the composer theirs: this send goes to the
     // thread, and sending releases the request.
     if (op === 'send' && composerRequests(this).approvals.length) throw new ClientError('Resolve this approval request to continue.');
@@ -120,6 +124,8 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   if (!text.trim() && !this.snapshotDrafts.length) throw new ClientError('Write a message or attach an image first.');
   if (promptLengthMessage(text)) throw new ClientError(promptLengthMessage(text));
   if (!this.projectId) throw new ClientError('Choose or add a project first.');
+  await refreshNewThreadContext(this, native);
+  assertOwner();
   if (projectCloneBlock(this)) throw new ClientError(`${projectCloneBlock(this)}. Send once the repository is cloned.`); // project-clones-live.ts
   if (!submission || submission.interactionMode === 'plan') this.local.drafts[this.draftKey] = text;
   // A pointer press names its own modifiers (`pointer:meta+alt`, app.contract `send`); any other press reads the Return
@@ -135,7 +141,8 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     throw new ClientError('Choose a permission mode supported by this provider.');
   }
   // An unstarted server thread set to New worktree starts in one with its first message (ChatView onSend).
-  const serverWorkspace = selection.threadId ? serverThreadWorkspace(this) : null;
+  const setupQueue = sendQueuesBehindSetup(this);
+  const serverWorkspace = selection.threadId && !setupQueue ? serverThreadWorkspace(this) : null;
   const attachments = [...await this.uploadSnapshots(native, storage), ...await composerFileAttachments(this, native, text)]; // + folded pastes (composer-editor-files.ts)
   assertOwner();
   const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // a draft launches as its own id
@@ -159,7 +166,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
       // A stale Claude session compacts before this message, so the turn does not re-read the old history (the Compact chip,
       // composer-controls-resume.ts). The message queues behind the /compact run, since steering into it is rejected.
       const compactFirst = compactOffered && !keepsFullHistory(this, selection.threadId) && text.trim().toLowerCase() !== '/compact';
-      const mode = compactFirst ? 'queue' : submission || annotationSend ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
+      const mode = compactFirst || setupQueue ? 'queue' : submission || annotationSend ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate', !isCompacting(this));
       const turnSelection = dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options));
       if (compactFirst) {
         const [compactCommandId, compactMessageId] = await this.ids(native, 2);
@@ -277,5 +284,14 @@ async function submitAnswers(this: T3Client, native: Native, storage: Files, id:
   if (custom !== undefined && custom !== '') setCustomAnswer(this, custom);
   const requestId = id || activeInput(this)?.input.requestId || '';
   const answers = advanceQuestion(this, requestId);
-  if (answers) await dispatchRequest.call(this, native, storage, { type: 'runtime-request.respond', threadId: this.threadId, requestId, answers }, 'Answers');
+  if (answers) {
+    const projected = Object.fromEntries(Object.entries(answers).map(([id, answer]) => [id, projectPendingUserInputAnswer(answer, threadContextRecords(this, typeof answer === 'string' ? answer : ''))]));
+    const attachmentsByQuestionId: Obj = {};
+    for (const [id, answer] of Object.entries(answers)) {
+      const attachments = await composerFileAttachments(this, native, typeof answer === 'string' ? answer : '');
+      if (attachments.length) attachmentsByQuestionId[id] = attachments;
+    }
+    await dispatchRequest.call(this, native, storage, { type: 'runtime-request.respond', threadId: this.threadId, requestId, answers: projected,
+      ...(Object.keys(attachmentsByQuestionId).length ? { attachmentsByQuestionId } : {}) }, 'Answers');
+  }
 }

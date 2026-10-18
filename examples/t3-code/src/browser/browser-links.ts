@@ -9,6 +9,7 @@
 // (`preview.open`); an in-app open that fails falls back to the system browser (`remoteEditorsOpen`, the clone's
 // shell.openExternal); a project script's `previewUrl` always opens in the app.
 import type { T3Client } from '../client/client';
+import { openThreadLink, parseThreadLinkHref, percentDecodedThreadLinkId } from '../timeline/thread-links';
 import { obj, str } from '../client/domain';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
@@ -115,6 +116,12 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
   // `kind|meta+shift`: the press's own modifiers (app-window.contract linkOpen).
   const bar = pressed.indexOf('|'), kind = bar < 0 ? pressed : pressed.slice(0, bar), held = bar < 0 ? [] : pressed.slice(bar + 1).split('+').filter(Boolean);
   if (!url) return '';
+  const written = parseThreadLinkHref(url);
+  if (kind === 'link' && written) {
+    const id = client.shell.threads.find(thread => thread.id === written)?.id ?? client.shell.threads.find(thread => thread.id === percentDecodedThreadLinkId(written))?.id ?? written;
+    await openThreadLink(client, native, str(id));
+    return 'focus:composer';
+  }
   if (kind === 'link' && url.startsWith('#')) return openFragmentLink(client, native, held);
   // ChatMarkdown leaves a mailto, irc or xmpp link's click to the desktop shell, whose window-open
   // handler opens only http(s) and remote-editor links (DesktopWindow.ts, parseSafeExternalUrl): nothing opens.

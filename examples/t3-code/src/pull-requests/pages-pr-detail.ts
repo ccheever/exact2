@@ -15,7 +15,7 @@
 // (pages-pr-refresh.ts), Refresh, the live-refresh interval or an arrival — reads while the last
 // detail stays on screen; the activity reads again when the server announced a change, on
 // Refresh, or when the detail's `updatedAt` moved (shouldRefreshPullRequestActivity).
-import { diffSchemeOf, markdownEnv, type ChipView } from '../timeline/message-chips';
+import { diffSchemeOf, markdownEnv, type MarkdownEnv } from '../timeline/message-chips';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
@@ -103,7 +103,7 @@ export function emptyDetail() {
     canEdit: false, canClose: false, canReopen: false, canDraft: false, canReady: false, canMerge: false, canUpdateBranch: false, canReview: false, canLabel: false,
     projectId: '', host: '', hostName: 'GitHub', linkMenu: '', linkOpenLabel: '', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
     // Settings → Appearance code font, size and word wrap for the Markdown.
-    md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [] as ChipView[], runCommands: [] as string[] }, diffScheme: 'red-green',
+    md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] } as MarkdownEnv, diffScheme: 'red-green',
     // The header's primary control, the More menu, the dialogs, the base branch's mark, the stack.
     actions: emptyActions(),
     // Which hand-off is preparing, whether the pull request can be checked out, whose it is beside a thread.

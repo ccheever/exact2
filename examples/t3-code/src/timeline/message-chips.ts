@@ -12,12 +12,13 @@ import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { fontStack } from '../appearance/settings-appearance';
 import { assistantCitationLabel, collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
 import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from '../media/media-views'; // a message's images and their actions
+import type { ThreadLinkGlyph } from './markdown-thread-glyphs';
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
   detail: string; icon: string; target: string; owner: string;
 }
-export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[] }
+export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[]; threadGlyphs: ThreadLinkGlyph[] }
 
 const CONTEXT_LINK = /(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/([a-z][a-z0-9-]{0,39})\/([a-z0-9_-]{1,128}))\)/gi;
 
@@ -222,7 +223,7 @@ export function markdownEnv(client: T3Client): MarkdownEnv {
   const prefs = (client.local as unknown as { clientSettings?: ClientPrefs } | undefined)?.clientSettings || decodeClientPrefs({});
   const size = Number(prefs.fontSizeCode);
   return { codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', codeSize: Number.isFinite(size) ? Math.min(18, Math.max(10, Math.round(size))) : 13,
-    wrap: prefs.wordWrap !== false, chips: [], runCommands: [] };
+    wrap: prefs.wordWrap !== false, chips: [], runCommands: [], threadGlyphs: [] };
 }
 /** Settings → Appearance → Diff colors: "blue-orange" or the default "red-green". */
 export function diffSchemeOf(client: { local: object }): string {

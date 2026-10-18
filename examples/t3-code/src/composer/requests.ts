@@ -9,6 +9,10 @@ import type { T3Client } from '../client/client';
 import { queuedEdit } from './composer-controls-queue';
 import { promptRewriteKey } from './composer-ultrathink';
 import { heldRequestIds } from './composer-typing-guard';
+import { markdownEnv, messageChips } from '../timeline/message-chips';
+import { relabelThreadLinks } from '../timeline/thread-links';
+import { renderCodexInlineDirectivesAsMarkdown } from '../highlight/codex-directives.js';
+import { markdownThreadGlyphs } from '../timeline/markdown-thread-glyphs';
 
 /** One draft per question (`request::question`) and one per request (its question index). */
 export type RequestDraft = { selected: string[]; custom: string; index: number };
@@ -129,12 +133,13 @@ export function requestPresentation(client: T3Client) {
     const reason = responseReason(client, input.resumable);
     const current = client.answers[`${input.requestId}::${entry.id}`];
     const customActive = active.custom.trim().length > 0;
-    return { id: `${input.requestId}::${entry.id}`, requestId: input.requestId, header: entry.header, question: entry.question,
+    const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(entry.question), client.shell.threads), root = str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot);
+    return { id: `${input.requestId}::${entry.id}`, requestId: input.requestId, header: entry.header, question: text,
       multiSelect: entry.multiSelect, customAllowed: entry.allowCustom, canRespond: !reason, live: input.resumable, responseReason: reason,
       responding: responding(input.requestId), dismissible: input.dismissible, answer: active.custom,
       position: input.questions.length > 1 ? `${index + 1}/${input.questions.length}` : '', index, last: active.last,
       canAdvance: active.canAdvance, complete: active.complete,
-      action: responding(input.requestId) ? 'Submitting...' : active.last ? 'Submit' : 'Next',
+      action: responding(input.requestId) ? 'Submitting...' : active.last ? 'Submit' : 'Next', md: { ...markdownEnv(client), chips: messageChips({ text }, root, client.shell.threads), threadGlyphs: markdownThreadGlyphs(client, text) },
       options: entry.options.map((option, position) => ({ id: option.value, label: option.label,
         description: option.description !== option.label ? option.description : '',
         selected: !customActive && (current?.selected ?? []).includes(option.value), shortcut: position < 9 ? String(position + 1) : '' })) };

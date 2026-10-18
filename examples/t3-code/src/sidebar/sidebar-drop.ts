@@ -90,7 +90,7 @@ export function planDrop(input: { id: string; from: string; target: string; pinn
 export async function sidebarDrop(client: T3Client, native: Native, id: string, value: string): Promise<string> {
   const geometry = parseDrop(value), session = sidebarSession(client);
   if (geometry.target === 'context') {
-    if (!geometry.overComposer || !client.shell.threads.some(entry => entry.id === id)) return '';
+    if (!geometry.overComposer || !targetOf(client, id)) return '';
     // The dragged threads: the multi-selection when the lifted row is part of it.
     const ids = session.selection.includes(id) ? [...session.selection] : [id];
     for (const threadId of ids) {

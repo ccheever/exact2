@@ -161,6 +161,15 @@ function mapFor<T>(store: WeakMap<object, Map<string, T>>, client: T3Client): Ma
 /** A folded paste's text while this device holds it (a file chip's preview reads it). */
 export function foldedText(client: T3Client, fileId: string): string | undefined { return mapFor(texts, client).get(fileId); }
 
+/** A cross-environment thread's transcript enters the ordinary attachment upload queue. */
+export function stageTextAttachment(client: T3Client, text: string, name: string, mimeType: string, id: string): DraftFile {
+  const file: DraftFile = { id, contextId: contextId('file', id), draftKey: client.draftKey, environmentId: client.environmentId,
+    name, mimeType, sizeBytes: utf8Length(text), source: 'thread-transcript', attachmentId: '', status: 'staged' };
+  mapFor(texts, client).set(id, text);
+  setDraftFiles(client.local, [...draftFiles(client.local), file]);
+  return file;
+}
+
 async function nativeCall(native: Native, request: Obj): Promise<Obj> {
   const reply = await bridgeReply(native, request);
   if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);

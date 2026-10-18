@@ -1,5 +1,5 @@
 // The workspace / branch context strip under the draft composer,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources:
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9:
 // components/BranchToolbar.tsx, BranchToolbarEnvModeSelector.tsx,
 // BranchToolbarBranchSelector.tsx, BranchPicker.tsx, BranchToolbar.logic.ts
 // (shouldShowComposerContextStrip, resolveBranchTriggerLabel) and
@@ -19,6 +19,7 @@ import { gitlessStrip } from './context-strip'; // the non-Git strip (BranchTool
 import { autoBalanceState } from './auto-balance'; // the Run on menu's "Auto balance"
 import { letGo } from '../client/let-go';
 import { draftFiles } from './composer-editor-files';
+import { newThreadEnvMode, refreshNewThreadContext } from './new-thread-context';
 import { peekVcsStatus, restartVcsStatus, vcsStreamFollows } from '../details/shell-vcs'; // the workspace status the card's stream holds
 
 export type DraftContext = { envMode: string; branch: string; worktreePath: string };
@@ -44,7 +45,7 @@ const contexts = (client: T3Client): Record<string, DraftContext> => client.loca
 /** The draft's workspace mode (Settings › New threads default), chosen branch and an existing worktree it points at. */
 export function draftContext(client: T3Client, key = client.draftKey): DraftContext {
   const saved = contexts(client)[key];
-  const fallback = str(obj(client.config.settings).defaultThreadEnvMode) === 'worktree' ? 'worktree' : 'local';
+  const fallback = newThreadEnvMode(client);
   return { envMode: saved?.envMode === 'worktree' || saved?.envMode === 'local' ? saved.envMode : fallback, branch: saved?.branch ?? '', worktreePath: saved?.worktreePath ?? '' };
 }
 /** setDraftThreadContext: changes some of the draft's context and keeps the rest (auto-balance clears branch and worktree). */
@@ -199,6 +200,7 @@ export function refBadge(ref: Obj, cwd: string): string {
 
 /** The resource behind the strip, and the auto-balance load the root's `balanceLoad` task sends (auto-balance.ts). */
 export async function composerBranches(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card = false) {
+  if (native?.available && client.ready && !client.threadId) await refreshNewThreadContext(client, native);
   return { ...await stripView(client, native, open, query, card), balanceFetch: card ? '' : autoBalanceState(client).fetch };
 }
 /** shouldShowComposerContextStrip with Git controls. */

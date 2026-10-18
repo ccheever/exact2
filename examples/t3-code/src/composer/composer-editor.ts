@@ -26,6 +26,9 @@ import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real ter
 import { videoOp } from './composer-attachments';
 import { folderDropTarget, primary } from '../connections/local-primary'; // the folder drop's target (folderDrop.ts)
 import { annotationChipContexts, annotationMessageRecords } from '../browser/browser-annotation'; // Annotate's chips
+import { composerInput } from './requests';
+import { importDroppedThread } from './composer-thread-import';
+import { parseFleetThreadId } from '../connections/settings-b-fleet';
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
 export type ComposerMenu = { open: boolean; kind: string; listLabel: string; searchKey: string; loading: boolean; emptyText: string; count: number; rows: ComposerMenuRow[] };
@@ -85,9 +88,9 @@ function compactAvailable(client: T3Client, blankAround: boolean): boolean {
 export function threadContextRecords(client: T3Client, text: string): Obj[] {
   return contextReferences(text).flatMap(reference => {
     if (reference.kind !== 'thread' || !reference.id.startsWith('thread_')) return [];
-    const threadId = reference.id.slice('thread_'.length);
-    const thread = client.shell.threads.find(entry => str(entry.id) === threadId);
+    const thread = client.shell.threads.find(entry => contextId('thread', str(entry.id)) === reference.id);
     if (!thread) return [];
+    const threadId = str(thread.id);
     const label = contextLabel(reference.label, 'thread');
     return [{ version: 1, kind: 'thread', contextId: reference.id, label, environmentId: client.environmentId, threadId, title: label }];
   });
@@ -240,7 +243,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   const overLimit = limit !== '';
   if (!native?.available) return { ...EDITOR_BAKED, promptLimit, overLimit, stash };
   native.watch('t3.editor');
-  const draft = client.draft, key = client.draftKey, files = draftFiles(client.local);
+  const draft = composerInput(client)?.custom ?? client.draft, key = client.draftKey, files = draftFiles(client.local);
   let state: Obj;
   try {
     state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
@@ -282,7 +285,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     const repository = repositorySelector(obj(project(client).repositoryIdentity));
     const search = await prSearch(client, native, entry, trigger.query, repository);
     if (search === 'loading') loading = true;
-    else { rows = pullRequestRows(search.entries, client.projectId, repository, trigger.query, search.providers ?? []); prFailed = search.failed; }
+    else { rows = pullRequestRows(search.entries, client.projectId, repository, trigger.query, search.providers ?? [], arr(obj(client.projection.thread).pullRequests ?? client.shell.threads.find(thread => thread.id === client.threadId)?.pullRequests)); prFailed = search.failed; }
   } else if (trigger.kind === 'path') {
     const threads = threadRows(client.shell.threads, client.threadId, trigger.query);
     const query = trigger.query.trim();
@@ -404,9 +407,13 @@ export async function removeReviewCommentChip(client: T3Client, native: Native, 
 export async function insertContext(client: T3Client, native: Native, kind: string, target: string): Promise<string> {
   let text = '';
   if (kind === 'thread') {
-    const thread = client.shell.threads.find(entry => str(entry.id) === target);
-    if (!thread) throw new ClientError('Use threads from this environment');
-    text = contextLink('thread', contextId('thread', target), str(thread.title, 'Thread'));
+    const ref = parseFleetThreadId(target);
+    if (ref && ref.environmentId !== client.environmentId) { text = await importDroppedThread(client, native, target); if (!text) return ''; }
+    else {
+      const id = ref?.threadId ?? target, thread = client.shell.threads.find(entry => str(entry.id) === id);
+      if (!thread) throw new ClientError('That thread is no longer available.');
+      text = contextLink('thread', contextId('thread', id), str(thread.title, 'Thread'));
+    }
   } else if (kind === 'file' || kind === 'folder') {
     const path = target.replace(/\/+$/, '');
     if (!path) throw new ClientError('Unable to add to chat');
