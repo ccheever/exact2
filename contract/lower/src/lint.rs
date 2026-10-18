@@ -132,6 +132,40 @@ pub(crate) fn react_native(name: &str) -> Option<&'static str> {
     })
 }
 
+/// The edit for HTML's `style=`: a node's own look is its attributes, and a
+/// look nodes share is a `style` block named by `class=`. CSS declarations
+/// (`"padding: 8px; color: red"`) are written back as the attributes.
+fn style_hint(value: &contract_syntax::Expr) -> String {
+    let shared = "a look nodes share is a `style Name` block in the file, named with `class=Name`";
+    let contract_syntax::Expr::Str(text, _) = value else {
+        return format!("; a node's look is its attributes (`padding=8 color=\"-exact-secondary-label\"`), and {shared}");
+    };
+    let declarations: Option<Vec<String>> = text
+        .split(';')
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(|d| {
+            let (name, value) = d.split_once(':')?;
+            Some(format!("{}=\"{}\"", name.trim(), value.trim()))
+        })
+        .collect();
+    match declarations {
+        Some(attrs) if !attrs.is_empty() => format!(
+            "; write the declarations as attributes, `{}`: a node's look is its attributes, and {shared}",
+            attrs.join(" ")
+        ),
+        _ if text.trim().starts_with(|c: char| c.is_ascii_alphabetic())
+            && text.trim().chars().all(|c| c.is_ascii_alphanumeric() || c == '_') =>
+        {
+            format!(
+                "; write `class={}`: {shared}, and a node's own look is its attributes",
+                text.trim()
+            )
+        }
+        _ => format!("; {shared}, and a node's own look is its attributes"),
+    }
+}
+
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
         None if crate::fields::placeholder_hint(&a.name).is_some() => {
@@ -183,6 +217,8 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }
+        // The euxy port wrote `style=` for a declared style.
+        None if a.name == "style" => style_hint(&a.value),
         None if a.name.starts_with("aria-") => {
             let carried: Vec<&str> = ARIA
                 .iter()
