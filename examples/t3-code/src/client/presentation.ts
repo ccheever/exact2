@@ -10,6 +10,8 @@ import { arr, obj, str, num, type Message, type Obj } from './domain';
 import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
 import { timelineMessages, timelineSnapshot, transcriptRows } from '../timeline/timeline-presentation';
+import { threadFooterRows } from '../timeline/thread-status-line';
+import { noteSubagentRequests } from '../sidebar/subagent-requests';
 import { sidebarSnapshot } from '../sidebar/sidebar-view';
 import { subagentLead } from '../sidebar/sidebar-lineage';
 import { requestPresentation } from '../composer/requests';
@@ -101,6 +103,7 @@ export function transcriptPresentation(client: T3Client): Message[] { return wit
 /** `displayMode`: Contract's `exactViewport().displayMode` (app.contract passes it with the snapshot request). */
 export function snapshot(client: T3Client, now = 0, displayMode = '') {
   adoptHostLocale(client.presentation.systemLocale);
+  noteSubagentRequests(client.shell.threads); // the sidebar's parents carry their hidden subagents' requests (subagent-requests.ts)
   const fullScreen = displayMode === 'fullscreen'; // the viewport's display mode, not a native fact
   const project = client.shell.projects.find(project => project.id === client.projectId);
   const providers = arr(client.config.providers);
@@ -164,7 +167,8 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
     legacy: legacySidebarSnapshot(client, now, { projectIdentity }),
     timelineReadsNeeded: timelineReadsNeeded(client),
     markdownSkills: markdownSkills(workspaceValues(provider ?? {}, workspaceCwd(client), 'skills').map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) }))),
-    messages: timelineMessages(client, transcript, now), ...timelineSnapshot(client),
+    // The timeline's footer rows after the last message: a pending context handoff, then the status line.
+    messages: timelineMessages(client, [...transcript, ...threadFooterRows(client, now)], now), ...timelineSnapshot(client),
     providers: providers.map(provider => ({ id: str(provider.instanceId), name: str(provider.displayName, str(provider.driver)), available: providerAvailable(provider) })),
     models: providers.flatMap(provider => arr(provider.models).map(model => ({ id: str(model.slug), name: str(model.name, str(model.slug)),
       providerId: str(provider.instanceId), selected: provider.instanceId === client.providerId && model.slug === client.modelId }))),

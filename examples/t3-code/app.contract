@@ -48,7 +48,7 @@ component T3Code
     after(1, clearThemeInspecting)
   state elapsed = 0
   resource wallTime = exactTime() as shape Time
-  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode, restOwner, restResting, restAtEnd, restPulls, transportSeen) as shape Snapshot // full screen drops the traffic lights' inset (presentation.ts); the transcript's viewport (transcript-facts.ts); the connections' news (transport.ts)
+  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode, restOwner, restResting, restAtEnd, restPulls, transportSeen, composerTyping) as shape Snapshot // full screen drops the traffic lights' inset (presentation.ts); the transcript's viewport (transcript-facts.ts); the connections' news (transport.ts); the typing guard (composer-typing-guard.ts)
   state reconnectGraceKey = ""
   state disconnectDelayKey = ""
   task reconnectGrace when data.serverUpdate.reconnecting != "" key=data.serverUpdate.reconnecting
@@ -899,6 +899,14 @@ component T3Code
     composerFocused = true
   action composerBlur
     composerFocused = false
+    composerTyping = false
+  // COMPOSER_TYPING_IDLE_MS: the draft's last edit in the focused composer, until 1.5 s pass without another.
+  state composerTyping = false
+  state typingSerial = 0
+  task composerTypingIdle when composerTyping key=typingSerial
+    after(1500, composerTypingIdled)
+  action composerTypingIdled
+    composerTyping = false
   action scrollToEnd
     jumpRequest = jumpRequest + 1
     foldHold = false
@@ -1446,6 +1454,10 @@ component T3Code
   action write(value: string)
     draft = value
     draftOwner = `${composerOwner}${data.requestKey}`
+    // Typing the thread draft (not an answer) holds a request that arrives meanwhile (composer-typing-guard.ts).
+    if composerFocused and data.requestMode == ""
+      composerTyping = true
+      typingSerial = typingSerial + 1
     send localChanged = command("draft", "", value, 0)
   action send(held: string) // held: a pointer press's own modifiers (press-modifiers.contract), "" from a key or a call
     if not commandPending and editor.overLimit and data.requestMode != "question"
@@ -1454,6 +1466,7 @@ component T3Code
       if data.requestMode == "question" or (data.canSend and (composerText != "" or data.snapshotDrafts.length > 0))
         commandPending = true
         send changed = command("send", held == "" ? "" : `pointer:${held}`, composerText, 0)
+        composerTyping = false
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
   action editorOp(op: string, id: string, value: string) // composer-editor.ts: menu picks, the stash

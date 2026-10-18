@@ -4,6 +4,7 @@
 // the labels a row draws. Pure functions over the raw V2 thread shell.
 // 1e2ecbd975 (1302ccacbd): the Working shelf orders by the last authored send
 // (threadInbox.ts sortWorkingThreadsBySend); the active shelf keeps the return order.
+import { pendingSubagentRequest } from './subagent-requests';
 import { arr, obj, str, type Obj } from '../client/domain';
 
 export type SidebarSection = 'pinned' | 'active' | 'working' | 'snoozed' | 'settled';
@@ -57,10 +58,11 @@ export function pendingApproval(thread: Obj): boolean {
 }
 export const pendingInput = (thread: Obj): boolean => thread.pendingRuntimeRequest != null && obj(thread.pendingRuntimeRequest).kind === 'user_input';
 
-/** Sidebar.logic.ts resolveSidebarThreadStatus. */
+/** Sidebar.logic.ts resolveSidebarThreadStatus: its own request, else a hidden subagent's below it (subagent-requests.ts). */
 export function sidebarStatus(thread: Obj): SidebarStatus {
-  if (pendingApproval(thread)) return 'approval';
-  if (pendingInput(thread)) return 'input';
+  const subagent = pendingSubagentRequest(thread);
+  if (pendingApproval(thread) || subagent === 'approval') return 'approval';
+  if (pendingInput(thread) || subagent === 'user_input') return 'input';
   const runtime = shellRuntime(thread);
   if (runtime && ['preparing', 'queued', 'starting', 'running', 'waiting'].includes(runtime.status)) return 'working';
   if (runtime?.status === 'idle') return 'waiting';
@@ -78,12 +80,13 @@ export function hasQueuedTurnStart(thread: Obj, now: number): boolean {
   if (!run) return true;
   return [run.requestedAt, run.startedAt, run.completedAt].every(value => value == null || parse(value) < messageAt);
 }
+/** canSnooze: not while the agent or one of its subagents is blocked on the user, nor with a queued turn start. */
 export function canSnooze(thread: Obj, now: number): boolean {
-  return !pendingApproval(thread) && !pendingInput(thread) && !hasQueuedTurnStart(thread, now);
+  return !pendingApproval(thread) && !pendingInput(thread) && pendingSubagentRequest(thread) === null && !hasQueuedTurnStart(thread, now);
 }
-/** threadRaisedHandWhileSnoozed: blocked on the user, a fresh failure, or a newer completion. */
+/** threadRaisedHandWhileSnoozed: it or a subagent is blocked on the user, a fresh failure, or a newer completion. */
 export function raisedHand(thread: Obj): boolean {
-  if (pendingApproval(thread) || pendingInput(thread)) return true;
+  if (pendingApproval(thread) || pendingInput(thread) || pendingSubagentRequest(thread) !== null) return true;
   const runtime = shellRuntime(thread), run = latestRun(thread), snoozedAt = thread.snoozedAt == null ? null : str(thread.snoozedAt);
   if ((runtime?.status === 'error' || runtime?.status === 'failed') && (snoozedAt == null || parse(runtime.updatedAt) > parse(snoozedAt))) return true;
   return snoozedAt != null && run?.status === 'completed' && run.completedAt != null && parse(run.completedAt) > parse(snoozedAt);

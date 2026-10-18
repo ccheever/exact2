@@ -28,7 +28,7 @@ use DialogOpenFocus from "../shared/dialog-trap.contract"
 
 // The bottom padding each row kind keeps (TimelineRowContent and WorkLogBlock).
 // The gap under a row in px at the root size 16; the row lays it out in rem (Interface font size).
-fn rowGap(kind: string, continues: bool, expanded: bool, actions: bool, attached: bool, meta: bool): number = kind == "fork" ? 8 : kind == "user" or actions or attached ? 16 : kind == "entry" or kind == "live" or kind == "group" or kind == "thinking" ? (continues or expanded ? 0 : 8) : kind == "details" ? (continues ? 0 : 4) : kind == "work" or kind == "working" ? 6 : kind == "assistant" ? (meta ? 0 : 8) : kind == "plan" ? 0 : kind == "checkpoint" ? 0 : kind == "compaction" or kind == "meta" ? 16 : kind == "subagents" ? 0 : 8
+fn rowGap(kind: string, continues: bool, expanded: bool, actions: bool, attached: bool, meta: bool): number = kind == "fork" ? 8 : kind == "status" ? 0 : kind == "user" or actions or attached ? 16 : kind == "entry" or kind == "live" or kind == "group" or kind == "thinking" ? (continues or expanded ? 0 : 8) : kind == "details" ? (continues ? 0 : 4) : kind == "work" or kind == "working" ? 6 : kind == "assistant" ? (meta ? 0 : 8) : kind == "plan" ? 0 : kind == "checkpoint" ? 0 : kind == "compaction" or kind == "meta" ? 16 : kind == "subagents" ? 0 : 8
 
 // MessagesTimeline formatWorkingTimer: whole seconds, then formatDuration's "1m 5s".
 fn workingTimer(seconds: number): string = seconds < 60 ? `${seconds}s` : `${seconds >= 3600 ? floor(seconds / 3600).toString() + "h " : ""}${floor(seconds % 3600 / 60) > 0 ? floor(seconds % 3600 / 60).toString() + "m " : ""}${seconds % 60 > 0 ? (seconds % 60).toString() + "s" : ""}`.trim()
@@ -390,20 +390,41 @@ component TimelineContent
                           if message.kind == "event"
                             SystemDivider(label=message.title, detail=message.detail, icon=message.icon, danger=(message.tone == "danger"))
                           else
-                            if message.kind == "subagent" or message.kind == "subagents"
-                              column width="100%"
-                                for agent in message.activities key=`${agent.id}\t${agent.label}\t${agent.body}\t${agent.result}`
-                                  SubagentRow(agent=agent, command=command, now=now)
+                            if message.kind == "status"
+                              ThreadStatusLine(message=message, command=command)
                             else
-                              if message.kind == "worktree-setup"
-                                for setup in message.setup key=setup.id
-                                  WorktreeSetupCard(setup=setup, now=now, local=local)
+                              if message.kind == "subagent" or message.kind == "subagents"
+                                column width="100%"
+                                  for agent in message.activities key=`${agent.id}\t${agent.label}\t${agent.body}\t${agent.result}`
+                                    SubagentRow(agent=agent, command=command, now=now)
                               else
-                                row width="100%" align-items="center" gap="0.75rem" padding-top="1.25rem" padding-bottom="1.25rem"
-                                  box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff0f)"
-                                  Icon(name="compacted", size=12, color="light-dark(#71717b, #818181)")
-                                  text message.title font-size="0.75rem" color="light-dark(#71717b, #818181)"
-                                  box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff0f)"
+                                if message.kind == "worktree-setup"
+                                  for setup in message.setup key=setup.id
+                                    WorktreeSetupCard(setup=setup, now=now, local=local)
+                                else
+                                  row width="100%" align-items="center" gap="0.75rem" padding-top="1.25rem" padding-bottom="1.25rem"
+                                    box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff0f)"
+                                    Icon(name="compacted", size=12, color="light-dark(#71717b, #818181)")
+                                    text message.title font-size="0.75rem" color="light-dark(#71717b, #818181)"
+                                    box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff0f)"
+
+// ThreadStatusLine: after the last message, a settled, snoozed or woke thread's quiet line (text-xs, muted,
+// 14pt glyph, gap-1.5, px-1 pb-2): the state, "·" and the InlineButton (tone muted) that leaves it.
+// `detail` is the op the button sends and `targetId` its thread (thread-status-line.ts).
+component ThreadStatusLine
+  props
+    message: Message
+    command: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    row width="100%" min-width=0 align-items="center" gap="0.375rem" padding-left="0.25rem" padding-right="0.25rem" padding-bottom="0.5rem" box-sizing="border-box" testId="thread-status-line"
+      TimelineIcon(name=message.icon, size=14, color="light-dark(#71717b, #818181)")
+      text message.title min-width=0 line-clamp=1 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+      text "·" flex-shrink=0 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" aria-hidden=true
+      button press=command(message.detail, message.targetId, "", 0) hover=hover testId="thread-status-action" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+        text message.actionLabel font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") text-decoration-line=(over ? "underline" : "none")
 
 // WorkGroupHeader: the group's icon (its tools' image, else the summary glyph) and sentence, hover time.
 component WorkGroupHeader
