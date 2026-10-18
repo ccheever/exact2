@@ -1,3 +1,4 @@
+import { requireRpcPermissions } from '../connections/command-permissions';
 // The servers a pull request can be read on: the focused connection
 // (T3Client) and every connected background environment (settings-b-fleet.ts), each with its config,
 // its shell and a way to send it a request. This is the clone's side of T3 Code's EnvironmentRegistry
@@ -78,6 +79,7 @@ export async function environmentCall(client: T3Client, native: Native, environm
   if (!environmentId || environmentId === client.environmentId) return client.call(native, request, client.generation, write);
   const entry = [...source.entries.values()].find(candidate => candidate.environmentId === environmentId);
   if (!entry || !ready(entry)) throw new ClientError('The environment was removed.', 'EnvironmentRpcUnavailableError');
+  requireRpcPermissions(entry.scopes, request);
   const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { ...request, generation: entry.generation });
   if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind, reply.error!.uncertain, { reason: reply.error!.reason, detail: reply.error!.detail });
   if (reply.generation !== entry.generation) throw new ClientError('The connection changed. Refresh before continuing.', 'stale');

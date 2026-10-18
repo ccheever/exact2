@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under their own names:
 // apps/web/src/components/preview/openPreviewSession.test.ts (4 of 4, with the unread-settings retry's
 // "session" row; its "link" row is browser-links.ts's openUrlInPreview), addBrowserSurface.test.ts (2) and closePreviewSession.test.ts (2). The
@@ -35,6 +36,7 @@ type Call = { method: string; payload: Obj };
 function fakeClient(answer: (method: string, payload: Obj) => Obj | Promise<Obj>, extra: Obj = {}) {
   const calls: Call[] = [], native: Call[] = [];
   const client = {
+    scopes: AUTH_STANDARD_CLIENT_SCOPES,
     environmentId: 'local', threadId: 'thread-1', projectId: 'p1', generation: 1, connection: 'connected', ready: true, available: true, diffOpen: false,
     draftKey: 'local:thread-1', presentation: {} as Obj, config: { environment: { capabilities: {} } }, shell: { threads: [{ id: 'thread-1', projectId: 'p1' }], projects: [{ id: 'p1', workspaceRoot: '/p' }] },
     local: { clientSettings: {}, deviceSettings: {}, composerControls: false },

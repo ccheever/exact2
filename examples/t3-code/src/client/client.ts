@@ -1,3 +1,4 @@
+import { requireRpcPermissions } from '../connections/command-permissions';
 import { snapshotShortcut } from '../snapshot/snapshot-shortcut';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from '../snapshot/snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
@@ -172,6 +173,7 @@ export class T3Client {
   raw(native: Native, request: unknown) { return bridgeReply(native, request); }
   async call(native: Native, request: unknown, expected = this.generation, write = false): Promise<Obj> {
     if (this.generation !== expected) throw new ClientError('The connection changed. Refresh before continuing.', 'stale');
+    if (this.connection === 'connected') requireRpcPermissions(this.scopes, request);
     let response;
     // shell-slow.ts "Some requests are slow", with a trace the transport lists while pending (protocol-reader.ts).
     const traced = traceRpc(this, request);
@@ -590,7 +592,7 @@ export class T3Client {
   }
 
   private requireWrite(): void {
-    if (!this.writable) throw new ClientError(this.connection !== 'connected' ? 'Reconnect before making changes.' : 'Wait for synchronization and check your connection permissions.');
+    if (!this.ready) throw new ClientError(this.connection !== 'connected' ? 'Reconnect before making changes.' : 'Wait for synchronization and check your connection permissions.');
     if (this.pending) throw new ClientError('Resolve the previous operation before sending another.');
   }
   reconcilePending(): boolean {
