@@ -48,6 +48,7 @@ pub(crate) mod inline;
 mod layer;
 mod lift;
 pub(crate) mod look;
+pub use look::page_color;
 pub(crate) mod material;
 pub(crate) use alert::Picture as AlertPicture;
 mod native;
@@ -1396,18 +1397,6 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         }
     }
     (w, h)
-}
-
-/// The page's own colour under a scheme: the `-exact-background` role (LLP
-/// 1115.000 D3.6), the platform's surface where a host reported one and the
-/// role's pair elsewhere. What an unset background shows (LLP 1115 D2),
-/// never white under a dark scheme.
-pub fn page_color(dark: bool) -> [u8; 4] {
-    static PAGE: std::sync::LazyLock<Option<u8>> =
-        std::sync::LazyLock::new(|| exact_kernel::style::roles::role("-exact-background"));
-    PAGE.map_or([255; 4], |id| {
-        rgba(exact_kernel::ColorValue::Role(id).resolve(dark))
-    })
 }
 
 /// The painting scope for `node` (`roles::authored_accent`): the roles drawn
