@@ -121,6 +121,13 @@ function messageImages(client: T3Client, messageId: string, selected = ''): Mess
   // buildAttachmentVideoPreview opens a video alone; buildExpandedImagePreview steps through the images.
   return video ? [video] : all.filter(image => !image.video);
 }
+/** An inline HTML render's image opens the same expanded-image dialog as Markdown. */
+export function openInlineDocumentImage(client: T3Client, src: string, name: string, opener: string): void {
+  if (!/^(?:https?:\/\/|data:image\/)/i.test(src)) throw new ClientError('That image URL is not supported.');
+  const source = { kind: 'image' as const, name, src };
+  previews.set(client, null); mediaPreviews.set(client, null);
+  galleries.set(client, { threadId: client.threadId, signThread: '', text: '', root: '', scope: {}, items: [{ key: src, name, access: 'direct', source }], index: 0, opener });
+}
 /** ExpandedImageDialog: open on an image, step to its neighbours, close. */
 export function imagePreviewAction(client: T3Client, op: string, id: string, value: string): string {
   const current = previews.get(client);

@@ -17,7 +17,7 @@ import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
 import { treeRows } from './timeline-tree';
-import { cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
+import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
 import { revealCitation } from './citation-source';
 import { minimapItems, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
@@ -38,6 +38,7 @@ import { stackLayerTarget } from '../pull-requests/pages-pr-stack';
 import { openLinkFromUi } from '../browser/browser-links';
 import { chatExternalLinkMenu } from './external-link-menu';
 import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeline-work-rows';
+import { completeSave } from '../media/save-file';
 import { inlineDocumentKey, inlineDocumentView, inlineDocumentEvent } from './inline-documents';
 import { keptThread } from '../client/keep-alive';
 
@@ -91,7 +92,8 @@ const scoped = (client: T3Client, kind: string, id: string) => `${client.threadI
  * Copy message / Copy code with their anchored feedback.
  */
 export async function chatLocal(client: T3Client, native: Native, op: string, id: string, value: string, storage?: Files): Promise<string> {
-  if (op.startsWith('inline-doc-')) { inlineDocumentEvent(client, id, op.slice(11), value); return ''; }
+  if (op === 'save-complete') { completeSave(client, Number(id)); return ''; }
+  if (op.startsWith('inline-doc-')) { await inlineDocumentEvent(client, id, op.slice(11), value, native, storage, image => openInlineDocumentImage(client, image.src, image.name, `inline-frame-${id}`)); return ''; }
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim()); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // the right panel's surfaces (window chatLocal)
   if (op === 'link-open') return openLinkFromUi(client, native, id, value); // "Open links in" (browser-links.ts)

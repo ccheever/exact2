@@ -335,7 +335,7 @@ component TimelineContent
       if message.kind == "inline-document"
         for document in message.inlineDocuments key=document.key
           InlineDocumentFrame(document=document, local=local)
-      if message.kind == "assistant"
+      else if message.kind == "assistant"
         // The answer is a citation's jump target (app-main.contract ChatColumn citePlace).
         column id=`cite-${message.id}` width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"
           for document in documents.filter((doc) => doc.id == message.id) key=document.id
