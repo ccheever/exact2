@@ -20,14 +20,20 @@
 //! height (a box's min-content height is its content's whatever its
 //! minimum), so a run needs the repair on each.
 //!
-//! A wrapper is named when its parent is a flex column, it writes no
-//! `min-height` and it can shrink, and when the box above the run bounds its
-//! height: a length `height` or `max-height`, a percentage of a definite
-//! height, insets in a definite box, a route (the host sizes it to the
-//! screen or the sheet), or a flex item with a zero minimum in a bounded
-//! column. With no such box the page grows as a whole, and `min-height=0`
-//! would change nothing. A computed value, or a `class` the walk cannot see
-//! through, is the benefit of the doubt.
+//! A wrapper that cannot shrink also ends the run: it keeps its content's
+//! height, so the repair above it would free nothing.
+//!
+//! A wrapper is named when its parent is a flex column and it writes no
+//! `min-height`, and only when the box above the run is proven to bound its
+//! height: a length `height` or `max-height` (the viewport's units
+//! included), a percentage of a definite height, a `top` and a `bottom`
+//! that are both lengths in a definite containing block, or a flex item with
+//! a zero minimum in a bounded column. A route's containing block is its
+//! host's, and is definite when the route is a sheet or its navigation root's
+//! height is definite; a `navigationKey` alone bounds nothing. With no such
+//! box the page grows as a whole, and `min-height=0` would change nothing.
+//! Whatever the walk cannot prove (a computed value, an `auto`, a `class` it
+//! cannot see through) is silence.
 
 use super::width::{last, rows};
 use super::BOXES;
@@ -47,6 +53,12 @@ struct Parent<'a> {
     definite: bool,
     /// Its height is certainly bounded: definite, or capped by a maximum.
     bounded: bool,
+    /// It is certainly the containing block of its absolutely positioned
+    /// children.
+    positioned: bool,
+    /// Inside a navigation root (the outermost box with a `navigationKey`),
+    /// whether that root's height is definite.
+    nav: Option<bool>,
     /// When it passes its content's height up: it and the run of wrappers
     /// above it that do too, outermost first. Empty otherwise.
     wrappers: Vec<Wrapper<'a>>,
@@ -61,6 +73,8 @@ impl Parent<'_> {
             column: false,
             definite: false,
             bounded: false,
+            positioned: false,
+            nav: None,
             wrappers: Vec::new(),
             run_bounded: false,
         }
@@ -70,10 +84,12 @@ impl Parent<'_> {
 /// `lower-scroll-grows` over the whole view.
 pub(super) fn scroll_grows(view: &[Node], styles: &[StyleDecl], out: &mut Vec<LowerError>) {
     let mut seen = BTreeSet::new();
-    // The view's roots sit in the window, whose height is definite.
+    // The view's roots sit in the window, whose height is definite and
+    // which contains what is absolutely positioned at the root.
     let window = Parent {
         definite: true,
         bounded: true,
+        positioned: true,
         ..Parent::unknown()
     };
     walk(view, &window, styles, &mut seen, out);
@@ -111,15 +127,33 @@ fn walk<'a>(
                 let min_auto = min_auto(&all);
                 let column = scrolls == Some(false) && flex_column(tag, &all);
                 let zero_min = !min_auto || scrolls == Some(true);
-                let definite = definite(&all, parent, &flex, zero_min);
+                // A route of a navigation root: iOS lays it out in its
+                // controller's view (OwnersIOS.swift, `OwnerBlocks`), and the
+                // web in the root. Its block is proven definite when it is a
+                // sheet, or when the root's height is.
+                let keyed = last(&all, "navigationKey").is_some();
+                let route = match parent.nav {
+                    Some(root) if keyed => {
+                        Some(root || word(&all, "navigationPresentation") == Some(Some("modal")))
+                    }
+                    _ => None,
+                };
+                let definite = definite(&all, parent, &flex, zero_min, route);
                 let bounded = definite || capped(&all, parent);
+                let nav = match parent.nav {
+                    None if keyed => Some(definite),
+                    nav => nav,
+                };
                 // A basis it cannot grow from, under a zero minimum, caps
-                // what it passes up (CSS Flexbox §9.9.3).
+                // what it passes up (CSS Flexbox §9.9.3); a box that cannot
+                // shrink keeps its content's height whatever its minimum.
                 let caps =
                     !min_auto && !flex.grow.is_some_and(|g| g > 0.0) && flex.content != Some(true);
-                let (wrappers, run_bounded) = if column && passes_content(&all) && !caps {
+                let shrinks = flex.shrink.is_some_and(|s| s > 0.0);
+                let (wrappers, run_bounded) = if column && passes_content(&all) && !caps && shrinks
+                {
                     let mut run = parent.wrappers.clone();
-                    let named = parent.column && min_auto && flex.shrink.is_some_and(|s| s > 0.0);
+                    let named = parent.column && min_auto;
                     run.push((*span, tag.as_str(), named));
                     // A run's first wrapper is bounded only as a flex item:
                     // in a block it is as tall as its content.
@@ -136,6 +170,8 @@ fn walk<'a>(
                     column,
                     definite,
                     bounded,
+                    positioned: positions(&all) || route.is_some(),
+                    nav,
                     wrappers,
                     run_bounded,
                 };
@@ -167,47 +203,99 @@ enum Size {
     Other,
 }
 
-fn size(rows: &[&Attr], name: &str) -> Size {
-    match last(rows, name).map(|a| &a.value) {
-        Some(Expr::Number(..)) => Size::Length,
-        Some(Expr::Str(v, _)) => {
-            let v = v.trim();
-            let number = |s: &str| s.trim().parse::<f64>().is_ok();
-            if v.strip_suffix('%').is_some_and(number) {
-                Size::Percent
-            } else if ["px", "rem", "em"]
-                .iter()
-                .any(|u| v.strip_suffix(u).is_some_and(number))
-            {
-                Size::Length
-            } else {
-                Size::Other
-            }
-        }
+/// A length as written: a number is pixels; the viewport's units are
+/// definite as pixels are.
+fn size_of(value: &Expr) -> Size {
+    match value {
+        Expr::Number(..) => Size::Length,
+        Expr::Str(v, _) => size_of_text(v),
         _ => Size::Other,
     }
 }
 
+fn size_of_text(text: &str) -> Size {
+    const UNITS: [&str; 13] = [
+        "px", "rem", "em", "vh", "dvh", "svh", "lvh", "vw", "dvw", "svw", "lvw", "vmin", "vmax",
+    ];
+    let v = text.trim();
+    let number = |s: &str| s.trim().parse::<f64>().is_ok();
+    if number(v) {
+        Size::Length
+    } else if v.strip_suffix('%').is_some_and(number) {
+        Size::Percent
+    } else if UNITS.iter().any(|u| v.strip_suffix(u).is_some_and(number)) {
+        Size::Length
+    } else {
+        Size::Other
+    }
+}
+
+fn size(rows: &[&Attr], name: &str) -> Size {
+    last(rows, name).map_or(Size::Other, |a| size_of(&a.value))
+}
+
+/// Whether `top` and `bottom`, after `inset` and the longhands in the order
+/// written, are both lengths: an absolutely positioned box is then as tall
+/// as its containing block allows (CSS 2 §10.6.4). `auto`, or a value the
+/// walk cannot read, is not.
+fn vertical_insets(rows: &[&Attr]) -> bool {
+    let (mut top, mut bottom) = (Size::Other, Size::Other);
+    for a in rows {
+        match a.name.as_str() {
+            "top" => top = size_of(&a.value),
+            "bottom" => bottom = size_of(&a.value),
+            "inset" => {
+                (top, bottom) = match &a.value {
+                    Expr::Number(..) => (Size::Length, Size::Length),
+                    Expr::Str(v, _) => {
+                        let t: Vec<&str> = v.split_whitespace().collect();
+                        match t.len() {
+                            // `all`, `vertical horizontal`.
+                            1 | 2 => (size_of_text(t[0]), size_of_text(t[0])),
+                            // `top horizontal bottom`, `top right bottom left`.
+                            3 | 4 => (size_of_text(t[0]), size_of_text(t[2])),
+                            _ => (Size::Other, Size::Other),
+                        }
+                    }
+                    _ => (Size::Other, Size::Other),
+                }
+            }
+            _ => {}
+        }
+    }
+    top != Size::Other && bottom != Size::Other
+}
+
 /// Whether the element's height is certainly definite. `zero_min` says its
-/// minimum height is not its content's (written, or it scrolls).
-fn definite(rows: &[&Attr], parent: &Parent<'_>, flex: &Flex, zero_min: bool) -> bool {
-    let has = |name: &str| last(rows, name).is_some();
+/// minimum height is not its content's (written, or it scrolls). `route`
+/// says the element is a route whose containing block the host gives
+/// (`Some`), and whether that block is definite.
+fn definite(
+    rows: &[&Attr],
+    parent: &Parent<'_>,
+    flex: &Flex,
+    zero_min: bool,
+    route: Option<bool>,
+) -> bool {
     let position = word(rows, "position");
     let positioned = matches!(position, Some(Some("absolute" | "fixed")));
     let in_flow = matches!(
         position,
         Some(None | Some("static" | "relative" | "sticky"))
     );
-    has("navigationKey")
-        || match size(rows, "height") {
-            Size::Length => true,
-            Size::Percent => parent.definite,
-            Size::Other => false,
-        }
-        || (positioned && parent.definite && (has("inset") || (has("top") && has("bottom"))))
+    // An absolutely positioned box's containing block: a route's is its
+    // host's; another's is its parent when the parent says it is one.
+    let block = route.unwrap_or(parent.positioned && parent.definite);
+    match size(rows, "height") {
+        Size::Length => return true,
+        Size::Percent => return route.unwrap_or(parent.definite),
+        Size::Other => {}
+    }
+    (positioned && block && vertical_insets(rows))
         // A flex item's size after flexing in a bounded column, which a
         // zero minimum keeps within it (CSS Flexbox §9.8).
-        || (parent.column
+        || (route.is_none()
+            && parent.column
             && parent.bounded
             && in_flow
             && zero_min
@@ -221,6 +309,15 @@ fn capped(rows: &[&Attr], parent: &Parent<'_>) -> bool {
         Size::Percent => parent.definite,
         Size::Other => false,
     }
+}
+
+/// Whether the element is the containing block of its absolutely
+/// positioned children by its own `position`.
+fn positions(rows: &[&Attr]) -> bool {
+    matches!(
+        word(rows, "position"),
+        Some(Some("relative" | "absolute" | "fixed" | "sticky"))
+    )
 }
 
 /// The literal text of the last row named `name`: `Some(None)` when it is

@@ -143,6 +143,23 @@ fn a_wrapper_is_named_only_under_a_box_that_bounds_it() {
         ("column max-height=400", vec![3]),
         ("column height=\"100%\" padding=16", vec![3]),
         ("column position=\"absolute\" inset=0", vec![3]),
+        // The viewport's units are lengths.
+        ("column height=\"100vh\"", vec![3]),
+        ("column max-height=\"50dvh\"", vec![3]),
+        // Both vertical insets lengths, after the shorthand and longhands in
+        // order; `auto` or a computed one is no bound.
+        ("column position=\"absolute\" inset=\"0 16px\"", vec![3]),
+        ("column position=\"absolute\" top=0 bottom=0", vec![3]),
+        ("column position=\"absolute\" inset=\"auto\"", vec![]),
+        ("column position=\"absolute\" top=0 bottom=\"auto\"", vec![]),
+        (
+            "column position=\"absolute\" inset=0 bottom=\"auto\"",
+            vec![],
+        ),
+        (
+            "column position=\"absolute\" top=(true ? 0 : 8) bottom=0",
+            vec![],
+        ),
     ] {
         assert_eq!(flagged_view(&format!("{top}\n{RUN}")), lines, "{top}");
     }
@@ -161,6 +178,42 @@ fn a_wrapper_is_named_only_under_a_box_that_bounds_it() {
         .map(|(_, line)| line)
         .collect();
     assert_eq!(lines, [11]);
+}
+
+/// The lines of an app whose navigation root is `root`, holding one route
+/// `route` whose child is a wrapper over a scroller, that the warning names.
+fn flagged_route(root: &str, route: &str) -> Vec<u32> {
+    let src = format!("routes nav\n  home \"/\"\ncomponent App\n  view\n{root}\n        for e in stack(nav) key=e.id\n          {route}\n            text \"Title\"\n            column flex=1\n              scroll flex=1\n                text \"body\"\n");
+    warned(&src)
+        .into_iter()
+        .filter(|(id, _)| id == ID)
+        .map(|(_, line)| line)
+        .collect()
+}
+
+#[test]
+fn a_navigation_key_alone_bounds_nothing() {
+    const ROOT: &str = "      main navigationKey=`${top(nav).id}` height=\"100%\"";
+    const ROUTE: &str = "column navigationKey=`${e.id}` position=\"absolute\" inset=0";
+    // A pushed route in a root whose height is definite: its block is.
+    assert_eq!(flagged_route(ROOT, ROUTE), [9]);
+    // A navigation root inside a scrolling page grows with the page.
+    let scrolled = "    scroll height=\"100%\"\n      column navigationKey=`${top(nav).id}`";
+    assert_eq!(flagged_route(scrolled, ROUTE), Vec::<u32>::new());
+    // A route that is itself the scroller is measured by what it scrolls.
+    let scroller = "scroll navigationKey=`${e.id}` position=\"absolute\" inset=0 height=\"100%\" display=\"flex\" flex-direction=\"column\"";
+    assert_eq!(flagged_route(ROOT, scroller), Vec::<u32>::new());
+    // A route with no insets is as tall as its content.
+    let bare = "column navigationKey=`${e.id}`";
+    assert_eq!(flagged_route(ROOT, bare), Vec::<u32>::new());
+}
+
+#[test]
+fn a_wrapper_that_cannot_shrink_ends_the_run() {
+    // The inner column keeps its content's height whatever its minimum, so
+    // `min-height=0` on the outer one would free nothing: silence.
+    let view = "column height=400\n  column\n    column flex-shrink=0\n      scroll flex=1\n        text \"body\"";
+    assert_eq!(flagged_view(view), Vec::<u32>::new());
 }
 
 #[test]
