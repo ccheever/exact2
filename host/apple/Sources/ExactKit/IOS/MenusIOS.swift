@@ -1366,18 +1366,19 @@ final class MenuHost {
             if row.props["contextPreview"] == "true" { continue }
             // A submenu authored inside its parent is no row of it.
             if row.props["popover"] != nil { continue }
+            let face = label(of: row)
             if let children = submenu(of: row, path: path + [pop]) {
                 // UIMenu has no disabled state: a disabled opener is a dimmed action.
                 let element: UIMenuElement = row.props["disabled"] == "true"
-                    ? UIAction(title: title(of: row), image: image(of: row), attributes: .disabled) { _ in }
-                    : UIMenu(title: title(of: row), image: image(of: row), children: children)
-                element.subtitle = row.isNativeButton ? row.face?.subtitle : nil
+                    ? UIAction(title: face.title, image: image(of: row), attributes: .disabled) { _ in }
+                    : UIMenu(title: face.title, image: image(of: row), children: children)
+                element.subtitle = face.subtitle
                 sections[sections.count - 1].append(element)
                 rows.append(GivenRow(row, title: element.title, subtitle: element.subtitle))
             } else if row.handlers.contains("press") || opensConfirmation(row) {
                 let id = row.id, token = row.incarnation
                 let image = image(of: row)
-                let action = UIAction(title: title(of: row), image: image) { [weak self] action in
+                let action = UIAction(title: face.title, image: image) { [weak self] action in
                     // The row this menu showed, not a recycled view's next node,
                     // and still enabled: a disabled button does nothing (HTML)
                     func current() -> NodeView? {
@@ -1400,7 +1401,7 @@ final class MenuHost {
                         _ = self.openConfirmation(from: nil, popover: target, modal: invocation.action == .showModal, anchorItem: anchorItem, dispatchPress: false)
                     }
                 }
-                action.subtitle = row.isNativeButton ? row.face?.subtitle : nil
+                action.subtitle = face.subtitle
                 if row.props["accessibilityChecked"] == "true" { action.state = .on }
                 if row.props["disabled"] == "true" { action.attributes.insert(.disabled) }
                 if row.props["destructive"] == "true" { action.attributes.insert(.destructive) }
@@ -1452,6 +1453,20 @@ final class MenuHost {
             if let found = firstImage(in: node) { return found }
         }
         return nil
+    }
+
+    /// A menu row's title and subtitle, as UIKit draws an item's: a native
+    /// button's face; a custom button that holds what a face holds (two
+    /// texts and at most one image) its first text and its second, the grey
+    /// line under the title. A menu draws no box, so a row that is bare in
+    /// place (a text on an `if` arm keeps a button bare) is still its face.
+    private func label(of row: NodeView) -> (title: String, subtitle: String?) {
+        if row.isNativeButton { return (title(of: row), row.face?.subtitle) }
+        let kids = row.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["accessibilityElementsHidden"] != "true" }
+        let texts = kids.filter { $0.kind == "text" }, images = kids.filter { $0.kind == "image" }
+        guard row.isButton, texts.count == 2, images.count <= 1, texts.count + images.count == kids.count else { return (title(of: row), nil) }
+        let subtitle = title(of: texts[1])
+        return (title(of: texts[0]), subtitle.isEmpty ? nil : subtitle)
     }
 
     private func title(of v: NodeView) -> String {

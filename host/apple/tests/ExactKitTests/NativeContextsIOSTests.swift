@@ -46,6 +46,26 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(item.title, "Last Parked")
         XCTAssertEqual(item.subtitle, "Updated just now")
     }
+    /// A bare row (its second text on an `if` arm keeps it bare in place) is
+    /// still title and subtitle in UIKit's menu, which draws no box: euxy's
+    /// sort menu showed "Date Added Newest first" as a two-line title.
+    func testABareMenuRowsSecondTextIsItsSubtitle() throws {
+        let p = presenter(view(1, ["popover": "auto", "id": "menu"])
+            + [["op": "create", "id": 2, "kind": "button", "handlers": ["press"], "props": [:], "style": ["text_color": [0, 0, 0, 255]]],
+               ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 40.0],
+               ["op": "create", "id": 3, "kind": "image", "props": ["src": "symbol:sf/clock"]],
+               ["op": "create", "id": 4, "kind": "text", "props": ["text": "Date Added"]],
+               ["op": "create", "id": 5, "kind": "text", "props": ["text": "Newest first"]],
+               ["op": "children", "id": 2, "ids": [3, 4, 5]],
+               ["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "props": [:], "style": ["text_color": [0, 0, 0, 255]]],
+               ["op": "create", "id": 7, "kind": "text", "props": ["text": "BPM"]],
+               ["op": "children", "id": 6, "ids": [7]],
+               ["op": "children", "id": 1, "ids": [2, 6]], ["op": "roots", "ids": [1]]], faces: [:])
+        defer { window.isHidden = true }
+        let items = p.menus.items(of: try XCTUnwrap(p.views[1])).compactMap { $0 as? UIAction }
+        XCTAssertEqual(items.map(\.title), ["Date Added", "BPM"])
+        XCTAssertEqual(items.map(\.subtitle), ["Newest first", nil])
+    }
     func testCustomHideOnlyButtonClosesNativeContentPopoverInProduction() throws {
         XCTAssertFalse(ExactEnv.agentMode, "this test exercises production handling")
         let p = presenter(native(1, ["popovertarget": "content"])
