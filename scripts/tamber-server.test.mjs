@@ -894,14 +894,15 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   const second = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#1c1c1c' }] });
   writeFileSync(join(dir, 'app.tamber'), readFileSync(join(dir, 'app.tamber'), 'utf8').replace('#1b1b1b', '#1d1d1d'));
   await stream.until(e => e.at(-1)?.client === null && e.at(-1)?.edited.includes('app.tamber'));
+  const pending = await poll({ after: 0, wait: false, client: 'tool' });
   const stale = await post({ method: 'accept', client: 'person', proposal: second.ok.proposal });
   expect(stale.ok.recomputed).toBe(true);
   expect(stale.ok.proposal).not.toBe(second.ok.proposal);
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === second.ok.proposal && x.reason === 'replaced' && x.replacedBy === stale.ok.proposal));
   expect(stream.events.find(x => x.event === 'proposal' && x.proposal === stale.ok.proposal).replaces).toBe(second.ok.proposal);
   // A recompute (dropped, held again as another) moves the revision too.
-  const recomputed = await poll({ after: moved.seq, epoch: at.epoch, wait: false, client: 'tool', held: moved.held });
-  expect(recomputed.held).not.toBe(moved.held);
+  const recomputed = await poll({ after: pending.seq, epoch: pending.epoch, wait: false, client: 'tool', held: pending.held });
+  expect(recomputed.held).not.toBe(pending.held);
   expect(recomputed.proposals.map(p => p.proposal)).toEqual(expect.arrayContaining([stale.ok.proposal]));
   expect(recomputed.proposals.map(p => p.proposal)).not.toContain(second.ok.proposal);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1c1c1c');
