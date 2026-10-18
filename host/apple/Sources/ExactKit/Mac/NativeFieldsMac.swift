@@ -4,6 +4,11 @@ import AppKit
 import CoreText
 
 extension NodeView {
+    /// A field's ground where it writes none: none on the Mac, where the
+    /// bezeled NSTextField draws its own (the textarea's is its scroll
+    /// view's, `TextAreaMac.swift`).
+    var fieldGround: CGColor? { nil }
+    func fieldOutline() -> CGPath? { nil }
     var isNativeTextControl: Bool {
         (field != nil || textArea != nil) && props["markup"] != "markdown" && style["appearance"]?.string != "none"
     }

@@ -113,6 +113,7 @@ extension Presenter {
 
 extension NodeView {
     package override func mouseDown(with event: NSEvent) {
+        HeldState.input(at: self) // a press on a held node lets its hold go (HeldState.swift; the window's monitor, ExactViewMac)
         let chain = holdPresenter?.mouseChain
         chain?.receivedDown(self, event: event)
         if let contact = chain?.bubbledPress {

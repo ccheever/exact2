@@ -3139,7 +3139,8 @@ Motion too, as the press is feedback) and replacing the host's unsaid press (no
 Say each once: `:active background-color` beside `-exact-press-background-color`
 is refused (`lower-state-press-paint`), as is a border or shadow there, which the
 press cannot paint yet. `:hover` and `:focus-visible` take `background-color`,
-`border-color`, `opacity` and `box-shadow`, shown at once while they hold (on
+`border-color`, `opacity` and `box-shadow`, shown at once while they hold (a
+`:hover` replaces the platform's hover wash, as `:active` its press; on
 the web a `transition` of the node's own on one of those rows still times it), the
 focus's over the hover's, under the press. Each host applies them on its own
 tracking, over the node's rows (rows a part doesn't name show the base, also a
@@ -3329,7 +3330,9 @@ accent` is the app's tint, so the keyboard's focus ring is drawn in it (on the w
 a solid 2 px line, which reads on a control filled with the accent); `Highlight`
 and `HighlightText` colour selected text on the web (iOS draws it in the tint); a
 `button` you fill (`background-color="accent"`) hovers in its own ink, as the
-filled button does; a sheet's corners are `border-radius` on its route. A button
+filled button does, and a row or card of your own (a `link` or a pressable)
+hovers in the brand's colour by a `:hover` part; a sheet's corners are
+`border-radius` on its route. A button
 in the brand's shape is a face you write on a `button` with no `buttonStyle`; a
 `buttonStyle` is the platform's control, which takes the accent and no radius
 (`lower-button-style`), and `ButtonText` and `LinkText` are the tint's, not the

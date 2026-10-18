@@ -306,6 +306,7 @@ extension Agent {
         let p = vp.convert(CGPoint(x: start.x + vp.contentOffset.x, y: start.y + vp.contentOffset.y), to: nil)
         if let why = offscreen(v, box: CGRect(origin: start, size: .zero), hit: win.hitTest(p, with: nil)) { return ["error": "drag #\(v.id): \(why)"] }
         if let hit = win.hitTest(p, with: nil), let why = obscured(v, at: p, hit: hit) { return ["error": "drag #\(v.id) at (\(Agent.r2(start.x)), \(Agent.r2(start.y))): \(why)"] }
+        MainActor.assumeIsolated { HeldState.input(at: win.hitTest(p, with: nil)) } // the finger's accepted down: real input, which lets a held state go
         let scrollsX = (sv as? ScrollView)?.scrollsX ?? false, scrollsY = (sv as? ScrollView)?.scrollsY ?? true
         let inRange = { (p: CGPoint) -> CGPoint in
             let i = sv.adjustedContentInset
@@ -362,6 +363,7 @@ extension Agent {
                     return ["error": "tap #\(v.id) down: \(why)"]
                 }
                 let touched = seen ?? v
+                MainActor.assumeIsolated { HeldState.input(at: touched) } // a finger on a held node lets its hold go (HeldState.swift)
                 var contact = AgentPan(node: nil, pressing: true, pointer: Agent.pointerNode(from: touched).map(HeldNode.init), path: Agent.fingerPath(from: touched),
                                        reach: fingerReach(touched, at: p), at: at, t: t, held: Agent.heldPrefix(req))
                 panPointer(contact, .down)
@@ -383,6 +385,7 @@ extension Agent {
             var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: hit).map(HeldNode.init), path: Agent.fingerPath(from: hit), at: at, t: t, held: Agent.heldPrefix(req))
             // A lift that never panned is the press it landed on, through a finger's lift (`lift`).
             if pressInside || node.handlers.contains("press") { contact.reach = fingerReach(hit, at: p) }
+            MainActor.assumeIsolated { HeldState.input(at: hit) } // where the finger lands, a held node inside the pan's included
             panContact = contact
             panPointer(contact, .down)
             return ["contact": Int(node.id), "phase": "down", "at": point(at), "delivery": "recognized"]

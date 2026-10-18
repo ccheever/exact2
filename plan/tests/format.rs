@@ -848,14 +848,16 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
     assert_eq!(same, plan);
 }
 
-/// LLP 1114.007 adds rangeFrame to the roster and decoration props to the kernel schema;
-/// every host needs the matching plan format and schema before adopting this surface.
+/// LLP 1126.001 WP8 places activity roots after the nodes table they index
+/// and allows a snapshot without a refresh source; LLP 1114.007 adds rangeFrame
+/// to the roster and decoration props to the kernel schema. Every host needs a
+/// new binary for this plan format.
 /// The format digest is pinned: a change to `tables/format.json`, a comment
 /// included, moves it, and every host then needs a new binary (LLP 1030 D3a).
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0x3c9d_67a0_4f70_ff6e,
+        FORMAT_DIGEST, 0xeadb_143e_ec78_a332,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }

@@ -15,6 +15,12 @@ import UIKit
 /// (the node is the focus owner, D4).
 final class NativeButtonIOS: UIButton {
     weak var owner: NodeView?
+    /// UIKit's highlight, and a held press's beside it (HeldState.swift): a
+    /// touch's own release leaves a held one highlighted.
+    override var isHighlighted: Bool {
+        get { super.isHighlighted }
+        set { super.isHighlighted = newValue || owner?.holds("active") == true }
+    }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ExactEnv.agentMode { TouchLog.reach(touches) }
         super.touchesBegan(touches, with: event)

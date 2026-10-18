@@ -31,16 +31,19 @@ public enum WidgetContainer {
     /// No lock, selection, repair or network access: read the pointer once and
     /// keep its immutable directory for this entire invocation. Stage 1 keeps
     /// all published generations; reclamation needs cross-process leases first.
-    public static func pin() throws -> URL {
+    public static func pin(generation: String? = nil) throws -> URL {
         guard let root else { throw HeadlessSession.Failure(description: "widget App Group is unavailable") }
+        return try pin(root: root, generation: generation, compatibility: compatibility)
+    }
+    package static func pin(root: URL, generation: String? = nil, compatibility: String) throws -> URL {
         let base = root.appendingPathComponent("widget-generations", isDirectory: true)
-        let name = try String(contentsOf: base.appendingPathComponent("current"), encoding: .utf8)
+        let name = try generation ?? String(contentsOf: base.appendingPathComponent("current"), encoding: .utf8)
         guard name.count == 64, name.allSatisfy({ $0.isHexDigit }) else { throw CocoaError(.fileReadCorruptFile) }
-        let generation = base.appendingPathComponent(name, isDirectory: true)
-        guard try String(contentsOf: generation.appendingPathComponent("compatibility"), encoding: .utf8) == compatibility else {
+        let directory = base.appendingPathComponent(name, isDirectory: true)
+        guard try String(contentsOf: directory.appendingPathComponent("compatibility"), encoding: .utf8) == compatibility else {
             throw HeadlessSession.Failure(description: "widget generation belongs to another compatibility cohort")
         }
-        return generation
+        return directory
     }
     private static let publisher = DispatchQueue(label: "exact.widget-generation", qos: .utility)
     private static var typescript: Bool { Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true }
@@ -71,8 +74,14 @@ public enum WidgetContainer {
     }()
     /// Copy assets off the first-frame path; first-use framework loading and
     /// WidgetCenter's call run on main. A failed signal stays pending on disk.
+    /// The widget kinds a bundle declares, or nil for one with no entry of either kind: the build writes
+    /// `ExactWidgetKinds` only for an app with widgets or Live Activities, empty with activities alone, so the
+    /// key's presence gates publication and its contents are the kinds a generation must hold (LLP 1126.001 WP13).
+    package static func entryKinds(of bundle: Bundle = .main) -> [String]? {
+        bundle.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String]
+    }
     package static func publishAfterFirstPixel(_ assets: AssetResolver) {
-        guard let root, let kinds = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], !kinds.isEmpty else { return }
+        guard let root, let kinds = entryKinds() else { return }
         publisher.async {
             do {
                 guard try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: typescript) else { return }
@@ -113,8 +122,10 @@ public enum WidgetContainer {
         try digest.write(to: signalled, options: .atomic)
         FileHandle.standardError.write(Data("widget reload: signalled \(String(decoding: digest, as: UTF8.self))\n".utf8))
     }
-    package static func publish(_ assets: AssetResolver) throws -> Bool {
-        guard let root, let kinds = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], !kinds.isEmpty else { return false }
+    /// `bundle` and `root` are the app's; a test names its own.
+    package static func publish(_ assets: AssetResolver, bundle: Bundle = .main, root: URL? = WidgetContainer.root) throws -> Bool {
+        guard let root, let kinds = entryKinds(of: bundle) else { return false }
+        let typescript = bundle.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true
         return try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: typescript)
     }
     package static func publish(_ assets: AssetResolver, root: URL, kinds: [String], compatibility: String, typescript: Bool = false) throws -> Bool {

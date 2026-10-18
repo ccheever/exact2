@@ -587,6 +587,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        MainActor.assumeIsolated { HeldState.retire(self) } // before its views leave the map (HeldState.swift)
         WakeLock.hold(self, false) // the new host's first batch says it again
         cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
@@ -1147,6 +1148,7 @@ package final class Presenter {
                 blocks.destroyed(id)
                 stickies.forget(id)
                 forgetFlight(id)
+                views[id]?.holdGone()
                 if endExit(id) { continue }
                 release(id, forget: true)?.removeFromSuperview()
             case .roots:

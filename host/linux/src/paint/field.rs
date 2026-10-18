@@ -262,6 +262,10 @@ impl Painter {
         if let Some(s) = selection {
             self.field_highlight(&field, s);
         }
+        if !placeholder {
+            let painted = material::FieldText::painted(&paragraph, (ox, oy), ts);
+            self.labels.value(node.id, painted);
+        }
         {
             let mut engine = self.text.borrow_mut();
             self.backend.text(

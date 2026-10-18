@@ -1,6 +1,6 @@
 // Apple bundle assembly. The build owns compilation and artifact publication.
 // @ref LLP 1126 D2/D8 — an extension is packaged inside its app's cohort.
-import { packageWidgets, widgetId } from './widgets.mjs';
+import { packageWidgets, widgetId, entryProfiles } from './widgets.mjs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { resolve, basename, dirname } from 'node:path';
@@ -137,12 +137,14 @@ export function assembleIOS({shared, triple, app, paths, binDir, bin, device, de
     if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(hostBundle, svgFilterLibraryName));
     bundles.push([hostBundle, true]);
   }
+  // A grant's signing entitlement needs a profile that allows it, which a
+  // team wildcard never does for HealthKit (LLP 1069.008.000 D4).
+  const required = appleReach?.entitlements ?? [];
+  // With entries, the app's and the extension's profiles together, each granting the shared groups (LLP 1126.001 WP13).
+  const provisioned = shared && device && !unsigned ? entryProfiles({ app, udid: ph?.udid, required }) : null;
   for (const [assembled, host] of bundles) {
     const id = host ? `${app.id}.host` : app.id;
-    // A grant's signing entitlement needs a profile that allows it, which a
-    // team wildcard never does for HealthKit (LLP 1069.008.000 D4).
-    const required = appleReach?.entitlements ?? [];
-    const signingProfile = device && !unsigned ? (host || !allows(prof, required) ? profile(ph?.udid, id, required) : prof) : null;
+    const signingProfile = device && !unsigned ? (host ? profile(ph?.udid, id, required) : provisioned?.app ?? (allows(prof, required) ? prof : profile(ph?.udid, id, required))) : null;
     const signingIdentity = signingProfile ? identity(signingProfile.team) : sha1;
     const ent = resolve(binDir, host ? 'host-entitlements.plist' : 'entitlements.plist');
     if (signingProfile) copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
@@ -163,8 +165,9 @@ export function assembleIOS({shared, triple, app, paths, binDir, bin, device, de
     if (ipa) { mkdirSync(dirname(ipa), { recursive: true }); writeFileSync(`${ipa.replace(/\.ipa$/, '')}.receipt.json`, whole); }
     if (ipa) for (const [loose, name] of [...looseArms.map(([, , load, framework]) => [load, framework]), [modulesLoadName, 'ExactModules'], [svgLoadName, 'ExactSvg'], [canvasGpuLoadName, 'ExactCanvasGpu']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app, tv ? 'AppleTVOS' : 'iPhoneOS');
     if (shared && !host) packageWidgets({ app, bundle: assembled, shared, directory: linkRoot, sdk, triple, device,
-      runApple, production: production || distribution,
-      entitlements: entitlements({ ...app, id: widgetId(app), widgetAppId: app.id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, null, { simulator: !device, prefix: signingProfile?.prefix }),
+      runApple, production: production || distribution, profile: provisioned?.extension ?? null,
+      // The extension's identifier and shared Keychain group under its own profile's prefix (entryProfiles refused a pair whose prefixes differ).
+      entitlements: entitlements({ ...app, id: widgetId(app), widgetAppId: app.id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, null, { simulator: !device, prefix: provisioned?.extension.prefix ?? signingProfile?.prefix }),
       sign: (extension, ent) => run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), extension], { stdio: 'ignore' }) });
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => !gpuArtifacts.some(m => f === (ipa ? `${m.framework}.framework` : m.load)))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     if (ipa) assertArchiveFrameworks(resolve(assembled, 'Frameworks'));
