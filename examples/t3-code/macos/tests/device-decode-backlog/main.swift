@@ -6,7 +6,7 @@ import Network
 // The 3D phone on its first open under a loaded main thread. A live iOS feed
 // (serve-sim's AVCC body at 60 fps over the loopback hub in hub.swift) keeps H.264, and so the 3D
 // phone, through main-thread stalls that hand the decoder a burst of samples at once; a decoder
-// that really falls behind still takes the reference's MJPEG fallback.
+// that really falls behind still recovers as the reference's does (T3DeviceDecodeBacklog.swift).
 final class DeviceDecodeBacklogTests: XCTestCase {
     private func spin(until condition: () -> Bool, timeout: TimeInterval = 10) {
         let end = Date().addingTimeInterval(timeout)
