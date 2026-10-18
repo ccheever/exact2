@@ -3848,3 +3848,25 @@ LLP 1122 D6's checked edit of one Contract row (`contract/cli/src/tamber_rows.rs
   with `set-row`; a row the commit added or removed is refused. A node's own attribute stays code:
   it has no key across versions (QUEUE; theme2 17:18).
 
+### Stage 9, commit D3: `add-param` and `remove-param`; promote and detach (draft for theme2)
+
+Stage 7 C's operations (approved, then deferred until `set-row`), `contract/cli/src/tamber_param_lines.rs`.
+- **`add-param {component, name, kind, default, attrs?, file?}`** writes the component's param
+  line (its attributes in D15's order), making the `params` section before the component's `view`
+  where it has none. **`remove-param {component, name, file?}`** takes the line out, and the
+  section with its last. The file is the one declaring the component unless named.
+- D15 refuses a param no row reads, so each compiles only beside the `set-row` that starts or stops
+  reading it, in one transaction: alone it is refused by the compile, the refusal carrying a
+  `hint` that says so.
+- **Promote** (LLP 1122 T5's gate): to param, `add-param` with `set-row` naming `param.<name>`; to
+  token, `add-token` (or `set-token`) with `set-row` naming the token: the design and the
+  `.contract` file in one transaction with one inverse, which the commit guard refuses after a
+  hand edit to either file, writing neither. **Detach** sends a param's `remove-param` with the
+  `set-row` that gives its last reader its own value.
+- **Tests** (`tamber_serve_rows.rs`): promote to param then detach, each undone in one step, byte
+  for byte; add or remove alone refused with the hint; promote to token across two files, its
+  undo refused after a hand edit to the design and accepted once put back; the section in the
+  named component before its own `view` (a comment on the header allowed), the last param taking a
+  commented header and its comments; the hint only for an unread param.
+- **History:** a `params` line is code, as the template row that reads it is (QUEUE): its revert
+  needs that row.

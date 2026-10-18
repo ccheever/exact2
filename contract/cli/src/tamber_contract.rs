@@ -36,6 +36,10 @@ pub(crate) enum ContractOp {
         row: String,
         value: String,
     },
+    /// A line added to a component's `params` (LLP 1121 D15).
+    AddParam(crate::tamber_param_lines::ParamLine),
+    /// A component's param's line taken out.
+    RemoveParam { component: String, name: String },
 }
 
 impl ContractOp {
@@ -44,7 +48,19 @@ impl ContractOp {
             ContractOp::SetState { style, .. }
             | ContractOp::UnsetState { style, .. }
             | ContractOp::SetStyleRow { style, .. } => style,
-            ContractOp::SetRowAt(_) => "",
+            ContractOp::SetRowAt(_) | ContractOp::AddParam(_) | ContractOp::RemoveParam { .. } => {
+                ""
+            }
+        }
+    }
+
+    /// What declares its target, for finding its file: `style X` or
+    /// `component X`.
+    fn declared(&self) -> (&'static str, &str) {
+        match self {
+            ContractOp::AddParam(p) => ("component", &p.component),
+            ContractOp::RemoveParam { component, .. } => ("component", component),
+            _ => ("style", self.style()),
         }
     }
 }
@@ -140,6 +156,13 @@ pub(crate) fn split(ops: &Value) -> Result<(Value, Vec<Named>), Value> {
         }
         let op = match v["op"].as_str() {
             Some("set-row") => set_row(v)?,
+            Some("add-param") => ContractOp::AddParam(
+                crate::tamber_param_lines::line_of(v).map_err(|m| json!({"message": m}))?,
+            ),
+            Some("remove-param") => ContractOp::RemoveParam {
+                component: required(v, "component")?,
+                name: required(v, "name")?,
+            },
             Some("set-state") => ContractOp::SetState {
                 style: required(v, "style")?,
                 state: state(v)?,
@@ -338,6 +361,10 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, crate::tamber_
             return fmt(crate::tamber_rows::style_row(text, style, row, value)?);
         }
         ContractOp::SetRowAt(r) => return fmt(crate::tamber_rows::splice(text, &[r])?),
+        ContractOp::AddParam(p) => return fmt(crate::tamber_param_lines::add(text, p)?),
+        ContractOp::RemoveParam { component, name } => {
+            return fmt(crate::tamber_param_lines::remove(text, component, name)?);
+        }
         ContractOp::SetState { .. } | ContractOp::UnsetState { .. } => {}
     }
     Ok(state_edit(text, op)?)
@@ -356,7 +383,7 @@ fn state_edit(text: &str, op: &ContractOp) -> Result<String, String> {
         ContractOp::SetState { state, row, .. } | ContractOp::UnsetState { state, row, .. } => {
             (state, row)
         }
-        _ => unreachable!("set-row edits above"),
+        _ => unreachable!("set-row and param edits above"),
     };
     // A row is one property's name: no `=`, space or line of its own.
     if row.is_empty() || !row.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
@@ -455,7 +482,10 @@ fn state_edit(text: &str, op: &ContractOp) -> Result<String, String> {
                 all.insert(at(last) + 1, format!("{pad}:{state}"));
             }
         },
-        ContractOp::SetRowAt(_) | ContractOp::SetStyleRow { .. } => unreachable!(),
+        ContractOp::SetRowAt(_)
+        | ContractOp::SetStyleRow { .. }
+        | ContractOp::AddParam(_)
+        | ContractOp::RemoveParam { .. } => unreachable!(),
         ContractOp::UnsetState { .. } => {
             let a = found
                 .ok_or_else(|| format!("`style {}` has no `{row}` in `:{state}`", op.style()))?;
@@ -506,22 +536,27 @@ pub(crate) fn file_of(
     if let Some(f) = named {
         return Ok(f.to_string());
     }
+    let (what, name) = op.declared();
     let declares: Vec<&String> = texts
         .iter()
         .filter(|(p, t)| {
             p.ends_with(".contract")
-                && contract_syntax::parse(t)
-                    .is_ok_and(|f| f.styles.iter().any(|s| s.name == op.style()))
+                && contract_syntax::parse(t).is_ok_and(|f| match what {
+                    "component" => f.components.iter().any(|c| c.name == name),
+                    _ => f.styles.iter().any(|s| s.name == name),
+                })
         })
         .map(|(p, _)| p)
         .collect();
+    let node = match what {
+        "style" => " (a node's own row is `set-row`'s at its place, LLP 1122 T5)",
+        _ => "",
+    };
     match declares.as_slice() {
         [one] => Ok((*one).clone()),
-        [] => Err(
-            json!({"message": format!("no file of the app declares `style {}` (a node's own state part is `set-row`'s, LLP 1122 T5)", op.style())}),
-        ),
+        [] => Err(json!({"message": format!("no file of the app declares `{what} {name}`{node}")})),
         many => Err(
-            json!({"message": format!("`style {}` is declared in {}: name the `file`", op.style(), many.iter().map(|p| format!("`{p}`")).collect::<Vec<_>>().join(" and "))}),
+            json!({"message": format!("`{what} {name}` is declared in {}: name the `file`", many.iter().map(|p| format!("`{p}`")).collect::<Vec<_>>().join(" and "))}),
         ),
     }
 }
@@ -594,6 +629,31 @@ pub(crate) fn plan(
             .iter()
             .find(|(p, ..)| p == design)
             .map(|(_, t, _)| t.clone());
+        // A param the app sets a value for in its design is not detached
+        // (LLP 1122 D6): its value would be dropped unsaid.
+        let design_now = design_text.clone().or_else(|| {
+            snap.iter()
+                .find(|(p, ..)| p == design)
+                .map(|(_, t, _)| t.clone())
+        });
+        let set: Vec<String> = design_now
+            .and_then(|t| exact_tamber::parse(&t).ok())
+            .map(|d| d.params.iter().map(|e| e.name.value.clone()).collect())
+            .unwrap_or_default();
+        for (path, op) in ops {
+            if let ContractOp::RemoveParam { component, name } = op {
+                let (full, short) = (
+                    format!("{path}#{component}.{name}"),
+                    format!("{component}.{name}"),
+                );
+                if set.iter().any(|n| *n == full || *n == short) {
+                    return Err(refuse(
+                        path,
+                        format!("`{short}` has a value the app sets in `{design}`: unset it there first (or in the same transaction), then detach (LLP 1122 D6)").into(),
+                    ));
+                }
+            }
+        }
         let built = contract::with_contract_texts(overlays, || match design_text {
             Some(text) => contract::with_design_text(&dir.join(design), text, || {
                 contract::compile_path_all(&root, false)
@@ -601,20 +661,54 @@ pub(crate) fn plan(
             None => contract::compile_path_all(&root, false),
         });
         if let Err(all) = built {
+            // A param added or removed alone: D15 refuses an unread one, so
+            // it goes with the row that reads it (LLP 1122 D6).
+            let unread = |e: &&contract::CompileError| {
+                matches!(
+                    e.id.as_ref(),
+                    "tamber-param-unused" | "tamber-param-unknown"
+                )
+            };
+            // Only where the unread or unknown param is one this
+            // transaction adds or removes.
+            let ours: Vec<(&str, &str)> = ops
+                .iter()
+                .filter_map(|(_, op)| match op {
+                    ContractOp::AddParam(p) => Some((p.component.as_str(), p.name.as_str())),
+                    ContractOp::RemoveParam { component, name } => {
+                        Some((component.as_str(), name.as_str()))
+                    }
+                    _ => None,
+                })
+                .collect();
+            // A diagnostic names its param whole: `fill` (or the full
+            // name's `….fill`) beside `Card` (or `…#Card.…`).
+            let names = |m: &str, (c, n): &(&str, &str)| {
+                (m.contains(&format!("`{n}`")) || m.contains(&format!(".{n}`")))
+                    && (m.contains(&format!("`{c}`")) || m.contains(&format!("#{c}.")))
+            };
+            let hint = all
+                .iter()
+                .any(|e| unread(&e) && ours.iter().any(|o| names(&e.message, o)))
+                .then_some(
+                    "a param is added or removed with the set-row that starts or stops reading it, in the same transaction (LLP 1122 D6)",
+                );
             let shown = |f: &Option<Box<Path>>| {
                 f.as_deref()
                     .and_then(|f| f.strip_prefix(dir).ok())
                     .map_or_else(String::new, |p| p.to_string_lossy().into_owned())
             };
-            return Err(
-                json!({"message": "refused", "diagnostics": all.iter().map(|e| json!({
+            let mut refused = json!({"message": "refused", "diagnostics": all.iter().map(|e| json!({
                 "file": shown(&e.file),
                 "id": e.id,
                 "message": e.message,
                 "line": e.span.line,
                 "col": e.span.col,
-            })).collect::<Vec<_>>()}),
-            );
+            })).collect::<Vec<_>>()});
+            if let Some(hint) = hint {
+                refused["hint"] = json!(hint);
+            }
+            return Err(refused);
         }
     }
     for (path, after) in written {
@@ -667,7 +761,7 @@ fn file_diff(path: &str, a: &str, b: &str) -> String {
 }
 
 /// Each write's file over the server's read `snap`: the one it names, or
-/// the one that declares its style; refused where that is no Contract
+/// the one that declares its style (a param op's component); refused where that is no Contract
 /// source of the app's own.
 pub(crate) fn files(
     written: Vec<(Option<String>, ContractOp)>,
