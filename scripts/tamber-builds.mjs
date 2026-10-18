@@ -122,8 +122,9 @@ function reportRefused(r) {
 /** One dev loop's builds. `send(event)` tells the design server's clients
  * (`builds`, `build-status`, `unsupported`, `selected`, `held`,
  * `hold-cleared`). `correspond(from, to, site)` is the one site of plan `to`
- * that site `site` of plan `from` is, by their source maps, or null. */
-export function buildChannel({ send = () => {}, log = () => {}, selected = null, correspond = () => null } = {}) {
+ * that site `site` of plan `from` is, by their source maps, or null.
+ * `timers` (`{set, clear}`, a test's clock) wait out a design-only status. */
+export function buildChannel({ send = () => {}, log = () => {}, selected = null, correspond = () => null, timers = { set: setTimeout, clear: clearTimeout } } = {}) {
   const streams = new Map(); // nonce -> { write(frame), build: id | null, seen?, poll? }
   const builds = new Map(); // id -> { id, host, capabilities, plan, design, status, nonce }
   const pins = new Map(); // id -> { client, pin, revision }
@@ -169,13 +170,13 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
   // (Keys in order, so a mode's axes in another order are the same facts.)
   const canonical = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([p], [q]) => (p < q ? -1 : p > q ? 1 : 0))) : x));
   /** Its comparison and anything waiting forgotten: a build registered again, or gone. */
-  const untell = id => { clearTimeout(toldLater.get(id)); toldLater.delete(id); toldFacts.delete(id); toldDesign.delete(id); };
+  const untell = id => { timers.clear(toldLater.get(id)); toldLater.delete(id); toldFacts.delete(id); toldDesign.delete(id); };
   const tellStatus = (b, due = false) => {
     const { design, ...facts } = shown(b), key = canonical(facts);
     if (!due && toldDesign.has(b.id) && toldFacts.get(b.id) === key && toldDesign.get(b.id) !== design) {
       // The first waiting design starts the wait; later ones replace it, not restart it.
       if (!toldLater.has(b.id)) {
-        const later = setTimeout(() => {
+        const later = timers.set(() => {
           toldLater.delete(b.id);
           // Only if that registration is still connected (one gone was announced gone).
           const now = builds.get(b.id);
@@ -186,7 +187,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
       }
       return;
     }
-    clearTimeout(toldLater.get(b.id)); toldLater.delete(b.id);
+    timers.clear(toldLater.get(b.id)); toldLater.delete(b.id);
     toldFacts.set(b.id, key); toldDesign.set(b.id, design);
     send({ event: 'build-status', build: { ...facts, design } });
   };

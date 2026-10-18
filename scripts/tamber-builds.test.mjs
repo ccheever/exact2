@@ -623,59 +623,76 @@ test('a hold is one a build, its client\'s, replayed only through one correspond
   expect(report(channel, { nonce: a3.nonce, kind: 'held', state: null, reason: 'gone' }).status).toBe(400);
 });
 
-test('a status that moves only the design is told 150 ms after the first waiting, the latest; any other change, or any other report, at once', async () => {
-  const events = [];
-  const channel = buildChannel({ send: e => events.push(e) });
+/** A clock a test moves: `timers` for the channel, `tick(ms)` runs what falls due. */
+const clock = () => {
+  let now = 0, next = 1;
+  const due = new Map();
+  return {
+    timers: { set: (fn, ms) => { const id = next++; due.set(id, { at: now + ms, fn }); return { id, unref() {} }; }, clear: (h) => { if (h) due.delete(h.id); } },
+    tick(ms) { now += ms; for (const [id, t] of [...due].sort((p, q) => p[1].at - q[1].at)) if (t.at <= now && due.has(id)) { due.delete(id); t.fn(); } },
+    waiting: () => due.size,
+  };
+};
+
+test('a status that moves only the design is told 150 ms after the first waiting, the latest; any other change, or any other report, at once', () => {
+  const events = [], time = clock();
+  const channel = buildChannel({ send: e => events.push(e), timers: time.timers });
   const a = stream(channel);
   register(channel, a.nonce, 'mac-1', 'macos');
   const status = (extra) => report(channel, { nonce: a.nonce, kind: 'status', scheme: 'light', contrast: 'no-preference', mode: { a: 'x', b: 'y' }, rootFontSize: 16, revision: 0, ...extra });
   const told = () => events.filter(e => e.event === 'build-status').map(e => e.build.design);
   status({ design: 'd0' });
   expect(told()).toEqual(['d0']);
-  // A scrub's frames, each a status, 40 ms apart: none told before 150 ms
-  // from the first waiting (a mode's axes in another order are the same)...
-  const t0 = Date.now();
+  // A scrub's frames, each a status: none told before 150 ms from the first
+  // waiting (a mode's axes in another order are the same facts), the later
+  // ones not restarting the wait...
   status({ design: 'd1' });
-  await Bun.sleep(40); status({ design: 'd2', mode: { b: 'y', a: 'x' } });
-  await Bun.sleep(40); status({ design: 'd3' });
-  await Bun.sleep(40);
-  expect(Date.now() - t0 < 150 ? told() : ['too slow to check']).toEqual(['d0']);
+  time.tick(40); status({ design: 'd2', mode: { b: 'y', a: 'x' } });
+  time.tick(40); status({ design: 'd3' });
+  time.tick(69);
+  expect(told()).toEqual(['d0']);
   expect(channel.list()[0].design).toBe('d3');
-  // ...then the latest, once, the wait not restarted by the later ones.
-  status({ design: 'd4' });
-  await Bun.sleep(Math.max(0, 190 - (Date.now() - t0)));
-  expect(told()).toEqual(['d0', 'd4']);
-  // Sustained frames: one told each 150 ms or so, not one a frame.
-  for (let i = 0; i < 12; i++) { status({ design: `s${i}` }); await Bun.sleep(30); }
-  await Bun.sleep(200);
-  const sustained = told().slice(2);
-  expect(sustained.length).toBeGreaterThanOrEqual(2);
-  expect(sustained.length).toBeLessThanOrEqual(4);
-  expect(sustained.at(-1)).toBe('s11');
+  // ...then the latest, once, at 150 ms.
+  time.tick(1);
+  expect(told()).toEqual(['d0', 'd3']);
+  // Sustained frames 16 ms apart for 600 ms: one told 150 ms after each
+  // first waiting, the latest each time (the next wait starts at the next frame).
+  for (let t = 0; t < 600; t++) { if (t % 16 === 0) status({ design: `s${t}` }); time.tick(1); }
+  expect(told().slice(2)).toEqual(['s144', 's304', 's464']);
+  time.tick(150);
+  expect(told().at(-1)).toBe('s592');
   // Another fact moving is told at once, with the design as it is then.
   status({ design: 'd6' });
   status({ design: 'd7', scheme: 'dark' });
-  expect(told().slice(-1)).toEqual(['d7']);
-  const n = told().length;
-  await Bun.sleep(200);
-  expect(told().length).toBe(n);
-  // A selection (any other report) is about the design it runs: told first.
+  expect(told().at(-1)).toBe('d7');
+  expect(time.waiting()).toBe(0);
+  // Any other report (a selection, a refusal) is about the design it runs: told first.
   status({ design: 'd8', scheme: 'dark' });
   report(channel, { nonce: a.nonce, kind: 'unsupported', what: 'pin.contrast' });
   expect(events.slice(-2).map(e => [e.event, e.build?.design ?? e.what])).toEqual([['build-status', 'd8'], ['unsupported', 'pin.contrast']]);
-  // Registered again (a reload on its stream) while one waits: its new
-  // registration's first status is told at once, the old one's wait never.
-  status({ design: 'd9', scheme: 'dark' });
+  expect(time.waiting()).toBe(0);
+});
+
+test("a design waiting when its build registers again or goes is never told; the new registration's first status is", () => {
+  const events = [], time = clock();
+  const channel = buildChannel({ send: e => events.push(e), timers: time.timers });
+  const a = stream(channel);
   register(channel, a.nonce, 'mac-1', 'macos');
-  status({ design: 'r0', scheme: 'dark' });
-  expect(told().slice(-1)).toEqual(['r0']);
-  const k = told().length;
-  await Bun.sleep(200);
-  expect(told().length).toBe(k);
-  // A build gone while one waits: nothing told for it after.
-  status({ design: 'r1', scheme: 'dark' });
+  const status = (design) => report(channel, { nonce: a.nonce, kind: 'status', scheme: 'light', contrast: 'no-preference', mode: null, rootFontSize: 16, revision: 0, design });
+  const told = () => events.filter(e => e.event === 'build-status').map(e => e.build.design);
+  status('d0'); status('d1');
+  expect([told(), time.waiting()]).toEqual([['d0'], 1]);
+  // A reload on its stream: the wait forgotten; its first status (same
+  // facts as the last told, another design) told at once.
+  register(channel, a.nonce, 'mac-1', 'macos');
+  expect(time.waiting()).toBe(0);
+  status('r0');
+  expect(told()).toEqual(['d0', 'r0']);
+  time.tick(200);
+  expect(told()).toEqual(['d0', 'r0']);
+  // Gone while one waits: nothing told for it after.
+  status('r1');
   a.close();
-  const m = told().length;
-  await Bun.sleep(200);
-  expect(told().length).toBe(m);
+  time.tick(200);
+  expect(told()).toEqual(['d0', 'r0']);
 });
