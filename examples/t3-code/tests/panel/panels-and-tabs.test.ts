@@ -100,3 +100,28 @@ describe('reopen the most recently closed view', () => {
     expect(closedViews({ local })).toEqual([entry('a.ts')]);
   });
 });
+
+describe('window actions keep close-history effects separate from selection', () => {
+  const root = contractComponent('app.contract', 'T3Code');
+  test('selection and automatic clearing update only selection; explicit close records the original target once', () => {
+    const slots = { prSelected: 'original', prPanelOpen: false, prTab: 'code' };
+    root.call('prSelect', slots, {}, ['next']); expect(slots).toEqual({ prSelected: 'next', prPanelOpen: true, prTab: 'summary' });
+    root.call('prSelect', slots, {}, ['']); expect(slots.prSelected).toBe('');
+    const calls: unknown[][] = [], selects: unknown[] = [];
+    slots.prSelected = 'closed-target';
+    root.call('prClose', slots, { command: (...args: unknown[]) => calls.push(args), prSelect: (ref: unknown) => selects.push(ref) }, []);
+    expect(calls).toEqual([['shelllocal:surface-remember-pr', 'closed-target', '', 0]]); expect(selects).toEqual(['']);
+    slots.prSelected = ''; calls.length = 0;
+    root.call('prClose', slots, { command: (...args: unknown[]) => calls.push(args), prSelect: () => {} }, []);
+    expect(calls).toEqual([]);
+  });
+  test('reopen and surface choice dispatch one request each', () => {
+    for (const [what, id, expected] of [['reopen', '', 'shell:surface-reopen'], ['choose', 'files', 'shelllocal:surface-open'], ['key', 'f', 'shelllocal:surface-open']]) {
+      const calls: unknown[][] = [];
+      const slots = { rightPanelAt: '', settingsOpen: false, utilityPage: '', draftOwner: '', jumpRequest: 0, commandPending: false };
+      root.call('panelUi', slots, { data: { diffOpen: false, threadId: 't1', projectId: 'p1' }, rightPanel: false,
+        shell: { panel: { tabs: [], key: 'env:t1', count: 0, open: false }, terminalAvailable: false }, command: (...args: unknown[]) => calls.push(args) }, [what, id]);
+      expect(calls).toHaveLength(1); expect(calls[0]![0]).toBe(expected);
+    }
+  });
+});
