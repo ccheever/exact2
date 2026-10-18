@@ -1,3 +1,4 @@
+import { threadFindTick, threadFindView } from './src/timeline/thread-find-runtime';
 import type { StreamPicked } from './src/browser/server-browser-files';
 import { serverStreamSource, serverStreamPainted, serverStreamInput, serverStreamUpload, serverStreamFrame, serverStreamDecode } from './src/browser/server-browser-runtime';
 import { snapshotSettings } from './src/snapshot/snapshot-settings';
@@ -33,7 +34,7 @@ import { pagesSource } from './src/pages/pages-sources';
 import { ariaChord } from './src/shell/keyboard-dispatch';
 import { snapshot, modelCatalog } from './src/client/presentation';
 import { noteComposerTyping } from './src/composer/composer-typing-guard';
-import { obj, str, type Obj } from './src/client/domain';
+import { arr, obj, str, type Obj } from './src/client/domain';
 import { nativeFiles, type Native, type Files } from './src/client/protocol';
 import { adoptAppFiles } from './src/media/save-file';
 import { noteTranscriptFacts } from './src/timeline/transcript-facts';
@@ -122,6 +123,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     await activationPrepare(client, native); // desktop-activation.ts: `t3 app` waits until the primary is connected and loaded
     return { ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? '')), chatgptPlan: chatGptPlanSnapshot(client) }; // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
   }
+  if (source === 'threadFind') return native?.available ? threadFindTick(client, native, Number(args[1]) || 0, arr(args[2]).map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) })), String(args[3] || '')) : threadFindView(client);
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
   if (source === 'refreshTimelineReads') {
     noteNow(client, Number(args[0]) || 0);
