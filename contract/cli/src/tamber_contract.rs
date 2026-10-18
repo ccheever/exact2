@@ -131,7 +131,7 @@ pub(crate) fn split(ops: &Value) -> Result<(Value, Vec<Named>), Value> {
                 row: required(v, "row")?,
                 value: match &v["value"] {
                     Value::Number(n) => n.to_string(),
-                    Value::String(s) => serde_json::to_string(s).expect("a string is JSON"),
+                    Value::String(s) => string_literal(s),
                     _ => return Err(json!({"message": "`value` is a string or a number"})),
                 },
             },
@@ -148,6 +148,24 @@ pub(crate) fn split(ops: &Value) -> Result<(Value, Vec<Named>), Value> {
         out.push((optional(v, "file")?, op));
     }
     Ok((Value::Array(rest), out))
+}
+
+/// `s` as a Contract string literal, in the escapes its lexer takes
+/// (`\n`, `\t`, `\"`, `\\`, and `\u{…}` for any other control).
+pub(crate) fn string_literal(s: &str) -> String {
+    let mut out = String::from('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{{{:x}}}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// A request's `state`, one of D8's, with or without its `:`.
@@ -565,4 +583,25 @@ pub(crate) fn files(
         out.push((file, op));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_string_literal_is_one_contract_lexes_back() {
+        for s in [
+            "#000",
+            "a\"b\\c",
+            "line\nnext\ttab",
+            "cr\rhere\u{1}",
+            "$ {x} `t`",
+        ] {
+            let lit = super::string_literal(s);
+            let file = contract_syntax::parse(&format!("style S\n  content={lit}\n")).unwrap();
+            assert!(
+                matches!(&file.styles[0].attrs[0].value, contract_syntax::Expr::Str(v, _) if v == s),
+                "{lit}"
+            );
+        }
+    }
 }

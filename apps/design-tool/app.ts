@@ -573,6 +573,8 @@ const opText = (o: any): string => {
     : o?.op === 'add-axis' ? `add axis ${o.name ?? o.axis} = ${[].concat(o.values ?? []).join(' | ')}`
     : o?.op === 'add-axis-value' ? `add ${o.value} to axis ${o.axis ?? o.name}`
     : o?.op === 'remove-axis-value' ? `remove ${o.value} from axis ${o.axis ?? o.name}`
+    : o?.op === 'set-state' ? `set ${o.style} :${o.state} ${o.row} = ${o.value}`
+    : o?.op === 'unset-state' ? `unset ${o.style} :${o.state} ${o.row}`
     : typeof o?.op === 'string' && /axis/.test(o.op) ? `${o.op.replace(/-/g, ' ')} ${o.name ?? o.axis ?? ''}${o.value ? ` ${o.value}` : ''}${o.values ? ` = ${[].concat(o.values).join(' | ')}` : ''}`.trim()
     : JSON.stringify(o);
   // The file it edits (the design's when it names none): two items may
@@ -1347,7 +1349,7 @@ const sources: Sources = {
   revertCommit: async ([client, commit]) => {
     // Held, never written: reviewed and accepted like any held proposal.
     const { error, reply } = await call('/__tamber', { method: 'revert', client, commit }, 30000);
-    const refused = ((reply.error as { refused?: any[] } | undefined)?.refused ?? []).map(r => `${r.file}: ${r.edit ? `${r.edit.name} ${r.edit.before ?? '(absent)'} → ${r.edit.after ?? '(absent)'}` : 'the file'}, ${r.why}${r.now != null ? ` (now ${r.now})` : ''}`);
+    const refused = ((reply.error as { refused?: any[] } | undefined)?.refused ?? []).map(r => `${r.file}: ${r.edit ? `${r.edit.name}${r.edit.what === 'state' ? ` :${r.edit.state} ${r.edit.row}` : ''} ${r.edit.before ?? '(absent)'} → ${r.edit.after ?? '(absent)'}` : 'the file'}, ${r.why}${r.now != null ? ` (now ${r.now})` : ''}`);
     if (error) return { ok: false, error, commit, proposal: '', refused };
     return { ok: true, error: '', commit, proposal: String((reply.ok as { proposal: string }).proposal), refused: [] };
   },

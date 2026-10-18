@@ -33,11 +33,17 @@ function repository(appDir) {
 
 /** The pathspecs of the design's files: `.tamber` beside the app, the
  * design (`designFile`, from the app's directory) wherever it is, and each
- * of `contracts` (from the app's directory). */
+ * of `contracts` (from the app's directory), or with `'all'` every
+ * `.contract` in the app outside `node_modules` (a revert's: one the app
+ * no longer reads is refused by name, not left out). */
 function pathspecs(root, dir, designFile, contracts = []) {
   const app = relative(root, dir);
   const glob = s => s.replace(/[*?[\\]/g, c => `\\${c}`);
-  return [`:(glob)${app ? `${glob(app)}/` : ''}*.tamber`, ...[designFile, ...contracts].map(f => `:(literal)${relative(root, resolve(dir, f))}`)];
+  const under = app ? `${glob(app)}/` : '';
+  const sources = contracts === 'all'
+    ? [`:(glob)${under}**/*.contract`, `:(glob,exclude)${under}**/node_modules/**`]
+    : contracts.map(f => `:(literal)${relative(root, resolve(dir, f))}`);
+  return [`:(glob)${under}*.tamber`, `:(literal)${relative(root, resolve(dir, designFile))}`, ...sources];
 }
 
 /** Each `<rev>:<path>`'s bytes as text, or null where it is missing: one

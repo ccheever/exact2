@@ -557,7 +557,7 @@ with.
   - each file is `{file, status, diff, edits, refused?}`, and a rename shows as a deletion plus an
     addition.
 - **Each edit** is `{what, name, when: [{axis, value}], before, after}`:
-  - `what` is `token`, `dial`, `axis` or `other`;
+  - `what` is `token`, `dial`, `axis`, `other`, or `state` (a `.contract` file's, below);
   - `before` and `after` are source text, or null;
   - they come from comparing the two versions' parsed declarations, so a version the checker
     would refuse still gives edits.
@@ -565,10 +565,13 @@ with.
   or the two versions together are over 1 MiB.
 - **The app's own Contract sources** (*1.11*, stage 8 D) are among the design's files: their
   state parts are the design's. A `.contract` file's edits are its styles' state rows, each
-  `{what: "state", name: <style>, state, row, when: [], before, after}`, and the file says
-  `code: true` where the commit changed its other lines too. A `.contract` change with no
-  state row is the app's code, not the design's: it is left out, and a commit with nothing
-  else is not listed (so a page may hold fewer than `limit`).
+  `{what: "state", name: <style>, state, row, when: [], before, after}`, the values as Contract
+  writes them (`"#000000"` quoted, `0.5`); a block whose border colours change order is one
+  edit with `row` `border-*-color order`. The file says `code: true` where the commit changed
+  its other lines too. A `.contract` change with no state row is the app's code, not the
+  design's: it is left out, and a commit with nothing else is not listed (so a page may hold
+  fewer than `limit`). History reads the Contract sources the server has now; a revert reads
+  every one in the app outside `node_modules`, and refuses by name one the app no longer reads.
 
 ### `revert` (*1.1*)
 
@@ -580,7 +583,10 @@ with.
   commit changed some (*1.11*).
 - **Refused (409)** with `refused: [{file, edit, now, why}]` when an edit can't be inverted:
   - the file has moved on it since;
-  - the commit created or removed a design file;
+  - the commit created or removed a design file (a `.contract` file's state rows included; one
+    whose code alone changed is left alone);
+  - a `.contract` row put back last would paint over its block's other border rows, or the
+    commit changed their order;
   - it added or removed a dial;
   - it added an axis, reordered an axis's values, or changed an axis's `under`;
   - it changed a kind, a range, metadata, the design's name or its exports.
@@ -588,7 +594,7 @@ with.
   A removed axis is restored with `add-axis`.
 - **Other refusals:**
   - everything is undone already: 409 with `already`;
-  - a commit that touched no design file: 400;
+  - a commit that touched no design file, or only a Contract source's code: 400;
   - an unknown commit: 404.
 - **Accepted after the files move,** it is planned again from the commit. A partial accept keeps
   its selection when planned again.

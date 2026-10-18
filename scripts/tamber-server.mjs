@@ -861,7 +861,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * edit that cannot apply. */
   async function planRevert(rev, only) {
     let c;
-    try { c = designCommit(appDir, designRel(), rev, ownContracts()); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
+    try { c = designCommit(appDir, designRel(), rev, 'all'); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
     if (!c.ok) return c;
     if (!c.ok.files.length) return { status: 400, error: { message: `commit ${c.ok.commit.slice(0, 12)} changed no design file` } };
     const ops = [], already = [], conflicts = [], moved = [], code = [], files = {};
@@ -880,9 +880,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     const short = c.ok.commit.slice(0, 12);
     if (conflicts.length) {
-      const named = conflicts.map(x => `${x.file}${x.edit ? ` ${x.edit.name}${x.edit.when.length ? ` when ${x.edit.when.map(w => `${w.axis}=${w.value}`).join(' ')}` : ''}` : ''}: ${x.why}`);
+      const named = conflicts.map(x => `${x.file}${x.edit ? ` ${x.edit.name}${x.edit.what === 'state' ? ` :${x.edit.state} ${x.edit.row}` : ''}${x.edit.when.length ? ` when ${x.edit.when.map(w => `${w.axis}=${w.value}`).join(' ')}` : ''}` : ''}: ${x.why}`);
       return { status: 409, error: { message: `revert of ${short} refused: ${named.join('; ')}`, refused: conflicts } };
     }
+    // Only Contract code (no state row) is no design change.
+    if (!ops.length && !already.length) return { status: 400, error: { message: `commit ${short} changed no design file (only the app's code in ${code.join(', ')})` } };
     if (!ops.length) return { status: 409, error: { message: `nothing to revert: the files have ${short}'s edits undone already`, already } };
     const subject = c.ok.message.split('\n')[0];
     return { ok: { ops, files, review: { revert: { commit: c.ok.commit, subject, moved, already, ...(code.length ? { code } : {}), ...(only ? { only } : {}) } } } };

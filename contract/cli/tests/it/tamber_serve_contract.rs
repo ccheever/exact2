@@ -341,7 +341,11 @@ fn history_reads_state_rows_and_revert_plans_them() {
         [
             ("hover".into(), "opacity".into(), json!("0.8")),
             ("active".into(), "opacity".into(), json!("0.4")),
-            ("active".into(), "background-color".into(), json!("#000000")),
+            (
+                "active".into(),
+                "background-color".into(),
+                json!("\"#000000\"")
+            ),
         ]
     );
     let (planned, _) = s.ask(json!({"method": "revert-plan", "pairs": pair}));
@@ -355,5 +359,73 @@ fn history_reads_state_rows_and_revert_plans_them() {
     assert_eq!(p["conflicts"][0]["edit"]["state"], "hover", "{planned}");
     assert_eq!(p["conflicts"][0]["now"], "0.7", "{planned}");
     assert_eq!(p["code"], json!(["app.contract"]));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review round 1 of the history follow-up: a literal's kind counts
+/// (`0.5` to `"0.5"`, `true` to `false`); a style declared twice is
+/// refused; a node's state header is code; a file the commit created is
+/// refused, not stripped; a border row put back last is refused.
+#[test]
+fn history_holds_its_edges() {
+    let dir = app("state-history2", DESIGN);
+    let base = "style Post\n  opacity=1\n  :active\n    opacity=0.5\n    border-left-color=\"#00ff00\"\n\ncomponent App\n  view\n    column class=Post\n      :hover\n        opacity=0.9\n      text \"a\"\n";
+    std::fs::write(dir.join("app.contract"), base).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let compare = |s: &mut Serve, before: Value, after: Value| {
+        s.ask(json!({"method": "compare", "pairs": [{"file": "app.contract", "before": before, "after": after}]})).0["ok"]["files"][0].clone()
+    };
+    let kind = compare(
+        &mut s,
+        json!(base),
+        json!(base.replace("opacity=0.5", "opacity=\"0.5\"")),
+    );
+    assert_eq!(kind["edits"][0]["after"], "\"0.5\"", "{kind}");
+    let twice = compare(
+        &mut s,
+        json!(base),
+        json!(format!("{base}\nstyle Post\n  opacity=1\n")),
+    );
+    assert!(
+        twice["refused"].as_str().unwrap().contains("twice"),
+        "{twice}"
+    );
+    let node = compare(
+        &mut s,
+        json!(base),
+        json!(base.replace("      :hover", "      :active")),
+    );
+    assert_eq!(node["code"], true, "{node}");
+    assert_eq!(node["edits"], json!([]), "{node}");
+    let header = compare(
+        &mut s,
+        json!(base),
+        json!(base.replace("  :active\n", "  :active // pressed\n")),
+    );
+    assert_eq!(header["code"], true, "{header}");
+    let revert = |s: &mut Serve, before: Value, after: Value| {
+        s.ask(json!({"method": "revert-plan", "pairs": [{"file": "app.contract", "before": before, "after": after}]})).0["ok"].clone()
+    };
+    let created = revert(&mut s, Value::Null, json!(base));
+    assert!(
+        created["conflicts"][0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("created"),
+        "{created}"
+    );
+    // The commit removed `border-color` from before `border-left-color`.
+    let had = base.replace(
+        "    border-left-color",
+        "    border-color=\"#ff0000\"\n    border-left-color",
+    );
+    let back = revert(&mut s, json!(had), json!(base));
+    assert!(
+        back["conflicts"][0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("paint over"),
+        "{back}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
