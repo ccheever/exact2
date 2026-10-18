@@ -1,7 +1,12 @@
+import { focusDiffFind } from '../diff/diff-find';
+import { threadFindAction, threadFindExpanded } from './thread-find-runtime';
 // Message presentation adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
 // apps/web/src/components/chat/MessagesTimeline.tsx and packages/client-runtime/src/userMessage.ts.
 import { copyPromptLink, promptLinkFor } from '../prompt-links/copy-prompt-link';
 import { notePreviewHover } from '../pull-requests/pages-pr-links';
+import { relabelThreadLinks } from './thread-links';
+import { renderCodexInlineDirectivesAsMarkdown } from '../highlight/codex-directives.js';
+import { markdownThreadGlyphs } from './markdown-thread-glyphs';
 import { shellCommand } from '../highlight/shell-command';
 import { openPullRequest } from '../pull-requests/pr-chip-open';
 import { runnableShellCommands } from '../terminal/terminal-integrations';
@@ -102,11 +107,16 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'pr-ui-select') return surfaceLocal(client, native, 'linked-pr-open', stackLayerTarget(value), ''); // a stack layer beside a thread
   if (op.startsWith('pr-ui-')) return prUiLocal(client, op.slice(6), id, value); // the panel header's menu choices
   if (op.startsWith('pr-guide-')) return prGuideLocalFor(client, native, op.slice(9), id, value);
+  if (op === 'pr-code-find-focus') { focusDiffFind(client, 'pr', id); return ''; }
   if (op.startsWith('pr-code-')) return prCodeLocalFor(client, native, op.slice(8), id, value); // the Code tab's presses (pages-pr-code.ts)
   if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // git-route.ts
   if (op.startsWith('media-')) return mediaLocal(client, native, op.slice(6), id, value, { urlOf: attachmentId => cachedAttachmentUrl(client, attachmentId),
     openFile: relativePath => openFileSurface(client, native, relativePath, 0), forgetAttachment: attachmentId => { if (!forgetMediaPreviewUrl(client, attachmentId)) forgetAttachmentUrl(client, attachmentId); } });
   const view = timelineView(client);
+  if (op === 'find-focus') { focusDiffFind(client, null); return ''; }
+  if (op === 'diff-find-focus') { focusDiffFind(client, 'panel'); return ''; }
+  if (op.startsWith('diff-find-')) { client.diffState.find.action(op.slice(10), value); return ''; }
+  if (op.startsWith('find-')) return threadFindAction(client, op.slice(5), value);
   if (op === 'item-detail') { setTurnItemOpen(client, id, value === 'open'); return ''; }
   if (op === 'history') {
     const threadId = client.threadId;
@@ -165,7 +175,8 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
 function copyText(client: T3Client, id: string): string {
   const row = arr(client.projection.visibleTurnItems).find(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]) === id);
   const item = obj(row?.item);
-  return item.type === 'proposed_plan' ? str(item.markdown) : ['user_message', 'assistant_message'].includes(str(item.type)) ? str(item.text) : '';
+  const text = item.type === 'proposed_plan' ? str(item.markdown) : ['user_message', 'assistant_message'].includes(str(item.type)) ? str(item.text) : '';
+  return relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(text), client.shell.threads);
 }
 
 /**
@@ -303,7 +314,7 @@ export function transcriptRows(client: T3Client): Message[] {
     checkpoints: arr(projection.checkpoints), isWorking: !!running || runless !== '', runningRunId: str(running?.id), latestRun: runs[runs.length - 1] ?? null,
     // orchestrationV2RunWorkStartedAt: a wake run keeps the start of the work it continues.
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
-    expandedRuns: open('fold'), expandedAttempts: open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false });
+    expandedRuns: threadFindExpanded(client) ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: threadFindExpanded(client) ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false });
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
     preparing: setup.preparing, detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads };
   return rows.map(row => present(row, context));
@@ -365,9 +376,9 @@ function present(row: Row, context: PresentContext): Message {
     case 'attempt': return { ...base, kind: 'attempt', title: 'Superseded attempt', detail: 'Cut off by a steer', expanded: row.expanded, groupId: row.attemptId, runId: row.runId };
     case 'compaction': return { ...base, kind: 'compaction', title: row.label, live: row.active, icon: 'minimize', activities: [keyedLabel(row, row.label)] };
     case 'plan': {
-      const markdown = str(row.entry.item.markdown);
+      const markdown = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(row.entry.item.markdown)), context.threads);
       return { ...base, kind: 'plan', title: proposedPlanTitle(markdown) ?? 'Proposed plan', body: planBody(markdown), runId: str(row.entry.item.runId),
-        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown),
+        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown), chips: messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id),
         diagrams: messageDiagrams(markdown, row.entry.item.streaming === true),
         copied: view.copies.get(row.id)?.nonce ?? 0 };
     }
@@ -382,13 +393,13 @@ function present(row: Row, context: PresentContext): Message {
       const common = { ...base, runId: str(item.runId), sourceThreadId: str(row.entry.row.sourceThreadId), completed: item.status === 'completed',
         copied: copy?.nonce ?? 0, copyFailed: copy?.ok === false };
       if (row.entry.role === 'assistant') {
-        const text = str(item.text);
-        return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: messageChips(item, context.root, context.threads, row.id),
+        const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(item.text)), context.threads);
+        return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: messageChips({ ...item, text }, context.root, context.threads, row.id),
           meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text),
           diagrams: messageDiagrams(text, item.streaming === true || row.inProgress) };
       }
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
-      const text = sender.text, chips = messageChips(item, context.root, context.threads, row.id), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
+      const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads), chips = messageChips({ ...item, text }, context.root, context.threads, row.id), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
       // A file with a chip in the prose needs no standalone row (images always show).
       return { ...common, kind: 'user', title: 'You', body: text, revert: row.revert, images: attached.images, attachFiles: attached.attachFiles.filter(file => !chipped.has(file.id)), chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text, false),
         collapsible: shouldCollapseUserMessage(text),
@@ -458,7 +469,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       attribution: message.attribution ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
       collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
-      images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
+      images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body)), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
   });
   timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body })) };
   rows.forEach((row, index) => {

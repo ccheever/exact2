@@ -96,6 +96,7 @@ export class Backend implements Native {
       if (request.method === 'orchestration.getArchivedShellSnapshot') return this.good({ snapshotSequence: this.sequence, projects: this.shell.projects, threads: this.shell.archivedThreads || [] });
       if (request.method === 'server.getConfig') return this.good(this.config);
       if (request.method === 'server.getSettings') return this.good(this.config.settings);
+      if (request.method === 'projects.readFile') return this.good({ contents: '{}', truncated: false });
       if (request.method === 'server.updateSettings') {
         const payload = obj(request.payload), patch = obj(payload.patch), old = obj(this.config.settings);
         const overrides = { ...obj(old.projectSettingsOverrides) };

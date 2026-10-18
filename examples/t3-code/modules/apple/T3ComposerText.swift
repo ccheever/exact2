@@ -62,6 +62,9 @@ enum T3ComposerText {
         let tokenStart = index + 1
         let token = text.substring(with: NSRange(location: tokenStart, length: cursor - tokenStart))
         let tokenRange = NSRange(location: 0, length: (token as NSString).length)
+        if token.hasPrefix("/") {
+            return T3ComposerTrigger(kind: "slash-command", query: String(token.dropFirst()), start: tokenStart, end: cursor)
+        }
         if let match = pullRequestToken.firstMatch(in: token, range: tokenRange) {
             let group = match.range(at: 1)
             return T3ComposerTrigger(kind: "pull-request", query: group.location == NSNotFound ? "" : (token as NSString).substring(with: group), start: tokenStart, end: cursor)

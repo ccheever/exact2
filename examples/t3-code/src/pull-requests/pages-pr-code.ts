@@ -1,3 +1,4 @@
+import { DiffFind, markDiffRows, findGap } from '../diff/diff-find';
 // The pull request panel's Code tab: PullRequestCodeTab.tsx (T3 Code
 // 9c161462c9, MIT, see LICENSE-T3) — the change or one commit's change read a slice at a time
 // (`POST /api/pull-requests/diff`, the native `prDiff` op), Viewed ticks, line comments into the
@@ -42,6 +43,7 @@ export const COMMIT_PAGE_SIZE = 10;
 
 type Draft = { fileKey: string; path: string; oldPath: string | null; position: PullRequestReviewPosition; range: SelectedLineRange };
 export type CodeState = {
+  find: DiffFind;
   key: string; mounted: boolean; commit: string | null; refresh: number;
   slices: readonly DiffSlice[]; cursor: string | null; diffDue: boolean; diffError: string;
   parsed: Map<string, RenderablePatch>;
@@ -56,7 +58,7 @@ const states = new WeakMap<object, CodeState>();
 const prefs = (client: { local: object }) => decodeClientPrefs((client.local as { clientSettings?: unknown }).clientSettings);
 export function createCodeState(client: { local: object }, key: string): CodeState {
   const settings = prefs(client);
-  return { key, mounted: false, commit: null, refresh: 0, slices: [], cursor: null, diffDue: true, diffError: '', parsed: new Map(), toggled: new Set(), foldOverride: null,
+  return { find: new DiffFind(), key, mounted: false, commit: null, refresh: 0, slices: [], cursor: null, diffDue: true, diffError: '', parsed: new Map(), toggled: new Set(), foldOverride: null,
     visibleCommits: COMMIT_PAGE_SIZE, ignoreWhitespace: settings.diffIgnoreWhitespace, wrap: settings.wordWrap, orphansOpen: false, treeClosed: new Set(), treeSelected: '',
     reveal: null, selection: null, drag: null, draft: null, contents: {}, expansions: {}, contentsDue: new Map(), viewed: new FilesViewedStore(), threads: emptyThreadState(), shown: '' };
 }
@@ -212,7 +214,7 @@ export function emptyCode() {
     scopeLabel: 'All commits', allSelected: true, hasCommits: false, commits: [] as { oid: string; short: string; headline: string; selected: boolean }[], moreCommits: 0,
     filesLabel: '0 files', viewedShown: false, viewedCount: '', viewedWord: 'viewed', viewedHere: false, viewedError: '', viewedTruncated: false, withheld: false, commentsOff: false,
     ignoreWhitespace: true, allCollapsed: false, hasFiles: false, layout: 'stacked', wrap: true, tree: false,
-    items: [] as CodeItem[], truncated: false, threads: [] as PrThreadCard[], footer: '', footerFailed: false,
+    find: new DiffFind().view(), items: [] as CodeItem[], truncated: false, threads: [] as PrThreadCard[], footer: '', footerFailed: false,
     orphansLabel: '', orphanCount: 0, orphanSummary: '', orphansOpen: false, orphans: [] as { path: string; threads: { id: string; line: string }[] }[],
     treeRows: [] as DiffTreeRow[], treeLabel: '', treeCount: 0, treeFolders: false, treeAllOpen: true, treeFooter: '', treeBusy: false,
     revealPath: '', revealNonce: 0, draftOpen: false, canComment: false, viewedQueued: 0, threadPending: false,
@@ -258,8 +260,22 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   const pending = code.commit === null ? pullRequestReviewStore(client).pending(pullRequestReviewKey(reference)) : [];
   const draft = code.draft, omitted = new Map(code.slices.flatMap(slice => slice.omittedFileStats.map(file => [file.path, file] as const)));
   const sourceStats = new Map(parsedSlices(code).flatMap(parsed => parsed?.kind === 'files' ? parsed.sourceFiles.map(file => [file.path, file] as const) : []));
+  code.find.reset(scopeKey(code));
+  code.find.search(files.map(file => {
+    const contents = code.contents[contentsKeyOf(code, file.path)];
+    return { path: file.path, lines: diffReviewLines(file, contents?.state === 'loaded' ? contents : null) };
+  }));
+  const findMatch = code.find.active;
+  if (code.find.open && findMatch) {
+    const target = files.find(file => file.path === findMatch.path);
+    const gap = target && findMatch.context ? findGap(target, findMatch.line) : null;
+    if (gap) { const key = `${contentsKeyOf(code, findMatch.path)}::${gap.gap}`, previous = code.expansions[key]; code.expansions[key] = { fromStart: Math.max(previous?.fromStart ?? 0, gap.through), fromEnd: previous?.fromEnd ?? 0 }; }
+    if (target && isCollapsed({ foldOverride: effectiveFold(client, code), toggled: code.toggled }, target)) {
+      const toggled = new Set(code.toggled); if (toggled.has(target.path)) toggled.delete(target.path); else toggled.add(target.path); code.toggled = toggled;
+    }
+  }
   const rows = codeRows({
-    sourceStats, files, layout: view.layout as 'stacked' | 'split', foldOverride: effectiveFold(client, code), toggled: code.toggled, omitted,
+    finding: code.find.open, sourceStats, files, layout: view.layout as 'stacked' | 'split', foldOverride: effectiveFold(client, code), toggled: code.toggled, omitted,
     viewedMark: path => (!view.viewedShown ? '' : code.viewed.isStale(path) ? 'changed' : code.viewed.isViewed(path) ? 'viewed' : 'unviewed'),
     annotations: path => ({
       threads: threads.filter(thread => placed.has(str(thread.id)) && str(thread.path) === path).map(thread => ({ id: str(thread.id), side: (thread.side === 'left' ? 'left' : 'right') as PrDiffSide, line: num(thread.line) })),
@@ -268,7 +284,8 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
     }),
     selection: draft ? { path: draft.path, range: draft.range } : code.selection, contents: code.contents, contentsKey: path => contentsKeyOf(code, path), expansions: code.expansions,
   });
-  view.items = rows.items; view.truncated = rows.truncated; view.draftOpen = draft !== null && canCommentOnLines; view.canComment = canCommentOnLines;
+  const marked = markDiffRows(rows.items, code.find); view.find = code.find.view(marked.target);
+  view.items = marked.items; view.truncated = rows.truncated; view.draftOpen = draft !== null && canCommentOnLines; view.canComment = canCommentOnLines;
   view.hasFiles = files.length > 0;
   view.allCollapsed = areAllDiffFilesCollapsed(paths, new Set(files.filter(file => isCollapsed({ foldOverride: effectiveFold(client, code), toggled: code.toggled }, file)).map(fileKey)));
   // The footer only while something is still owed.
@@ -315,6 +332,7 @@ export type CodeLocalContext = { client: T3Client; reference: WriteReference; de
 export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op: string, value: string): Promise<string> {
   const { client, reference } = ctx;
   const code = ctx.state ?? codeState(client, `${client.environmentId}|${pullRequestReviewKey(reference)}`);
+  if (op.startsWith('find-')) { code.find.action(op.slice(5), value); return ''; }
   const files = () => filesOf(code), file = (path: string) => files().find(entry => entry.path === path);
   switch (op) {
     case 'scope': code.mounted = true; scope(code, value || null); return '';

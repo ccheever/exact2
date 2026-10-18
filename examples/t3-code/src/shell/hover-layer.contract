@@ -1,5 +1,5 @@
 // The window's hover layer: a hover tooltip or hover card drawn at the window level,
-// as T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) portals every TooltipPopup and PopoverPopup to the body
+// as T3 Code 9c161462c9 (MIT, see LICENSE-T3) portals every TooltipPopup and PopoverPopup to the body
 // (apps/web/src/components/ui/tooltip.tsx, popover.tsx). A trigger inside a scroll area or a clipping
 // card hands its frame and words to the root's `hoverTipAt` (provided by T3Window); this layer draws
 // them above the window's content, so nothing around the trigger cuts them: the provider update icon's
@@ -68,7 +68,8 @@ component HoverLayer
     viewportHeight: number
     hoverAt: action
   slot
-  derive topRoom = tip.y - 9
+  derive titlebar = 52
+  derive topRoom = tip.y - titlebar - 9
   derive bottomRoom = viewportHeight - tip.y - tip.height - 9
   derive leftRoom = tip.x - 9
   derive rightRoom = viewportWidth - tip.x - tip.width - 9
@@ -76,7 +77,7 @@ component HoverLayer
   // A "code" tip (TooltipPopup variant code, a media's path) is up to 30rem wide.
   derive span = tip.kind == "code" ? 32.5 : 22.5
   derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - span * rem : tip.x + tip.width / 2 - span / 2 * rem)
-  derive top = tip.align == "start" ? tip.y : (tip.align == "end" ? tip.y + tip.height - 22.5 * rem : tip.y + tip.height / 2 - 11.25 * rem)
+  derive top = max(titlebar + 5, tip.align == "start" ? tip.y : (tip.align == "end" ? tip.y + tip.height - 22.5 * rem : tip.y + tip.height / 2 - 11.25 * rem))
   derive justify = tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")
   derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip" and tip.kind != "code"
   view
