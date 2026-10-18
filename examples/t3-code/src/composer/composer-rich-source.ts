@@ -35,6 +35,7 @@ export function composerRichSource(client: T3Client, input: {
     styling, literal,
     skills: {}, chipFaces: appearances,
     literalRanges: current ? session.literalRanges : [],
+    blockOrigins: current ? session.blockOrigins : [],
     chips,
   });
   const faces = composerChipFaces(client, input.value, projection.chips, preview);

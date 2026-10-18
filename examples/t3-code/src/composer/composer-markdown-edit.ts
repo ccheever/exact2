@@ -1,5 +1,5 @@
 // Source edits from composer-code-block.ts and list continuation at T3 Code 9c161462c9.
-import { codeAt, composerLines, composerMarkdown, isClosingFence, parseOpeningFence, type ComposerBlock } from './composer-markdown';
+import { codeAt, composerLines, composerMarkdown, isClosingFence, parseOpeningFence, type ComposerBlock, type ComposerBlockOrigin } from './composer-markdown';
 import type { ComposerRange } from './composer-markdown-inline';
 
 export type ComposerEdit = ComposerRange & { text: string; selection: ComposerRange };
@@ -76,9 +76,9 @@ function indentCode(source: string, selection: ComposerRange, block: Extract<Com
 }
 
 /** Contract cancels an admitted key synchronously, then applies this guarded edit. */
-export function composerMarkdownKey(source: string, selection: ComposerRange, key: ComposerKey, logicalFence?: string): ComposerKeyResult {
+export function composerMarkdownKey(source: string, selection: ComposerRange, key: ComposerKey, logicalFence?: string, blockOrigins?: readonly ComposerBlockOrigin[]): ComposerKeyResult {
   if (!Number.isInteger(selection.start) || !Number.isInteger(selection.end) || selection.start < 0 || selection.end < selection.start || selection.end > source.length) return DEFAULT;
-  const parsed = composerMarkdown(source), block = codeAt(parsed.blocks, selection), collapsed = selection.start === selection.end;
+  const parsed = composerMarkdown(source, { blockOrigins }), block = codeAt(parsed.blocks, selection), collapsed = selection.start === selection.end;
   if (key.command && (key.name === 'Bold' || key.name === 'Italic')) {
     if (parsed.blocks.some(block => block.kind === 'code' && selection.start <= block.end && selection.end >= block.start)) return DEFAULT;
     const marker = key.name === 'Bold' ? '**' : '*', width = marker.length;

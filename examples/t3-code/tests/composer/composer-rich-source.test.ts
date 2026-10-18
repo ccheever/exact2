@@ -6,6 +6,28 @@ import { composerSourceSession } from '../../src/composer/composer-rich-state';
 import { refreshFileMetadata } from '../../src/shared/file-metadata';
 
 describe('root composer projection source', () => {
+  test('actual insertText observations share live block admission with guarded key intents', () => {
+    const client = new T3Client(), owner = 'thread';
+    const project = (value: string, inputType = '') => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value, inputType });
+    project('');
+    for (const value of ['-', '- ', '- [', '- [ ', '- [ ]']) {
+      const view = project(value, 'insertText');
+      expect(view.blocks[0]?.kind).toBe('paragraph');
+      expect(view.decorations.blocks).toEqual([]);
+      expect(view.decorations.hidden).toEqual([]);
+    }
+    const literal = '- [ ]';
+    expect(composerIntentSource(client, { snapshotOwner: client.snapshotOwner, owner, value: literal, serial: 1,
+      start: literal.length, end: literal.length, composing: false, mode: 'rich', kind: 'key', key: 'Tab', shift: false, command: false }).kind).toBe('default');
+    const admitted = project('- [ ] ', 'insertText');
+    expect(admitted.blocks[0]?.kind).toBe('list');
+    expect(admitted.decorations.blocks[0]?.marker).toBe('checkbox:off');
+    expect(project(literal, 'historyUndo').blocks[0]?.kind).toBe('paragraph');
+    expect(project('- [ ] ', 'historyRedo').decorations.blocks[0]?.marker).toBe('checkbox:off');
+    expect(project('***', 'insertFromPaste').blocks[0]?.kind).toBe('rule');
+    // A different mounted field restores Markdown rather than inheriting typing origins.
+    expect(composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'another', value: literal }).blocks[0]?.kind).toBe('list');
+  });
   test('preview file glyphs ignore conflicting active-workspace metadata', async () => {
     const client = new T3Client(), value = '@sample.ts ';
     Object.assign(client, { environmentId: 'env', threadId: 't1', projectId: 'p1', scopes: ['filesystem:read'], connection: 'connected', configLive: true, shellLive: true, threadLive: true });
