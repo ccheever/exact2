@@ -19,6 +19,9 @@
 //! wider and narrower than the flex basis, zero and automatic minima, hidden
 //! overflow, preferred widths, item bounds, margins, padding and nowrap.
 //! The same frames were measured with float:left wrappers in an 80px offer.
+//! `Chrome 151 wrapping content bases` uses that version and date for nested
+//! wrapping items after a wider item. The absolute frames also agree inside
+//! width:min-content wrappers, used for the direct intrinsic requests below.
 //!
 //! A fixture line is `name`, the root's declarations, the nodes (`id>parent>
 //! declarations>text`, joined by ` & `) and Chrome's frames (`id=x,y,w,h`),
@@ -139,6 +142,60 @@ fn check(all: Vec<(String, Vec<String>)>, owed: &[&str]) {
 fn positioned_boxes_roots_and_ratios_match_chrome() {
     let fixture = include_str!("fixtures/browser_position.tsv");
     check(failures(fixture, true), &[]);
+}
+
+/// The row itself receives MinContent, without an absolute solver's later
+/// definite-width pass. Chrome's width:min-content wrapper gives these frames.
+#[test]
+fn min_content_rows_remeasure_content_dependent_bases() {
+    use exact_kernel::{AxisOffer, NodeType, Offer, Op};
+    use std::collections::BTreeMap;
+
+    let mut wrong = Vec::new();
+    for case in cases(include_str!("fixtures/browser_position.tsv"))
+        .into_iter()
+        .filter(|case| case.name.starts_with("Chrome 151 wrapping content bases"))
+    {
+        let root = case.nodes[0].0;
+        let mut ops = Vec::new();
+        let mut children: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for (id, parent, css, text) in case.nodes {
+            assert!(text.is_empty());
+            let css = css.replace("position:absolute;", "");
+            ops.extend([
+                Op::CreateView {
+                    id,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id,
+                    patch: Box::new(props(&css_rows(&css))),
+                },
+            ]);
+            if id != root {
+                children.entry(parent).or_default().push(id);
+            }
+        }
+        ops.extend(
+            children
+                .into_iter()
+                .map(|(id, children)| Op::SetChildren { id, children }),
+        );
+        ops.push(Op::AttachRoot { id: root });
+        let mut k = crate::support::reader::kernel();
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(
+            root,
+            Offer {
+                width: AxisOffer::MinContent,
+                height: AxisOffer::MaxContent,
+            },
+        )
+        .unwrap();
+        let want: Vec<_> = case.want.into_iter().filter(|(id, _)| *id != 1).collect();
+        wrong.extend(mismatches(case.name, &k, &want));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// Chrome 151.0.7922.34, 2026-10-18: a width:max-content wrapper around each

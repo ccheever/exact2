@@ -422,6 +422,7 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
             .main(constants.dir)
             .maybe_resolve(inner_container_size, |val, basis| tree.calc(val, basis))
             .unwrap_or(0.0);
+        drop(style);
         constants.gap.set_main(constants.dir, new_gap);
 
         // EXACT PATCH 47: max-content width uses the unwrapped sum, but its
@@ -430,7 +431,9 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
         // https://www.w3.org/TR/css-flexbox-1/#main-sizing
         // EXACT PATCH 48: min-content width can fit several flex bases, or be
         // narrower than the maximum used for initial line collection. It also
-        // needs line breaks at the resolved width before measuring height.
+        // needs fresh flex bases and line breaks at the resolved width before
+        // measuring height. A base measured under MinContent can be smaller
+        // than its content-based size once the container width is known.
         let rewrap = constants.is_row
             && constants.is_wrap
             && (available_space.width == AvailableSpace::MinContent
@@ -439,6 +442,13 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
         let rewrap = rewrap && !constants.is_balance;
         if rewrap {
             drop(flex_lines);
+            if available_space.width == AvailableSpace::MinContent {
+                let known_dimensions = known_dimensions.with_main(
+                    constants.dir, Some(constants.container_size.main(constants.dir)),
+                );
+                drop(flex_items);
+                return compute_preliminary(tree, node, LayoutInput { known_dimensions, ..inputs });
+            }
             flex_lines = collect_flex_lines(
                 &constants,
                 Size { width: AvailableSpace::Definite(inner_container_size), ..available_space },
@@ -3778,6 +3788,90 @@ mod intrinsic_tests {
                     let want = [xs[index], ys[index], basis, 100.0];
                     if got != want {
                         failures.push(format!("content {content}; basis {basis}; {direction:?}; item {index}: {got:?}, Chrome {want:?}"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // Chrome 151.0.7922.34, 2026-10-18: width:min-content wrappers around a
+    // 100px item followed by two items whose nested rows contain 40px boxes.
+    #[test]
+    fn min_content_rows_remeasure_content_dependent_bases() {
+        let mut failures = Vec::new();
+        for (name, block, basis, preferred, maximum, item_width, height) in [
+            ("nested auto", false, auto(), auto(), auto(), 80.0, 300.0),
+            ("block auto", true, auto(), auto(), auto(), 80.0, 300.0),
+            ("definite basis", false, length(40.0), auto(), auto(), 40.0, 200.0),
+            ("capped auto", false, auto(), auto(), length(60.0), 60.0, 300.0),
+            ("percentage width", false, auto(), percent(0.5), auto(), 50.0, 200.0),
+        ] {
+            for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
+                let mut tree = TaffyTree::<()>::new();
+                let first = tree.new_leaf(Style {
+                    size: Size { width: length(100.0), height: length(100.0) },
+                    ..Default::default()
+                }).unwrap();
+                let mut items = vec![first];
+                for _ in 0..2 {
+                    let mut children: Vec<_> = (0..2).map(|_| tree.new_leaf(Style {
+                        size: Size { width: length(40.0), height: length(10.0) },
+                        ..Default::default()
+                    }).unwrap()).collect();
+                    if block {
+                        children = vec![tree.new_with_children(Style {
+                            flex_wrap: FlexWrap::Wrap,
+                            align_content: Some(AlignContent::FLEX_START),
+                            ..Default::default()
+                        }, &children).unwrap()];
+                    }
+                    items.push(tree.new_with_children(Style {
+                        display: if block { Display::Block } else { Display::Flex },
+                        size: Size { width: preferred, height: length(100.0) },
+                        min_size: Size { width: length(0.0), height: auto() },
+                        max_size: Size { width: maximum, height: auto() },
+                        flex_basis: basis,
+                        flex_wrap: FlexWrap::Wrap,
+                        align_content: Some(AlignContent::FLEX_START),
+                        ..Default::default()
+                    }, &children).unwrap());
+                }
+                let row = tree.new_with_children(Style {
+                    flex_direction: direction,
+                    flex_wrap: FlexWrap::Wrap,
+                    align_content: Some(AlignContent::FLEX_START),
+                    ..Default::default()
+                }, &items).unwrap();
+                let available = Size { width: AvailableSpace::MinContent, height: AvailableSpace::MaxContent };
+                let expected = Size { width: 100.0, height };
+                for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                    tree.mark_dirty(row).unwrap();
+                    let size = tree.as_layout_tree().measure_child_size_both(
+                        row, Size::NONE, Size::NONE, available, mode, Line::FALSE,
+                    );
+                    if size != expected {
+                        failures.push(format!("{name}; {direction:?}; {mode:?}: {size:?}, Chrome {expected:?}"));
+                    }
+                }
+                tree.mark_dirty(row).unwrap();
+                tree.compute_layout(row, available).unwrap();
+                let size = tree.layout(row).unwrap().size;
+                if size != expected {
+                    failures.push(format!("{name}; {direction:?}; layout: {size:?}, Chrome {expected:?}"));
+                }
+                for (index, item) in items.into_iter().enumerate() {
+                    let layout = tree.layout(item).unwrap();
+                    let (x, y, width) = match index {
+                        0 => (0.0, 0.0, 100.0),
+                        _ if height == 300.0 => (0.0, index as f32 * 100.0, item_width),
+                        _ => ((index - 1) as f32 * item_width, 100.0, item_width),
+                    };
+                    let x = if direction == FlexDirection::RowReverse { 100.0 - x - width } else { x };
+                    let got = [layout.location.x, layout.location.y, layout.size.width, layout.size.height];
+                    let want = [x, y, width, 100.0];
+                    if got != want {
+                        failures.push(format!("{name}; {direction:?}; item {index}: {got:?}, Chrome {want:?}"));
                     }
                 }
             }
