@@ -9,6 +9,8 @@ use Icon from "../shared/icons.contract"
 use MorphMaximize, MorphCopyCheck from "../shell/shell-morph.contract"
 use CitePart, CiteOffer, citePart, citeEndKey, citeLineRight, citeLineBottom, citeAxis, citeSize, citeOfferFor, citeNear from "./diff-cite.contract"
 use MarkdownMedia from "../media/media-markdown.contract"
+use ProjectGlyph from "../sidebar/sidebar-shapes.contract"
+use SidebarProjectGlyph from "../sidebar/sidebar-icons-kit.contract"
 use hoverTipAtFrame from "../shell/hover-layer.contract" // a pull request link's card
 use kmArrow from "../shared/menu-keys.contract"
 use heldModifiers from "../shared/press-modifiers.contract"
@@ -147,6 +149,12 @@ shape MarkdownEnv
   wrap: bool
   chips: ChipView[]
   runCommands: string[]
+  threadGlyphs: ThreadLinkGlyph[]
+shape ThreadLinkGlyph
+  href: string
+  title: string
+  glyph: ProjectGlyph
+fn noThreadGlyphs(): ThreadLinkGlyph[] = []
 fn noUrls(): AttachmentUrl[] = []
 // diff-review (Cite): an answer's text as the reference reads it (readAssistantText: each block's
 // displayed text, a line break between blocks), and where a block starts in it. A code block's
@@ -317,6 +325,7 @@ component MarkdownBlocks
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
   derive galleryIds = markdownGalleryIds(document.blocks, noChips())
+  derive threadGlyphs = noThreadGlyphs()
   // handleMarkdownFragmentClick: a `#fragment` link never navigates; it scrolls its heading to the top
   // (markdown_headings.rs resolved it to the heading's id). A press with a modifier held does nothing.
   action fragmentJump(href: string, e: MouseEvent)
@@ -325,6 +334,7 @@ component MarkdownBlocks
   provide
     galleryIds
     fragmentJump
+    threadGlyphs
   view
     // A sent message's bubble fits its text (fit); an answer fills the lane.
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
@@ -349,6 +359,7 @@ component EnvBlocks
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
   derive galleryIds = markdownGalleryIds(document.blocks, env.chips)
+  derive threadGlyphs = env.threadGlyphs
   // handleMarkdownFragmentClick: a `#fragment` link never navigates; it scrolls its heading to the top
   // (markdown_headings.rs resolved it to the heading's id). A press with a modifier held does nothing.
   action fragmentJump(href: string, e: MouseEvent)
@@ -357,6 +368,7 @@ component EnvBlocks
   provide
     galleryIds
     fragmentJump
+    threadGlyphs
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       for block in document.blocks key=block.id
@@ -388,6 +400,7 @@ component DiagramBlocks
     markStart: number
     markEnd: number
   derive galleryIds = markdownGalleryIds(document.blocks, env.chips)
+  derive threadGlyphs = env.threadGlyphs
   // handleMarkdownFragmentClick: a `#fragment` link never navigates; it scrolls its heading to the top
   // (markdown_headings.rs resolved it to the heading's id). A press with a modifier held does nothing.
   action fragmentJump(href: string, e: MouseEvent)
@@ -396,6 +409,7 @@ component DiagramBlocks
   provide
     galleryIds
     fragmentJump
+    threadGlyphs
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       for block in document.blocks key=block.id
@@ -582,7 +596,7 @@ component MarkedText
 fn webLink(href: string): bool = href.startsWith("http://") or href.startsWith("https://")
 // A link whose click does something on every word: a web link opens, a fragment scrolls to its heading;
 // a mailto, irc or xmpp link's click opens nothing, word or not.
-fn pressLink(href: string): bool = webLink(href) or href.startsWith("#")
+fn pressLink(href: string): bool = webLink(href) or href.startsWith("#") or href.startsWith("t3-thread://v1/")
 // A run of a link that is not a pull request link (a pull request link's words are each a link of their own, PrLinkRun).
 fn linkRun(run: ChatRun, chips: ChipView[]): bool = (run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length == 0
 
@@ -592,6 +606,7 @@ component FlowRuns
   inject
     linkOpen: action
     linkMenu: action
+    threadGlyphs: ThreadLinkGlyph[]
     fragmentJump: action
   props
     runs: ChatRun[]
@@ -629,9 +644,13 @@ component FlowRuns
         // code` inside the `<a>`, after the favicon).
         if run.kind == "link-start" and linkRun(run, chips)
           link href=run.href press=open(run.href) contextmenu=linkMenu(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
-            if webLink(run.href)
+            if webLink(run.href) or run.href.startsWith("t3-thread://v1/")
               box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
-                TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
+                if threadGlyphs.filter((entry) => entry.href == run.href).length > 0
+                  for entry in threadGlyphs.filter((entry) => entry.href == run.href) key=entry.href
+                    SidebarProjectGlyph(g=entry.glyph, size=14, dim=false)
+                else
+                  TimelineIcon(name=(run.href.startsWith("t3-thread://v1/") ? "messages-square" : "globe"), size=14, color="light-dark(#1447e6, #50a2ff)")
             if not run.mono
               text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
                 FindParts(parts=run.findParts)
