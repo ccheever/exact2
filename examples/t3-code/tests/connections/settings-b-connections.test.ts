@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 import { test, expect } from 'bun:test';
 import { contractComponent } from '../support/contract-action-fixture';
 import { contractFn } from '../support/contract-fn-fixture';
@@ -39,7 +40,7 @@ test('Update all starts the shared update job for each eligible environment and 
     if (request.op === 'environments') return { ok: true, generation: 3, value: { saved: [{ origin: 'http://127.0.0.1:3773', environmentId: 'env-a', enabled: true }] } };
     return { ok: true, generation: 3, value: { started: true, attempt: '1' } };
   } };
-  const client = { origin: 'http://127.0.0.1:3773', environmentId: 'env-a', connection: 'connected', generation: 3, config: config('This Mac', '0.0.39', 'respawn') } as unknown as T3Client;
+  const client = { scopes: [...AUTH_STANDARD_CLIENT_SCOPES], origin: 'http://127.0.0.1:3773', environmentId: 'env-a', connection: 'connected', generation: 3, config: config('This Mac', '0.0.39', 'respawn') } as unknown as T3Client;
   await runConnectionOp(native, 'environment-update-all', '', '', true, client);
   // server-update.ts: one update job per environment, in the connected mode, toward this client's version.
   expect(calls.filter(call => call.op === 'fleetOutdatedUpdate').map(call => [call.fleet, call.mode, call.targetVersion, call.label]))

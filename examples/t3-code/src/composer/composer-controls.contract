@@ -1064,7 +1064,7 @@ component NoticeRow
         row flex-grow=1 flex-shrink=1 min-width=0 max-width=`calc(100% - ${1.75 * rem}px)` gap="0.25rem" align-items="center" testId=`notice-content-${notice.id}`
           if notice.machines.length > 0
             // The multi-machine banner's title opens its machine list (auto-balance.contract).
-            NoticeMachines(notice=notice, busy=busy, command=command, still=still)
+            NoticeMachines(notice=notice, busy=busy, command=command)
           else
             if notice.tip != ""
               // The title's tooltip: "<server> X → Y", or the update status in full.

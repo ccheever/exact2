@@ -5,6 +5,7 @@
 // page, the query and the highlight. The add-project pages live in palette-add.ts,
 // the file picker and content search in palette-files.ts.
 import type { T3Client } from '../client/client';
+import { composerPromptLink, promptLinkRepositoryOf } from '../prompt-links/copy-prompt-link';
 import { terminalProcessCount } from '../sidebar/sidebar-view';
 import { pullRequestSearchTerms, searchPullRequest } from '../sidebar/search-pull-request';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -24,6 +25,7 @@ export type PaletteRow = {
   icon: string; prefix: string; title: string; bold: string; description: string; shortcut: string; timestamp: string; trailing: string;
   /** The chord that runs this row from the field (thread.jump.N on a project pick, aria grammar: `Meta+1`); '' for none. */
   jump: string;
+  publishHost: string; publishHostLabel: string; publishHosts: { value: string; label: string; selected: boolean }[];
   terminalCount: number; prNumber: string; prState: string; prLabel: string;
   badge: string; badgeOp: string; checkbox: boolean; checked: boolean; project: string; projectInk: string; projectSurface: string; env: string;
   branch: string; provider: string; current: boolean; matchLabel: string; matchParts: PalettePart[]; titleParts: PalettePart[]; line: string; orbs: Orb[]; top: number; height: number;
@@ -41,7 +43,7 @@ export type PaletteView = {
 
 export const RECENT_THREAD_LIMIT = 12;
 const blankRow: PaletteRow = { key: '', index: -1, header: '', headerGap: false, kind: 'action', op: '', arg: '', arg2: '', icon: '', prefix: '', title: '', bold: '',
-  terminalCount: 0, prNumber: '', prState: '', prLabel: '', description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '',
+  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, prNumber: '', prState: '', prLabel: '', description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '',
   branch: '', provider: '', current: false, matchLabel: '', matchParts: [], titleParts: [], line: '', orbs: [], top: 0, height: 32 };
 export function row(fields: Partial<PaletteRow>): PaletteRow { return { ...blankRow, ...fields }; }
 
@@ -217,6 +219,10 @@ export function rootActions(client: T3Client): Item[] {
   }
   if (str(client.config.scratchWorkspaceRoot)) action('new-thread-without-project', ['new thread', 'no project', 'without project', 'none', 'chat'],
     { op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'New thread without a project', shortcut: commandShortcut(client, 'chat.newWithoutProject') });
+  if (composerPromptLink(client, false)) {
+    action('copy-prompt-link', ['copy', 'share', 'prompt', 'link'], { op: 'flow', arg: 'copy-prompt-link', icon: 'link', title: 'Copy prompt link' });
+    if (promptLinkRepositoryOf(projects.find(project => project.id === client.projectId))) action('copy-prompt-link-with-context', ['copy', 'share', 'prompt', 'link', 'repository', 'model'], { op: 'flow', arg: 'copy-prompt-link', arg2: 'context', icon: 'link', title: 'Copy prompt link with repo and model' });
+  }
   if (thread) {
     const reference = threadReferenceTarget(client, openPanelPullRequestUrl(client)); // Copy PR link or thread ID
     if (reference) action('copy-thread-reference', ['copy', 'pull request', 'pr link', 'thread id', 'reference'], { op: 'copy-thread', icon: 'link', title: reference.kind === 'pull-request' ? 'Copy PR link' : 'Copy thread ID', description: reference.value, shortcut: commandShortcut(client, 'thread.copyReference') });

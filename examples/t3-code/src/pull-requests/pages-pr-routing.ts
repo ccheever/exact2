@@ -455,6 +455,10 @@ export class PullRequestRouter {
         if (!host.environments().some(entry => entry.id === id)) throw new ClientError('The environment was removed.', 'EnvironmentRpcUnavailableError');
         result = await leg(id, routedInput, { write: uncertain, ...(reads ? { timeoutSeconds: READ_TIMEOUT } : {}) });
       }
+      if (id !== origin && result != null && ['open', 'closed', 'merged'].includes(str(result.state))) {
+        const { allowStale: _stale, expectedAccountId: _account, ...reference } = ref;
+        void host.request(origin, 'pullRequests.reportState', { reference, state: result.state }, { write: false, timeoutSeconds: 5 }).catch(error => { if (letGo(error)) return; });
+      }
       this.remember(origin, refKey, { ...ref, host: identity.host }, id);
       return result;
     };

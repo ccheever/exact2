@@ -18,6 +18,7 @@ import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { workspaceValues } from './composer-workspace-snapshots';
 import { selectedProvider, workspaceCwd } from './composer-editor';
 import { openFileSurface } from '../panel/panel-surfaces';
+import { clearCitationDraft, noteCitationDraft, registerCitationDraft } from '../timeline/citation-draft';
 import { citationCommentLocal, citationPopover, citedStart } from '../timeline/citation-comment';
 import { chipAct, composerImageStep, performChipAct, contextDetails, draftContextRecords } from './composer-chip-details';
 import { composerFileLocal } from './composer-chip-file';
@@ -118,6 +119,7 @@ export async function chipPopoverView(client: T3Client, native: Native | null | 
   // The composer's press is the thread's on screen; the sample's skills are none.
   const composer = str(press.surface) === 'composer';
   if (composer && str(press.owner) && str(press.owner) !== client.snapshotOwner) return { ...NO_CHIP, seq: Number(press.seq) || 0 };
+  registerCitationDraft(client, press);
   return chipPopover(press, composer ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [], citation => citedStart(client, citation),
     composer ? draftContextRecords(client) : {});
 }
@@ -127,7 +129,14 @@ export async function chipPopoverView(client: T3Client, native: Native | null | 
  * a citation's comment's `chip-cite-…` (citation-comment.ts).
  */
 export async function chipPopoverLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
-  if (op.startsWith('chip-cite-') && ['save', 'send', 'commit', 'cancel', 'escape'].includes(op.slice(10))) return citationCommentLocal(native, op, id, value);
+  if (op === 'chip-cite-draft') {
+    noteCitationDraft(client, Number(id) || 0, value);
+    return '';
+  }
+  if (op.startsWith('chip-cite-') && ['save', 'send', 'commit', 'cancel', 'escape'].includes(op.slice(10))) {
+    clearCitationDraft(client, Number(id) || 0);
+    return citationCommentLocal(native, op, id, value);
+  }
   if (op === 'chip-act') return chipAct(client, native, Number(id) || 0); // a mention, thread, citation, pull request or attachment press (composer-chip-details.ts)
   if (op === 'chip-image-open') return performChipAct(client, native, { act: 'image', context: `image_${id}` }); // a shelf thumbnail's Preview button
   if (op.startsWith('chip-image-')) return composerImageStep(client, op); // the expanded image preview's close and steps

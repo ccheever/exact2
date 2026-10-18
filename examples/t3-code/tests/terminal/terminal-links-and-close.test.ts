@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // T3 Code 1e2ecbd975 (MIT; see LICENSE-T3):
 // - the welcome wizard's setup terminal is the drawer's TerminalViewport (WelcomeWizard.tsx AgentInstallTerminal), so its
 //   links take the drawer's handleLinkActivate: an http(s) click or ⌘-click opens the system browser once, a path the
@@ -182,7 +183,7 @@ describe('A terminal close confirm that is open refuses the close chord app-wide
   }
   function client(): T3Client {
     const c = new T3Client();
-    Object.assign(c, { connection: 'connected', configLive: true, shellLive: true, threadLive: true, generation: 1, environmentId: 'env1', origin: 'http://127.0.0.1:1', scopes: ['orchestration:read', 'orchestration:operate'] });
+    Object.assign(c, { connection: 'connected', configLive: true, shellLive: true, threadLive: true, generation: 1, environmentId: 'env1', origin: 'http://127.0.0.1:1', scopes: [...AUTH_STANDARD_CLIENT_SCOPES] });
     c.config = { environment: { label: 'Local' }, keybindings: keybindingDefaults.map(resolved), settings: {} };
     c.shell = { sequence: 1, projects: [{ id: 'p1', title: 'Widgets', workspaceRoot: '/repo' }], threads: [{ id: 't1', projectId: 'p1', title: 'One', updatedAt: '2026-10-03T01:00:00.000Z' }] };
     c.projectId = 'p1'; c.threadId = 't1';

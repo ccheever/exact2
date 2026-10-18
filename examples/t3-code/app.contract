@@ -1,3 +1,5 @@
+use ServerBrowserFrame from "./src/browser/server-browser.contract"
+use PromptLinkView from "./src/prompt-links/prompt-links.contract"
 use ThemeUse, ThemeRoleUsage from "./src/appearance/settings-appearance-editor-shapes.contract"
 use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time, Page from "./src/shell/app-shapes.contract" // first: the plan orders shapes by first use
 use HighlightStep from "./src/highlight/highlight.contract"
@@ -38,7 +40,25 @@ use TerminalDrawerView from "./src/terminal/terminal.contract"
 use HoverTip, noHoverTip, hoverDelay, hoverOpenDelay from "./src/shell/hover-layer.contract"
 use TransportTable, TransportSlot, TransportUpdateSlot, TransportConnect, TransportUpdateStep, TransportSocket, TransportInbox from "./src/transport/transport.contract"
 use legacyTipOwner from "./src/sidebar/legacy-sidebar.contract"
+routes promptLinks
+  home "/"
+  incoming "/open"
+
 component T3Code
+  action promptLinkNavigate(location: string)
+    promptLinks = open(promptLinks, location)
+  resource promptLinkPage = promptLinkView(data.revision) as shape PromptLinkView
+  resource promptLinksReady = promptLinksReady(data.revision, transportSeen) as shape bool
+  task incomingPromptLink when top(promptLinks).name == "incoming" and promptLinksReady and not welcome.show and not commandPending
+    after(1, promptLinkReceived)
+  action promptLinkReceived
+    let value = searchParam(top(promptLinks), "u")
+    promptLinks = open(promptLinks, path("home"))
+    settingsOpen = false
+    utilityPage = ""
+    send fragmentChanged = command("shelllocal:prompt-link-open", "", value, 0)
+  action promptLinkAct(which: string)
+    send fragmentChanged = command("shelllocal:prompt-link-action", which, "", 0)
   state themeInspecting = false // Color inspection owns Escape while its floating editor remains open.
   action setThemeInspecting(value: bool)
     themeInspecting = value
@@ -110,7 +130,7 @@ component T3Code
   // or ends (a connect, a retry or a disconnect changes it inside an answer, which nothing else reads), and once
   // whenever the delivering answer reports a table the tick has not published (a socket closed, a slot's attempt got
   // its URL).
-  derive transportAnswering = `${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(prConfirmChanged)}${pending(secretAnswered)}${pending(prHandoffChanged)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
+  derive transportAnswering = `${pending(serverBrowserUploaded)}${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(prQuickChanged)}${pending(prConfirmChanged)}${pending(secretAnswered)}${pending(prHandoffChanged)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
   task transportAnswered key=transportAnswering
     after(1, transportPump)
   task transportRepublish when transportInbox.table > transportTable.rev key=transportInbox.table
@@ -154,7 +174,97 @@ component T3Code
     after(1500, welcomeCopyRelease)
   action welcomeCopyRelease
     welcomeCopyDone = welcome.commandCopied
+  resource serverBrowserLive = serverBrowserFrame(shell.panel.browser.runtimeId, shell.panel.browser.streamUrl) as shape ServerBrowserFrame
+  resource serverBrowserMiniLive = serverBrowserFrame(shell.panel.browserMini.runtimeId, shell.panel.browserMini.streamUrl) as shape ServerBrowserFrame
+  mutation serverBrowserChanged as shape ServerBrowserFrame queue
+  mutation serverBrowserMaintained as shape ServerBrowserFrame queue
+  mutation serverBrowserMiniMaintained as shape ServerBrowserFrame queue
+  mutation serverBrowserUploaded as shape ServerBrowserFrame queue refreshes data
+  derive serverFrame0 = match serverBrowserChanged { case some(value) => value.runtimeId == shell.panel.browser.runtimeId and value.seq > serverBrowserLive.seq ? value : serverBrowserLive, case none => serverBrowserLive }
+  derive serverFrame1 = match serverBrowserMaintained { case some(value) => value.runtimeId == shell.panel.browser.runtimeId and value.seq > serverFrame0.seq ? value : serverFrame0, case none => serverFrame0 }
+  derive serverFrame = match serverBrowserUploaded { case some(value) => value.runtimeId == shell.panel.browser.runtimeId and value.seq > serverFrame1.seq ? value : serverFrame1, case none => serverFrame1 }
+  derive serverMiniFrame0 = match serverBrowserChanged { case some(value) => value.runtimeId == shell.panel.browserMini.runtimeId and value.seq > serverBrowserMiniLive.seq ? value : serverBrowserMiniLive, case none => serverBrowserMiniLive }
+  derive serverMiniFrame1 = match serverBrowserMiniMaintained { case some(value) => value.runtimeId == shell.panel.browserMini.runtimeId and value.seq > serverMiniFrame0.seq ? value : serverMiniFrame0, case none => serverMiniFrame0 }
+  derive serverMiniFrame = match serverBrowserUploaded { case some(value) => value.runtimeId == shell.panel.browserMini.runtimeId and value.seq > serverMiniFrame1.seq ? value : serverMiniFrame1, case none => serverMiniFrame1 }
+  task streamMaintenance when serverFrame.attention or serverMiniFrame.attention key=`${serverFrame.runtimeId}:${serverMiniFrame.runtimeId}`
+    every(250, streamMaintain)
+  action streamMaintain
+    shellClock = performanceNow()
+    send serverBrowserMaintained = serverBrowserStatus(shell.panel.browser.runtimeId, wallTime.epochAtZero + performanceNow())
+    send serverBrowserMiniMaintained = serverBrowserStatus(shell.panel.browserMini.runtimeId, wallTime.epochAtZero + performanceNow())
+    refresh shell
+  task streamDecode when serverFrame.decoding key=`${serverFrame.runtimeId}:${serverFrame.decodeSequence}`
+    after(1, streamDecodeFrame)
+  action streamDecodeFrame
+    send serverBrowserChanged = serverBrowserDecode(serverFrame.runtimeId)
+  task streamMiniDecode when serverMiniFrame.decoding key=`${serverMiniFrame.runtimeId}:${serverMiniFrame.decodeSequence}`
+    after(1, streamDecodeMiniFrame)
+  action streamDecodeMiniFrame
+    send serverBrowserChanged = serverBrowserDecode(serverMiniFrame.runtimeId)
+  state streamWidth = 0
+  state streamHeight = 0
+  state streamFollowSize = false
+  action streamMeasured(id: string, width: number, height: number, follow: bool)
+    if id == shell.panel.browser.runtimeId
+      streamWidth = width
+      streamHeight = height
+      streamFollowSize = follow
+  task streamResized when serverFrame.controlled and streamFollowSize and streamWidth > 0 and streamHeight > 0 key=`${streamWidth}x${streamHeight}:${serverFrame.controlled}`
+    after(150, streamResize)
+  action streamResize
+    send serverBrowserChanged = serverBrowserResize(shell.panel.browser.runtimeId, streamWidth, streamHeight, wallTime.epochAtZero + performanceNow())
+  action streamPainted(id: string, image: string)
+    send serverBrowserChanged = serverBrowserPainted(id, image)
+  action streamControl(id: string, kind: string)
+    send serverBrowserChanged = serverBrowserControl(id, kind, wallTime.epochAtZero + performanceNow())
+  action streamMouse(id: string, event: PointerEvent, phase: string, width: number, height: number)
+    send serverBrowserChanged = serverBrowserMouse(id, event, phase, width, height, wallTime.epochAtZero + performanceNow())
+  action streamWheel(id: string, event: WheelEvent, phase: string, width: number, height: number)
+    send serverBrowserChanged = serverBrowserWheel(id, event, phase, width, height, wallTime.epochAtZero + performanceNow())
+  action streamKey(id: string, event: KeyboardEvent, phase: string)
+    send serverBrowserChanged = serverBrowserKey(id, event, phase, wallTime.epochAtZero + performanceNow())
+  action streamText(id: string, text: string)
+    send serverBrowserChanged = serverBrowserText(id, text, wallTime.epochAtZero + performanceNow())
+  action streamDialog(id: string, accept: bool, prompt: string)
+    send serverBrowserChanged = serverBrowserDialog(id, accept, prompt, wallTime.epochAtZero + performanceNow())
+  action streamUpload(id: string, chooser: string, files: Picked[])
+    send serverBrowserUploaded = serverBrowserUpload(id, chooser, files)
+  task streamClipboard when serverFrame.clipboardSequence > 0 key=`${serverFrame.runtimeId}:${serverFrame.clipboardSequence}`
+    after(1, streamCopyClipboard)
+  action streamCopyClipboard
+    copyText(serverFrame.clipboard)
+  task streamOpenedDialog when serverFrame.dialogType != "" key=serverFrame.dialogMessage
+    after(1, streamOpenDialog)
+  action streamOpenDialog
+    showModal(`server-browser-dialog-${serverFrame.runtimeId}`)
+  task streamClosedDialog when serverFrame.dialogType == ""
+    after(1, streamCloseDialog)
+  action streamCloseDialog
+    close(`server-browser-dialog-${serverFrame.runtimeId}`)
+  task streamMiniClipboard when serverMiniFrame.clipboardSequence > 0 key=`${serverMiniFrame.runtimeId}:${serverMiniFrame.clipboardSequence}`
+    after(1, streamCopyMiniClipboard)
+  action streamCopyMiniClipboard
+    copyText(serverMiniFrame.clipboard)
+  task streamOpenedMiniDialog when serverMiniFrame.dialogType != "" key=serverMiniFrame.dialogMessage
+    after(1, streamOpenMiniDialog)
+  action streamOpenMiniDialog
+    showModal(`server-browser-dialog-${serverMiniFrame.runtimeId}`)
+  task streamClosedMiniDialog when serverMiniFrame.dialogType == ""
+    after(1, streamCloseMiniDialog)
+  action streamCloseMiniDialog
+    close(`server-browser-dialog-${serverMiniFrame.runtimeId}`)
   provide
+    serverMiniFrame
+    serverFrame
+    streamPainted
+    streamControl
+    streamMouse
+    streamWheel
+    streamKey
+    streamText
+    streamDialog
+    streamUpload
+    streamMeasured
     codeCopyDone
     welcomeCopyDone
     routeKeyboard
@@ -391,7 +501,9 @@ component T3Code
   action prSetTab(value: string)
     prTab = value
   action prAct(op: string, value: string)
-    if not commandPending
+    if op == "quick" or op == "close-batch"
+      send prQuickChanged = command(`pageslocal:pr-act-${op == "quick" ? "queue" : op}`, "", value, 0)
+    else if not commandPending
       commandPending = true
       send changed = command(`pageslocal:pr-act-${op}`, utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, value, 0)
   action prCopy(label: string, text: string)
@@ -455,7 +567,8 @@ component T3Code
     if not pending(timelineReadsRefreshedNext)
       send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + performanceNow())
   state liveNow = 0 // The timeline's "Working for 12s" ticks each second while a run is live.
-  resource workspaceDiscovery = composerWorkspace(data.revision, not settingsOpen and not pageCover and not welcome.show) as shape WorkspaceDiscovery // ChatComposer is mounted on the chat view only
+  state workspaceNow = 0 // The mounted composer checks its five-minute workspace snapshot TTL.
+  resource workspaceDiscovery = composerWorkspace(data.revision, not settingsOpen and not pageCover and not welcome.show, wallTime.epochAtZero + max(workspaceNow, elapsed)) as shape WorkspaceDiscovery // ChatComposer is mounted on the chat view only
   mutation workspaceRefreshed as shape WorkspaceRefresh refreshes workspaceDiscovery, data then workspaceRefreshFinished
   state workspaceRetryKey = ""
   state workspaceRetryAt = 0
@@ -472,6 +585,8 @@ component T3Code
   // leaves a pending data answer alone, as the highlight pump does (highlightStepped): asked again each second, a
   // launch's slow snapshot answer could never land.
   action liveTick
+    if not settingsOpen and not pageCover and not welcome.show
+      workspaceNow = performanceNow()
     if data.timelineReadsNeeded and not pending(data)
       dispatchTimelineReads()
     if workspaceDiscovery.needed and not pending(workspaceRefreshed)
@@ -649,6 +764,7 @@ component T3Code
   mutation providerAuthChanged as shape Change queue refreshes data, providerPage, providerWizard
   mutation providerUpdateRun as shape Change queue refreshes providerPage
   mutation changed as shape Change refreshes data then commandCompleted
+  mutation prQuickChanged as shape Change queue refreshes data
   mutation prConfirmChanged as shape Change refreshes data
   mutation secretAnswered as shape Change queue refreshes data then dispatchTimelineReads
   mutation localChanged as shape Change refreshes data
@@ -674,6 +790,7 @@ component T3Code
           focus("composer")
       case none
   state commandPending = false
+  state lineageStopping = ""
   // A row's double-click while its first click's open runs: the rename (its op and row) starts once the open lands,
   // on the environment it focused, as Sidebar.tsx's onDoubleClick renames after that click navigated.
   state renameAfterOp = ""
@@ -742,7 +859,7 @@ component T3Code
   state licenseRetry = 0
   state diagnosticPeriod = "15m"
   resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp) as shape KeyDispatch[]
-  resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision) as shape SourceControlPage
+  resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape SourceControlPage
   resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, fdaPoll) as shape IntegrationsPage
   state fdaPoll = 0 // Poll Full Disk Access every 1.5 s and on window focus, only while visible; fdaPoll refreshes the wizard.
   task fdaPolling when integrations.browserProfiles.wizard.step == "fullDiskAccess" and page.visibilityState == "visible"
@@ -787,8 +904,8 @@ component T3Code
     else
       focus("browser-profiles-add")
     removalAt = integrations.browserProfiles.removalId
-  resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision) as shape StoragePage
-  resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ArchivePage
+  resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, wallTime.epochAtZero + elapsed) as shape StoragePage
+  resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape ArchivePage
   resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings
   resource diagnostics = diagnosticsSettings(settingsEnvironmentId, diagnosticPeriod, settingsOpen and settingsRoute == "diagnostics", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, data.telemetry) as shape DiagnosticsPage // a telemetry sample asks only this page again (data.telemetry); its reads are shared, so one asked again before a reply joins it (diagnostics-view.ts)
   state settingsFocusTarget = ""
@@ -979,8 +1096,8 @@ component T3Code
           if pendingModal == "welcome-pair"
             welcomeLink = ""
             welcomePairOpen = false
-          if pendingModal == "provider-add"
-            providerDialog = wizardManual or wizardDriver == "acpRegistry" ? providerDialog : ""
+          if pendingModal == "provider-add" or pendingModal == "provider-add-local"
+            providerDialog = pendingModal == "provider-add-local" ? "" : wizardManual or wizardDriver == "acpRegistry" ? providerDialog : ""
             providerSelected = providerCreated
           if pendingModal == "provider-close"
             providerDialog = ""
@@ -1050,6 +1167,7 @@ component T3Code
       case none
     pendingModal = ""
     commandPending = false
+    lineageStopping = ""
     if renameAfterOp != ""
       send localChanged = command(`sidebarlocal:${renameAfterOp}`, renameAfterId, "", 0)
       renameAfterOp = ""
@@ -1192,6 +1310,15 @@ component T3Code
     settingsCheckout = project ? "" : settingsCheckout
     settingsProjectId = project ? member : settingsProjectId
     settingsMachine = project ? settingsMachine : id
+  action coreNoticeScope(project: string, machine: string, member: string)
+    settingsMenu = ""
+    modalError = ""
+    providerSelected = ""
+    providerLinkTarget = ""
+    settingsProjectKey = project
+    settingsCheckout = ""
+    settingsProjectId = member
+    settingsMachine = machine
   action coreNavigate(route: string)
     settingsRoute = route
     providerLinkTarget = "" // a route reached without a provider link names no instance
@@ -1324,27 +1451,27 @@ component T3Code
       wizardStep = wizardStep <= 1 and target > 1 and providerWizard.idError != "" ? 1 : target // the window's half marks the attempt
   action providerOp(op: string, id: string, field: string, value: string, apply: bool)
     if op.startsWith("upkeep:update") and apply
-      send providerUpdateRun = providerChange(op, id, field, value, providerPage.environment)
+      send providerUpdateRun = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
     else if (op.startsWith("setup:") or op.startsWith("upkeep:")) and apply
-      send providerAuthChanged = providerChange(op, id, field, value, providerPage.environment)
+      send providerAuthChanged = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
     else if apply and not commandPending
       commandPending = true
       pendingModal = op == "acp-prepare" ? "provider-acp" : (op == "provider-hub-add" or op == "provider-hub-remove" or (op == "provider-chatgpt" and welcome.show) ? "provider-close" : "provider")
       modalError = ""
-      send changed = providerChange(op, id, field, value, providerPage.environment)
+      send changed = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
   action providerAccent(id: string, hex: string, vx: number, vy: number)
     if not commandPending
       commandPending = true
       pendingModal = "provider"
       modalError = ""
-      send changed = providerChange("provider-accent", id, "", hex, providerPage.environment)
-  action providerAdd(driver: string, label: string, id: string, accent: string, f0: string, f1: string, f2: string, f3: string, f4: string) // the window's half marks the attempt
+      send changed = providerChange("provider-accent", id, "", hex, providerPage.environment, "")
+  action providerAdd(driver: string, label: string, id: string, accent: string, fields: string[], commandArgs: string[]) // the window's half marks the attempt
     if not commandPending
       commandPending = true
-      pendingModal = "provider-add"
-      providerCreated = id == "" ? providerWizard.instanceId : id
+      pendingModal = driver == "acpRegistry" and fields.slice(0, 1).join("") == "local" ? "provider-add-local" : "provider-add"
+      providerCreated = id
       modalError = ""
-      send changed = providerAdd(driver, label, id, accent, f0, f1, f2, f3, f4, providerPage.environment)
+      send changed = providerAdd(driver, label, id, accent, fields, providerPage.environment, commandArgs)
   action connectionOp(op: string, id: string, value: string)
     if not commandPending
       sshReturnToConnect = op == "environment-ssh-add" or op == "environment-ssh-pick"
@@ -1520,11 +1647,15 @@ component T3Code
   action prConfirmDisarm(ref: string, serial: string)
     send prConfirmChanged = command("chatlocal:pr-ui-disarm", ref, serial, 0)
   action chatLocal(op: string, id: string, value: string)
-    if op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir"
+    // A disclosure toggled with the transcript at its end keeps the end in view while the rows re-measure (the list goes
+    // on following it); anywhere else the toggled row holds its place (MessagesTimeline's disclosurePinsEnd).
+    if (op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir") and not (restAtEnd and restOwner == composerOwner)
       foldHold = true
     if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating) or op == "surface-session-float" or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
       rightPanelAt = ""
-    if op.startsWith("surface-files-comment-")
+    if op == "surface-pr-quick"
+      send prQuickChanged = command(`chatlocal:${op}`, id, value, 0)
+    else if op.startsWith("surface-files-comment-")
       send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)
     else if op == "pr-code-drag" or op == "pr-code-begin"
       send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // the Code tab's gutter drags and "+", in turn
@@ -1555,14 +1686,14 @@ component T3Code
   state rightPanelAt = ""
   derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher
   state detailsOpen = false
-  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 984, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible") as shape ShellDetails
+  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 1012, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible") as shape ShellDetails
   state canvasGestureValue = ""
   action canvasGesture(value: string)
     canvasGestureValue = value
     detailsOpen = detailsOpen and value == "" // a drag on the player is outside the details popover (Base UI's outside press; a press: T3Window outsidePressDown)
-  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 984 and data.projectId != "", data.look.chatMax, data.messages.length > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView
+  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 1012 and data.projectId != "", data.look.chatMax, data.messages.length > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 1012, detailsOpen) as shape ChatCanvasView
   state detailsEpoch = 0
-  derive detailsPopover = canvas.ready ? canvas.popover : conversationWidth < 984
+  derive detailsPopover = canvas.ready ? canvas.popover : conversationWidth < 1012
   derive detailsShown = detailsOpen and detailsPopover and detailsEpoch == canvas.popoverEpoch
   resource terminalDrawer = terminalDrawer(data.revision, viewport.height, wallTime.epochAtZero + elapsed) as shape TerminalDrawerView // terminal-drawer-view.ts
   state titleDialog = false
@@ -1653,7 +1784,7 @@ component T3Code
       settingsFocusTarget = value
       modalError = ""
     if op.startsWith("upkeep:")
-      send providerUpdateRun = providerChange(op, target, "", value, "") // a toast's update: the launch prompt's own environments, never the page's
+      send providerUpdateRun = providerChange(op, target, "", value, "", "") // a toast's update: the launch prompt's own environments, never the page's
     if op != "copy" and op != "dismiss" and op != "ui:settings" and not op.startsWith("upkeep:") and not commandPending
       commandPending = true
       send changed = command(op, target, value, 0)
@@ -1676,6 +1807,8 @@ component T3Code
       commandPending = true
       send changed = command((id == "diff" or id == "d" or id == "D") ? "diff" : "shelllocal:surface-open", "", id, 0)
   action detailsAct(op: string, target: string, value: string) // the window's half: the editors list, the title menu
+    if op == "shell:stop-subagent" and not commandPending
+      lineageStopping = target
     detailsOpen = op == "toggle" ? (not detailsShown and detailsPopover) : (detailsOpen and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread" and op != "ui:changes" and op != "dismiss") // inline: toggle remembers the thread's docked card
     detailsEpoch = op == "toggle" ? canvas.popoverEpoch : detailsEpoch
     if op == "ui:project-settings"
@@ -1784,4 +1917,4 @@ component T3Code
   action citeDismissed
     citeDismissals = citeDismissals + 1
   view
-    T3Window(data=data, viewport=viewport, scheme=scheme, hoverTip=hoverTip, hoverShown=hoverShown, hoverTipAt=hoverTipAt, themeInspecting=themeInspecting, setThemeInspecting=setThemeInspecting, themeRevealRequest=themeRevealRequest, themeUsage=themeUsage, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, settings=settings, utilityPage=utilityPage, home=home, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, pageBack=pageBack, openProviderSettings=openProviderSettings, sidebarHoverId=sidebarHoverId, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, command=command, resizeSidebar=resizeSidebar, resetSidebarWidth=resetSidebarWidth, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details, jumpRequest=jumpRequest, composerOwner=composerOwner, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, conversationWidth=conversationWidth, editor=editor, chip=chip, chipCovered=chipCovered, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, menuPick=menuPick, branches=branches, terminalDrawer=terminalDrawer, confirmOp=confirmOp, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, filesMarkdown=filesMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prClose=prSelect(""), openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, storageSettings=storageSettings, archives=archives, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, providerPage=providerPage, providerDialog=providerDialog, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, pickModel=pickModel, taskModelPick=taskModelPick, paletteRun=paletteRun, restSubject=restSubject, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, origin=origin, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerTarget=providerTarget, providerVisit=providerVisit, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged), sidebarHoverRoot=sidebarHover, panelUiRoot=panelUi, detailsActRoot=detailsAct, titleMenuPickRoot=titleMenuPick, chatLocal=chatLocal, prConfirmDisarm=prConfirmDisarm, scrollToEnd=scrollToEnd, foldHold=foldHold, releaseFold=releaseFold, titleSend=titleSend, openConnectionRoot=openConnection, closeConnectionRoot=closeConnection, editOriginRoot=editOrigin, editCredentialRoot=editCredential, connectionOp=connectionOp, connectionRemove=connectionRemove, connectionMenu=connectionMenu, connectionAskRemove=connectionAskRemove, connectionToggleMenu=connectionToggleMenu, closeModalRoot=closeModal, clearModalError=clearModalError, restOpenRoot=restOpen, restCloseRoot=restClose, taskBaseRoot=restTaskBase, restRawRoot=restRaw, settingsEnvironmentId=settingsEnvironmentId, settingsProjectId=settingsProjectId, providerUiRoot=providerUi, providerAddRoot=providerAdd, composerFocused=composerFocused, canRest=canRest, citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeDismissals=citeDismissals)
+    T3Window(promptLinkPage=promptLinkPage, promptLinkNavigate=promptLinkNavigate, promptLinkAct=promptLinkAct, data=data, viewport=viewport, scheme=scheme, hoverTip=hoverTip, hoverShown=hoverShown, hoverTipAt=hoverTipAt, themeInspecting=themeInspecting, setThemeInspecting=setThemeInspecting, themeRevealRequest=themeRevealRequest, themeUsage=themeUsage, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, lineageStopping=lineageStopping, settings=settings, utilityPage=utilityPage, home=home, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, pageBack=pageBack, openProviderSettings=openProviderSettings, sidebarHoverId=sidebarHoverId, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, command=command, resizeSidebar=resizeSidebar, resetSidebarWidth=resetSidebarWidth, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details, jumpRequest=jumpRequest, composerOwner=composerOwner, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, conversationWidth=conversationWidth, editor=editor, chip=chip, chipCovered=chipCovered, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, menuPick=menuPick, branches=branches, terminalDrawer=terminalDrawer, confirmOp=confirmOp, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, filesMarkdown=filesMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prClose=prSelect(""), openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreNavigate=coreNavigate, coreScope=coreScope, coreNoticeScope=coreNoticeScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, storageSettings=storageSettings, archives=archives, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, providerPage=providerPage, providerDialog=providerDialog, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, pickModel=pickModel, taskModelPick=taskModelPick, paletteRun=paletteRun, restSubject=restSubject, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, origin=origin, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerTarget=providerTarget, providerVisit=providerVisit, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged), sidebarHoverRoot=sidebarHover, panelUiRoot=panelUi, detailsActRoot=detailsAct, titleMenuPickRoot=titleMenuPick, chatLocal=chatLocal, prConfirmDisarm=prConfirmDisarm, scrollToEnd=scrollToEnd, foldHold=foldHold, releaseFold=releaseFold, titleSend=titleSend, openConnectionRoot=openConnection, closeConnectionRoot=closeConnection, editOriginRoot=editOrigin, editCredentialRoot=editCredential, connectionOp=connectionOp, connectionRemove=connectionRemove, connectionMenu=connectionMenu, connectionAskRemove=connectionAskRemove, connectionToggleMenu=connectionToggleMenu, closeModalRoot=closeModal, clearModalError=clearModalError, restOpenRoot=restOpen, restCloseRoot=restClose, taskBaseRoot=restTaskBase, restRawRoot=restRaw, settingsEnvironmentId=settingsEnvironmentId, settingsProjectId=settingsProjectId, providerUiRoot=providerUi, providerAddRoot=providerAdd, composerFocused=composerFocused, canRest=canRest, citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeDismissals=citeDismissals)

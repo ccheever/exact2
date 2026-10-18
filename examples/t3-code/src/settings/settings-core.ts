@@ -4,6 +4,7 @@
 // packages/shared/src/projectSettings.ts. Server rows read and write the connected
 // environment's ServerSettings (server.updateSettings); device rows are the
 // reference ClientSettings, saved in this app's own preferences file.
+import { changeCliCommand } from './cli-command';
 import { installedFonts } from '../appearance/appearance-fonts';
 import { pushToast } from '../shell/toast';
 import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
@@ -24,8 +25,9 @@ import type { DiffState } from '../diff/diff';
 import { notificationPermission, notificationPermissionMessage } from '../shell/shell-notify';
 import { type QrMark } from './settings-mobile-beta';
 import { CLIENT_VERSION } from '../connections/connections';
-import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentLabel, type ResolvedSettingsScope } from './settings-scope';
-import { persistScopedSettingsPatch, planScopedSettingsClear, planScopedSettingsPatch, resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource,
+import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels,
+  settingsScopeProjectMachines, type ResolvedSettingsScope, type ScopeGroup } from './settings-scope';
+import { persistScopedSettingsPatch, planProjectOverridesClear, planScopedSettingsClear, planScopedSettingsPatch, resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource,
   selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan, type ScopedSettingsTarget } from './scoped-settings-plan';
 import { postScopedNotice, scopeEnvironments, scopeMemberFiles, scopeProjectGroups, scopedWriter, type ScopeEnvironment } from './settings-scope-sources';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
@@ -39,19 +41,20 @@ export type CoreRow = {
   /** ScopedSwitch: the selected targets disagree; the switch draws its thumb centred and a press turns it on everywhere. */
   mixed: boolean;
   note: string; min: number; max: number; step: number; target: string; placeholder: string; suffix: string; info: string; divider: boolean;
-  layers: CoreOption[]; layerTitle: string; amount: number; previewSize: number; menuWidth: number;
+  layers: CoreOption[]; layerTitle: string; layerGroups: InheritanceGroup[]; amount: number; previewSize: number; menuWidth: number;
   /** About → Mobile app's QR codes (settings-mobile-beta.ts); empty on every other row. */
   qr: QrMark[];
 };
 export type CoreSection = { id: string; title: string; collapsible: boolean; rows: CoreRow[]; toggle: boolean };
-export type ScopeChoice = { id: string; label: string; mark: string; ink: string; surface: string; member: string; selected: boolean; offline: boolean };
+/** A scope menu option (SettingsScopeSentence ScopeOption): its name, the line under it that tells it apart, its mark and Offline. */
+export type ScopeChoice = { id: string; label: string; secondary: string; mark: string; ink: string; surface: string; member: string; selected: boolean; offline: boolean };
 
 const option = (value: string, label: string, selected: boolean, extra: Partial<CoreOption> = {}): CoreOption =>
   ({ id: value || 'none', value, label, detail: '', icon: '', selected, disabled: false, ...extra });
 export function coreRow(id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}): CoreRow {
   return { id, title, description, status: '', kind, checked: false, value: '', label: '', icon: '', width: 160, options: [], value2: '', label2: '',
     options2: [], driver: '', badge: '', badgeColor: '', inheritance: '', inheritanceSummary: '', resettable: false, resetLabel: title.toLowerCase(), disabled: false, inert: false, mixed: false,
-    note: '', min: 0, max: 0, step: 1, target: '', placeholder: '', suffix: '', info: '', divider: false, layers: [], layerTitle: '', amount: 0, previewSize: 0, menuWidth: 0, qr: [], ...extra };
+    note: '', min: 0, max: 0, step: 1, target: '', placeholder: '', suffix: '', info: '', divider: false, layers: [], layerTitle: '', layerGroups: [], amount: 0, previewSize: 0, menuWidth: 0, qr: [], ...extra };
 }
 
 // ── Device (client) settings ───────────────────────────────────────────────
@@ -72,6 +75,9 @@ export const CLIENT_DEFAULTS = {
   // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on). Settings › Integrations ›
   // Browser draws their rows and writes them.
   browserRecordingFrameRate: 30, browserRecordingShowKeyPresses: false, browserRecordingShowMousePresses: false, browserAutoShowFloatingPreview: true,
+  // Whether a pull request link opens T3 Code's pull request view (pullRequestLinksOpenInApp, default on); off, it opens as
+  // any other link does.
+  pullRequestLinksOpenInApp: true,
 } as const;
 export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (typeof CLIENT_DEFAULTS)[K] extends number ? number : (typeof CLIENT_DEFAULTS)[K] extends boolean ? boolean : string };
 const CHOICES: Record<string, readonly string[]> = {
@@ -174,6 +180,8 @@ export type CoreScope = {
   connective: string; members: Obj[]; connected: boolean; environmentChoices: ScopeChoice[]; projectChoices: ScopeChoice[];
   /** The ported resolution, every known environment, the selected ones and the axis's machine icon. */
   resolved: ResolvedSettingsScope; environments: ScopeEnvironment[]; selected: ScopeEnvironment[]; environmentIcon: string;
+  /** Every project group the scope menu lists (SettingsScopeNotice's project choices). */
+  groups: ScopeGroup[];
 };
 /** resolveSettingsScope over the app's environments and project groups. A removed target never broadens to All. */
 export function resolveScope(client: T3Client, machine: string, projectKey: string, checkout: string, source?: EnvironmentFleet): CoreScope {
@@ -185,17 +193,28 @@ export function resolveScope(client: T3Client, machine: string, projectKey: stri
   const current = environments.find(environment => environment.environmentId === axis);
   const group = groups.find(candidate => candidate.projectKey === projectKey);
   const { environments: selected, connectedEnvironments } = selectScopedSettingsEnvironments(resolved, environments, client.environmentId || null);
-  const environmentChoices: ScopeChoice[] = [{ id: '', label: 'All environments', mark: '', ink: '', surface: '', member: '', selected: axis === ALL_ENVIRONMENTS_VALUE, offline: false },
-    ...environments.map(environment => ({ id: environment.environmentId, label: settingsScopeEnvironmentLabel(environment, environments), mark: environment.kind, ink: '', surface: '', member: '',
-      selected: environment.environmentId === axis, offline: environment.connection.phase !== 'connected' }))];
-  const projectChoices: ScopeChoice[] = [{ id: '', label: 'All projects', mark: '', ink: '', surface: '', member: '', selected: projectKey === '', offline: false },
-    ...groups.map(candidate => ({ id: candidate.projectKey, label: candidate.displayName, ...markOf(candidate.displayName), member: str(candidate.memberProjects[0]?.id), selected: candidate.projectKey === projectKey, offline: false }))];
+  // EnvironmentScopeMenu and ProjectScopeMenu's options: the line under a name is the address (an environment) or the
+  // checkout path, and the machines when another project has the same name.
+  const environmentChoices: ScopeChoice[] = [{ id: '', label: 'All environments', secondary: '', mark: '', ink: '', surface: '', member: '', selected: axis === ALL_ENVIRONMENTS_VALUE, offline: false },
+    ...environments.map(environment => {
+      const { primary, secondary } = settingsScopeEnvironmentLabels(environment, environments);
+      return { id: environment.environmentId, label: primary, secondary: environments.length <= 1 ? '' : secondary || settingsScopeEnvironmentAddress(environment), mark: environment.kind,
+        ink: '', surface: '', member: '', selected: environment.environmentId === axis, offline: environment.connection.phase !== 'connected' };
+    })];
+  const projects = groups.map(candidate => ({ group: candidate, machines: settingsScopeProjectMachines(candidate, environments, true).join(', ') }));
+  const projectChoices: ScopeChoice[] = [{ id: '', label: 'All projects', secondary: '', mark: '', ink: '', surface: '', member: '', selected: projectKey === '', offline: false },
+    ...projects.map(({ group: candidate, machines }) => {
+      const sameName = projects.filter(other => other.group.projectKey !== candidate.projectKey && other.group.displayName === candidate.displayName);
+      const root = str(candidate.memberProjects[0]?.workspaceRoot);
+      const secondary = sameName.length === 0 ? (environments.length > 1 ? root : '') : sameName.some(other => other.machines === machines) ? `${machines} · ${root}` : machines;
+      return { id: candidate.projectKey, label: candidate.displayName, secondary, ...markOf(candidate.displayName), member: str(candidate.memberProjects[0]?.id), selected: candidate.projectKey === projectKey, offline: false };
+    })];
   const marks = group ? markOf(group.displayName) : { mark: '', ink: '', surface: '' };
   return { kind: resolved.kind, message: resolved.kind === 'unavailable' ? resolved.message : '', members: resolved.members.map(member => member as unknown as Obj),
     environmentLabel: current ? settingsScopeEnvironmentLabel(current, environments) : axis !== ALL_ENVIRONMENTS_VALUE ? 'Unavailable environment' : 'All environments',
     projectLabel: projectKey ? (group ? group.displayName : 'Unavailable project') : 'All projects', projectMark: marks.mark, projectInk: marks.ink, projectSurface: marks.surface,
     connective: machine || resolved.kind === 'checkout' ? 'on' : 'across', connected: connectedEnvironments.length > 0, environmentChoices, projectChoices,
-    resolved, environments, selected, environmentIcon: current?.kind ?? '' };
+    resolved, environments, selected, environmentIcon: current?.kind ?? '', groups };
 }
 function markOf(name: string) { const identity = projectIdentity(name); return { mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface }; }
 
@@ -207,7 +226,7 @@ export const PROJECT_SCOPED = new Set(['worktreeCleanup', 'defaultModelSelection
 export const SERVER_DEFAULTS: Record<string, Json> = {
   defaultModelSelection: null, defaultRuntimeMode: 'full-access', defaultThreadEnvMode: null, worktreeSubmodules: null, autoResumeLimitedThreads: false,
   snoozeLimitedThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
-  continueThreadsAfterServerUpdate: false, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
+  continueThreadsAfterServerUpdate: true, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
   addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] },
   enableAgentBrowserAccess: true,
 };
@@ -242,7 +261,7 @@ export function effectiveSetting(settings: Obj, projectId: string, key: string, 
 
 /** One control's context: the representative target's settings (display) and every connected target (mixed, writes). */
 export type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string, Obj | null>; capabilities: Obj; providers: Obj[]; environmentLabel: string;
-  targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean;
+  targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean; settingsWritable: boolean;
   /** Each known environment's advertised providers: a model choice must exist on every target (useScopedModelDisabledReason). */
   catalogs: Map<string, Obj[]> };
 /** A target's value for a key: its effective value, a file-backed key's built-in when nothing set it (effectiveSetting). */
@@ -265,7 +284,7 @@ function serverState(context: ServerContext, key: string) {
     : project && source === 't3.json' ? ['inherited', "Inherited from the repository's t3.json"]
     : project && scoped ? ['inherited', `Inherited from ${context.environmentLabel}`]
     : customized ? ['environment', 'Set on the environment'] : ['default', 'Built-in default'];
-  const note = !scope.connected ? 'Reconnect the selected environment to change this setting.' : environmentWide ? 'Environment-wide setting. Select an environment to change it.' : '';
+  const note = !context.settingsWritable ? 'This connection requires settings:write.' : !scope.connected ? 'Reconnect the selected environment to change this setting.' : environmentWide ? 'Environment-wide setting. Select an environment to change it.' : '';
   return { value: first, mixed, source, inheritance, note, inert: note !== '', resettableProject: project && scoped && (source === 'project' || source === 'mixed') };
 }
 const MERGE_METHOD_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
@@ -295,26 +314,53 @@ export function formatSettingValue(key: string, value: unknown): string {
   return 'Custom';
 }
 /** settingInheritanceLayers for the representative target: project, environment, t3.json, built-in. */
-function inheritanceLayers(context: ServerContext, key: string): CoreOption[] {
-  const { settings, scope } = context;
-  const member = scope.kind === 'project' || scope.kind === 'checkout' ? str(scope.members[0]?.id) : '';
+function inheritanceLayers(context: ServerContext, key: string, target?: ScopedSettingsTarget, defaults: Obj = SERVER_DEFAULTS): CoreOption[] {
+  const { scope } = context;
+  const raw = target ? scope.environments.find(environment => environment.environmentId === target.environmentId)?.serverConfig?.settings ?? context.settings : context.settings;
+  const settings = { ...defaults, ...raw };
+  const member = target ? target.projectId ?? '' : scope.kind === 'project' || scope.kind === 'checkout' ? str(scope.members[0]?.id) : '';
   const resolved = effectiveSetting(settings, member, key, member ? context.files.get(member) : null);
-  const environmentValue = key in settings ? settings[key] : SERVER_DEFAULTS[key];
-  const environmentSet = !same(environmentValue, SERVER_DEFAULTS[key]);
+  const environmentValue = key in settings ? settings[key] : defaults[key];
+  const environmentSet = !same(environmentValue, defaults[key]);
   const layers: CoreOption[] = [];
   if (member && PROJECT_SCOPED.has(key)) layers.push(option('project', 'Project', resolved.source === 'project', { detail: resolved.source === 'project' ? formatSettingValue(key, resolved.value) : 'Inherits' }));
   layers.push(option('environment', 'Environment', resolved.source === 'environment' && environmentSet, { detail: environmentSet ? formatSettingValue(key, environmentValue) : 'Inherits' }));
   if (member && FILE_BACKED[key]) layers.push(option('t3.json', 't3.json', resolved.source === 't3.json', { detail: resolved.source === 't3.json' ? formatSettingValue(key, resolved.value) : 'Inherits' }));
-  const builtIn = FILE_BACKED[key] ? FILE_BACKED[key]![1] : SERVER_DEFAULTS[key];
+  const builtIn = FILE_BACKED[key] ? FILE_BACKED[key]![1] : defaults[key];
   layers.push(option('default', 'Default', !layers.some(layer => layer.selected), { detail: formatSettingValue(key, builtIn) }));
   return layers;
+}
+export type InheritanceGroup = { id: string; title: string; winner: string; value: string; labels: string[]; folded: boolean; sameEverywhere: boolean; layers: CoreOption[]; overrideTargets: string; overrides: { id: string; label: string; machine: string; value: string }[] };
+/** SettingInheritance (T3 9c161462c9): equal resolutions share a chain; disagreeing groups open on demand. */
+export function inheritanceGroups(context: ServerContext, key: string, defaults: Obj = SERVER_DEFAULTS): InheritanceGroup[] {
+  const multiple = new Set(context.targets.map(target => target.environmentId)).size > 1;
+  const groups: { resolution: unknown; view: InheritanceGroup }[] = [];
+  for (const target of context.targets) {
+    const environment = context.scope.environments.find(entry => entry.environmentId === target.environmentId);
+    if (!environment?.serverConfig) continue;
+    const labels = settingsScopeEnvironmentLabels(environment, context.scope.environments);
+    const member = context.scope.members.find(entry => entry.environmentId === target.environmentId && entry.id === target.projectId);
+    const path = str(member?.workspaceRoot).split(/[\\/]/).filter(Boolean).slice(-2).join('/');
+    const label = [labels.primary, labels.secondary, path].filter(Boolean).join(' · ');
+    const layers = inheritanceLayers(context, key, target, defaults), winning = layers.find(layer => layer.selected);
+    const resolution = { source: target.sources[key], value: target.settings[key], layers: layers.map(layer => [layer.value, layer.detail]) };
+    const overrides = (context.scope.kind === 'all' || context.scope.kind === 'environment') && PROJECT_SCOPED.has(key) ? Object.entries(obj(environment.serverConfig.settings.projectSettingsOverrides)).filter(([, value]) => has(obj(value), key)).map(([projectId, value]) => {
+      const project = context.scope.groups.flatMap(group => group.memberProjects).find(member => member.environmentId === target.environmentId && member.id === projectId);
+      return { id: `${target.environmentId}:${projectId}`, label: str(project?.title) || projectId, machine: settingsScopeEnvironmentLabel(environment, context.scope.environments), value: formatSettingValue(key, obj(value)[key]) };
+    }) : [];
+    const existing = multiple ? groups.find(group => same(group.resolution, resolution)) : undefined;
+    if (existing) { existing.view.labels.push(label); existing.view.overrides.push(...overrides.filter(override => !existing.view.overrides.some(current => current.id === override.id))); }
+    else groups.push({ resolution, view: { id: `${target.environmentId}:${target.projectId ?? ''}`, title: target.label, winner: winning?.label ?? '', value: winning?.detail ?? '',
+      labels: [label], folded: false, sameEverywhere: false, layers, overrides, overrideTargets: '' } });
+  }
+  return groups.map(({ view }) => ({ ...view, folded: multiple && groups.length > 1, sameEverywhere: multiple && groups.length === 1, overrideTargets: JSON.stringify(view.overrides.map(override => { const at = override.id.indexOf(':'); return { environmentId: override.id.slice(0, at), projectId: override.id.slice(at + 1) }; })) }));
 }
 function serverRow(context: ServerContext, key: string, id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}, resetDefault?: boolean): CoreRow {
   const state = serverState(context, key);
   const project = context.scope.kind === 'project' || context.scope.kind === 'checkout';
   const resettable = !state.inert && (project ? state.resettableProject : resetDefault ?? !same(context.settings[key], SERVER_DEFAULTS[key]));
   return coreRow(id, title, description, kind, { inheritance: state.inheritance[0]!, inheritanceSummary: state.inheritance[1]!, inert: state.inert, note: state.note,
-    layers: inheritanceLayers(context, key), layerTitle: context.environmentLabel,
+    layers: inheritanceLayers(context, key), layerTitle: context.environmentLabel, layerGroups: inheritanceGroups(context, key),
     resettable, resetLabel: extra.resetLabel ?? title.toLowerCase(), ...(kind === 'switch' ? { checked: state.value === true, mixed: state.mixed } : {}), ...extra });
 }
 
@@ -507,6 +553,7 @@ export function serverContext(client: T3Client, scope: CoreScope, files: Map<str
   const restartEverywhere = connected.length > 0 && connected.every(entry => obj(obj((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).environment).capabilities).threadRestartContinuation === true);
   return { settings: raw, scope, files, capabilities: obj(environment.capabilities), providers: arr(config.providers), environmentLabel: representative?.label || str(environment.label, 'environment'),
     targets: resolveScopedSettingsTargets(scope.resolved, connectedOf(client, scope, settings), files), restartEverywhere,
+    settingsWritable: connected.length > 0 && connected.every(entry => entry.scopes?.includes('settings:write') === true),
     catalogs: new Map(scope.environments.map(entry => [entry.environmentId, arr((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).providers)])) };
 }
 /**
@@ -541,7 +588,9 @@ export function settingsModelTarget(client: T3Client, id: string) {
   const [instanceId = '', model = ''] = str(control.value).split('|');
   // Text generation offers only the providers that support it (textGenerationProviders).
   const providers = context.providers.filter(provider => !textGeneration || provider.supportsTextGeneration !== false);
-  return { context, providers, instanceId, model };
+  const { environment: representative } = selectScopedSettingsEnvironments(scope.resolved, scope.environments, client.environmentId || null);
+  const config = !representative || representative.environmentId === client.environmentId ? client.config : obj(representative.serverConfig);
+  return { context, config, providers, instanceId, model };
 }
 const fleetConfig = (key: string) => fleet.entries.get(key)?.config ?? {};
 
@@ -676,6 +725,7 @@ export function scopeTarget(client: T3Client, context: ServerContext): ScopedSet
 
 export async function applyCoreSetting(client: T3Client, native: Native, id: string, value: string): Promise<string> {
   const target = parseCoreTarget(id);
+  if (target.row === 'cli-command') return changeCliCommand(client, native, value);
   const local = client.local as unknown as LocalPrefs;
   const key = SERVER_ROW_KEYS[target.row];
   if (target.row === 'theme-import' || target.row === 'theme-save' || target.row === 'theme-remove') return applyThemeCommand(local, target.row, value);
@@ -731,7 +781,10 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
     const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope), settings);
     if (key === 'continueThreadsAfterServerUpdate' && !context.restartEverywhere && scope.connected) throw new ClientError('All selected connected environments must support restart continuation.');
     const clear = target.part === 'reset';
-    plan = target.row === 'background-advanced' ? settingPlan(client, scope, key!, advancedBackgroundValue(context.settings, target.part, value), false, settings)
+    if (target.part === 'clear-overrides') {
+      const entries = arr(JSON.parse(value)).map(entry => ({ environmentId: str(entry.environmentId), projectId: str(entry.projectId) })).filter(entry => scope.selected.some(environment => environment.environmentId === entry.environmentId));
+      plan = planProjectOverridesClear(connectedOf(client, scope, settings), entries, [key!]);
+    } else plan = target.row === 'background-advanced' ? settingPlan(client, scope, key!, advancedBackgroundValue(context.settings, target.part, value), false, settings)
       : settingPlan(client, scope, key!, clear ? undefined : serverValue(key!, value, context, target.part), clear, settings);
   }
   // useRunScopedPlan: a refused plan warns; every write is awaited and the failures are named.

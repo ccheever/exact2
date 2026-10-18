@@ -83,6 +83,8 @@ shape ShellLineage
   agent: bool
   missing: bool
   hint: string
+  failed: bool
+  canStop: bool
 shape ShellEditor
   id: string
   label: string

@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Settings across environments (D15): the scope menu lists every environment, a write
 // reaches each selected connected environment through its own transport, a failure names
 // the environments that did not save, and disagreeing targets draw the mixed switch.
@@ -5,10 +6,13 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import { applyShell, initialShell, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import { applyCoreSetting, decodeClientPrefs, generalSections, resolveScope, serverContext } from '../../src/settings/settings-core';
+import { applyCoreSetting, decodeClientPrefs, generalSections, inheritanceGroups, resolveScope, serverContext } from '../../src/settings/settings-core';
 import { settingsCore } from '../../src/settings/settings-core-view';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { scopeEnvironments, scopeProjectGroups } from '../../src/settings/settings-scope-sources';
+import { archivedSettings, lastRunSummary } from '../../src/settings/settings-data';
+import { groupDeviceHosts, scopedDeviceHostsView, deviceHostsCommand, hostChecks } from '../../src/device/settings-a-hosts';
+import { taskEnvironmentSummaries } from '../../src/settings/scheduled-view';
 import { toasts } from '../../src/shell/toast';
 
 const capabilities = { projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true };
@@ -16,7 +20,7 @@ function focused(settings: Obj = {}) {
   const client = {
     local: { deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' },
       clientSettings: decodeClientPrefs({}), groupingMode: 'repository', groupingOverrides: {} },
-    ready: true, environmentId: 'env-a', origin: 'http://127.0.0.1:16100', writes: [] as Obj[],
+    scopes: AUTH_STANDARD_CLIENT_SCOPES, ready: true, environmentId: 'env-a', origin: 'http://127.0.0.1:16100', writes: [] as Obj[],
     config: { environment: { environmentId: 'env-a', label: 'Studio', capabilities, platform: { machine: 'laptop' } }, providers: [], settings: { projectSettingsOverrides: {}, ...settings } } as Obj,
     projectGroups: () => [{ key: 'github.com/acme/app', name: 'App', members: [{ id: 'pa', title: 'App', workspaceRoot: '/a/app' }] }],
     async settingsCoreRequest(_native: Native, method: string, payload: Obj) {
@@ -35,7 +39,7 @@ function entry(key: string, environmentId: string, label: string, settings: Obj,
   const shell = applyShell(initialShell(), { snapshotSequence: 1, projects: [{ id: `p-${environmentId}`, title: 'App', workspaceRoot: `/b/${environmentId}`,
     repositoryIdentity: { canonicalKey: 'github.com/acme/app' } }], threads: [] });
   return { key, origin: key.split('\n')[0]!, environmentId, phase, message: '', traceId: '', generation: 3, synchronized: 3, lastEvent: 0, subscriptions: {},
-    config: { environment: { environmentId, label, capabilities, platform: { machine: 'server' } }, settings: { projectSettingsOverrides: {}, ...settings } }, shell, scopes: [], error: '', requested: true };
+    config: { environment: { environmentId, label, capabilities, platform: { machine: 'server' } }, settings: { projectSettingsOverrides: {}, ...settings } }, shell, scopes: [...AUTH_STANDARD_CLIENT_SCOPES], error: '', requested: true };
 }
 /** The fleet's transports: each request names its environment with `fleet`; `fail` holds the keys whose write is refused. */
 function nativeFor(fail = new Set<string>(), calls: Obj[] = []): Native {
@@ -59,8 +63,8 @@ describe('settings scope across environments', () => {
     fleet.entries.set(B, entry(B, 'env-b', 'Studio', {}));
     fleet.entries.set(C, entry(C, 'env-c', 'Build box', {}, 'reconnecting'));
     const scope = resolveScope(as(client), '', '', '');
-    expect(scope.environmentChoices.map(choice => [choice.label, choice.mark, choice.offline])).toEqual([
-      ['All environments', '', false], ['Studio · http://127.0.0.1:16100', 'laptop', false], ['Studio · http://127.0.0.1:16101', 'server', false], ['Build box', 'server', true]]);
+    expect(scope.environmentChoices.map(choice => [choice.label, choice.secondary, choice.mark, choice.offline])).toEqual([
+      ['All environments', '', '', false], ['Studio', '127.0.0.1:16100', 'laptop', false], ['Studio', '127.0.0.1:16101', 'server', false], ['Build box', '127.0.0.1:16102', 'server', true]]);
     expect(scope.resolved.environmentIds).toEqual(['env-a', 'env-b', 'env-c']);
     expect(resolveScope(as(client), 'env-c', '', '')).toMatchObject({ kind: 'environment', connected: false, environmentLabel: 'Build box', connective: 'on', environmentIcon: 'server' });
     expect(scopeEnvironments(as(client)).map(environment => environment.connection.phase)).toEqual(['connected', 'connected', 'reconnecting']);
@@ -124,5 +128,97 @@ describe('settings scope across environments', () => {
     await applyCoreSetting(as(client), nativeFor(new Set(), calls), 'start-from-origin:||github.com/acme/app|', 'true');
     expect(client.writes).toEqual([{ patch: { projectSettingsOverrides: { pa: { newWorktreesStartFromOrigin: true } } } }]);
     expect(calls.filter(call => call.method === 'server.updateSettings').map(call => (call.payload as Obj).patch)).toEqual([{ projectSettingsOverrides: { 'p-env-b': { newWorktreesStartFromOrigin: true } } }]);
+  });
+});
+
+
+describe('eight-machine settings', () => {
+  test('the scope keeps offline choices and groups equal raw inheritance resolutions', () => {
+    const client = focused({ enableProviderUpdateChecks: true });
+    for (let index = 1; index < 8; index++) {
+      const id = `env-${index}`, key = `http://127.0.0.1:${16500 + index}\n${id}`;
+      fleet.entries.set(key, entry(key, id, 'Studio', { enableProviderUpdateChecks: index < 4 }, index === 7 ? 'reconnecting' : 'connected'));
+    }
+    const scope = resolveScope(as(client), '', '', '');
+    expect(scope.environmentChoices).toHaveLength(9);
+    expect(scope.environmentChoices.filter(choice => choice.offline).map(choice => choice.id)).toEqual(['env-7']);
+    const groups = inheritanceGroups(serverContext(as(client), scope, new Map()), 'enableProviderUpdateChecks');
+    expect(groups.map(group => [group.value, group.labels.length, group.folded, group.sameEverywhere])).toEqual([
+      ['On', 4, true, false], ['Off', 3, true, false]]);
+    fleet.entries.clear();
+    for (let index = 1; index < 8; index++) {
+      const id = `env-${index}`, key = `http://127.0.0.1:${16500 + index}\n${id}`;
+      fleet.entries.set(key, entry(key, id, 'Studio', { enableProviderUpdateChecks: true }));
+    }
+    const equal = inheritanceGroups(serverContext(as(client), resolveScope(as(client), '', '', ''), new Map()), 'enableProviderUpdateChecks');
+    expect(equal).toHaveLength(1);
+    expect(equal[0]).toMatchObject({ sameEverywhere: true, folded: false });
+    expect(equal[0]!.labels).toHaveLength(8);
+  });
+  test('resetting a folded override group keeps unrelated project overrides', async () => {
+    const client = focused({ newWorktreesStartFromOrigin: true, projectSettingsOverrides: { pa: { newWorktreesStartFromOrigin: false, defaultRuntimeMode: 'full-access' } } });
+    fleet.entries.set(B, entry(B, 'env-b', 'Studio', { newWorktreesStartFromOrigin: true, projectSettingsOverrides: { 'p-env-b': { newWorktreesStartFromOrigin: false } } }));
+    const scope = resolveScope(as(client), '', '', ''), context = serverContext(as(client), scope, new Map());
+    const group = inheritanceGroups(context, 'newWorktreesStartFromOrigin')[0]!;
+    expect(group.overrides.map(override => override.label)).toEqual(['App', 'App']);
+    const calls: Obj[] = [];
+    await applyCoreSetting(as(client), nativeFor(new Set(), calls), 'start-from-origin:clear-overrides|||', group.overrideTargets);
+    expect(client.writes).toEqual([{ patch: { projectSettingsOverrides: { pa: { defaultRuntimeMode: 'full-access' } } } }]);
+    expect(calls.map(call => call.payload)).toEqual([{ patch: { projectSettingsOverrides: { 'p-env-b': null } } }]);
+  });
+  test('host identity conflicts keep lists separate; checks address every selected transport', async () => {
+    const host = { id: 'h-a', label: 'Build host', target: 'builder' };
+    const client = focused({ deviceHosts: [host] });
+    Object.assign(client, { shell: initialShell(), restAccess: () => ({ request: async (method: string) => method === 'device.testHost' ? { kind: 'local' } : client.config.settings }) });
+    for (let index = 1; index < 8; index++) {
+      const id = `env-${index}`, key = `http://127.0.0.1:${16500 + index}\n${id}`;
+      fleet.entries.set(key, entry(key, id, 'Studio', { deviceHosts: [{ ...host, id: `host-${index}` }] }));
+    }
+    const native: Native = { available: true, watch() {}, async later(request) {
+      const call = request as Obj, environment = fleet.entries.get(String(call.fleet))!;
+      const value = call.method === 'device.testHost' ? { kind: 'local' } : environment.config.settings;
+      return { ok: true, generation: environment.generation, value };
+    } };
+    const scope = resolveScope(as(client), '', '', '');
+    const view = scopedDeviceHostsView(as(client), native, scope.selected, scope.environments, null, false);
+    expect(view.groups).toEqual([]);
+    expect(view.hosts).toHaveLength(1);
+    await deviceHostsCommand(as(client), native, 'hosts-test-row', { id: 'h-a' }, false);
+    expect(hostChecks(as(client))[0]!.results).toHaveLength(8);
+    expect(hostChecks(as(client))[0]!.summary).toBe('Connection checks passed');
+    expect(groupDeviceHosts([{ environmentId: 'a', label: 'A', hosts: [host] }, { environmentId: 'b', label: 'B', hosts: [{ ...host, target: 'other' }] }])).toBeNull();
+    const changed = fleet.entries.values().next().value!;
+    changed.config.settings = { deviceHosts: [{ ...host, label: 'Different label' }] };
+    expect(scopedDeviceHostsView(as(client), native, scope.selected, scope.environments, null, false).groups).toHaveLength(8);
+  });
+  test('archives join logical projects, preserve colliding thread ids and cache reads per machine', async () => {
+    const client = focused();
+    const snapshot = (projectId: string, index: number) => ({ snapshotSequence: 1, projects: [{ id: projectId, title: 'App' }], threads: [{ id: 'same-thread', projectId, title: `Thread ${index}`, createdAt: '2026-10-01T00:00:00Z', archivedAt: `2026-10-${String(index + 1).padStart(2, '0')}T00:00:00Z` }] });
+    let reads = 0;
+    Object.assign(client, { shell: initialShell(), restAccess: () => ({ read: async () => { reads++; return snapshot('pa', 0); } }) });
+    for (let index = 1; index < 8; index++) {
+      const id = `env-${index}`, key = `http://127.0.0.1:${16500 + index}\n${id}`;
+      fleet.entries.set(key, entry(key, id, 'Studio', {}));
+    }
+    const native: Native = { available: true, watch() {}, async later(request) {
+      reads++;
+      const environment = fleet.entries.get(String((request as Obj).fleet))!, index = Number(environment.environmentId.slice(4));
+      return { ok: true, generation: environment.generation, value: snapshot(`p-${environment.environmentId}`, index) };
+    } };
+    const view = await archivedSettings(as(client), native, '', '', true, Date.parse('2026-10-10T00:00:00Z'));
+    expect(view.error).toBe('');
+    expect(view.groups).toHaveLength(1);
+    expect(view.groups[0]!.threads.map(thread => thread.title)).toEqual(['Thread 7', 'Thread 6', 'Thread 5', 'Thread 4', 'Thread 3', 'Thread 2', 'Thread 1', 'Thread 0']);
+    expect(new Set(view.groups[0]!.threads.map(thread => thread.id)).size).toBe(8);
+    expect(view.groups[0]!.threads.every(thread => thread.description.includes('127.0.0.1:'))).toBe(true);
+    await archivedSettings(as(client), native, '', '', true, Date.parse('2026-10-11T00:00:00Z'));
+    expect(reads).toBe(8);
+  });
+  test('storage and scheduled status summaries collapse only matching outcomes', () => {
+    const reports = Array.from({ length: 8 }, (_, index) => ({ label: `Machine ${index}`, counts: '2 removed, 1 kept' }));
+    expect(lastRunSummary(reports, 8)).toBe('2 removed, 1 kept on every machine');
+    expect(lastRunSummary(reports.slice(0, 1), 8)).toBe('Machine 0: 2 removed, 1 kept');
+    const section = (id: string, state: string, tasks: never[] = []) => ({ id, label: id, secondary: '', kind: 'laptop', transport: '', heading: true, state, title: '', description: '', linkMissing: false, tasks });
+    expect(taskEnvironmentSummaries([section('Offline A', 'disconnected'), section('Offline B', 'disconnected'), section('Empty', 'ready')]).map(summary => summary.text)).toEqual(['Not connected: Offline A (Disconnected), Offline B (Disconnected)']);
   });
 });

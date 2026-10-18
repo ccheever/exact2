@@ -1,6 +1,6 @@
 // Settings → Connections: hosts too old for this client (upstream
 // 22e9d35613 compatibility.ts, onboarding.ts, outdatedHostUpdate.ts,
-// ServerUpdateAction.tsx OutdatedServerUpdateAction and ConnectionsSettings.tsx).
+// ServerUpdateAction.tsx OutdatedServerUpdateAction, its failure title as of 9c161462c9, and ConnectionsSettings.tsx).
 // A host whose orchestration protocol is older than this client's cannot open a
 // session. One that can update itself is still paired (saved switched off) and
 // its row offers Update (Retry update after a failure): the transport's
@@ -129,7 +129,7 @@ export async function announceJobs(native: Native, client: T3Client | null): Pro
       if (client) pushToast(client, { kind: 'success', title: `${server} updated`, description: `Reconnected on t3@${job.resultVersion || job.targetVersion}.` });
       await native.later({ op: 'fleetOutdatedAck', fleet: key }).catch(() => {});
     } else if (job.status === 'failed' && client) {
-      pushToast(client, { kind: 'error', title: 'Server update failed', description: job.message || 'Server update failed.', stacked: true });
+      pushToast(client, { kind: 'error', title: `${server} update failed`, description: job.message || 'Server update failed.', stacked: true });
     }
   }
 }
