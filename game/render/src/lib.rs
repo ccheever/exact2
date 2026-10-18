@@ -42,6 +42,8 @@ mod ssao;
 mod surface;
 mod timing;
 mod trace;
+#[cfg(test)]
+mod translucent_tests;
 pub mod world;
 
 /// Simulation vocabulary, also used by module! without a direct dependency.

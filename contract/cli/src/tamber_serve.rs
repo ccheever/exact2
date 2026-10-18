@@ -69,7 +69,7 @@ mod scrub;
 mod walk;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.11";
+pub const PROTOCOL: &str = "tamber/1.12";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -1034,7 +1034,10 @@ impl Server {
             .iter()
             .filter(|(p, _, d)| {
                 (ops.iter().any(|(f, _)| f == p) || contract_ops.iter().any(|(f, _)| f == p))
-                    && match seen.get(p) {
+                    // A held proposal's base gives a file it planned on
+                    // and left as it was (a style op with no `file` that
+                    // changed nothing there) in `requires`: as seen.
+                    && match seen.get(p).or_else(|| requires.get(p)) {
                         Some(s) => s != d,
                         None => write,
                     }

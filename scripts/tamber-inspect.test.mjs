@@ -93,7 +93,19 @@ test('an `:active` row lowered to the press paint is joined at its part, read-on
     expect(sitesAt(map, part)).toEqual([0]);
     // What is held (LLP 1122 D8): an `:active` row at its part, named by its state.
     const held = join({ id: 'web-1' }, { ...selected, held: { state: 'active', rows: [{ name: 'press_background_color', value: '#00f' }, { name: 'press_scale', value: '0.95' }] } }, map);
-    expect(held.held.rows.map(r => [r.name, r.state, r.source?.line])).toEqual([['press_background_color', 'active', 9], ['press_scale', 'active', 7]]);
+    // (Named as its author wrote it, under its part: theme2's 16:13 (2); the press row beside it.)
+    expect(held.held.rows.map(r => [r.name, r.row, r.state, r.source?.line])).toEqual([['background-color', 'press_background_color', 'active', 9], ['press_scale', undefined, 'active', 7]]);
+    // Named on a node inside the press (stage 9 E): joined at the press's own site, its rows' tokens kept.
+    const inner = { ...map, nodes: [...map.nodes, { file: app, line: 12, col: 7, end_col: 11, component: 'App', chain: [], bindings: [] }] };
+    const label = { node: 2, site: 1, instance: [], rows: [], held: { state: 'active', node: 1, site: 0, instance: [], rows: [{ name: 'press_background_color', value: '#00f', token: { names: ['accent.soft'], text: 'accent.soft', modes: '', implied: false } }] } };
+    const named = join({ id: 'web-1' }, label, inner);
+    expect(named.held.rows.map(r => [r.name, r.row, r.source?.line, r.token?.names])).toEqual([['background-color', 'press_background_color', 9, ['accent.soft']]]);
+    expect(named.source.line).toBe(12);
+    // The held node's own file is checked too: one moved since makes the selection read-only.
+    const style = joinPath(dir, 'style.contract');
+    writeFileSync(style, 'style now');
+    const split = { ...inner, sources: [...inner.sources, { file: style, sha256: sha('style then') }], nodes: [{ ...inner.nodes[0], file: style }, inner.nodes[1]] };
+    expect(join({ id: 'web-1' }, label, split).readOnly).toContain('style.contract');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -257,4 +269,34 @@ test('a map pulled from the resident loop is kept only when it matches the card 
     expect(mapCard(JSON.stringify({ plan, map: null }))).toEqual({ plan, map: null });
     expect(mapCard('source map nope')).toBe(null);
   } finally { server.stop(true); }
+});
+
+test('an own or class row carries the attribute it came from, with that file\'s digest (set-row\'s address, tamber/1.12)', () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-'));
+  try {
+    const app = joinPath(dir, 'app.contract'), style = joinPath(dir, 'card.contract');
+    writeFileSync(app, 'app'); writeFileSync(style, 'card');
+    const at = (file, line, col) => ({ file, line, col, end_col: col + 7 });
+    const map = { digest: 'p1', sources: [{ file: app, sha256: sha('app') }, { file: style, sha256: sha('card') }], nodes: [
+      { file: app, line: 3, col: 5, end_col: 11, component: 'App', chain: [], bindings: [
+        { row: 'padding_top', origin: 'own', at: at(app, 3, 12), attr: 'padding' },
+        { row: 'background_color', origin: 'class:Raised', at: at(style, 2, 3), attr: 'background-color' },
+        { row: 'display', origin: 'tag' },
+      ] },
+    ] };
+    const selected = { node: 1, site: 0, instance: [], tuple: {}, rows: [
+      { name: 'padding_top', value: 4, source: 'authored' },
+      { name: 'background_color', value: '#fff', source: 'authored' },
+      { name: 'display', value: 'flex', source: 'authored' },
+    ] };
+    const rows = join({ id: 'web-1' }, selected, map).rows;
+    expect(rows[0]).toMatchObject({ at: { ...at(app, 3, 12), sha256: sha('app') }, attr: 'padding' });
+    expect(rows[0].state).toBeUndefined();
+    expect(rows[1]).toMatchObject({ at: { ...at(style, 2, 3), sha256: sha('card') }, attr: 'background-color' });
+    expect(rows[2].at).toBeUndefined();
+    // An attribute's place is no node's: the sites at it are none.
+    expect(sitesAt(map, at(app, 3, 12))).toEqual([]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

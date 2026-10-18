@@ -1121,9 +1121,12 @@ impl<D: DataSource> Runner<D> {
         };
         self.store.take_topics();
         self.snapshot_sockets();
-        let parsed = self
-            .data
-            .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
+        let parsed = if Self::activity_send(&p.source) {
+            Self::activity_reply(&self.plan, ty, outcome)
+        } else {
+            self.data
+                .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome)
+        };
         // Only a socket's mapper answering a frame stages for this commit
         // (LLP 1016.000 D7); a turn of an answer sends whatever it answered
         // (the amendment of 2026-10-18).

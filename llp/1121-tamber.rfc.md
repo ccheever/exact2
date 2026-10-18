@@ -3771,3 +3771,80 @@ its bezel drawing its own ground). The protocol's tamber/1.11 window closes with
 next wire change takes tamber/1.12.
 
 **Stage 8 is closed.**
+
+### Stage 9, commit D1: the map says where a row is written (draft for theme2)
+
+`set-row`'s address (LLP 1122 D6) is the attribute's place and its file's digest, never a plan
+digest. The map carried each source's `sha256` and a state part's row's place; now every row an
+author wrote says where.
+- **The compiler** (`contract-lower`'s `Origin`): `Own` and `Class` carry the attribute the row
+  came from (`Written {span, name}`), its name as written, so an expansion names its shorthand. A
+  row the compiler derived, a tag's row, an implied one, a conditional class's (`class=(c ? A :
+  B)`) and a folded `:disabled` or `:checked` row carry none. A written row's origin is its place's
+  (a class's row is one of its style's attributes), so a rewrite that moves rows (a class's
+  animation composed, a grouped list's rows inserted) moves none across its origin. The map gives
+  the address only where the source as compiled (kept with its digest) says that name at that
+  place, so a row the compiler composed or renamed (an animation's longhands, a symbol's tint, a
+  grouped field's `flex` made `flex-grow`) says nowhere (fail closed, recorded).
+- **The map** (`map.rs`): such a binding gives `at` (the attribute's place, in the style's own file
+  for a class's row) and `attr`, its name as written. The map is not the plan: no format digest
+  moves.
+- **The selection join** (`scripts/tamber-inspect.mjs`): each such row carries `at` with that
+  file's `sha256` as compiled, and `attr`. A state part's row keeps its `state` and `at` as before,
+  and only a state part's place counts as a node's in `sitesAt`. *tamber/1.12* opens here.
+- **Tests:** `source_map.rs` (an own row, an expansion, a class's row in another file, a tag's row
+  saying nowhere); `tamber-inspect.test.mjs` (the join's `at`, `sha256` and `attr`; an attribute's
+  place is no node's site).
+
+### Stage 9, commit E: held rows name their tokens (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s9e-plan.md`; theme2's 16:13 ruling and its conditions), under `tamber/1.12`.
+
+- **The runner** (`runner/src/agent.rs` `node`): the answer gains `looks {hover?, focus_visible?}`, each look row as a style row is, its value and the token it read (`Runner::look_token`, from the theme index's look rows under the node's tuple). So every host reads a look's rows, and their tokens, from one place.
+- **The held answer, every host**: `held {state, node, site, instance, rows: [{name, value, token?}]}`, the node being the one the state is held on (the press it resolved to, named on a node inside it). Rows: `active` the node's own D7 rows from the runner's answer; a look's from its `looks`.
+  - The wasm page: `heldOf(el, ask)` reads the runner (no more CSS text, `computed` or `provenance`).
+  - The JS target (no runner): the page's CSS, a varying token named by modes.js; `provenance: "incomplete"` only for a value it can't name (16:13 (b)).
+  - Apple and Linux: their runner's `node` answer (Apple's batch conversion stays only for a presenter with no session).
+- **The server's join** places held rows at the held node's site (its map node and bindings), and names an `:active` row as its author wrote it under the part (`background-color`), the press row it lowered to as `row` (16:13 (2)).
+- **Docs:** the protocol's `tamber/1.12` bullet and the selection's `held`. QUEUE's two entries (held token names and the press's site; Apple's non-colour look rows) are closed.
+- **Tests:** `state_looks.rs` (a node's layout says its looks' rows and tokens: a token row, a literal row, only the states it has); `hold.test.mjs` (the runner's rows and tokens for a held press named on its label, and for a held hover); `HeldStateTests` (a held hover's rows name their tokens on the Mac; a press named inside names the press's node and site); `held_tests.rs` (the held answer's node and site); `tamber-inspect.test.mjs` (a held press named inside joins at the press's site, named as written, tokens kept).
+
+- **After review round 1 (Astra, Grok):**
+  - A look's clear (`unset`) is said in the runner's `looks` (`{"value": "unset"}`), not dropped.
+  - The JS target: a link's empty `data-view` marker names no node 0 (the runtime's id is the agent's and the selection's); the held node's instance path comes from the inspect table where the page has one (`exact.instanceOf`); `provenance: "incomplete"` only for a token reference (`var(--x-…)`) modes.js can't name, never for a literal pair or a host's own property.
+  - The join checks the held node's own files (its file, chain and parts) for freshness, as the selected node's.
+  - Tests: the clear said; a JS link's held node; the held node's moved file read-only; Linux's held answer names the card from the child's layout too.
+- **After review round 2 (Astra, Grok):**
+  - (At landing: `tamber/1.12` was opened on main by D1 and rt1's held revision; E's items joined that one bullet, theme2's 18:44.)
+  - The JS target names a role's override too (`var(--exact-canvas-text)` is `CanvasText`, modes.js's table), a host's own property still none.
+  - A site the inspect table lacks gives the held answer no instance path (not the root's `[]`).
+  - Tests: the runtime's id names a JS link; a role override named; `cargo fmt` over the new tests.
+- **After review round 3 (Astra RIGHT WITH CHANGES, Grok RIGHT):** the JS target checks each token reference on its own, so a role it names beside a token it can't name still leaves the answer `provenance: "incomplete"` (a test with both).
+
+### Stage 9, commit D2: `set-row` (draft for theme2)
+
+LLP 1122 D6's checked edit of one Contract row (`contract/cli/src/tamber_rows.rs`), on stage 8 D's
+`.contract` ownership.
+- **At a place:** `set-row {file, at {line, col}, sha256, row, state?, value}`, the
+  selection's row's `at`, `attr` and digest from D1's join. The file must be the one the tool saw
+  (its digest), the attribute there the one named (`row` is the attribute's name as written; with
+  `state`, a node's own state part's row, which `set-state` refuses), and a paint row written as one
+  value (a string, a token's or param's name as one, `"param.fill"`, or a number). Only the value is spliced; several places in one
+  file go together, from the last up, before the transaction's other writes to it.
+- **On a style:** `set-row {style, row, state?, value, file?}` edits a row the style writes (the
+  last that writes it, as lowering keeps), in its
+  own file (`file` named where two files declare it); with `state` it is `set-state`.
+- **Refused, each saying why and where instead:** a stale digest; another attribute at the place
+  (select again) or none (a tag's or derived row: write the row on the node); a longhand of a
+  shorthand written there (the shorthand and its current text named, so the tool composes the new
+  value); a layout row (D14) or a prop; a value written as an expression; a style row the style
+  doesn't write. Then `contract fmt`, the whole app compiled in memory (a failing candidate writes
+  nothing), the journal; the class is `rebuild`, and the inverse restores the preimage byte for
+  byte.
+- **Tests** (`tamber_serve_rows.rs`): one line in a formatted file and undo; a node's own `:active`
+  row; an unformatted file restored exactly; a stale digest and a failing candidate writing
+  nothing; each refusal; a class's row in its style's own file with two files declaring it.
+- **History:** a style's own row joins `history` and `revert` by (style, row), its value put back
+  with `set-row`; a row the commit added or removed is refused. A node's own attribute stays code:
+  it has no key across versions (QUEUE; theme2 17:18).
+

@@ -626,6 +626,14 @@ screen, 2026-10-16.)
 
 ## Actions
 
+- **A send reads a derive from before the action's writes.** An action's writes
+  commit together; reading a derive after assigning one of its inputs still reads
+  the previous commit's derive. Build the next record explicitly for the send,
+  for example `DepartureState(current, at=current.at + 600000, status="Delayed")`,
+  and assign local state in the same action. Caltrain's activity update sent
+  "On time" after incrementing its delay until it built that next record
+  (`apps/caltrain/app.contract`, LLP 1126.001 WP9).
+
 - **A name refused as reserved.** `none`, `some`, `true`, `false` and the expression
   words (`if`, `for`, `match`, `and`, …) cannot name a state, a parameter or a `let`
   (`syntax-expected-name`); nor can `length` name a function or action in a file
@@ -1412,6 +1420,28 @@ screen, 2026-10-16.)
 
 ## Games
 
+- **A socket follower's local pose is `SocketFollow::offset`.** Its `Transform`
+  is the fallback when the socket cannot resolve; rotating that fallback does not
+  rotate a resolved attachment. Use `SocketFollow.offset.rotation` for the local
+  rotation on a working socket.
+- **Entity verbs require an entity handle.** Use `World::get_mut`, `require_mut` or
+  `nearest_xz_mut`. Consuming query rows and resource guards have no entity identity;
+  their verbs report `entity-handle-required`. Borrowed query iteration yields plain
+  references, which do not expose these verbs.
+- **Append new `Data` enum variants when existing values must keep their hashes.**
+  Saves name variants, but the simulation hash includes their declaration ordinals.
+  Keep existing ordinals, including `Mesh::Asset` at five, to preserve model-world
+  pins when adding primitives.
+- **A handle's `tint` and `offset` change simulation state.** They write the entity's
+  `Material` and local `Transform`; they save and hash. For a cosmetic flash or bob,
+  derive `Tint` or `Offset` in `Game::present` instead. `glow_to` retargets the saved
+  `Glow`; keep authored material emission constant or the intensity is applied twice.
+  [Game pickup recipe](../game/recipes/pickup.md).
+- **Builder hex colours are sRGB; `Material::rgb` is linear.**
+  `prop(...).color("#808080")` converts the channels to about 0.216, not 0.502.
+  [Literal builders](../game/recipes/literal-builders.md) and the builder hash test
+  use the same conversion as the CSS colour library.
+
 - **Older saves refuse to restore after adding a generated model.** `restore` names it:
   ``asset `…` identity is missing``. Cause: a model registered with `w.generated_model`
   at setup is part of every later save's identity (`game/engine/README.md`, "Saves and
@@ -1419,6 +1449,14 @@ screen, 2026-10-16.)
   appearance belongs in the bake, under `art/` (`Game::STREAMED` if setup need not wait
   for it): a delivered model carries no save identity. (Skirmish's art trials, LLP
   1046.012 F5, 2026-10-07.)
+
+- **`exact setup` keeps reporting `MISSING wasm-bindgen` after installing it, and `test web`
+  fails with "wasm-bindgen not on PATH".** Cause: setup installs it with `cargo install`,
+  whose binaries land in `~/.cargo/bin`, and then looks for it on PATH; a rustup from
+  Homebrew puts only `/opt/homebrew/opt/rustup/bin` there, so the install succeeds and the
+  check never sees it. Fix: put `~/.cargo/bin` on PATH (`.zprofile`), or symlink
+  `~/.cargo/bin/wasm-bindgen` beside `cargo`. **Candidate diagnostic:** setup could check
+  `~/.cargo/bin` and say the PATH is the problem. (Fishslop bench setup, 2026-10-17.)
 
 ## Access hatches
 

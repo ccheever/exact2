@@ -29,6 +29,12 @@ impl<D: DataSource> Runner<D> {
         let resource = self.plan.str(row.name).to_string();
         // Delivery is the runner's own (LLP 1030 D7): the data seam never
         // sees it, and a data crate could not answer it if it did.
+        if source == "exactActivities" {
+            return self
+                .activities_answer(i)
+                .map(Answer::Now)
+                .map_err(|error| RunnerError::Data { resource, error });
+        }
         if source == crate::delivery::SOURCE {
             return self
                 .delivery_answer(i)

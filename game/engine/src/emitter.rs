@@ -86,6 +86,7 @@ impl Clone for EmitterState {
 }
 
 /// A texture-free particle emitter. Add Ambient to exclude it from clock settling.
+/// The engine steps it after each tick; emitter::step chooses an earlier order.
 #[derive(Debug, Component)]
 pub struct Emitter {
     /// Local spawn volume.

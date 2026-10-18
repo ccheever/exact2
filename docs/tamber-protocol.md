@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.11`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.12`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.11"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.12"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -72,6 +72,16 @@ on macOS and Linux.
   `hold`/`held` in its listing, a `selection`'s `held` rows, and a lowered `:active` row's `state`
   and `at` in the map; LLP 1122 T3 added the selection's param rung. The window's later additive
   changes (stage 8) add under the same version.
+- `tamber/1.12` (LLP 1121 stage 9, commit D1) added `set-row`'s address to the selection join:
+  a row its author wrote carries `at`, the attribute's place, with the file's `sha256` as
+  compiled, and `attr`, its name as written (a shorthand's for an expansion); real-time scrubs
+  added the long poll's held revision (`held` on each answer, and `held` on the request to leave
+  out an unchanged `proposals`); stage 9 E added the held state's names: a selection's `held` and
+  `layout`'s held answer name the node the state is held on (`node`, `site`, `instance`: the press
+  a hold named on a node inside it resolved to), each row its `token` (the runner's, as a style
+  row's), and the join names an `:active` row as its author wrote it (`background-color`, with the
+  press row it lowered to as `row`). Stage 9's later wire changes add under the same version: D2's
+  `set-row`.
 
 ## Where it runs
 
@@ -326,12 +336,13 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
 | `set-param` (*1.10*) | `name`, `when?: [{axis, value}]`, `value` | the app's value of a component's param (LLP 1121 D15): its line in the design's `params` block, or one `when` line of it |
 | `unset-param` (*1.10*) | `name`, `when?` | removes the param's line (the component's default applies again), or one `when` line |
 | `set-state` | `style`, `state` (`active`, `hover`, `focus-visible`, `disabled`, `checked`, a `:` allowed), `row`, `value` (a string, written as a Contract string, or a number), `file?` | a row of a `style`'s state part in a `.contract` file (*1.11*, stage 8 D): the block and the row made if not there; `rebuild`, no scrub |
+| `set-row` | at a place: `file`, `at` `{line, col}` (1-based; `col` a UTF-8 byte column, as the map gives it), `sha256`, `row`, `state?`; or on a style: `style`, `row`, `state?`, `file?`; and `value` (a string, written as a Contract string: a token's or param's name too, `"param.fill"`; or a number) | one row of the app's own Contract, its value replaced where its author wrote it (*1.12*, stage 9 D2; LLP 1122 D6): at a place, the attribute the selection's row names (its `at`, `attr` and the file's `sha256` from the join), refused when the file moved, the attribute there is another, it is a layout row (D14), a prop, or written as an expression, or the row is a longhand of a shorthand written there (the shorthand and its text named: `set-row` edits the shorthand whole); on a style, a row it writes (a state part's is `set-state`'s); `rebuild`, no scrub |
 | `unset-state` | `style`, `state`, `row`, `file?` | that row removed, and its block when it empties |
 
 - **Values are source text**, as the file writes them: `"light-dark(#fff, #000)"`, `"accent"`,
   `"oklch(from accent calc(l + 0.1) c h)"`.
-- **A `.contract` write** (`set-state`, `unset-state`) finds its `style` in the app's own Contract
-  sources when it names no `file` (refused where none or two declare it, naming them), goes
+- **A `.contract` write** (`set-state`, `unset-state`, `set-row`) finds its `style` in the app's
+  own Contract sources when it names no `file` (refused where none or two declare it, naming them), goes
   through `contract fmt`, and is refused, writing nothing, unless the whole app then builds (the
   build's diagnostics answer it). Its inverse restores the file's bytes as they were, an
   unformatted file's included.
@@ -339,8 +350,8 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   every other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
   A `.contract` write is laid out whole by `contract fmt` (above): one line only in a file
   already formatted, and in one that isn't, its other lines laid out too.
-- **A state part written under a node** is `set-row`'s (LLP 1122 T5): a `set-state` naming a
-  `node` is refused, pointing there. A row written over more than one line is the author's to
+- **A state part written under a node** is `set-row`'s (*1.12*, LLP 1122 T5): a `set-state`
+  naming a `node` is refused, pointing there; `set-row` at the row's place, with `state`, edits it. A row written over more than one line is the author's to
   edit, and refused.
 - **The limits are the checker's:**
   - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
@@ -361,9 +372,11 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
   token's is, `rebuild` for a duration or easing param (a motion param is written into its rows at
   build, wherever its component is used), and a live one can be scrubbed. A token's rename renames
   the `params` values naming it.
-- **Not yet built:**
-  - `set-row` (LLP 1122 T5);
-  - `preview` as an operation (it is a request instead: see the build channel).
+- **`set-row`'s places** (*1.12*): several in one file are spliced together into the file as the
+  tool saw it, from the last up, before the transaction's other writes to it, then laid out once.
+  Every refusal says why and where to edit instead (the source, the node, a param's or token's
+  rung).
+- **Not yet built:** `preview` as an operation (it is a request instead: see the build channel).
 
 ### `propose`
 
@@ -574,7 +587,11 @@ with.
 **`drop`** `{proposal, client}` forgets one, and answers `{dropped: id}`.
 
 **The open list** rides `subscribed` and every long poll's answer, as `proposals`, each as the
-`proposal` event shows it.
+`proposal` event shows it, except a long poll that names the list's current revision (below). A
+long poll's answer also carries the list's revision, `held` (*1.12*),
+which moves whenever a proposal is held, dropped, accepted, expires or is recomputed. A long poll
+that sends `held` with the revision it has (and this run's `epoch`) gets no `proposals` while the
+list is unchanged: it keeps its own.
 
 ### `history` (*1.1*, LLP 1122 D9)
 
@@ -587,7 +604,7 @@ with.
   - each file is `{file, status, diff, edits, refused?}`, and a rename shows as a deletion plus an
     addition.
 - **Each edit** is `{what, name, when: [{axis, value}], before, after}`:
-  - `what` is `token`, `dial`, `axis`, `other`, or `state` (a `.contract` file's, below);
+  - `what` is `token`, `dial`, `axis`, `other`, `state` or `row` (a `.contract` file's, below);
   - `before` and `after` are source text, or null;
   - they come from comparing the two versions' parsed declarations, so a version the checker
     would refuse still gives edits.
@@ -597,8 +614,12 @@ with.
   state parts are the design's. A `.contract` file's edits are its styles' state rows, each
   `{what: "state", name: <style>, state, row, when: [], before, after}`, the values as Contract
   writes them (`"#000000"` quoted, `0.5`); a block whose border colours change order is one
-  edit with `row` `border-*-color order`. The file says `code: true` where the commit changed
-  its other lines too. A `.contract` change with no state row is the app's code, not the
+  edit with `row` `border-*-color order`. A style's own row (*1.12*, stage 9 D2's `set-row` on a
+  style) is `{what: "row", name: <style>, row, when: [], before, after}`: a paint row alone on its
+  line, its value on that line; a layout row, a part's, one sharing its line, and the order of a
+  style's own rows are code. A node's own attribute (`set-row` at a place) has no key a node keeps
+  across versions and stays code. The file says `code: true` where the commit changed its other
+  lines too. A `.contract` change with no state row or style row is the app's code, not the
   design's: it is left out, and a commit with nothing else is not listed (so a page may hold
   fewer than `limit`). History reads the Contract sources the server has now; a revert reads
   every one in the app outside `node_modules`, and refuses by name one the app no longer reads.
@@ -609,7 +630,8 @@ with.
 - **Planned on today's files** as operations, never a byte restore. Its `review.revert` is
   `{commit, subject, moved, already, code?, only?}`. `moved` lists the files whose bytes differ
   from the commit's result. A `.contract` file's state rows are set back with `set-state` or
-  `unset-state`; its other lines are left as they are, and `code` lists the files where the
+  `unset-state`, and a style's own row's value with `set-row` (*1.12*: one the commit added or
+  removed is refused, `set-row` adding or taking away none); its other lines are left as they are, and `code` lists the files where the
   commit changed some (*1.11*).
 - **Refused (409)** with `refused: [{file, edit, now, why}]` when an edit can't be inverted:
   - the file has moved on it since;
@@ -762,8 +784,8 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
   builds}`, then sends one `data:` line per later event. It replays nothing kept. Catching up is
   the long poll's job. Its body may be `{client}` (*1.2*), which makes that client present while
   it is open (see the build channel's ownership).
-- **`POST /__tamber/events`** `{after, epoch?, wait?, client?}` answers `{events, seq, epoch, missed, files,
-  proposals}`:
+- **`POST /__tamber/events`** `{after, epoch?, wait?, client?, held?}` answers `{events, seq, epoch, missed,
+  files, held, proposals?}` (`proposals` left out when `held` names the current revision, *1.12*):
   - with the events after `after`, once there is one, or after 25 s with none;
   - at once with `wait: false` (*1.1*), for a client's first ask.
 - **`missed`.** These are answered `missed: true`, with no events and the current `files`, and the
@@ -1016,9 +1038,19 @@ The tool drives no input into an app; a command changes only what `prefer` would
   expression, a boundary, or an expression over tokens links its token, never this node's edit;
   a style's or the tag's row comes with template editing, T5). A row an `:active` part lowered to
   the press paint (*1.11*) carries `state` and `at`, its part's place, and its edit is `set-state`'s
-  unless it is one token. A selection made while a state is held carries `held` `{state, rows}`
-  (*1.11*): the rows that state shows (`active`: the press paint's; a look's otherwise), each with
-  `state` and `source` (an `:active` row's part's place, a look's row its node's). Each file the join reads is
+  unless it is one token. A row its author wrote on the node or in its class's `style` (*1.12*)
+  carries `at` `{file, line, col, end_col, sha256}`, the attribute's place and that file's digest
+  as compiled (`set-row`'s address, LLP 1122 D6), and `attr`, the attribute's name as written:
+  `padding` for `padding_top`. A tag's row, one the compiler derived, a conditional class's, a
+  folded `:disabled` or `:checked` row, and one the compiler composed or renamed (an animation's
+  longhands, a symbol's tint, a grouped field's `flex` made `flex-grow`) carry neither. A selection made while a state is held carries `held` `{state, node?, site?, instance?, rows}`
+  (*1.11*; `node`, `site`, `instance` and a row's `token` *1.12*): the node the state is held on
+  (the press it resolved to, named on a node inside it) and the rows that state shows (`active`:
+  the press paint's; a look's otherwise), each with its value, the token it read, `state` and
+  `source` (an `:active` row's part's place, a look's row its node's), joined at the held node's
+  site. An `:active` row is named as its author wrote it under the part (`background-color`), the
+  press row it lowered to beside it (`row`, *1.12*). A host that cannot name a row's token says
+  `provenance: "incomplete"`. Each file the join reads is
   checked against the digest the map says it was compiled from (`sources`): one that moved since
   makes the selection `readOnly`, with its reason, and every row read-only. The app's design file
   likewise (the one the server serves, which the map must name), unless the build runs the
@@ -1093,5 +1125,4 @@ The tool drives no input into an app; a command changes only what `prefer` would
   `selected` report carries the value it resolved.
 - **Later stages:**
   - component params (stage 7) and state parts (stage 8);
-  - `set-row` (LLP 1122 T5);
   - pairing and remote clients (stage 10).

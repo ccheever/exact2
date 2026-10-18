@@ -373,35 +373,34 @@ impl<D: DataSource> Presenter<D> {
         let Some(held) = held.filter(|_| layout.ends_with("}}")) else {
             return layout;
         };
-        let Some(n) = self.host.kernel().node(held.view) else {
-            return layout;
+        // The runner's `node` answer for the node it is held on: its own D7 rows (`:active` lowered to them) or its
+        // look's, each with the token it read (stage 9 E), and its site and instance path.
+        let id = held.view;
+        let answer: Value = serde_json::from_str(
+            &self
+                .host
+                .agent(&format!(r#"{{"op":"node","id":{id},"plan":true}}"#)),
+        )
+        .unwrap_or_default();
+        let own = match held.state {
+            HoldState::Active => &answer["style"],
+            HoldState::Hover => &answer["looks"]["hover"],
+            HoldState::FocusVisible => &answer["looks"]["focus_visible"],
         };
-        let value = |row: exact_kernel::StyleId, style: &exact_kernel::StyleProps| {
-            let mut out = String::new();
-            exact_runner::agent::row_json(row, style.get(row), &mut out);
-            json!({"name": row.name(), "value": serde_json::from_str::<Value>(&out).unwrap_or_default()})
-        };
-        let rows: Vec<Value> = match held.state {
-            HoldState::Active => (PRESS_ROWS.iter())
-                .filter(|row| n.style.mask.has(**row))
-                .map(|row| value(*row, n.style))
-                .collect(),
-            state => {
-                let look = match state {
-                    HoldState::Hover => exact_kernel::LOOK_HOVER,
-                    _ => exact_kernel::LOOK_FOCUS_VISIBLE,
-                };
-                let looks = n.looks().iter().filter(|(s, _)| *s == look);
-                looks
-                    .flat_map(|(_, l)| {
-                        (exact_kernel::StyleId::ALL.into_iter())
-                            .filter(|row| l.mask.union(l.written).has(*row))
-                            .map(|row| value(row, l))
-                    })
-                    .collect()
-            }
-        };
-        let held = json!({"state": held.state.name(), "rows": rows});
+        let rows: Vec<Value> = (own.as_object().into_iter().flatten())
+            .filter(|(name, _)| {
+                held.state != HoldState::Active
+                    || PRESS_ROWS.iter().any(|r| r.name() == name.as_str())
+            })
+            .map(|(name, row)| {
+                let mut out = json!({"name": name, "value": row["value"]});
+                if let Some(token) = row.get("token") {
+                    out["token"] = token.clone();
+                }
+                out
+            })
+            .collect();
+        let held = json!({"state": held.state.name(), "node": id, "site": answer["site"], "instance": answer.get("instance").cloned().unwrap_or(json!([])), "rows": rows});
         layout.truncate(layout.len() - 2);
         layout.push_str(&format!(",\"held\":{held}}}}}"));
         layout

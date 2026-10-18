@@ -28,12 +28,23 @@ pub(crate) enum ContractOp {
         state: String,
         row: String,
     },
+    /// `set-row` at an attribute's place (LLP 1122 D6): its file is named.
+    SetRowAt(crate::tamber_rows::AtRow),
+    /// `set-row` on a `style`'s own row (a state part's is `SetState`).
+    SetStyleRow {
+        style: String,
+        row: String,
+        value: String,
+    },
 }
 
 impl ContractOp {
     fn style(&self) -> &str {
         match self {
-            ContractOp::SetState { style, .. } | ContractOp::UnsetState { style, .. } => style,
+            ContractOp::SetState { style, .. }
+            | ContractOp::UnsetState { style, .. }
+            | ContractOp::SetStyleRow { style, .. } => style,
+            ContractOp::SetRowAt(_) => "",
         }
     }
 }
@@ -128,15 +139,12 @@ pub(crate) fn split(ops: &Value) -> Result<(Value, Vec<Named>), Value> {
             );
         }
         let op = match v["op"].as_str() {
+            Some("set-row") => set_row(v)?,
             Some("set-state") => ContractOp::SetState {
                 style: required(v, "style")?,
                 state: state(v)?,
                 row: required(v, "row")?,
-                value: match &v["value"] {
-                    Value::Number(n) => n.to_string(),
-                    Value::String(s) => string_literal(s),
-                    _ => return Err(json!({"message": "`value` is a string or a number"})),
-                },
+                value: value(v)?,
             },
             Some("unset-state") => ContractOp::UnsetState {
                 style: required(v, "style")?,
@@ -151,6 +159,65 @@ pub(crate) fn split(ops: &Value) -> Result<(Value, Vec<Named>), Value> {
         out.push((optional(v, "file")?, op));
     }
     Ok((Value::Array(rest), out))
+}
+
+/// A write's value as Contract writes it: a string (written as a string
+/// literal: a token's or param's name too, `"param.fill"`) or a number.
+fn value(v: &Value) -> Result<String, Value> {
+    match &v["value"] {
+        Value::Number(n) => Ok(n.to_string()),
+        Value::String(s) => Ok(string_literal(s)),
+        _ => Err(json!({"message": "`value` is a string or a number"})),
+    }
+}
+
+/// `set-row`: at an attribute's place (`file`, `at`, `sha256`) or on a
+/// `style` (a state part's row there is `set-state`'s edit).
+fn set_row(v: &Value) -> Result<ContractOp, Value> {
+    let row = required(v, "row")?;
+    let state = match v.get("state") {
+        Some(_) => Some(state(v)?),
+        None => None,
+    };
+    let value = value(v)?;
+    if let Some(style) = optional(v, "style")? {
+        if v.get("at").is_some() {
+            return Err(
+                json!({"message": "`set-row` names a place (`at`) or a `style`, not both"}),
+            );
+        }
+        return Ok(match state {
+            Some(state) => ContractOp::SetState {
+                style,
+                state,
+                row,
+                value,
+            },
+            None => ContractOp::SetStyleRow { style, row, value },
+        });
+    }
+    let at = &v["at"];
+    let place = |k: &str| {
+        at[k]
+            .as_u64()
+            .filter(|&n| n >= 1 && n <= u64::from(u32::MAX))
+    };
+    let (Some(line), Some(col)) = (place("line"), place("col")) else {
+        return Err(
+            json!({"message": "`set-row` names `at` {line, col} (the selection's row) or a `style`"}),
+        );
+    };
+    if optional(v, "file")?.is_none() {
+        return Err(json!({"message": "`set-row` at a place names its `file`"}));
+    }
+    Ok(ContractOp::SetRowAt(crate::tamber_rows::AtRow {
+        line: line as u32,
+        col: col as u32,
+        sha256: required(v, "sha256")?,
+        row,
+        state,
+        value,
+    }))
 }
 
 /// `s` as a Contract string literal, in the escapes its lexer takes
@@ -239,7 +306,7 @@ pub(crate) fn restore(text: &str, op: &Op) -> Result<String, String> {
 
 /// How many parentheses `text` leaves open, outside its strings and
 /// before a `//` comment.
-fn depth(text: &str) -> usize {
+pub(crate) fn depth(text: &str) -> usize {
     let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
@@ -264,7 +331,20 @@ fn indent(line: &str) -> usize {
 }
 
 /// `op` applied to `text`, the file that declares its style, then formatted.
-pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
+pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, crate::tamber_rows::Refusal> {
+    let fmt = |out: String| contract_syntax::fmt::format(&out).map_err(|e| e.message.into());
+    match op {
+        ContractOp::SetStyleRow { style, row, value } => {
+            return fmt(crate::tamber_rows::style_row(text, style, row, value)?);
+        }
+        ContractOp::SetRowAt(r) => return fmt(crate::tamber_rows::splice(text, &[r])?),
+        ContractOp::SetState { .. } | ContractOp::UnsetState { .. } => {}
+    }
+    Ok(state_edit(text, op)?)
+}
+
+/// A `style`'s state part's row set or unset (`set-state`, `unset-state`).
+fn state_edit(text: &str, op: &ContractOp) -> Result<String, String> {
     let file = contract_syntax::parse(text).map_err(|e| e.message)?;
     let style = file
         .styles
@@ -276,6 +356,7 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
         ContractOp::SetState { state, row, .. } | ContractOp::UnsetState { state, row, .. } => {
             (state, row)
         }
+        _ => unreachable!("set-row edits above"),
     };
     // A row is one property's name: no `=`, space or line of its own.
     if row.is_empty() || !row.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
@@ -374,6 +455,7 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
                 all.insert(at(last) + 1, format!("{pad}:{state}"));
             }
         },
+        ContractOp::SetRowAt(_) | ContractOp::SetStyleRow { .. } => unreachable!(),
         ContractOp::UnsetState { .. } => {
             let a = found
                 .ok_or_else(|| format!("`style {}` has no `{row}` in `:{state}`", op.style()))?;
@@ -459,15 +541,32 @@ pub(crate) fn plan(
     undo: bool,
     planned: &mut exact_tamber::Planned,
 ) -> Result<(), Value> {
-    let refuse = |file: &str, m: String| json!({"message": "refused", "diagnostics": [{"file": file, "id": "tamber-contract-edit", "message": m, "line": 1, "col": 1}]});
+    let refuse = |file: &str, r: crate::tamber_rows::Refusal| json!({"message": "refused", "diagnostics": [{"file": file, "id": "tamber-contract-edit", "message": r.message, "line": r.line, "col": r.col}]});
     let mut written: Vec<(String, String)> = Vec::new();
     for (path, before, _) in snap.iter().filter(|(p, ..)| p.ends_with(".contract")) {
         let mut after = before.clone();
+        // Rows named by their place first, together, on the file the tool
+        // saw (LLP 1122 D6), then the rest by name.
+        let placed: Vec<&crate::tamber_rows::AtRow> = ops
+            .iter()
+            .filter(|(p, _)| p == path)
+            .filter_map(|(_, op)| match op {
+                ContractOp::SetRowAt(r) => Some(r),
+                _ => None,
+            })
+            .collect();
+        if !placed.is_empty() {
+            after = crate::tamber_rows::splice(&after, &placed)
+                .and_then(|t| contract_syntax::fmt::format(&t).map_err(|e| e.message.into()))
+                .map_err(|r| refuse(path, r))?;
+        }
         for (_, op) in ops.iter().filter(|(p, _)| p == path) {
-            after = edit(&after, op).map_err(|m| refuse(path, m))?;
+            if !matches!(op, ContractOp::SetRowAt(_)) {
+                after = edit(&after, op).map_err(|m| refuse(path, m))?;
+            }
         }
         for (_, op) in restores.iter().filter(|(p, _)| p == path) {
-            after = restore(&after, op).map_err(|m| refuse(path, m))?;
+            after = restore(&after, op).map_err(|m| refuse(path, m.into()))?;
         }
         if after != *before {
             written.push((path.clone(), after));
@@ -475,7 +574,10 @@ pub(crate) fn plan(
     }
     for (path, _) in ops {
         if !snap.iter().any(|(f, ..)| f == path) {
-            return Err(refuse(path, format!("`{path}` is no file of the app")));
+            return Err(refuse(
+                path,
+                format!("`{path}` is no file of the app").into(),
+            ));
         }
     }
     if written.is_empty() {
@@ -579,8 +681,9 @@ pub(crate) fn files(
     for (named, op) in written {
         let file = file_of(named.as_deref(), &op, &texts)?;
         if !file.ends_with(".contract") || !texts.iter().any(|(f, _)| *f == file) {
+            // A package's source is its package's (D15): edited there.
             return Err(
-                json!({"message": format!("`{file}` is no Contract source of the app's own")}),
+                json!({"message": format!("`{file}` is no Contract source of the app's own: a package's file, or one outside the app, is edited in its own project")}),
             );
         }
         out.push((file, op));

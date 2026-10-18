@@ -71,7 +71,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let mut bound = super::passes::Bound::default();
         bound.group(pass, 1, &self.shadow_sample);
         for (index, group) in self.cull.groups.iter().enumerate() {
-            if group.flags & 1 == 0 {
+            // Posed batches draw their depth with their colour (`batch_skinned`).
+            if group.flags & 1 == 0 || self.batch_skinned(group.batch) {
                 continue;
             }
             let viewmodel = self.batches[group.batch].viewmodel;

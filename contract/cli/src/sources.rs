@@ -27,6 +27,9 @@ pub(crate) struct Sources {
     /// source map says them, so a reader knows a file has not moved since
     /// (LLP 1122 D5, D6's fail-closed rule).
     pub(crate) digests: Vec<String>,
+    /// Each source's text as compiled, by source id: the source map checks
+    /// a row's written place against it (LLP 1122 D6), never the disk.
+    pub(crate) texts: Vec<std::sync::Arc<str>>,
     /// The literals a motion token was written into, or that a component's
     /// argument names one in (LLP 1121 D3): what `uses` reports for one.
     pub(crate) motion: Vec<contract_lower::motion::Site>,
@@ -125,6 +128,7 @@ pub(crate) fn load(
             paths: vec![path.to_path_buf()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
@@ -362,6 +366,7 @@ fn design(
     sources.paths.push(path.clone());
     sources.origins.push(Origin::App);
     sources.digests.push(digest(&text));
+    sources.texts.push(text.as_str().into());
     let home = root
         .parent()
         .and_then(|dir| path.strip_prefix(dir).ok())
@@ -419,6 +424,7 @@ pub(crate) fn use_fixes(
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
@@ -501,6 +507,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
@@ -712,6 +719,7 @@ impl Loader<'_> {
                     self.sources.paths.push(key.clone());
                     self.sources.origins.push(resolved.origin);
                     self.sources.digests.push(digest(&used_src));
+                    self.sources.texts.push(used_src.as_str().into());
                     self.active.push(key.clone());
                     self.load_source(&key, &used_src, used as u32)?;
                     self.active.pop();
