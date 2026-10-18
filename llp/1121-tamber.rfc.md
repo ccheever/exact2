@@ -3490,6 +3490,12 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - None of this applies on a disabled node.
 - **Mac hover** (`Mac/HoverMac.swift`). `setHoverPath` passes its whole path to `hoverLooks`. So a node shows its `:hover` look whether or not it hears `hover`, and only nodes with a handler get the runner's hover event. The native-module `hover(_:_:)` moved to that file too (PresenterMac.swift is at its cap).
 - **iOS** has no hover (an iPad pointer's hover is a later step), and no focus-visible yet.
+- **Round 1:**
+  - A pressed share is of what shows, a look's opacity included, as on the web and Linux.
+  - A change of `disabled` shows or drops the looks at once (`relook`).
+  - A depth re-aimed mid-ease re-aims from what shows (`segment`).
+  - A look's `currentcolor` is the node's colour, and a row a look clears crosses null (an opacity as 1), so the base's goes.
+  - A re-entrant hover publishes only the newer path's looks, and only for views still in the viewport.
 - **Tests:**
   - `StateLooksTests` (Mac and iOS):
     - `:active`'s paint with its absolute 0.6 (depth 0.4) and no dim;

@@ -105,6 +105,40 @@ final class StateLooksTests: XCTestCase {
         let (p, v) = try fixture(props: ["disabled": "true"])
         p.setHoverPath([v])
         XCTAssertEqual(v.style["background_color"], ink(blue))
+        XCTAssertNil(lookFade(v))
+        // Enabled under the resting pointer: the look comes; disabled again, it goes.
+        p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["disabled"]]]))
+        XCTAssertEqual(v.style["background_color"], ink(green))
+        XCTAssertNotNil(lookFade(v))
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"], "clear": []]]))
+        XCTAssertEqual(v.style["background_color"], ink(blue))
+        XCTAssertNil(lookFade(v))
+    }
+
+    /// A re-entrant hover (an ancestor's enter replacing the path) publishes
+    /// only the newer path's looks.
+    func testAReentrantHoverShowsOnlyTheNewerPathsLooks() throws {
+        let (p, v) = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["hover"], "style": ["looks": ["hover": ["background_color": red]]]],
+            ["op": "children", "id": 2, "ids": [1]], ["op": "roots", "ids": [2]],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+        ]))
+        let parent = try XCTUnwrap(p.views[2])
+        p.onHover = { id, over in if id == parent.id, over { p.setHoverPath([parent]) } }
+        p.setHoverPath([v, parent])
+        XCTAssertEqual(parent.style["background_color"], ink(red))
+        XCTAssertEqual(v.style["background_color"], ink(blue), "the superseded child's look stays off")
+    }
+
+    /// A hand-written pressed opacity is a share of what shows, a hover's
+    /// included, as the web and Linux take it: 0.5 of 0.8.
+    func testAPressedShareIsOfTheHoversOpacity() throws {
+        let (p, v) = try fixture()
+        p.apply(wireBatch([["op": "style", "id": 1, "style": base(blue).merging(["press_opacity": 0.5]) { $1 }.filter { $0.key != "press_opacity_to" }]]))
+        p.setHoverPath([v])
+        v.pressed = true
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.4, accuracy: 1e-6, "0.8 to 0.4")
     }
     #endif
 }

@@ -3,8 +3,7 @@
 //! presenter compares, and composes over the base on its own tracking.
 
 use crate::style::{num, style_json_rows};
-use exact_kernel::{Env, NodeRef, StyleId, StyleMask};
-use std::fmt::Write as _;
+use exact_kernel::{ColorValue, Env, NodeRef, StyleId, StyleMask};
 
 /// The pressed paint's rows (LLP 1061 D7), `:active`'s absolute opacity
 /// (LLP 1121 D8) among them: a cleared one is no pressed look.
@@ -22,31 +21,67 @@ pub(crate) fn press_paint_rows() -> StyleMask {
 
 /// `json`, a node's style dictionary, with its looks as `"looks"`, one
 /// object keyed by state (`hover`, `focus_visible`), each its rows as the
-/// style's own are written (colour pairs, roles) and its opacity, which a
-/// style never carries, a number; unchanged for a node with none.
-pub(crate) fn with_looks(json: String, node: &NodeRef<'_>, env: &Env) -> String {
-    let mut out = String::from("{");
+/// style's own are written (colour pairs, roles; `currentcolor` as the node's
+/// `current` colour), its opacity, which a style never carries, a number,
+/// and a row it clears null (an opacity 1), so the base's goes; unchanged
+/// for a node with none.
+pub(crate) fn with_looks(
+    json: String,
+    node: &NodeRef<'_>,
+    env: &Env,
+    current: ColorValue,
+) -> String {
+    use StyleId::*;
+    let mut looks = serde_json::Map::new();
     for (state, look) in node.looks() {
-        let (mut rows, _) = style_json_rows(&look.env_resolved(env), Some(env), StyleMask::EMPTY);
-        if look.mask.has(StyleId::Opacity) {
-            rows.pop();
-            let comma = if rows == "{" { "" } else { "," };
-            let _ = write!(rows, "{comma}\"opacity\":{}}}", num(look.opacity));
+        let mut look = look.env_resolved(env).into_owned();
+        let mask = look.mask;
+        let own = |id, c: Option<ColorValue>| {
+            if mask.has(id) {
+                Some(c.unwrap_or(current))
+            } else {
+                c
+            }
+        };
+        look.background_color = own(BackgroundColor, look.background_color);
+        look.border_color_top = own(BorderColorTop, look.border_color_top);
+        look.border_color_right = own(BorderColorRight, look.border_color_right);
+        look.border_color_bottom = own(BorderColorBottom, look.border_color_bottom);
+        look.border_color_left = own(BorderColorLeft, look.border_color_left);
+        let (rows, _) = style_json_rows(&look, Some(env), StyleMask::EMPTY);
+        let Ok(serde_json::Value::Object(mut rows)) = serde_json::from_str(&rows) else {
+            continue;
+        };
+        rows.remove("written");
+        for id in look.mask.union(look.written).iter() {
+            let name = id.name();
+            if id == Opacity {
+                let opacity = if look.mask.has(Opacity) {
+                    look.opacity
+                } else {
+                    1.0
+                };
+                rows.insert(
+                    name.into(),
+                    serde_json::from_str(&num(opacity)).unwrap_or_default(),
+                );
+            } else {
+                rows.entry(name).or_insert(serde_json::Value::Null);
+            }
         }
-        if rows == "{}" {
+        if rows.is_empty() {
             continue;
         }
         let name = match *state {
             exact_kernel::LOOK_HOVER => "hover",
             _ => "focus_visible",
         };
-        let comma = if out.len() == 1 { "" } else { "," };
-        let _ = write!(out, "{comma}\"{name}\":{rows}");
+        looks.insert(name.into(), rows.into());
     }
-    if out.len() == 1 {
+    if looks.is_empty() {
         return json;
     }
-    let head = format!("{{\"looks\":{out}}}");
+    let head = format!("{{\"looks\":{}", serde_json::Value::Object(looks));
     match json.as_str() {
         "{}" => head + "}",
         _ => head + "," + &json[1..],
@@ -108,5 +143,50 @@ mod tests {
             "{looks}"
         );
         assert!(json(2).get("looks").is_none());
+    }
+
+    /// A look's `currentcolor` is the node's colour, and a row it clears
+    /// crosses as null (an opacity as 1), so the base's goes.
+    #[test]
+    fn a_looks_current_colour_and_its_clears_cross() {
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let mut base = StyleProps::default();
+        base.set_dynamic(StyleId::TextColor, &StyleValue::Text("#ff0000".into()))
+            .unwrap();
+        let mut hover = StyleProps::default();
+        let current = StyleValue::Text("currentcolor".into());
+        hover
+            .set_dynamic(StyleId::BackgroundColor, &current)
+            .unwrap();
+        hover
+            .set_dynamic(StyleId::BoxShadow, &StyleValue::Text("none".into()))
+            .unwrap();
+        hover.written.set(StyleId::Opacity);
+        let ops = vec![
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(base),
+            },
+            Op::SetLooks {
+                id: 1,
+                looks: vec![(LOOK_HOVER, hover)],
+            },
+        ];
+        kernel.apply(0, 1, &ops).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&style_json_for(&kernel.node(1).unwrap(), &Env::default()).0)
+                .unwrap();
+        let hover = &json["looks"]["hover"];
+        assert_eq!(
+            hover["background_color"],
+            serde_json::json!([255, 0, 0, 255]),
+            "{hover}"
+        );
+        assert!(hover["box_shadow"].is_null(), "{hover}");
+        assert_eq!(hover["opacity"], 1, "{hover}");
     }
 }

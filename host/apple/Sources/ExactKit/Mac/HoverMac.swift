@@ -25,7 +25,8 @@ extension Presenter {
     /// ancestor): on for those that have one and show, off for the rest.
     func hoverLooks(_ path: [NodeView]) {
         let next = path.filter {
-            views[$0.id] === $0 && !$0.inert && !$0.isHiddenOrHasHiddenAncestor && NodeView.look("hover", in: $0.style) != nil
+            views[$0.id] === $0 && $0.isDescendant(of: viewport) && !$0.inert && !$0.isHiddenOrHasHiddenAncestor
+                && NodeView.look("hover", in: $0.style) != nil
         }
         for held in lookHovered {
             if let view = held.view, !next.contains(where: { $0 === view }) { view.lookState(hovered: false) }

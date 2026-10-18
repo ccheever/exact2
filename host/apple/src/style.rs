@@ -1032,7 +1032,7 @@ pub fn style_json_presented(
             head + "," + &json[1..]
         };
     }
-    json = crate::looks::with_looks(json, node, env);
+    json = crate::looks::with_looks(json, node, env, current);
     // @ref LLP 1053.000.000.000 D2 — an auto glass group's spacing rides the
     // string the host compares, so a gap, direction or display change sends it.
     if let Some(points) = glass_auto_spacing(node) {

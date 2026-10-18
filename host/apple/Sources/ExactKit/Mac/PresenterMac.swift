@@ -42,6 +42,7 @@ package final class Presenter {
         chrome.note(view.id, props: view.props)
         if view.disabled { view.showFieldFocus(false) }
         view.syncDisabledLook()
+        view.relook() // a look holds on no disabled node (LLP 1121 D8)
         // HTML's `title`: the platform's tooltip (studio diary R24).
         // An icon-only button's help tag is its label (LLP 1115 wave 1), as
         // a toolbar item's is; settled once the batch has mounted its face.
@@ -929,10 +930,10 @@ package final class Presenter {
     /// give their occluded owners a separate hover.
     func setHoverPath(_ nodes: [NodeView], inline: UInt32? = nil) {
         if applying { afterBatch { [weak self] in self?.setHoverPath(nodes, inline: inline) }; return }
-        defer { hoverLooks(nodes) } // LLP 1121 D8, the path's own (HoverMac.swift)
         hoverTransition &+= 1
         inlineHoverTransition &+= 1 // cancel an inline enter awaiting its leave callback
         let generation = hoverTransition
+        defer { if hoverTransition == generation { hoverLooks(nodes) } } // LLP 1121 D8 (HoverMac.swift)
         func eligible(_ node: NodeView) -> Bool {
             views[node.id] === node && node.isDescendant(of: viewport) && !node.inert && !node.isHiddenOrHasHiddenAncestor && node.handlers.contains("hover")
         }

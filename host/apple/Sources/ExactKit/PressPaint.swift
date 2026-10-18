@@ -55,10 +55,13 @@ struct PressPaint {
     var focusShown = false
     /// The opacity the looks that hold show, if one names it.
     var lookOpacity: Float?
+    /// The opacity fade a change of depth re-aimed mid-press: from, to, when
+    /// and how long (`pressShown`); nil while `ease` describes it.
+    var segment: (from: Float, to: Float, start: CFTimeInterval, length: CFTimeInterval)?
     /// As a node that was never pressed (nor looked) holds it.
     var atRest: Bool {
         !down && at == 0 && !releaseHeld && ease.rests(at: 0) && depth == 0 && inked.isEmpty && rest.isEmpty
-            && overlay.isEmpty && inkedBy.view == nil && lookBase == nil && !hovered && !focusShown && lookOpacity == nil
+            && overlay.isEmpty && inkedBy.view == nil && lookBase == nil && !hovered && !focusShown && lookOpacity == nil && segment == nil
     }
 }
 
@@ -80,14 +83,31 @@ extension NodeView {
         return look
     }
 
-    /// How much opacity a full press takes away, by style `s`: from what
-    /// shows (a look's, else the node's own) to `:active`'s absolute target,
-    /// or the pressed paint's share of the node's own.
+    /// How much opacity a full press takes away, by style `s`, from what
+    /// shows (a look's, else the node's own): to `:active`'s absolute target,
+    /// or the pressed paint's share of it, as the web and Linux take it.
     private func pressDepth(_ s: NodeStyle) -> Float {
+        let shown = pressPaint.lookOpacity ?? ownOpacity
         if let to = s["press_opacity_to"]?.number {
-            return (pressPaint.lookOpacity ?? ownOpacity) - Float(min(1, max(0, to)))
+            return shown - Float(min(1, max(0, to)))
         }
-        return ownOpacity * (1 - Float(min(1, max(0, s["press_opacity"]?.number ?? 1))))
+        return shown * (1 - Float(min(1, max(0, s["press_opacity"]?.number ?? 1))))
+    }
+
+    /// What the press's opacity fade adds now: on the press's ease, or on the
+    /// segment a change of depth re-aimed it on.
+    private func pressShown(at now: CFTimeInterval) -> Float {
+        guard let seg = pressPaint.segment else { return -pressPaint.depth * Float(pressPaint.ease.factor(at: now)) }
+        let p = seg.length > 0 ? min(1, max(0, (now - seg.start) / seg.length)) : 1
+        return seg.from + (seg.to - seg.from) * Float(PressFeedback.ease(p))
+    }
+
+    /// The looks again, as they hold now: after a change the flags don't
+    /// show (the node's `disabled`).
+    func relook() {
+        guard let base = pressPaint.lookBase else { return }
+        restyleForPress(pressPainted(looked(base)))
+        refreshPressOpacity()
     }
 
     /// AppKit's layer is optional, UIKit's not.
@@ -131,8 +151,9 @@ extension NodeView {
         if down { pressPaint.depth = pressDepth(style) }
         let depth = pressPaint.depth
         guard depth != 0 else { layer.removeAnimation(forKey: key); return }
-        let shown = pressPaint.ease.factor(at: now)
+        let shown = pressShown(at: now)
         pressPaint.ease.aim(down ? 1 : 0, at: now)
+        pressPaint.segment = nil
         let to = -depth * Float(down ? 1 : 0)
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.isAdditive = true
@@ -143,7 +164,7 @@ extension NodeView {
             fade.fromValue = to
             fade.duration = .greatestFiniteMagnitude
         } else {
-            fade.fromValue = -depth * Float(shown)
+            fade.fromValue = shown
             fade.duration = PressFeedback.duration
             fade.timingFunction = PressFeedback.timing
         }
@@ -237,9 +258,10 @@ extension NodeView {
         let depth = pressDepth(s ?? style)
         guard depth != pressPaint.depth else { return }
         let now = CACurrentMediaTime()
-        let from = -pressPaint.depth * Float(pressPaint.ease.factor(at: now))
+        let from = pressShown(at: now)
         pressPaint.depth = depth
         let left = ExactEnv.agentFreezes ? 0 : max(0, pressPaint.ease.start + PressFeedback.duration - now)
+        pressPaint.segment = (left > 0 ? from : -depth, -depth, now, left)
         // None any more goes at once: the platform's press may answer next.
         guard depth != 0 else { layer.removeAnimation(forKey: key); return }
         let fade = CABasicAnimation(keyPath: "opacity")
@@ -281,7 +303,10 @@ extension NodeView {
         var s = s
         for (state, on) in [("hover", pressPaint.hovered), ("focus_visible", pressPaint.focusShown)] where on {
             guard let look = Self.look(state, in: s) else { continue }
-            for key in Self.lookRows { if let value = look[key] { s[key] = value } }
+            for key in Self.lookRows {
+                // A row the look clears is null: the base's goes (no shadow).
+                if case .null? = look[key] { s.removeValue(forKey: key) } else if let value = look[key] { s[key] = value }
+            }
             if let o = look["opacity"]?.number { pressPaint.lookOpacity = Float(min(1, max(0, o))) }
         }
         return s
@@ -308,9 +333,8 @@ extension NodeView {
         let was = (pressPaint.hovered, pressPaint.focusShown)
         if let hovered { pressPaint.hovered = hovered }
         if let focus { pressPaint.focusShown = focus }
-        guard (pressPaint.hovered, pressPaint.focusShown) != was, let base = pressPaint.lookBase else { return }
-        restyleForPress(pressPainted(looked(base)))
-        refreshPressOpacity()
+        guard (pressPaint.hovered, pressPaint.focusShown) != was else { return }
+        relook()
     }
 
     /// An engine style for this view while a press paints it: the engine's
