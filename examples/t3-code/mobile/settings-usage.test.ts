@@ -12,6 +12,7 @@ import { formatDateTimeShort, formatHourShort, formatUsd, mergeUsage } from './s
 import { mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
 import { ClientError } from './shared/protocol';
 import { settingsColors, settingsTokens } from './settings-appearance';
+import { fleet, environmentKey, type FleetEntry } from './shared/settings-b-fleet';
 const window=(kind='session',usedPercent=50)=>({id:'primary',kind,label:'Allowance',usedPercent,resetsAt:'2026-10-08T00:00:00Z',windowDurationMins:300});
 const nativeAccount=(limits:Obj,email=' A@Example.test '):Obj=>({instanceId:'one',driver:'codex',enabled:true,installed:true,auth:{status:'authenticated',email},usageLimits:limits});
 const limits:Obj={checkedAt:'2026-10-07T00:00:00Z',windows:[window()],resetCredits:{availableCount:1}};
@@ -354,7 +355,7 @@ test('Cursor insertion follows Codex and Claude under both Usage metrics and poo
   const first=mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false,sources:[{...source,summary:noCore}]},false);
   expect(first.providers.map(item=>item.id)).toEqual(['grok']);expect(first.cursorInsertAt).toBe(0);expect(first.cursorPoolInsertAt).toBe(0);expect(first.limitsEmpty).toBe('');
   const noPrompt=mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false,sources:[{...source,summary:{contractVersion:6,sources:[],buckets:[]}}]},false);
-  expect(noPrompt.hasProviders).toBe(false);expect(noPrompt.cursor).toEqual([]);expect(noPrompt.limitsEmpty).toBe('No subscription limits reported.');
+  expect(noPrompt.hasProviders).toBe(false);expect(noPrompt.cursor).toEqual([]);expect(noPrompt.limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
 });
 test('Cursor command pending disables its button, rejects duplicates and clears after existing refresh work',async()=>{
   const fixture=transport(['diagnostics:read','settings:write']);
@@ -1144,6 +1145,189 @@ test('generation replacement during an already dispatched write cannot publish s
   try{mobileClient.generation++;}finally{gate.release();await old.catch(()=>{});}
   expect((await old).refresh).toBe(false);expect(f.snapshot().account.creditStatus).toBe('');
   expect(f.calls.filter(call=>call.method==='provider.consumeResetCredit')).toHaveLength(1);
+});
+
+test('unprepared Limits does not claim a completed empty selection',()=>{
+  const data=mobileUsagePresentation(null,false);
+  expect([data.ready,data.emptyMessage,data.limitsEmpty]).toEqual([false,'','']);
+});
+test('Limits with no selected environments shows one Limits-specific empty message',()=>{
+  const data=mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,now),metric:'cost',now,
+    presentations:new Map(),external:false,sources:[]},false);
+  expect([data.emptyMessage,data.limitsEmpty]).toEqual(['','Select an environment to see limits.']);
+});
+test('selected environments without quota reports use the reference Limits empty copy',()=>{
+  const data=presentedLimits([],now);
+  expect(data.environments).toHaveLength(1);expect(data.pools).toEqual([]);
+  expect([data.emptyMessage,data.limitsEmpty]).toEqual(['','No provider on the selected environments reports subscription limits.']);
+});
+test('a sole provider notice suppresses the Limits empty message',()=>{
+  const data=presentedLimits([nativeAccount({...limits,windows:[],unavailable:{reason:'probeFailed',message:'Quota probe failed'}})],now);
+  expect(data.pools).toEqual([]);expect(data.notices.map(item=>item.text)).toEqual(['codex: Quota probe failed']);
+  expect(data.limitsEmpty).toBe('');
+});
+test('a sole external usage destination suppresses the Limits empty message',()=>{
+  const data=presentedLimits([nativeAccount({...limits,windows:[],unavailable:{reason:'unsupported'},
+    externalUsage:{label:'Account usage',url:'https://usage.example.test/account'}})],now);
+  expect(data.pools).toEqual([]);expect(data.notices).toEqual([]);expect(data.links).toHaveLength(1);
+  expect(data.limitsEmpty).toBe('');
+});
+test('an actual limits refresh failure suppresses empty through automatic cooldown',async()=>{
+  const fixture=transport();mobileClient.config={settings:{},providers:[]};let fail=true;
+  const native:Native={...fixture.native,async later(input){const request=obj(input);
+    if(request.method==='server.refreshProviders'&&fail){fixture.calls.push(request);return {ok:false,generation:mobileClient.generation,error:{kind:'server',message:'Quota probe offline'}};}
+    return fixture.native.later(input);
+  }};
+  const first=await mobileUsage('null','limits',windowJSON,'cost',now,native);
+  expect(first.environments[0]?.status).toBe('Quota probe offline');
+  fail=false;const second=await mobileUsage('null','limits',windowJSON,'cost',now+1,native);
+  expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(1);
+  expect(second.environments[0]?.status).toBe('');expect(second.limitsEmpty).toBe('');
+  expect(second.notices.map(item=>item.text)).toEqual([`${first.environments[0]!.label} could not refresh limits. Showing the last known values.`]);
+});
+test.each(['auth','summary','config'] as const)('a %s read failure is not a provider-refresh failure for empty-state eligibility',async kind=>{
+  const fixture=transport();mobileClient.config={settings:{},providers:[]};
+  const native:Native={...fixture.native,async later(input){const request=obj(input);
+    if(kind==='auth'&&request.op==='http'||kind==='summary'&&request.method==='server.getUsageSummary'||kind==='config'&&request.method==='server.getConfig'){
+      fixture.calls.push(request);return {ok:false,generation:mobileClient.generation,error:{kind:'server',message:'Unrelated read failed'}};
+    }
+    return fixture.native.later(input);
+  }};
+  const data=await mobileUsage('null','limits',windowJSON,'cost',now,native);
+  expect(data.environments[0]?.status).toBe('Unrelated read failed');
+  expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(kind==='auth'?0:1);
+  expect(data.limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
+});
+test('a completed refresh failure retires when Usage leaves before a cooldown reopen',async()=>{
+  const fixture=transport();mobileClient.config={settings:{},providers:[]};let fail=true;
+  const native:Native={...fixture.native,async later(input){const request=obj(input);
+    if(request.method==='server.refreshProviders'&&fail){fixture.calls.push(request);return {ok:false,generation:mobileClient.generation,error:{kind:'server',message:'Quota probe offline'}};}
+    return fixture.native.later(input);
+  }};
+  await mobileUsage('null','limits',windowJSON,'cost',now,native);
+  await mobileUsage('null','limits','{}','cost',now,null,false,false);
+  fail=false;const reopened=await mobileUsage('null','limits',windowJSON,'cost',now+1,native);
+  expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(1);
+  expect(reopened.limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
+});
+test('automatic pending preserves the real refresh failure and manual success clears a fresh snapshot',async()=>{
+  const fixture=transport();mobileClient.config={settings:{},providers:[]};const gate=refreshBarrier();let fail=true;
+  const native:Native={...fixture.native,async later(input){const request=obj(input);
+    if(request.method==='server.refreshProviders'){
+      fixture.calls.push(request);
+      if(fail)return {ok:false,generation:mobileClient.generation,error:{kind:'server',message:'Quota probe offline'}};
+      await gate.wait();return {ok:true,generation:mobileClient.generation,value:{}};
+    }
+    return fixture.native.later(input);
+  }};
+  await mobileUsage('null','limits',windowJSON,'cost',now,native);fail=false;
+  const pending=mobileUsageCommand('refresh-limits','','',now+1,native);
+  try{
+    await gate.entered;
+    expect(mobileUsageSnapshot('null','limits','cost').limitsEmpty).toBe('');
+    expect(mobileUsageSnapshot('null','limits','cost').notices).toHaveLength(1);
+    expect(mobileUsageSnapshot('null','usage','cost').notices).toEqual([]);
+    const automatic=await mobileUsage('null','limits',windowJSON,'cost',now+2,native);
+    expect(automatic.limitsEmpty).toBe('');expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(2);
+  }finally{gate.release();await pending.catch(()=>{});}
+  expect((await pending).message).toBe('');
+  expect(mobileUsageSnapshot('null','limits','cost').limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
+  expect(mobileUsageSnapshot('null','limits','cost').notices).toEqual([]);
+});
+test('refresh success clears prior failure even when its follow-up config read fails',async()=>{
+  const fixture=transport();mobileClient.config={settings:{},providers:[]};let first=true;
+  const native:Native={...fixture.native,async later(input){const request=obj(input);
+    if(request.method==='server.refreshProviders'&&first){fixture.calls.push(request);return {ok:false,generation:mobileClient.generation,error:{kind:'server',message:'Quota probe offline'}};}
+    if(request.method==='server.getConfig'&&!first){fixture.calls.push(request);return {ok:false,generation:mobileClient.generation,error:{kind:'server',message:'Config offline'}};}
+    return fixture.native.later(input);
+  }};
+  await mobileUsage('null','limits',windowJSON,'cost',now,native);first=false;
+  expect((await mobileUsageCommand('refresh-limits','','',now+1,native)).message).toContain('Config offline');
+  expect(mobileUsageSnapshot('null','limits','cost').limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
+  expect(mobileUsageSnapshot('null','limits','cost').notices).toEqual([]);
+});
+test('a late old-group refresh failure cannot suppress empty in a reopened Usage group',async()=>{
+  const fixture=transport();mobileClient.config={settings:{},providers:[]};const gate=refreshBarrier();let hold=false;
+  const native:Native={...fixture.native,async later(input){const request=obj(input);
+    if(request.method==='server.refreshProviders'&&hold){fixture.calls.push(request);await gate.wait();return {ok:false,generation:mobileClient.generation,error:{kind:'server',message:'Old probe offline'}};}
+    return fixture.native.later(input);
+  }};
+  await mobileUsage('null','limits',windowJSON,'cost',now,native);hold=true;
+  const old=mobileUsageCommand('refresh-limits','','',now+1,native);
+  try{
+    await gate.entered;await mobileUsage('null','limits','{}','cost',now+2,null,false,false);
+    const reopened=await mobileUsage('null','limits',windowJSON,'cost',now+3,native);
+    expect(reopened.limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
+  }finally{gate.release();await old.catch(()=>{});}
+  expect((await old).message).toBe('');expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(2);
+  expect(mobileUsageSnapshot('null','limits','cost').limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
+  expect(mobileUsageSnapshot('null','limits','cost').notices).toEqual([]);
+});
+test('real refresh failures retain captured labels, completion order and the current selected environment filter',async()=>{
+  const fixture=transport();mobileClient.config={settings:{},providers:[]};
+  const previousSaved=fleet.saved,previousRevision=fleet.revision,otherId=`${fixture.id}-other`,otherOrigin='http://other-usage.test',key=environmentKey(otherOrigin,otherId);
+  const saved=[{origin:mobileClient.origin,environmentId:fixture.id,mobileLabel:'First'},{origin:otherOrigin,environmentId:otherId,mobileLabel:'Second'}];
+  const background:FleetEntry={key,origin:otherOrigin,environmentId:otherId,phase:'connected',message:'',traceId:'',generation:mobileClient.generation+1000,
+    synchronized:-1,lastEvent:0,subscriptions:{},config:{settings:{},providers:[]},shell:mobileClient.shell,scopes:[],error:'',requested:false};
+  const gate=refreshBarrier();let held=false,success=false,pending:ReturnType<typeof mobileUsageCommand>|undefined;
+  fleet.entries.set(key,background);fleet.saved=saved;
+  const native:Native={available:true,watch(){},async later(input){const request=obj(input),other=request.fleet===key,generation=other?background.generation:mobileClient.generation;
+    fixture.calls.push(request);
+    if(request.op==='environments')return {ok:true,generation,value:{saved}};
+    if(request.op==='http')return {ok:true,generation,value:{authenticated:true,permissions:fixture.permissions}};
+    if(request.method==='server.refreshProviders'){
+      if(!other&&held)await gate.wait();
+      if(!success||other)return {ok:false,generation,error:{kind:'server',message:'Quota offline'}};
+    }
+    const value=request.method==='server.getConfig'?(other?background.config:mobileClient.config):request.method==='server.getUsageSummary'
+      ?{contractVersion:6,readAt:'2026-10-07T00:00:00Z',sources:[],buckets:[]}:{};
+    return {ok:true,generation,value};
+  }};
+  const first=JSON.stringify([fixture.id]),second=JSON.stringify([otherId]),text=(labels:string)=>`${labels} could not refresh limits. Showing the last known values.`;
+  try{
+    const a=await mobileUsage(first,'limits',windowJSON,'cost',now,native);
+    expect(a.notices.map(item=>item.text)).toEqual([text('First')]);
+    const b=await mobileUsage(second,'limits',windowJSON,'cost',now+1,native);
+    expect(b.notices.map(item=>item.text)).toEqual([text('Second')]);
+    await mobileUsage(first,'limits',windowJSON,'cost',now+2,native);held=true;
+    pending=mobileUsageCommand('refresh-limits','','',now+3,native);
+    await gate.entered;saved[0]!.mobileLabel='Renamed first';
+    const during=await mobileUsage('null','limits',windowJSON,'cost',now+4,native);
+    expect(during.environments.map(item=>item.label)).toEqual(['Renamed first','Second']);
+    expect(during.notices.map(item=>item.text)).toEqual([text('First, Second')]);
+    gate.release();await pending;
+    expect(mobileUsageSnapshot('null','limits','cost').notices.map(item=>item.text)).toEqual([text('Second, First')]);
+    const filtered=await mobileUsage(second,'limits',windowJSON,'cost',now+5,native);
+    expect(filtered.notices.map(item=>item.text)).toEqual([text('Second')]);
+    expect(mobileUsageSnapshot(second,'usage','cost').notices).toEqual([]);
+    await mobileUsage(first,'limits',windowJSON,'cost',now+6,native);success=true;
+    expect((await mobileUsageCommand('refresh-limits','','',now+7,native)).message).toBe('');
+    const cleared=await mobileUsage('null','limits',windowJSON,'cost',now+8,native);
+    expect(cleared.notices.map(item=>item.text)).toEqual([text('Second')]);
+    expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(4);
+  }finally{
+    gate.release();await pending?.catch(()=>{});
+    fleet.entries.delete(key);fleet.saved=previousSaved;fleet.revision=previousRevision;
+  }
+});
+test('Usage keeps its own no-selection and no-summary copy',()=>{
+  const input={tab:'usage',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false};
+  const empty=mobileUsagePresentation({...input,sources:[]},false);
+  const selected=mobileUsagePresentation({...input,sources:[{id:'a',label:'A',connected:true,summary:null,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
+  expect([empty.emptyMessage,empty.limitsEmpty]).toEqual(['Select an environment to see usage.','']);
+  expect([selected.emptyMessage,selected.limitsEmpty]).toEqual(['No usage summary is available for these environments.','']);
+});
+test('Usage diagnostic notices are not Limit-notice blockers',()=>{
+  const data=mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false,
+    sources:[{id:'a',label:'A',connected:true,summary:{contractVersion:7},error:'',canRead:true,canWrite:false,canManage:false,config:{}}]},false);
+  expect(data.notices[0]?.text).toContain('Update this app');
+  expect(data.limitsEmpty).toBe('No provider on the selected environments reports subscription limits.');
+});
+test('disconnected selection membership does not expand the connected-only quota projection',()=>{
+  const data=mobileUsagePresentation({tab:'limits',window:mobileUsageWindow(30,now),metric:'cost',now,presentations:new Map(),external:false,
+    sources:[{id:'a',label:'A',connected:false,summary:null,error:'Waiting for connection…',canRead:false,canWrite:false,canManage:false,config:{providers:[nativeAccount(limits)]}}]},false);
+  expect(data.environments).toHaveLength(1);expect(data.pools).toEqual([]);
+  expect([data.emptyMessage,data.limitsEmpty]).toEqual(['','No provider on the selected environments reports subscription limits.']);
 });
 test('owned ordinary consume failure becomes inline feedback with one refresh and no write retry',async()=>{
   const f=creditFixture();await f.prepare();const confirmation=await f.confirm();
