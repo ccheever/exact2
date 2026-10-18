@@ -106,6 +106,15 @@ test('accepted pointer, wheel, media and zero-time forms still reach the carrier
   }
 });
 
+test('Android relative clocks start where the reader hands its live clock to the driver', async () => {
+  const calls = [], carrier = { host: 'android', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) { calls.push(req); return req.op === 'tags' ? { clock: 62.5 } : { clock: req.to }; } };
+  const s = await open({ reuse: carrier });
+  assert.equal(s.now, 62.5);
+  await s.clock('+1');
+  assert.deepEqual(calls, [{ op: 'tags' }, { op: 'clock', to: 63.5 }]);
+});
+
 // A hold is the clock's (euxy FRICTION §2: a dice charge did nothing while held): the carrier is told it is virtual, no
 // wall time passes, and the app's clock moves by it; under --timing platform it stays real time.
 test('a held contact\'s hold moves the app\'s clock by its length', async () => {

@@ -175,7 +175,6 @@ public final class ExactApp {
         let inputs = json["inputs"] as? [String: Any] ?? [:]
         return (inputs["rustMode"] as? String ?? "off", json["target"] as? String ?? "")
     }
-
     /// Install a composition's launch generation before creating sessions.
     public func installInitial(_ generation: ExactGeneration) {
         precondition(sessions.isEmpty, "install the initial generation before creating sessions")

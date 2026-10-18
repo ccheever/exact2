@@ -1352,9 +1352,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     close: carrier.close,
   };
-  // Under platform timing this seed is the runner's clock; on the Apple hosts
-  // `s.clock` rebases it on the host's (LLP 1035.003 D5, LLP 1080.000 §12).
-  if (timing === 'platform' && carrier.host !== 'web') { const { clock } = await s.op({ op: 'tags' }); if (Number.isFinite(clock)) s.now = clock; }
+  // Platform timing and Android's reader start on a live host clock; seed the driver's relative seeks where the host handed time over (LLP 1080.000 §12; LLP 1107 D1).
+  // Headless Android starts at zero, so the same read keeps its seek clock unchanged.
+  if ((timing === 'platform' && carrier.host !== 'web') || carrier.host === 'android') { const { clock } = await s.op({ op: 'tags' }); if (Number.isFinite(clock)) s.now = clock; }
   return s;
 }
 export { runTests, textOf } from './agent-test.mjs';
