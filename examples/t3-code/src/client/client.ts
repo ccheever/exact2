@@ -13,6 +13,7 @@ import { adoptStash } from '../composer/composer-editor-stash';
 import { adoptComposerFiles } from '../composer/composer-editor-files';
 import { sidebarOpened, sidebarRefreshed } from '../sidebar/sidebar-commands';
 import { takeRowDrops } from '../sidebar/legacy-sidebar-drop';
+import { IMAGE_ATTACHMENT_MAX_EDGE } from '../composer/image-attachment-size';
 import { reconnectOnLaunch, launchFocus, primaryTakesFocus } from '../connections/relaunch-reconnect';
 import { adoptSidebarPrefs } from '../sidebar/sidebar-state';
 import { PROVIDER_OPS } from '../providers/providers';
@@ -830,12 +831,14 @@ export class T3Client {
             if ((local.snapshotDrafts[key] || []).length >= 100) throw new ClientError('Remove an attachment, then try this capture again.');
             const capture = await this.call(native, { op: 'snapshotRead', id, owner });
             if (capture.owner !== owner || capture.id !== id || capture.mimeType !== 'image/png' || num(capture.sizeBytes) < 1 || num(capture.sizeBytes) > 10 * 1024 * 1024) throw new ClientError('The captured window is too large or invalid.');
-            try { await this.call(native, { op: 'snapshotDraftSave', id, owner }); }
+            // The saved draft is scaled to the attachment edge when the capture is over it (deliverSnapShot's compressImageToByteLimit).
+            let saved: Obj;
+            try { saved = obj(await this.call(native, { op: 'snapshotDraftSave', id, owner, imageMaxEdge: IMAGE_ATTACHMENT_MAX_EDGE })); }
             catch (error) { local.snapshotReleases.push(id); throw error; }
             const destination = await fresh();
             if (destination === null) return;
             if (!destination) { await strand(true); continue; }
-            local.snapshotDrafts[key] = [...(local.snapshotDrafts[key] || []), { id, name: str(capture.name), mimeType: 'image/png', sizeBytes: num(capture.sizeBytes), source: obj(capture.source) }];
+            local.snapshotDrafts[key] = [...(local.snapshotDrafts[key] || []), { id, name: str(capture.name), mimeType: 'image/png', sizeBytes: num(saved.sizeBytes) || num(capture.sizeBytes), source: obj(capture.source) }];
             try { await this.persist(storage); }
             catch (error) { withoutSnapshot(local.snapshotDrafts, key, id); local.snapshotReleases.push(id); throw error; }
             this.changed();
@@ -880,8 +883,10 @@ export class T3Client {
       if (!current()) throw new ClientError('The draft changed before upload.');
       let attachmentId = str(image.uploadId);
       if (!attachmentId) {
-        const bytes = await this.call(native, { op: 'snapshotDraftRead', id: image.id });
+        const bytes = await this.call(native, { op: 'snapshotDraftRead', id: image.id,
+          imageMaxEdge: image.downscalable === false ? 0 : IMAGE_ATTACHMENT_MAX_EDGE });
         if (!current()) throw new ClientError('The draft changed before upload.');
+        if (num(bytes.sizeBytes) > 0) image.sizeBytes = num(bytes.sizeBytes);
         const upload = await this.request(native, 'attachments.createUploadUrl', { type: 'image', name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes });
         attachmentId = str(upload.attachmentId);
         if (!attachmentId || !str(upload.relativeUrl).startsWith('/api/attachments/upload/')) throw new ClientError('The server returned an invalid attachment upload.');
