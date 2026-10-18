@@ -9,7 +9,7 @@
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } from './inspector';
 // The panel's controls and the grid's cells by kind.
-import { cellText, colourLiteral, panelOf } from './dials';
+import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf } from './components';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
@@ -530,20 +530,6 @@ let heldToken = '';
 let heldAt = { epoch: '', revision: -1 };
 // The list as last sent, and the design read its swatches were drawn from.
 let heldRaw: any[] = [], heldDesign = -1;
-/** A value's sides, light and dark, as swatches show them: `light-dark(a,
- * b)` split at its top-level comma, else one value for both. */
-export function sides(v: string): [string, string] {
-  const m = /^light-dark\((.*)\)$/s.exec(v.trim());
-  if (!m) return [v.trim(), v.trim()];
-  let depth = 0;
-  for (let i = 0; i < m[1].length; i++) {
-    const c = m[1][i];
-    if (c === '(') depth++;
-    else if (c === ')') depth--;
-    else if (c === ',' && depth === 0) return [m[1].slice(0, i).trim(), m[1].slice(i + 1).trim()];
-  }
-  return [v.trim(), v.trim()];
-}
 /** An import's review (LLP 1122 D11) as the view lists it: the mapped
  * tokens with their values per mode, the role overrides it offers, the
  * values it could not map and why, and the count check. */
