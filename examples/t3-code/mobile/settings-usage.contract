@@ -73,10 +73,10 @@ shape UsageValue
 shape UsageModel
   id: string
   label: string
-  provider: string
+  light: string
+  dark: string
   value: string
   detail: string
-  unpriced: string
 shape MobileUsageData
   ready: bool
   error: string
@@ -251,17 +251,17 @@ component SettingsUsage
                     text `${provider.share} · ${provider.detail}` color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
             UsageValues(title="Totals", items=data.totals, colors=colors, roles=roles)
             UsageValues(title="Cost", items=data.costs, colors=colors, roles=roles)
-            column gap=7
-              SettingsSectionLabel(title="Models", colors=colors, roles=roles)
-              column background-color=colors.grouped border-radius=24 overflow="hidden"
-                for model in data.models key=model.id
-                  column padding=14 gap=3.5
-                    row gap=10.5 align-items="baseline"
-                      text model.label flex=1 color=colors.foreground font-size=roles.body.size line-clamp=2
-                      text model.value color=colors.foreground font-size=roles.body.size
-                    text `${model.provider} · ${model.detail}` color=colors.muted font-size=roles.footnote.size
-                    if model.unpriced.length > 0
-                      text model.unpriced color=colors.muted font-size=roles.caption.size
+            if data.models.length > 0
+              column gap=7
+                SettingsSectionLabel(title="By model", colors=colors, roles=roles)
+                column background-color=colors.grouped border-radius=24 overflow="hidden"
+                  for model, index in data.models key=model.id
+                    row padding=14 gap=10.5 align-items="center" border-top-width=(index > 0 ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle
+                      view width=8.75 height=8.75 border-radius=999 flex-shrink=0 background-color=(dark ? model.dark : model.light)
+                      column flex=1 min-width=0 gap=1.75
+                        text model.label color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` line-clamp=1
+                        text model.detail color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+                      text model.value flex-shrink=0 color=colors.foreground font-size=roles.body.size line-height=`${roles.body.line}px` font-variant-numeric="tabular-nums"
 component UsageValues
   props
     title: string
