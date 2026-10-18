@@ -3546,7 +3546,8 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - A `background-clip: text` background shows the states' colour.
   - A look painted or taken off, and a focus with a look, take the full painter rather than flow damage.
   - Not done (nit): an inset border's shading of a look's side colour.
-- **Android** replays the display list Linux records, so it needs no Kotlin change. Android forwards no mouse hover, so it shows none.
+- **Android** replays the display list Linux records, so it needs no Kotlin change.
+- **A follow-up for every host** (theme2's 08:13 ruling): a `:hover`, `:focus-visible` or `:active` part on a run inside a paragraph is `lower-state-target`: a run's press, hover and focus are its paragraph's. A run has no view on Apple and no box on Linux, and D7's press rows paint no run there either, so `:active` is refused with them. Runner-known `:disabled` and `:checked` on a run fold as before. Android forwards no mouse hover, so it shows none.
 - **Tests:** `presenter/looks_tests.rs`:
   - the hover at once with its 0.8;
   - the press easing to its absolute 0.5 with the hover's border beneath;

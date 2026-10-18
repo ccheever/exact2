@@ -152,7 +152,8 @@ and `-exact-tint-color`, and fold into the node's own rows, `:checked` under
 absolute target), `:hover` and `:focus-visible` take `background-color`,
 `border-color`, `opacity` and `box-shadow`; a host state's row is a literal
 (`lower-state-literal`; a token's name is one). Another row is `lower-state-row`;
-a part on a native control or a list's row is `lower-state-target`. An `:active`
+a part on a native control, a list's row, or (for `:active`, `:hover` and
+`:focus-visible`) a run inside a paragraph is `lower-state-target`. An `:active`
 row beside the same paint's `-exact-press-` row is `lower-state-press-paint`.
 The node's block wins over its class's, row by row.
 
