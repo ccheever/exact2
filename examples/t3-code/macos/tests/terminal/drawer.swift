@@ -62,6 +62,21 @@ final class TerminalDrawerTests: XCTestCase {
                         windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: repeating, keyCode: code)!
     }
 
+    func testReadOnlySessionSuppressesInputAndResizeAndUpdatesWhenPermissionChanges() throws {
+        let view = mount(extra: ["read-only": "true"])
+        let session = try XCTUnwrap(view.session)
+        XCTAssertTrue(session.readOnly)
+        sessions.write("do not execute\r", to: session, from: view)
+        sessions.resize(session, cols: 100, rows: 30)
+        XCTAssertEqual(session.writes, 0)
+        XCTAssertEqual(session.lastSize.cols, 0)
+        var next = view.props
+        next["read-only"] = "false"
+        try view.setProps(next)
+        XCTAssertTrue(view.session === session)
+        XCTAssertFalse(session.readOnly)
+    }
+
     func testTerminalNativeTextInputPreventsComposerTypeToFocus() {
         let view = mount(focusRequest: "1")
         XCTAssertTrue(window.firstResponder === view.web)

@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Diagnostics' resource telemetry, process signals and tables.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
@@ -22,9 +23,9 @@ const snapshot = (extra: Obj = {}) => ({
   ...extra,
 });
 
-type Fake = { ready: boolean; environmentId: string; generation: number; config: Obj; calls: Obj[]; requests: [string, Obj][]; replies: Record<string, Obj | Error> };
+type Fake = { scopes: readonly string[]; ready: boolean; environmentId: string; generation: number; config: Obj; calls: Obj[]; requests: [string, Obj][]; replies: Record<string, Obj | Error> };
 function fake(): Fake {
-  return { ready: true, environmentId: 'env1', generation: 1, config: { observability: { logsDirectoryPath: '/logs' } }, calls: [], requests: [], replies: {} };
+  return { scopes: AUTH_STANDARD_CLIENT_SCOPES, ready: true, environmentId: 'env1', generation: 1, config: { observability: { logsDirectoryPath: '/logs' } }, calls: [], requests: [], replies: {} };
 }
 const as = (client: Fake) => {
   const target = client as unknown as T3Client & Fake;

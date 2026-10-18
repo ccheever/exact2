@@ -15,6 +15,7 @@ use Wordmark from "../shared/icons.contract"
 use ProviderInstanceMark from "../shared/icons-kit.contract"
 use SidebarUpdatePill from "../sidebar/sidebar-icons-kit.contract"
 
+use InheritanceGroup from "./settings-inheritance.contract"
 shape CoreRow
   id: string
   title: string
@@ -50,6 +51,7 @@ shape CoreRow
   info: string
   divider: bool
   layers: CoreOption[]
+  layerGroups: InheritanceGroup[]
   layerTitle: string
   amount: number
   // A font row's preview size in px: the prompt sample uses the Prompt font size, the code sample the code size.
@@ -77,12 +79,30 @@ shape CoreSection
 shape ScopeChoice
   id: string
   label: string
+  secondary: string
   mark: string
   ink: string
   surface: string
   member: string
   selected: bool
   offline: bool
+// SettingsScopeNotice's rows (settings-scope-notice.ts, drawn by settings-scope-notice.contract).
+shape ScopeNoticeChoice
+  key: string
+  label: string
+  secondary: string
+  icon: string
+  kind: string
+  mark: string
+  ink: string
+  surface: string
+  project: string
+  machine: string
+  member: string
+shape ScopeNoticeGroup
+  key: string
+  title: string
+  choices: ScopeNoticeChoice[]
 shape CoreNavItem
   id: string
   route: string
@@ -197,6 +217,7 @@ shape SettingsCore
   kind: string
   message: string
   notice: string
+  noticeGroups: ScopeNoticeGroup[]
   environmentLabel: string
   projectLabel: string
   projectMark: string

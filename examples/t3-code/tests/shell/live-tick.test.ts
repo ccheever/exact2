@@ -12,8 +12,8 @@ describe('the live tick leaves a data answer in flight alone', () => {
   const tick = (needed: boolean, inFlight: string[]) => {
     const dispatched: string[] = [];
     const data: Answer = { name: 'data', timelineReadsNeeded: needed, running: false, subagentsLive: false, sidebar: { ticking: false, undoUntil: 0 } };
-    root.call('liveTick', {}, {
-      data,
+    root.call('liveTick', { workspaceNow: 0 }, {
+      data, settingsOpen: false, pageCover: false, welcome: { show: false },
       workspaceDiscovery: { name: 'workspaceDiscovery', needed: false },
       prDetail: { links: { polling: false } },
       wallTime: { epochAtZero: 0 }, liveNow: 0, performanceNow: () => 1000,

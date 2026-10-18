@@ -6,6 +6,7 @@ import type { T3Client } from '../client/client';
 import { decodeClientPrefs, generalSections, memberFiles, resolveScope, restoreLabels, scopeTarget, serverContext, type ClientPrefs, type CoreSection } from './settings-core';
 import { appearanceSections, fontStack, modeTiles, palette } from '../appearance/settings-appearance';
 import { breadcrumbLabel, scopeAvailable, searchTargetScope } from './settings-search';
+import { scopeNoticeGroups } from './settings-scope-notice';
 import type { CustomTheme } from '../appearance/settings-themes';
 import { scopeMachine, singleEnvironmentRoute } from '../providers/settings-b-scope';
 import { isPrimaryEnvironment } from '../connections/local-primary';
@@ -25,7 +26,7 @@ import { readCliCommand } from './cli-command';
 import { groupOfMember } from './projects-fleet';
 
 /** The scope sentence keys each label on its text, so a changed label remounts (a reused one-line text kept its old string). */
-const keyedLabel = (label: string) => ({ id: `label:${label}`, label, mark: '', ink: '', surface: '', member: '', selected: true, offline: false });
+const keyedLabel = (label: string) => ({ id: `label:${label}`, label, secondary: '', mark: '', ink: '', surface: '', member: '', selected: true, offline: false });
 
 // Pages whose every row is saved on this client; they have no scope sentence (SETTINGS_DEVICE_ONLY_PATHS).
 const DEVICE_ONLY = new Set(['appearance', 'snap-shot', 'connections']);
@@ -101,11 +102,13 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   // SettingsScopeBoundary: a search target outside the selected scope explains its owning scope.
   const wanted = target ? searchTargetScope(target) : null;
   const notice = wanted && scope.kind !== 'unavailable' && !scopeAvailable(wanted.scope, scope.kind) ? `${wanted.title} is not available for the selected target. Choose its owning scope to continue.` : '';
+  // SettingsScopeBoundary's SettingsScopeNotice: the owning scope's targets ("all" for every other requirement).
+  const noticeGroups = notice ? scopeNoticeGroups(wanted!.scope === 'environment' || wanted!.scope === 'project' ? wanted!.scope : 'all', scope.groups, scope.environments) : [];
   const unavailableMessage = scope.kind === 'unavailable' ? scope.message
     // Providers shows the chosen environment's own connection (providers-scope.ts); the other routes read the focused one.
     : scope.kind === 'environment' && !(singleEnvironmentRoute(route) ? scope.connected : client.ready) ? `Reconnect ${scope.environmentLabel} to change its settings.` : '';
   return {
-    ready: active, route, breadcrumb: breadcrumbLabel(route), showScope: !DEVICE_ONLY.has(route), kind: scope.kind, message: unavailableMessage, notice,
+    ready: active, route, breadcrumb: breadcrumbLabel(route), showScope: !DEVICE_ONLY.has(route), kind: scope.kind, message: unavailableMessage, notice, noticeGroups,
     environmentLabel: scope.environmentLabel, projectLabel: scope.projectLabel, projectMark: scope.projectMark, projectInk: scope.projectInk, projectSurface: scope.projectSurface,
     connective: scope.connective, // Every known environment, each with its own machine icon; a single-environment route drops "All environments".
     environmentChoices: singleEnvironmentRoute(route) ? scope.environmentChoices.filter(choice => choice.id) : scope.environmentChoices, environmentIcon: scope.environmentIcon, projectChoices: scope.projectChoices,

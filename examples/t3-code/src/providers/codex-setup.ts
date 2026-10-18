@@ -1,3 +1,4 @@
+import { providerWritable } from './provider-permissions';
 // Managed Codex with a ChatGPT account, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // apps/web/src/components/settings/CodexSetupSection.tsx (CodexSetupSection :58-156, the
 // state and derivations of ManagedCodexSetup :194-316 and its descriptions, controls and
@@ -235,6 +236,6 @@ export function codexRuntimeFields(host: CodexHost, instanceId: string, provider
 export function codexPicker(host: CodexHost, instanceId: string, target = instanceId) {
   const methods = arr(setupOf(host, instanceId).auth.state?.methods).filter(method => str(method.id).startsWith('chatgpt-profile:'));
   const provider = arr(host.config.providers).find(candidate => candidate.instanceId === instanceId);
-  const token = codexStatus(host, instanceId, provider, { enabled: provider?.enabled !== false, readOnly: !host.writable }).token;
+  const token = codexStatus(host, instanceId, provider, { enabled: provider?.enabled !== false, readOnly: !providerWritable(host) }).token;
   return { key: target, instanceId, target, token, profiles: methods.map(method => ({ id: str(method.id), name: str(method.name) })), first: str(methods[0]?.id) || 'chatgpt-change-account' };
 }

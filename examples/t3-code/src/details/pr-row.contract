@@ -1,3 +1,4 @@
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 // Measured on the served HEAD reference (MIT, see LICENSE-T3;
 // chat/ThreadDetailsPrRow.tsx, pullRequest/PullRequestChecksPopover.tsx,
 // pullRequestPresentation.tsx, ui/popover.tsx, ui/tooltip.tsx variant "glass",
@@ -61,18 +62,18 @@ component CheckGlyph
     else
       PgIcon(name=checkIcon(status), size=size, color=checkTone(status))
 
-// The checks segment of the split row and the popover it opens.
+// The checks on the row's second line (ThreadDetailsControl part "meta": 24pt, 6pt insets, 12pt medium muted text)
+// and the popover they open.
 component ChecksTrigger
   props
     row: DetailsPrRow
     hovered: bool
     hover: action
   view
-    button popovertarget=row.extra.popId hover=hover aria-label=row.checksAria testId=`details-pr-checks-${row.key}` height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-width=0 background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+    button popovertarget=row.extra.popId hover=hover aria-label=row.checksAria testId=`details-pr-checks-${row.key}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
       PgIcon(name=rollupIcon(row.checks), size=14, color=rollupTone(row.checks))
       if row.checksCount != ""
-        text row.checksCount font-size="0.8125rem" font-weight=500 line-height="1.21875rem" font-variant-numeric="tabular-nums" color="light-dark(#27272acc, #f5f5f5cc)"
-      PgIcon(name="chevron-down", size=12, color="light-dark(#27272acc, #f5f5f5cc)")
+        text row.checksCount font-size="0.75rem" font-weight=500 line-height="1rem" font-variant-numeric="tabular-nums" color=prRowMuted()
 
 component ChecksPopover
   props
@@ -141,7 +142,8 @@ component PrCardView
                 text card.additions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#009966, #00d492)"
                 text card.deletions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=prRowDestructive()
 
-// The trailing action: Resolve and Fix (destructive, with the hand-off arrow), Ready, Merge.
+// The action at the second line's end (part "meta", tone primary or destructive): Resolve and Fix (with the
+// hand-off arrow), Ready, Merge.
 component PrActionButton
   props
     row: DetailsPrRow
@@ -152,17 +154,17 @@ component PrActionButton
   view
     // Merge asks first (the AlertDialog); the others act on the press.
     if row.action == "merge"
-      button id=`details-pr-merge-${row.actionTarget}` press=local("surface-linked-pr-merge-ask", row.actionTarget, row.extra.method) hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` width=row.extra.actionWidth height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" border-top-left-radius=0 border-bottom-left-radius=0 opacity=(row.actionDisabled ? 0.64 : 1) background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 data-focus-stop=(row.actionDisabled ? "" : "enabled")
+      button id=`details-pr-merge-${row.actionTarget}` press=local("surface-linked-pr-merge-ask", row.actionTarget, row.extra.method) hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" border-width=0 border-radius="0.375rem" opacity=(row.actionDisabled ? 0.64 : 1) background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 data-focus-stop=(row.actionDisabled ? "" : "enabled")
         PrActionLabel(row=row)
     else
-      button press=act(`shell:surface-linked-pr-${row.action}`, row.actionTarget, "") hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` width=row.extra.actionWidth height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" border-top-left-radius=0 border-bottom-left-radius=0 opacity=(row.actionDisabled ? 0.64 : 1) background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      button press=act(`shell:surface-linked-pr-${row.action}`, row.actionTarget, "") hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" border-width=0 border-radius="0.375rem" opacity=(row.actionDisabled ? 0.64 : 1) background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
         PrActionLabel(row=row)
 
 component PrActionLabel
   props
     row: DetailsPrRow
   view
-    text row.actionLabel white-space="nowrap" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=(row.extra.destructive ? prRowDestructive() : prRowPrimary())
+    text row.actionLabel white-space="nowrap" font-size="0.75rem" font-weight=500 line-height="1rem" color=(row.extra.destructive ? prRowDestructive() : prRowPrimary())
     if row.extra.suffix
       PgIcon(name="arrow-up-right", size=12, color=(row.extra.destructive ? prRowDestructive() : prRowPrimary()))
 

@@ -116,7 +116,11 @@ outdated or newer; one that can update itself offers **Update** in Settings › 
 connected server older than this client shows "Server update available" above the composer (and
 a warning in the thread details card); its Update streams the update's progress, waits for the
 server to come back on the new version and shares that state with Settings › Connections
-(`server-update.ts`).
+(`server-update.ts`). The sidebar's Update button combines one-click provider and remote server
+updates in one confirmation, with per-machine progress and Retry. Provider installers finish
+before servers restart; a slow server keeps its own progress without holding up the other
+machines. Servers installed from npm appear after the target release is published on npm.
+The app has no desktop self-update feed, so its own download/restart step is absent.
 
 1. In T3 Code, open **Settings → Connections** and create a fresh pairing link.
    A command-line installation can also use `t3 pair` for a running server.
@@ -129,6 +133,12 @@ server to come back on the new version and shares that state with Settings › C
 
 ## What it covers
 
+- Prompt links: packaged builds register `t3code://new?prompt=…` and
+  `t3code://threads/<environment>/<thread>`. Links fill a draft and never send it;
+  hidden characters are removed with a warning, and replacing a draft or checking
+  out a pull request requires a choice. The palette and user messages offer Copy
+  prompt link. Development and lane bundles register no scheme; test the handler
+  through `/open?u=<percent-encoded-link>` directly.
 - Sidebar: grouped projects, Working/active/Settled/Snoozed shelves, search, pin,
   settle/un-settle, snooze (presets and custom), Woke and Done pills (Woke dismissal
   syncs through `thread.visit`), project glyph overrides and favicons, Project order,
@@ -219,7 +229,7 @@ server to come back on the new version and shares that state with Settings › C
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
   opens its simulator with `device.open`, then the workspace shows the hub's H.264 screen
   decoded with VideoToolbox (iOS: serve-sim's AVCC body, MJPEG when the description cannot be
-  decoded or the decoder stays behind for a second, `T3DeviceDecodeBacklog.swift`; Android: serve-emu's SEMU-framed socket) as the 3D phone (SceneKit over the
+  decoded; a sustained decode backlog or stalled body resubscribes at a fresh IDR and keeps the last frame and 3D viewer, `T3DeviceDecodeBacklog.swift`; Android: serve-emu's SEMU-framed socket) as the 3D phone (SceneKit over the
   connected server's own device models, never bundled; a procedural body for other devices)
   or flat, with Home, Rotate (Android: Back, Recents and a Portrait / Landscape menu),
   appearance, text size, the Tools drawer (foreground app, open URL, launch, terminate,
@@ -359,6 +369,19 @@ values of older builds) reads as unset, so the real time is stored (`onboarding-
 After a lost connection the client follows the reference reconnect ladder
 and resynchronizes before permitting writes. A submission with an uncertain result keeps
 its command identifiers and draft and is never retried automatically.
+Providers follow the selected Settings environment. With a project or checkout selected, the
+provider switch writes that project's checkout overrides; Reset uses the environment setting.
+Provider update details show live installer progress and failures. The Models section can rename
+built-in models and stores favorites, visibility, and order on that environment. Legacy device
+preferences seed only an unset server list; an explicit empty list stays empty.
+
+The model picker explains models that need a newer CLI and links to Provider settings. Workspace
+skills refresh after five minutes. Muse Code is available in Add provider; Usage includes Pi
+sessions and Antigravity quota groups. For a local ACP executable, choose ACP Registry → Enter
+manually → Local command, enter its path, and add one literal argument per row. Secret fields
+show Configured; enter a replacement or use Clear. Provider editor questions keep their prefilled
+answer as literal text, including whitespace and an intentionally cleared answer.
+
 ## Known differences and framework gaps
 
 The clone follows the reference wherever exact2 allows it. Where it cannot, the gap is an

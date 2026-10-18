@@ -12,7 +12,7 @@ import type { Native } from '../../src/client/protocol';
 const native = { available: true, watch() {}, later: async () => ({}) } as unknown as Native;
 const status = (extra: Obj = {}): Obj => ({ isRepo: true, hasPrimaryRemote: true, isDefaultRef: false, refName: 'feature', hasWorkingTreeChanges: true,
   workingTree: { files: [{ path: 'a.ts', insertions: 1, deletions: 0 }], insertions: 1, deletions: 0 }, hasUpstream: true, aheadCount: 0, behindCount: 0, pr: null, ...extra });
-const gitClient = () => ({ environmentId: 'env', generation: 3, threadId: 't1', projectId: 'p1', draftKey: 'env:t1', writable: true, local: { composerControls: {} },
+const gitClient = () => ({ scopes: ['source-control:write'], ready: true, environmentId: 'env', generation: 3, threadId: 't1', projectId: 'p1', draftKey: 'env:t1', writable: true, local: { composerControls: {} },
   shell: { threads: [], projects: [] }, config: {}, projection: {},
   restAccess: () => ({ ids: async () => ['a1'], call: async () => ({ id: '3-7' }), request: async () => ({}) }) }) as unknown as T3Client;
 

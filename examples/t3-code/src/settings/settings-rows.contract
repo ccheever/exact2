@@ -25,6 +25,9 @@ use KmItem from "../shared/menu-keys.contract"
 use kmTriggerKey from "../shared/menu-keys.contract"
 use kmTriggerTarget from "../shared/menu-keys.contract"
 use KeyMenu from "../shared/menu-keys.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
+use InheritanceGroup, InheritanceGroupView from "./settings-inheritance.contract"
+use dbStep from "../diff/diff.contract"
 
 // "Applying settings for <project> across <environment>" with its two radio menus.
 component ScopeSentence
@@ -52,7 +55,7 @@ component ScopeSentence
       stopPropagation()
       if not e.repeat
         showPopover("settings-scope-project-menu", source="settings-scope-project")
-        let target = kmTriggerTarget(projectItems, k)
+        let target = projects.filter((choice) => choice.id != "").length > 6 ? "" : kmTriggerTarget(projectItems, k)
         if target != ""
           focus(target)
   derive environmentItems = environments.map((choice) => KmItem(id=`settings-scope-choice-environment-${choice.id == "" ? "all" : choice.id}`, label=choice.label))
@@ -62,7 +65,7 @@ component ScopeSentence
       stopPropagation()
       if not e.repeat
         showPopover("settings-scope-environment-menu", source="settings-scope-environment")
-        let target = kmTriggerTarget(environmentItems, k)
+        let target = environments.filter((choice) => choice.id != "").length > 6 ? "" : kmTriggerTarget(environmentItems, k)
         if target != ""
           focus(target)
   view
@@ -80,7 +83,10 @@ component ScopeSentence
                 svg position="absolute" left=0 right=0 bottom=1 height=2 width="100%" viewBox="0 0 400 2" preserveAspectRatio="none" aria-hidden=true
                   path d="M0 1H400" stroke=pal.text stroke-opacity=0.3 stroke-width=1.5 stroke-dasharray="1.5 2.5"
             CorePaintIcon(ownId="paint-icon-ScopeSentence-1", paint="mutedForeground", name="chevron-down", size=14, color=pal.muted)
-          ScopeMenu(pal=pal, choices=projects, project=true, menuId="settings-scope-project-menu", items=projectItems, keyed=0, choose=choose)
+          if projects.filter((choice) => choice.id != "").length > 6
+            ScopeSearchMenu(pal=pal, choices=projects, project=true, menuId="settings-scope-project-menu", choose=choose)
+          else
+            ScopeMenu(pal=pal, choices=projects, project=true, menuId="settings-scope-project-menu", items=projectItems, keyed=0, choose=choose)
       row align-items="center" gap="0.375rem" min-width=0
         text connective font-size="1rem" line-height="1.5rem" color=pal.muted flex-shrink=0 id="paint-ScopeSentence-3" data-paint="mutedForeground" data-pick="mutedForeground"
         box position="relative"
@@ -93,7 +99,10 @@ component ScopeSentence
                 svg position="absolute" left=0 right=0 bottom=1 height=2 width="100%" viewBox="0 0 400 2" preserveAspectRatio="none" aria-hidden=true
                   path d="M0 1H400" stroke=pal.text stroke-opacity=0.3 stroke-width=1.5 stroke-dasharray="1.5 2.5"
             CorePaintIcon(ownId="paint-icon-ScopeSentence-2", paint="mutedForeground", name="chevron-down", size=14, color=pal.muted)
-          ScopeMenu(pal=pal, choices=environments, project=false, menuId="settings-scope-environment-menu", items=environmentItems, keyed=0, choose=choose)
+          if environments.filter((choice) => choice.id != "").length > 6
+            ScopeSearchMenu(pal=pal, choices=environments, project=false, menuId="settings-scope-environment-menu", choose=choose)
+          else
+            ScopeMenu(pal=pal, choices=environments, project=false, menuId="settings-scope-environment-menu", items=environmentItems, keyed=0, choose=choose)
 
 component ScopeMenu
   props
@@ -117,20 +126,20 @@ component ScopeMenu
   action focused(id: string, on: bool)
     lit = on ? id : (lit == id ? "" : lit)
   view
-    // SettingsScopeSentence: MenuPopup align="start", 4 pt below the trigger's start, flipping near an edge.
-    column id=menuId popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" min-width="11rem"
+    // SettingsScopeSentence: MenuPopup align="start" (its content w-72), 4 pt below the trigger's start, flipping near an edge.
+    column id=menuId popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="18rem"
       column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=(project ? "settings-scope-project-menu" : "settings-scope-environment-menu") id=(project ? "settings-scope-project-menu" : "settings-scope-environment-menu") data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
         KeyMenu(menuId=`${menuId}-keys`, items=items, keyed=keyed, gap="0px", modal=true)
           for choice in choices key=choice.id
             column width="100%"
-              button id=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}` press=choose(project, choice.id, choice.member) popovertarget=menuId popovertargetaction="hide" hover=hover(choice.id, `settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}`) focus=focused(choice.id, true) blur=focused(choice.id, false) role="menuitemradio" aria-checked=choice.selected class=SettingsGhost justify-content="flex-start" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" background-color=(lit == choice.id or choice.selected ? pal.highlight : "#00000000") testId=`settings-scope-choice-${project ? "project" : "environment"}-${choice.id == "" ? "all" : choice.id}` data-paint=`${(lit == choice.id or choice.selected ? "text" : "")}` data-pick=((lit == choice.id or choice.selected ? "text" : "") != "" ? (lit == choice.id or choice.selected ? "text" : "") : "")
+              button id=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}` press=choose(project, choice.id, choice.member) popovertarget=menuId popovertargetaction="hide" hover=hover(choice.id, `settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}`) focus=focused(choice.id, true) blur=focused(choice.id, false) role="menuitemradio" aria-checked=choice.selected class=SettingsGhost justify-content="flex-start" width="100%" height="auto" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" background-color=(lit == choice.id or choice.selected ? pal.highlight : "#00000000") testId=`settings-scope-choice-${project ? "project" : "environment"}-${choice.id == "" ? "all" : choice.id}` data-paint=`${(lit == choice.id or choice.selected ? "text" : "")}` data-pick=((lit == choice.id or choice.selected ? "text" : "") != "" ? (lit == choice.id or choice.selected ? "text" : "") : "")
                 if project and choice.mark != ""
                   CoreMark(label=choice.mark, ink=choice.ink, surface=choice.surface)
                 if not project and choice.mark != ""
                   CnMachineIcon(kind=choice.mark, size=14, color=pal.text)
                 if not project and choice.id == ""
                   CorePaintIcon(ownId=`paint-icon-ScopeMenu-1-${menuId}-${choice.id}`, paint="text", name="layers", size=14, color=pal.text)
-                text choice.label font-size="0.875rem" line-height="1.25rem" color=pal.text flex=1 min-width=0 line-clamp=1 white-space="nowrap" id=`paint-ScopeMenu-3-${menuId}-${choice.id}` data-paint="text" data-pick="text"
+                ScopeOptionText(pal=pal, choice=choice, menuId=menuId)
                 if choice.offline
                   text "Offline" font-size="0.75rem" color=pal.muted flex-shrink=0 id=`paint-ScopeMenu-4-${menuId}-${choice.id}` data-paint="mutedForeground" data-pick="mutedForeground"
                 box width="0.875rem" height="0.875rem" flex-shrink=0
@@ -138,6 +147,98 @@ component ScopeMenu
                     CorePaintIcon(ownId=`paint-icon-ScopeMenu-2-${menuId}-${choice.id}`, paint="text", name="check", size=14, color=pal.text)
               if choice.id == ""
                 box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color=pal.divider flex-shrink=0 id=`paint-ScopeMenu-5-${menuId}-${choice.id}` data-paint="border" data-pick="border"
+
+// ScopeOptionLabel: the name and, under it, the line that tells it apart (an address, a checkout path or machines).
+component ScopeOptionText
+  props
+    pal: CorePalette
+    choice: ScopeChoice
+    menuId: string
+  view
+    column flex=1 min-width=0 align-items="flex-start"
+      text choice.label font-size="0.875rem" line-height="1.25rem" color=pal.text max-width="100%" line-clamp=1 white-space="nowrap" text-align="left" id=`paint-ScopeMenu-3-${menuId}-${choice.id}` data-paint="text" data-pick="text"
+      if choice.secondary != ""
+        text choice.secondary font-size="0.75rem" line-height="1rem" color=pal.muted max-width="100%" line-clamp=1 white-space="nowrap" text-align="left" testId=`${menuId}-secondary-${choice.id == "" ? "all" : choice.id}` id=`paint-ScopeMenu-6-${menuId}-${choice.id}` data-paint="mutedForeground" data-pick="mutedForeground"
+
+// ScopeMenu over six options: a Combobox (ComboboxPopup w-80, align start) whose search filters the names, the lines
+// under them and the ids, "No matches found." when nothing matches, and a check on the chosen option. As the font
+// picker's (settings-a-fonts.contract): the popup opens on the chosen option, typing lights the first match
+// (autoHighlight), ↓/↑ walk the matches and Return picks the lit one; a pick gives the focus back to the trigger.
+component ScopeSearchMenu
+  props
+    pal: CorePalette
+    choices: ScopeChoice[]
+    project: bool
+    menuId: string
+    choose: action
+  state query = ""
+  // The option the keys or the pointer lit since the last edit ("-" for none); "" leaves it to the query.
+  state cursor = ""
+  derive scope = project ? "project" : "environment"
+  derive needle = query.trim().toLowerCase()
+  derive matches = choices.filter((choice) => needle == "" or `${choice.label} ${choice.secondary} ${choice.id == "" ? "all" : choice.id}`.toLowerCase().includes(needle))
+  derive current = choices.filter((choice) => choice.selected).map((choice) => choice.id == "" ? "all" : choice.id).join("")
+  derive highlight = cursor != "" ? cursor : (needle == "" ? "-" : matches.slice(0, 1).map((choice) => choice.id == "" ? "all" : choice.id).join(""))
+  action toggled(e: ToggleEvent)
+    if e.newState == "open"
+      query = ""
+      cursor = current
+      if current != ""
+        scrollIntoView(`settings-scope-choice-${scope}-${current}`, block="nearest")
+  action search(next: string)
+    query = next
+    cursor = ""
+  action searchKey(k: string)
+    if k == "Tab"
+      preventDefault()
+      focus(`settings-scope-${scope}-search`)
+    if k == "Escape"
+      preventDefault()
+      stopPropagation()
+      hidePopover(menuId)
+      focus(`settings-scope-${scope}`)
+    if k == "ArrowDown" or k == "ArrowUp"
+      preventDefault()
+      let next = dbStep(matches.map((choice) => choice.id == "" ? "all" : choice.id), highlight, k == "ArrowDown")
+      cursor = next
+      if next != "-"
+        scrollIntoView(`settings-scope-choice-${scope}-${next}`, block="nearest")
+  action pick
+    if highlight != "-" and matches.filter((choice) => (choice.id == "" ? "all" : choice.id) == highlight).length > 0
+      pickRow(highlight == "all" ? "" : highlight)
+  action pickRow(id: string)
+    hidePopover(menuId)
+    focus(`settings-scope-${scope}`)
+    choose(project, id, choices.filter((choice) => choice.id == id).map((choice) => choice.member).join(""))
+  action hoverRow(id: string, over: bool)
+    cursor = over ? id : (highlight == id ? "-" : highlight)
+  view
+    column id=menuId toggle=toggled key=searchKey popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="20rem" max-height="23rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=(project ? "Project scope" : "Environment scope") testId=`settings-scope-search-${scope}` data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+      DialogOpenFocus(target=`settings-scope-${scope}-search`)
+      column padding-top="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" width="100%" flex-shrink=0
+        row height="2.0625rem" align-items="center" gap="0.25rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=pal.border id=`paint-ScopeSearchMenu-1-${menuId}` data-paint="border" data-pick="border"
+          CorePaintIcon(ownId=`paint-icon-ScopeSearchMenu-1-${menuId}`, paint="mutedForeground", name="search", size=16, color=pal.muted)
+          input value=query input=search submit=pick autofocus=true role="combobox" aria-expanded=true aria-controls=`settings-scope-${scope}-listbox` placeholder=(project ? "Search projects" : "Search environments") aria-label=(project ? "Search projects" : "Search environments") spellcheck="false" autocorrect="off" testId=`settings-scope-${scope}-search` flex=1 min-width=0 height="1.625rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color=pal.text id=`settings-scope-${scope}-search` data-paint="text" data-pick="text"
+            ::placeholder
+              color=pal.muted
+      text matches.filter((choice) => (choice.id == "" ? "all" : choice.id) == highlight).map((choice) => `${choice.label} ${choice.secondary}`).join("") role="status" aria-live="polite" position="absolute" width=1 height=1 overflow="hidden" opacity=0 testId=`settings-scope-${scope}-highlight`
+      scroll flex-shrink=1 min-height=0 width="100%"
+        column padding="0.25rem" width="100%" box-sizing="border-box" role="listbox" id=`settings-scope-${scope}-listbox`
+          if matches.length == 0
+            text "No matches found." font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color=pal.muted role="status" testId=`settings-scope-${scope}-empty` id=`settings-scope-${scope}-empty` data-paint="mutedForeground" data-pick="mutedForeground"
+          for choice in matches key=choice.id
+            button tabindex=-1 press=pickRow(choice.id) hover=hoverRow(choice.id == "" ? "all" : choice.id) role="option" aria-selected=choice.selected id=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}` testId=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(highlight == (choice.id == "" ? "all" : choice.id) or choice.selected ? pal.highlight : "#00000000")
+              if project and choice.mark != ""
+                CoreMark(label=choice.mark, ink=choice.ink, surface=choice.surface)
+              if not project and choice.mark != ""
+                CnMachineIcon(kind=choice.mark, size=14, color=pal.muted)
+              if not project and choice.id == ""
+                CorePaintIcon(ownId=`paint-icon-ScopeSearchMenu-2-${menuId}`, paint="mutedForeground", name="layers", size=14, color=pal.muted)
+              ScopeOptionText(pal=pal, choice=choice, menuId=menuId)
+              if choice.offline
+                text "Offline" font-size="0.75rem" color=pal.muted flex-shrink=0 id=`paint-ScopeSearchMenu-3-${menuId}-${choice.id}` data-paint="mutedForeground" data-pick="mutedForeground"
+              if choice.selected
+                CorePaintIcon(ownId=`paint-icon-ScopeSearchMenu-4-${menuId}-${choice.id}`, paint="text", name="check", size=14, color=pal.text)
 
 // SettingsSection list. Each section header, its card (rounded-xl border bg-card/40 shadow-xs/5)
 // and divided rows; Legacy features folds behind its trigger.
@@ -227,15 +328,11 @@ component CoreRowView
                   CorePaintIcon(ownId=`paint-icon-CoreRowView-2-${row.id}`, paint=(row.inheritance == "overridden" ? "accent" : (row.inheritance == "mixed" ? "" : "mutedForeground")), name="layers", size=12, color=(row.inheritance == "overridden" ? pal.accent : (row.inheritance == "mixed" ? "#fe9a00" : pal.muted)))
                 column id=`inherit-${section}-${row.id}` popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="19.375rem"
                   column width="100%" padding="0.5rem" gap="0.125rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" testId=`setting-inheritance-${row.id}-popover` id=`setting-inheritance-${row.id}-popover` data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
-                    row gap="0.375rem" align-items="center" padding-left="0.25rem" padding-bottom="0.25rem"
-                      CorePaintIcon(ownId=`paint-icon-CoreRowView-3-${row.id}`, paint="mutedForeground", name="laptop", size=14, color=pal.muted)
-                      text row.layerTitle font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted id=`paint-CoreRowView-6-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
-                    for layer in row.layers key=layer.id
-                      row height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" align-items="center" border-radius="0.375rem" background-color=(layer.selected ? pal.highlight : "#00000000") testId=`setting-inheritance-${row.id}-${layer.id}` id=`setting-inheritance-${row.id}-${layer.id}` data-paint=`${(layer.selected ? "text" : "")}` data-pick=((layer.selected ? "text" : "") != "" ? (layer.selected ? "text" : "") : "")
-                        text layer.label font-size="0.875rem" line-height="1.25rem" color=pal.text flex=1 id=`paint-CoreRowView-8-${row.id}-${layer.id}` data-paint="text" data-pick="text"
-                        text layer.detail font-size="0.875rem" line-height="1.25rem" color=(layer.selected ? pal.text : pal.muted) id=`paint-CoreRowView-9-${row.id}-${layer.id}` data-paint=`${(layer.selected ? "text" : "mutedForeground")}` data-pick=((layer.selected ? "text" : "mutedForeground") != "" ? (layer.selected ? "text" : "mutedForeground") : "")
-                        if layer.selected
-                          CorePaintIcon(ownId=`paint-icon-CoreRowView-4-${row.id}-${layer.id}`, paint="accent", name="check", size=14, color=pal.accent)
+                    if row.layerGroups.length > 0
+                      for group in row.layerGroups key=group.id
+                        InheritanceGroupView(group=group, textColor=pal.text, muted=pal.muted, highlight=pal.highlight, accent=pal.accent, rowId=row.id, clear=change(row.id, "clear-overrides", group.overrideTargets))
+                    else
+                      InheritanceGroupView(group=InheritanceGroup(id=row.id, title=row.layerTitle, winner="", value="", labels=[], folded=false, sameEverywhere=false, layers=row.layers, overrides=[], overrideTargets="[]"), textColor=pal.text, muted=pal.muted, highlight=pal.highlight, accent=pal.accent, rowId=row.id, clear=change(row.id, "clear-overrides", "[]"))
             if row.resettable
               button press=change(row.id, "reset", row.target) class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" disabled=busy aria-label=`Reset ${row.resetLabel} to default` testId=`setting-reset-${row.id}` title=""
                 CorePaintIcon(ownId=`paint-icon-CoreRowView-5-${row.id}`, paint="mutedForeground", name="undo-2", size=12, color=pal.muted)

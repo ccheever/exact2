@@ -1,3 +1,4 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 // Settings shell, General and Appearance logic.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
@@ -22,11 +23,11 @@ import { contractFn } from '../support/contract-fn-fixture';
 const provider = { instanceId: 'fixture', driver: 'codex', displayName: 'Exact fixture', enabled: true, installed: true, auth: { status: 'authenticated' }, status: 'ready',
   models: [{ slug: 'luna', name: 'GPT-5.6-Luna', isDefault: true, capabilities: { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', options: [{ id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium', isDefault: true }, { id: 'high', label: 'High' }] }] } },
     { slug: 'astra', name: 'GPT-6-Astra' }] };
-type Fake = { local: Obj; ready: boolean; environmentId: string; config: Obj; writes: Obj[]; files: Record<string, string>; projectGroups(): { key: string; name: string; members: Obj[] }[]; settingsCoreRequest(native: Native, method: string, payload: Obj): Promise<Obj> };
+type Fake = { scopes: readonly string[]; local: Obj; ready: boolean; environmentId: string; config: Obj; writes: Obj[]; files: Record<string, string>; projectGroups(): { key: string; name: string; members: Obj[] }[]; settingsCoreRequest(native: Native, method: string, payload: Obj): Promise<Obj> };
 function fake(settings: Obj = {}, ready = true): Fake {
   const client: Fake = {
     local: { deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' }, clientSettings: decodeClientPrefs({}), groupingMode: 'repository' },
-    ready, environmentId: 'env1', writes: [], files: {},
+    scopes: AUTH_STANDARD_CLIENT_SCOPES, ready, environmentId: 'env1', writes: [], files: {},
     config: { environment: { environmentId: 'env1', label: 'Studio', serverVersion: '0.0.46', capabilities: { projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true } }, providers: [provider], settings: { defaultRuntimeMode: 'full-access', projectSettingsOverrides: {}, ...settings } },
     projectGroups: () => [{ key: 'repo', name: 'Parity fixture', members: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/a' }, { id: 'p2', title: 'Parity fixture', workspaceRoot: '/b' }] },
       { key: 'env1:/c', name: 'Single checkout two', members: [{ id: 'p3', title: 'Single checkout two', workspaceRoot: '/c' }] }],

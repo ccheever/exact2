@@ -101,6 +101,16 @@ export class Backend implements Native {
         const overrides = { ...obj(old.projectSettingsOverrides) };
         for (const [id, entry] of Object.entries(obj(patch.projectSettingsOverrides))) { if (entry === null) delete overrides[id]; else overrides[id] = entry; }
         this.config.settings = { ...old, ...patch, projectSettingsOverrides: overrides };
+        const updated = obj(this.config.settings);
+        if (Array.isArray(patch.setModelFavorites)) {
+          let favorites = arr(old.favorites);
+          for (const change of arr(patch.setModelFavorites)) {
+            favorites = favorites.filter(entry => entry.provider !== change.provider || entry.model !== change.model);
+            if (change.favorite === true) favorites.push({ provider: change.provider, model: change.model });
+          }
+          updated.favorites = favorites;
+        }
+        delete updated.setModelFavorites;
         const mutation = obj(payload.providerInstanceMutation);
         if (mutation.operation) {
           const providers = { ...obj(old.providerInstances) };

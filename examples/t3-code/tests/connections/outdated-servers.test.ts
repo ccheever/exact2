@@ -97,7 +97,7 @@ describe('Connections: an outdated saved host', () => {
     native.jobs[KEY] = { status: 'failed', stage: 'downloading', fromVersion: '0.0.30', targetVersion: CLIENT_VERSION, message: 'Server update failed: npm exited 1', resultVersion: '', label: 'Old box' };
     await announceJobs(native, client);
     await announceJobs(native, client);
-    expect(toasts(client).filter(toast => toast.kind === 'error').map(toast => [toast.title, toast.description])).toEqual([['Server update failed', 'Server update failed: npm exited 1']]);
+    expect(toasts(client).filter(toast => toast.kind === 'error').map(toast => [toast.title, toast.description])).toEqual([['Old box server update failed', 'Server update failed: npm exited 1']]);
   });
   test('pairing an outdated self-updating host saves it; any other mismatch keeps the direction message', async () => {
     const native = new FakeNative();

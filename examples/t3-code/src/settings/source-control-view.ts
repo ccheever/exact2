@@ -1,4 +1,5 @@
 // Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+import { can } from '../connections/command-permissions';
 // Settings → Source control and Integrations view models (reference
 // SourceControlSettings.tsx, ProjectDefaultsSettings.tsx, BranchNamingSettings.tsx,
 // SourceControlWritingSettings.tsx, IntegrationsSettings.tsx, SettingInheritance.tsx).
@@ -11,22 +12,23 @@ import type { T3Client } from '../client/client';
 import { providerAvailable, type Native } from '../client/protocol';
 import { deviceTool } from '../device/settings-a-integrations';
 import { bitbucketView, type BitbucketView } from './settings-a-bitbucket';
-import { deviceHostsView } from '../device/settings-a-hosts';
+import { deviceHostsView, scopedDeviceHostsView } from '../device/settings-a-hosts';
 import { deviceScope } from '../device/settings-integrations-scope';
 import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportRow } from '../device/device-support'; // 5318d054a5: Simulator support row
 import { letGo } from '../client/let-go';
 import { linkTargetPreference } from '../browser/browser-links';
-import { formatSettingValue as formatValue, traitsControl, type CoreOption } from './settings-core'; // SettingInheritance formatValue, one for every page
+import { resolveScope, memberFiles, serverContext, inheritanceGroups, type InheritanceGroup, formatSettingValue as formatValue, traitsControl, type CoreOption } from './settings-core';
 import { resolveTextGenerationSelection } from './text-generation-model';
 import { providerBadge } from '../client/presentation';
 import { triggerModelName } from '../composer/composer-controls-model';
+import { watchDeviceHostStates } from '../client/live-streams';
 import { deviceStateOf, watchDevice } from '../device/device-surface'; // useDeviceState
 import { groupOfMember } from './projects-fleet';
 
 type Choice = { value: string; label: string; selected: boolean };
 type Layer = { key: string; label: string; value: string; effective: boolean; set: boolean };
 export type ScopedRow = { key: string; kind: string; title: string; description: string; checked: boolean; value: string; valueLabel: string; options: Choice[]; placeholder: string;
-  disabled: boolean; first: boolean; summary: string; state: string; layers: Layer[]; reset: string; status: string; child: string;
+  disabled: boolean; first: boolean; summary: string; state: string; layers: Layer[]; layerGroups: InheritanceGroup[]; reset: string; status: string; child: string;
   /** ScopedSwitch's mixed state: the Integrations device rows compute it across the settings scope's targets (settings-integrations-scope.ts). */
   mixed: boolean;
   /** The control's accessible name and SettingResetButton's `label` ("Reset <label> to default"), as the reference names them; '' uses the title. */
@@ -60,7 +62,7 @@ export function inheritance(settings: Obj, projectId: string, key: string, envir
   layers.push({ key: 'environment', label: 'Environment', value: environmentSet ? formatValue(key, settings[key]) : 'Inherits', effective: !projectSet && environmentSet, set: environmentSet });
   layers.push({ key: 'built-in', label: 'Default', value: formatValue(key, DEFAULTS[key]), effective: !projectSet && !environmentSet, set: true });
   const [summary, state] = projectSet ? ['Overridden for this project', 'overridden'] : projectId && scoped ? [`Inherited from ${environmentLabel}`, 'inherited'] : environmentSet ? ['Set on the environment', 'environment'] : ['Built-in default', 'default'];
-  return { summary, state, layers };
+  return { summary, state, layers, layerGroups: [] as InheritanceGroup[] };
 }
 
 function effective(settings: Obj, projectId: string): Obj {
@@ -252,7 +254,7 @@ function scopeError(client: T3Client, native: Native | null | undefined, environ
 }
 function environmentLabel(client: T3Client): string { return str(obj(client.config.environment).label, 'Environment'); }
 
-export async function sourceControlPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, rescan: number) {
+export async function sourceControlPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, rescan: number, machine = '', projectKey = '', checkout = '') {
   const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, repositories: [] as ScopedRow[], text: [] as ScopedRow[],
     scanned: false, scanError: '', vcs: [] as ReturnType<typeof discoveryRows>['vcs'], providers: [] as ReturnType<typeof discoveryRows>['providers'], fetches: [fetchInterval({})], bitbucket: [] as BitbucketView[] };
   if (!active) return empty;
@@ -263,7 +265,11 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
     // useScopedSettings (SourceControlSettings.tsx): the connection's subscribed config, never a read per answer.
     const config = client.config, settings = obj(config.settings);
     if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
-    const rows = sourceControlRows(settings, projectId, environmentLabel(client), arr(config.providers), client.writable);
+    const rows = sourceControlRows(settings, projectId, environmentLabel(client), arr(config.providers), can(client, 'settings:write'));
+    const legacy = !projectKey && projectId ? groupOfMember(client, projectId) : undefined;
+    const scope = resolveScope(client, machine, legacy?.key ?? projectKey, checkout);
+    const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope));
+    for (const row of [...rows.repositories, ...rows.text]) row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
     // Discovery scans one machine's tools (server.discoverSourceControl); a rescan re-runs it.
     const key = `${client.origin}:${client.generation}:${rescan}`;
     let cached = discoveries.get(client);
@@ -290,22 +296,26 @@ export async function integrationsPage(client: T3Client, native: Native | null |
     // re-asked this page: device.list's inspection publishes to the device stream, whose event bumps data.revision.
     const config = client.config, settings = obj(config.settings);
     if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
-    const rows = integrationRows(settings, projectId, environmentLabel(client), client.writable);
+    const rows = integrationRows(settings, projectId, environmentLabel(client), can(client, 'settings:write'));
     // Device hub and Agent device access follow the settings scope: the representative's value, mixed across
     // the selected targets, and Agent device access open once any connected environment runs the hub.
     // A bare project id (settingsProjectId with no project key: Project settings' target) is its project on every environment (settingsScopeOf).
     const legacy = !projectKey && projectId ? groupOfMember(client, projectId) : undefined;
     const devices = deviceScope(client, machine, legacy ? legacy.key : projectKey, legacy ? '' : checkout);
+    const scope = resolveScope(client, machine, legacy?.key ?? projectKey, checkout);
+    const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope));
+    for (const row of [...rows.browser, rows.deviceHub, rows.agentDevice, rows.hostsRow]) row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
     rows.deviceHub = { ...rows.deviceHub, checked: devices.checked.enableDeviceSupport, mixed: devices.mixed.enableDeviceSupport,
-      disabled: devices.project || devices.unavailable || devices.connectedCount === 0 || !client.writable };
+      disabled: devices.project || devices.unavailable || devices.connectedCount === 0 || !can(client, 'settings:write') };
     rows.agentDevice = { ...rows.agentDevice, checked: devices.checked.enableAgentDeviceAccess, mixed: devices.mixed.enableAgentDeviceAccess,
-      disabled: !client.writable || devices.connectedCount === 0 || (!devices.project && !devices.anyHubEnabled) };
+      disabled: !can(client, 'settings:write') || devices.connectedCount === 0 || (!devices.project && !devices.anyHubEnabled) };
     // DeviceToolVersions over the stream's state; "Check versions" (rest:device-tools) is the one inspection.
     await watchDevice(client, native);
+    await watchDeviceHostStates(client, native, scope.selected.map(environment => environment.environmentId));
     const deviceState = deviceStateOf(client), tools = obj(arr(deviceState?.hosts).find(host => host.kind === 'local')?.tools);
     const hubStatus = deviceState ? toolVersion(tools.hub) : 'Version unknown', agentStatus = deviceState ? toolVersion(tools.agent) : 'Version unknown';
     return { ...empty, available: true, ...rows, deviceScope: devices.scopeKey, hubStatus, agentStatus, hosts: Array.isArray(settings.deviceHosts) ? settings.deviceHosts.length : 0,
-      hubTool: deviceTool('hub', deviceState), agentTool: deviceTool('agent', deviceState), deviceHosts: deviceHostsView(client, settings, deviceState, projectId !== '', true),
+      hubTool: deviceTool('hub', deviceState), agentTool: deviceTool('agent', deviceState), deviceHosts: scopedDeviceHostsView(client, native, resolveScope(client, machine, legacy?.key ?? projectKey, checkout).selected, resolveScope(client, machine, legacy?.key ?? projectKey, checkout).environments, deviceState, projectId !== ''),
       simulatorSupport: simulatorSupportRows(client, environmentId, settings.enableDeviceSupport === true, deviceState, connectedEnvironmentCount(client)) };
   } catch (failure) { return { ...empty, error: failure instanceof Error ? failure.message : 'Could not load settings.' }; }
 }
@@ -316,5 +326,5 @@ export function toolVersion(value: unknown): string {
   return version ? `v${version}` : 'Not installed';
 }
 function blankRow(): ScopedRow {
-  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [] };
+  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [] };
 }
