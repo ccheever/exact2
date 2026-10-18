@@ -119,11 +119,15 @@ function createGeometry(root) {
   return {
     point, points, namedPoints,
     range(el, start, end, out) {
-      if (!el?.isConnected || !root.contains(el)) return 0;
-      const box = el.exactDecorations?.rangeFrame(start, end);
+      if (!el?.isConnected || !root.contains(el) || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') return 0;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start > end || end > (el.value?.length ?? 0)) return 0;
+      let box = el.exactDecorations?.rangeFrame(start, end);
+      if (!el.exactDecorations && typeof el.createValueRange === 'function') {
+        const range = el.createValueRange(start, end); box = range.getBoundingClientRect(); range.disconnect();
+      }
       if (!box) return 0;
       out.set([box.x, box.y, box.width, box.height]);
-      return ANSWERED | (el.exactDecorations.applied?.provisional ? PROVISIONAL : 0);
+      return ANSWERED | (el.exactDecorations?.applied?.provisional ? PROVISIONAL : 0);
     },
     read(op, el, out) {
       if (!el?.isConnected || !root.contains(el)) return 0;

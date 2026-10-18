@@ -46,6 +46,7 @@ async function field(engine, record, drive) {
         field.addEventListener('input', event => events.push([field.value,event.inputType]));
         window.field = () => field;
         window.rangeEdit = (...args) => import('./navigation.js').then(module => module.setFieldRangeText(field, ['editor', ...args], message => {throw Error(message)}));
+        window.cancelNextInput = () => import('./navigation.js').then(({controlEvent}) => controlEvent(field, 'beforeinput', (kind, fn, capture) => field.addEventListener(kind, fn, {capture, once:true}), (_kind, _payload, event) => event.preventDefault()));
         window.ready = true;
       </script>`, { headers: { 'content-type': 'text/html' } });
   } });
@@ -74,6 +75,12 @@ for (const engine of engines) {
       expect(await page.evaluate(() => toggles)).toEqual([[false,34,44]]);
       expect(await editor.evaluate(el => el.value)).toBe(source);
       expect(await page.evaluate(() => events)).toEqual([]);
+      const hidden = await editor.evaluate(async el => {
+        await import('./geometry-glue.js'); const geometry = exact.geometry(document.body), out = new Float64Array(4);
+        const shown = geometry.range(el,19,24,out); el.style.display = 'none'; const hidden = geometry.range(el,19,24,out); el.style.display = '';
+        return [shown,hidden];
+      });
+      expect(hidden).toEqual([1,0]);
     });
   }, 30000);
 
@@ -126,6 +133,22 @@ for (const engine of engines) {
       expect(await editor.evaluate(el => el.value)).toBe('!Xhello world');
       await editor.press('ControlOrMeta+z'); expect(await editor.evaluate(el => el.value)).toBe('!hello world');
       await editor.press('ControlOrMeta+z'); expect(await editor.evaluate(el => el.value)).toBe('hello world');
+      const plain = await page.evaluate(async () => {
+        await import('./geometry-glue.js'); const el = document.createElement('textarea'); el.value = 'plain text'; document.body.append(el);
+        const out = new Float64Array(4), bits = exact.geometry(document.body).range(el,0,5,out); el.remove(); return [bits,out[2]];
+      });
+      expect(plain[0]).toBe(native ? 1 : 0); if (native) expect(plain[1]).toBeGreaterThan(0);
+      const promoted = await page.evaluate(async () => {
+        const {bindRuntime} = await import('./decoration-editor.js'), el = document.createElement('textarea');
+        el.value = 'hello world'; el.setAttribute('data-decorations', JSON.stringify({value:el.value,spans:[{name:'accent',start:6,end:11}],blocks:[],hidden:[],atoms:[]}));
+        el.setAttribute('data-decoration-styles', JSON.stringify({accent:'color:red;'})); document.body.append(el);
+        const Views = new Map([[1,el]]), cleanup = bindRuntime(el,{install:await exact.installDecorationEditor,id:1,Ids:new WeakMap(),Views,log:message=>{throw Error(message)}});
+        el.setAttribute('data-decoration-styles', JSON.stringify({accent:'font-size:28px;'}));
+        await new Promise(resolve => queueMicrotask(resolve));
+        const field = Views.get(1), size = getComputedStyle([...field.querySelectorAll('span')].find(span=>span.textContent==='world')).fontSize;
+        cleanup(); field.remove(); return [field.localName,size];
+      });
+      expect(promoted).toEqual(['div','28px']);
     });
   }, 30000);
 
@@ -145,8 +168,28 @@ for (const engine of engines) {
       expect(await editor.evaluate(el => el.value)).toBe(source.replace('@alice','Bob'));
       await editor.press('ControlOrMeta+z');
       expect(await editor.evaluate(el => el.value)).toBe(source);
+      await editor.evaluate(el => el.setSelectionRange(33,33)); await page.evaluate(() => cancelNextInput()); await editor.press('Backspace');
+      expect(await editor.evaluate(el => el.value)).toBe(source);
       await editor.evaluate(el => el.setSelectionRange(33,33)); await editor.press('Backspace');
       expect(await editor.evaluate(el => el.value)).toBe(source.replace('@alice',''));
+      await editor.evaluate(el => {el.value = 'Server replacement';}); await editor.press('ControlOrMeta+z');
+      expect(await editor.evaluate(el => el.value)).toBe('Server replacement');
+    });
+  }, 30000);
+
+  check(`${engine}: native line edits preserve UTF-16 source and range frames follow scrolling`, async () => {
+    const value = 'a😀b\n'+'long wrapped source '.repeat(30), record = {value,spans:[{name:'accent',start:1,end:3}],blocks:[],hidden:[],atoms:[]};
+    // A layout declaration exercises the source editor on every browser.
+    record.blocks.push({name:'heading',start:0,end:5});
+    await field(engine, record, async (_page, editor) => {
+      await editor.focus(); await editor.evaluate(el=>el.setSelectionRange(3,3)); await editor.press('Enter');
+      expect(await editor.evaluate(el=>el.value)).toBe('a😀\nb\n'+value.slice(5));
+      await editor.press('ControlOrMeta+z'); expect(await editor.evaluate(el=>el.value)).toBe(value);
+      const moved = await editor.evaluate(el=>{
+        const before = el.exactDecorations.rangeFrame(5,25).y, top = el.scrollTop; el.scrollTop = 40;
+        return [before-el.exactDecorations.rangeFrame(5,25).y, el.scrollTop-top];
+      });
+      expect(moved[0]).toBeGreaterThan(0); expect(moved[0]).toBe(moved[1]);
     });
   }, 30000);
 }

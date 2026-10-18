@@ -399,7 +399,7 @@ function refreshSymbols() {
 // The app's `value` into an editor as a person types: the changed middle only (`setRangeText` keeps the selection where a whole assignment throws the caret to the end), never mid-composition — held, applied at compositionend. LLP 1045 D5.
 const composing = new WeakSet(), heldValues = new WeakMap(), compositionFlush = new WeakMap();
 function writeValue(el, value) {
-  if (el.exactMarkup) { el.exactMarkup.setValue(value); return; } if (el instanceof HTMLTextAreaElement) el.exactSourceValue = String(value);
+  if (el.exactMarkup) { el.exactMarkup.setValue(value); return; } if (el.exactDecorations) { el.value = String(value); el.exactDecorations.sync(); return; } if (el instanceof HTMLTextAreaElement) el.exactSourceValue = String(value);
   const old = el.value; if (old === value) { heldValues.delete(el); return; } if (composing.has(el)) { heldValues.set(el, value); return; } heldValues.delete(el);
   if (typeof el.setRangeText !== "function" || valuedControl(el) || old === "" || document.activeElement !== el) { el.value = value; return; }
   let a = 0, z = 0; while (a < old.length && a < value.length && old[a] === value[a]) a++; while (z < old.length - a && z < value.length - a && old[old.length - 1 - z] === value[value.length - 1 - z]) z++;

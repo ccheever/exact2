@@ -180,7 +180,7 @@ function installContentEditable(textarea, host) {
   el.addEventListener('compositionstart', () => { selectFromDOM(); remember(); composing = true; });
   el.addEventListener('compositionend', () => {
     composing = false; const read = readDecoratedSource(el); source = read.value; selectFromDOM();
-    if (pendingValue !== undefined) { source = pendingValue; pendingValue = undefined; }
+    if (pendingValue !== undefined) { if (source !== pendingValue) { undo.length = 0; redo.length = 0; } source = pendingValue; pendingValue = undefined; }
     render();
   });
   el.addEventListener('keydown', e => {
@@ -195,7 +195,7 @@ function installContentEditable(textarea, host) {
   el.addEventListener('blur', () => { if (lastChange !== source) { lastChange = source; el.dispatchEvent(new Event('change', { bubbles: true })); } });
   document.addEventListener('selectionchange', selectionChanged);
   Object.defineProperties(el, {
-    value: { get: () => source, set(value) { value = String(value); if (composing) { pendingValue = value; return; } if (source === value) return; source = value; start = Math.min(start, source.length); end = Math.min(end, source.length); render(); } },
+    value: { get: () => source, set(value) { value = String(value); if (composing) { pendingValue = value; return; } if (source === value) return; undo.length = 0; redo.length = 0; source = value; start = Math.min(start, source.length); end = Math.min(end, source.length); render(); } },
     selectionStart: { get: () => start }, selectionEnd: { get: () => end }, selectionDirection: { get: () => direction },
   });
   el.setSelectionRange = (a, b, dir = 'none') => { end = Math.min(source.length, Number(b) >>> 0); start = Math.min(end, Number(a) >>> 0); direction = dir; render(); };
@@ -257,9 +257,9 @@ globalThis.exact.installDecorationEditor = globalThis.exact.installMarkupEditor.
 
 /** Keep compiled reactive bindings attached while the native field becomes an editor. */
 export function bindRuntime(e, {install, id, Ids, Views, log}) {
-  let observer;
-  const installed = install(e, {log, replace(n) {
-    Ids.set(n, id); Views.set(id, n);
+  let current = e;
+  install(e, {log, replace(n) {
+    current = n; Ids.set(n, id); Views.set(id, n);
     for (const name of ['value', 'selectionStart', 'selectionEnd', 'selectionDirection']) Object.defineProperty(e, name, {configurable:true, get:()=>n[name], ...(name === 'value' ? {set:v=>{n.value=v;}} : {})});
     e.setSelectionRange = (...args) => n.setSelectionRange(...args); e.setRangeText = (...args) => n.setRangeText(...args);
     for (const type of ['input','beforeinput','change','selectionchange','select','focus','blur','keydown','pointerenter','pointerleave','click','toggle','copy','cut','paste']) n.addEventListener(type, ev => {
@@ -267,12 +267,12 @@ export function bindRuntime(e, {install, id, Ids, Views, log}) {
       for (const key of ['oldState','newState','start','end']) if (key in ev) Object.defineProperty(forwarded, key, {value:ev[key]});
       if (ev.defaultPrevented) forwarded.preventDefault(); if (!e.dispatchEvent(forwarded)) ev.preventDefault();
     }, ['keydown','beforeinput','copy','cut','paste'].includes(type));
-    observer = new MutationObserver(ms => {
-      for (const m of ms) { const v = e.getAttribute(m.attributeName); v == null ? n.removeAttribute(m.attributeName) : n.setAttribute(m.attributeName, v); }
-      n.exactDecorations.sync();
-    }); observer.observe(e, {attributes:true});
   }, toggle(n, checked, start, end) {
     const event = new Event('toggle'); Object.assign(event, {oldState:checked?'checked':'unchecked', newState:checked?'unchecked':'checked', start, end}); n.dispatchEvent(event);
   }});
-  return () => {observer?.disconnect(); installed.exactDecorations.destroy();};
+  const observer = new MutationObserver(ms => {
+    if (current !== e) for (const m of ms) { const v = e.getAttribute(m.attributeName); v == null ? current.removeAttribute(m.attributeName) : current.setAttribute(m.attributeName, v); }
+    current.exactDecorations.sync();
+  }); observer.observe(e, {attributes:true});
+  return () => {observer.disconnect(); current.exactDecorations?.destroy();};
 }

@@ -1014,7 +1014,7 @@ that paint their own (`contract vocab button`). This adds no tag or new
 expression grammar. Platform looks and stand-ins are documented in
 [LLP 1069.011](../llp/1069.011-native-buttons.rfc.md).
 
-### Plain textarea decorations (core surface; host adoption pending)
+### Plain textarea decorations
 
 `decoration` declares literal CSS appearance for app-computed UTF-16 ranges. The field's
 value stays a plain string. Both web targets render these records, preserve source

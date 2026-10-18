@@ -1162,7 +1162,7 @@ export function setFieldRangeText(el, args, log) {
 function inputPayload(el, e) { return `${e.inputType ?? ""},${+e.cancelable},${+!!e.isComposing},${e.data == null ? -1 : new TextEncoder().encode(e.data).length},${e.data ?? ""}${fieldSelection(el)}${el.value}`; }
 export function controlEvent(el, kind, on, dispatch) {
   if (kind === "select" || kind === "selectionchange") return void (textField(el) && on(kind, () => dispatch(kind === "select" ? 42 : 52, fieldSelection(el) + el.value)));
-  if (kind === "beforeinput") return on(kind, e => dispatch(53, inputPayload(el, e), e));
+  if (kind === "beforeinput") return on(kind, e => dispatch(53, inputPayload(el, e), e), true);
   if (el.type === "checkbox") return on(kind, () => { dispatch(kind === "change" ? 24 : 25, String(el.checked)); if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked; });
   if (el.type === "radio") return on(kind, () => { dispatch(kind === "change" ? 1 : 23, el.value); settleRadios(el, (r) => r.exactChecked); });
   if (kind === "change") return on("change", () => { dispatch(textField(el) ? 41 : 1, (textField(el) ? fieldSelection(el) : "") + el.value); settleValue(el, true); });

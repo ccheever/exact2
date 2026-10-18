@@ -3012,7 +3012,7 @@ Exact deliberately fires one `input` so its action can update the bound
 value, with `InputEvent.inputType="insertReplacementText"`; it adds no undo
 step by default. On the web, append `"undo"` after the selection mode, or call
 `setRangeText(id, text, "undo")`, to create one undoable replacement. The field keeps
-its plain source; see [decorations](contract-grammar.md#decorations) for styled
+its plain source; see [decorations](contract-grammar.md#plain-textarea-decorations) for styled
 textarea ranges. That input type also covers hatch replacements and browser spelling
 corrections, so it does not uniquely identify this command. `select` follows
 input only when the selection changes. URL inputs trim surrounding ASCII
