@@ -55,16 +55,16 @@ export async function watchTables({app, dist, publish, refused, reported = () =>
   };
   const flush = () => {
     if (closed || !validator.names.length) return;
-    let text;
+    let text, published;
     try {
       const timing = tableOperation(() => {
         const rows = Object.fromEntries(validator.names.map(name => [name, readFileSync(resolve(app, name), 'utf8')]));
         text = validator.validate(JSON.stringify(rows));
         write(resolve(app, tableAsset), text);
         write(resolve(dist, tableAsset), text);
-        publish(tableAsset, Buffer.from(text));
+        published = publish(tableAsset, Buffer.from(text));
       });
-      reported(timing);
+      if (published !== false) reported(timing);
     } catch (error) { refused(`table swap refused: ${error.message ?? error}`, text); }
   };
   const reload = async (directory = dist, noModules = false) => {

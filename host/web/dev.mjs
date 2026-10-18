@@ -1210,7 +1210,7 @@ if (app.manifest.game) {
   const {watchTables} = await import('../../game/app/tables.mjs');
   tuning = await watchTables({app:app.dir, dist, refused:(error,text)=>{ console.error(error); push({error, ...(text ? {surfaceAttempt:{name:'assets/exact-tables.json',text}} : {})}); },
     reported:timing=>console.log(`table: validated and published in ${timing.milliseconds.toFixed(1)} ms; subprocesses ${timing.processes}`),
-    publish:(name, bytes)=>{ if (!current) return; seq++; captureGeneration(true, new Map([[name,bytes]])); push({...announcement(), surfaceAssets:[name]}); }});
+    publish:(name, bytes)=>{ if (!current) return false; seq++; captureGeneration(true, new Map([[name,bytes]])); push({...announcement(), surfaceAssets:[name]}); }});
 }
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', input => {
@@ -1325,7 +1325,6 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
     push({error:`GPU module did not build:\n${error.message}`,source:'gpu'});
   }
 }
-
 const server = createServer(async (req, res) => {
   // Every HTML answer is framed by the design tool only (LLP 1122 T2).
   frameOnlyByTool(res);
