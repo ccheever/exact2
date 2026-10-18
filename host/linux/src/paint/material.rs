@@ -286,8 +286,7 @@ impl super::Painter {
             Some(ink) => ink,
             None if disabled(node) => look::role("GrayText", dark),
             None if focused => super::control::ring(node, dark),
-            None if placeholder_overridden() => look::role("-exact-placeholder", dark),
-            None => look::role("-exact-secondary-label", dark),
+            None => resting_label(dark),
         };
         self.backend.push_clip(
             &Shape::rect((x + inset(), y, (w - 2.0 * inset()).max(0.0), h)),
@@ -398,6 +397,15 @@ fn role_path(d: &str, filled: bool) -> exact_kernel::SymbolPath<'_> {
     }
 }
 
+/// An enabled, unfocused label's ink: the design's `placeholder` where it
+/// overrides that role (LLP 1121 D9), else Material's onSurfaceVariant.
+fn resting_label(dark: bool) -> [u8; 4] {
+    match placeholder_overridden() {
+        true => look::role("-exact-placeholder", dark),
+        false => look::role("-exact-secondary-label", dark),
+    }
+}
+
 /// Whether the design overrides the `placeholder` role (LLP 1095 D4).
 fn placeholder_overridden() -> bool {
     exact_kernel::style::roles::role("-exact-placeholder")
@@ -415,6 +423,17 @@ mod placeholder_tests {
     fn the_label_reads_placeholder_only_where_the_design_overrides_it() {
         roles::set_overrides(Vec::new());
         assert!(!super::placeholder_overridden());
+        // No override: secondary-label's ink, never placeholder's fainter default.
+        for dark in [false, true] {
+            assert_eq!(
+                super::resting_label(dark),
+                super::look::role("-exact-secondary-label", dark)
+            );
+            assert_ne!(
+                super::resting_label(dark),
+                super::look::role("-exact-placeholder", dark)
+            );
+        }
         let id = roles::role("-exact-placeholder").unwrap();
         roles::set_overrides(vec![(
             id,
@@ -424,6 +443,10 @@ mod placeholder_tests {
             ),
         )]);
         assert!(super::placeholder_overridden());
+        // The override's own colour, in both schemes.
+        for dark in [false, true] {
+            assert_eq!(super::resting_label(dark), [0xd9, 0x48, 0x0f, 0xff]);
+        }
         roles::set_overrides(Vec::new());
     }
 }
