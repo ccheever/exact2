@@ -1,3 +1,4 @@
+import { copyPromptLink, promptLinkFor } from '../prompt-links/copy-prompt-link';
 import { notePreviewHover } from '../pull-requests/pages-pr-links';
 import { openPullRequest } from '../pull-requests/pr-chip-open';
 import { runnableShellCommands } from '../terminal/terminal-integrations';
@@ -141,6 +142,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     await client.openSelected(native, id);
     return '';
   }
+  if (op === 'copy-prompt-link') { await copyPromptLink(client, native, promptLinkFor(copyText(client, id))); return ''; }
   if (op === 'copy-code' || op === 'copy') {
     const text = op === 'copy-code' ? value : copyText(client, id);
     if (!text || text.length > 1_000_000) throw new ClientError(op === 'copy-code' ? 'That code block is unavailable.' : 'That message is no longer available.');

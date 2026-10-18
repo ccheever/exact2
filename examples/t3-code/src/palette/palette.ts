@@ -4,6 +4,7 @@
 // page, the query and the highlight. The add-project pages live in palette-add.ts,
 // the file picker and content search in palette-files.ts.
 import type { T3Client } from '../client/client';
+import { composerPromptLink, promptLinkRepositoryOf } from '../prompt-links/copy-prompt-link';
 import { terminalProcessCount } from '../sidebar/sidebar-view';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { projectIdentity } from '../client/presentation';
@@ -210,6 +211,10 @@ export function rootActions(client: T3Client): Item[] {
   }
   if (str(client.config.scratchWorkspaceRoot)) action('new-thread-without-project', ['new thread', 'no project', 'without project', 'none', 'chat'],
     { op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'New thread without a project', shortcut: commandShortcut(client, 'chat.newWithoutProject') });
+  if (composerPromptLink(client, false)) {
+    action('copy-prompt-link', ['copy', 'share', 'prompt', 'link'], { op: 'flow', arg: 'copy-prompt-link', icon: 'link', title: 'Copy prompt link' });
+    if (promptLinkRepositoryOf(projects.find(project => project.id === client.projectId))) action('copy-prompt-link-with-context', ['copy', 'share', 'prompt', 'link', 'repository', 'model'], { op: 'flow', arg: 'copy-prompt-link', arg2: 'context', icon: 'link', title: 'Copy prompt link with repo and model' });
+  }
   if (thread) {
     const reference = threadReferenceTarget(client, openPanelPullRequestUrl(client)); // Copy PR link or thread ID
     if (reference) action('copy-thread-reference', ['copy', 'pull request', 'pr link', 'thread id', 'reference'], { op: 'copy-thread', icon: 'link', title: reference.kind === 'pull-request' ? 'Copy PR link' : 'Copy thread ID', description: reference.value, shortcut: commandShortcut(client, 'thread.copyReference') });
