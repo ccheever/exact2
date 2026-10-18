@@ -8,6 +8,13 @@ use forest_logic::{Forest, Options};
 
 const TICK: f64 = 1000.0 / 60.0;
 
+#[test]
+fn initial_proof_pin() {
+    Sim::<Forest>::new(Options::default())
+        .unwrap()
+        .assert_pin(include_str!("../../pins.json"));
+}
+
 fn game(trees: u32, lite: bool) -> Sim<Forest> {
     Sim::<Forest>::new(Options {
         trees,
