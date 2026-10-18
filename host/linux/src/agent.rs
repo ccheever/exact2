@@ -18,7 +18,14 @@ use exact_runner::DataSource;
 use std::io::{BufRead, Write};
 
 pub(crate) fn refusal(subsystem: &str, message: &str) -> serde_json::Value {
-    serde_json::json!({"error":message, "refused":{"host":"linux", "subsystem":subsystem, "message":message}})
+    let host = if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "android") {
+        "android"
+    } else {
+        "linux"
+    };
+    serde_json::json!({"error":message, "refused":{"host":host, "subsystem":subsystem, "message":message}})
 }
 
 fn malformed(message: &str) -> String {

@@ -52,12 +52,6 @@ export async function run({ dir, name, game = false, exact2, args }) {
   // The app's own verbs (paint, minesweeper, ledger: a regenerated file dropped the ones added to it): app.json's
   // `commands`, each a command as argv (`"seed": ["bun", "seed.mjs"]`), run in the app's directory with the
   // arguments after the verb. A game's app.json is optional.
-  if (verb === 'status' || verb === 'web' && rest.includes('--ready')) {
-    const {readStatus, formatStatus, waitReady} = await import(resolve(exact2, 'game/status.mjs'));
-    if (verb === 'status') { console.log(formatStatus(readStatus(dir))); return 0; }
-    try { const row = await waitReady(dir, {timeout:Number(rest.includes('--timeout') ? rest[rest.indexOf('--timeout') + 1] : 600)}); console.log(`READY ${row.url}`); return 0; }
-    catch (e) { console.error(e.message); return 1; }
-  }
   const manifest = resolve(dir, 'app.json');
   const own = (existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).commands : null) ?? {};
   const clash = Object.keys(own).find((name) => verbs[name]);
@@ -75,6 +69,12 @@ export async function run({ dir, name, game = false, exact2, args }) {
     const help = await import(resolve(exact2, 'scripts/help.mjs')).catch(() => null);
     if (!help) { console.error(`no exact2 at ${exact2}: EXACT2 names the checkout`); return 1; }
     return help.printHelp(asked, { verbs: Object.keys(verbs), own, all: rest.includes('all') });
+  }
+  if (verb === 'status' || verb === 'web' && rest.includes('--ready')) {
+    const {readStatus, formatStatus, waitReady} = await import(resolve(exact2, 'game/status.mjs'));
+    if (verb === 'status') { console.log(formatStatus(readStatus(dir))); return 0; }
+    try { const row = await waitReady(dir, {timeout:Number(rest.includes('--timeout') ? rest[rest.indexOf('--timeout') + 1] : 600)}); console.log(`READY ${row.url}`); return 0; }
+    catch (e) { console.error(e.message); return 1; }
   }
   if (!verbs[verb] && !own[verb]) {
     console.error(`Usage: bun exact.mjs <${[...Object.keys(verbs), ...Object.keys(own)].join('|')}> [arguments for that script]\nbun exact.mjs help says what each does.`);

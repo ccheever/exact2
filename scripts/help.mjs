@@ -76,7 +76,7 @@ export const HELP = {
       ['--rebuild', 'rebuild a missing or stale device after updating Snapback4']],
     body: 'Mounts the driver and generated operations, builds assets/snapback4.wasm, and names the server to start.',
   },
-  status: {line:'the recorded web and prove invocations, phases and elapsed time', usage:'bun exact.mjs status', flags:[]},
+  status: {line:'web/prove status', usage:'bun exact.mjs status', flags:[], body:'Lists web/prove invocations with their phase, elapsed time, previous duration and exit status.', example:'bun exact.mjs status'},
   web: {
     line: 'the web dev loop: serves the app, rebuilds and reloads the page on every save (foreground)',
     usage: 'bun exact.mjs web [--port <n>] [--lan] [--allow-host <name>]… [--wasm]',
@@ -484,10 +484,10 @@ export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new')
   const line = (verb) => HELP[verb]?.line ?? (own[verb] ? `app.json commands: ${own[verb].join(' ')}` : '');
   const forms = verbs.flatMap((verb) => HELP[verb]?.common ?? []);
   return [
-    'bun exact.mjs <verb> [arguments]    from the app\'s directory (EXACT2=<path> picks another exact2)',
+    'bun exact.mjs <verb> [arguments]    in the app directory (EXACT2=<path> selects the SDK)',
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
-    ...(forms.length ? ['The forms a build uses:', ...forms.map((form) => `  ${form}`)] : []),
-    'bun exact.mjs <verb> --help: flags and an example; bun exact.mjs <verb> --help all: every flag and port.',
+    ...forms.map((form) => `  ${form}`),
+    'bun exact.mjs <verb> --help: flags and example; bun exact.mjs <verb> --help all: every flag and port.',
   ].join('\n');
 }
 

@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { createGame } from './new.mjs';
 
 // Exercise the copied files unchanged, including their manifests and shared bake.
-test('a newly generated game builds, refuses empty pins and captures without editing', async () => {
+test('a newly generated game builds, reports empty pins and captures without editing', async () => {
   const directory = realpathSync(mkdtempSync(resolve(tmpdir(), 'game new-proof-')));
   const name = `new-proof-${process.pid}`, app = resolve(directory, name);
   const env = {...process.env, EXACT_UPDATE_TRUST:'development'};
@@ -51,11 +51,11 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     assert.deepEqual(shellFiles.map(file => statSync(file).mtimeMs), stamps, 'resolving again leaves Cargo inputs untouched');
     await run('cargo', ['test', '--locked', '--offline', '--no-fail-fast', '-p', `${name}-logic`], resolve(app,'.shells'));
-    // The starter must refuse an empty baseline. All-mode first-pin agreement
+    // An empty baseline is UNVERIFIED. All-mode first-pin agreement
     // is covered by prove's tests; it need not rebuild seven bakes in this fixture.
-    await run('bun', [resolve(app, 'proof.mjs')], undefined, 1);
+    await run('bun', [resolve(app, 'proof.mjs')], undefined, 3);
     assert.match(readFileSync(resolve(app, 'artifacts/linux/proof.txt'), 'utf8'), /UNVERIFIED: no pins — run bun game\/prove.mjs/);
-    await run('bun', [resolve(app, 'proof.mjs'), 'web', '--screenshot-only']);
+    await run('bun', [resolve(app, 'proof.mjs'), 'web', '--screenshot-only'], undefined, 3);
     assert.match(readFileSync(resolve(app, 'artifacts/web/proof.txt'), 'utf8'), new RegExp(`PROOF UNVERIFIED ${name} web: 0 failures`));
     const capture = JSON.parse(readFileSync(resolve(app, 'artifacts/web/replies.json'), 'utf8'));
     assert.equal(new Set(capture.map(reply => reply.session)).size, 1, 'a capture opens one document');
@@ -67,9 +67,9 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     const hostBefore = readFileSync(hostReceipt, 'utf8');
     const source = resolve(app, 'logic/src/lib.rs');
     writeFileSync(source, readFileSync(source, 'utf8').replace('[2.0, 6.0]', '[2.0, 6.0, 10.0]') + '\n// External app edits must invalidate the proof build.\n');
-    await run('bun', [resolve(app, 'proof.mjs'), 'linux', '--build-only']);
+    await run('bun', [resolve(app, 'proof.mjs'), 'linux', '--build-only'], undefined, 3);
     env.EXACT_PROOF_REPIN = '1';
-    await run('bun', [resolve(app, 'proof.mjs'), 'linux']);
+    await run('bun', [resolve(app, 'proof.mjs'), 'linux'], undefined, 3);
     delete env.EXACT_PROOF_REPIN;
     const expanded = JSON.parse(readFileSync(resolve(app, 'artifacts/linux/summary.json'), 'utf8'));
     assert.deepEqual(expanded.failures, [], 'adding a third beacon must update victory without a Contract edit');

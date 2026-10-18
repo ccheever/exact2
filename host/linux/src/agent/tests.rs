@@ -1346,7 +1346,7 @@ fn surface_refusals_keep_the_host_and_subsystem_on_the_wire() {
         serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
     assert_eq!(
         reply["refused"],
-        serde_json::json!({"host":"linux", "subsystem":"gpu", "message":"GPU module test: digest mismatch"})
+        serde_json::json!({"host":if cfg!(windows) { "windows" } else if cfg!(target_os = "android") { "android" } else { "linux" }, "subsystem":"gpu", "message":"GPU module test: digest mismatch"})
     );
     let clean: serde_json::Value =
         serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
