@@ -15,7 +15,23 @@ pub(crate) struct Svg {
     pub path: String,
     /// Why it is no one-colour shape, when it is not.
     pub not_template: Option<String>,
+    /// What to change in the file so that it is one, beside `not_template`.
+    pub fix: String,
 }
+
+/// The fix for a property a template loses.
+fn fix_lost(property: &str) -> &'static str {
+    match property {
+        "transform" => "apply the transform to the path's coordinates and remove it (an editor's Object to Path, or SVGO's `convertTransform`, does)",
+        "fill-rule" => "remove it: a template fills nonzero, so a hole is drawn in the opposite direction to its outline (an editor's path union or Combine makes it so)",
+        "opacity" | "fill-opacity" => "remove it: the host paints the shape opaque, in the text's colour",
+        "display" | "visibility" => "delete the hidden element",
+        _ => "remove it, cutting the shape itself instead (an editor's Intersect or Difference)",
+    }
+}
+
+/// The fix for an element that is not a path.
+const FIX_SHAPE: &str = "convert it to a `<path>` (an editor's Object to Path; `<rect x=\"2\" y=\"2\" width=\"20\" height=\"20\"/>` is `<path d=\"M2 2h20v20H2Z\"/>`)";
 
 /// Each open element's fill and stroke, inherited, and whether it is inside
 /// something that draws nothing itself (`defs`).
@@ -144,10 +160,22 @@ fn path_data(d: &str) -> bool {
     })
 }
 
+/// Each reason an SVG is no template, with its fix.
+type Why = Vec<(String, &'static str)>;
+
+/// Add a reason to `why`, once.
+fn note(why: &mut Why, reason: impl FnOnce() -> (String, &'static str)) {
+    let (said, fix) = reason();
+    if !why.iter().any(|(r, _)| *r == said) {
+        why.push((said, fix));
+    }
+}
+
 /// Read `text` as an icon's SVG, or why it is none.
 pub(crate) fn read(text: &str) -> Result<Svg, String> {
+    // Every reason it is no template, so one build names each fix.
     let (mut view_box, mut paths, mut fill, mut why) =
-        (None, Vec::<String>::new(), None::<String>, None);
+        (None, Vec::<String>::new(), None::<String>, Why::new());
     let mut stack: Vec<Open> = Vec::new();
     let mut rest = text;
     while let Some(open) = rest.find('<') {
@@ -221,13 +249,20 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 })
             });
             if let Some(p) = lost {
-                why.get_or_insert_with(|| format!("its `<{name}>` has a `{p}`"));
+                note(&mut why, || {
+                    (format!("its `<{name}>` has a `{p}`"), fix_lost(p))
+                });
             }
         }
         match name {
             // A nested viewport places and scales what it holds.
             "svg" if !stack.is_empty() => {
-                why.get_or_insert_with(|| "it nests an `<svg>`".to_string());
+                note(&mut why, || {
+                    (
+                        "it nests an `<svg>`".to_string(),
+                        "move the inner `<svg>`'s paths into the outer one, in the outer viewBox's coordinates",
+                    )
+                });
             }
             "svg" => {
                 let attr = |a: &str| attrs.iter().find(|(k, _)| *k == a).map(|(_, v)| v.clone());
@@ -248,7 +283,12 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 }
                 let painted = fill_here.clone().unwrap_or_else(|| "black".into());
                 if painted.starts_with("url(") {
-                    why.get_or_insert_with(|| "it fills with a gradient or a pattern".to_string());
+                    note(&mut why, || {
+                        (
+                            "it fills with a gradient or a pattern".to_string(),
+                            "fill every path with one plain colour (`fill=\"black\"`): the host paints it in the text's colour",
+                        )
+                    });
                 }
                 // A colour with its own alpha (`rgba()`, `#rrggbbaa`) is no opaque template.
                 let hex = painted.strip_prefix('#').map_or(0, str::len);
@@ -259,15 +299,27 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                     || hex == 4
                     || hex == 8
                 {
-                    why.get_or_insert_with(|| "it fills in a translucent colour".to_string());
+                    note(&mut why, || {
+                        (
+                            "it fills in a translucent colour".to_string(),
+                            "fill with an opaque colour (`fill=\"black\"`): the host paints it in the text's colour",
+                        )
+                    });
                 }
+                // An outline icon: its lines are strokes, which a template does not draw.
+                let outline = "outline the stroke into a filled path and remove the `stroke` (Inkscape's Path > Stroke to Path, Figma's and Illustrator's Outline Stroke)";
                 if stroke_here.as_deref().is_some_and(|s| s != "none") {
-                    why.get_or_insert_with(|| "it has a stroke".to_string());
+                    note(&mut why, || ("it has a stroke".to_string(), outline));
                 }
                 if painted == "none" {
-                    why.get_or_insert_with(|| "a path is not filled".to_string());
+                    note(&mut why, || ("a path is not filled".to_string(), outline));
                 } else if fill.as_ref().is_some_and(|f| *f != painted) {
-                    why.get_or_insert_with(|| "it fills in more than one colour".to_string());
+                    note(&mut why, || {
+                        (
+                            "it fills in more than one colour".to_string(),
+                            "fill every path in the same colour: the host paints the whole shape in one",
+                        )
+                    });
                 } else {
                     fill = Some(painted);
                 }
@@ -276,7 +328,9 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             "path" | "g" | "title" | "desc" | "defs" | "metadata" => {}
             _ if in_defs => {}
             other => {
-                why.get_or_insert_with(|| format!("it has a `<{other}>`, not only paths"));
+                note(&mut why, || {
+                    (format!("it has a `<{other}>`, not only paths"), FIX_SHAPE)
+                });
             }
         }
         if !raw.ends_with('/') {
@@ -295,8 +349,14 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             "its viewBox `{view_box}` is not four numbers, a positive size"
         ));
     }
-    if paths.is_empty() && why.is_none() {
+    if paths.is_empty() && why.is_empty() {
         return Err("it has no `<path>`".into());
+    }
+    let mut fixes: Vec<&str> = Vec::new();
+    for (_, fix) in &why {
+        if !fixes.contains(fix) {
+            fixes.push(fix);
+        }
     }
     Ok(Svg {
         view_box: numbers
@@ -305,7 +365,13 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             .collect::<Vec<_>>()
             .join(" "),
         path: paths.join(";"),
-        not_template: why,
+        fix: fixes.join("; "),
+        not_template: (!why.is_empty()).then(|| {
+            why.into_iter()
+                .map(|(r, _)| r)
+                .collect::<Vec<_>>()
+                .join("; ")
+        }),
     })
 }
 
@@ -337,6 +403,19 @@ mod tests {
         assert!(gradient.not_template.unwrap().contains("linearGradient"));
         assert!(read(r#"<svg viewBox="0 0 0 24"><path d="M0 0"/></svg>"#).is_err());
         assert!(read(r#"<svg><path d="M0 0"/></svg>"#).is_err());
+    }
+
+    /// An outline icon (Lucide's shape: strokes, a `<rect>`) names each reason
+    /// once and each fix, so one build says everything to change.
+    #[test]
+    fn every_reason_is_named_with_its_fix() {
+        let svg = read(r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9"/><path d="M3 3h1"/><rect x="2" y="2" width="4" height="4"/></svg>"#).unwrap();
+        assert_eq!(
+            svg.not_template.as_deref(),
+            Some("it has a stroke; a path is not filled; it has a `<rect>`, not only paths")
+        );
+        assert!(svg.fix.contains("Stroke to Path") && svg.fix.contains("Object to Path"));
+        assert_eq!(svg.fix.matches("Stroke to Path").count(), 1);
     }
 
     /// Review round 1: comments and CDATA draw nothing; the style beats the

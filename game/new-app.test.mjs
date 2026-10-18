@@ -385,6 +385,18 @@ test('a new app has a Linux host crate, and update adds one to an older app', ()
     assert.ok(readFileSync(resolve(dir, 'linux/Cargo.toml'), 'utf8').includes('name = "field-log-linux"'));
     assert.match(readFileSync(manifest, 'utf8'), /^members = \["apple", "linux", "web"\]$/m);
     assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/, 'a second update leaves it');
+    // `update --without linux` (the euxy port: an SF Symbol warned for Linux, and removing it by hand took
+    // app.json, the workspace and Cargo.lock): one step, which the next update keeps.
+    assert.match(createApp(dir, { update: true, without: 'linux' }), /without linux \(removed linux\/, its workspace member, app\.json deploy\.store\.linux\)/);
+    assert.ok(!existsSync(resolve(dir, 'linux')));
+    assert.match(readFileSync(manifest, 'utf8'), /^members = \["apple", "web"\]$/m);
+    assert.ok(!('linux' in JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).deploy.store));
+    assert.doesNotMatch(readFileSync(resolve(dir, 'Cargo.lock'), 'utf8'), /name = "field-log-linux"/);
+    const locked = spawnSync('cargo', ['metadata', '--locked', '--offline', '--no-deps', '--format-version', '1'], { cwd: dir, encoding: 'utf8' });
+    assert.equal(locked.status, 0, locked.stderr);
+    assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/);
+    assert.ok(!existsSync(resolve(dir, 'linux')));
+    assert.throws(() => createApp(dir, { update: true, without: 'web' }), /the web host is the dev loop's/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
 

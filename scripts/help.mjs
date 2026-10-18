@@ -342,11 +342,14 @@ Ports    none. Runs to completion.`,
   },
   update: {
     line: 'after exact2 moves or changes: rewrite exact.mjs, patches, toolchain and exact2 paths',
-    usage: 'bun exact.mjs update',
-    flags: [],
+    usage: 'bun exact.mjs update [--without linux]',
+    flags: [
+      ['--without <platform>', 'stop building and shipping linux (which Android builds too) or android: removes its crate, workspace member and app.json keys, and re-resolves Cargo.lock'],
+    ],
     internal: ['--update'],
     body: `Also rewrites AGENTS.md's generated block and adds the use lines the app's files lack;
 app.json commands and your files are kept. EXACT2=<path> names another exact2 checkout.
+An app without app.json deploy.store.linux gets no linux/ crate back.
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs update',
   },
@@ -418,6 +421,7 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
       ['--game', 'a game (game/README.md): a Rust world under Contract\'s menus'],
       ['--assets', 'with --game: declare game.assets'],
       ['--update', 'rewrite an existing app\'s generated files (its exact.mjs update runs this)'],
+      ['--without <platform>', 'with --update: stop building and shipping linux or android'],
     ],
     body: `The path's last part names the app. Then cd there: its exact.mjs runs everything, and
 bun exact.mjs help lists its verbs. Read docs/start-here.md first.

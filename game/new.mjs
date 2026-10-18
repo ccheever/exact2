@@ -116,7 +116,7 @@ export function createApp(destination, options = {}) {
   if (!destination || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name) || /-(web|apple|linux|gpu)$/.test(name)) {
     throw new Error('Usage: exact new <path> [--update | --snapback [--port <n>]] (the last part names the app: lowercase-hyphenated, no host suffix)');
   }
-  if (options.update) return updateApp(dir, name);
+  if (options.update) return updateApp(dir, name, options);
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
   const port = options.snapback ? snapbackPort(options.snapback.port) : null;
   if (options.snapback?.online && !existsSync(resolve(dir, '..', 'snapback/schema.q'))) throw new Error('exact new --snapback --online: write the backend schema above the app first; the guestbook starter uses a device');
@@ -976,6 +976,7 @@ the only required reading (LLP 1115 D7). When a name is in question, \`bun exact
 vocab <name>\` answers it (no name: the card, which ${doc('card.md')} holds too). Run
 \`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
 app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
+\`bun exact.mjs update --without linux\` stops shipping Linux.
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
 ${DIARY_LINE}
 ${snapbackNotes(dir)}
@@ -1142,9 +1143,38 @@ function resolveOffline(dir, deferrable = false) {
   throw new Error(`cargo could not resolve ${dir} offline:\n${lock.stderr}`);
 }
 
-function updateApp(dir, name) {
+/** `update --without <platform>`: the app stops building and shipping it. Its crate
+ * goes with its workspace member, and app.json's `host`, `deploy.store` and
+ * `deploy.binaries` keys for it, which are what the compiler reads as shipping it
+ * (contract/lower/src/icons.rs `targets`); `updateApp` then re-resolves Cargo.lock.
+ * Returns what it removed. */
+function dropPlatform(dir, platform) {
+  if (platform === 'web') throw new Error('update --without web: the web host is the dev loop\'s and the agent\'s (`web`, `test web`, `agent web`), so it stays');
+  if (!['linux', 'android'].includes(platform)) throw new Error(`update --without ${platform}: it takes linux (which Android builds too) or android`);
+  const removed = [];
+  if (existsSync(resolve(dir, platform, 'Cargo.toml'))) {
+    rmSync(resolve(dir, platform), { recursive: true, force: true });
+    removed.push(`${platform}/`);
+  }
+  const workspace = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
+  const members = workspace.replace(/^members\s*=\s*\[([^\]]*)\]/m, (_, list) =>
+    `members = [${list.split(',').map(m => m.trim()).filter(m => m && m !== `"${platform}"`).join(', ')}]`);
+  if (members !== workspace) { writeFileSync(resolve(dir, 'Cargo.toml'), members); removed.push('its workspace member'); }
+  const manifestPath = resolve(dir, 'app.json');
+  if (existsSync(manifestPath)) {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    for (const [key, table] of [['host', manifest.host], ['deploy.store', manifest.deploy?.store], ['deploy.binaries', manifest.deploy?.binaries]]) {
+      if (table && platform in table) { delete table[platform]; removed.push(`app.json ${key}.${platform}`); }
+    }
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  }
+  return removed.length ? `without ${platform} (removed ${removed.join(', ')})` : `without ${platform} (it shipped none already)`;
+}
+
+function updateApp(dir, name, { without = null } = {}) {
   // A game has no workspace of its own (the bake generates .shells/): its runner and notes are all there is to rewrite.
   if (existsSync(resolve(dir, 'app.contract')) && !existsSync(resolve(dir, 'Cargo.toml')) && gameDefaults(dir)) {
+    if (without) throw new Error('update --without: a game\'s hosts are its bake\'s (game/README.md), not crates of its own');
     writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name, {game:true}));
     const notes = updateNotes(dir, name, {game:true});
     if (editorTasks(dir, {game:true})) notes.push('.vscode/tasks.json');
@@ -1172,8 +1202,13 @@ function updateApp(dir, name) {
   writeFileSync(resolve(dir, '.cargo/config.toml'), readFileSync(resolve(ROOT, '.cargo/config.toml')));
   writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name));
   chmodSync(resolve(dir, 'exact.mjs'), 0o755);
-  // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own.
-  const addedLinux = !existsSync(resolve(dir, 'linux'));
+  const dropped = without ? dropPlatform(dir, without) : null;
+  // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own
+  // or ships no Linux: app.json deploy.store.linux, which the scaffold writes and `--without linux`
+  // removes, says it does.
+  let storesLinux = false;
+  try { storesLinux = 'linux' in (JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).deploy?.store ?? {}); } catch {}
+  const addedLinux = storesLinux && !existsSync(resolve(dir, 'linux'));
   if (addedLinux) {
     mkdirSync(resolve(dir, 'linux'));
     const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
@@ -1215,7 +1250,7 @@ test "the app opens"
     if (next !== text) { writeFileSync(path, next); changed.push(file); }
   }
   resolveOffline(dir);
-  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
+  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${dropped ? `, ${dropped}, Cargo.lock` : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
 }
 
 if (import.meta.main) {
