@@ -1,0 +1,43 @@
+// The settings model TraitsPicker menu, shared by General and Source control.
+use CoreOption, CorePalette, SettingsGhost from "./settings-core-shared.contract"
+use KmItem, KeyMenu from "../shared/menu-keys.contract"
+
+component TraitsMenu
+  props
+    options: CoreOption[]
+    pal: CorePalette
+    menuId: string
+    items: KmItem[]
+    keyed: number
+    choose: action
+    testId: string
+  state lit = ""
+  // After menu-keys.contract: the pointer entering a row focuses it; leaving the row that holds the
+  // focus hands it to the popup. A row is highlighted by its focus alone; the chosen one keeps its wash beside the highlight
+  // (MenuRadioItem data-checked, SelectItem data-selected: bg-foreground/8).
+  action hover(id: string, rowId: string, over: bool)
+    if over
+      focus(rowId)
+    else if lit == id
+      focus(`${menuId}-keys`)
+  action focused(id: string, on: bool)
+    lit = on ? id : (lit == id ? "" : lit)
+  view
+    // TraitsPicker: MenuPopup align="start", 4 pt below the trigger's start, flipping near an edge.
+    column id=menuId popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" min-width="11rem"
+      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=testId id=testId data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+        KeyMenu(menuId=`${menuId}-keys`, items=items, keyed=keyed, gap="0px", modal=true)
+          for option in options key=option.id
+            if option.icon == "section" or option.icon == "section-rule"
+              if option.icon == "section-rule"
+                box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color=pal.cardBorder role="separator" id=`paint-TraitsMenu-2-${menuId}-${option.id}` data-paint="border" data-pick="border"
+              text option.label padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.25rem" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted id=`paint-TraitsMenu-3-${menuId}-${option.id}` data-paint="mutedForeground" data-pick="mutedForeground"
+            else
+              button id=`${testId}-${option.id}` press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id, `${testId}-${option.id}`) focus=focused(option.id, true) blur=focused(option.id, false) role="menuitemradio" aria-checked=option.selected class=SettingsGhost justify-content="flex-start" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" background-color=(option.selected or lit == option.id ? pal.highlight : "#00000000") testId=`${testId}-${option.id}` data-paint=`${(option.selected or lit == option.id ? "text" : "")}` data-pick=((option.selected or lit == option.id ? "text" : "") != "" ? (option.selected or lit == option.id ? "text" : "") : "")
+                column flex=1 min-width=0 gap="0.125rem" align-items="flex-start"
+                  row gap="0.375rem" align-items="center"
+                    text option.label font-size="0.875rem" line-height="1.25rem" color=pal.text white-space="nowrap" id=`paint-TraitsMenu-5-${menuId}-${option.id}` data-paint="text" data-pick="text"
+                    if option.icon == "default"
+                      text "Default" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color=pal.input font-size="0.625rem" font-weight=500 line-height="0.875rem" color=pal.text id=`paint-TraitsMenu-6-${menuId}-${option.id}` data-paint="input text" data-pick="input"
+                  if option.detail != ""
+                    text option.detail font-size="0.75rem" line-height="1rem" white-space="nowrap" color=pal.muted id=`paint-TraitsMenu-7-${menuId}-${option.id}` data-paint="mutedForeground" data-pick="mutedForeground"
