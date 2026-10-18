@@ -15,6 +15,7 @@ impl<G: Game> Sim<G> {
         self.paranoid_owed = false;
         let skipped = self.paranoid_skipped;
         let tick = self.world.tick();
+        let spans = self.world.spans.clone();
         let hash = self.world.hash();
         // advance_with owns the seek horizon, but EXSIM checkpoints describe a
         // completed boundary. Retain the horizon outside the reconstructed Sim.
@@ -69,6 +70,7 @@ impl<G: Game> Sim<G> {
         }
         self.restore(&bytes)
             .unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID));
+        self.world.spans = spans;
         assert_eq!(
             hash,
             self.world.hash(),

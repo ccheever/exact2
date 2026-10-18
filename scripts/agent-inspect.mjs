@@ -389,6 +389,11 @@ export async function perfOp(s, args, line, step) {
   if (!ops.length) throw new MalformedOperation('perf … during: quote each op, as perf feed during "tap start" "clock +1000"');
   const before = await s.perf(target);
   for (const op of ops) await step(op);
+  if (target?.startsWith('world:')) {
+    const after = await s.perf(target, {spanSince: before.spanTicks});
+    if (after.tick < before.tick || after.restarted !== before.restarted) throw Error('perf world: world restarted between reads');
+    return {...after, from:{tick:before.tick}};
+  }
   return perfDelta(before, await s.perf(target));
 }
 
@@ -445,6 +450,8 @@ export function hatchDelta(a, b) {
 }
 
 function renderPerf(r) {
+  if (r.spans) return [`${r.target} · tick ${r.from ? r.from.tick + '..' : ''}${r.tick} · exclusive ms`,
+    ...r.spans.map(s => `  ${s.name} at ${s.at}: p50 ${s.p50} p95 ${s.p95} max ${s.max} perTick ${s.perTick} (${s.count} ticks)`)].join('\n');
   if (r.calls && r.hatches) return renderHatchPerf(r);
   if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
   if (r.unavailable) return 'this host observes no presented frames';

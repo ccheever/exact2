@@ -115,6 +115,17 @@ uses saved arguments; a canvas uses `Sim::restore_bound` to retain current app
 bindings. Keep state that should travel with a save in components or resources,
 and app-owned settings in live arguments.
 
+## Tick diagnostics
+
+`let _s = w.span("enemies");` measures until the guard drops and captures the
+caller's source line. Spans aggregate by name per tick. Nested spans are exclusive;
+`tick.other` accounts for time outside every span. Physics, animation, emitters,
+audio and followers open their own spans when stepped. Diagnostics are outside
+saves and hashes, expose no elapsed time to gameplay, and do no clock or allocation
+work until a host arms them. `perf world:world` arms and reads p50, p95, maximum and
+mean milliseconds per tick; `perf world:world during "clock +1000"` reads only the
+ticks the operation added. Rings retain 16,384 ticks; an expired difference refuses.
+
 ## HUD and events
 
 Publish ordinary scalars with `w.publish("lit", count)`. For a structured HUD,

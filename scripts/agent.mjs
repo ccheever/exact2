@@ -1,12 +1,4 @@
 #!/usr/bin/env bun
-// The agent API's driver (LLP 1012, 1079): the ten operations —
-//   tree · screenshot · sample · tap · type · state · layout · logs · clock · prefer · perf · fail fetch / pass fetch (LLP 1103)
-// — against a running app on either host, from one script, with the clock in
-// the driver's hands: nothing moves between two calls unless a call moved it.
-//
-// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|android|host|host-ios> [--browser chrome|firefox|webkit] [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--size <w>x<h>] [--scale <n>] [--port <n>] [--json] <op> [<op> …]
-//   Web defaults to Chrome; EXACT_WEB_BROWSER selects the same option. Install
-//   the other engines with: bunx playwright@1.63.0 install firefox webkit
 //   tree | layout | state | logs | check [light|dark|both] | screenshot <png> [window [status|app]] (an iOS simulator's window: the display's pixels when they are this app's, still; `app` the app's own drawing) | screenshot <png> compare <reference.png> | screenshot <png|apng> over <ms> every <ms> [window] | screenshot <path> <canvas> save
 //   tap <target> [at <x> <y> (a press at a point; plain, it presses what it names) | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …, inside the hold under --touch platform] | drag to <target> [at <x> <y>] […]] | type <target> <text…> | type <target> key <Name> | type <target> copy|cut|paste <text…>
 //   tap <target> down [at <x> <y>] [modifiers <M>] · tap move [by] <x> <y> [over <ms>] [modifiers <M>] · tap hold <ms> · tap up [modifiers <M>] · tap cancel   (a held contact, LLP 1035.003 D1; its modifiers held until another names others; a hold moves the app's clock by <ms>; a plain tap is pointerdown, pointerup, then the press; the target shows pressed until the lift, so `tap row down` "screenshot held.png" `tap up` pictures it, under --touch platform too, where the holds, reads and clock +<ms> between run inside one real touch played at tap up)
@@ -927,6 +919,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** `perf [<target>]` (LLP 1079 D2): the plan sites under a view (every root's without one), each with its work across its instances' lifetimes and its source line; `{frames:true}` is the host's presented frames (D4). */
     async perf(target, frames) {
+      if (typeof target === 'string' && target.startsWith('world:')) {
+        const surface = target.slice(6) || 'world';
+        const r = await s.op({op:'state', ...await s.target(surface), world:true, perf:true, ...(frames?.spanSince != null ? {span_since:frames.spanSince} : {})});
+        return {target, tick:r.world.tick, restarted:r.world.restarted, ...r.world.perf.tickSpans};
+      }
       if (frames?.live != null) {
         // A live window (LLP 1079 D4): the page's clock follows the wall for `live` ms, and the driver's follows the page's.
         const r = await s.op({ op: 'perf', frames: true, live: frames.live, ...(frames.late != null ? { late: frames.late } : {}) });

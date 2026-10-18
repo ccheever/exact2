@@ -868,6 +868,7 @@ pub fn solve_ik(model: &Model, local: &mut [f32], ik: &Ik) -> Result<(), String>
 }
 /// Evaluate clips explicitly after game-authored parameters, at most once per fixed tick.
 pub fn step(w: &mut World) -> Motion {
+    let _span = w.span("animation::step");
     let stamp = |w: &World| {
         [
             w.tick(),

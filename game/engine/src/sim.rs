@@ -2,6 +2,7 @@ use crate::{bin, Actions, Data, DataError, Event, Input, InputEvent, Value, Vec2
 use crate::{Args, ArgumentKind, PointerPhase};
 use std::{collections::VecDeque, marker::PhantomData};
 
+mod diagnostics;
 mod paranoid;
 mod snapshot;
 
@@ -210,36 +211,6 @@ impl<G: Game> Sim<G> {
         sim.load_assets(loader).map_err(|e| e.to_string())?;
         Ok(sim)
     }
-    /// Assert a test hash against the game's single pins.json (included by its test).
-    /// Unknown metadata fields are skipped by Data; no generated Rust is needed.
-    pub fn assert_pin(&self, pins: &str) {
-        let (game, tick, got) = (G::ID, self.world.tick(), self.world.hash());
-        #[derive(Default, crate::Data)]
-        struct Pins {
-            game: String,
-            ticks: std::collections::BTreeMap<String, String>,
-        }
-        let pins: Pins = crate::json::from_str(pins).unwrap_or_else(|error| {
-            panic!("pins.json game <invalid>, expected `{game}`: {error}; run bun game/prove.mjs {game}")
-        });
-        assert!(
-            pins.game == game,
-            "pins.json game `{}`, expected `{game}`; run bun game/prove.mjs {game}",
-            if pins.game.is_empty() {
-                "<missing>"
-            } else {
-                &pins.game
-            }
-        );
-        let expected = pins
-            .ticks
-            .get(&tick.to_string())
-            .unwrap_or_else(|| panic!("pin {tick} missing; run bun game/prove.mjs {game}"));
-        let got = format!("0x{got:016x}");
-        assert!(expected == &got,
-            "pin {tick} differs (expected {expected}, got {got}); if the change is intended: bun game/prove.mjs {game} --repin");
-    }
-
     /// Override EXACT_GAME_PARANOID for this simulation.
     pub fn paranoid(mut self, mode: Paranoid) -> Self {
         self.paranoid = Self::reconstruction(mode);
@@ -1186,6 +1157,7 @@ impl<G: Game> Sim<G> {
             self.world.observe(&mut self.observations[0]);
         }
         while self.world.tick() < target {
+            self.world.spans.borrow_mut().begin();
             self.world.begin_tick();
             self.input.clear_edges();
             let end = (self.world.tick() as u128 + 1) * 1_000_000;
@@ -1209,6 +1181,7 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            self.world.spans.borrow_mut().end();
             // Present only what can be observed: the last two ticks of an advance
             // (the renderer interpolates between them). It is pure, so skipping
             // the rest of a long seek changes nothing; paranoid modes present

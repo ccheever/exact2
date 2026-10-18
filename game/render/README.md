@@ -671,7 +671,11 @@ Missing materials/environment use defaults.
 Performance samples appear only in `state.world.perf`: live frame stamps, tick,
 feed, encode (frame input through submit) and ticks/frame distributions. CPU sample
 rings retain 16,384 values. Seekable renders, agent advances and timed binds make
-no perf clock calls; samples do not enter hashes. Armed perf also reads back, a few
+no CPU frame perf clock calls unless tick spans are armed; samples do not enter hashes.
+`perf world:<surface>` arms exclusive tick spans, exposed in
+`state.world.perf.tickSpans`: name, source line, p50, p95, maximum and per-tick
+mean milliseconds. `tick.other` completes the tick. These rings also retain
+16,384 ticks, including under the agent clock; `during` reads the added ticks. Armed perf also reads back, a few
 frames late and asynchronously, `perf.culled` (instances each view drew: `camera`,
 `shadows[0..3]`) and, where timestamps are granted, `world.gpuMs` rings for every
 pass by `GPU_PASS_NAMES`: forward, the cascades, local shadows, `cull`, skin palettes,

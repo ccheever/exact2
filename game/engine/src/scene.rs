@@ -1169,6 +1169,7 @@ impl Follow {
 /// so both translation and rotation stop exactly. Missing targets leave the pose alone.
 #[track_caller]
 pub fn follow(world: &World) {
+    let _span = world.span("scene::follow");
     if world.in_tick && world.followed.replace(true) {
         return;
     }

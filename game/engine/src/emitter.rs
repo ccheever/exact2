@@ -422,6 +422,7 @@ pub struct Particle {
 /// entity order. Invalid emitters report a named journal line and do not emit.
 /// No renderer or wall clock is involved.
 pub fn step(w: &World) {
+    let _span = w.span("emitter::step");
     if w.in_tick && w.emitted.replace(true) {
         return;
     }

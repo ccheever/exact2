@@ -12,6 +12,7 @@ pub mod args;
 mod assets_load;
 pub mod character;
 pub mod data;
+pub mod diagnostics;
 pub mod emitter;
 mod environment;
 mod input;

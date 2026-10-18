@@ -810,8 +810,15 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             struct PerfRequest {
                 perf_reset: bool,
                 perf: bool,
+                span_since: u64,
             }
+            let span_since = exact_game::json::from_str::<PerfRequest>(request)
+                .ok()
+                .map(|r| r.span_since);
             if let Ok(r) = exact_game::json::from_str::<PerfRequest>(request) {
+                if r.perf || r.perf_reset {
+                    sim.measure_spans(crate::perf::clock_ms, r.perf_reset);
+                }
                 if r.perf_reset {
                     self.perf.reset();
                     if let Some(timing) = &mut self.gpu_timing {
@@ -837,6 +844,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                 ",\"device\":false"
             });
             self.perf.append(&mut reply);
+            reply.pop();
+            reply.push_str(",\"tickSpans\":");
+            reply.push_str(&sim.spans_json(span_since));
+            reply.push('}');
             let work = self
                 .render
                 .as_ref()

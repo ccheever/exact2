@@ -736,6 +736,7 @@ fn detach(world: &World, entity: Entity) {
 /// Fixed-tick housekeeping, called after game logic like `physics::step`.
 /// No audio resources are added to worlds that do not use sound.
 pub fn step(world: &mut World) {
+    let _span = world.span("audio::step");
     if !world.has_audio() {
         if let Some((entity, _)) = world.query::<&AudioSource>().iter().next() {
             panic!(

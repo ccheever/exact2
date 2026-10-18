@@ -214,6 +214,7 @@ pub struct World {
     hash_cache: std::cell::Cell<Option<(u64, u64)>>,
     // Paged digests behind hash and observation; never saved.
     digests: RefCell<digest::Digests>,
+    pub(crate) spans: std::rc::Rc<RefCell<crate::diagnostics::Spans>>,
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     pub(crate) followed: std::cell::Cell<bool>,
@@ -252,6 +253,11 @@ pub struct World {
 const MAGIC: &[u8; 8] = b"EXGAME\0\x04";
 
 impl World {
+    /// Measure a named region of the tick; nested spans account exclusive time.
+    #[track_caller]
+    pub fn span(&self, name: &'static str) -> crate::diagnostics::Span {
+        crate::diagnostics::Span::open(&self.spans, name, Location::caller())
+    }
     /// Start at tick zero. A zero tick rate is a programmer error.
     pub fn new(hz: u32, seed: u64) -> Self {
         assert!(hz > 0, "world hz must be positive");
@@ -265,6 +271,7 @@ impl World {
             observed_epoch: 0,
             hash_cache: std::cell::Cell::new(None),
             digests: RefCell::default(),
+            spans: Default::default(),
             changing: Vec::new(),
             observation: ObservationState::Unknown,
             in_tick: false,

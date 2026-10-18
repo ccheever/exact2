@@ -475,6 +475,8 @@ For a `prove.mjs` web build, set `EXACT_WEB_DIST` to the printed artifact direct
 `total` and `next`; `under world:player` narrows it. `state world:* resources` adds
 every resource's value. `logs` reads only new journal lines; `logs --all` reads
 all retained lines (the journal holds 4,096), reporting any dropped prefix.
+`perf world:world` reads exclusive tick spans with source lines and p50/p95
+milliseconds; `perf world:world during "clock +1000"` measures that drive.
 In a proof, `session.world('world').snapshot({all:true})`
 reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
