@@ -650,6 +650,7 @@ test "a refused write exposes its domain code"
   type "draft" "refused"
   tap "post"
   clock data
+  expect refusal "posted"
   expect text "problem" == "The guestbook is full."
   expect state problemCode == "FULL"
   expect text "notice" == ""

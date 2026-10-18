@@ -29,6 +29,7 @@ Wiring the backend: [snapback](snapback.md).
 A test that deliberately refuses a request asserts it after settling data:
 
 ```contract-test
+test "the full slot refuses a write"
   tap "send"
   clock data
   expect refusal "posted"
