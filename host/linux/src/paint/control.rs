@@ -143,6 +143,22 @@ pub(crate) fn accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
         .map(|c| rgba(c.resolve(dark)))
 }
 
+/// An authored accent: an `accent-color` on the node or above it, else the
+/// design's `AccentColor` (LLP 1121 D9); none where only the platform's.
+/// `accent-color: AccentColor` names the platform's (or the design's), not
+/// an authored one.
+pub(crate) fn authored_accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
+    use exact_kernel::style::roles;
+    let platform = roles::role("AccentColor");
+    let written = node
+        .computed_style(StyleMask::INHERITED)
+        .accent_color
+        .filter(|c| !matches!(c, exact_kernel::ColorValue::Role(id) if Some(*id) == platform));
+    written
+        .map(|c| rgba(c.resolve(dark)))
+        .or_else(|| roles::overridden(platform?).map(|c| rgba(c.resolve(dark))))
+}
+
 /// A focused node's accent ([`accents`]), except native neutral fields
 /// marked invalid, whose ring matches their system-red border.
 pub(crate) fn ring(node: &NodeRef<'_>, dark: bool) -> [u8; 4] {
@@ -489,7 +505,14 @@ pub(super) fn progress(
         return;
     }
     let (cx, cy) = (x + w / 2.0, y + h / 2.0);
-    let ink = rgba(node.text_color().resolve(dark));
+    // Its own `color`, else an authored accent, else the platform's
+    // (Material's spinner is in the primary colour): an inherited colour is
+    // not the spinner's (LLP 1115 D4, LLP 1121 D9).
+    let ink = if node.style.written.has(exact_kernel::StyleId::TextColor) {
+        rgba(node.text_color().resolve(dark))
+    } else {
+        accents(authored_accent(node, dark), dark).0
+    };
     let (thick, long) = (s * 0.1, s * 0.27);
     let spoke = Shape::new(
         (cx - thick / 2.0, cy - s / 2.0, thick, long),

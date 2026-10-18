@@ -311,6 +311,10 @@ pub fn theme_css() -> String {
                 "color:var(--exact-canvas-text);--exact-scheme-color:var(--exact-canvas-text);",
             ),
             "Canvas" => out.push_str("background-color:var(--exact-canvas);"),
+            // The design's accent is authored (LLP 1121 D9): a spinner reads it.
+            "AccentColor" => out.push_str(
+                "--exact-accent-design:var(--exact-accent);--exact-accent-said:var(--exact-accent-design);",
+            ),
             _ => {}
         }
     }

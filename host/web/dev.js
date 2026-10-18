@@ -54,7 +54,8 @@ const utf8Compare = (a, b) => {
   for (let i = 0; i < Math.min(aa.length, bb.length); i++) if (aa[i] !== bb[i]) return aa[i] - bb[i];
   return aa.length - bb.length;
 };
-const validName = (name) => typeof name === "string" && /^(assets|deck|shaders)\//.test(name)
+// The trees a generation carries (serve.mjs `listAssets`), entry plans (`plans/`) among them.
+const validName = (name) => typeof name === "string" && /^(assets|deck|shaders|plans)\//.test(name)
   && !name.includes("\\") && !name.includes(":") && !name.includes("\0")
   && name.split("/").every((part) => part && part !== "." && part !== "..");
 const sameOrigin = (path, base) => {

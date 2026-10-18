@@ -7,3 +7,5 @@ theme
   Field = #fff1a8
   FieldText = #0b8a3a
   placeholder = #d9480f
+  // The design's accent, which a control with no accent-color around it takes.
+  AccentColor = #e0218a

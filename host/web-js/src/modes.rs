@@ -539,6 +539,14 @@ fn rules(plan: &Plan, props: &[(String, String)]) -> (String, Vec<String>) {
                 css,
                 "{selector}[data-x-accent=\"{prop}\"]{{--exact-accent:{text}}}"
             );
+            // A mode's own accent is authored (LLP 1121 D9), read through
+            // --exact-accent so a live edit reaches it; the platform's is not.
+            if text.trim() != "AccentColor" {
+                let _ = write!(
+                    css,
+                    "{selector}[data-x-accent=\"{prop}\"]{{--exact-accent-said:var(--exact-accent)}}"
+                );
+            }
         }
     }
     (css, accent)

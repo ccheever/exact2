@@ -1477,8 +1477,11 @@ platform's activity indicator: `UIActivityIndicatorView` on iOS (`.medium`,
 and Linux a spinner the host draws, since HTML's own indeterminate progress is
 a bar (the one deliberate divergence, [LLP 1069.001](../llp/1069.001-form-controls.rfc.md)).
 It is a 20 × 20 box until `width` or `height` sizes it, and the indicator is
-centred in it. `color` colours it on iOS, the web and Linux; macOS draws the
-system's colour, as AppKit gives a spinner no tint. Its role is `progressbar`,
+centred in it. Its own `color` colours it on iOS, the web, Linux and Android's
+reader, else an authored `accent-color` (on it or around it, or the design's
+`AccentColor`), else the platform's ink (an inherited colour never does: LLP
+1115 D4, LLP 1121 D9); macOS draws the system's colour, as AppKit gives a
+spinner no tint. Its role is `progressbar`,
 busy (`aria-busy`); name it with `aria-label`. It turns while it shows, and
 stops where it is hidden or gone; under the agent's held clock it shows one
 still frame (on the web, the frame at the agent's time, as every CSS animation;

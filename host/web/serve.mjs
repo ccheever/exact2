@@ -13,6 +13,7 @@ import { arch, cpus, networkInterfaces, platform } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
+import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
 import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../scripts/app.mjs';
 import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
@@ -684,6 +685,20 @@ export function entryPlans(assets) {
     return kind ? [[kind, card]] : [];
   }));
   return Object.keys(plans).length ? { plans } : {};
+}
+
+/** A dev generation's identity (LLP 1007 §6): the SHA-256 of the canonical
+ * JSON of its plan, asset, module and Rust cards, each by its name, digest
+ * and length, assets in UTF-8 order, as a client checks it (host/web/dev.js
+ * `fetchGeneration`), never by its url (an asset card captured from disk
+ * carries one). */
+export function devGenerationDigest(plan, assets, module = null, rust = null) {
+  const card = ({ bytes, sha256 }) => ({ bytes, sha256 });
+  return createHash('sha256').update(canonicalBytes({
+    plan: card(plan), assets: assets.map(({ name, sha256, bytes }) => ({ name, sha256, bytes })).sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))),
+    ...(module ? { module: Object.fromEntries(Object.entries(module).map(([key, value]) => [key, card(value)])) } : {}),
+    ...(rust ? { rust: Object.fromEntries(Object.entries(rust).map(([kind, v]) => [kind, { module: card(v.module), receipt: card(v.receipt), ...(kind !== 'wasm' ? { target: v.target } : {}) }])) } : {}),
+  })).digest('hex');
 }
 
 /** The one web envelope producer for static builds and the live dev overlay.
