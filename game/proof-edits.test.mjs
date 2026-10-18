@@ -34,3 +34,30 @@ test('the ordinary world snapshot keeps admitted-edit provenance', async () => {
   const snapshot = await worldView({state:async () => ({tick:1, hash:'0x' + '0'.repeat(15) + '1', developmentEdits:true, entities:[]})}, 'world').snapshot();
   expect(snapshot.developmentEdits).toBe(true);
 });
+
+test('queued sets refuse pin and pinSave until the queue drains', () => {
+  for (const collecting of [false, true]) {
+    const provenance = editProvenance();
+    const state = {tick:0, hash:'0x0000000000000001', queuedSets:1};
+    const recorder = pinRecorder({ticks:{0:state.hash}}, 'fixture', () => {}, collecting, provenance);
+    provenance.observe({world:[state]});
+    expect(() => recorder.pinSave('queued', '/unused')).toThrow('queued set development edit');
+    expect(() => recorder.pin(0, state)).toThrow('queued set development edit');
+    provenance.observe({world:[{...state, queuedSets:0}]});
+    expect(() => provenance.assert()).not.toThrow();
+  }
+});
+
+test('host session evidence refuses pins when no edited world was observed', () => {
+  for (const collecting of [false, true]) {
+    const provenance = editProvenance();
+    const clean = {tick:0, hash:'0x0000000000000001'};
+    const recorder = pinRecorder({ticks:{0:clean.hash}}, 'fixture', () => {}, collecting, provenance);
+    provenance.observe({world:[], sessionDevelopmentEdits:true});
+    provenance.observe({world:[clean], sessionDevelopmentEdits:true});
+    expect(() => recorder.pin(0, clean)).toThrow('set development edit');
+    expect(() => recorder.pinSave('removed', '/unused')).toThrow('set development edit');
+    expect(() => provenance.assert()).toThrow('set development edit');
+    expect(recorder.pins).toEqual({ticks:{}, saves:{}});
+  }
+});

@@ -303,19 +303,26 @@ export function pinRevision(app, sourceInputs) {
 }
 /** Admission markers decide pin provenance; gameplay can log arbitrary text. */
 export function assertNoLiveEdits(worlds, journals = []) {
-  const edited = worlds?.some(w => w?.developmentEdits);
+  const rows = Array.isArray(worlds) ? worlds : [worlds, ...(worlds?.world ?? [])];
+  const edited = rows.some(w => w?.developmentEdits || w?.sessionDevelopmentEdits);
+
   const lines = journals.flatMap(j => j.lines ?? []);
   const line = lines.find(l => /(?:^| tick=\d+ )set\s+\S+\s+[^.\s]+\.[^.\s]+\s+\S/.test(l));
   if (edited) throw new Error(`pin refused: run contains a set development edit${line ? ': ' + line : ''}`);
 }
 
 export function editProvenance() {
-  let refusal;
+  let refusal, queued = false;
   return {
     observe(worlds, journals) {
+      const rows = Array.isArray(worlds) ? worlds : [worlds, ...(worlds?.world ?? [])];
+      queued = rows.some(w => w?.queuedSets > 0);
       try { assertNoLiveEdits(worlds, journals); } catch (error) { refusal ??= error; }
     },
-    assert() { if (refusal) throw refusal; },
+    assert() {
+      if (refusal) throw refusal;
+      if (queued) throw new Error('pin refused: queued set development edit awaits admission');
+    },
   };
 }
 export function pinRecorder(previous, app, check, collecting = false, provenance = editProvenance()) {
@@ -330,6 +337,7 @@ export function pinRecorder(previous, app, check, collecting = false, provenance
   };
   return {pins,
     pin(tick, state) {
+      provenance.assert();
       provenance.observe([state]);
       provenance.assert();
       check(`pin ${tick} sampled at expected tick (got ${state?.tick})`, state?.tick === tick && /^0x[0-9a-f]{16}$/.test(state?.hash));
@@ -625,7 +633,7 @@ export async function proof(meta, script) {
       try {
         const journal = (await raw.logs({all:true})).world ?? [];
         const state = await raw.state();
-        try { provenance.observe(state.world ?? [], journal); provenance.assert(); } catch (error) { check(error.message, false); }
+        try { provenance.observe(state, journal); provenance.assert(); } catch (error) { check(error.message, false); }
         if (compareParanoid || process.env.EXACT_PROOF_COMPARE === '1') {
           const state = await raw.op({op:'state', ...await raw.target('world'), world:true});
           const world = state.world;
@@ -656,9 +664,9 @@ export async function proof(meta, script) {
       if (!['op','tap','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
       return async (...args) => {
         try {
-          provenance.observe((await raw.state()).world ?? []);
+          provenance.observe(await raw.state());
           const reply = await target[method](...args);
-          provenance.observe((await raw.state()).world ?? [], method === 'logs' ? reply.world : []);
+          provenance.observe(await raw.state(), method === 'logs' ? reply.world : []);
           if (method === 'state') worldObservations(observations, id)(reply);
           replies.push({session:id, method, args, reply, clock:target.now});
           return reply;

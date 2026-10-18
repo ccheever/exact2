@@ -41,6 +41,7 @@ final class MetalCanvasView: NSView {
 /// module itself loaded once per process (LLP 1031 D12).
 final class CanvasesHost {
     lazy var lifecycle = CanvasLifecycle(self)
+    var editsAdmitted = false
     weak var session: ExactSession?
     /// postMessage events waiting for a live canvas of their surface name.
     var pendingPosts: [(name: String, text: String, at: Double)] = []
@@ -167,6 +168,7 @@ final class CanvasesHost {
 
     func destroy(view: UInt32) {
         if let e = entries.removeValue(forKey: view) {
+            retainEdits(e)
             e.view.canvasInput = nil
             if e.id != 0 { e.module?.destroy(e.id) }
             releasePublisher(e)

@@ -665,7 +665,7 @@ export function worldView(session, name) {
         if (r.tick !== tick || r.hash !== hash) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
         entities.push(...r.entities);
       }
-      return {tick, hash, entities, truncated: all ? false : first.truncated, ...(first.developmentEdits ? {developmentEdits:true} : {})};
+      return {tick, hash, entities, truncated: all ? false : first.truncated, ...Object.fromEntries(["developmentEdits", "sessionDevelopmentEdits", "queuedSets"].filter(k => first[k] !== undefined).map(k => [k, first[k]]))};
     },
     /** Every resource's value, as `state world:* resources` reads them. */
     async resources() { return (await session.state(`${name}:*`, undefined, false, false, {limit:1, resources:true})).resources; },
