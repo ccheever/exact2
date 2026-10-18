@@ -239,14 +239,31 @@ test('compare: an edge\'s anti-aliasing is no colour of the picture it is in', a
   const soft = [[24, 60, 1, 40, [200, 200, 200]], [25, 60, 1, 40, [140, 140, 140]], [26, 60, 1, 40, [80, 80, 80]], [27, 60, 40, 40, [0, 0, 0]]];
   const { result } = await compared(soft, [[20, 60, 47, 40, [0, 0, 0]]]);
   const { reference, screen } = result.regions[0].colours;
-  assert.deepEqual(reference, { fill: '#fff', ink: undefined, edges: true });
+  assert.equal(reference.fill, '#fff');
+  assert.equal(reference.ink, undefined);
+  assert.equal(reference.edges, true);
   assert.equal(screen.fill, '#000');
   const { report } = await import('./agent-compare.mjs');
   const text = report({ ...result, regions: [{ ...result.regions[0], hint: null }] }, [], { reference: 'r', diff: 'd' });
-  assert.match(text, /in the reference #fff, only an edge's anti-aliasing beside it/);
+  assert.match(text, new RegExp(`here #000, in the reference #fff, its edge's anti-aliasing ${reference.blend} beside it`));
   // A stroke's own colour is kept: a grey bar on white is its grey.
   const bar = await compared([[10, 40, 100, 6, [120, 120, 120]]], []);
   assert.equal(bar.result.regions[0].colours.reference.ink ?? bar.result.regions[0].colours.reference.fill, '#666');
+});
+
+test('compare: a 1 pt border between a lighter and a darker side keeps its colour', async () => {
+  // A blue card on white with a grey border in the reference and a red one here: the grey lies between white and blue
+  // in every channel's range but on no line between them, so it is the reference's own colour, not anti-aliasing.
+  const card = (border) => [[29, 59, 42, 42, border], [30, 60, 40, 40, [0, 0, 255]]];
+  const { result } = await compared(card([102, 102, 102]), card([204, 0, 0]));
+  assert.ok(result.regions.length > 0);
+  const { reference, screen } = result.regions[0].colours;
+  assert.equal(reference.ink, '#666');
+  assert.equal(reference.edges, undefined);
+  assert.match(screen.ink, /^#[cd]00$/);
+  const { report } = await import('./agent-compare.mjs');
+  const text = report({ ...result, regions: [{ ...result.regions[0], hint: null }] }, [], { reference: 'r', diff: 'd' });
+  assert.match(text, /here #[cd]00 on #\w{3}, in the reference #666 on #\w{3}/);
 });
 
 test('compare: a recoloured row among look-alikes is its colours, with no hint', async () => {

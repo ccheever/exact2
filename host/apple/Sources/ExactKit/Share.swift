@@ -39,7 +39,7 @@ extension ExactSession {
         let outcome: (String) -> Void = { [weak self] line in
             guard let self else { return }
             guard let ticket else { self.log(line); return }
-            ShareSheet.shown[ticket] = nil
+            ShareSheet.shown[ShareSheet.Key(self, ticket)] = nil
             if line.hasPrefix("share: refused") { self.log(line) }
             _ = self.agent("{\"op\":\"tap\",\"ticket\":\(ticket),\"choice\":\"\(line == "share: shared" ? "shared" : "cancel")\"}")
         }
@@ -81,7 +81,7 @@ extension ExactSession {
         guard let view, let sheet = ShareSheet.present(items, title: request["title"] as? String, from: view, at: rect,
                                                        outcome: { line in discard(); outcome(line) })
         else { discard(); outcome("share: refused: no window to present from"); return }
-        if let ticket { ShareSheet.shown[ticket] = (sheet, { discard(); outcome("share: dismissed") }) }
+        if let ticket { ShareSheet.shown[ShareSheet.Key(self, ticket)] = (sheet, { discard(); outcome("share: dismissed") }) }
     }
 }
 
@@ -115,38 +115,48 @@ extension Presenter {
 }
 
 enum ShareSheet {
-    /// The real sheets a drive shows beside their holds, by ticket: each
-    /// one's sheet and what closes it as dismissed.
-    nonisolated(unsafe) static var shown: [UInt64: (sheet: AnyObject, dismissed: () -> Void)] = [:]
+    /// A shown sheet's hold: tickets are each session's runner's, and a
+    /// process can hold two sessions (the sample host, LLP 1031).
+    struct Key: Hashable {
+        let session: ObjectIdentifier, ticket: UInt64
+        init(_ session: ExactSession, _ ticket: UInt64) { self.session = ObjectIdentifier(session); self.ticket = ticket }
+    }
+    /// The real sheets a drive shows beside their holds: each one's sheet
+    /// and what closes it as dismissed.
+    nonisolated(unsafe) static var shown: [Key: (sheet: AnyObject, dismissed: () -> Void)] = [:]
 
-    /// The agent answered a share's hold (`tap @t shared|cancel`): its sheet
-    /// closes, the answer already journalled.
-    static func answered(_ reply: [String: Any]) {
+    /// The agent answered a share's hold in `session` (`tap @t shared|cancel`):
+    /// its sheet closes, the answer already journalled.
+    static func answered(_ reply: [String: Any], in session: ExactSession) {
         guard reply["capability"] as? String == "share", let ticket = (reply["ticket"] as? NSNumber)?.uint64Value,
-              let open = shown.removeValue(forKey: ticket) else { return }
+              let open = shown.removeValue(forKey: Key(session, ticket)) else { return }
         close(open.sheet)
     }
 
-    /// `back` with a shown sheet up: the newest closes, dismissed, as a
-    /// person's swipe down or Close button closes it. False with none.
-    static func agentBack() -> Bool {
-        guard let ticket = shown.keys.max(), let open = shown.removeValue(forKey: ticket) else { return false }
+    /// `back` in `session` with a sheet of its shown: the newest closes,
+    /// dismissed, as a person's swipe down or Close button closes it. False
+    /// with none.
+    static func agentBack(in session: ExactSession) -> Bool {
+        let mine = ObjectIdentifier(session)
+        guard let key = shown.keys.filter({ $0.session == mine }).max(by: { $0.ticket < $1.ticket }),
+              let open = shown.removeValue(forKey: key) else { return false }
         close(open.sheet)
         open.dismissed()
         return true
     }
 
-    /// Whether a shown sheet has yet to finish arriving: UIKit presents it
-    /// on a later turn and then animates it in, and a picture taken before
-    /// would show the app alone or the sheet half in.
-    static var arriving: Bool {
+    /// Whether a sheet `session` shows has yet to finish arriving: UIKit
+    /// presents it on a later turn and then animates it in, and a picture
+    /// taken before would show the app alone or the sheet half in.
+    static func arriving(in session: ExactSession) -> Bool {
         #if canImport(UIKit)
-        shown.values.contains { open in
-            guard let sheet = open.sheet as? UIViewController else { return false }
+        let mine = ObjectIdentifier(session)
+        return shown.contains { key, open in
+            guard key.session == mine, let sheet = open.sheet as? UIViewController else { return false }
             return sheet.presentingViewController == nil || sheet.isBeingPresented
         }
         #else
-        false
+        return false
         #endif
     }
 

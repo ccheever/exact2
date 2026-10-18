@@ -108,28 +108,53 @@ export function regions(mask, w, h, { gap = 4, least = 6 } = {}) {
 }
 
 const hex8 = (G, i) => '#' + [0, 1, 2].map((c) => Math.round(Math.round(G.rgb[i * 3 + c] / 255 * 7) * 15 / 7).toString(16)).join('');
-/** Whether cell i is an edge's anti-aliasing: in the channel where it is farthest from `f` (the fill), it lies inside
- *  its 3×3 neighbourhood's range by INK/2 at both ends, a mix of a lighter and a darker neighbour. A stroke's own colour
- *  is the end of that range, never inside it. */
-export function blended(G, i, f) {
-  let c = 0;
-  for (let k = 1; k < 3; k++) if (Math.abs(G.rgb[i * 3 + k] - f[k]) > Math.abs(G.rgb[i * 3 + c] - f[c])) c = k;
-  const v = G.rgb[i * 3 + c];
-  return v > G.lo[i * 3 + c] + INK / 2 && v < G.hi[i * 3 + c] - INK / 2;
+/** Whether colour v (cell `i`) is a mix of the colours of cells `a` and `b`: one fraction t of the way from a to b, in
+ *  (0.1, 0.9), in each channel where they differ (within 0.15), and a's own value, within INK/2, in each where they
+ *  do not. A colour off that line (a grey border between white and blue) is no mix of them. */
+function mixOf(G, a, i, b) {
+  let t = null;
+  for (let c = 0; c < 3; c++) {
+    const from = G.rgb[a * 3 + c], span = G.rgb[b * 3 + c] - from, v = G.rgb[i * 3 + c];
+    if (Math.abs(span) <= INK / 2) { if (Math.abs(v - from) > INK / 2) return false; continue; }
+    const at = (v - from) / span;
+    if (at <= 0.1 || at >= 0.9 || (t !== null && Math.abs(at - t) > 0.15)) return false;
+    t ??= at;
+  }
+  return t !== null;
+}
+
+/** Whether cell i is an edge's anti-aliasing: on a run of up to three cells across or down, between two cells whose
+ *  colours are present in the region (`present`), its colour a mix of theirs (`mixOf`). A 1 pt border whose colour is
+ *  off the line between its two sides is its own colour; one on it (grey between white and black) reads as a blend,
+ *  which the pixels cannot tell apart. */
+export function blended(G, i, present) {
+  const { w, h } = G, x = i % w, y = (i - x) / w;
+  for (const [dx, dy] of [[1, 0], [0, 1]]) for (let d1 = 1; d1 <= 3; d1++) for (let d2 = 1; d2 <= 3; d2++) {
+    const xa = x - dx * d1, ya = y - dy * d1, xb = x + dx * d2, yb = y + dy * d2;
+    if (xa < 0 || ya < 0 || xb >= w || yb >= h) continue;
+    const a = ya * w + xa, b = yb * w + xb;
+    if (present(a) && present(b) && mixOf(G, a, i, b)) return true;
+  }
+  return false;
 }
 
 /** A box's fill (the commonest colour of its cells) and ink (the commonest colour of `picked` beyond INK of the fill,
- *  an edge's anti-aliasing left out), as hex at 8 levels a channel; `edges` when every such cell was anti-aliasing,
- *  so the picture has no colour of its own there (a box edge a point or two from the other picture's). */
+ *  an edge's anti-aliasing left out), as hex at 8 levels a channel. When every such cell was anti-aliasing, `edges`
+ *  and `blend`, their commonest colour: the picture has no colour of its own there (a box edge a point or two from the
+ *  other picture's). A colour is present when 3 or more cells of the box, grown by 3 on each side, have it. */
 export function inkOf(G, box, picked) {
   const tally = (cells) => { const m = new Map(); for (const i of cells) m.set(hex8(G, i), (m.get(hex8(G, i)) ?? 0) + 1); return m; };
   const mode = (m) => [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  const all = [];
-  for (let y = box.y; y < box.y + box.h; y++) for (let x = box.x; x < box.x + box.w; x++) all.push(y * G.w + x);
-  const fill = mode(tally(all)), f = fill && [1, 2, 3].map((k) => parseInt(fill[k], 16) * 17);
+  const cells = (grow) => {
+    const out = [];
+    for (let y = Math.max(0, box.y - grow); y < Math.min(G.h, box.y + box.h + grow); y++) for (let x = Math.max(0, box.x - grow); x < Math.min(G.w, box.x + box.w + grow); x++) out.push(y * G.w + x);
+    return out;
+  };
+  const fill = mode(tally(cells(0))), f = fill && [1, 2, 3].map((k) => parseInt(fill[k], 16) * 17), counts = tally(cells(3));
+  const present = (k) => (counts.get(hex8(G, k)) ?? 0) >= 3;
   const unlike = picked.filter((i) => !f || [0, 1, 2].some((c) => Math.abs(G.rgb[i * 3 + c] - f[c]) > INK));
-  const own = f ? unlike.filter((i) => !blended(G, i, f)) : unlike;
-  return { fill, ink: mode(tally(own)), ...(unlike.length && !own.length ? { edges: true } : {}) };
+  const own = unlike.filter((i) => !blended(G, i, present));
+  return { fill, ink: mode(tally(own)), ...(unlike.length && !own.length ? { edges: true, blend: mode(tally(unlike)) } : {}) };
 }
 
 /** Where a region's content sits in the reference, when that is plain: the one vertical or horizontal offset (up to
@@ -296,9 +321,10 @@ export function report(result, nodes, { reference, diff, unit = 'pt', boxes = []
   out.push(`compare ${reference}: ${pct(result.match)} matches (${result.w}×${result.h} ${unit}${left ? `; ${left} not scored` : ''}); diff ${diff} (${PANELS.join(' | ')})`);
   result.regions.forEach((r, i) => {
     const names = under(nodes, r.screen), { screen: sc, reference: rc } = r.colours;
-    const colour = (c) => (c.ink ? `${c.ink} on ${c.fill}` : c.edges ? `${c.fill}, only an edge's anti-aliasing beside it` : c.fill ?? 'nothing');
-    // Content that moved puts unlike cells side by side: their colours say nothing, so the hint is said instead.
-    const said = r.hint ? [hintText(r.hint, unit)] : sc.fill === rc.fill && sc.ink === rc.ink && !sc.edges === !rc.edges ? [] : [`here ${colour(sc)}, in the reference ${colour(rc)}`];
+    const colour = (c) => (c.ink ? `${c.ink} on ${c.fill}` : c.edges ? `${c.fill}, its edge's anti-aliasing ${c.blend} beside it` : c.fill ?? 'nothing');
+    // Content that moved puts unlike cells side by side: their colours say nothing, so the hint is said instead. Both
+    // clauses are said when either side's differing cells are only an edge's anti-aliasing.
+    const said = r.hint ? [hintText(r.hint, unit)] : sc.fill === rc.fill && sc.ink === rc.ink && !sc.edges && !rc.edges ? [] : [`here ${colour(sc)}, in the reference ${colour(rc)}`];
     out.push(`  ${i + 1} ${boxText(r.screen)} (${r.count} ${unit}²)${names.length ? ` under ${names.map(nodeName).join(', in ')}` : ''}${said.length ? `: ${said.join('; ')}` : ''}`);
   });
   for (const b of boxes) out.push(`  box    ${nodeName({ ...b.node, ...b.here })}: ${b.ref.w}×${b.ref.h} at ${b.ref.x},${b.ref.y} in the reference${b.alike ? ` (and ${b.alike} like it)` : ''}`);

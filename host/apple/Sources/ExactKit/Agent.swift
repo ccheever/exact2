@@ -192,7 +192,7 @@ public final class Agent {
             session.picker.answered(answer, request: req)
             session.picker.saveAnswered(answer, request: req)
             session.picker.documentAnswered(answer, request: req)
-            ShareSheet.answered(answer)
+            ShareSheet.answered(answer, in: session)
             Agent.reply(tagged(answer))
             return
         }

@@ -46,7 +46,7 @@ import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, crashWatch, developmentLaunchEnvironment, installedAlready, keepInstalledRelease, phone, phoneBridge, showSimulator, simulator, withDisplay, withSoftwareKeyboard } from '../host/apple/devices.mjs';
+import { crashReports, crashWatch, developmentLaunchEnvironment, keepInstalledRelease, phone, phoneBridge, showSimulator, simulator, withDisplay, withSoftwareKeyboard } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -670,7 +670,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   // Real touches (LLP 1080.000, `--touch platform`; `drag`, an authored test's drag alone): the runner starts first, so its own launch never backgrounds the app.
   const touches = touch !== 'agent' ? await openTouches({ udid: dev.udid, appId: id ?? bundleId(a.crate('apple')) }) : null;
   // A Release build installed under the bundle id is kept and put back when the drive ends (`keepInstalledRelease`).
-  let kept = null; try { if (!installedAlready(dev.udid, id, bundle, hostFixture ? 'ExactHostIOS' : executableName(a))) { kept = keepInstalledRelease(dev.udid, id); install(dev, bundle, a, hostFixture, true); } } catch (e) { kept?.restore(); await touches?.close(); throw e; }
+  let kept = null; try { kept = keepInstalledRelease(dev.udid, id, bundle, hostFixture ? 'ExactHostIOS' : executableName(a)); if (kept.install) install(dev, bundle, a, hostFixture, true); } catch (e) { kept?.restore(); await touches?.close(); throw e; }
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
   const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
