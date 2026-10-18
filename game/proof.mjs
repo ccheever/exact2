@@ -1,7 +1,7 @@
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
@@ -660,12 +660,32 @@ export function worldObservations(observations, session) {
   };
 }
 
+/** The game a proof script checks: `--app <dir>`, else the nearest directory at or
+ * above the script's own that holds `app.json` or `logic/src/lib.rs`, so a script
+ * under `tools/` proves the game around it. */
+export function proofGame(scriptDir, args) {
+  const isGame = dir => existsSync(resolve(dir, 'app.json')) || existsSync(resolve(dir, 'logic/src/lib.rs'));
+  const at = args.indexOf('--app');
+  if (at >= 0) {
+    const named = args[at + 1];
+    if (!named || named.startsWith('--')) throw new Error('--app requires the game\'s directory');
+    if (!isGame(resolve(named))) throw new Error(`--app ${named}: not a game (no app.json or logic/src/lib.rs there)`);
+    return resolve(named);
+  }
+  for (let dir = resolve(scriptDir);; dir = dirname(dir)) {
+    if (isGame(dir)) return dir;
+    if (dirname(dir) === dir) throw new Error(`${resolve(scriptDir)}: no game at or above this script (no app.json or logic/src/lib.rs); pass --app <game directory>`);
+  }
+}
+
 export async function proof(meta, script) {
-  const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
-  const root = fileURLToPath(new URL('..', import.meta.url));
   const args = process.argv.slice(2), device = args.includes('--device');
+  const named = args.includes('--app') ? args[args.indexOf('--app') + 1] : undefined;
+  const app = proofGame(fileURLToPath(new URL('.', meta.url)), args) + sep, name = basename(app);
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const phone = args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined;
-  const host = args.find(arg => !arg.startsWith('--') && arg !== phone) ?? 'linux';
+  const host = args.find(arg => !arg.startsWith('--') && arg !== phone && arg !== named) ?? 'linux';
+  const appFlag = named === undefined ? [] : ['--app', app];
   if (device && host !== 'ios') throw new Error('--device requires the ios proof host');
   if (args.includes('--phone') && (!device || !phone || phone.startsWith('--'))) throw new Error('--phone requires --device and a device name or identifier');
   const destination = device ? 'ios-device' : host;
@@ -681,14 +701,14 @@ export async function proof(meta, script) {
     if (!['web', 'linux', 'windows'].includes(host)) throw new Error('--paranoid supports web, linux and windows');
     const failed = await paranoidRuns(async mode => {
       const started = performance.now();
-      const child = spawn(process.execPath, [fileURLToPath(meta.url), host], {
+      const child = spawn(process.execPath, [fileURLToPath(meta.url), host, ...appFlag], {
         env:{...process.env, EXACT_GAME_PARANOID:mode, EXACT_GAME_PARANOID_COMPARE:'1'}, stdio:'inherit',
       });
       const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
       console.log(`PARANOID ${name} ${host} ${mode}: ${((performance.now()-started)/1000).toFixed(3)} s (including build)`);
       return code;
     }, async () => {
-      const child = spawn(process.execPath, [fileURLToPath(meta.url), host, '--build-only'], {
+      const child = spawn(process.execPath, [fileURLToPath(meta.url), host, ...appFlag, '--build-only'], {
         env:{...process.env, EXACT_GAME_PARANOID:'0'}, stdio:'inherit',
       });
       return await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });

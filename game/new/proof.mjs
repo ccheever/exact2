@@ -12,6 +12,12 @@ import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
 import { proof, axNames } from '../../proof.mjs';
 
+// How a fresh session reaches the running world: change it with the title screen.
+const play = async session => {
+  await session.tap('play');
+  return session.world('world');
+};
+
 // Constant acceleration, semi-implicit integration: v_k=min(k*a/h,v).
 // Sum the accelerating ticks, then add the constant-speed tail.
 const distance = (n, h, a=12, v=4) => {
@@ -19,14 +25,43 @@ const distance = (n, h, a=12, v=4) => {
   return a*m*(m+1)/(2*h*h)+(n-m)*v/h;
 };
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave}) => {
-  const movement = await open();
   if (process.argv.includes('--screenshot-only')) {
     check('screenshot uses web', host === 'web');
-    await movement.tap('play');
-    await movement.screenshot(resolve(out, 'game.png'));
-    await movement.close();
+    const shot = await open();
+    await play(shot);
+    await shot.screenshot(resolve(out, 'game.png'));
+    await shot.close();
     return;
   }
+
+  // Engine facts: they hold for any game, so keep them as they are.
+  const first = await open();
+  const world = await play(first);
+  pin(0, await world.snapshot());
+  await world.run(500);
+  if (host !== 'linux') await first.screenshot(resolve(out, 'game.png'));
+  if (host === 'web') {
+    const perf = (await first.state()).world?.[0]?.perf;
+    check('the GPU host presents a first frame of the world', Number.isFinite(perf?.firstFrameMs), perf);
+  }
+  await world.save(resolve(out, 'checkpoint.world'));
+  const checkpoint = await world.snapshot();
+  await world.run(500);
+  const continued = await world.snapshot();
+  await world.save(resolve(out, 'continued.world'));
+  pinSave('continuation', resolve(out, 'continued.world'));
+  await first.close();
+  const restored = await open({fresh:true, world:resolve(out, 'checkpoint.world')});
+  const loaded = await play(restored);
+  check('a fresh process restores the save', JSON.stringify(await loaded.snapshot()) === JSON.stringify(checkpoint));
+  await loaded.run(500);
+  check('a fresh process continues identically', JSON.stringify(await loaded.snapshot()) === JSON.stringify(continued));
+  await loaded.save(resolve(out, 'restored.world'));
+  check('continuation saves are byte-identical', readFileSync(resolve(out, 'continued.world')).equals(readFileSync(resolve(out, 'restored.world'))));
+  await restored.close();
+
+  // starter: replace these with your game's checks
+  const movement = await open();
   await movement.type('play',{key:'Enter'});
   await movement.world('world').hold('KeyW',1500);
   const walked = await movement.world('world').local_position('player');
@@ -44,7 +79,6 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('HUD is a polite live region', node(await s.tree(), 'hud-lit')?.props.accessibilityLive === 'polite');
   check('initial HUD', node(await s.tree(), 'hud-lit')?.props?.text === 'Lit 0');
   const game = s.world('world');
-  pin(0, await game.snapshot());
   check('no prompt outside range', !node(await s.tree(), 'near-prompt'));
   await game.tap('KeyE');
   await game.run(100);
@@ -59,8 +93,6 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('movement and light', position[0] > 0.5 && beacon.lit);
   check('publication reaches HUD', node(await s.tree(), 'hud-lit')?.props?.text === 'Lit 1');
   check('lit beacon hides prompt', !node(await s.tree(), 'near-prompt'));
-  await game.run(500);
-  if (host === 'web') await s.screenshot(resolve(out, 'game.png'));
   await s.tap('pause');
   check('pointer Pause releases focus', node(await s.tree(),'pause')?.focused !== true);
   await s.type('pause',{key:'Space'});
@@ -76,24 +108,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.hold('KeyW', 1000);
   await game.settle();
   check('prompt disappears outside range', !node(await s.tree(), 'near-prompt'));
-  await game.save(resolve(out, 'final.world'));
-  const checkpoint = await game.snapshot();
-  await game.hold('KeyA', 250);
-  await game.settle();
-  const continued = await game.snapshot();
-  await game.save(resolve(out, 'continued.world'));
-  pinSave('continuation', resolve(out, 'continued.world'));
   await s.close();
-  const restored = await open({fresh:true, world:resolve(out, 'final.world')});
-  await restored.tap('play');
-  const loaded = restored.world('world');
-  check('fresh process restores snapshot', JSON.stringify(await loaded.snapshot()) === JSON.stringify(checkpoint));
-  await loaded.hold('KeyA', 250);
-  await loaded.settle();
-  check('fresh process continues identically', JSON.stringify(await loaded.snapshot()) === JSON.stringify(continued));
-  await loaded.save(resolve(out, 'restored.world'));
-  check('continuation saves are byte-identical', readFileSync(resolve(out, 'continued.world')).equals(readFileSync(resolve(out, 'restored.world'))));
-  await restored.close();
   const pointerSession = await open({fresh:true});
   await pointerSession.tap('play');
   await pointerSession.tap('pause'); await pointerSession.tap('pause');
