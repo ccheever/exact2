@@ -29,7 +29,20 @@ test('a pairing that never connected is not listed as a computer that is still c
   const live = wizardClient('connected');
   expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Connected']);
   (live as unknown as { connection: string }).connection = 'reconnecting';
-  expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Connecting…']);
+  expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Offline']);
+});
+
+test('Continue skips selected offline and switched-off computers beside a connected one', async () => {
+  const client = wizardClient('connected');
+  await welcomeView(client, native([]), { step: 'connect', now: 1 });
+  const saved = [
+    { origin: 'http://127.0.0.1:16442', environmentId: 'offline', label: 'Offline Mac', enabled: true },
+    { origin: 'http://127.0.0.1:16443', environmentId: 'off', label: 'Off Mac', enabled: false },
+  ];
+  const view = await welcomeView(client, native(saved), { step: 'connect', now: 1 });
+  expect(view.ready).toBe(true);
+  expect(view.computers.map(computer => computer.status)).toEqual(['Connected', 'Offline', 'Switched off']);
+  expect(view.skipped).toBe('Not connected, so setup skips Offline Mac, Off Mac. You can set them up later from Settings.');
 });
 
 test('copying the pairing command flips the button to Check without a toast', async () => {

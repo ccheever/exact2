@@ -350,6 +350,10 @@ describe('navigation and search', () => {
     expect(searchSettings('wrap', context)[0]!.id).toBe('word-wrap');
     expect(searchSettings('auto settle', { ...context, autoSettle: false }).map(item => item.id)).not.toContain('auto-settle-inactive-threads');
     expect(searchSettings('tailscale', context)).toEqual([]);
+    // The About rows (472ea7ec5f): Version by its update words, and Update track, both on General.
+    expect(searchSettings('check for updates', context).map(item => item.id)).toContain('app-version');
+    expect(searchSettings('update track', context)).toEqual([expect.objectContaining({ id: 'update-track', title: 'Update track', route: 'general' })]);
+    expect(searchSettings('nightly', context).map(item => [item.id, item.target])).toContainEqual(['update-track', 'update-track']);
     const result = settingsNavigation('send shortcut', context);
     expect([result.firstRoute, result.firstTarget, result.items[0]!.section]).toEqual(['general', 'setting-send-shortcut', 'General']);
     expect(scopeAvailable('environment-defaults', 'project')).toBe(false);

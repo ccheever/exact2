@@ -1675,7 +1675,7 @@ component T3Code
       taskModelPick = ""
     if (op != "toggle" or not detailsPopover) and op != "dismiss" and op != "ui:project-settings" and op != "ui:add-script" and op != "ui:scheduled-tasks" and not commandPending
       commandPending = true
-      send changed = command(op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff" : op == "ui:editor" ? "shell:open-editor" : op, target, value, 0)
+      send changed = command(op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff" : op == "ui:editor" ? "shell:select-editor" : op, target, value, 0)
       if op == "select-thread" or op == "shell:merge-back"
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1

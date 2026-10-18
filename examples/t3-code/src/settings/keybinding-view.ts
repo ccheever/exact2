@@ -1,5 +1,5 @@
-// Settings → Keybindings view model: rows, pills, labels, sources and conflicts
-// from KeybindingsSettings.logic.ts, and the When builder of
+// Settings → Keybindings view model: rows, pills, labels, sources, conflicts and
+// area groups from KeybindingsSettings.logic.ts (T3 9c161462c9), and the When builder of
 // KeybindingsSettings.tsx as precomputed next expressions, so every builder
 // control only replaces the draft expression with a string computed here.
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -21,6 +21,7 @@ export function commandLabel(command: string): string {
   if (command === 'thread.steerQueuedMessage') return 'Queue: Send First Queued Message as Steer';
   if (command === 'thread.editQueuedMessage') return 'Queue: Edit Last Queued Message';
   if (command === 'thread.copyReference') return 'Pull Request: Copy Link or Thread ID';
+  if (command === 'preview.focusUrl') return 'Preview: Focus URL';
   if (usageMetrics[command]) return `Usage: ${usageMetrics[command]}`;
   if (usagePeriods[command]) return `Usage: Period: ${usagePeriods[command]}`;
   if (command.startsWith('script.') && command.endsWith('.run')) return `Run Script: ${titleCase(command.slice(7, -4))}`;
@@ -222,6 +223,30 @@ export function buildRows(bindings: Obj[], query: string): KeybindingRowView[] {
   const term = query.trim().toLowerCase();
   const filtered = term ? rows.filter(row => [row.command, row.label, row.key, row.condition, row.source].some(text => text.toLowerCase().includes(term))) : rows;
   return filtered.map(({ when, ...row }, index) => ({ ...row, first: index === 0 }));
+}
+export type KeybindingGroup = { id: string; title: string; rows: KeybindingRowView[] };
+const KEYBINDING_GROUPS: { id: string; title: string; prefixes: string[] }[] = [
+  { id: 'navigation', title: 'Navigation', prefixes: ['sidebar', 'rightPanel', 'commandPalette', 'filePicker', 'projectSearch', 'editor'] },
+  { id: 'threads', title: 'Threads', prefixes: ['thread', 'chat', 'pullRequest'] },
+  { id: 'composer', title: 'Composer', prefixes: ['composer', 'modelPicker'] },
+  { id: 'terminal', title: 'Terminal', prefixes: ['terminal'] },
+  { id: 'preview', title: 'Preview & diff', prefixes: ['preview', 'diff'] },
+  { id: 'appearance', title: 'Appearance', prefixes: ['theme', 'appearance', 'themeEditor'] },
+  { id: 'scripts', title: 'Project scripts', prefixes: ['script'] },
+];
+const OTHER_KEYBINDING_GROUP = { id: 'other', title: 'Other', prefixes: [] as string[] };
+/** groupKeybindingRows: one titled section per command area, in area order; `first` marks each section's first row. */
+export function groupRows(rows: KeybindingRowView[]): KeybindingGroup[] {
+  const byGroup = new Map<string, KeybindingRowView[]>();
+  for (const row of rows) {
+    const prefix = row.command.split('.')[0] ?? '';
+    const group = KEYBINDING_GROUPS.find(candidate => candidate.prefixes.includes(prefix)) ?? OTHER_KEYBINDING_GROUP;
+    byGroup.set(group.id, [...(byGroup.get(group.id) ?? []), row]);
+  }
+  return [...KEYBINDING_GROUPS, OTHER_KEYBINDING_GROUP].flatMap(group => {
+    const groupRows = byGroup.get(group.id);
+    return groupRows ? [{ id: group.id, title: group.title, rows: groupRows.map((row, index) => ({ ...row, first: index === 0 })) }] : [];
+  });
 }
 /** buildKeybindingCommandOptions: the static catalog plus configured commands, by label. */
 export function commandOptions(bindings: Obj[]): { value: string; label: string; selected: boolean }[] {

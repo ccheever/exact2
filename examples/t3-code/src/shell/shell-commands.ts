@@ -38,6 +38,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   if (op.startsWith('clone-')) return cloneCommand(client, native, storage, op, id, value); // project-clones-live.ts
   if (op.startsWith('automation-')) return automationCommand(client, native, op.slice(11), id, value); // scheduled-tasks-commands.ts
   const access = client.restAccess(native);
+  if (op === 'select-editor') { rememberEditor(client, value); return ''; }
   if (op === 'open-editor') {
     if (!id) throw new ClientError('This thread does not have a workspace path to open.');
     // OpenInPicker: remotely a deep link to this Mac's editor, never an editor run on the other machine (remote-open.ts).
