@@ -525,6 +525,24 @@ final class NativeButtonsIOSTests: XCTestCase {
         watcher.reset(); watcher.touchesBegan([LocatedTouch(opener)], with: UIEvent())
         XCTAssertFalse(p.menus.isOpen(pop), "a former opener's touch dismisses it")
     }
+    /// A native button opening a `role="menu"` popover is UIKit's pull-down
+    /// button, its rows the popover's (household-list: a real touch drew the
+    /// popover's bare rows); one opening any other popover keeps its activation.
+    func testANativeInvokerOfAMenuIsAPullDownButton() throws {
+        let p = presenter(box(1) + native(2, ["popovertarget": "choices"])
+            + box(4, ["popover": "auto", "id": "choices", "accessibilityRole": "menu"]) + native(5, ["popovertarget": "choices", "popovertargetaction": "hide"])
+            + [["op": "children", "id": 1, "ids": [2, 4]], ["op": "children", "id": 4, "ids": [5]], ["op": "roots", "ids": [1]]],
+            faces: [2: face("Alice", style: "plain", ios: "plain"), 5: face("Bob")])
+        let opener = try button(p, 2)
+        XCTAssertTrue(opener.showsMenuAsPrimaryAction)
+        let menu = try XCTUnwrap(opener.menu)
+        XCTAssertEqual(menu.children.count, 1, "its rows, read as it opens")
+        p.apply(wireBatch([["op": "props", "id": 4, "set": ["accessibilityRole": "dialog"]]]))
+        XCTAssertFalse(opener.showsMenuAsPrimaryAction, "a content popover opens by the button's activation")
+        XCTAssertNil(opener.menu)
+        opener.sendActions(for: .primaryActionTriggered)
+        XCTAssertTrue(p.menus.isOpen(try XCTUnwrap(p.views[4])))
+    }
     /// The runner is told where an open popover is by its border box before
     /// its own transform, which the runner applies itself, and after the
     /// host's placement, which the runner cannot know: a popover the keyboard

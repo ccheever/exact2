@@ -1,6 +1,6 @@
 {
   "about": "LLP 1115.001.001 D3: each specimen is drawn by Compose Material 3 (Specimens.kt) and by Exact (apps/material-specimens/specimens/<id>.contract). A probe is a point in a flat interior, in dp from the component's visual box: a negative number counts from the far edge, \"mid\" is the middle. A defect is a Compose variant of a specimen with one planted error, which the oracle must catch (O1's detection test).",
-  "window": [411, 891],
+  "window": [443, 986],
   "density": 2.4375,
   "schemes": ["light", "dark"],
   "specimens": [

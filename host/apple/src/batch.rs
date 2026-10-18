@@ -21,6 +21,8 @@ pub(crate) struct ContentBox {
 /// A JSON writer for one batch.
 #[derive(Debug, Default)]
 pub struct Batch {
+    /// Deferred store read and data activation still need a retry (LLP 1126.001 WP12).
+    pub store_status: Option<(bool, bool)>,
     ops: Vec<String>,
     /// The views this batch creates: each starts at its presentation's
     /// identity (`Host::present`).
@@ -834,6 +836,12 @@ impl Batch {
                 quote(src, &mut s);
             }
             s.push(']');
+        }
+        if let Some((read, activation)) = self.store_status {
+            let _ = write!(
+                s,
+                ",\"storeReadPending\":{read},\"storeActivationPending\":{activation}"
+            );
         }
         if let Some((first, last)) = self.seq {
             let _ = write!(s, ",\"seq\":[{first},{last}]");

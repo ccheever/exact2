@@ -1,6 +1,7 @@
 # Shared UIKit HDR tests fail on the iOS 27 simulator
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by e8fed1848, 1634191e0, a98d642f6 and 6f1d9020a: runtime probes skip only the assertion group the simulator's APIs decline, and the rest of each test runs.
 **Systems:** Apple host, HDR, UIKit verification
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-13
@@ -54,3 +55,7 @@ is not physical-device qualification. The assertions remain in the iOS
 suite. The baseline XCTest failures are in
 `target/uikittests-verification/baseline.log`; the native comparison is in
 `hdr-probe-mac.log` beside it.
+
+## Closed, 2026-10-18
+
+`HDRPlatformProbe.declined` (`host/apple/tests/ExactKitTests/HDRImageTests.swift`) decides per group; picker JPEGs are tone-mapped when ImageIO keeps HDR, and an output is removed only when conversion fails. Physical-device qualification is QUEUE.md's "Physical iPhone HDR qualification".

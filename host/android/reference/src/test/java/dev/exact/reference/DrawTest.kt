@@ -35,11 +35,11 @@ import org.robolectric.annotation.GraphicsMode
  * Draws each specimen and each defect of `specimens.json` under each scheme, and writes beside each picture what
  * LLP 1115.001.001 D5 compares: the layout box, and every semantics node and text box under it, in dp from the
  * window's corner. The SDK is the pin's (`libs.versions.toml` `referenceSdk`, which the build passes as
- * `reference.sdk`); the density is the Pixel 10 Pro XL's, 2.4375.
+ * `reference.sdk`); the window is the Pixel 10 Pro XL's, 1080 × 2404 pixels at 2.4375.
  */
 @RunWith(ParameterizedRobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [36], qualifiers = "w411dp-h891dp-390dpi")
+@Config(sdk = [36], qualifiers = "w443dp-h986dp-390dpi")
 class DrawTest(private val id: String, private val scheme: String) {
     @get:Rule val rule = createComposeRule()
 
@@ -120,12 +120,12 @@ class DrawTest(private val id: String, private val scheme: String) {
  */
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [36], qualifiers = "w411dp-h891dp-390dpi")
+@Config(sdk = [36], qualifiers = "w443dp-h986dp-390dpi")
 class InputsTest {
     @Test fun write() {
         val out = File(System.getProperty("reference.out")!!).apply { mkdirs() }
         val schemes = JSONObject()
-        for (name in listOf("light", "dark")) schemes.put(name, roles(DrawTest.schemeOf(name)))
+        for (name in listOf("light", "dark")) schemes.put(name, scheme(DrawTest.schemeOf(name)))
         File(out, "schemes.json").writeText(schemes.toString(2))
         val padding = ButtonDefaults.ContentPadding
         val defaults = JSONObject()
@@ -142,23 +142,8 @@ class InputsTest {
         File(out, "defaults.json").writeText(defaults.toString(2))
     }
 
-    private fun roles(s: ColorScheme) = JSONObject().apply {
-        listOf(
-            "primary" to s.primary, "onPrimary" to s.onPrimary, "primaryContainer" to s.primaryContainer,
-            "onPrimaryContainer" to s.onPrimaryContainer, "inversePrimary" to s.inversePrimary,
-            "secondary" to s.secondary, "onSecondary" to s.onSecondary, "secondaryContainer" to s.secondaryContainer,
-            "onSecondaryContainer" to s.onSecondaryContainer, "tertiary" to s.tertiary, "onTertiary" to s.onTertiary,
-            "tertiaryContainer" to s.tertiaryContainer, "onTertiaryContainer" to s.onTertiaryContainer,
-            "background" to s.background, "onBackground" to s.onBackground, "surface" to s.surface,
-            "onSurface" to s.onSurface, "surfaceVariant" to s.surfaceVariant, "onSurfaceVariant" to s.onSurfaceVariant,
-            "surfaceTint" to s.surfaceTint, "inverseSurface" to s.inverseSurface, "inverseOnSurface" to s.inverseOnSurface,
-            "error" to s.error, "onError" to s.onError, "errorContainer" to s.errorContainer,
-            "onErrorContainer" to s.onErrorContainer, "outline" to s.outline, "outlineVariant" to s.outlineVariant,
-            "scrim" to s.scrim, "surfaceBright" to s.surfaceBright, "surfaceDim" to s.surfaceDim,
-            "surfaceContainerLowest" to s.surfaceContainerLowest, "surfaceContainerLow" to s.surfaceContainerLow,
-            "surfaceContainer" to s.surfaceContainer, "surfaceContainerHigh" to s.surfaceContainerHigh,
-            "surfaceContainerHighest" to s.surfaceContainerHighest,
-        ).forEach { (k, v) -> put(k, v.toArgb().toLong() and 0xFFFFFFFFL) }
+    private fun scheme(s: ColorScheme) = JSONObject().apply {
+        roles(s).forEach { (k, v) -> put(k, v.toArgb().toLong() and 0xFFFFFFFFL) }
     }
 }
 

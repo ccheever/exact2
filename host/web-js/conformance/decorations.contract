@@ -1,0 +1,42 @@
+decoration heading font-size="1.25rem" font-weight=600 line-height=1.3 margin-bottom="0.5rem"
+decoration accent color="#2056c8" font-weight=700
+decoration pill background-color="#dbeafe" color="#143e85" font-size="0.875rem"
+decoration task padding-left="1.5rem"
+
+component App
+  state draft = "## Heading\nhello **world** @alice\n- [ ] task"
+  state painted = "## Heading\nhello **world** @alice\n- [ ] task"
+  state status = "Ready"
+  derive ranges = TextDecorations(value=painted,
+    spans=[TextDecorationSpan(name="accent", start=19, end=24)],
+    blocks=[TextDecorationBlock(name="heading", start=0, end=11, marker=""), TextDecorationBlock(name="task", start=34, end=44, marker=(painted.slice(37, 38) == "x" ? "checkbox:on" : "checkbox:off"))],
+    hidden=[TextDecorationHidden(start=0, end=3, reveal=none), TextDecorationHidden(start=17, end=19, reveal=some(TextDecorationRange(start=17, end=26))), TextDecorationHidden(start=24, end=26, reveal=some(TextDecorationRange(start=17, end=26))), TextDecorationHidden(start=34, end=40, reveal=none)],
+    atoms=[TextDecorationAtom(name="pill", start=27, end=33, label="Alice")])
+  action edit(value: string)
+    draft = value
+    if value.length == 44
+      painted = value
+  action refresh
+    let value = "## Heading\nhello **world** @alice\n- [ ] task"
+    draft = value
+    painted = value
+    status = "Ready"
+  action replace
+    setRangeText("composer", "Hi", 11, 16, "select", "undo")
+  action measure
+    let box = rangeFrame("composer", 19, 24)
+    status = box.unavailable ? "Unavailable" : `${box.width} × ${box.height}`
+  action taskToggle(e: ToggleEvent)
+    status = `${e.oldState} → ${e.newState} ${e.start}:${e.end}`
+    setRangeText("composer", e.newState == "checked" ? "x" : " ", e.start + 3, e.start + 4, "preserve", "undo")
+  view
+    column padding=24 gap=12
+      textarea id="composer" testId="composer" aria-label="Composer" value=draft input=edit decorations=ranges toggle=taskToggle width=500 height=240 font-size=16
+      row gap=8
+        button id="replace" testId="replace" press=replace
+          text "Replace"
+        button id="refresh" testId="refresh" press=refresh
+          text "Reset decorations"
+        button id="measure" testId="measure" press=measure
+          text "Measure range"
+      text status testId="status"

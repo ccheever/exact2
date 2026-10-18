@@ -342,6 +342,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.data_ready(), |n| n)
         }
 
+        /// Re-read the shared store and ask its resources again (LLP 1126.001 WP12).
+        #[no_mangle]
+        pub extern "C" fn exact_store_changed(rt: u32, retry_only: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.store_changed(retry_only != 0), |n| n)
+        }
+
         /// Prepare an admitted module generation, optionally carrying a delivery token;
         /// `let_go`: the dev loop's, with requests in flight too (LLP 1007 §6).
         #[no_mangle]
