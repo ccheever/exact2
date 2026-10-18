@@ -77,7 +77,7 @@ mod tamber;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
-use exact_plan::{EventKind, Plan};
+use exact_plan::EventKind;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
 use height_drag::{HeightDrag, HeightHandle};
@@ -242,24 +242,7 @@ pub struct Host<D: DataSource> {
     closed: layout::closed::Closed,
 }
 
-/// A plan's bytes at boot: copied from while decoding, or linked into the
-/// program, whose data pool the decoded plan then keeps in place.
-#[derive(Clone, Copy)]
-pub(crate) enum PlanBytes<'a> {
-    Copied(&'a [u8]),
-    Static(&'static [u8]),
-    Snapshot(&'a [u8], &'a str, Option<&'a [u8]>),
-}
-
-impl PlanBytes<'_> {
-    fn decode(self) -> Result<Plan, exact_plan::PlanError> {
-        match self {
-            PlanBytes::Copied(bytes) => Plan::decode(bytes),
-            PlanBytes::Static(bytes) => Plan::decode_static(bytes),
-            PlanBytes::Snapshot(bytes, kind, _) => Plan::decode_snapshot(bytes, kind),
-        }
-    }
-}
+pub(crate) use crate::plan_bytes::PlanBytes;
 
 impl<D: DataSource> Host<D> {
     /// Boot from plan bytes with the app's text measurer and viewport (points):
@@ -421,7 +404,7 @@ impl<D: DataSource> Host<D> {
         }
         let plan = plan_bytes.decode().map_err(HostError::Plan)?;
         let entry_props = match plan_bytes {
-            PlanBytes::Snapshot(_, _, Some(bytes)) => {
+            PlanBytes::Entry(_, _, Some(bytes)) => {
                 Some(snapshot::props(&plan, bytes).map_err(HostError::Layout)?)
             }
             _ => None,

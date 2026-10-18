@@ -282,6 +282,43 @@ std::thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+std::thread_local! {
+    /// The design server's planned `.contract` texts (LLP 1121 stage 8 D),
+    /// compiled in place of the files' while [`with_contract_texts`] runs.
+    static CONTRACT_TEXT: std::cell::RefCell<Vec<(PathBuf, String)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Run `f` with each `(path, text)` read as that Contract source, written
+/// to no file: a write the server checks before it commits.
+pub fn with_contract_texts<R>(texts: Vec<(PathBuf, String)>, f: impl FnOnce() -> R) -> R {
+    /// Puts the texts before back however `f` ends, a panic included.
+    struct Restore(Vec<(PathBuf, String)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let before = std::mem::take(&mut self.0);
+            CONTRACT_TEXT.with(|t| *t.borrow_mut() = before);
+        }
+    }
+    let keyed = texts
+        .into_iter()
+        .map(|(p, t)| (p.canonicalize().unwrap_or(p), t))
+        .collect();
+    let _restore = Restore(CONTRACT_TEXT.with(|t| t.replace(keyed)));
+    f()
+}
+
+/// The text the server planned for Contract source `path`, if any.
+pub(crate) fn contract_text(path: &Path) -> Option<String> {
+    let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    CONTRACT_TEXT.with(|t| {
+        t.borrow()
+            .iter()
+            .find(|(p, _)| *p == key)
+            .map(|(_, s)| s.clone())
+    })
+}
+
 /// Run `f` with `text` read as the design at `path`, written to no file:
 /// a scrub's preview, which the dev loop compiles and never publishes.
 pub fn with_design_text<R>(path: &Path, text: String, f: impl FnOnce() -> R) -> R {
@@ -661,13 +698,15 @@ impl Loader<'_> {
                 None => {
                     let used_src = match resolved.builtin {
                         Some(text) => text.to_owned(),
-                        None => std::fs::read_to_string(&key).map_err(|e| {
-                            vec![use_error(
-                                "contract-use-unreadable",
-                                format!("{}: {}: {e}", described(u), key.display()),
-                                u,
-                            )]
-                        })?,
+                        None => contract_text(&key)
+                            .map_or_else(|| std::fs::read_to_string(&key), Ok)
+                            .map_err(|e| {
+                                vec![use_error(
+                                    "contract-use-unreadable",
+                                    format!("{}: {}: {e}", described(u), key.display()),
+                                    u,
+                                )]
+                            })?,
                     };
                     let used = self.sources.paths.len();
                     self.sources.paths.push(key.clone());

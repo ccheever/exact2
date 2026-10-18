@@ -48,6 +48,8 @@ pub(crate) fn colour_codec(row: StyleId) -> bool {
 /// An attribute that may hold a colour: a colour row, or a shorthand
 /// (`border`, `outline`, `background`) that sets one.
 fn colour_attr(name: &str) -> bool {
+    // A state part's row (LLP 1121 D8) is the row it is.
+    let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
     match crate::tags::attr(name) {
         Some(crate::tags::AttrTarget::Styles(rows)) => rows.iter().any(|r| colour_codec(*r)),
         Some(crate::tags::AttrTarget::Shorthand) => true,
@@ -198,6 +200,7 @@ impl Said {
 
 /// An attribute that sets a row a length or number token may name.
 fn measure_attr(name: &str) -> bool {
+    let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
     match crate::tags::attr(name) {
         Some(crate::tags::AttrTarget::Styles(rows)) => rows.iter().any(|r| {
             use exact_kernel::style::theme::{admits, Kind};

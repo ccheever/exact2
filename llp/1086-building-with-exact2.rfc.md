@@ -129,6 +129,18 @@ the same crate built for Android: `bun exact.mjs android`
 (`scripts/agent-android.mjs build`). `--update` adds `linux/` to an app made
 before, unless the app has its own.
 
+> **Amended (2026-10-17, the euxy port: removing Linux by hand took app.json, the
+> workspace and Cargo.lock, about 20 minutes).** `bun exact.mjs update --without linux`
+> removes the crate, its workspace member and app.json's `linux` keys, and re-resolves
+> Cargo.lock. `--update` adds `linux/` only to an app whose app.json names
+> `deploy.store.linux`, which the scaffold writes, so a removal stays removed.
+
+> **Amended (2026-10-17, the euxy port: the bundle id renamed after the first build
+> made the next build a cold 46 s and orphaned the installed app).** `exact new <path>
+> --name <name> --bundle-id <id>` writes app.json's `app.name`, `name` and `short_name`,
+> its `app.id` and `id`, app.ts's `appId` and the template's heading; the component keeps
+> the folder's name. `AGENTS.md` says to set the two before the first build.
+
 An app, and a game outside the checkout, also gets `.vscode/tasks.json`
 (2026-10-07, Doug Lowder: VS Code support, "declarative first"; this is the
 approval RULES asks for the config file). Its tasks run the app's own

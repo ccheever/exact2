@@ -63,7 +63,8 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   28 × 22 = 616 px), unlike a bare number on a length row such as `font-size` or
   `width`, which means pixels. Fix: write `line-height="28px"`, or a ratio such as
   `line-height=1.3` (28.6 px at 22 px). A bare 4 or more is warned
-  (`lower-line-height-multiplier`). (Authoring bench, LLP 1087: three Codex
+  (`lower-line-height-multiplier`), and a quoted `line-height="28"` is refused
+  with the `px` form. (Authoring bench, LLP 1087: three Codex
   builders, caught only by a screenshot, 2026-10-05; the euxy port, 2026-10-16.)
 
 - **A `\n` in a text runs its two lines together.** ``text `${ref}\nResults rounded.` ``
@@ -259,11 +260,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   (Web and iOS simulator, 2026-10-06.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
-  the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
-  and a 16-pt trailing padding. A custom row with `width="100%"` adds the
-  margin on top and runs 16 pt past the card. Fix: leave custom row content
-  at its natural width (`flex-grow=1` on the part that should stretch), not
-  `width="100%"`. (Signal Clone, build 15.)
+  the sheet already gives each row the cell's margin at both ends (on iOS
+  UIKit's: 16 pt on an iPhone, 20 on the iPhone Duo; 40 more after an icon).
+  A custom row with `width="100%"` adds the margin on top and runs past the
+  card. Fix: leave custom row content at its natural width (`flex-grow=1` on
+  the part that should stretch), not `width="100%"`. (Signal Clone, build 15.)
 
 - **A data answer past 16 MiB fails only on the JS target.** A 64 MiB string from
   a Rust source loaded on the wasm web host and on Linux, and on the JS target
@@ -311,6 +312,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   says "navigate refused"). Fix: `navigate=follow` on the root and
   `action follow(url: string)` with `nav = go(nav, url)`, as every pattern has;
   `one-screen` keeps it with one route (LLP 1116.002, 1116.003).
+- **A welcome screen's Continue does nothing.** Cause: the welcome is the route at `/`
+  and Continue writes `nav = replace(nav, path("habits"))`; a stack's first visit keeps
+  its root route, so the router refuses ("replace cannot change the tab's root
+  route" in the log), and `push` would put the list over the welcome, with a Back to
+  it. Fix: the main screen is the root route and shows the welcome while a `persist`
+  flag is unset (docs/recipes/first-launch.md). The compiler warns on the plain form
+  (`lower-replace-root`). (Guard-rail evaluation, welcome, 2026-10-16.)
 - **A pushed screen's content is cut off and never scrolls, or its large title never
   collapses.** Cause: a route is a box, not a scroller; a title collapses only with
   the scroller right after the route's `header`. Fix: a `scroll flex=1 min-height=0`
@@ -453,6 +461,27 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Porting a React Native app
 
+What a port writes from habit, what the compiler says, and what to write (the euxy port,
+2026-10-17: 19 of 50 compiles refused, most of them these). A warning builds; fix it anyway.
+
+| React Native writes | exact2 says | Write |
+|---|---|---|
+| `line-height=20` | `lower-line-height-multiplier` (warning) | `line-height="20px"`: a bare number is a multiplier, as in CSS |
+| `color="rgba(0,0,0,0.5)"`, `"#00000080"` | `lower-colour-one-scheme` (warning) | a role (`-exact-secondary-label`, `-exact-fill`), `light-dark(<light>, <dark>)`, or nothing |
+| `` text `${n} cards` `` | `lower-count-plural` (warning) | `` `${n} ${n == 1 ? "card" : "cards"}` `` |
+| `0% rotate=-2deg` in `keyframes` | `syntax-unquoted-length` | `0% rotate="-2deg"`, each keyframe on one line |
+| `tags.find(t => …)` | `syntax-method-call` | `first(tags.filter(t => …))`; in each row of a list, `lower-row-lookup` (warning): join it in the data module |
+| a helper action reading state its caller just set | `analyze-call-stale-read` | `let next = …` in the caller, `n = next`, pass `next` |
+| `width=120` on a box of text | `lower-text-px-width` (warning) | `width="7.5rem"`, or let the content size it |
+| `numberOfLines`, `ellipsizeMode`, `resizeMode`, `textTransform`, `fontVariant` | `lower-unknown-attr` | `line-clamp`, `text-overflow`, `object-fit`, `text-transform`, `font-variant-numeric` |
+| `backgroundColor`, `flexDirection`, `onPress`, `activeOpacity` | `lower-unknown-attr` | `background-color`, `flex-direction`, `press`, `-exact-press-opacity` |
+| `paddingHorizontal=16` | `lower-unknown-attr` | `padding-left=16 padding-right=16`, or `padding="0px 16px"` |
+| `marginVertical=8` | `lower-unknown-attr` | `margin-top=8 margin-bottom=8`, or `margin="8px 0px"` |
+| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below) |
+| `font-weight="bold"`, `"600"` | `lower-attr-value` | `font-weight=700`, `font-weight=600` |
+| `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
+| a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
+
 What the original's style objects say is not always what its iOS screen shows. Port
 what the screenshot shows. (euxy port against its Expo original, judged screen by
 screen, 2026-10-16.)
@@ -461,6 +490,16 @@ screen, 2026-10-16.)
   and animated capsules are boxes, SVG, `box-shadow`, keyframes and transitions, which run on
   every platform and the agent can drive and compare. A native view is per-platform code to
   write and debug, and one added at launch slows it: keep it for platform APIs (video, maps).
+
+- **A costly answer one screen shows is asked for at launch and on every edit.** euxy's
+  share card, `resource share = shareInfo(pattern)`, encoded a QR code in the data module
+  when the app launched and again each time a step changed, though only the share screen
+  reads it. Cause: a root `resource` is asked for at launch and again whenever an argument
+  changes, as a React component's `useMemo` would recompute on render. Fix: give it state
+  the screen sets when it opens, `state sharing: option<Pattern> = none` and
+  `resource share = shareInfo(sharing) as shape ShareInfo`, with the source answering empty
+  for `none` (`null` in app.ts); the screen shows its card only when not `pending(share)`,
+  since the last pattern's answer stays until the new one lands.
 
 - **Compare each screen with its reference, not by eye:** `"screenshot .exact/x.png compare
   ref/x.png"` names each differing region's node and source line, a box's size measured in
@@ -555,6 +594,14 @@ screen, 2026-10-16.)
   `button` is `inline-block` and a `view` is `block`, as on the web, so those two do
   nothing there (a button centres its content vertically on its own, as browsers do).
   Fix: `display="flex"` on the button or view.
+- **`display="flex" align-items="center"` centres up and down, not across.** A ported
+  `alignItems: 'center'` on a `view` left its icon and label at the left edge, centred
+  vertically, and a `justifyContent` meant to space them down the screen spread them
+  across it. Cause: an unwritten `flex-direction` is CSS's `row`; React Native's is
+  `column`, so its `alignItems` is the cross axis across the screen. Fix: write
+  `flex-direction="column"` where the original relied on its default, or use `column`,
+  whose direction already is; keep `row` (or the bare `display="flex"`) where the
+  original wrote `flexDirection: 'row'`.
 - **A control sits at the top of its row.** euxy's Metronome segments, in a 52-point row
   with `align-items="center"`. Cause: the original's `Segmented` carried `alignSelf:
   'flex-start'`, and it centred only because the original wrapped it in a plain `View`,
@@ -608,6 +655,13 @@ screen, 2026-10-16.)
   `Aborted` (it would send twice); declare the mutation `queue` when every
   send's reply matters (LLP 1092). Until 2026-10-05 the continuation vanished
   natively, which held the Signal clone's sends forever (build 35).
+
+- **Resetting a mutation beside its send can discard the new reply.** For a
+  mutation without `queue`, `saved = none` in the action that sends `saved`
+  forgets its in-flight reply even when the reset is written first: assignments
+  commit after sends. Fix: keep the slot and hide a previous error while
+  `pending(saved)`. `none` means no reply, not a failed write; inspect
+  `failure(saved)` or the shaped reply. See [after a write](recipes/after-a-write.md).
 
 - **`Date.now()` in a data module passes its Bun tests and fails on the
   device.** Since 2026-10-05 the build refuses a direct use by file and line
@@ -764,32 +818,41 @@ screen, 2026-10-16.)
 
 - **There is no `swipeleft` for swipe-to-delete.** A row built from `pan`,
   `panrelease` and `translate` reveals its Delete button, but by hand on every host.
-  Fix: `delete=remove(item.id)` on the list's row (`contract vocab swipe`). Cause:
-  `swiperight` is the reply gesture (a message bubble), not a direction pair; for
-  actions other than Delete the row a swipe reveals them on is a horizontal `scroll`
-  with `scroll-snap-type="x mandatory"`, its content and action buttons as snap
-  children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
-  which the web scrolls and iOS turns into UIKit's own swipe actions: UIKit's shape
-  and size (round on iOS 26 and later) with each button's background colour and a
-  snapshot of its content, not the painted box (euxy port's flush rectangles,
-  2026-10-15). To keep the paint, give every control the row names
-  `appearance="none"`: the row keeps its snap scroll and still has the full swipe,
-  one row open at a time and the actions VoiceOver reads; dropping the three
-  attributes instead keeps the paint and loses all three. Fix: copy
-  `apps/shelf/app.contract`'s `BookRow` (`swipe-…`; `apps/messages` paints its own
-  circles in hex and is no model for the rest). (Ledger2 DIARY, "Needed:
-  swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
-  not exactly the scroll's size, and `logs` says which rule failed (`swipeContent on
-  #243 is refused: swipeContent "row" is 390x68, not the row's 390x68.5 border box`):
-  a border on the scroll itself shrinks it, so put a hairline on the content (Splitter
-  DIARY, rough 10). A grouped list's row is exempt (its list cell swipes), but there
-  `width="100%"` on the scroll runs past the card by the section's 16-pt inset and
-  clips the content's last control on every host: use `list-rows`' grouped form
-  (grocery-list DIARY, issue 2, about 15 minutes, round 3). A button indented as the
-  `scroll`'s sibling, not its child, is no swipe action (iOS refuses the row, the web
-  draws it as a second line): the compiler warns (`lower-swipe-wiring`) when a
-  `swipeContent`, `swipeLeading` or `swipeTrailing` names an `id` not inside the
-  `scroll` (grocery-list, round 12, about seven minutes).
+  Fix: `delete=remove(item.id)` on the list's row (`contract vocab swipe`): on iOS
+  UIKit's own swipe action, which a full swipe performs. Cause: `swiperight` is the
+  reply gesture (a message bubble), not a direction pair. Actions other than Delete
+  are a swipe row written by hand (the next pitfall). (Ledger2 DIARY, "Needed: swipe
+  gesture", about 15 minutes, 2026-10-04.)
+
+- **A hand-written swipe row shows its buttons under the row, and nothing swipes.** iOS
+  refuses the swipe and `logs` says why (`swipeContent on #11 is refused: swipeContent
+  "row-0-1" is 402x74, not the row's 402x94.3333 border box`). Cause: the swipe `scroll`
+  puts its content and action buttons side by side only when it is laid out as a row. A
+  grouped list's section makes each of its rows one; anywhere else a scroll with no
+  `display` is a block and stacks the buttons under the content. A `list` whose
+  `section` has no `appearance` is neither a grouped list nor a list of cells, so its
+  rows are drawn as written (warning `lower-list-section`). Fix: give a list with
+  sections `appearance="auto"` (`listStyle="plain"` for a plain list's look), or drop
+  the `section`; then a Delete the platform draws is `delete=` on the row (`contract
+  vocab swipe`). (Guard-rail evaluation, Duo Notes, 2026-10-17.)
+
+  Write a swipe by hand only for other actions (Pin, Flag, a leading action, several)
+  or a Delete `delete=` cannot say, with `display="flex"` on its scroll. Its rules:
+  - iOS refuses a row whose content is not exactly the scroll's size; a border on the
+    scroll shrinks the content, so put a hairline on the content (Splitter DIARY,
+    rough 10). A grouped list's row is exempt (its list cell swipes), but there
+    `width="100%"` on the scroll runs past the card by the section's inset and clips
+    the content's last control on every host: write no `width` on it (grocery-list
+    DIARY, issue 2, round 3).
+  - An action button indented as the `scroll`'s sibling, not its child, is no swipe
+    action: iOS refuses the row and the web draws the button as a second line (warning
+    `lower-swipe-wiring`; grocery-list, round 12).
+  - UIKit draws the actions in its own shape and size (round on iOS 26 and later) with
+    each button's background colour and a snapshot of its content, not the painted box
+    (euxy port, 2026-10-15). To keep the paint, give every control the row names
+    `appearance="none"`: the row keeps its snap scroll, the full swipe, one row open at
+    a time and the actions VoiceOver reads (`apps/messages` paints its own circles in
+    hex and is no model for the rest).
 
 - **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
   the web and macOS, in a drive and in a test, while a real touch on an iPhone

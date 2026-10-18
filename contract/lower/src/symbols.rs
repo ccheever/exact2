@@ -125,13 +125,27 @@ pub(crate) fn aliases(e: &Expr) -> Vec<LowerError> {
             if sf.is_empty() || targets.is_empty() {
                 return Vec::new();
             }
+            let token = sf.replace('.', "-");
+            // A role by the same name draws everywhere, by its own Apple name.
+            let role = symbol_role(sf)
+                .and_then(|r| Some((r, exact_kernel::generated::symbol(r)?.0)))
+                .map(|(r, apple)| format!("The role `{r}` draws on every host (Apple's `{apple}`): write `symbol:{r}`. Or "))
+                .unwrap_or_default();
+            let stop: Vec<String> = targets
+                .iter()
+                .filter_map(|t| {
+                    crate::icons::without(&t.name)
+                        .map(|step| format!("not shipping {}? {step} removes it", t.name))
+                })
+                .collect();
             vec![LowerError {
                 id: "lower-symbol-platform",
                 message: format!(
-                    "symbol `sf/{sf}` draws only on Apple, and the app ships {}: declare an icon token with an `svg` for it (`icons` in app.tamber: `icon.{} = icon(sf \"{sf}\", svg \"icons/{sf}.svg\")`) and write `symbol:icon.{}`",
-                    targets.join(", "),
-                    sf.replace('.', "-"),
-                    sf.replace('.', "-")
+                    "symbol `sf/{sf}` draws only on Apple, and the app ships {}, where it is blank. {role}{}eclare an icon token for them: in app.tamber's `icons` (a new app.tamber's first line is `tamber <name>`), `icon.{token} = icon(sf \"{sf}\", svg \"icons/{token}.svg\")`, with `assets/icons/{token}.svg` drawn as {} (a Material Symbols SVG is), and write `symbol:icon.{token}`{}",
+                    targets.iter().map(|t| t.described()).collect::<Vec<_>>().join(" and "),
+                    if role.is_empty() { "D" } else { "d" },
+                    crate::icons::TEMPLATE,
+                    if stop.is_empty() { String::new() } else { format!("; {}", stop.join("; ")) }
                 ),
                 span: *span,
             }]

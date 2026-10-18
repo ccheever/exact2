@@ -831,6 +831,16 @@ pub(crate) fn continue_document(
                         .filter(|o| !retained.contains(o))
                         .map(|o| (o, arena.computed_inherited(o), arena.default_context(o)))
                         .collect();
+                    // Whether a grouped list's margins reach each box that
+                    // arrives or leaves, read before any parent changes.
+                    let reached: Vec<(u32, bool)> = if arena.has_grouped_margins() {
+                        let arriving = new.iter().filter(|n| arena.parent(**n) != Some(slot));
+                        let leaving = detached.iter().map(|d| &d.0);
+                        let at = |n: &u32| (*n, crate::grouped::reached(arena, *n));
+                        arriving.chain(leaving).map(at).collect()
+                    } else {
+                        Vec::new()
+                    };
                     for o in &old {
                         if !retained.contains(o) {
                             arena.set_parent(*o, None);
@@ -883,6 +893,12 @@ pub(crate) fn continue_document(
                     arena.set_children(slot, new);
                     sync_children(arena, layout, slot);
                     crate::kernel::cover_children_changed(arena, layout, slot);
+                    // A box into or out of a grouped list takes or sheds the platform's margins.
+                    for (n, was) in reached {
+                        if was || crate::grouped::reached(arena, n) {
+                            crate::grouped::restyle(arena, layout, n);
+                        }
+                    }
                     arena.flags_mut(slot).insert(NodeFlags::CHILDREN_DIRTY);
                     if arena.node_type(slot) == NodeType::Text {
                         invalidate_text(arena, layout, slot);

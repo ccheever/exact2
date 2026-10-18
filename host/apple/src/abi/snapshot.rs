@@ -38,7 +38,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let result = exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
-                PlanBytes::Snapshot(
+                PlanBytes::Entry(
                     &bytes[..plan],
                     kind_name,
                     (props > 0).then_some(&bytes[plan + kind..]),

@@ -27,7 +27,7 @@ first: first(xs) -> option<T>
 formatDate: formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
 formatDay: formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Monday)
 formatDecimal: (cents to "12.34"; literal digits)
-formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string
+formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
 formatTime: ("2:13 PM"; minutes east of UTC)
 frame: (in an action)
 includes: s.includes(x) -> bool  (text or list)
@@ -115,7 +115,7 @@ main navigationKey=`${top(nav).id}` navigationBack="back"
             image "symbol:checkmark"
 ```
 ### a confirmation
-`aria-label` is the question; each action `button` acts and closes (`command="close"`); the Cancel has no `press`. Open it with `command="show-modal"`, or `showModal(id)` in an action.
+`aria-label` is the question; action buttons run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
 ```contract
 state n = 1
 action remove
@@ -129,7 +129,7 @@ dialog id="remove" role="alertdialog" aria-label="Delete it?"
     text "Cancel"
 ```
 ### a timer
-`every(ms, action)` repeats, `after(ms, action)` fires once, `when cond` arms the task. A `derive` never rereads the clock: an action writes `performanceNow()` to state.
+`every(ms, action)` repeats, `after(ms, action)` fires once, `when cond` arms the task. An action writes `performanceNow()` to state; a `derive` never rereads it.
 ```contract
 state now = 0
 task tick mount
@@ -144,7 +144,7 @@ Root `state` only: a number, string or bool (or an option or list of one) up to 
 state units = "C" persist
 ```
 ### colour
-Leave the accent unsaid (the platform's blue; a brand is an app.tamber) and controls unpainted; elsewhere a role (it follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
+Leave the accent unsaid (a brand is an app.tamber) and controls unpainted; elsewhere a role (it follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
 ```contract
 main
   text "Total" color="-exact-secondary-label"
@@ -175,7 +175,7 @@ action log
   days = days.concat([formatDate(at, time.utcOffset, "iso")])
 ```
 ### a test, and verify
-By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for an iPhone app; `--shots <dir>` keeps screenshots. A screen no test ends on is unchecked.
+By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for an iPhone app; `--shots <dir>` keeps screenshots.
 ```contract-test
 test "a pick survives a relaunch"
   tap "pick"

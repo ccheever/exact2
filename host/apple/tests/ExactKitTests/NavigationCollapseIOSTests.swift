@@ -110,8 +110,9 @@ final class NavigationCollapseIOSTests: XCTestCase {
     /// LLP 1115.000 D11.1 over `scripts/fixtures/large-title.contract`: one
     /// stack with no tabs, the shape `exact new` makes, whose first screen
     /// names no scroller. Its large title opens expanded, its content below
-    /// it, and collapses as the content scrolls. Its scroller is attached
-    /// before its view has a window, and UIKit then showed the title inline.
+    /// it, and collapses as the content scrolls. UIKit shows the title
+    /// collapsed when the stack is laid out in the window before it has its
+    /// root (`installPrimary`).
     func testASingleStacksFirstScreenOpensWithItsLargeTitleExpanded() throws {
         let session = try booted("EXACT_LARGE_TITLE_PLAN", label: "large-title", beforeItsWindow: true)
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
@@ -185,7 +186,7 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertNil(route.node.props["navigationScroll"].flatMap { $0.isEmpty ? nil : $0 }, "the route names nothing")
         XCTAssertTrue(route.collapseScroll === tall, "the scroller after the header is the bar's")
         XCTAssertTrue(route.contentScrollView(for: .top) === sv)
-        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .always, "UIKit insets it under the bar")
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .automatic, "UIKit insets it under the bar")
         XCTAssertTrue(session.agent(#"{"op":"logs","since":0}"#).contains("collapses its title with its scroller"))
         XCTAssertEqual(tall.convert(tall.bounds, to: nil).minY, 0, accuracy: 0.5, "the scroller itself reaches the screen's top, under the bar")
         let top = try node(session, "tall-top"), bar = nav.navigationBar
@@ -197,6 +198,23 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertLessThan(top.convert(top.bounds, to: nil).maxY, bar.convert(bar.bounds, to: nil).maxY, "scrolled, its content passes under the bar")
         XCTAssertTrue(session.presenter.scrollsToTopTarget() === sv, "the status bar's tap scrolls the same one")
         XCTAssertTrue(sv.scrollsToTop)
+    }
+
+    /// Under a `viewport-fit="cover"` root a route's scroller spans the
+    /// window, side insets included. UIKit insets it at its top and bottom
+    /// only, so its content, as wide as it, has no sideways range (LLP 1123
+    /// D3); `.always` added the side inset too, and it scrolled sideways by it.
+    func testUnderACoverRootTheBarsScrollerHasNoSidewaysRange() throws {
+        let session = try booted("EXACT_COVER_SCROLL_PLAN", label: "cover-scroll")
+        let sv = try XCTUnwrap(try node(session, "home-scroll").scroll)
+        let host = try XCTUnwrap(window?.rootViewController), before = sv.safeAreaInsets.right
+        host.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 84)
+        host.view.layoutIfNeeded()
+        until("the scroller lies under the side inset") { sv.safeAreaInsets.right >= before + 83.5 }
+        XCTAssertEqual(sv.adjustedContentInset.left, 0, accuracy: 0.5)
+        XCTAssertEqual(sv.adjustedContentInset.right, 0, accuracy: 0.5, "UIKit adds no side inset")
+        XCTAssertLessThanOrEqual(sv.contentSize.width + sv.adjustedContentInset.left + sv.adjustedContentInset.right, sv.bounds.width + 0.5, "no sideways range")
+        XCTAssertGreaterThan(sv.adjustedContentInset.top, 0, "inset under the bar")
     }
 
     /// D11.1, several scrollers: the bar's is the one the status bar's tap
@@ -276,8 +294,10 @@ final class NavigationCollapseIOSTests: XCTestCase {
     /// opened scrolled by the bar, their score and Play Again under it).
     /// UIKit insets a new scroller from the offset it had, 0, which leaves
     /// its content's top under the bar; each opens at its top instead, just
-    /// below the bar, and the title collapsed over the page before expands.
-    func testAScrollerReplacedInPlaceOpensAtItsTopBelowTheBar() throws {
+    /// below the bar. The bar stays as the page before left it, its title
+    /// collapsed, as UIKit keeps the bar of a hand-built screen whose scroll
+    /// view is replaced in place (measured on iOS 27); a pull opens it.
+    func testAScrollerReplacedInPlaceOpensAtItsTopBelowTheBarAsItWasLeft() throws {
         let (session, nav) = try second("collapse-replaced")
         let list = try node(session, "list-second")
         spin(0.3)
@@ -285,7 +305,8 @@ final class NavigationCollapseIOSTests: XCTestCase {
         list.pendingScrollTop = 100_000
         list.applyPendingScroll()
         spin(0.3)
-        XCTAssertLessThan(nav.navigationBar.frame.height, expanded, "the title collapsed over the first page's end")
+        let collapsed = nav.navigationBar.frame.height
+        XCTAssertLessThan(collapsed, expanded, "the title collapsed over the first page's end")
         for (press, page) in [("second-taller", "taller"), ("second-shorter", "shorter")] {
             _ = Agent(session: session).tap(["id": Int(try node(session, press).id)])
             until("the \(page) scroller in place") { (try? self.node(session, "list-second-\(page)")) != nil }
@@ -295,7 +316,7 @@ final class NavigationCollapseIOSTests: XCTestCase {
             XCTAssertEqual(sv.contentOffset.y + sv.adjustedContentInset.top, 0, accuracy: 0.5, "the \(page) page at its top (CSS 0)")
             XCTAssertEqual(top.convert(top.bounds, to: nil).minY, bar.convert(bar.bounds, to: nil).maxY + 12, accuracy: 0.5,
                            "its first line just below the bar, past its 12 of padding")
-            XCTAssertEqual(bar.frame.height, expanded, accuracy: 0.5, "the title expanded, as a new page's is")
+            XCTAssertEqual(bar.frame.height, collapsed, accuracy: 0.5, "the title still collapsed, as UIKit leaves it")
         }
     }
 }

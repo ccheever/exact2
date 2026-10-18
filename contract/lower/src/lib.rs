@@ -42,6 +42,7 @@ mod identity;
 mod intersect;
 mod keyframes;
 mod lint;
+mod live_time;
 mod media;
 mod menus;
 mod metrics;
@@ -54,6 +55,7 @@ mod routes;
 mod shorthands;
 mod sites;
 mod sounds;
+mod states;
 mod stmts;
 mod strings;
 pub mod style_names;
@@ -65,6 +67,7 @@ mod theme;
 mod timers;
 mod type_tokens;
 mod values;
+pub use shorthands::style_values;
 pub mod vocab;
 mod warnings;
 
@@ -174,6 +177,9 @@ pub(crate) struct Lowerer<'a> {
     /// The element whose attributes are lowered has element children, which
     /// inherit its text rows (stage 6 C: no type token that varies there).
     pub(crate) element_children: bool,
+    /// How many element levels below the node being lowered a list's rows
+    /// are: 1 says it is one (LLP 1121 D8, `ElementStep::rows`).
+    pub(crate) row_depth: u8,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
     parent_bounded_column: bool,
@@ -302,6 +308,7 @@ fn lower_with_sites(
         fn_depth: 0,
         svg_depth: 0,
         element_children: false,
+        row_depth: 0,
         parent_positioned: true,
         parent_bounded_column: false,
         parent_horizontal_flex: Some(false),
@@ -332,7 +339,11 @@ fn lower_with_sites(
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
-            match tags::attr(&a.name) {
+            // A state part's row is checked as the row it is; which rows a
+            // state takes is the fold's (`states`, LLP 1121 D8).
+            let name =
+                contract_syntax::state::state_of(&a.name).map_or(a.name.as_str(), |(_, row)| row);
+            match tags::attr(name) {
                 Some(tags::AttrTarget::Styles(_) | tags::AttrTarget::Flex | tags::AttrTarget::Shorthand) => {}
                 Some(tags::AttrTarget::Prop(p)) if p.styleable() => {} // LLP 1069.011 D12
                 Some(_) => l.errors.push(LowerError {
@@ -745,6 +756,14 @@ impl<'a> Lowerer<'a> {
                 let nav_place = std::mem::replace(&mut self.nav_place, step.nav_place);
                 let parent_axis =
                     std::mem::replace(&mut self.parent_horizontal_flex, step.horizontal_flex);
+                // A grouped list's rows are its sections' group's (a
+                // `column`), not a header's or footer's text.
+                let below = match step.rows {
+                    0 if self.row_depth == 2 && step.tag != "column" => 0,
+                    0 => self.row_depth.saturating_sub(1),
+                    n => n,
+                };
+                let row_depth = std::mem::replace(&mut self.row_depth, below);
                 let lowered = self.nodes(
                     step.children.as_ref(),
                     Some(step.id),
@@ -755,6 +774,7 @@ impl<'a> Lowerer<'a> {
                 );
                 self.parent_horizontal_flex = parent_axis;
                 self.nav_place = nav_place;
+                self.row_depth = row_depth;
                 self.parent_bounded_column = bounded;
                 self.button_context = button_context;
                 self.popover_child = popover_child;
@@ -923,8 +943,9 @@ impl<'a> Lowerer<'a> {
             return err(
                 "lower-attr-tag",
                 format!(
-                    "`{}` is an SVG element's attribute; it does nothing on `{tag}`",
-                    a.name
+                    "`{}` is an SVG element's attribute; it does nothing on `{tag}`{}",
+                    a.name,
+                    lint::react_native(&a.name).unwrap_or_default()
                 ),
                 a.span,
             );
@@ -1203,5 +1224,3 @@ pub fn names_tokens_outside_views(file: &File, root: &contract_types::ComponentT
             .any(|s| !exact_plan::runner_owned_source(s))
         || !native::module_tags(file).is_empty()
 }
-
-mod live_time;

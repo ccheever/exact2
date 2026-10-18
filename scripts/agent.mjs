@@ -46,7 +46,7 @@ import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, crashWatch, developmentLaunchEnvironment, installedAlready, phone, phoneBridge, showSimulator, simulator, withDisplay, withSoftwareKeyboard } from '../host/apple/devices.mjs';
+import { crashReports, crashWatch, developmentLaunchEnvironment, keepInstalledRelease, phone, phoneBridge, showSimulator, simulator, withDisplay, withSoftwareKeyboard } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -669,7 +669,8 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
   // Real touches (LLP 1080.000, `--touch platform`; `drag`, an authored test's drag alone): the runner starts first, so its own launch never backgrounds the app.
   const touches = touch !== 'agent' ? await openTouches({ udid: dev.udid, appId: id ?? bundleId(a.crate('apple')) }) : null;
-  try { if (!installedAlready(dev.udid, id, bundle, hostFixture ? 'ExactHostIOS' : executableName(a))) install(dev, bundle, a, hostFixture); } catch (e) { await touches?.close(); throw e; }
+  // A Release build installed under the bundle id is copied aside first, and the note says how to put it back (`keepInstalledRelease`).
+  let kept = null; try { kept = keepInstalledRelease(dev.udid, id, bundle, hostFixture ? 'ExactHostIOS' : executableName(a)); if (kept.install) install(dev, bundle, a, hostFixture, true); } catch (e) { await touches?.close(); throw e; }
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
   const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
@@ -734,7 +735,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     let canvasContact = false;
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
-      touches, touch, crashes, udid: dev.udid,
+      touches, touch, crashes, udid: dev.udid, installNote: kept?.note,
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
@@ -914,7 +915,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     world(name) { return worldView(this, name); },
     /** Every slot, derive, and resource by name, as typed JSON. */
-    state: async (target, under, pose = false, busy = false, page = {}) => s.op({ op: 'state', ...page, ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
+    state: async (target, under, pose = false, busy = false, page = {}) => s.op({ op: 'state', ...page, ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target, false, true) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs() {
       const r = await s.op({ op: 'logs', since: s.logCursor });
@@ -961,12 +962,12 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       identifyLayoutNodes(l, t, mapped ? sourceMaps : null); withRegions(l.env);
       return l;
     },
-    async target(target, withHandlers = false) {
+    async target(target, withHandlers = false, canvas = false) { // canvas: a world's view is its engine's to answer (`world: true`), as `tree` asks it
       const text = String(target), colon = text.indexOf(':'), nodes = (await s.op({ op: 'tree' })).nodes; // one tree for every try
       const node = await s.find(target, false, false, nodes);
-      if (node) return { id: node.id, ...(withHandlers ? { handlers: node.handlers } : {}) };
+      if (node) return { id: node.id, ...(withHandlers ? { handlers: node.handlers } : {}), ...(canvas && node.world ? { world: true } : {}) };
       const owner = colon < 0 ? null : await s.find(text.slice(0, colon), false, false, nodes); // an entity before a label holding a colon
-      return owner ? { id: owner.id, entity: text.slice(colon + 1) } : { id: (await s.find(target, true, true, nodes)).id };
+      return owner ? { id: owner.id, entity: text.slice(colon + 1) } : (({ id, world }) => ({ id, ...(canvas && world ? { world: true } : {}) }))(await s.find(target, true, true, nodes));
     },
     /** The node for a target: a testId (first in preorder on a selected route; a covered screen's copy only when no active one carries it), a view id, else the one view whose label or text it is (`nodeNamed`). */
     async find(target, required = true, named = true, tree = null) {
@@ -1389,8 +1390,10 @@ export async function main(argv, injected = {}) {
   const served = injected.driveServer ? await injected.driveServer() : await (await import('./verify.mjs')).driveServer(resolveApp(flags.app).dir, flags.storage); // the app's own server, if it has one (LLP 1116.008 D1)
   // A named store is kept between drives on a native host unless the drive asks it emptied (`--reset-storage`); on the
   // web, Chrome's profile for it starts empty unless the drive keeps it (`--keep-storage`, LLP 1086 EX4). A native host
-  // empties the whole scratch tree at its first boot (picker.rs `empty_fresh_tree`), refusing one under a link.
-  const fresh = flags.storage !== undefined && (host === 'web' ? !flags.keepStorage : flags.resetStorage);
+  // empties the whole scratch tree at its first boot (picker.rs `empty_fresh_tree`), refusing one under a link. A drive
+  // that compares with a reference starts empty on every host unless kept: what an earlier drive stored is no part of the screen (euxy port).
+  const fresh = flags.storage !== undefined && (host === 'web' || ops.some((l) => /^\s*screenshot\s.*\scompare\s/.test(l)) ? !flags.keepStorage : flags.resetStorage);
+  if (fresh && host !== 'web' && !flags.resetStorage) console.error(`note: --storage ${flags.storage} starts empty, as a drive that compares with a reference does (--keep-storage keeps it)`);
   const launch = () => (injected.open ?? open)({ host, browser, env: fresh ? {EXACT_AGENT_STORAGE_FRESH: '1'} : undefined, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale, port: flags.port });
   // A native named store is one drive's at a time, on its device: another drive's reset would empty it under this one.
   // The device is resolved first, and the drive launches that one, so a default and its name are one lock.
@@ -1411,10 +1414,10 @@ export async function main(argv, injected = {}) {
       // A target of several words is quoted inside the op: `tap "Sky off"`.
       const named = trimmed.match(/^(tap|tree|state|layout|perf)\s+"((?:[^"\\]|\\.)*)"(?:\s+([\s\S]*))?$/);
       const [op, ...args] = named ? [named[1], inputJSON(`"${named[2]}"`), ...(named[3] ? named[3].split(/\s+/) : [])] : trimmed.split(/\s+/);
-      let r;
+      let r, how;
       switch (op) {
         case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
-        case 'state': r = await stateOp(s, args); break;
+        case 'state': { const words = args.filter((a) => a !== '--full'); how = { full: words.length < args.length, name: words[0] }; r = await stateOp(s, words); break; } // over STATE_CAP, its sections' sizes unless --full
         case 'reload': if (args.length) throw new MalformedOperation('reload takes no arguments'); r = await reloadWeb(s); break;
         case 'logs': r = await s.logs(); break;
         case 'layout': r = await s.layout(...layoutArgs(args)); break;
@@ -1469,7 +1472,7 @@ export async function main(argv, injected = {}) {
         case 'check': r = await checkOp(s, args); break; // LLP 1116.003 D8: the presented screen, judged in text
         default: throw new MalformedOperation(`unknown op: ${op} (tree, layout, state, logs, check, screenshot, sample, tap, type, pick, reload, clock, resize, close, back, prefer, perf, fail fetch, pass fetch)`);
       }
-      return [op, r];
+      return [op, r, how];
   };
   // What the replies leave out, on stderr, which a --json reader's stdout never carries (agent-test.mjs `driveNotes`).
   const notes = driveNotes(s, { host, storage: flags.storage, origins: flags.url ? [] : loopbackOrigins(resolve(flags.webDist ?? defaultWebDist())) });
@@ -1477,7 +1480,7 @@ export async function main(argv, injected = {}) {
     for (const [k, line] of ops.entries()) {
       at = k + 1;
       const done = await step(line);
-      for (const [op, r] of [...(s.heldReads?.splice(0) ?? []), ...(done ? [done] : [])]) { console.log(flags.json ? JSON.stringify(r) : render(op, r)); await notes(op); }
+      for (const [op, r, how] of [...(s.heldReads?.splice(0) ?? []), ...(done ? [done] : [])]) { console.log(flags.json ? JSON.stringify(r) : render(op, r, how)); await notes(op); }
     }
     if (s.contact?.whole?.queue.some((q) => q.line)) throw new Error('the steps after tap <target> down run inside the touch at its tap up, and the drive ended before it');
     await notes('end');

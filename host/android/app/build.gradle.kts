@@ -22,6 +22,11 @@ val screenOrientation = mapOf(
     "portrait-secondary" to "reversePortrait", "landscape" to "sensorLandscape", "landscape-primary" to "landscape",
     "landscape-secondary" to "reverseLandscape",
 )[manifest["orientation"]] ?: "unspecified"
+// The manifest's `host.android.minimumOS`, the oldest Android the app runs on, as its API level. Below 12 the APK keeps
+// the reader's Android 10 and 11 code (proguard-legacy.pro); otherwise R8 leaves none of it.
+val minimumOS = (((manifest["host"] as Map<*, *>?)?.get("android") as Map<*, *>?)?.get("minimumOS") as String?) ?: "12"
+val minimumApi = mapOf("10" to 29, "11" to 30, "12" to 31, "13" to 33, "14" to 34, "15" to 35, "16" to 36)[minimumOS]
+    ?: throw GradleException("app.json host.android.minimumOS \"$minimumOS\": name an Android release from 10 to 16")
 
 // Each app builds into a directory of its own: two apps' libraries, assets and APKs never mix.
 layout.buildDirectory = layout.projectDirectory.dir("build/$app")
@@ -32,7 +37,7 @@ android {
     defaultConfig {
         // An Android package name's segments are Java identifiers: a manifest id's `-` becomes `_`.
         applicationId = (identity["id"] as String).replace('-', '_')
-        minSdk = 31
+        minSdk = minimumApi
         targetSdk = 36
         versionCode = 1
         // -PidSuffix=.dev: a side-by-side build (another package) that leaves the installed one alone.
@@ -46,6 +51,7 @@ android {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (minimumApi < 31) proguardFiles("proguard-legacy.pro")
             signingConfig = signingConfigs.getByName("debug")
         }
     }

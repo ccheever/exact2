@@ -12,8 +12,8 @@ impl<D: DataSource> Runner<D> {
             prefix.append(&mut ops);
             ops = prefix;
         }
-        let live_times = self.prepare_live_times(&mut ops);
         let change = self.router_change()?;
+        let live_undo = self.prepare_live_times(&mut ops);
         self.batch += 1;
         let (language, direction) = self.document_facts();
         let shown = std::mem::take(&mut self.shown);
@@ -24,11 +24,11 @@ impl<D: DataSource> Runner<D> {
             {
                 Ok(receipt) => receipt,
                 Err(e) => {
+                    live_undo.restore(&mut self.live_times);
                     self.notes.clear();
                     return Err(e.into());
                 }
             };
-        self.live_times = live_times;
         let renewed = self.settle_shown(shown, &mut receipt);
         self.tally(&ops, &receipt.touched);
         for note in std::mem::take(&mut self.notes) {

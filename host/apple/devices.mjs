@@ -5,8 +5,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
-import { resolve } from 'node:path';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -47,7 +47,9 @@ const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args,
  *  display (`simulatorDisplay`), so no other drive's launch comes in between. `r.pixels` says which (`display` or
  *  `app`, `r.pixelsWhy` why); what could not be done is said in `note`. Returns `r`. */
 export async function withDisplay(r, path, udid, appTop = 0, { own = false, probe = null, gap = 400 } = {}) {
-  const top = r.keyboard?.windowTop, bar = r.statusBar, scale = r.scale, keyboard = top != null;
+  const top = r.keyboard?.windowTop, bar = r.statusBar, scale = r.scale, keyboard = top != null, opaque = r.opaque;
+  delete r.opaque; // the check's input, hundreds of points: not the reply's
+
   const approximate = (why) => `the picture is the app's own drawing, not the display's (${why}): glass and other backdrop materials in it are approximate`;
   const say = (note) => { r.note = r.note ? `${r.note}; ${note}` : note; };
   // The app's picture as it was: none of the display in it.
@@ -86,7 +88,7 @@ export async function withDisplay(r, path, udid, appTop = 0, { own = false, prob
     const agree = (from, to) => [again, last].every((d) => Buffer.compare(display.data.subarray(from, to), d.data.subarray(from, to)) === 0);
     const from = row(bar > 0 ? 0 : appTop);
     if (!why && !agree(row(bar > 0 ? bar : appTop))) why = 'the display changed while it was read';
-    if (!why) why = covered(r.opaque, app, display, scale);
+    if (!why) why = covered(opaque, app, display, scale);
     if (!why) app.data.set(display.data.subarray(from), from);
     if (why && bar > 0 && agree(0, row(bar))) app.data.set(display.data.subarray(0, row(bar)), 0);
     else if (why && bar > 0) r.statusBar = false;
@@ -212,6 +214,49 @@ export function installedAlready(udid, id, bundle, executable) {
       return a.size === b.size && a.mtimeMs === b.mtimeMs;
     });
   } catch { return false; }
+}
+
+/** The build of `id` installed on a simulator: its bundle's path, its receipt's `build.trust` (`unreceipted` with
+ *  none) and what a person calls it; null with none installed. */
+export function installedBuild(udid, id) {
+  const where = read('xcrun', ['simctl', 'get_app_container', udid, id, 'app']);
+  if (where.status !== 0) return null;
+  const installed = where.stdout.trim();
+  let trust = 'unreceipted';
+  try { trust = JSON.parse(readFileSync(resolve(installed, 'receipt.json'), 'utf8')).build?.trust ?? trust; } catch {}
+  return { installed, trust, what: trust === 'production' ? 'Release (production) build' : `${trust} build` };
+}
+
+/** What `build.mjs --ios` says when its development build replaced `replaced` (an `installedBuild` of another kind):
+ *  one bundle id, so a benchmark or a person then finds the development build (euxy port); how to put it back, from
+ *  the Release bundle at `release` when it was built here. */
+export function replacedNote(udid, app, replaced, release) {
+  const back = existsSync(release) ? `xcrun simctl install ${udid} '${release}'` : `bun host/apple/build.mjs --ios ${app.crate('apple')} --release --sim ${udid}`;
+  return `host/apple: this development build replaced the simulator's ${replaced.what} of ${app.id} (one bundle id); put it back with ${back}`;
+}
+
+/** Before a drive installs its development build `bundle` of `id` (`executable` its binary's name): whether to install
+ *  (`install`: false when that build is installed already, `installedAlready`), and, when the build installed now is
+ *  not a development one (its receipt's `build.trust`: a `--release` or production bake, or one with no receipt), an
+ *  APFS clone of it under `records`/<udid>-<id>, replacing any older one, and `note`, the one command that puts it back.
+ *  Both share the bundle id, so a later benchmark or person would otherwise find the development build with no way
+ *  back (euxy port). Nothing is reinstalled for the drive: that is the person's call. A clone that cannot be made
+ *  throws, and nothing is installed. A drive's later sessions find the development build and copy nothing. */
+export function keepInstalledRelease(udid, id, bundle, executable, { records = resolve(homedir(), '.cache/exact/simulator-releases') } = {}) {
+  if (installedAlready(udid, id, bundle, executable)) return { install: false };
+  const { installed, trust, what } = installedBuild(udid, id) ?? {};
+  if (!installed || trust === 'development') return { install: true };
+  // Copied beside the older copy first, which a failed copy leaves in place.
+  const dir = resolve(records, `${udid}-${id}`), next = `${dir}.new`, copy = resolve(dir, basename(installed));
+  rmSync(next, { recursive: true, force: true });
+  mkdirSync(next, { recursive: true });
+  if (read('cp', ['-cR', installed, resolve(next, basename(installed))]).status !== 0) {
+    rmSync(next, { recursive: true, force: true });
+    throw new Error(`${id}'s ${what} on this simulator could not be copied aside (cp -cR into ${next} failed), so the drive's development build was not installed over it`);
+  }
+  rmSync(dir, { recursive: true, force: true });
+  renameSync(next, dir);
+  return { install: true, note: `the simulator had ${id}'s ${what} installed; this drive installed its development build over it (one bundle id). Put it back with: xcrun simctl install ${udid} '${copy}'` };
 }
 
 /** A simulator's software keyboard for a drive: shown for a focused field, as a person's iPhone shows it. Once a Device

@@ -706,6 +706,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "exact-plan",
+ "exact-route",
  "exact-tamber",
  "icu_locale",
  "serde_json",
@@ -1606,11 +1607,14 @@ name = "exact-terminal"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
+ "chrono-tz",
  "contract",
  "exact-kernel",
  "exact-plan",
  "exact-runner",
  "exact-textflow",
+ "iana-time-zone",
  "libc",
  "png",
  "rustix 1.1.4",
@@ -2880,7 +2884,9 @@ dependencies = [
 name = "markdown-data"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-data",
+ "exact-kernel",
  "exact-plan",
  "exact-runner",
  "markdown-parse",

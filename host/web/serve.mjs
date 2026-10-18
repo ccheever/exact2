@@ -638,10 +638,12 @@ export function serveBuildTree(dist, req, res) {
   sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
 }
 
+const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', ...(rust ? ['rust'] : [])];
+
 /** Capture every bundle asset tree through the owned filesystem reader. */
 export function captureAssets(dir, rust = false) {
   const files = new Map();
-  for (const tree of ['assets', 'deck', 'shaders', 'plans', ...(rust ? ['rust'] : [])]) {
+  for (const tree of assetTrees(rust)) {
     const captured = filesystem({ op: 'tree', root: resolve(dir, tree), optionalRoot: true }) ?? {};
     for (const [relative, encoded] of Object.entries(captured)) files.set(`${tree}/${relative}`, Buffer.from(encoded, 'base64'));
   }
@@ -654,9 +656,25 @@ export function assetCards(files) {
     .sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
 }
 
-/** Every file under assets/, deck/, shaders/ and plans/, sorted by name. */
+/** Every file under assets/, deck/, shaders/ and plans/, sorted by name.
+ * Read and digested here, one file at a time: a build of a large asset tree
+ * must not pass every byte through the filesystem reader's reply. */
 export function listAssets(dir, rust = false) {
-  return assetCards(captureAssets(dir, rust));
+  const files = [];
+  const walk = (sub) => {
+    const abs = resolve(dir, sub);
+    if (!existsSync(abs)) return;
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      const rel = `${sub}/${entry.name}`;
+      if (entry.isDirectory()) walk(rel);
+      else if (entry.isFile()) {
+        const bytes = readFileSync(resolve(dir, rel));
+        files.push({ name: rel, url: `./${rel}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length });
+      }
+    }
+  };
+  for (const tree of assetTrees(rust)) walk(tree);
+  return files.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
 }
 
 /** Named snapshot plans share the asset roster's authenticated bytes. */

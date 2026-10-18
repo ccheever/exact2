@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
 import { readDeviceStamp } from '../snapback4/web/device-build.mjs';
@@ -34,7 +34,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   directory = realpathSync(directory);
   const quote = path => `'${path.replaceAll("'", "'\\''")}'`;
   const script = (file, from = process.cwd()) => quote(relative(from, resolve(directory, file)));
-  const title = name.split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(' ');
+  const title = titleOf(name);
   const type = title.replaceAll(' ', '');
   for (const file of readdirSync(destination, {recursive:true, withFileTypes:true})) {
     if (!file.isFile()) continue;
@@ -116,7 +116,9 @@ export function createApp(destination, options = {}) {
   if (!destination || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name) || /-(web|apple|linux|gpu)$/.test(name)) {
     throw new Error('Usage: exact new <path> [--update | --snapback [--port <n>]] (the last part names the app: lowercase-hyphenated, no host suffix)');
   }
-  if (options.update) return updateApp(dir, name);
+  if (options.update) return updateApp(dir, name, options);
+  if (options.id !== undefined && !BUNDLE_ID.test(options.id)) throw new Error(`exact new --bundle-id ${options.id}: not a reverse-DNS id; write two or more dot-separated parts of letters, digits and hyphens, each starting with a letter, as com.yourcompany.${name.replaceAll('-', '')}`);
+  if (options.title !== undefined && (!options.title.trim() || /[\x00-\x1f\x7f]/.test(options.title))) throw new Error('exact new --name: give the name people see, on one line, as --name "Field Log"');
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
   const port = options.snapback ? snapbackPort(options.snapback.port) : null;
   if (options.snapback?.online && !existsSync(resolve(dir, '..', 'snapback/schema.q'))) throw new Error('exact new --snapback --online: write the backend schema above the app first; the guestbook starter uses a device');
@@ -124,9 +126,9 @@ export function createApp(destination, options = {}) {
   let created;
   const existingBackend = options.snapback && existsSync(resolve(dir, '..', 'snapback/schema.q'));
   try {
-    created = writeApp(dir, name);
+    created = writeApp(dir, name, options);
     if (!options.snapback) return created;
-    if (!existingBackend) snapbackStarter(dir, name, port, JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).app.id);
+    if (!existingBackend) snapbackStarter(dir, name, port, JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).app);
     else {
       const source = resolve(dir, 'app.ts');
       const ts = readFileSync(source, 'utf8');
@@ -221,8 +223,7 @@ export function snapbackVersion() {
 
 /** A guestbook on Snapback in place of the greeting (snapback4/README.md's complete app): the view, the data module
  * at the origin `port` names, its tests, and the backend's schema when the directory above has none. */
-function snapbackStarter(dir, name, port, id) {
-  const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+function snapbackStarter(dir, name, port, { id, name: title }) {
   const origin = `http://127.0.0.1:${port}`;
   const files = {
     'app.contract': `// ${title}: the view. app.ts answers it through Snapback4 (a guestbook to start from).
@@ -244,7 +245,7 @@ shape Ack
   message: string
   id: string
 
-component ${title.replaceAll(' ', '')}
+component ${titleOf(name).replaceAll(' ', '')}
   state persona = "alice"
   state draft = ""
   state notice = ""
@@ -277,7 +278,7 @@ component ${title.replaceAll(' ', '')}
   view
     main testId="root" padding=24
       column gap=12 max-width=600
-        text "${title}" role="heading" aria-level=1
+        text "${contractString(title)}" role="heading" aria-level=1
         select value=persona change=choosePersona appearance="auto" testId="persona" aria-label="Signed in as"
           option value="alice"
             text "Alice"
@@ -384,7 +385,7 @@ function onlineStarter(dir, generated, port) {
   const source = resolve(dir, 'app.ts'), view = resolve(dir, 'app.contract');
   if (!existsSync(generated)) return false;
   const name = basename(dir), manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
-  const pristine = appSources(name, name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), manifest.app.id);
+  const pristine = appSources(name, manifest.app.name, manifest.app.id);
   const normalized = readFileSync(source, 'utf8')
     .replace(/^const origin = ['"`][^'"`]+['"`];\n/m, '')
     .replace('export const grants = `net.fetch ${origin}`;', "export const grants = '';")
@@ -622,6 +623,15 @@ fn main() {
  * existing app keeps the id it has: `update` and `pattern` read it from app.json. */
 export const newAppId = (name, random = randomBytes(3).toString('hex')) => `com.example.${name}-${random}`;
 
+/** app.json's `app.id` pattern (scripts/app.schema.json): what `exact new --bundle-id` accepts. */
+const BUNDLE_ID = /^[a-zA-Z][a-zA-Z0-9-]*(\.[a-zA-Z][a-zA-Z0-9-]*)+$/;
+
+/** The name an app's folder gives it when none is given: `field-log` is Field Log. */
+const titleOf = name => name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+
+/** A name inside a Contract string literal. */
+const contractString = title => JSON.stringify(title).slice(1, -1).replaceAll('$', '\\$');
+
 /** The three files \`exact new\` writes for the app itself: the view, its data
  * module and its tests. \`exact.mjs pattern\` replaces them, and reads them
  * to tell an untouched file from one the author edited (LLP 1116.001 D3). */
@@ -636,8 +646,8 @@ shape Greeting
 routes nav
   home "/"
 
-component ${title.replaceAll(' ', '')}
-  resource greeting = greeting("${title}") as shape Greeting
+component ${titleOf(name).replaceAll(' ', '')}
+  resource greeting = greeting("${contractString(title)}") as shape Greeting
   state liked = false
   action like
     liked = not liked
@@ -646,7 +656,7 @@ component ${title.replaceAll(' ', '')}
       for e in stack(nav) key=e.id
         column navigationKey=\`\${e.id}\` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
           header display="flex" align-items="center"
-            text "${title}" role="heading" aria-level=1 flex=1
+            text "${contractString(title)}" role="heading" aria-level=1 flex=1
             button press=like aria-label=(liked ? "Unlike" : "Like") testId="like"
               image (liked ? "symbol:heart-fill" : "symbol:heart")
           scroll id="content" flex=1 min-height=0 padding=16
@@ -654,7 +664,7 @@ component ${title.replaceAll(' ', '')}
 `,
     'app.test.contract': `test "the greeting loads"
   expect tree has "root"
-  expect text "greeting" == "Hello from ${title}."
+  expect text "greeting" == "Hello from ${contractString(title)}."
 
 test "the header's button likes it"
   tap "like"
@@ -695,7 +705,7 @@ export function patterns() {
  * (`com.example.starter`, `Starter`) become the app's; and the keys its pattern.json adds. */
 export function patternFiles(pattern, { id, title }) {
   const dir = resolve(PATTERNS, pattern), files = {};
-  const quoted = JSON.stringify(title).slice(1, -1).replaceAll('$', '\\$');
+  const quoted = contractString(title);
   for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
     if (!entry.isFile() || entry.name === 'pattern.json' || entry.name === 'app.contract.d.ts') continue;
     const path = relative(dir, resolve(entry.parentPath, entry.name));
@@ -721,9 +731,10 @@ export function applyPattern(dir, pattern, { force = false } = {}) {
   // The template's name is its crates', as `update` reads it: a renamed folder keeps it.
   const name = ['web', 'apple', 'linux'].map(kind => resolve(dir, kind, 'Cargo.toml')).filter(existsSync)
     .map(path => String(Bun.TOML.parse(readFileSync(path, 'utf8')).package?.name ?? '').match(/^(.+)-(?:web|apple|linux)$/)?.[1]).find(Boolean) ?? basename(dir);
-  const template = appSources(name, name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), id);
+  // What exact new wrote, under the app's name or under the one its folder gave it.
+  const templates = [appSources(name, title, id), appSources(name, titleOf(name), id)];
   const others = known.filter(p => p !== pattern).map(p => patternFiles(p, { id, title }));
-  const untouched = (path, text) => text === template[path] || others.some(o => o.files[path] === text);
+  const untouched = (path, text) => templates.some(t => t[path] === text) || others.some(o => o.files[path] === text);
   const { files, keys } = patternFiles(pattern, { id, title });
   const read = path => existsSync(resolve(dir, path)) ? readFileSync(resolve(dir, path), 'utf8') : null;
   const edited = Object.entries(files).filter(([path, text]) => { const now = read(path); return now !== null && now !== text && !untouched(path, now); }).map(([path]) => path);
@@ -763,9 +774,8 @@ export function patternList() {
     '--force), with this app\'s id and name. Then: bun exact.mjs test web.'].join('\n');
 }
 
-function writeApp(dir, name) {
+function writeApp(dir, name, { title = titleOf(name), id = newAppId(name) } = {}) {
   for (const host of ['apple', 'linux', 'web']) mkdirSync(resolve(dir, host));
-  const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), id = newAppId(name);
   const exact2 = pathFrom(dir, ROOT);
   const dep = (host, path) => `{ path = ${JSON.stringify(pathFrom(resolve(dir, host), resolve(ROOT, path)))} }`;
   const files = {
@@ -967,8 +977,8 @@ function agentNotes(dir, name, {game = false} = {}) {
 # ${name}: an Exact app
 
 \`app.contract\` is the view, \`app.ts\` its data module, \`app.test.contract\` its tests, \`app.json\`
-the manifest. The app uses the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\`
-overrides it).
+the manifest: set its \`app.name\` and \`app.id\` before the first build. The app uses the exact2
+checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 
 This file is already in your instructions. Start from the nearest pattern: \`bun exact.mjs
 pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-here.md')} is the guide,
@@ -976,6 +986,7 @@ the only required reading (LLP 1115 D7). When a name is in question, \`bun exact
 vocab <name>\` answers it (no name: the card, which ${doc('card.md')} holds too). Run
 \`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
 app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
+\`bun exact.mjs update --without linux\` stops shipping Linux.
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
 ${DIARY_LINE}
 ${snapbackNotes(dir)}
@@ -1142,9 +1153,127 @@ function resolveOffline(dir, deferrable = false) {
   throw new Error(`cargo could not resolve ${dir} offline:\n${lock.stderr}`);
 }
 
-function updateApp(dir, name) {
+/** A workspace member's path as Cargo compares it: `./linux/` is `linux`. */
+const memberPath = m => String(m).replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
+
+/** `text`, a workspace Cargo.toml, without `member` in the `[workspace]` table's own
+ * `members` and `default-members`: each string naming it (either quote, `./`, a multiline
+ * array with comments) goes with its comma, and the rest of the file is left as written.
+ * Only a form it reads with certainty is edited: one `[workspace]` header, bare keys, plain
+ * strings. Anything else is refused, naming the edit to make by hand, and so is a result
+ * that parses to anything but the old document less that member. */
+export function withoutMember(text, member) {
+  const refuse = why => { throw new Error(`Cargo.toml's [workspace] is in a form this does not edit (${why}): remove "${member}" from [workspace] members and default-members by hand, then run it again`); };
+  let doc;
+  try { doc = Bun.TOML.parse(text); } catch (error) { refuse(`it does not parse: ${error.message}`); }
+  const named = l => Array.isArray(l) && l.some(m => memberPath(m) === member);
+  if (!named(doc.workspace?.members) && !named(doc.workspace?.['default-members'])) return text;
+  const expected = structuredClone(doc);
+  for (const key of ['members', 'default-members']) if (Array.isArray(expected.workspace[key])) expected.workspace[key] = expected.workspace[key].filter(m => memberPath(m) !== member);
+  if (expected.workspace['default-members']?.length === 0) refuse('default-members would be empty');
+  // The `[workspace]` table's body: from its one header to the next table's.
+  const headers = [...text.matchAll(/^[ \t]*\[[ \t]*workspace[ \t]*\][ \t]*(?:#[^\n]*)?$/gm)];
+  if (headers.length !== 1) refuse(headers.length ? 'two [workspace] headers' : 'no [workspace] header');
+  const from = headers[0].index + headers[0][0].length;
+  // A line opening with `[` inside a value ends the body early; the check below then refuses.
+  const next = /^[ \t]*\[/m.exec(text.slice(from));
+  const to = next ? from + next.index : text.length;
+  let body = text.slice(from, to);
+  if (/^[ \t]*["'](?:default-)?members["']/m.test(body)) refuse('a quoted members key');
+  for (const key of ['members', 'default-members']) {
+    const head = new RegExp(`^[ \\t]*${key}[ \\t]*=[ \\t]*\\[`, 'm').exec(body);
+    if (!head) continue;
+    // The array's string tokens, to its `]`, past quotes and `#` comments.
+    const tokens = [];
+    let i = head.index + head[0].length;
+    for (; i < body.length && body[i] !== ']'; i++) {
+      if (body[i] === '#') { while (i < body.length && body[i] !== '\n') i++; continue; }
+      if (/\s|,/.test(body[i])) continue;
+      if (body[i] !== '"' && body[i] !== "'") refuse(`${key} holds something other than a string`);
+      if (body.startsWith('"""', i) || body.startsWith("'''", i)) refuse(`${key} holds a multiline string`);
+      const quote = body[i], start = i;
+      for (i++; i < body.length && body[i] !== quote && body[i] !== '\n'; i++) if (body[i] === '\\') refuse(`${key} holds an escaped string`);
+      if (body[i] !== quote) refuse(`${key} holds an unclosed string`);
+      tokens.push({ start, end: i + 1, value: body.slice(start + 1, i) });
+    }
+    if (i >= body.length) refuse(`${key} is not closed`);
+    let out = body;
+    for (const t of tokens.reverse().filter(t => memberPath(t.value) === member)) {
+      // Its comma after it, else the one before it (the last element); a line it had to
+      // itself goes whole, with the comment on it.
+      const after = /^[ \t]*,/.exec(out.slice(t.end));
+      if (!after) {
+        const comma = /,[ \t\r\n]*$/.exec(out.slice(0, t.start));
+        out = out.slice(0, comma ? comma.index : t.start) + out.slice(t.end);
+        continue;
+      }
+      const lineStart = out.lastIndexOf('\n', t.start - 1) + 1, rest = out.slice(t.end + after[0].length);
+      const tail = /^[ \t]*(?:#[^\n]*)?\n/.exec(rest);
+      out = /^[ \t]*$/.test(out.slice(lineStart, t.start)) && tail
+        ? out.slice(0, lineStart) + rest.slice(tail[0].length)
+        : out.slice(0, t.start) + rest.replace(/^[ \t]+/, '');
+    }
+    body = out;
+  }
+  const out = text.slice(0, from) + body + text.slice(to);
+  let edited = null;
+  try { edited = Bun.TOML.parse(out); } catch {}
+  if (JSON.stringify(edited) !== JSON.stringify(expected)) refuse('the edit would change more than that member');
+  return out;
+}
+
+/** `update --without <platform>`: the app stops building and shipping it. Its workspace
+ * member goes, with app.json's `host`, `deploy.store` and `deploy.binaries` keys for it,
+ * which are what the compiler reads as shipping it (contract/lower/src/icons.rs `targets`).
+ * Its crate is moved aside, Cargo.lock is re-resolved without it, and only then is the
+ * crate deleted. Any failure before that puts Cargo.toml, app.json, Cargo.lock (or its
+ * absence) and the crate back as they were; a failed delete leaves the app without the
+ * platform and says what to delete. Returns what it removed. */
+function dropPlatform(dir, platform) {
+  if (platform === 'web') throw new Error('update --without web: the web host is the dev loop\'s and the agent\'s (`web`, `test web`, `agent web`), so it stays');
+  if (!['linux', 'android'].includes(platform)) throw new Error(`update --without ${platform}: it takes linux (which Android builds too) or android`);
+  const workspacePath = resolve(dir, 'Cargo.toml'), manifestPath = resolve(dir, 'app.json');
+  const workspace = readFileSync(workspacePath, 'utf8'), manifestText = existsSync(manifestPath) ? readFileSync(manifestPath, 'utf8') : null;
+  // Each file as it was, `null` for one that was absent; `cargo metadata` may rewrite the lock before it fails.
+  const saved = [workspacePath, manifestPath, resolve(dir, 'Cargo.lock')].map(path => [path, existsSync(path) ? readFileSync(path) : null]);
+  const crate = resolve(dir, platform), aside = resolve(dir, `.${platform}-removed-${randomBytes(4).toString('hex')}`);
+  let moved = false;
+  const removed = [];
+  try {
+    const members = withoutMember(workspace, platform);
+    if (members !== workspace) { writeFileSync(workspacePath, members); removed.push('its workspace member'); }
+    if (manifestText !== null) {
+      const manifest = JSON.parse(manifestText), deploy = manifest.deploy ?? {};
+      for (const [key, table] of [['host', manifest.host], ['deploy.store', deploy.store], ['deploy.binaries', deploy.binaries]]) {
+        if (table && platform in table) { delete table[platform]; removed.push(`app.json ${key}.${platform}`); }
+      }
+      // A deploy naming no native platform is read as every one (scripts/deploy.mjs `nativePlatforms`), Linux included.
+      const native = [...Object.keys(deploy.store ?? {}), ...Object.keys(deploy.binaries ?? {})].filter(p => p !== 'web');
+      if ((deploy.store || deploy.binaries) && !native.length) throw new Error(`app.json deploy.store would name no native platform, which deploy reads as all of them, ${platform} included: name the ones the app ships there (as \`"ios": "0"\`) first`);
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    }
+    if (existsSync(resolve(crate, 'Cargo.toml'))) { renameSync(crate, aside); moved = true; }
+    resolveOffline(dir);
+  } catch (error) {
+    const unrestored = [];
+    for (const [path, bytes] of saved) {
+      try { if (bytes === null) rmSync(path, { force: true }); else writeFileSync(path, bytes); } catch { unrestored.push(relative(dir, path)); }
+    }
+    if (moved) try { renameSync(aside, crate); } catch { unrestored.push(`${platform}/ (it is at ${relative(dir, aside)})`); }
+    throw new Error(`update --without ${platform}: ${error.message}; ${unrestored.length ? `could not put back ${unrestored.join(', ')}` : `Cargo.toml, app.json, Cargo.lock and ${platform}/ are as they were`}`);
+  }
+  if (moved) {
+    try { rmSync(aside, { recursive: true, force: true }); removed.push(`${platform}/`); } catch (error) {
+      removed.push(`${platform}/ from the workspace; deleting its files failed (${error.message}), so delete ${relative(dir, aside)} by hand`);
+    }
+  }
+  return removed.length ? `without ${platform} (removed ${removed.join(', ')})` : `without ${platform} (it shipped none already)`;
+}
+
+function updateApp(dir, name, { without = null } = {}) {
   // A game has no workspace of its own (the bake generates .shells/): its runner and notes are all there is to rewrite.
   if (existsSync(resolve(dir, 'app.contract')) && !existsSync(resolve(dir, 'Cargo.toml')) && gameDefaults(dir)) {
+    if (without) throw new Error('update --without: a game\'s hosts are its bake\'s (game/README.md), not crates of its own');
     writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name, {game:true}));
     const notes = updateNotes(dir, name, {game:true});
     if (editorTasks(dir, {game:true})) notes.push('.vscode/tasks.json');
@@ -1172,11 +1301,16 @@ function updateApp(dir, name) {
   writeFileSync(resolve(dir, '.cargo/config.toml'), readFileSync(resolve(ROOT, '.cargo/config.toml')));
   writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name));
   chmodSync(resolve(dir, 'exact.mjs'), 0o755);
-  // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own.
-  const addedLinux = !existsSync(resolve(dir, 'linux'));
+  const dropped = without ? dropPlatform(dir, without) : null;
+  // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own
+  // or ships no Linux: app.json deploy.store.linux, which the scaffold writes and `--without linux`
+  // removes, says it does.
+  let storesLinux = false;
+  try { storesLinux = 'linux' in (JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).deploy?.store ?? {}); } catch {}
+  const addedLinux = storesLinux && !existsSync(resolve(dir, 'linux'));
   if (addedLinux) {
     mkdirSync(resolve(dir, 'linux'));
-    const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+    const title = titleOf(name);
     for (const [path, text] of Object.entries(linuxCrate(dir, name, title))) {
       mkdirSync(dirname(resolve(dir, path)), { recursive: true });
       writeFileSync(resolve(dir, path), text);
@@ -1215,7 +1349,7 @@ test "the app opens"
     if (next !== text) { writeFileSync(path, next); changed.push(file); }
   }
   resolveOffline(dir);
-  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
+  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${dropped ? `, ${dropped}, Cargo.lock` : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
 }
 
 if (import.meta.main) {

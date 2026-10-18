@@ -728,8 +728,9 @@ impl<D: DataSource> Bridge<D> {
         // The real candidate remains deferred through all-session acceptance.
         // After commit, its paint receipt configures storage before activation
         // and data_ready refreshes its baked/kept external-reading resources.
-        let length =
-            self.prepare_plan_carried(plan_len, data, hooks, width, height, delivery, validated);
+        let length = self.prepare_plan_carried(
+            plan_len, data, hooks, width, height, delivery, validated, None,
+        );
         if let Some(prepared) = &mut self.prepared {
             prepared.module = true;
             prepared.let_go = let_go;
@@ -760,11 +761,11 @@ impl<D: DataSource> Bridge<D> {
         height: f32,
         delivery: Option<exact_runner::Delivery>,
     ) -> u32 {
-        self.prepare_plan_carried(len, data, hooks, width, height, delivery, None)
+        self.prepare_plan_carried(len, data, hooks, width, height, delivery, None, None)
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn prepare_plan_carried(
+    pub(super) fn prepare_plan_carried(
         &mut self,
         len: usize,
         mut data: D,
@@ -773,6 +774,7 @@ impl<D: DataSource> Bridge<D> {
         height: f32,
         delivery: Option<exact_runner::Delivery>,
         carried: Option<exact_runner::Carried>,
+        entry: Option<&str>,
     ) -> u32 {
         if let Some(refusal) = self.refuse_analysis() {
             return refusal;
@@ -817,7 +819,7 @@ impl<D: DataSource> Bridge<D> {
         let launch = self.launch_facts.clone();
         match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
-                PlanBytes::Copied(&plan),
+                PlanBytes::input(&plan, entry),
                 data,
                 measurer,
                 self.launch_layout,
@@ -858,16 +860,6 @@ impl<D: DataSource> Bridge<D> {
                 self.output.len() as u32
             }
             Err(e) => self.prepare_error(&format!("boot: {e:?}")),
-        }
-    }
-
-    /// Prepare and commit a single session's plan replacement.
-    pub fn boot_plan(&mut self, len: usize, data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
-        let len = self.prepare_plan(len, data, hooks, width, height);
-        if self.prepared.is_some() {
-            self.commit_plan()
-        } else {
-            len
         }
     }
 
@@ -1423,6 +1415,7 @@ fn escape(s: &str) -> String {
 /// A thread-local bridge cell, for the exports.
 pub type Cell<D> = RefCell<Bridge<D>>;
 
+mod boot;
 mod colors;
 mod registry;
 mod snapshot;

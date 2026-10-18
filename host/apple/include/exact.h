@@ -303,7 +303,9 @@ void exact_set_button_measure(ExactRuntime rt, ExactButtonMeasureFn measure);
 uint32_t exact_control_text_changed(ExactRuntime rt);
 
 typedef struct {
-    double datetime, now, utc_offset;
+    double datetime, now, relative_value;
+    uint32_t relative_unit;
+    double utc_offset;
     const uint8_t *format; size_t format_len;
     const uint8_t *locale; size_t locale_len;
     const uint8_t *time_zone; size_t time_zone_len;

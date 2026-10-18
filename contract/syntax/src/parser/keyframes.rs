@@ -18,6 +18,13 @@ impl Parser {
                     TokenKind::Ident(w) if w == "from" => 0.0,
                     TokenKind::Ident(w) if w == "to" => 100.0,
                     TokenKind::Number(n) if p.eat_punct("%") => n,
+                    TokenKind::Indent => {
+                        return Err(SyntaxError {
+                            id: "syntax-keyframe-selector",
+                            message: "a keyframe is one line, its selector then its values: `50% opacity=0.5 rotate=\"-2deg\"`".into(),
+                            span: token.span,
+                        })
+                    }
                     other => {
                         return Err(SyntaxError {
                             id: "syntax-keyframe-selector",
@@ -56,13 +63,16 @@ impl Parser {
                 let value = match p.expr()? {
                     // `-8` is a literal to anyone writing a keyframe.
                     Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
-                        let Expr::Number(n, _) = *inner else {
+                        let Expr::Number(n, at) = *inner else {
                             unreachable!()
                         };
-                        Expr::Number(-n, span)
+                        let end_col = if at.line == span.line { at.end_col } else { span.end_col };
+                        Expr::Number(-n, Span { end_col, ..span })
                     }
                     other => other,
                 };
+                // `rotate=-2deg`: a unit makes it a string, as on an element.
+                p.unquoted_unit(&aname, &value)?;
                 // A palette function (`color=accent()`, `color=tone("strong",
                 // 0.4)`) is constant too: lowering folds it to its literal
                 // from its arguments (LLP 1062 D9).

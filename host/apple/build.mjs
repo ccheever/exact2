@@ -49,14 +49,14 @@ import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { writeDataKeys } from './data-keys.mjs';
-import { iosTestRuns, macTests } from './xctest.mjs';
+import { compileFixtures, iosTestRuns, macTests } from './xctest.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { quiet, quietFor } from './quiet.mjs';
 import { keptCrates } from './crates.mjs';
 import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets };
-import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
+import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, installedBuild, macIdentity, phone, replacedNote, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, ...opts,
@@ -257,13 +257,13 @@ export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets
   }
 }
 
-/** Install the assembled bundle on the simulator. */
-export function install(dev, bundle, app, host = false) {
+/** Install the assembled bundle on the simulator, saying a development build put over another kind (`replacedNote`) unless the caller kept that one (`said`). */
+export function install(dev, bundle, app, host = false, said = false) {
   if (!bundle || !existsSync(bundle)) throw new Error('build the selected app with --ios first');
   assertAppleIdentity(app, resolve(bundle, host ? 'ExactHostIOS' : executableName(app)));
-  const r = read('xcrun', ['simctl', 'install', dev.udid, bundle]);
+  const replaced = !host && !said && bundle.includes('/development/') ? installedBuild(dev.udid, app.id) : null, r = read('xcrun', ['simctl', 'install', dev.udid, bundle]);
   if (r.status !== 0) throw new Error('simctl install: ' + r.stderr);
-}
+  if (replaced && replaced.trust !== 'development') console.error(replacedNote(dev.udid, app, replaced, appleArtifacts(app, { destination: 'ios-simulator', trust: 'production' }).bundle)); }
 
 /** What a development client admits through its opening link (LLP 1030.000
  * §7): the dev server it was built against (`--url`) and a random token made
@@ -1280,14 +1280,6 @@ async function main(args) {
  *  session may be driving a booted one), shut down again only if booted here.
  *  Swift availability guards decide which shared methods run on iOS. */
 async function test(args) {
-  // The fixtures tests boot (scripts/fixtures), compiled at this commit and named in `env` as `<prefix>_<KEY>_PLAN`:
-  // a plan carries the kernel schema's digest, so one compiled once and kept in a test goes stale.
-  const compileFixtures = (env, dir, prefix) => {
-    for (const [name, key] of [['headless', 'HEADLESS'], ['headless-markdown', 'HEADLESS_MARKDOWN'], ['headless-hidden-markdown', 'HEADLESS_HIDDEN_MARKDOWN'], ['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL']]) {
-      const plan = env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`);
-      run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, `scripts/fixtures/${name}.contract`), '-o', plan]);
-    }
-  };
   const ios = args.includes('--ios');
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--sim'));
   app.prepare?.();
@@ -1334,7 +1326,7 @@ async function test(args) {
       // here as `cargo build` would, never assumed from an earlier build.
       run('cargo', ['build', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml')]);
       env.EXACT_CONTRACT = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'debug', 'contract');
-      compileFixtures(env, paths.namespace, 'EXACT');
+      compileFixtures(root, run, env, paths.namespace, 'EXACT', app.id);
       const swiftEnv = { ...env, MACOSX_DEPLOYMENT_TARGET: '14.0' }, scratch = resolve(paths.namespace, 'tests');
       runApple('swift', ['build', '--build-tests', '--scratch-path', scratch], { cwd: pkg, stdio: 'inherit', env: swiftEnv });
       return await macTests(pkg, scratch, swiftEnv, canvasGpu);
@@ -1357,7 +1349,7 @@ async function test(args) {
     runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules',
       '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(root, 'host/apple/modules/ExactTamber.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
-    compileFixtures(env, fixtureDir, 'TEST_RUNNER_EXACT');
+    compileFixtures(root, run, env, fixtureDir, 'TEST_RUNNER_EXACT', app.id);
     if (process.env.EXACT_REQUIRED) env.TEST_RUNNER_EXACT_REQUIRED = process.env.EXACT_REQUIRED;
     const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;
     const before = simulators();

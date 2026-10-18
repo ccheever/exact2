@@ -78,7 +78,9 @@ pub use error::{
     ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
 };
 pub use generated::*;
-pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection, TextFont, TextLook};
+pub use grouped::{
+    Accessory, GroupedList, GroupedMargins, GroupedRow, GroupedSection, TextFont, TextLook,
+};
 pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
 pub use invocation::Invocation;

@@ -400,3 +400,53 @@ test('an update naming a scrub that ended opens none', async () => {
   expect(t.s.current()).toBe(null);
   expect(t.seen.previews).toEqual(['ink = #111111']);
 });
+
+// `propose` through a loop whose pages write some tokens inline (the JS
+// target): a live edit that moves one is `rebuild` there; one that moves
+// none stays live; `texts` only when asked.
+test('propose through a loop that writes a token inline is rebuild there, else as the session says', async () => {
+  const asked = [];
+  const spawnServe = () => {
+    const { PassThrough } = require('node:stream');
+    const { EventEmitter } = require('node:events');
+    // A pid no process has (above macOS's and Linux's default limits): close
+    // signals its group, and pid 0's group would be this test's own.
+    const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, signalCode: null, pid: 2 ** 30 });
+    child.kill = () => {};
+    let buf = '';
+    child.stdin.on('data', chunk => {
+      buf += chunk; const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        const r = JSON.parse(line);
+        if (r.method === 'propose') asked.push(r.texts);
+        const value = r.ops?.[0]?.value ?? '';
+        const ok = r.method === 'propose' ? { class: value === 'rebuilds' ? 'rebuild' : 'live', texts: { 'app.tamber': `ink = ${value}` }, changed: [], synthetic: [], files: {}, diff: '' } : { files: {} };
+        child.stdout.write(`${JSON.stringify({ id: r.id, ok })}\n`);
+      }
+    });
+    return child;
+  };
+  const inlined = [];
+  const inline = async texts => { inlined.push(texts['app.tamber']); return texts['app.tamber'].includes('600') ? '`ink` is written inline on this page (`font-weight`)' : null; };
+  const local = createServer();
+  await new Promise(ok => local.listen(0, '127.0.0.1', ok));
+  const port = local.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const wire = tamberServer({ appDir: '/nowhere', spawnServe, log: () => {}, scrub: { preview: async () => ({}), restore: () => {}, inline } });
+  local.on('request', async (req, res) => { if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); } });
+  const at = `http://127.0.0.1:${port}`;
+  const { token } = await (await fetch(`${at}/__tamber/token`)).json();
+  const h = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
+  const ask = async q => (await fetch(`${at}/__tamber`, { method: 'POST', headers: h, body: JSON.stringify(q) })).json();
+  const weight = await ask({ method: 'propose', ops: [{ op: 'set-token', name: 'ink', value: '600' }] });
+  expect(weight.ok.class).toBe('rebuild');
+  expect(weight.ok.texts).toBeUndefined();
+  const plain = await ask({ method: 'propose', ops: [{ op: 'set-token', name: 'ink', value: '#111111' }], texts: true });
+  expect(plain.ok).toMatchObject({ class: 'live', texts: { 'app.tamber': 'ink = #111111' } });
+  // A rebuild already: the loop is not asked.
+  expect((await ask({ method: 'propose', ops: [{ op: 'set-token', name: 'ink', value: 'rebuilds' }] })).ok.class).toBe('rebuild');
+  expect(inlined).toEqual(['ink = 600', 'ink = #111111']);
+  expect(asked).toEqual([true, true, true]);
+  await wire.close();
+  local.close();
+}, 30_000);

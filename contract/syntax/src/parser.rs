@@ -21,6 +21,7 @@ mod parts;
 mod routes;
 mod sequence;
 mod sounds;
+mod states;
 mod steps;
 mod theme;
 mod view;
@@ -604,6 +605,8 @@ impl Parser {
         self.block(|p| {
             if p.at_part() {
                 p.part(&format!("`{owner}`"), true, &mut attrs)
+            } else if p.at_state() {
+                p.state_part(&format!("`{owner}`"), true, &mut attrs)
             } else {
                 attrs.extend(p.literal_line(&owner)?);
                 Ok(())
@@ -647,11 +650,23 @@ impl Parser {
             let value = match self.expr()? {
                 // `-0.2` is a literal to anyone writing a style: fold it, so
                 // `letter-spacing=-0.2` is a constant like `0.2`.
+                // Its span the `-` through the number, as an attribute's
+                // (the `-` alone where the number is on another line).
                 Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
-                    let Expr::Number(n, _) = *inner else {
+                    let Expr::Number(n, at) = *inner else {
                         unreachable!()
                     };
-                    Expr::Number(-n, span)
+                    Expr::Number(
+                        -n,
+                        Span {
+                            end_col: if at.line == span.line {
+                                at.end_col
+                            } else {
+                                span.end_col
+                            },
+                            ..span
+                        },
+                    )
                 }
                 other => other,
             };
@@ -1210,6 +1225,12 @@ impl Parser {
     }
 
     fn node_inner(&mut self) -> R<Node> {
+        if self.at_state() {
+            return self.err(
+                "syntax-state",
+                "a state part (`:disabled`) goes under its node, before the node's children",
+            );
+        }
         let (word, span) = match self.peek_kind().clone() {
             TokenKind::Ident(w) => (w, self.peek().span),
             other => {

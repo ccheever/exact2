@@ -298,43 +298,36 @@
     {
       "id": 23,
       "name": "accessibilityValueText",
-      "snapshot": "admit",
       "kind": "str"
     },
     {
       "id": 24,
       "name": "accessibilityChecked",
-      "snapshot": "admit",
       "kind": "bool"
     },
     {
       "id": 25,
       "name": "accessibilitySelected",
-      "snapshot": "admit",
       "kind": "bool"
     },
     {
       "id": 26,
       "name": "accessibilityExpanded",
-      "snapshot": "admit",
       "kind": "bool"
     },
     {
       "id": 27,
       "name": "accessibilityDisabled",
-      "snapshot": "admit",
       "kind": "bool"
     },
     {
       "id": 28,
       "name": "accessibilityLive",
-      "snapshot": "admit",
       "kind": "str"
     },
     {
       "id": 29,
       "name": "accessibilityBusy",
-      "snapshot": "admit",
       "kind": "bool"
     },
     {
@@ -352,7 +345,6 @@
     {
       "id": 32,
       "name": "accessibilityModal",
-      "snapshot": "admit",
       "kind": "bool",
       "_comment": "@ref LLP 1080.003: ARIA `aria-modal`: while true, assistive technology reaches only this element's subtree among its siblings (iOS `accessibilityViewIsModal` while exposed; the web's `aria-modal`, which ARIA honours on a `dialog` or `alertdialog` role; macOS deferred)."
     },
@@ -432,7 +424,6 @@
     {
       "id": 48,
       "name": "accessibilityKeyShortcuts",
-      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -558,7 +549,6 @@
     {
       "id": 73,
       "name": "accessibilityOrientation",
-      "snapshot": "admit",
       "kind": "str"
     },
     {
@@ -622,7 +612,6 @@
     {
       "id": 221,
       "name": "accessibilityControls",
-      "snapshot": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1075.003 §3.7: aria-controls, the HTML id of the element a control controls; a tab names its tabpanel."
     },
@@ -646,20 +635,17 @@
     {
       "id": 224,
       "name": "accessibilityPressed",
-      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-pressed` on a button: a toggle button's state, `true`, `false` or `mixed`; absent (or any other word), the button is no toggle. A bool expression is written as `true`/`false`."
     },
     {
       "id": 81,
       "name": "accessibilityPosInSet",
-      "snapshot": "admit",
       "kind": "int"
     },
     {
       "id": 82,
       "name": "accessibilitySetSize",
-      "snapshot": "admit",
       "kind": "int"
     },
     {
@@ -1377,35 +1363,30 @@
     {
       "id": 231,
       "name": "accessibilityInvalid",
-      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-invalid` (x2apps onboarding F22): `true`, `false`, `grammar` or `spelling`; a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXInvalid`; UIKit has no such property, so iOS exposes none."
     },
     {
       "id": 232,
       "name": "accessibilityDescribedBy",
-      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-describedby`: the HTML ids, space-separated, of the elements whose text describes this one (accname's description), after `aria-description`'s words. AppKit's `AXHelp`, UIKit's `accessibilityHint`."
     },
     {
       "id": 233,
       "name": "accessibilityRequired",
-      "snapshot": "admit",
       "kind": "bool",
       "_comment": "ARIA `aria-required` (x2apps onboarding F22): a field the form needs filled. AppKit's `AXRequired`; UIKit has no such property, so iOS exposes none."
     },
     {
       "id": 234,
       "name": "accessibilityHasPopup",
-      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-haspopup` (x2apps spreadsheet F20): `false`, `true`, `menu`, `listbox`, `tree`, `grid` or `dialog`; a bool expression is written as `true`/`false`. AppKit serves Chromium's `AXHasPopup` and `AXPopupValue`; UIKit has no such property, so iOS exposes none."
     },
     {
       "id": 235,
       "name": "accessibilityLabelledBy",
-      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-labelledby` (x2apps ledger2 Rough 3): the HTML ids, space-separated, of the elements whose text names this one; accname takes it before `aria-label`. AppKit's `AXTitle`/`accessibilityLabel`, UIKit's `accessibilityLabel`."
     },
@@ -1437,7 +1418,6 @@
     {
       "id": 240,
       "name": "accessibilityCurrent",
-      "snapshot": "admit",
       "kind": "str",
       "_comment": "ARIA `aria-current` (Depot feedback, 2026-10-05): `page`, `step`, `location`, `date`, `time`, `true` or `false`, the current item of a set (a navigation link, a wizard's step); a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXARIACurrent`; UIKit has no such property, so iOS exposes none."
     },
@@ -1528,21 +1508,18 @@
     {
       "id": 256,
       "name": "accessibilityValueNow",
-      "snapshot": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuenow`, a range role's current value (`progressbar`, `slider`, `meter`, `scrollbar`, `spinbutton`), a number as HTML writes it. With `aria-valuemin` and `aria-valuemax` (ARIA's defaults 0 and 100) it is the value each platform's accessibility hears: the DOM's attribute, UIKit's `accessibilityValue` as a percentage, AppKit's value with its minimum and maximum. `aria-valuetext` (`accessibilityValueText`) is spoken instead where it is set."
     },
     {
       "id": 257,
       "name": "accessibilityValueMin",
-      "snapshot": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuemin`, as `accessibilityValueNow`."
     },
     {
       "id": 258,
       "name": "accessibilityValueMax",
-      "snapshot": "admit",
       "kind": "str",
       "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuemax`, as `accessibilityValueNow`."
     },
@@ -1591,7 +1568,6 @@
     {
       "id": 267,
       "name": "accessibilityAtomic",
-      "snapshot": "admit",
       "kind": "bool",
       "_comment": "@ref LLP 1116.018 D3: WAI-ARIA's `aria-atomic`, whether a live region is announced whole. The web hosts write it; the Apple and Linux hosts announce a live region's whole text already, so `true` holds there and `false` is announced whole too (a declared deviation)."
     },
@@ -1615,38 +1591,44 @@
     },
     {
       "id": 271,
-      "name": "datetime",
-      "snapshot": "admit",
-      "kind": "float",
-      "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
+      "name": "navigationInitialDetent",
+      "kind": "str",
+      "_comment": "@ref LLP 1115 §2 (what the author writes wins): the word of a sheet route's `navigationDetent` the sheet opens at; unsaid, the first (the shortest), as UIKit opens a sheet at its smallest detent. UIKit's `selectedDetentIdentifier`, React Navigation's `sheetInitialDetentIndex`; iOS reads it when the detents are set, hosts whose sheets have one height ignore it."
     },
     {
       "id": 272,
-      "name": "timeFormat",
+      "name": "datetime",
       "snapshot": "admit",
-      "kind": "str",
-      "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
+      "kind": "float",
+      "_comment": "@ref LLP 1126 D6: the time element’s instant in epoch milliseconds."
     },
     {
       "id": 273,
-      "name": "start",
+      "name": "timeFormat",
       "snapshot": "admit",
-      "kind": "float",
-      "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
+      "kind": "str",
+      "_comment": "@ref LLP 1126 D6: the time element’s named presentation."
     },
     {
       "id": 274,
-      "name": "end",
+      "name": "start",
       "snapshot": "admit",
       "kind": "float",
-      "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
+      "_comment": "@ref LLP 1126 D6: the progress interval’s start instant in epoch milliseconds."
     },
     {
       "id": 275,
+      "name": "end",
+      "snapshot": "admit",
+      "kind": "float",
+      "_comment": "@ref LLP 1126 D6: the progress interval’s end instant in epoch milliseconds."
+    },
+    {
+      "id": 276,
       "name": "textReservation",
       "kind": "str",
       "measure": true,
-      "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
+      "_comment": "@ref LLP 1126 D6: newline-separated host-formatted width candidates written by the runner, never an author."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1856,7 +1838,8 @@
         "visible",
         "hidden",
         "scroll",
-        "auto"
+        "auto",
+        "clip"
       ],
       "default": "visible"
     },
@@ -2794,7 +2777,6 @@
     {
       "bit": 35,
       "field": "z_index",
-      "snapshot": "admit",
       "terminal": "admit",
       "codec": "i32",
       "default": 0,
@@ -3465,7 +3447,6 @@
     {
       "bit": 120,
       "field": "visibility",
-      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:Visibility",
       "inherited": true,
@@ -3999,7 +3980,6 @@
     {
       "bit": 192,
       "field": "color_scheme",
-      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:ColorScheme",
       "inherited": true,

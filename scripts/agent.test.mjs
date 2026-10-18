@@ -9,6 +9,7 @@ import { open, jsonLines, MalformedOperation, main } from './agent.mjs';
 import { chromium, launchFacts } from './agent-launch.mjs';
 import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
+import { stateOp } from './agent-inspect.mjs';
 
 need('chrome', chromium().unavailable)('the web agent keeps desktop input facts through preferences and injected touches', async () => {
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(
@@ -137,6 +138,23 @@ test('a press while a contact is held is refused before it reaches the carrier',
   assert.deepEqual(calls.map(c => c[1]), ['press']);
 });
 
+// A game's canvas is `testId="world"`, and the web and Apple hosts add a `world` summary list to the app's record: `state world`
+// asks the engine (`world: true`, as `tree` does), never the record whose `world` section the name would otherwise read.
+test('state of a world\'s view asks its engine, not the record\'s world summary', async () => {
+  const asked = [], engine = { tick: 3, hash: '0x1', entities: [{ name: 'fox' }] };
+  const carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) {
+      if (req.op === 'tree') return { nodes: [{ id: 1, props: { testId: 'world' }, depth: 0, world: { name: 'world', entities: 1, tick: 3 } }, { id: 2, props: { testId: 'go' }, depth: 0 }] };
+      if (req.op === 'state') { asked.push(req); return req.world ? engine : { slots: {}, world: [{ canvas: 1, tick: 3, hash: '0x1' }] }; }
+      return {};
+    } };
+  const s = await open({ reuse: carrier });
+  assert.deepEqual(await stateOp(s, ['world']), engine);
+  assert.deepEqual(asked.at(-1), { op: 'state', id: 1, world: true });
+  assert.deepEqual(await stateOp(s, ['go']), { slots: {}, world: [{ canvas: 1, tick: 3, hash: '0x1' }] }); // a plain view: the record
+  assert.deepEqual(asked.at(-1), { op: 'state', id: 2 });
+});
+
 test('held request answers bypass tap and key delivery validation', async () => {
   const calls = [], carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
     async ask(req) {
@@ -233,6 +251,51 @@ test('compare: what one picture has and the other lacks is a region, both ways',
   assert.doesNotMatch(text, /sits/);
 });
 
+test('compare: an edge\'s anti-aliasing is no colour of the picture it is in', async () => {
+  // The reference's box has a soft left edge (three grey columns), the screen's a hard one 7 pt further left: the
+  // reference's differing cells are white and that edge's greys, which are no ink of its own (euxy port: "#bbb").
+  const soft = [[24, 60, 1, 40, [200, 200, 200]], [25, 60, 1, 40, [140, 140, 140]], [26, 60, 1, 40, [80, 80, 80]], [27, 60, 40, 40, [0, 0, 0]]];
+  const { result } = await compared(soft, [[20, 60, 47, 40, [0, 0, 0]]]);
+  const { reference, screen } = result.regions[0].colours;
+  assert.equal(reference.fill, '#fff');
+  assert.equal(reference.ink, undefined);
+  assert.equal(reference.edges, true);
+  assert.equal(screen.fill, '#000');
+  const { report } = await import('./agent-compare.mjs');
+  const text = report({ ...result, regions: [{ ...result.regions[0], hint: null }] }, [], { reference: 'r', diff: 'd' });
+  assert.match(text, new RegExp(`here #000, in the reference #fff, its edge's anti-aliasing ${reference.blend} beside it`));
+  // A stroke's own colour is kept: a grey bar on white is its grey.
+  const bar = await compared([[10, 40, 100, 6, [120, 120, 120]]], []);
+  assert.equal(bar.result.regions[0].colours.reference.ink ?? bar.result.regions[0].colours.reference.fill, '#666');
+});
+
+test('compare: a 1 pt border between a lighter and a darker side keeps its colour', async () => {
+  // A blue card on white with a grey border in the reference and a red one here: the grey lies between white and blue
+  // in every channel's range but on no line between them, so it is the reference's own colour, not anti-aliasing.
+  const card = (border) => [[29, 59, 42, 42, border], [30, 60, 40, 40, [0, 0, 255]]];
+  const { result } = await compared(card([102, 102, 102]), card([204, 0, 0]));
+  assert.ok(result.regions.length > 0);
+  const { reference, screen } = result.regions[0].colours;
+  assert.equal(reference.ink, '#666');
+  assert.equal(reference.edges, undefined);
+  assert.match(screen.ink, /^#[cd]00$/);
+  const { report } = await import('./agent-compare.mjs');
+  const text = report({ ...result, regions: [{ ...result.regions[0], hint: null }] }, [], { reference: 'r', diff: 'd' });
+  assert.match(text, /here #[cd]00 on #\w{3}, in the reference #666 on #\w{3}/);
+  // White, the border, a 1 pt blue strip, then black: grey is a mix of white and black, but the blue between them is
+  // not, so the run is no blend and the grey stays the reference's colour.
+  const striped = (border) => [[29, 60, 1, 40, border], [30, 60, 1, 40, [0, 0, 255]], [31, 60, 40, 40, [0, 0, 0]]];
+  const strip = (await compared(striped([102, 102, 102]), striped([204, 0, 0]))).result;
+  assert.ok(strip.regions.length > 0);
+  const { reference: ref } = strip.regions[0].colours;
+  assert.equal(ref.ink ?? ref.fill, '#666');
+  assert.equal(ref.edges, undefined);
+  // The same cell judged alone: the run white, grey, blue, black is no blend, nor is white, grey, blue.
+  const { blended, grid } = await import('./agent-compare.mjs');
+  const G = grid(picture(120, 200, striped([102, 102, 102])), 120, 200);
+  assert.equal(blended(G, 70 * 120 + 29, () => true), false);
+});
+
 test('compare: a recoloured row among look-alikes is its colours, with no hint', async () => {
   const bars = (first) => [0, 1, 2, 3, 4].map((k) => [10, 30 + 20 * k, 100, 10, k ? [0, 0, 0] : first]);
   const { A, B, result } = await compared(bars([0, 0, 0]), bars([255, 0, 0]));
@@ -320,7 +383,9 @@ test('a native named store is kept unless the drive resets it, under its lock; a
   console.log = () => {}; console.error = () => {};
   try {
     for (const [host, flags, fresh, locked] of [['ios', [], false, true], ['ios', ['--reset-storage'], true, true], ['android', ['--reset-storage'], true, true],
-      ['macos', [], false, true], ['mac', [], false, true], ['linux', ['--reset-storage'], true, true], ['web', [], true, false], ['web', ['--keep-storage'], false, false]]) {
+      ['macos', [], false, true], ['mac', [], false, true], ['linux', ['--reset-storage'], true, true], ['web', [], true, false], ['web', ['--keep-storage'], false, false],
+      // A drive that compares starts empty everywhere unless kept (euxy port: dice rolls an earlier drive stored).
+      ['ios', ['screenshot a.png compare ref.png'], true, true], ['ios', ['--keep-storage', 'screenshot a.png compare ref.png'], false, true]]) {
       let env = 'unopened', lock = null;
       const fakeOpen = async (o) => { env = o.env; return { state: async () => ({}), close: async () => {} }; };
       const order = [];
@@ -328,7 +393,8 @@ test('a native named store is kept unless the drive resets it, under its lock; a
       // The device is resolved before the lock, and the lock is keyed by what it resolved to, not by how the drive named it.
       const resolveDevice = (h) => { order.push('resolve'); return `the one ${h} device`; };
       const opening = async (o) => { order.push('open'); return fakeOpen(o); };
-      assert.equal(await main([host, '--storage', 's1', ...flags, 'state'], { open: opening, driveServer: async () => null, exclusiveNativeStore, resolveDevice }), 0);
+      // The fake session takes no screenshot: a compare fails after the launch this reads.
+      assert.equal(await main([host, '--storage', 's1', ...flags, 'state'], { open: opening, driveServer: async () => null, exclusiveNativeStore, resolveDevice }).catch((e) => (/compare/.test(e.message) ? 0 : Promise.reject(e))), 0);
       assert.equal(env?.EXACT_AGENT_STORAGE_FRESH === '1', fresh, `${host} ${flags.join(' ')}`);
       assert.equal(lock?.storage === 's1', locked, `${host} lock`);
       if (locked) { assert.equal(lock.device, `the one ${host} device`); assert.deepEqual(order, ['resolve', 'lock', 'open']); }
@@ -353,6 +419,25 @@ test('a drive with no store says its storage was refused after the first op that
     // A resource's own failure that only quotes the refusal is not taken for one.
     await driveNotes({ ...s, op: logs(['t=0 lib failed: Unavailable agent storage is unavailable in agent mode']) }, { host: 'web', storage: undefined })('end');
     assert.deepEqual(said, []);
+  } finally { console.error = quiet; }
+});
+
+test('a screenshot with a system sheet held says it is not drawn, and where the real one is', async () => {
+  const { driveNotes } = await import('./agent-test.mjs');
+  const said = [], quiet = console.error;
+  const pending = [{ name: 'share', ticket: 1, device: { capability: 'share', args: {} } }, { name: 'p', ticket: 2, device: { capability: 'pick', args: {} } }];
+  const s = (touch, extra = {}) => ({ launchFacts: {}, carrier: { touch, ...extra }, op: async () => ({ lines: [], next: 0 }), state: async () => ({ pending }) });
+  console.error = (line) => said.push(line);
+  try {
+    await driveNotes(s('agent', { installNote: 'kept the Release build' }), { host: 'ios', storage: 's1' })('screenshot');
+    assert.equal(said.length, 3);
+    assert.match(said[0], /^note: kept the Release build$/);
+    assert.match(said[1], /no share sheet: under the agent it is held \(@1\).*under --touch platform the real one is presented/);
+    assert.doesNotMatch(said[2], /--touch platform/);
+    said.length = 0;
+    // Under --touch platform the share sheet is presented: only the picker, which is not, is said.
+    await driveNotes(s('platform'), { host: 'ios', storage: 's1' })('screenshot');
+    assert.deepEqual(said.map((l) => /@(\d)/.exec(l)?.[1]), ['2']);
   } finally { console.error = quiet; }
 });
 

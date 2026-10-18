@@ -11,7 +11,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 const CLONE: &str = include_str!("../../../../tamber/tests/fmt/bluesky-clone.tamber");
 
-fn app(tag: &str, design: &str) -> std::path::PathBuf {
+pub(crate) fn app(tag: &str, design: &str) -> std::path::PathBuf {
     let dir =
         std::env::temp_dir().join(format!("exact2-tamber-serve-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -29,7 +29,7 @@ fn app(tag: &str, design: &str) -> std::path::PathBuf {
     dir
 }
 
-struct Serve {
+pub(crate) struct Serve {
     child: Child,
     input: ChildStdin,
     output: BufReader<ChildStdout>,
@@ -37,7 +37,7 @@ struct Serve {
 }
 
 impl Serve {
-    fn start(dir: &std::path::Path, env: &[(&str, &str)]) -> Serve {
+    pub(crate) fn start(dir: &std::path::Path, env: &[(&str, &str)]) -> Serve {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_contract"));
         cmd.args(["tamber", "serve", "--stdio", dir.to_str().unwrap()])
             .stdin(Stdio::piped())
@@ -58,7 +58,7 @@ impl Serve {
     }
 
     /// One request; its reply, and the event lines that followed it.
-    fn ask(&mut self, mut request: Value) -> (Value, Vec<Value>) {
+    pub(crate) fn ask(&mut self, mut request: Value) -> (Value, Vec<Value>) {
         self.next += 1;
         request["id"] = json!(self.next);
         writeln!(self.input, "{request}").unwrap();
@@ -92,7 +92,7 @@ impl Drop for Serve {
     }
 }
 
-fn digest(path: &std::path::Path) -> String {
+pub(crate) fn digest(path: &std::path::Path) -> String {
     use sha2::Digest;
     sha2::Sha256::digest(std::fs::read(path).unwrap())
         .iter()
@@ -105,7 +105,7 @@ fn reads_answer_on_the_clones_design() {
     let dir = app("reads", CLONE);
     let mut s = Serve::start(&dir, &[]);
     let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.10");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.11");
     assert_eq!(hello["ok"]["builds"], json!([]));
     assert_eq!(
         hello["ok"]["files"]["app.tamber"],
@@ -393,7 +393,7 @@ fn requests_are_typed_bounded_and_attributed() {
         assert!(v["error"].is_object(), "{v}");
     }
     let (hello, _) = s.ask(json!({"method": "hello"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.10");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.11");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -120,6 +120,9 @@ component Groceries
   Subtract with spaces (`a - b`): names hold hyphens. A view chooses with `if`/`else`, as
   an action does, and repeats with `for x in xs key=x.id` (`for x, i in xs key=x.id` binds the
   index `i` too); no `form` (a field's Enter is its `submit`).
+- **Fields.** An `input` handler should update the draft on every edit so live search,
+  validation and button enablement follow typing. A text field fires `change` on Enter or
+  blur; its handler should normalize the draft. Use `submit` for explicit submission.
 - **Expressions** are TypeScript's: what compiles means what it means in TypeScript, and
   what does not is refused with what to write. The web's string and array methods are
   methods (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
@@ -136,16 +139,22 @@ component Groceries
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
   write (`queue` keeps them in order, `refreshes` re-reads, `then` runs an action: clear
   the field only on an ok reply, as `afterAdd` does). Only the root declares them;
-  children take `props`.
+  children take `props`. For a mutation without `queue`, the action that sends it must
+  not also assign its slot to `none`: assignments commit after sends and can discard its
+  new reply. Hide an old error with `pending(added)`. `none` means the slot contains no
+  reply, not failure; use `failure(added)` to show request failures and match the reply
+  to handle a domain refusal.
 - **Refreshes.** Include every resource the write changes (`refreshes groceries, counts`).
 
 **The data module** answers each source with exactly its declared shape: an extra
 field fails a resource or voids a mutation’s reply, whose slot keeps its old value.
 Type the function returning a reply (`Promise<Result<'post'>>`) so the build names
-an extra field. It reaches only what its `grants` name and answers failed fetches as data
-([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and randomness are
-refused there; time comes as an argument. A date from a value works
-(`new Date(ms)`, `Intl.DateTimeFormat`). `console.log` appears in the agent’s
+an extra field. It reaches only what its `grants` name. A failed read should
+fail its resource so Exact can retain its previous answer; a mutation may return
+a shaped domain refusal for its action to handle
+([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and
+randomness are refused there; time comes as an argument. A date from a value
+works (`new Date(ms)`, `Intl.DateTimeFormat`). `console.log` appears in the agent’s
 `logs` and its last lines in a failed test’s notes. It imports its own `.ts`/`.js` and pure-JS npm
 packages (ESM or CommonJS, a `browser` build first); one needing Node (`fs`, `Buffer`), the DOM or a native
 addon is refused by name. Type an untyped one with `@types/<name>` or `declare module '<name>';` in a `.d.ts`.
@@ -256,6 +265,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |tabular digits: numeric columns or values changing in place|`numeric-readout`|
 |a count 1–99|`stepper`|
 |a chat that opens at its newest message|`chat-thread`|
+|a welcome shown at first launch only|`first-launch`|
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 |video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|

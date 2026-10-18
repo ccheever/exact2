@@ -40,7 +40,6 @@ internal data class Device(
     companion object {
         fun read(context: Context): Device {
             val config = context.resources.configuration
-            val weight = config.fontWeightAdjustment
             var contrast = false
             if (Build.VERSION.SDK_INT >= 34) contrast = (context.getSystemService(UiModeManager::class.java)?.contrast ?: 0f) > 0f
             if (Build.VERSION.SDK_INT >= 36) contrast = contrast || context.getSystemService(AccessibilityManager::class.java)?.isHighContrastTextEnabled == true
@@ -51,7 +50,8 @@ internal data class Device(
                 rtl = config.layoutDirection == View.LAYOUT_DIRECTION_RTL,
                 hour24 = android.text.format.DateFormat.is24HourFormat(context),
                 noAnimations = !android.animation.ValueAnimator.areAnimatorsEnabled(),
-                boldText = weight != Configuration.FONT_WEIGHT_ADJUSTMENT_UNDEFINED && weight > 0,
+                // Bold Text is Android 12's.
+                boldText = Build.VERSION.SDK_INT >= 31 && config.fontWeightAdjustment.let { it != Configuration.FONT_WEIGHT_ADJUSTMENT_UNDEFINED && it > 0 },
                 highContrast = contrast,
                 touch = config.touchscreen == Configuration.TOUCHSCREEN_FINGER,
                 touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop / context.resources.displayMetrics.density,

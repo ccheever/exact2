@@ -139,6 +139,20 @@ one the placeholder keeps the platform's colour. Another property in it is
 is any other part. `placeholder-color` and `-exact-placeholder-color` are
 refused with the block to write.
 
+A state part is a block of one state's rows (LLP 1121 D8): `:active`, `:hover`,
+`:focus-visible`, `:disabled` or `:checked` alone on its line, then rows indented
+beneath it, in a `style` (literal) or under a node before its children (where a
+value may compute). One state a block, once at a place, never nested and never
+combined (`syntax-state`). `:disabled` and `:checked` (when `checked`,
+`aria-checked`, `aria-selected` or `aria-pressed` is true) take
+`background-color`, `color`, `border-color` (each side), `opacity`, `box-shadow`
+and `-exact-tint-color`, and fold into the node's own rows, `:checked` under
+`:disabled`; the host's states take the rows that do not inherit,
+`background-color`, `border-color`, `opacity`, `box-shadow` and
+`-exact-press-scale`, each a literal (`lower-state-literal`; a token's name is
+one). Another row is `lower-state-row`; a part on a native control or a list's
+row is `lower-state-target`. The node's block wins over its class's, row by row.
+
 A length attribute's string is CSS's own text, read by the kernel: a px or
 other absolute length, a percentage, a viewport length, `auto`,
 `env(safe-area-inset-*)`, `env(viewport-segment-* x y)`, a layout region's
@@ -754,7 +768,7 @@ says. Every roster function has a row and an example, and each example written
 | `encodeRouteSegment(text)` | String; routing's checked segment encoding | `encodeRouteSegment("a b")` is `"a%20b"` |
 | `open(router, location)` | Router | `top(open(nav, "/item/7")).name` is `"item"` |
 | `push(router, location)` | Router; same top URL does not add a visit | `depth(push(nav, "/item/7"))` is `2` |
-| `replace(router, location)` | Router | `depth(replace(nav, "/item/7"))` is `1` |
+| `replace(router, location)` | Router; the top visit takes the location and keeps its id. A stack's first visit keeps its root route: a location matching another route is refused and the router is unchanged (a first-launch screen: docs/recipes/first-launch.md) | `top(replace(push(nav, "/item/7"), "/item/8")).url` is `"/item/8"` |
 | `back(router)` | Router | `depth(back(push(nav, "/item/7")))` is `1` |
 | `select(router, tabName)` | Router | `nav = select(nav, "search")`, in an action, shows the `search` tab |
 | `go(router, location)` | Router | `top(go(nav, "/item/7")).name` is `"item"` |
@@ -1111,6 +1125,13 @@ host.
 | Zero or one `MIDIMessageEvent` (the action takes it or leaves it) | `midimessage`, on an element with `midiinputs=` ([MIDI](#midi-exactmidi-sendmidi-midimessage)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
 | None | `beforeunload`, `cancel`, `close`, `scrollend`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
+
+On text fields and textareas, `input` reports every edit. An `input` handler
+should update raw draft state so live search, validation and button enablement
+follow typing. `change` reports a committed value: Enter or blur for a text
+field, the end of editing for a textarea. Its handler should normalize the
+draft. Use `submit` for explicit submission. Checkboxes, switches and selects
+use `change` when a value is chosen.
 
 A dialog's `close=action` runs after dismissal and focus restoration on the web,
 macOS and iOS, whether an action, an invoker button or Escape closed it. It takes

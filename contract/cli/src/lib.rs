@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 pub mod functions;
+mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
 /// `semantics/README.md`).
 pub mod lean;
@@ -44,7 +45,9 @@ pub use manifest::{Manifest, Widget};
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
-pub use sources::{code_beside, design_path, with_design_text, Package, Source, SourceGraph};
+pub use sources::{
+    code_beside, design_path, with_contract_texts, with_design_text, Package, Source, SourceGraph,
+};
 pub use symbols::symbols_json;
 pub use typescript::{design_exports, typescript, typescript_exporting};
 /// The app's strings tables (LLP 1060 D1), `None` for an app without a
@@ -320,7 +323,8 @@ pub fn compile_path_mapped(path: &Path) -> Result<(Plan, SourceMap), CompileErro
     compile_path_source_mapped(path, &read_source(path)?)
 }
 fn read_source(path: &Path) -> Result<String, CompileError> {
-    let src = std::fs::read_to_string(path).map_err(|e| CompileError {
+    let read = sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok);
+    let src = read.map_err(|e| CompileError {
         pass: "use",
         id: "contract-use-unreadable".into(),
         message: e.to_string(),
@@ -384,6 +388,7 @@ pub fn compile_path_source_mapped(
 /// from, and the loader's refusals if it stopped (LLP 1091 D10): what a
 /// capture copies, a watcher watches, and a deploy freezes.
 pub fn source_graph(path: &Path) -> SourceGraph {
+    // The server's planned text of the root, where it has one (stage 8 D).
     let refused = |message: String| SourceGraph {
         sources: Vec::new(),
         packages: Vec::new(),
@@ -397,7 +402,7 @@ pub fn source_graph(path: &Path) -> SourceGraph {
             related: Box::new([]),
         }],
     };
-    let src = match std::fs::read_to_string(path) {
+    let src = match sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok) {
         Ok(src) => src,
         Err(e) => return refused(format!("{}: {e}", path.display())),
     };
@@ -683,7 +688,10 @@ fn compile_path_warned(
         all
     };
     let strings = strings::load(&app_root, path).map_err(joined)?;
-    let mut own = Vec::new();
+    let mut own = match warned {
+        Some(_) => grants::check(&file, &app_root, strings.as_deref()),
+        None => Vec::new(),
+    };
     let compiled = compile_file_warned(
         &file,
         Some(&app_root),

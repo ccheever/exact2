@@ -20,7 +20,7 @@ functions: call -> result
   formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
   formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Monday)
   formatDecimal(units, digits) -> string  (cents to "12.34"; literal digits)
-  formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string
+  formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
   formatTime(ms, offsetMinutes, "short") -> string  ("2:13 PM"; minutes east of UTC)
   frame(id) -> Geometry  (in an action)
   go(router, location) -> Router
@@ -101,7 +101,7 @@ test steps (app.test.contract; every other form: docs/contract-grammar.md)
 
 ops: a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
-  state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done
+  state [<name>] [--full]  a state, resource or field, dotted: groceries.0.done; >8 KB: sizes
   tap <target> [contextmenu|hover|drag <dx> <dy>|…] · held: "tap <t> down" "screenshot <png>" "tap up"
   type <target> <text>|key <Name>   (a select, date or checkbox: its value)
   clock data|settle|+<ms> [real]    land in-flight work · end transitions
@@ -135,7 +135,7 @@ a second screen, a sheet: A screen is a route, not an `if`; a sheet's root adds 
             text "New" role="heading"
             button press=save buttonStyle="bordered-prominent" aria-label="Save"
               image "symbol:checkmark"
-a confirmation: `aria-label` is the question; each action `button` acts and closes (`command="close"`); the Cancel has no `press`. Open it with `command="show-modal"`, or `showModal(id)` in an action.
+a confirmation: `aria-label` is the question; action buttons run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
   state n = 1
   action remove
     n = 0
@@ -146,7 +146,7 @@ a confirmation: `aria-label` is the question; each action `button` acts and clos
       text "Delete"
     button commandfor="remove" command="close"
       text "Cancel"
-a timer: `every(ms, action)` repeats, `after(ms, action)` fires once, `when cond` arms the task. A `derive` never rereads the clock: an action writes `performanceNow()` to state.
+a timer: `every(ms, action)` repeats, `after(ms, action)` fires once, `when cond` arms the task. An action writes `performanceNow()` to state; a `derive` never rereads it.
   state now = 0
   task tick mount
     every(1000, step)
@@ -155,7 +155,7 @@ a timer: `every(ms, action)` repeats, `after(ms, action)` fires once, `when cond
   text `${now}`
 keeping a value: Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB. Records belong in a source (`files-and-grants`).
   state units = "C" persist
-colour: Leave the accent unsaid (the platform's blue; a brand is an app.tamber) and controls unpainted; elsewhere a role (it follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
+colour: Leave the accent unsaid (a brand is an app.tamber) and controls unpainted; elsewhere a role (it follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
   main
     text "Total" color="-exact-secondary-label"
     view padding=12 background-color="-exact-secondary-background"
@@ -177,7 +177,7 @@ a dated record: The write reads the clock, not a ticked `now`, and stores `at`, 
   action log
     let at = time.epochAtZero + performanceNow()
     days = days.concat([formatDate(at, time.utcOffset, "iso")])
-a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for an iPhone app; `--shots <dir>` keeps screenshots. A screen no test ends on is unchecked.
+a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for an iPhone app; `--shots <dir>` keeps screenshots.
   test "a pick survives a relaunch"
     tap "pick"
     clock data
@@ -211,5 +211,5 @@ component App
 - A symbol is `"symbol:<role>"` (roles below); `symbol:sf/<name>` is Apple-only.
 - Not in Contract (`contract vocab <name>` says what to write): abs pow sqrt sort reduce find some every contains padStart parseInt.
 - `a - b` subtracts with spaces; a unit is quoted (`width="50%"`); a view repeats with `for x in xs key=…`.
-idioms, whole with their code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu search menubar ::placeholder
+idioms, whole with their code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu search menubar ::placeholder glass haptics status-bar toast
 symbol roles: back close compose add microphone send search copy select-text more delete forward home person messages notifications settings repeat activity bookmark bookmark-fill document select select-fill reorder sort filter heart heart-fill reply share ellipsis home-fill notifications-fill person-fill photo play play-fill pause pause-fill skip-back-15 skip-forward-15 skip-back-30 skip-forward-30 speaker speaker-mute moon pin link checkmark forward-chevron at hashtag follow sign-out quote feeds calendar book layers lock people stop stop-fill circle alert minus-circle pencil waveform info camera star star-fill minus chart sparkles refresh menu adjust alert-fill info-fill chooser download install open-app download-pending package mail

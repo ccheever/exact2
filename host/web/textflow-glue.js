@@ -295,6 +295,8 @@ function paintContent(span, fragment, state, lineHeight) {
           forwarded[method] = () => { e[method](); Event.prototype[method].call(forwarded); };
         }
         if (keyboard) {
+          // Live ancestors already captured the source event, even if a commit restored these runs.
+          forwarded.exactFlowCapture = run.chain;
           const cancelBubble = Object.getOwnPropertyDescriptor(Event.prototype, 'cancelBubble');
           Object.defineProperty(forwarded, 'cancelBubble', {
             get: () => cancelBubble.get.call(forwarded),
@@ -303,7 +305,12 @@ function paintContent(span, fragment, state, lineHeight) {
         }
         forwarded.exactStopped = e.exactStopped; forwarded.$stopped = e.$stopped;
         if (e.defaultPrevented) forwarded.preventDefault();
-        if (!original.dispatchEvent(forwarded)) e.preventDefault();
+        try {
+          if (!original.dispatchEvent(forwarded)) e.preventDefault();
+        } finally {
+          // A retained copy's next dispatch must capture through its own live ancestors.
+          delete forwarded.exactFlowCapture;
+        }
         if (keyboard) {
           e.exactStopped = forwarded.exactStopped; e.$stopped = forwarded.$stopped;
         }

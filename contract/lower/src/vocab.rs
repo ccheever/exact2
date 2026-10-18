@@ -20,6 +20,18 @@ pub fn accepts(prop: PropId) -> Option<&'static str> {
     }
 }
 
+/// Whether `word` is one of a `navigationDetent`'s heights: `large`,
+/// `medium`, `fit-content`, a positive point height, or a percentage above
+/// 0% and at most 100%.
+pub fn detent_word(word: &str) -> bool {
+    matches!(word, "large" | "medium" | "fit-content")
+        || word.parse::<f64>().is_ok_and(|h| h.is_finite() && h > 0.0)
+        || word.strip_suffix('%').is_some_and(|p| {
+            p.parse::<f64>()
+                .is_ok_and(|p| p.is_finite() && p > 0.0 && p <= 100.0)
+        })
+}
+
 /// The first of a `navigationDetent`'s valid words that is not taller than
 /// the one before it on every screen (LLP 1075.003 §9.13): UIKit takes
 /// detents from shortest to tallest. A point height and a share of the
@@ -131,7 +143,7 @@ pub const BUTTON_DEFAULT_NOTE: &str = button_default!();
 /// What a tag means beyond its node, where the hosts make more of it than
 /// the web: `contract vocab <tag>` prints it under the tag.
 pub const TAG_NOTES: &[(&str, &str)] = &[
-    ("time", "HTML time: `datetime` is an instant in epoch milliseconds, as `date(...)` returns. `format` is a literal named presentation: relative, timer, countdown, date-short, date-medium (default), date-long, date-full, time-short or time-medium. The platform formats it in the viewer locale and time zone. Relative time advances on minute boundaries; timer and countdown advance each second on the runner clock, with no app task. A timer counts away from either side of its instant; countdown stops at zero. Children are fallback content when the host cannot format the instant. A standalone live time reserves its box for the widest text at its font (two units for relative time). An inline time among other runs in a text reflows as on the web. Ticking formats use tabular digits by default."),
+    ("time", "HTML time: `datetime` is an instant in epoch milliseconds, as `date(...)` returns. `format` is a literal named presentation: relative, timer, countdown, date-short, date-medium (default), date-long, date-full, time-short or time-medium. The platform formats it in the viewer locale and time zone. Relative time advances on minute boundaries; timer and countdown advance each second on the runner clock, with no app task. Apple timers use SwiftUI’s unpadded first field (`0:05`, `1:00:00`). A timer counts away from either side of its instant; countdown stops at zero. On snapshots, timer uses `Text(date, style: .timer)`, countdown uses `Text(timerInterval: entryDate...instant, countsDown: true)` to stop at zero, and calendar formats draw the kernel’s formatted string without ticking. Children are fallback content when the host cannot format the instant. A standalone live time reserves its box at its font: two localized units for relative time, one extra hour digit for timer, and the first displayed shape for countdown. An inline time among other runs in a text reflows as on the web. Ticking formats use tabular digits by default."),
     ("progress", "HTML progress: `value` and optional `max` (1 by default) make a determinate bar; with neither it is the platform activity indicator. `start` and `end` instead name epoch millisecond instants: the runner advances the bar from 0 to 1 over that interval, clamps before and after it, and executes no app task. Write both, with end after start; do not combine them with value or max. It remains a native control with no children; name it with aria-label."),
     (
         "header",

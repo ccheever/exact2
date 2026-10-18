@@ -12,7 +12,9 @@ impl<D: DataSource> Bridge<D> {
     /// kind 5 takes a block back. Kind 6 says where a block is shown in
     /// place (LLP 1123 D2): f32 x, y, width, height in the local
     /// coordinates of a u32 view after them, which makes its record 28
-    /// bytes; kind 7 forgets it.
+    /// bytes; kind 7 forgets it. Kind 8 is the margins UIKit's own list gives
+    /// a grouped list's cards and cells: f32 the card's left and right
+    /// insets, then the cell's left and right margins; kind 9 clears them.
     pub fn covers(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let mut records = Vec::new();
@@ -32,7 +34,8 @@ impl<D: DataSource> Bridge<D> {
         let out = if !rest.is_empty() {
             self.refusal("covers: truncated record")
         } else {
-            let (mut covers, mut blocks, mut placements) = (Vec::new(), Vec::new(), Vec::new());
+            let (mut covers, mut blocks, mut placements, mut margins) =
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new());
             for r in records {
                 let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
                 let edge = |i: usize| f32::from_le_bytes(word(i));
@@ -58,6 +61,14 @@ impl<D: DataSource> Bridge<D> {
                         placements.push((view, Some((rect, u32::from_le_bytes(word(24))))));
                     }
                     7 => placements.push((view, None)),
+                    8 => margins.push((
+                        view,
+                        Some(exact_kernel::GroupedMargins {
+                            card: [edge(8), edge(12)],
+                            cell: [edge(16), edge(20)],
+                        }),
+                    )),
+                    9 => margins.push((view, None)),
                     1 => {
                         let edges = [edge(8), edge(12), edge(16), edge(20)];
                         covers.push((view, Some(exact_kernel::HostCover::Edges(edges))));
@@ -70,9 +81,9 @@ impl<D: DataSource> Bridge<D> {
                     _ => covers.push((view, None)),
                 }
             }
-            self.host
-                .as_mut()
-                .map_or_else(not_booted, |h| h.set_claims(&covers, &blocks, &placements))
+            self.host.as_mut().map_or_else(not_booted, |h| {
+                h.set_claims(&covers, &blocks, &placements, &margins)
+            })
         };
         self.emit(out)
     }

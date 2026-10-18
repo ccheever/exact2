@@ -165,7 +165,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
     for (attr, row, invalid) in [
         ("align-items", StyleId::AlignItems, "middle"),
         ("display", StyleId::Display, "flexbox"),
-        ("overflow", StyleId::OverflowX, "clip"),
+        ("overflow", StyleId::OverflowX, "truncate"),
         ("object-fit", StyleId::ObjectFit, "stretch"),
         ("font-style", StyleId::FontStyle, "slanted"),
         ("position", StyleId::PositionType, "fixed"),
@@ -1270,6 +1270,22 @@ fn a_css_width_transition_names_the_engine_limit_not_a_syntax_error() {
         e.message.contains("opacity") && e.message.contains("border-color"),
         "{e}"
     );
+    // Each layout property's refusal leads with the row that animates it
+    // (LLP 1063 D6), and every example it gives compiles; an inset's needs a
+    // positioned box, so it is not a no-op on a static one.
+    for p in "width min-width margin flex-basis gap right left top bottom".split(' ') {
+        let m = refused(&format!("transition=\"{p} 200ms ease\"")).message;
+        assert!(
+            m.find("-exact-layout-transition") < m.find("opacity"),
+            "{m}"
+        );
+        let examples: Vec<&str> = m.split('`').filter(|s| s.starts_with("box ")).collect();
+        assert_eq!(examples.len(), 1, "{m}");
+        let inset = matches!(p, "right" | "left" | "top" | "bottom");
+        assert_eq!(examples[0].contains("position=\"absolute\""), inset, "{m}");
+        let app = format!("component App\n  state small = false\n  view\n    box position=\"relative\" height=200\n      {}\n", examples[0]);
+        contract::compile(&app).unwrap_or_else(|e| panic!("{p}: {e}"));
+    }
     assert!(!e.message.contains("not a CSS"), "{e}");
     let malformed = refused("transition=\"opacity 20ms gibberish\"");
     assert!(malformed.message.contains("invalid transition components"));

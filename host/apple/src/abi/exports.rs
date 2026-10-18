@@ -296,7 +296,12 @@ macro_rules! host {
         /// Snapshot bytes, kind and optional props JSON, concatenated in the input buffer.
         #[no_mangle]
         pub extern "C" fn exact_boot_entry(rt: u32, plan: usize, kind: usize, props: usize, width: f32, height: f32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| b.boot_entry(plan, kind, props, ($new)(), hooks, width, height), |n| n)
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| {
+                b.set_compat($compat);
+                if let Some(refusal) = b.refuse_analysis() { return refusal; }
+                b.set_delivery($delivery);
+                b.boot_entry(plan, kind, props, ($new)(), hooks, width, height)
+            }, |n| n)
         }
         /// Refresh the entry's declared source; returns a JSON timeline or an error.
         #[no_mangle]

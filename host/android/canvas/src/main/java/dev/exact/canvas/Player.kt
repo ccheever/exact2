@@ -103,6 +103,14 @@ internal class Player(private val fonts: Map<Int, Font>) {
     private val current = Matrix()
     private val backdropBounds = RectF()
 
+    /** [anim] over [bounds]: drawn at the origin, under a translation, with bounds of its size alone. Android 10's
+     * `AnimatedImageDrawable` drew a strip of its frames, or nothing, at bounds away from the origin. */
+    private fun drawAnimated(c: Canvas, anim: android.graphics.drawable.Drawable) {
+        c.save(); c.translate(bounds.left.toFloat(), bounds.top.toFloat())
+        anim.setBounds(0, 0, bounds.width(), bounds.height()); anim.draw(c)
+        c.restore()
+    }
+
     /**
      * A material's backdrop (op 27 at [at]): what this replay drew from [from] up to it, again, into a node at the
      * blur's device bounds with a blur effect, drawn within the rounded rect. HWUI keeps the blurred layer until the
@@ -110,6 +118,8 @@ internal class Player(private val fonts: Map<Int, Font>) {
      */
     /** Op 27 (one blur) or 42 (ordered functions: kind 0 blur, 1 saturation), over what [b] drew from [from] to [at]. */
     private fun backdrop(c: Canvas, b: IntBuffer, from: Int, at: Int) {
+        // No backdrop filter before RenderEffect (Android 12): what is behind shows unfiltered.
+        if (android.os.Build.VERSION.SDK_INT < 31) return
         val ordered = b.get(at) == 42
         val count = if (ordered) b.get(at + 1) else 1
         readRRect(b, if (ordered) at + 2 + 2 * count else at + 2)
@@ -744,7 +754,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     rect.set(f(b, i + 2), f(b, i + 3), f(b, i + 2) + f(b, i + 4), f(b, i + 3) + f(b, i + 5))
                     val anim = animated(b.get(i + 1))
                     if (anim != null) {
-                        rect.round(bounds); anim.bounds = bounds; anim.draw(c)
+                        rect.round(bounds); drawAnimated(c, anim)
                     } else image(b.get(i + 1))?.let { bmp -> c.drawBitmap(bmp, null, rect, imagePaint) }
                     i += 6
                 }
@@ -762,7 +772,8 @@ internal class Player(private val fonts: Map<Int, Font>) {
                         for (g in 0 until count) {
                             glyphIds[g] = b.get(at); positions[2 * g] = f(b, at + 1); positions[2 * g + 1] = f(b, at + 2); at += 3
                         }
-                        c.drawGlyphs(glyphIds, 0, positions, 0, count, font, glyphPaint)
+                        if (android.os.Build.VERSION.SDK_INT >= 31) c.drawGlyphs(glyphIds, 0, positions, 0, count, font, glyphPaint)
+                        else LegacyGlyphs.draw(c, glyphIds, positions, count, font, glyphPaint)
                     }
                     i += 6 + 3 * count
                 }
@@ -779,7 +790,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                         c.save()
                         path.rewind(); path.addRoundRect(rect, radii, Path.Direction.CW); c.clipPath(path)
                         dstRect.set(f(b, i + 2), f(b, i + 3), f(b, i + 2) + f(b, i + 4), f(b, i + 3) + f(b, i + 5))
-                        dstRect.round(bounds); anim.bounds = bounds; anim.draw(c)
+                        dstRect.round(bounds); drawAnimated(c, anim)
                         c.restore()
                     } else image(b.get(i + 1))?.let { bmp ->
                         // Drawn under a clip, not as a BitmapShader's fill: a shader keeps its bitmap's pixels (for a

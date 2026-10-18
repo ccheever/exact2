@@ -263,7 +263,7 @@ fn run_plan<D: DataSource>(
     let (cols, rows) = size
         .or_else(|| interactive.then(crate::term::size).flatten())
         .unwrap_or((80, 24));
-    let mut host = match Host::boot(plan, data, mode, cols, rows) {
+    let mut host = match Host::boot_with_clock(plan, data, mode, cols, rows, interactive) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("boot: {e}");
