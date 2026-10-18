@@ -58,8 +58,10 @@ struct FlexItem {
     flex_shrink: f32,
     /// The flex grow style of the item
     flex_grow: f32,
-    /// Whether the item's used flex basis is definite (rather than derived from the item's content)
+    /// Whether the computed flex base size is definite, including a size transferred through a ratio.
     flex_basis_is_definite: bool,
+    /// Whether flex-basis (or the main size for auto) resolves without a content calculation.
+    used_flex_basis_is_definite: bool,
 
     /// The minimum size of the item. This differs from min_size above because it also
     /// takes into account content based automatic minimum sizes
@@ -897,6 +899,7 @@ fn generate_anonymous_flex_items(
                 flex_grow: child_style.flex_grow(),
                 flex_shrink: child_style.flex_shrink(),
                 flex_basis_is_definite: false,
+                used_flex_basis_is_definite: false,
                 flex_basis: 0.0,
                 inner_flex_basis: 0.0,
                 violation: 0.0,
@@ -1082,6 +1085,11 @@ fn determine_flex_base_size(
         let flex_basis = flex_basis_style
             .maybe_resolve(percent_resolution_main_size, |val, basis| tree.calc(val, basis))
             .maybe_add(box_sizing_adjustment);
+        // EXACT PATCH 51: a ratio-derived content basis is definite for layout,
+        // but does not clamp the item's intrinsic contribution as a definite used basis does.
+        child.used_flex_basis_is_definite = flex_basis.is_some()
+            || (flex_basis_style.is_auto() && child.size_style.main(dir)
+                .maybe_resolve(percent_resolution_main_size, |val, basis| tree.calc(val, basis)).is_some());
 
         drop(child_style);
 
@@ -1158,6 +1166,7 @@ fn determine_flex_base_size(
                 match resolve_sizing_keyword(flex_basis_style, main_stretch_size, percent_resolution_main_size) {
                     Some(SizingKeywordResolution::Exact(size)) => {
                         child.flex_basis_is_definite = true;
+                        child.used_flex_basis_is_definite = true;
                         break 'flex_basis size;
                     }
                     Some(SizingKeywordResolution::Measure(available)) => Some(available),
@@ -1178,6 +1187,7 @@ fn determine_flex_base_size(
                 ) {
                     Some(SizingKeywordResolution::Exact(size)) => {
                         child.flex_basis_is_definite = true;
+                        child.used_flex_basis_is_definite = flex_basis_style.is_auto();
                         break 'flex_basis size;
                     }
                     Some(SizingKeywordResolution::Measure(available)) => Some(available),
@@ -1853,7 +1863,7 @@ fn determine_container_main_size(
                         // https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes
                         let cannot_flex = (content_contribution > item.flex_basis && item.flex_grow == 0.0)
                             || (content_contribution < item.flex_basis && item.flex_shrink == 0.0);
-                        let content_contribution = if constants.is_row && item.flex_basis_is_definite && cannot_flex {
+                        let content_contribution = if constants.is_row && item.used_flex_basis_is_definite && cannot_flex {
                             item.hypothetical_inner_size.main(dir)
                         } else {
                             content_contribution
@@ -3802,6 +3812,47 @@ mod intrinsic_tests {
                 flex_shrink: shrink,
                 ..Default::default()
             }, &children).unwrap();
+            let row = tree.new_with_children(Style::default(), &[item]).unwrap();
+            for width in [AvailableSpace::MinContent, AvailableSpace::MaxContent] {
+                for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                    tree.mark_dirty(row).unwrap();
+                    let size = tree.as_layout_tree().measure_child_size_both(
+                        row, Size::NONE, Size::NONE, Size { width, height: AvailableSpace::MaxContent },
+                        mode, Line::FALSE,
+                    );
+                    if size != (Size { width: expected, height: 20.0 }) {
+                        failures.push(format!("{name}; {width:?}; {mode:?}: {size:?}, Chrome {expected}×20"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // Chrome 151.0.7922.34, 2026-10-18: min-content and max-content rows.
+    // A ratio can resolve a content basis without making its used basis definite.
+    #[test]
+    fn ratio_content_bases_do_not_clamp_intrinsic_contributions() {
+        let mut failures = Vec::new();
+        for (name, width, basis, minimum, shrink, expected) in [
+            ("content", 100.0, Dimension::content(), length(0.0), 1.0, 100.0),
+            ("content cannot shrink", 10.0, Dimension::content(), length(0.0), 0.0, 10.0),
+            ("content automatic minimum", 100.0, Dimension::content(), auto(), 1.0, 100.0),
+            ("min-content", 100.0, Dimension::min_content(), length(0.0), 1.0, 100.0),
+            ("max-content", 100.0, Dimension::max_content(), length(0.0), 1.0, 100.0),
+            ("auto preferred", 100.0, auto(), length(0.0), 1.0, 100.0),
+            ("length", 100.0, length(40.0), length(0.0), 1.0, 40.0),
+        ] {
+            let mut tree = TaffyTree::<()>::new();
+            let item = tree.new_leaf(Style {
+                display: Display::Block,
+                size: Size { width: length(width), height: length(20.0) },
+                aspect_ratio: Some(1.0),
+                min_size: Size { width: minimum, height: auto() },
+                flex_basis: basis,
+                flex_shrink: shrink,
+                ..Default::default()
+            }).unwrap();
             let row = tree.new_with_children(Style::default(), &[item]).unwrap();
             for width in [AvailableSpace::MinContent, AvailableSpace::MaxContent] {
                 for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {

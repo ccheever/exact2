@@ -1570,6 +1570,15 @@ and contents with an explicit zero minimum. Measured with the same Chrome
 version and date. Before the correction, seven kernel frames and twelve
 Taffy measurements/layouts differed, including 40px instead of 100px.
 
+The contribution guard distinguishes a definite used basis from a computed
+base size made definite by an aspect ratio. Content and intrinsic-keyword
+bases remain content-based for this guard; ratio-derived definiteness still
+serves percentage layout. Taffy's
+`ratio_content_bases_do_not_clamp_intrinsic_contributions` checks seven
+Chrome-measured cases under both intrinsic widths and sizing modes. Twenty
+queries failed before the distinction: the reported content-basis row was
+20px instead of 100px, and disabling shrink kept a 10px row at 20px.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
