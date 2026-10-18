@@ -47,3 +47,14 @@ test('each Finish request selects review mode without clearing drafts; saved PR 
   const target = prTargetOf({ projectId: 'p', host: 'github.com', repository: 'o/r', number: 3, url: 'https://github.com/o/r/pull/3', environmentId: 'original-owner' })!;
   expect(JSON.parse(selectionOf(target)).environmentId).toBe('original-owner'); expect(prSurfaceId(target)).toContain('original-owner');
 });
+
+
+test('programmatic Finish opens review mode before the trigger action and still permits switching modes', () => {
+  const component = contractComponent('src/pull-requests/pages-pr-compose.contract', 'PrdComposer');
+  const writes = { commentDraft: '', commentSerial: 0, summary: 'Keep my summary', reviewSerial: 0, canComment: true, verdicts: ['comment', 'approve'], pendingCount: 0, submitting: '', actionPending: false };
+  const scope = { writes, reviewRequest: 1, scope: 'pr-page-scroll' }, state = component.state(scope);
+  expect(component.derives(state, scope).shownMode).toBe('review');
+  component.call('pick', state, scope, ['comment']); expect(component.derives(state, scope).shownMode).toBe('comment');
+  expect(component.derives(state, { ...scope, reviewRequest: 2 }).shownMode).toBe('review');
+  expect(state.summaryText).toBe('Keep my summary');
+});
