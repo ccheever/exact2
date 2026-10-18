@@ -259,6 +259,7 @@ fn schema_admission_names_real_props_and_styles() {
         assert!(PropId::from_name(&name).is_some(), "{name}");
     }
     assert!(admits_prop(PropId::AccessibilityElementsHidden));
+    assert!(!admits_prop(PropId::AccessibilityLive));
     assert!(!admits_prop(PropId::NativeViewModuleName));
 }
 
@@ -266,7 +267,7 @@ fn schema_admission_names_real_props_and_styles() {
 fn constants_accessibility_and_conditional_classes_are_admitted() {
     let src = source(
         "    column
-      text nowMs.toString() class=(nowMs > 0 ? Emph : Plain) aria-description=\"Clock label\" aria-level=2 lang=\"en\" title=\"Label\" aria-live=\"polite\"
+      text nowMs.toString() class=(nowMs > 0 ? Emph : Plain) aria-description=\"Clock label\" aria-level=2 lang=\"en\" title=\"Label\"
       image \"symbol:sf/train\" aria-hidden=true",
         "style Emph
   color=\"red\"
@@ -623,6 +624,11 @@ fn refresh_checks_distinguish_pending_sources_and_result_mismatches() {
 #[test]
 fn snapshot_v1_refusals_have_the_driver_edit() {
     for (view, id, edit) in [
+        (
+            r#"text title aria-live="polite""#,
+            "snapshot-prop",
+            "remove it from the entry",
+        ),
         (
             r#"text title visibility="hidden""#,
             "snapshot-row",

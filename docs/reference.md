@@ -366,6 +366,9 @@ text paragraph, so the widget can reserve its width; calendar formats may be
 inline. Links must be their own elements, not runs among other paragraph text.
 Snapshot handlers are refused; use a link to open the app.
 
+Snapshot accessibility admits labels, roles, hints, heading levels and hidden
+content. Live announcements and control-state accessibility rows are refused.
+
 Snapshot paint uses document order and the system colour scheme. Use a condition
 or `display: none` to hide content; `visibility` and `z-index` are refused.
 Borders have one width, colour and solid, dashed or dotted style on all sides.
