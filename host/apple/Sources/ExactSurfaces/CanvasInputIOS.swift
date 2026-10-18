@@ -29,6 +29,8 @@ final class CanvasInputHost {
         DispatchQueue.main.async { [weak self] in self?.focusIfUnheld() }
         CanvasPads.shared.add(self)
     }
+    /// The pads follow the focus here (`CanvasPads.resync`).
+    func focused() { CanvasPads.shared.resync() }
     /// Pads go to the canvas holding the focus, as keys do.
     var padFocus: Bool { view.map(CanvasInputHost.hasFocus) ?? false }
     private func focusIfUnheld() {

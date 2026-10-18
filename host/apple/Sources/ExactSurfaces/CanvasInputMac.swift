@@ -29,6 +29,8 @@ final class CanvasInputHost {
         DispatchQueue.main.async { [weak self] in self?.focusIfUnheld() }
         CanvasPads.shared.add(self)
     }
+    /// The pads follow the focus here (`CanvasPads.resync`).
+    func focused() { CanvasPads.shared.resync() }
     /// Pads go to the canvas with the keyboard focus in the key window, as keys do.
     var padFocus: Bool {
         guard let view, let window = view.window, window.isKeyWindow, let responder = window.firstResponder as? NSView else { return false }
