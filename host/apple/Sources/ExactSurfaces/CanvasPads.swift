@@ -14,7 +14,8 @@ import UIKit
 /// `buttonA` is the bottom face button, standard button 0, on every family.
 /// A change to any element sends the focused canvas the pad's whole state; a
 /// change, not a sample per frame. The pads follow the focus: when a canvas
-/// takes it, or the app becomes active again, the canvas that had them hears
+/// takes it or gives it up, when the app becomes active again, and on the Mac
+/// when a window becomes or stops being key, the canvas that had them hears
 /// each pad go and the focused one hears each pad as it is now. A controller
 /// without the extended profile (the Siri Remote) is reported connected and
 /// sends nothing more.
@@ -25,6 +26,7 @@ final class CanvasPads {
     private var slots: [GCController?] = []
     private var sent: [Int: [Double]] = [:]
     private weak var sink: CanvasInputHost?
+    private var reconciling = false
     private var hosts: [Weak] = []
     private struct Weak { weak var host: CanvasInputHost? }
     private static let maxPads = 16, step = 256.0
@@ -43,6 +45,12 @@ final class CanvasPads {
         let active = UIApplication.didBecomeActiveNotification
         #endif
         _ = center.addObserver(forName: active, object: nil, queue: .main) { [weak self] _ in self?.resync() }
+        #if os(macOS)
+        // Pads go to the key window's focus (`CanvasInputHost.padFocus`).
+        for key in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            _ = center.addObserver(forName: key, object: nil, queue: .main) { [weak self] _ in self?.reconcile() }
+        }
+        #endif
         for controller in GCController.controllers() { connect(controller) }
     }
     /// A canvas that takes input hears the pads while it has focus; it takes
@@ -56,6 +64,16 @@ final class CanvasPads {
     /// canvas until one takes the focus, and then report again.
     func blurred(_ host: CanvasInputHost) {
         if sink === host { sink = nil; sent.removeAll() }
+    }
+    /// The focus or the key window changed: `resync` once the responders have
+    /// settled, since a responder resigns before its successor takes over.
+    func reconcile() {
+        guard !reconciling else { return }
+        reconciling = true
+        DispatchQueue.main.async { [weak self] in
+            self?.reconciling = false
+            self?.resync()
+        }
     }
     /// Move the pads to the focused canvas and send it every connected pad.
     func resync() {

@@ -402,6 +402,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if ok { showFocusRing(false) }
         if ok { presenter?.collections.pinsChanged() }
         if ok && !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
+        if ok { inputCanvas?.canvasInput?.focusLeft() }
         if ok, presenter?.menus.focus.quiet != true { presenter?.blur(id) }
         return ok
     }

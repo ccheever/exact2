@@ -68,6 +68,7 @@ extension NodeView {
         presenter?.selection.focusLeft()
         presenter?.collections.pinsChanged()
         if !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
+        inputCanvas?.canvasInput?.focusLeft()
         presenter?.blur(id)
     }
     /// Dates and selects have the same single native focus owner as a field.

@@ -31,6 +31,9 @@ final class CanvasInputHost {
     }
     /// The pads follow the focus here (`CanvasPads.resync`).
     func focused() { CanvasPads.shared.resync() }
+    /// And away from here, wherever it went: an editor outside every canvas
+    /// says nothing as it takes the focus.
+    func focusLeft() { CanvasPads.shared.reconcile() }
     /// Pads go to the canvas with the keyboard focus in the key window, as keys do.
     var padFocus: Bool {
         guard let view, let window = view.window, window.isKeyWindow, let responder = window.firstResponder as? NSView else { return false }
