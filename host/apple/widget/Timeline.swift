@@ -28,13 +28,26 @@ private func facts(_ traits: UITraitCollection, at date: Date) -> SessionFacts {
     SessionFacts(displayScale: max(1, traits.displayScale), preferences: Preferences(traits: traits),
                  rootFontSize: UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).pointSize, date: date)
 }
+private func snapshotFamily(_ family: WidgetFamily) -> SnapshotEnvironment.Family {
+    switch family {
+    case .systemSmall: .systemSmall
+    case .systemMedium: .systemMedium
+    case .systemLarge: .systemLarge
+    case .systemExtraLarge: .systemExtraLarge
+    case .accessoryCircular: .accessoryCircular
+    case .accessoryRectangular: .accessoryRectangular
+    case .accessoryInline: .accessoryInline
+    @unknown default: .systemSmall
+    }
+}
+
 // LLP 1126.000 WP5: the driver owns the archived layout and applies margins once.
 private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, contentSize: CGSize,
                                 facts: SessionFacts, family: WidgetFamily) throws -> some View {
     let session = try HeadlessSession(plan: entry.plan, entry: entry.kind, props: entry.props,
                                       size: contentSize, facts: facts, assetRoot: entry.root)
     let environment = SnapshotEnvironment(
-        family: SnapshotEnvironment.Family(rawValue: String(describing: family)) ?? .systemSmall,
+        family: snapshotFamily(family),
         // Both sample paths contain no account data. Only placeholder(in:) is redacted.
         placeholder: entry.preview,
         linkBase: (Bundle.main.object(forInfoDictionaryKey: "ExactLinkBase") as? String).flatMap(URL.init(string:)),
@@ -141,7 +154,10 @@ struct ExactWidgetView: View {
                 let facts = SessionFacts(displayScale: scale, preferences: preferences, rootFontSize: bodySize, date: entry.date)
                 if let view = try? widgetSnapshotView(entry, displaySize: geometry.size, contentSize: size, facts: facts, family: family) {
                     view.redacted(reason: entry.placeholder ? .placeholder : [])
-                } else { unavailable.padding(margins).containerBackground(.background, for: .widget) }
+                } else {
+                    unavailable.padding(margins).containerBackground(.background, for: .widget)
+                        .redacted(reason: entry.placeholder ? .placeholder : [])
+                }
             }
         }.privacySensitive(!entry.preview)
     }

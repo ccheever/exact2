@@ -74,10 +74,12 @@ impl Manifest {
                     object
                         .get(key)
                         .map(|value| {
+                            // The label is a Swift string literal in the generated widget bundle.
                             value
                                 .as_str()
+                                .filter(|s| !s.trim().is_empty() && !s.chars().any(char::is_control))
                                 .map(str::to_owned)
-                                .ok_or_else(|| format!("{at}.{key} must be a string"))
+                                .ok_or_else(|| format!("{at}.{key} must be a non-empty string without control characters"))
                         })
                         .transpose()
                 };
