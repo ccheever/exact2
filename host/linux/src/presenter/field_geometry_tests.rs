@@ -264,6 +264,8 @@ fn field_down_revalidates_after_authored_pointerdown() {
 fn context_preview_field_prevents_mouse_focus_and_caret() {
     for down in [
         "shown = shown",
+        "preview = false",
+        "panelPosition = \"static\"",
         "fieldDisplay = \"none\"",
         "fieldVisibility = \"hidden\"",
         "shown = false",
@@ -274,6 +276,8 @@ fn context_preview_field_prevents_mouse_focus_and_caret() {
                 r#"component Fields
   state seen = ""
   state shown = true
+  state preview = true
+  state panelPosition = "absolute"
   state disabled = false
   state fieldDisplay = "block"
   state fieldVisibility = "visible"
@@ -284,8 +288,9 @@ fn context_preview_field_prevents_mouse_focus_and_caret() {
   view
     column width=400 height=600
       input id="editor" testId="editor" value="other" width=180 height=40
-      box position="absolute" top=100 width=300 height=220
-        box contextTarget="editor" width=300 height=40
+      box position=panelPosition top=100 width=300 height=220
+        if preview
+          box contextTarget="editor" width=300 height=40
         button press=record("press ") {feedback}
           if shown
             input id="field" testId="field" value="abcd" appearance="none" width=180 height=120 padding=12 font-size=16 line-height="24px" focus=record("focus ") display=fieldDisplay visibility=fieldVisibility disabled=disabled pointerdown=down
@@ -301,17 +306,29 @@ fn context_preview_field_prevents_mouse_focus_and_caret() {
             assert_eq!(p.hit(x, y), Some(id));
             assert!(p.pointerdown_prevents_focus(id));
             p.pointer_down(x, y, 1.).unwrap();
-            assert_eq!(p.focus, Some(editor), "{down} {feedback}");
+            let dismissed = matches!(down, "preview = false" | "panelPosition = \"static\"");
+            let focus = if dismissed {
+                assert!(!p.pointerdown_prevents_focus(id));
+                Some(id)
+            } else if down == "shown = false" {
+                None
+            } else {
+                Some(editor)
+            };
+            assert_eq!(p.focus, focus, "{down} {feedback}: down");
             assert_eq!(p.field_selection(editor), FieldSelection::caret(2));
-            if down != "shown = false" {
-                assert_eq!(p.field_selection(id), FieldSelection::caret(3));
+            let caret = p.field_selection(id);
+            if dismissed {
+                assert_ne!(caret, FieldSelection::caret(3), "{down} {feedback}");
+            } else if down != "shown = false" {
+                assert_eq!(caret, FieldSelection::caret(3), "{down} {feedback}");
             }
-            assert_eq!(contact_log(&p), "");
+            assert_eq!(contact_log(&p), if dismissed { "focus " } else { "" });
             p.pointer_up(x, y, 2.).unwrap();
-            assert_eq!(p.focus, Some(editor), "{down} {feedback}");
+            assert_eq!(p.focus, focus, "{down} {feedback}: up");
             assert_eq!(p.field_selection(editor), FieldSelection::caret(2));
             if down != "shown = false" {
-                assert_eq!(p.field_selection(id), FieldSelection::caret(3));
+                assert_eq!(p.field_selection(id), caret, "{down} {feedback}");
             }
             if down == "shown = shown" {
                 assert_eq!(contact_log(&p), "press ");
