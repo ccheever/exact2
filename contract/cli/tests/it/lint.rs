@@ -574,23 +574,33 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     }
 }
 
-/// `style=`'s declarations come back as attributes that compile, a quote
-/// or a backslash in a value escaped as a string literal takes it.
+/// `style=`'s declarations come back as attributes that compile: a quote, a
+/// backslash or another control character in a value escaped as a string
+/// literal takes it, and a run of whitespace (a newline) one space, as CSS
+/// reads it.
 #[test]
 fn style_declarations_are_suggested_as_attributes_that_compile() {
     let app = |attrs: &str| format!("component A\n  view\n    text \"a\" {attrs}\n");
-    let src = app(r#"style="font-family: \"Times New Roman\", serif; color: red""#);
-    let e = contract::compile(&src).unwrap_err();
-    let edit = e
-        .message
-        .split('`')
-        .nth(5)
-        .unwrap_or_else(|| panic!("{}", e.message));
-    assert_eq!(
-        edit,
-        r#"font-family="\"Times New Roman\", serif" color="red""#
-    );
-    contract::compile(&app(edit)).unwrap_or_else(|e| panic!("{edit}: {e}"));
+    for (written, suggested) in [
+        (
+            r#"style="font-family: \"Times New Roman\", serif; color: red""#,
+            r#"font-family="\"Times New Roman\", serif" color="red""#,
+        ),
+        (
+            r#"style="padding: 8px\n 16px;\tmargin:\u{d}\n4px""#,
+            r#"padding="8px 16px" margin="4px""#,
+        ),
+        (r#"style="aria-label: a\u{1}b""#, r#"aria-label="a\u{1}b""#),
+    ] {
+        let e = contract::compile(&app(written)).unwrap_err();
+        let edit = e
+            .message
+            .split('`')
+            .nth(5)
+            .unwrap_or_else(|| panic!("{}", e.message));
+        assert_eq!(edit, suggested, "{written}");
+        contract::compile(&app(edit)).unwrap_or_else(|e| panic!("{edit}: {e}"));
+    }
 }
 
 #[test]

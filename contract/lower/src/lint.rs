@@ -146,7 +146,18 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
         .filter(|d| !d.is_empty())
         .map(|d| {
             let (name, value) = d.split_once(':')?;
-            let value = value.trim().replace('\\', "\\\\").replace('"', "\\\"");
+            // A string literal of the value: CSS's runs of whitespace as one
+            // space, which mean the same, and every other control character,
+            // a quote and a backslash escaped.
+            let value: String = value.split_whitespace().collect::<Vec<_>>().join(" ");
+            let value: String = value
+                .chars()
+                .map(|c| match c {
+                    '\\' | '"' => format!("\\{c}"),
+                    c if c.is_control() => format!("\\u{{{:x}}}", c as u32),
+                    c => c.to_string(),
+                })
+                .collect();
             Some(format!("{}=\"{value}\"", name.trim()))
         })
         .collect();
