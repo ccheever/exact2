@@ -1,6 +1,7 @@
 import { requireRpcPermissions } from '../connections/command-permissions';
-// The Usage page across environments, T3 Code 1e2ecbd975 (MIT, see
+// The Usage page across environments, T3 Code 9c161462c9 (MIT, see
 // LICENSE-T3): apps/web/src/state/usage.ts (EnvironmentUsageStatus, useUsage, mergeAnsweredUsage),
+// packages/client-runtime/src/state/server.ts (the usageSummary query's cache-first follow-up),
 // apps/web/src/components/usage/UsagePage.tsx (the environment filter, refreshWindow, refreshLimits,
 // the automatic limits refresh, the limits clock `limitsNow`, CursorEnableButton) and
 // UsageLimits.tsx useResetCredit for a pooled segment. Changes:
@@ -151,15 +152,31 @@ function summaryEntry(state: UsageState, id: string): Summary | null {
   if (!entry || entry.windowKey !== windowKey) state.summaries.set(id, entry = { windowKey, summary: null, error: '', pending: false, stale: true, token: 0, generation: -1, readAt: 0 });
   return entry;
 }
-/** A summary read for the current window; a read that an invalidation or a newer read replaced is dropped. */
+/**
+ * A summary read for the current window; a read that an invalidation or a newer read replaced is dropped.
+ * Slow sources answer from cache first: that summary shows, still pending, until one `awaitRefresh`
+ * read replaces it. A failed follow-up keeps it: the cached summary is still the best data, and a
+ * failure would read as the environment not reporting usage at all. Older servers never answer
+ * with a `refreshing` source, so they get no follow-up.
+ */
 function readSummary(state: UsageState, id: string): Promise<void> {
   const entry = summaryEntry(state, id);
   if (!entry || !state.window) return Promise.resolve();
-  const token = ++entry.token;
+  const token = ++entry.token, payload = windowPayload(state.window);
   entry.pending = true; entry.stale = false;
   entry.generation = state.envs.find(env => env.id === id)?.generation ?? -1;
-  return request(state, id, 'server.getUsageSummary', windowPayload(state.window)).then(reply => {
-    if (entry.token !== token || state.summaries.get(id) !== entry) return;
+  const current = () => entry.token === token && state.summaries.get(id) === entry;
+  return request(state, id, 'server.getUsageSummary', payload).then(reply => {
+    if (!current()) return;
+    if (reply.ok && arr(reply.value.sources).some(source => source.refreshing === true)) {
+      entry.summary = reply.value; entry.error = ''; entry.readAt = state.clock;
+      return request(state, id, 'server.getUsageSummary', { ...payload, awaitRefresh: true }).then(refreshed => {
+        if (!current()) return;
+        entry.pending = false;
+        if (refreshed.ok) { entry.summary = refreshed.value; entry.readAt = state.clock; }
+        else if (refreshed.interrupted) entry.stale = true;
+      });
+    }
     entry.pending = false;
     if (reply.ok) { entry.summary = reply.value; entry.error = ''; entry.readAt = state.clock; }
     else if (reply.interrupted) entry.stale = true; // read again once the environment is back
