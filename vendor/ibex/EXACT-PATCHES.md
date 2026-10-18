@@ -1,5 +1,16 @@
 # Vendored Ibex split crates — Exact integration ledger
 
+## Mac widget Keychain (LLP 1126.001 WP16)
+
+`crates/ibex2/src/secrets/darwin_keychain.mm` selects the restricted
+`ExactKeychainAccessGroup` in the data-protection Keychain for a provisioned
+Apple widget cohort. Ordinary Mac apps keep the login Keychain. The containing
+app migrates its service's login items on its first provisioned launch;
+copy failure keeps the old item, and an existing shared item wins. Extensions
+never attempt the migration. The Objective-C fixture in
+`host/apple/tests/fixtures/keychain-migration.mm` exercises retries and failures
+with substituted Security calls; signed Keychain access still needs profiles.
+
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at

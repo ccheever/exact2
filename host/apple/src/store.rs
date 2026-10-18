@@ -107,17 +107,22 @@ pub fn endow(grants: &str) -> Result<Bindings, String> {
 /// scratch tree (files, not the Keychain).
 pub fn endow_for(grants: &str, app_id: &str) -> Result<Bindings, String> {
     let mut host = Host::new();
+    let agent = std::env::var_os("EXACT_AGENT").is_some();
+    let store = std::env::var("EXACT_STORE").unwrap_or_default();
+    let memory = (agent && store != "real") || store == "memory";
     if let Some(root) = group_root(app_id) {
         host = host.with_kv_store(Box::new(ibex2::kv::FileStore::new(root.join("kv"))));
         #[cfg(target_vendor = "apple")]
         {
-            host = host
-                .with_secret_store(Box::new(ibex2::secrets::darwin::KeychainStore::new(app_id)));
+            let secrets = ibex2::secrets::darwin::KeychainStore::new(app_id);
+            #[cfg(target_os = "macos")]
+            if !memory {
+                secrets.prepare().map_err(|e| format!("{e:?}"))?;
+            }
+            host = host.with_secret_store(Box::new(secrets));
         }
     }
-    let agent = std::env::var_os("EXACT_AGENT").is_some();
-    let store = std::env::var("EXACT_STORE").unwrap_or_default();
-    if (agent && store != "real") || store == "memory" {
+    if memory {
         host = match crate::picker::agent_secret_root(app_id) {
             Some(root) => host
                 .with_secret_store(Box::new(ibex2::secrets::FileStore::new(
