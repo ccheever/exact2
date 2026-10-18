@@ -1009,8 +1009,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // `tap midi "<input>" clock <bpm> <ms>` (LLP 1125 D9): a slice at a time, the clock moved to its end, then its ticks delivered.
       if (opts.midi?.clock) { let r = {}, prev = 0; for (const { to, ticks } of clockSlices(opts.midi.clock)) { await s.clock(`+${to - prev}`); prev = to; r = await s.op({ op: 'midi', input: opts.midi.input, clock: ticks.map(k => [s.now - to + k, 0xF8]) }); if (r?.error) break; } return s.landed({ ...r, delivery: 'substituted', carrier: host, mode: timing }); }
       if (opts.midi) return s.landed({ ...await s.op({ op: 'midi', ...opts.midi }), delivery: 'substituted', carrier: host, mode: timing }); // a MIDI input's message (LLP 1125 §4): the runner's input, the arm absent
-      if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
-      if (opts.stick !== undefined) return padOp({ op: 'tap', s, target, opts, host, timing }); // a pad's stick on a world canvas (LLP 1127.003 D3)
+      if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); if (opts.stick !== undefined) return padOp({ op: 'tap', s, target, opts, host, timing }); // a pad's stick (LLP 1127.003 D3)
       let node, part = await partTap({ s, host, touch }, target, opts); if (part) return part; // `tap <node>/<part>` (agent-inspect.mjs)
       try { node = await s.target(target, true); }
       catch (error) { throw await tapRefusal(s, target, error); } await refuseDisabled(s, node, target, opts); // a disabled control is refused the same on every host (LLP 1116.010 D3)
