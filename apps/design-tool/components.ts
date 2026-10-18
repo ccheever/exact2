@@ -30,7 +30,6 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
   const written = typeof (p.set?.value ?? p.default) === 'string' ? (p.set?.value ?? p.default) : '';
   const first = p.values?.[0];
   const folded = typeof first === 'string' ? first : written;
-  const ranged = p.kind === 'length' || p.kind === 'number' || p.kind === 'duration';
   const unit = p.kind === 'length' ? 'px' : p.kind === 'duration' ? 'ms' : '';
   const meta: Record<string, string> = {};
   if (p.control && p.control !== 'token') meta.control = p.control;
@@ -40,10 +39,14 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
   if (p.step != null) meta.step = String(p.step);
   if (p.priority != null) meta.priority = String(p.priority);
   const range: [string, string] | null = p.range ? [`${p.range[0]}${unit === 'px' ? 'px' : ''}`, `${p.range[1]}${unit === 'px' ? 'px' : ''}`] : null;
-  // (A duration reads as a number to the dials' rules, its ms written back.)
-  const c = controlOf({ name: p.name, kind: p.kind === 'duration' ? 'number' : p.kind, value: written.replace(/ms$/, ''), range, meta }, tokens, true);
+  // A duration's slider or stepper reads it as a number to the dials' rules,
+  // its ms written back; a select or a field keeps every value as written.
+  const numeric = p.kind === 'duration' && (p.control === 'slider' || p.control === 'stepper' || (!p.control && !!p.range));
+  const c = controlOf({ name: p.name, kind: numeric ? 'number' : p.kind, value: numeric ? written.replace(/ms$/, '') : written, range, meta }, tokens, true);
   if (!c) return null;
-  const amount = (v: string) => numberOf(p.kind === 'duration' ? v.replace(/ms$/, '') : v);
+  const amount = (v: string) => numberOf(numeric ? v.replace(/ms$/, '') : v);
+  // (The kinds a slider or stepper writes.)
+  const ranged = p.kind === 'length' || p.kind === 'number' || numeric;
   const free = p.kind === 'icon' ? 'icon' : p.control === 'token' || !(ranged || p.kind === 'color') && c.control !== 'select' ? 'token' : c.control;
   return {
     c: {

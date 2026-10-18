@@ -162,6 +162,8 @@ const whenOf = (text: string): When[] => text.split(' ').filter(Boolean).map(w =
 // A param's name as its `params` line spells it: its short name where one
 // param answers it (else the full one), from the newest design read.
 let paramNames = new Map<string, string>();
+// The params as the newest settled read of the app's design has them.
+let appParams = new Map<string, ParamInfo>();
 const lineName = (param: string) => paramNames.get(param) ?? param;
 const whenText = (w: When[]) => w.map(c => `${c.axis}=${c.value}`).sort().join(' ');
 
@@ -275,7 +277,7 @@ async function readDesign(file: string, wanted: () => boolean): Promise<{ error:
  * which a `when` line needs first (LLP 1121 D15). */
 function opsOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown>[] {
   const op = opOf(file, kind, target, when, value);
-  const p = kind === 'set-param' && when ? snapshots.get(issued)?.params.get(target) : undefined;
+  const p = kind === 'set-param' && when ? appParams.get(target) : undefined;
   return p && p.set === null ? [{ op: 'set-param', name: lineName(target), when: [], value: p.default }, op] : [op];
 }
 function opOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown> {
@@ -794,7 +796,7 @@ const sources: Sources = {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
         snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir) });
-        paramNames = new Map([...snapshots.get(number)!.params].map(([name, p]) => [name, p.short]));
+        if (!file || file === designFile) { appParams = snapshots.get(number)!.params; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
@@ -806,7 +808,7 @@ const sources: Sources = {
         names: [...names],
         icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
         // A param's line is the app design's: the panel only while that is open.
-        components: file ? [] : componentsOf(ir.components, designFile, names),
+        components: file && file !== designFile ? [] : componentsOf(ir.components, designFile, names),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
@@ -845,24 +847,26 @@ const sources: Sources = {
   },
   proposeEdit: async ([file, kind, target, when, value, , , live]) => {
     const key = keyOf(file, kind, target, when, value);
-    const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, review: '' };
+    const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [], key, scrubbable: false, review: '' };
     if (!kind || !target) return idle;
     if (kind !== 'remove-token' && kind !== 'unset-param' && !value) return { ...idle, ok: false, error: 'Give it a value.' };
-    const { error, reply, used } = await call('/__tamber', { method: 'propose', ops: opsOf(file, kind, target, when, value) });
+    const ops = opsOf(file, kind, target, when, value);
+    const { error, reply, used } = await call('/__tamber', { method: 'propose', ops });
     if (error) return { ...idle, ok: false, error };
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
     // What Apply writes: this edit, against the digests this proposal read,
     // to the server run that read them (its token), carried on the proposal
     // itself, so what is shown is what is written, and where.
-    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, token: used }) };
+    return { ok: true, error: '', active: true, chip: ok.class === 'live' && live === true ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, scrubbable: ops.length === 1, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, token: used, ops }) };
   },
   writeEdit: async ([file, kind, target, when, value, client, review]) => {
     const at = session;
     const key = keyOf(file, kind, target, when, value);
-    let read: { key?: string; files?: Record<string, string>; diff?: string; token?: string } = {};
+    let read: { key?: string; files?: Record<string, string>; diff?: string; token?: string; ops?: Record<string, unknown>[] } = {};
     try { read = JSON.parse(review || '{}'); } catch { /* none */ }
-    if (read.key !== key || !read.files || !read.token) return stacks(false, 'Review the change before applying it.', '');
-    const ops = opsOf(file, kind, target, when, value);
+    if (read.key !== key || !read.files || !read.token || !read.ops?.length) return stacks(false, 'Review the change before applying it.', '');
+    // The operations reviewed, as reviewed.
+    const ops = read.ops;
     const op = ops.at(-1)!;
     const move = ops.length === 1 ? await rescopeFor(file, op, read.token) : null;
     // Every file's digest as the proposal read it: the server checks the

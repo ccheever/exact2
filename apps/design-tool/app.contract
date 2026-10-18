@@ -422,6 +422,9 @@ shape Proposal
   // The edit it is of (as `draftKey` spells it), and what Apply writes:
   // that edit against the digests this proposal read.
   key: string
+  // One operation, which a scrub can preview (not a param's first `when`
+  // line, which writes its own line first).
+  scrubbable: bool
   review: string
 
 // A write, an undo or a redo: what it did, and the stacks after it.
@@ -837,6 +840,11 @@ component DesignTool
       opened = opened.concat([group])
     focusDial = name
   action cellText(v: string)
+    // A scrub open on another edit (another branch of it, a panel edit) ends first.
+    if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == (scopeOwn ? branch.own : branch.when))
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     editKind = branchOp
     editTarget = branch.token
     editWhen = scopeOwn ? branch.own : branch.when
@@ -850,6 +858,10 @@ component DesignTool
     // One typed field: the value with this part changed and every other as
     // written, so the line written changes only there.
     if typed.ok and typed.of == partsBase
+      if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == (scopeOwn ? branch.own : branch.when))
+        scrubTick = scrubTick + 1
+        scrubWant = false
+        send written = cancelScrub(scrubAsk)
       let texts = fieldTexts.map((t, j) => j == i ? v.trim() : t)
       let missing = typed.parts.filter(p => p.control != "fixed" and texts.slice(p.index, p.index + 1).join("") == "" and (not p.optional or (p.after >= 0 and texts.slice(p.after, p.after + 1).join("") != ""))).length > 0
       partTexts = texts
@@ -860,8 +872,12 @@ component DesignTool
       editWhen = scopeOwn ? branch.own : branch.when
       editValue = missing ? "" : [typed.parts.map(p => p.control == "fixed" ? p.text : (texts.slice(p.index, p.index + 1).join("") == "" and p.optional ? "" : [p.pre, texts.slice(p.index, p.index + 1).join(""), p.post].join(""))).join(""), typed.tail].join("")
   action onlyThisMode
+    if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == branch.own)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
     // A value already typed for this cell is kept, now for this mode alone.
-    if not (editKind == branchOp and editTarget == branch.token)
+    if not (editKind == branchOp and draftFor != "" and editTarget == branch.token)
       editValue = branch.value
       // A fresh draft: the fields are the value's, and it is of this value.
       rawFor = ""
@@ -1415,7 +1431,7 @@ component DesignTool
                       button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or pending(written)) buttonStyle="filled" testId="apply"
                         text "Apply"
                       if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
-                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or draftStale or partsStale or pending(written)) testId="scrub-start"
+                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written)) testId="scrub-start"
                           text "Scrub live"
                       button press=cancelEdit testId="cancel-edit"
                         text "Cancel"
