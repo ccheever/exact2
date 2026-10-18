@@ -4,16 +4,16 @@
     "120": "0x5cd6ed3af60b820a"
   },
   "saves": {
-    "continuation": "432f2afdd22376557f5cee68d07a977c35d6c56b7cb8d88d7cebef85fb4d2059"
+    "continuation": "13e8c9b1e211f2128e651c8512eeb4eb9edc119acee7312b2877fcb3f1bf0f9b"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "4b404911abdf67d6650c46476688281ee4896c37480ca3498f172a0728479f45",
-  "sourceInputs": "2e547e1dcc795a10e41747c7cc8278ec0d31ee956649f58197b9170286eaa6d3",
+  "inputs": "b8e71a43cccc7605117b6a64d5f0363469df86a4e052a66955bb07b13673845f",
+  "sourceInputs": "ac594ffff7d3d5ffd149653b45e6756f239fb831ff77014ec7c1d5c8138c72d6",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "5cbfa374cc9834e48ae79b28577e20ec53b6dd33",
-  "reason": "Refresh the stale fixture baseline against the current SDK after complete native/web mode and profile agreement"
+  "at": "ce792bfe05f781e5153b602cb563704c46eda11f",
+  "reason": "07170a2db: saved Environment.tone_mapping and Fog.linear extend the hash stream; f5ad281e8: EXGAME v5 world save magic"
 }
