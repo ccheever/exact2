@@ -1325,3 +1325,24 @@ test "the inspect toggle follows the server's inspect events: another client tak
   clock data
   expect text "inspect-toggle" == "Inspect"
   request POST "/__stub/restart" {} as ada
+
+test "Enter in Rename or in a new token's fields proposes it, as its button does, and only when the button would"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-space.edge-0-light"
+  clock data
+  type "rename-to" key "Enter"
+  expect state editKind == ""
+  type "rename-to" "space.gutter"
+  type "rename-to" key "Enter"
+  expect state editKind == "rename-token"
+  expect state editValue == "space.gutter"
+  type "new-name" "surface.raised"
+  type "new-name" key "Enter"
+  expect state editKind == "rename-token"
+  type "new-value" "#ffffff"
+  type "new-value" key "Enter"
+  expect state editKind == "add-token"
+  expect state editTarget == "surface.raised"
+  expect state editValue == "#ffffff"
