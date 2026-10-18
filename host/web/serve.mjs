@@ -13,6 +13,7 @@ import { arch, cpus, networkInterfaces, platform } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
+import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
 import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../scripts/app.mjs';
 import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
@@ -689,6 +690,19 @@ export function entryPlans(assets) {
 /** The one web envelope producer for static builds and the live dev overlay.
  * App identity comes from the plan header; the human name comes from the
  * manifest's cross-platform `app.name`, never the internal crate slug. */
+/** A dev generation's identity (LLP 1007 §6): the SHA-256 of the canonical
+ * JSON of its plan, asset, module and Rust cards, each by its name, digest
+ * and length, as a client checks it (host/web/dev.js `fetchGeneration`),
+ * never by its url (an asset card captured from disk carries one). */
+export function devGenerationDigest(plan, assets, module = null, rust = null) {
+  const card = ({ bytes, sha256 }) => ({ bytes, sha256 });
+  return createHash('sha256').update(canonicalBytes({
+    plan: card(plan), assets: assets.map(({ name, sha256, bytes }) => ({ name, sha256, bytes })),
+    ...(module ? { module: Object.fromEntries(Object.entries(module).map(([key, value]) => [key, card(value)])) } : {}),
+    ...(rust ? { rust: Object.fromEntries(Object.entries(rust).map(([kind, v]) => [kind, { module: card(v.module), receipt: card(v.receipt), ...(kind !== 'wasm' ? { target: v.target } : {}) }])) } : {}),
+  })).digest('hex');
+}
+
 export function webEnvelope(app, bytes, assets, live = {}) {
   const appId = planAppId(bytes);
   if (!appId) throw new Error('the web envelope needs a valid Exact plan with a nonempty app id');

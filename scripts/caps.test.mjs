@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
-import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
+import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope, devGenerationDigest, assetCards } from '../host/web/serve.mjs';
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
 import { appDigest, driveStore, newerThan, notBuildInput, receiptChanges, webStore } from './agent-launch.mjs';
@@ -396,6 +396,26 @@ for (const [name, html, files, expectCode, expect] of [
     good.first === 4 && peak === 4 && count === 16 && good.value?.assets.size === 5 && good.value?.module
       && bad.error?.message.includes('payload integrity failed: module web'),
     JSON.stringify({first:good.first,peak,count,goodError:good.error?.message,badError:bad.error?.message,assets:good.value?.assets.size}));
+}
+// A generation the dev loop names from asset cards captured on disk (which
+// carry their urls, as at a loop's start or an asset's edit) binds the
+// manifest a client checks: its identity is over names, digests and lengths.
+{
+  const origin = 'http://exact.test/', body = Buffer.from('payload');
+  const assets = assetCards(new Map(Array.from({ length: 3 }, (_, i) => [`assets/${i}.txt`, body])));
+  const card = name => ({ url: origin + name, bytes: body.length, sha256: sha256(body) });
+  const module = Object.fromEntries(['native', 'receipt', 'web'].map(key => [key, { bytes: body.length, sha256: sha256(body) }]));
+  const generation = devGenerationDigest({ bytes: body.length, sha256: sha256(body) }, assets, module);
+  const identity = { epoch: 'a'.repeat(32), seq: 1, generation, program: 'b'.repeat(64) };
+  const envelope = { exact: 1, app: { id: 'com.exact.test' }, dev: identity, plan: card('app.plan'),
+    assets: assets.map(a => ({ ...a, url: origin + a.name })), module: Object.fromEntries(Object.keys(module).map(key => [key, card(key)])) };
+  const context = { TextEncoder, TextDecoder, AbortController, URL, setTimeout, clearTimeout,
+    performance, location: { href: origin, origin: new URL(origin).origin }, exact: { ready: Promise.resolve(), compat: { inputs: { app: 'com.exact.test' } } },
+    fetch: async url => new Response(url === origin + 'exact.json' ? JSON.stringify(envelope) : body) };
+  runInNewContext(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../host/web/dev.js'), 'utf8'), context);
+  const got = await context.fetchGeneration({ ...identity, envelope: origin + 'exact.json' }, new AbortController().signal).then(value => ({ value }), error => ({ error }));
+  result('a dev generation named from cards captured on disk binds the manifest a client checks',
+    got.value?.generation === generation && !got.error, got.error?.message ?? '');
 }
 // The protocol reconciles complete namespaces and rejects out-of-order
 // completions. Its LAN hash path must match SHA-256 at block boundaries.
