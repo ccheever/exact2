@@ -231,3 +231,39 @@ fn svg_font_lengths_keep_computed_points() {
         assert_eq!(parts.props.get("height").map(String::as_str), Some(height));
     }
 }
+
+#[test]
+fn a_progress_restyles_when_only_its_parents_display_changes() {
+    let (mut host, first) = boot(
+        r#"component App
+  state grid = false
+  action toggle
+    grid = not grid
+  view
+    box display=(grid ? "grid" : "block") press=toggle testId="parent"
+      progress testId="spinner"
+"#,
+    );
+    let k = host.runner().kernel();
+    let id = |name: &str| k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id;
+    let (parent, spinner) = (id("parent"), id("spinner"));
+    assert!(css_of(&host, &first, "spinner").contains("justify-self:start;"));
+    for block in [false, true] {
+        let batch: serde_json::Value =
+            serde_json::from_str(&host.dispatch(parent, exact_runner::Event::Press)).unwrap();
+        let style = batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["op"] == "style" && op["id"] == spinner)
+            .unwrap_or_else(|| panic!("spinner was not restyled: {batch}"));
+        assert_eq!(
+            style["css"]
+                .as_str()
+                .unwrap()
+                .contains("justify-self:start;"),
+            block,
+            "{style}"
+        );
+    }
+}

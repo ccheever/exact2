@@ -1445,8 +1445,8 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         super::layers::with_isolation(css, self.layers.isolated(node.id))
     }
 
-    /// A box's CSS and its text children's again when it or its children
-    /// moved: whether a text folds into it (LLP 1007.001).
+    /// Refresh child dependencies: text folds (LLP 1007.001), button metrics
+    /// and a progress's width in block flow.
     pub(super) fn refold(&mut self, id: exact_kernel::ViewId, batch: &mut crate::batch::Batch) {
         let kernel = self.runner.kernel();
         let children = kernel.node(id).map(|n| n.children()).unwrap_or_default();
@@ -1464,7 +1464,10 @@ impl<D: exact_runner::DataSource> super::Host<D> {
             let Some(node) = kernel.node(child) else {
                 continue;
             };
-            if child != id && !matches!(node.node_type, NodeType::Text | NodeType::Pressable) {
+            if child != id
+                && !matches!(node.node_type, NodeType::Text | NodeType::Pressable)
+                && !is_progress(&node.facts())
+            {
                 continue;
             }
             let css = self.view_css(&node);
@@ -1475,7 +1478,6 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         }
     }
 }
-
 #[cfg(test)]
 #[path = "element_tests.rs"]
 mod dataset_tests;
