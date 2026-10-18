@@ -605,7 +605,7 @@ function renderAgreement(a) {
  * keeps its meaning when a state is named alike. */
 export async function stateOp(s, args) {
   // `state <canvas> draws`, `state <canvas>:<entity> visible` and `state <canvas> look` are a world's look frame (LLP 1127.000 D1, D4).
-  const look = ['draws', 'visible', 'look'].includes(args[1]) ? { [args[1]]: true } : {};
+  const look = ['draws', 'visible', 'look'].includes(args[1]) ? { [args[1]]: true, world: true } : {};
   const page = { ...look, ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
   const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
   if (args[0] == null) return read();
