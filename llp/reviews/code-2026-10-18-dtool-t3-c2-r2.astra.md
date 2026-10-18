@@ -4,7 +4,7 @@
 - **Method:** one brief (sha256 `c7862823cd23b256e5b21de922c7e504cfe7e4fe7c55b7cd31774ffd1dc0a7eb`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
 - **Transcription:** the final message, unedited.
 - **Verdict:** request changes (4 medium).
-- **Disposition:** all taken in `ee057e3e2`: Apply writes the operations it reviewed (kept in the review), and `opsOf` reads the newest settled read of the app's design, never a missing one; that two-operation edit offers no scrub (`proposal.scrubbable`); a duration's select or field keeps its values as written, only its slider or stepper strips and writes ms; Only this mode after a panel edit starts its own branch draft; a branch editor edit (its value, a field, Only this mode) ends a scrub on another branch or the panel's; the panel shows on the app's design named by its file too. A contract test drives Only this mode on a param with no line (it fails with the scrub left on).
+- **Disposition:** all taken in `ed742c171`: Apply writes the operations it reviewed (kept in the review), and `opsOf` reads the newest settled read of the app's design, never a missing one; that two-operation edit offers no scrub (`proposal.scrubbable`); a duration's select or field keeps its values as written, only its slider or stepper strips and writes ms; Only this mode after a panel edit starts its own branch draft; a branch editor edit (its value, a field, Only this mode) ends a scrub on another branch or the panel's; the panel shows on the app's design named by its file too. A contract test drives Only this mode on a param with no line (it fails with the scrub left on).
 
 I would still request changes. Four correctness issues remain.
 
