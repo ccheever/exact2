@@ -265,71 +265,24 @@ impl Kernel {
         (height.is_finite() && height >= 0.0).then_some(height)
     }
 
-    /// A node's shrink-to-fit box (CSS Sizing 3 §5.3, `fit-content`): its
-    /// subtree laid out alone as a flex item in a stand-in row `available`
-    /// points wide, so its width is its max-content size clamped to the
-    /// row (CSS Flexbox §9.2's hypothetical main size), its own `width`,
-    /// `min-width` and `max-width` and their percentages resolved against
-    /// `available`, its height its content's. Returns the border box's width
-    /// and height, the margins the layout resolved (left, top, right,
-    /// bottom) and whether the width was the author's (1) or the content's
-    /// (0): what a region the system sizes to its content takes (LLP
-    /// 1126.001 WP10). As [`Kernel::fit_content_height`], a trial in a
-    /// separate engine tree: the ordinary tree, its caches, frames and the
-    /// epoch are untouched; symbols owed a measurement are measured first.
-    /// `None` as for [`Kernel::laid_out_frame`], or when the trial fails.
-    pub fn fit_content_box(&mut self, key: NodeKey, available: f32) -> Option<[f32; 7]> {
-        use taffy::style::{
-            AlignItems, Dimension, Display, FlexDirection, JustifyContent, LengthPercentageAuto,
-        };
+    /// The margins the last layout resolved around `key`'s border box (left,
+    /// top, right, bottom), and whether that box's width is the author's (a
+    /// `width` or `min-width` other than `auto`, 1) or its content's (0).
+    /// What a Live Activity placement's region takes around a root the bake
+    /// positions absolutely (LLP 1126.001 WP10): CSS 2.1 §10.3.7 gave the
+    /// root its shrink-to-fit width in that layout, and the driver draws the
+    /// same layout. A read, as [`Kernel::laid_out_frame`] is: it lays nothing
+    /// out, and nothing on the ordinary layout path calls it. `None` as for
+    /// `laid_out_frame`.
+    pub fn placement_box(&self, key: NodeKey) -> Option<[f32; 5]> {
         self.laid_out_frame(key)?;
-        self.measure_symbols();
-        let slot = key.index;
-        let (mut tree, nodes) = LayoutTree::of_subtrees(&self.arena, &[slot]);
-        let root = nodes[&slot];
-        let mut style = taffy_style(&self.arena, slot);
-        style.inset = taffy::geometry::Rect {
-            left: LengthPercentageAuto::auto(),
-            right: LengthPercentageAuto::auto(),
-            top: LengthPercentageAuto::auto(),
-            bottom: LengthPercentageAuto::auto(),
-        };
-        style.position = taffy::style::Position::Relative;
-        style.flex_grow = 0.0;
-        // An authored width is kept as written, past the row too (the
-        // author's); an automatic one shrinks to the row, never below its
-        // min-content (the automatic minimum size, CSS Flexbox §4.5).
-        let authored = style.size.width != Dimension::auto();
-        if authored {
-            style.flex_shrink = 0.0;
-        }
-        style.align_self = Some(taffy::style::AlignSelf::START);
-        tree.set_style(root, style);
-        let available = available.max(0.0);
-        let mut outer = taffy::style::Style::default();
-        outer.display = Display::Flex;
-        outer.flex_direction = FlexDirection::Row;
-        outer.justify_content = Some(JustifyContent::FLEX_START);
-        outer.align_items = Some(AlignItems::FLEX_START);
-        outer.size = taffy::geometry::Size {
-            width: Dimension::length(available),
-            height: Dimension::auto(),
-        };
-        outer.position = taffy::style::Position::Relative;
-        let holder = tree.new_leaf(outer, slot, false);
-        tree.set_children(holder, &[root]);
-        let offer = Offer {
-            width: AxisOffer::Definite(available),
-            height: AxisOffer::MaxContent,
-        };
-        tree.compute_mapped(holder, offer, &self.arena, self.measurer.as_mut(), &|s| {
-            nodes.get(&s).copied()
-        })
-        .ok()?;
-        let laid = tree.layout(root);
+        let slot = self.arena.resolve(key)?;
+        let tree_ref = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
+        let laid = tree_ref.layout(self.arena.taffy(slot)?);
+        let style = self.arena.style(slot);
+        let authored =
+            style.width != crate::Dimension::Auto || style.min_width != crate::Dimension::Auto;
         let box_ = [
-            laid.size.width,
-            laid.size.height,
             laid.margin.left,
             laid.margin.top,
             laid.margin.right,

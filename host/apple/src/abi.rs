@@ -1243,13 +1243,16 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// A view's shrink-to-fit box (LLP 1126.001 WP10): JSON in the output.
-    pub fn fit_content_box(&mut self, view: u32, available: f32) -> u32 {
+    /// A placement root's margins and its width's authorship (LLP 1126.001
+    /// WP10): a measurement, written to the output as it is, with no batch
+    /// around it (`emit` prepends the presenter's pending ops to a batch).
+    pub fn placement_box(&mut self, view: u32) -> u32 {
         let out = self
             .host
             .as_mut()
-            .map_or_else(not_booted, |h| h.fit_content_box(view, available));
-        self.emit(out)
+            .map_or_else(not_booted, |h| h.placement_box(view));
+        self.output = out.into_bytes();
+        self.output.len() as u32
     }
 
     /// The page's facts changed or became known (LLP 1069.000 D2): bit 0

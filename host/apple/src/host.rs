@@ -1074,14 +1074,15 @@ impl<D: DataSource> Host<D> {
         self.resize_inner(width, height, Batch::new(), None)
     }
 
-    /// A view's shrink-to-fit box at `available` points (`Kernel::fit_content_box`),
-    /// as JSON `[width, height, left, top, right, bottom, authored]`; an error names the view.
-    pub fn fit_content_box(&mut self, view: ViewId, available: f32) -> String {
-        let kernel = self.runner.kernel_mut();
+    /// A placement root's resolved margins and whether its width is the author's
+    /// (`Kernel::placement_box`), as JSON `[left, top, right, bottom, authored]`;
+    /// an error names the view.
+    pub fn placement_box(&mut self, view: ViewId) -> String {
+        let kernel = self.runner.kernel();
         let Some(key) = kernel.node(view).map(|n| n.key) else {
             return serde_json::json!({"error": format!("no view {view}")}).to_string();
         };
-        match kernel.fit_content_box(key, available) {
+        match kernel.placement_box(key) {
             Some(b) => serde_json::to_string(&b).unwrap(),
             None => {
                 serde_json::json!({"error": format!("view {view} is not laid out")}).to_string()

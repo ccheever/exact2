@@ -198,24 +198,19 @@ public final class HeadlessSession {
         try turn(size: size) { core.runtime.resize(width: size.width, height: size.height) }
     }
 
-    /// A node's shrink-to-fit box at `available` points (`Kernel::fit_content_box`,
-    /// LLP 1126.001 WP10): the border box laid out alone as a flex item in a
-    /// row that wide (its max-content size clamped to the row, its own width
-    /// and limits and their percentages resolved against it), and the
-    /// margins the layout resolved. The tree is not laid out again.
-    public struct FittedBox {
-        public let size: CGSize
+    /// The margins the last layout resolved around a node's border box, and
+    /// whether its width is the author's (`width` or `min-width`) rather than
+    /// its content's (`Kernel::placement_box`, LLP 1126.001 WP10). A read of
+    /// the layout the tree holds; nothing is laid out again.
+    public struct PlacementBox {
         /// The resolved margins: left, top, right, bottom.
         public let margins: (left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat)
-        /// Whether the width is the author's (`width`), kept past the row, or the content's.
         public let authoredWidth: Bool
-        public var outerWidth: CGFloat { size.width + margins.left + margins.right }
-        public var outerHeight: CGFloat { size.height + margins.top + margins.bottom }
     }
-    public func fitContentBox(_ node: UInt32, available: CGFloat) -> FittedBox? {
+    public func placementBox(_ node: UInt32) -> PlacementBox? {
         Owner.shared.sync {
-            guard !core.runtime.destroyed, let v = core.runtime.fitContentBox(node, available: available) else { return nil }
-            return FittedBox(size: CGSize(width: v[0], height: v[1]), margins: (v[2], v[3], v[4], v[5]), authoredWidth: v[6] > 0.5)
+            guard !core.runtime.destroyed, let v = core.runtime.placementBox(node) else { return nil }
+            return PlacementBox(margins: (v[0], v[1], v[2], v[3]), authoredWidth: v[4] > 0.5)
         }
     }
 

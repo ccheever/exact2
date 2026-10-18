@@ -556,13 +556,13 @@ package final class Runtime {
     package func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
 
     package func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
-    /// A view's shrink-to-fit box at `available` points (LLP 1126.001 WP10): width, height, the
-    /// margins left, top, right, bottom, and 1 for an authored width; nil when the view is not laid out.
-    package func fitContentBox(_ view: UInt32, available: CGFloat) -> [CGFloat]? {
+    /// A placement root's resolved margins (left, top, right, bottom) and 1 for an authored width
+    /// (LLP 1126.001 WP10); nil when the view is not laid out.
+    package func placementBox(_ view: UInt32) -> [CGFloat]? {
         on(busy: nil as [CGFloat]?) {
-            let count = exact_fit_content_box(rt, view, Float(available))
+            let count = exact_placement_box(rt, view)
             let bytes = Data(bytes: exact_out(rt), count: Int(count))
-            guard let values = try? JSONSerialization.jsonObject(with: bytes) as? [Double], values.count == 7 else { return nil }
+            guard let values = try? JSONSerialization.jsonObject(with: bytes) as? [Double], values.count == 5 else { return nil }
             return values.map { CGFloat($0) }
         }
     }
