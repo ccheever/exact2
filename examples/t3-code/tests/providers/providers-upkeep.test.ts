@@ -187,3 +187,35 @@ test('dismissed launch prompts are all kept (dismissProviderUpdateNotification h
   adoptShellPrefs(next, { shell: { providerUpdateDismissals: keys } });
   expect((obj(next.shell).providerUpdateDismissals as string[]).length).toBe(150);
 });
+
+test('provider update rows expose live progress and keep a terminal problem in the advisory', () => {
+  const running = codex({ updateState: { status: 'running', message: 'Installing Codex package' } });
+  const fake = new Fake([running]);
+  expect(advisoryView(fake, 'codex', running, true, 'list')).toMatchObject({ updating: true,
+    progress: 'Installing Codex package', problem: '', label: 'Updating — view details' });
+  expect(withUpkeep(fake, providerPage(fake, 'codex', 1)).rows.find(row => row.id === 'codex')).toMatchObject({
+    status: 'Updating · Installing Codex package', dot: '' });
+  const failed = codex({ updateState: { status: 'unchanged', message: 'The installed version did not change' } });
+  expect(advisoryView(fake, 'codex', failed, true, 'editor')).toMatchObject({ updating: false, progress: '', problem: 'The installed version did not change' });
+});
+
+test('configured secret fields render blank and clear with an explicit empty value', async () => {
+  const settings: Obj = { providerInstances: { opencode: { driver: 'opencode', enabled: true, config: { serverPassword: 'private-fixture-secret' } } } };
+  const fake = new Fake([], settings);
+  fake.handlers['server.getSettings'] = () => settings;
+  const page = providerPage(fake, 'opencode', 1), field = page.editors[0]?.fields.find(field => field.key === 'serverPassword');
+  expect(field).toMatchObject({ value: '', placeholder: 'Configured', redacted: true, clearable: true });
+  expect(JSON.stringify(page)).not.toContain('private-fixture-secret');
+  await runProviderOp(fake, fake, 'provider-field', 'opencode', JSON.stringify({ key: 'serverPassword', value: '' }));
+  expect(obj(obj(fake.called('server.updateSettings')[0]?.providerInstanceMutation).instance).config).toMatchObject({ serverPassword: '' });
+});
+
+test('saving a built-in rename adds an override without turning it into a duplicate custom row', async () => {
+  const settings: Obj = { providerInstances: { codex: { driver: 'codex', enabled: true, config: { customModels: [] } } } };
+  const fake = new Fake([codex({ models: [{ slug: 'gpt-5', name: 'GPT 5', isCustom: false }] })], settings);
+  fake.handlers['server.getSettings'] = () => settings;
+  await providerUpkeepOp(fake, fake, 'upkeep:cm-open', 'codex', 'gpt-5', '');
+  await providerUpkeepOp(fake, fake, 'upkeep:cm-text', 'codex', 'name', 'My GPT');
+  await providerUpkeepOp(fake, fake, 'upkeep:cm-save', 'codex', '', '');
+  expect(obj(obj(obj(fake.called('server.updateSettings')[0]?.providerInstanceMutation).instance).config).customModels).toEqual([{ slug: 'gpt-5', name: 'My GPT' }]);
+});

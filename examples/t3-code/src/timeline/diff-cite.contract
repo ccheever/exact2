@@ -1,19 +1,26 @@
-// Cite, measured against T3 Code 1e2ecbd975 AssistantSelectionToolbar.tsx and lib/selectionActions.ts (MIT; see LICENSE-T3):
+// Cite, adapted from T3 Code 9c161462c9 AssistantSelectionToolbar.tsx and lib/selectionActions.ts (MIT; see LICENSE-T3):
 // a floating glass button with the quote glyph at a selection in an answer, "Cite" with aria-label "Cite selection in
 // composer", or disabled "Shorten selection" ("Selection is too long to cite") past 8,000 UTF-16 units. The reference portals
 // it to the body (`fixed z-50`), so the window draws it here (app-window.contract), above the timeline's rows (cite-selection-
 // anchor: inside the answer, the row's footer under the last block took its press). Its top-left is the release point of
-// the pointer that made the selection, else the selection's last line's right and bottom + 4 (`rects.item(rects.length - 1)`),
-// held in the timeline's box (resolveSelectionActionPosition) and 8 pt inside the window. A plain Tab while it shows focuses
+// the pointer that made the selection while that point is within 8 pt of a selected line, else the selection's last line's
+// right and bottom + 4 (`rects.item(rects.length - 1)`), held in the timeline's box (resolveSelectionActionPosition) and 8 pt inside the window. A plain Tab while it shows focuses
 // it (the answer's `keycapture`, markdown.contract); Escape there hides it and keeps the selection. The press keeps the
 // selection's focus (`retainFocus`), sends the parts to diff-review.ts with the window frame of the selection's last line,
 // measured again (where the chip's comment opens: AssistantCitationChip's `popupAnchor`), and clears the selection
 // (`window.getSelection()?.removeAllRanges()` after `onCite`).
 use DiffGlyph from "../diff/diff-glyphs.contract"
 
+// A selected line from its text's top-left.
+shape CiteLine
+  x: number
+  y: number
+  width: number
+  height: number
+
 // One text's part of the selection, in the answer's text stream (UTF-16 offsets); `block` is the text's id suffix. `lx`,
 // `ly`, `lw`, `lh`: the part's last selected line (`Selection.rects`' last) from the text's top-left at the event; `lw` -1
-// when the host reported none (a reader paragraph), where the text's own frame stands for it.
+// when the host reported none (a reader paragraph), where the text's own frame stands for it. `lines`: every selected line.
 shape CitePart
   block: string
   start: number
@@ -22,6 +29,7 @@ shape CitePart
   ly: number
   lw: number
   lh: number
+  lines: CiteLine[]
 
 // What an answer offers the window's Cite: the answer (`source`, its message id), the parts' ranges ("start-end,…") in its
 // text stream, the stream, the selection's length, Cite's top-left in the window (held in the timeline's box), and the
@@ -40,7 +48,12 @@ shape CiteOffer
   lh: number
 
 // A text's part, with its last selected line from the text's top-left.
-fn citePart(key: string, start: number, end: number, rects: Geometry[], box: Geometry): CitePart = match rects.at(-1) { case some(r) => CitePart(block=key, start=start, end=end, lx=r.x - box.x, ly=r.y - box.y, lw=r.width, lh=r.height), case none => CitePart(block=key, start=start, end=end, lx=0, ly=0, lw=-1, lh=0) }
+fn citePart(key: string, start: number, end: number, rects: Geometry[], box: Geometry): CitePart = match rects.at(-1) { case some(r) => CitePart(block=key, start=start, end=end, lx=r.x - box.x, ly=r.y - box.y, lw=r.width, lh=r.height, lines=rects.map((q) => CiteLine(x=q.x - box.x, y=q.y - box.y, width=q.width, height=q.height))), case none => CitePart(block=key, start=start, end=end, lx=0, ly=0, lw=-1, lh=0, lines=[]) }
+
+// Whether the point (x, y) is within 8 pt of the part's selected lines, its text drawn at `box` (the text's own frame when
+// the host reported no line): AssistantSelectionToolbar's `pointerOnText`.
+fn citeNearBox(x: number, y: number, left: number, top: number, width: number, height: number): bool = x >= left - 8 and x <= left + width + 8 and y >= top - 8 and y <= top + height + 8
+fn citeNear(part: CitePart, box: Geometry, x: number, y: number): bool = part.lines.length == 0 ? citeNearBox(x, y, box.x, box.y, box.width, box.height) : part.lines.filter((l) => citeNearBox(x, y, box.x + l.x, box.y + l.y, l.width, l.height)).length > 0
 
 // The part holding the selection's end (the greatest end offset), as a list of none or one.
 fn citeEnd(parts: CitePart[]): CitePart[] = parts.filter((p) => parts.filter((q) => q.end > p.end).length == 0).slice(0, 1)

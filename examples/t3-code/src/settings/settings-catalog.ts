@@ -1,7 +1,8 @@
-// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (served 0.0.46 source revision), one row per item:
+// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (9c161462c9), one row per item:
 // [id, title, route, targetId, searchTerms, scope, availability flags]. Keybinding command items are
 // derived from the connected server's keybindings at search time (settings-search.ts).
 export const CATALOG: readonly (readonly [string, string, string, string, string, string, string])[] = [
+  ["cli-command", "t3 command", "general", "", "cli terminal shell path install command line", "", "desktop"],
   ["storage-worktrees", "Worktree cleanup", "storage", "", "disk storage delete deleted archived threads old inactive merged unchanged worktrees retention days project inherit off custom", "project-defaults", ""],
   ["storage-artifacts", "Artifacts and logs", "storage", "", "disk storage browser screenshots captures rotated logs cleanup retention", "environment-defaults", ""],
   ["project-defaults", "Project defaults and overrides", "general", "", "model workspace environments projects inheritance checkout", "project-defaults", ""],
@@ -56,6 +57,10 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["delete-confirmation", "Delete confirmation", "general", "", "ask before thread chat history", "", ""],
   ["quit-confirmation", "Quit shortcut", "general", "", "confirmation desktop app exit direct hold double click press twice", "", "desktop"],
   ["text-generation-model", "Text generation model", "general", "", "generated thread titles source control content default provider", "project-defaults", ""],
+  // The About rows (the Version row is `version` here).
+  ["app-version", "Version", "general", "version", "about check for updates download install upgrade release", "", ""],
+  ["update-track", "Update track", "general", "", "release channel stable latest nightly prerelease", "", ""],
+  ["mobile-app", "Mobile app", "general", "", "phone tablet iphone ipad android app store google play qr code", "", ""],
   ["diagnostics", "Diagnostics", "general", "", "logs traces processes resource history failures spans cpu memory", "", ""],
   ["open-source-licenses", "Open source licenses", "general", "", "", "", ""],
   ["legacy-plan-mode", "Plan mode (legacy)", "general", "", "build plan composer old", "", ""],
@@ -87,6 +92,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["browser-recording-mouse-presses", "Show mouse presses in recordings", "integrations", "", "browser preview clicks buttons drag overlay capture", "", ""],
   ["browser-link-target", "Open links in", "integrations", "", "links default browser in-app browser external open", "", ""],
   ["browser-auto-show-floating-preview", "Auto-show floating preview", "integrations", "", "agent opens browser device simulator pop into view hide", "", ""],
+  ["pull-request-links-open-in-app", "Open pull requests in T3 Code", "integrations", "", "pr links github browser external click default pull request view panel", "", ""],
   ["automatic-pull", "Automatically pull", "source-control", "", "auto pull default branch current checkout fast forward upstream", "project-defaults", ""],
   ["pull-request-merge-method", "Default merge method", "source-control", "", "pull request merge squash rebase last selected", "project-defaults", ""],
   ["source-control", "Source control", "source-control", "", "version control git github gitlab forgejo gitea tea codeberg bitbucket azure devops hosting integrations credentials scan server environment", "environment-defaults", ""],
@@ -95,6 +101,8 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["bitbucket-credentials", "Bitbucket credentials", "source-control", "", "bitbucket atlassian access token api token email credentials sign in", "environment-defaults", "environment"],
   ["source-control-writing-style", "Source control writing style", "source-control", "", "repository conventions conventional commits custom instructions change descriptions request titles", "", "environment"],
   ["follow-change-request-templates", "Follow change request templates", "source-control", "", "repository pr pull request description structure", "", "environment"],
+  ["review-guides", "Review guides", "source-control", "", "pull request guide tour", "project-defaults", "environment"],
+  ["review-guide-model", "Review guide model", "source-control", "", "review guide effort model", "project-defaults", "environment"],
   ["source-control-writer-model", "Source control writer model", "source-control", "", "override generated commit change request pr titles descriptions branch bookmark", "project-defaults", "environment"],
   ["project-actions", "Actions", "projects", "", "commands scripts setup run dev server checkout worktree t3.json import", "", ""],
   ["environment-icon", "Environment icon", "connections", "connections-environment", "machine glyph sidebar mac mini studio laptop desktop server cloud vm", "", "localBackend"],

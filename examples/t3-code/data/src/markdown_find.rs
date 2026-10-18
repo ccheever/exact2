@@ -29,7 +29,27 @@ fn find_documents(documents: Vec<Value>, messages: &[Value], args: &[Value]) -> 
             if fields.first().and_then(Value::as_str) == Some(id)
                 && fields.get(1).and_then(Value::as_str) == Some("user"))
             });
-            find_document(document, query, selected, title, user)
+            let labels = match args.get(5) {
+                Some(Value::List(groups)) => groups
+                    .iter()
+                    .find_map(|group| {
+                        let Value::Record(fields) = group else {
+                            return None;
+                        };
+                        if fields.first().and_then(Value::as_str)
+                            != Some(id.strip_suffix("#preview").unwrap_or(id))
+                        {
+                            return None;
+                        }
+                        match fields.get(1) {
+                            Some(Value::List(chips)) => Some(&chips[..]),
+                            _ => None,
+                        }
+                    })
+                    .unwrap_or(&[]),
+                _ => &[],
+            };
+            find_document(document, query, selected, title, user, labels)
         })
         .collect();
     Value::record(vec![Value::list(documents)])
@@ -123,6 +143,22 @@ fn composer_context_href(href: &str) -> bool {
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
 }
+fn find_run_text<'a>(fields: &'a [Value], labels: &'a [Value]) -> &'a str {
+    let href = fields.get(5).and_then(Value::as_str).unwrap_or("");
+    if href.starts_with("t3-inline-code:") || href.starts_with("t3-citation://") {
+        if let Some(label) = labels.iter().find_map(|chip| {
+            let Value::Record(fields) = chip else {
+                return None;
+            };
+            (fields.get(1).and_then(Value::as_str) == Some(href))
+                .then(|| fields.get(3).and_then(Value::as_str))
+                .flatten()
+        }) {
+            return label;
+        }
+    }
+    fields.get(1).and_then(Value::as_str).unwrap_or("")
+}
 fn searchable_run(fields: &[Value], user: bool) -> bool {
     let kind = fields.get(6).and_then(Value::as_str).unwrap_or("");
     let href = fields.get(5).and_then(Value::as_str).unwrap_or("");
@@ -134,6 +170,7 @@ fn find_runs(
     selected: Option<usize>,
     occurrence: &mut usize,
     user: bool,
+    labels: &[Value],
 ) -> Value {
     let Value::List(runs) = value else {
         return value.clone();
@@ -146,7 +183,9 @@ fn find_runs(
         let text: String = segment
             .iter()
             .filter_map(|run| match run {
-                Value::Record(fields) if searchable_run(fields, user) => fields[1].as_str(),
+                Value::Record(fields) if searchable_run(fields, user) => {
+                    Some(find_run_text(fields, labels))
+                }
                 _ => None,
             })
             .collect();
@@ -161,7 +200,7 @@ fn find_runs(
                 return run.clone();
             };
             let mut fields = fields.to_vec();
-            let text = fields[1].as_str().unwrap_or("");
+            let text = find_run_text(&fields, labels);
             let parts = if searchable_run(&fields, user) {
                 let parts = find_parts(text, at, &ranges, active);
                 at += text.encode_utf16().count();
@@ -181,6 +220,7 @@ fn find_cells(
     selected: Option<usize>,
     occurrence: &mut usize,
     user: bool,
+    labels: &[Value],
 ) -> Value {
     let Value::List(cells) = value else {
         return value.clone();
@@ -193,7 +233,7 @@ fn find_cells(
                     return cell.clone();
                 };
                 let mut fields = fields.to_vec();
-                fields[1] = find_runs(&fields[1], query, selected, occurrence, user);
+                fields[1] = find_runs(&fields[1], query, selected, occurrence, user, labels);
                 Value::record(fields)
             })
             .collect(),
@@ -206,6 +246,7 @@ fn find_document(
     selected: Option<usize>,
     title: &str,
     user: bool,
+    labels: &[Value],
 ) -> Value {
     let Value::Record(fields) = value else {
         return value;
@@ -223,8 +264,8 @@ fn find_document(
                     return block.clone();
                 };
                 let mut fields = fields.to_vec();
-                fields[7] = find_runs(&fields[7], query, selected, &mut occurrence, user);
-                fields[8] = find_cells(&fields[8], query, selected, &mut occurrence, user);
+                fields[7] = find_runs(&fields[7], query, selected, &mut occurrence, user, labels);
+                fields[8] = find_cells(&fields[8], query, selected, &mut occurrence, user, labels);
                 if let Value::List(rows) = &fields[11] {
                     fields[11] = Value::list(
                         rows.iter()
@@ -233,8 +274,14 @@ fn find_document(
                                     return row.clone();
                                 };
                                 let mut cells = cells.to_vec();
-                                cells[2] =
-                                    find_cells(&cells[2], query, selected, &mut occurrence, user);
+                                cells[2] = find_cells(
+                                    &cells[2],
+                                    query,
+                                    selected,
+                                    &mut occurrence,
+                                    user,
+                                    labels,
+                                );
                                 Value::record(cells)
                             })
                             .collect(),
@@ -250,7 +297,7 @@ fn find_document(
                                     return column.clone();
                                 };
                                 let mut column = column.to_vec();
-                                column[1] = find_runs(&column[1], "", None, &mut 0, user);
+                                column[1] = find_runs(&column[1], "", None, &mut 0, user, labels);
                                 Value::record(column)
                             })
                             .collect(),
@@ -298,6 +345,7 @@ mod find_tests {
             Some(0),
             "",
             false,
+            &[],
         );
         let Value::Record(doc) = doc else { panic!() };
         let Value::List(blocks) = &doc[1] else {
@@ -344,6 +392,7 @@ mod find_tests {
                 Some(0),
                 "",
                 false,
+                &[],
             );
             assert_eq!(anchors(&doc), 1, "{source}");
             let Value::Record(fields) = &doc else {
@@ -355,7 +404,9 @@ mod find_tests {
             };
             assert!(blocks
                 .iter()
-                .all(|block| matches!(block, Value::Record(fields) if fields.len() == 19)));
+                .all(|block| matches!(block, Value::Record(fields)
+                    if fields.len() == 20 && matches!(fields[18], Value::Number(_))
+                        && matches!(fields[19], Value::List(_)))));
         }
     }
     #[test]
@@ -366,6 +417,7 @@ mod find_tests {
             Some(0),
             "needle plan",
             false,
+            &[],
         );
         let Value::Record(fields) = doc else { panic!() };
         let Value::List(title) = &fields[2] else {
@@ -374,6 +426,14 @@ mod find_tests {
         assert!(matches!(&title[0], Value::Record(part) if part[2] == Value::Number(3.0)));
     }
     fn rendered_find(source: &str, role: &str, selected: usize) -> Value {
+        rendered_find_labels(source, role, selected, Vec::new())
+    }
+    fn rendered_find_labels(
+        source: &str,
+        role: &str,
+        selected: usize,
+        labels: Vec<Value>,
+    ) -> Value {
         Markdown
             .query(
                 "renderMarkdown",
@@ -388,6 +448,10 @@ mod find_tests {
                     Value::str("needle"),
                     Value::str("entry"),
                     Value::Number(selected as f64),
+                    Value::list(vec![Value::record(vec![
+                        Value::str("entry"),
+                        Value::list(labels),
+                    ])]),
                 ],
             )
             .unwrap()
@@ -477,5 +541,35 @@ mod find_tests {
             marked_parts(&rendered_find("[needle](t3-skill:example)", "assistant", 0)),
             vec![("needle".into(), 3)]
         );
+    }
+    #[test]
+    fn displayed_chip_labels_define_occurrences_without_rewriting_runs() {
+        let href = "t3-citation://source?text=raw";
+        let source = format!("`src/needle.ts:7` [Assistant quote]({href}) needle");
+        let original = rendered_find(&source, "assistant", 0);
+        for selected in 0..3 {
+            let label = |href: &str, text: &str| {
+                Value::record(vec![
+                    Value::str("chip"),
+                    Value::str(href),
+                    Value::str("link"),
+                    Value::str(text),
+                ])
+            };
+            let doc = rendered_find_labels(
+                &source,
+                "assistant",
+                selected,
+                vec![
+                    label("t3-inline-code:src/needle.ts:7", "needle.ts · L7"),
+                    label(href, "needle comment"),
+                ],
+            );
+            let expected: Vec<_> = (0..3)
+                .map(|index| ("needle".to_string(), if index == selected { 3 } else { 1 }))
+                .collect();
+            assert_eq!(marked_parts(&doc), expected);
+            assert_eq!(run_identity(&doc), run_identity(&original));
+        }
     }
 }

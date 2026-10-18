@@ -3,6 +3,7 @@ use ExtraGlyph from "../details/git.contract"
 use CnGlyph from "../settings/settings-b-kit.contract"
 use CnTooltip from "../settings/settings-b-kit.contract"
 use PvField from "../settings/providers-kit.contract"
+use PairingScopeOption from "./connections-network.contract"
 use NetworkView from "./connections-network.contract"
 use NetReveal from "./connections-network.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
@@ -93,7 +94,7 @@ component NetworkDialogs
     if remove == `tailscale:setup:${net.tailscaleSerial}`
       TailscaleSetupDialog(initialPort=net.servePort, baseUrl=net.tailscaleUrl, host=net.tailscaleHost, busy=busy, still=still, ask=ask, command=command)
     if remove == `pairing:create:${net.createSerial}`
-      CreatePairingDialog(busy=busy, ask=ask, command=command)
+      CreatePairingDialog(options=net.scopeOptions, busy=busy, ask=ask, command=command)
     DialogFinalFocus(open=net.reveal.open, owner="pairing-reveal-dialog")
     if net.reveal.open
       PairingRevealDialog(reveal=net.reveal, busy=busy, command=command)
@@ -235,60 +236,24 @@ component TailscaleSetupDialog
           NdAction(buttonId="tailscale-setup-confirm", label="Enable", tone="default", disabled=(busy or not valid), busyLabel=(busy ? "Restarting…" : ""), still=still, keys="", first=false, press=confirm, key=plainKey)
         NdClose(buttonId="tailscale-setup-close", disabled=busy, press=close, key=last)
 
-// "Create pairing link" (Dialog, footer bare): an optional label, Read only / Standard, eight
-// permissions (Standard ticked), "Select at least one permission." or the access:write warning.
+// Create pairing link: the server's sixteen permissions; the chosen set is sent unchanged.
 component CreatePairingDialog
   props
+    options: PairingScopeOption[]
     busy: bool
     ask: action
     command: action
   state label = ""
-  state s0 = true
-  state s1 = true
-  state s2 = true
-  state s3 = true
-  state s4 = false
-  state s5 = false
-  state s6 = true
-  state s7 = false
+  state excluded = []
   action editLabel(value: string)
     label = value
   action readOnly
-    s0 = true
-    s1 = false
-    s2 = false
-    s3 = false
-    s4 = false
-    s5 = false
-    s6 = false
-    s7 = false
+    excluded = options.filter((option) => not option.readOnly).map((option) => option.scope)
   action standard
-    s0 = true
-    s1 = true
-    s2 = true
-    s3 = true
-    s4 = false
-    s5 = false
-    s6 = true
-    s7 = false
-  action flip(index: number)
+    excluded = []
+  action flip(scope: string)
     if not busy
-      if index == 0
-        s0 = not s0
-      if index == 1
-        s1 = not s1
-      if index == 2
-        s2 = not s2
-      if index == 3
-        s3 = not s3
-      if index == 4
-        s4 = not s4
-      if index == 5
-        s5 = not s5
-      if index == 6
-        s6 = not s6
-      if index == 7
-        s7 = not s7
+      excluded = excluded.includes(scope) ? excluded.filter((item) => item != scope) : excluded.concat([scope])
   action close
     if not busy
       ask("")
@@ -307,8 +272,9 @@ component CreatePairingDialog
   action plainKey(k: string)
     if k == "-"
       label = label
-  derive count = (s0 ? 1 : 0) + (s1 ? 1 : 0) + (s2 ? 1 : 0) + (s3 ? 1 : 0) + (s4 ? 1 : 0) + (s5 ? 1 : 0) + (s6 ? 1 : 0) + (s7 ? 1 : 0)
-  derive scopes = `${s0 ? "orchestration:read " : ""}${s1 ? "orchestration:operate " : ""}${s2 ? "terminal:operate " : ""}${s3 ? "review:write " : ""}${s4 ? "access:read " : ""}${s5 ? "access:write " : ""}${s6 ? "relay:read " : ""}${s7 ? "relay:write" : ""}`
+  derive selected = options.filter((option) => not excluded.includes(option.scope))
+  derive count = selected.length
+  derive scopes = selected.map((option) => option.scope).join(" ")
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="create-pairing-overlay"
       column class=NdPopup animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="dialog" aria-modal=true aria-label="Create pairing link" testId="create-pairing-dialog"
@@ -316,7 +282,7 @@ component CreatePairingDialog
         column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
           text "Create pairing link" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "Generate a one-time link that another device can use to pair with this backend as an authorized client." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
-        column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box"
+        column gap="1rem" max-height="min(60vh, 544px)" overflow-y="auto" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box"
           column gap="0.375rem"
             text "Client label (optional)" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
             input id="pairing-label" value=label input=editLabel key=first autofocus=true placeholder="e.g. Living room iPad" aria-label="Client label (optional)" disabled=busy class=PvField height="2rem" width="100%" testId="pairing-label" autocorrect="off"
@@ -331,18 +297,12 @@ component CreatePairingDialog
                 button press=standard disabled=busy testId="pairing-standard" display="flex" align-items="center" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
                   text "Standard" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
             column border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#f4f4f540, #ffffff05)" overflow="hidden"
-              ScopeOption(index=0, checked=s0, title="View environment", description="Read threads, status, diffs, and configuration.", busy=busy, flip=flip)
-              ScopeOption(index=1, checked=s1, title="Operate tasks", description="Start tasks and perform changes in the environment.", busy=busy, flip=flip)
-              ScopeOption(index=2, checked=s2, title="Use terminals", description="Create terminals and send input to running shells.", busy=busy, flip=flip)
-              ScopeOption(index=3, checked=s3, title="Write reviews", description="Create comments while reviewing changes.", busy=busy, flip=flip)
-              ScopeOption(index=4, checked=s4, title="View access", description="Inspect pairing links and authorized clients.", busy=busy, flip=flip)
-              ScopeOption(index=5, checked=s5, title="Manage access", description="Issue and revoke credentials for other clients.", busy=busy, flip=flip)
-              ScopeOption(index=6, checked=s6, title="View relay", description="Inspect managed relay connectivity.", busy=busy, flip=flip)
-              ScopeOption(index=7, checked=s7, title="Manage relay", description="Change managed tunnel connectivity.", busy=busy, flip=flip)
+              for option in options key=option.scope
+                ScopeOption(index=option.index, scope=option.scope, checked=(not excluded.includes(option.scope)), title=option.title, description=option.description, busy=busy, flip=flip)
             if count == 0
               text "Select at least one permission." font-size="0.75rem" line-height="1rem" color="light-dark(#e7000b, #ff6467)" testId="pairing-scopes-error"
             else
-              if s5
+              if selected.map((option) => option.scope).includes("access:write")
                 text "This client can create or revoke access for other devices." font-size="0.75rem" line-height="1rem" color="light-dark(#bb4d00, #ffb900)" testId="pairing-scopes-warning"
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box"
           NdAction(buttonId="pairing-create-cancel", label="Cancel", tone="outline", disabled=busy, busyLabel="", still=true, keys="Escape", first=false, press=close, key=plainKey)
@@ -353,13 +313,14 @@ component CreatePairingDialog
 component ScopeOption
   props
     index: number
+    scope: string
     checked: bool
     title: string
     description: string
     busy: bool
     flip: action
   view
-    button press=flip(index) disabled=busy role="checkbox" aria-checked=checked aria-label=title testId=`pairing-scope-${index}` display="flex" flex-direction="row" align-items="flex-start" gap="0.75rem" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-width=0 border-top-width=(index == 0 ? 0 : 1) border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="#00000000" opacity=(busy ? 0.64 : 1)
+    button press=flip(scope) disabled=busy role="checkbox" aria-checked=checked aria-label=title testId=`pairing-scope-${index}` display="flex" flex-direction="row" align-items="flex-start" gap="0.75rem" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-width=0 border-top-width=(index == 0 ? 0 : 1) border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="#00000000" opacity=(busy ? 0.64 : 1)
       box width="1rem" height="1rem" margin-top="0.125rem" flex-shrink=0 box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=1 border-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff07)") display="flex" align-items="center" justify-content="center"
         if checked
           CnGlyph(name="check", size=12, color="#ffffff")

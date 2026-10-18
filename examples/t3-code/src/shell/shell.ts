@@ -1,9 +1,12 @@
+import { can as hasPermission } from '../connections/command-permissions';
+import { updateEverythingPass, updateEverythingState } from '../sidebar/update-everything';
 // The window shell's projection (MIT reference: apps/web/src/components/ui/
 // toast.tsx, chat/ChatHeader.tsx, chat/PanelLayoutControls.tsx,
 // RightPanelTabs.tsx RightPanelEmptyState, threadActionMenu.logic.ts):
 // the toast stack with its timers, the header's panel-control labels, the
 // right panel's surface chooser and the thread title's action menu.
 import { noteAutomationWindow } from '../browser/browser-automation';
+import { migrateModelPreferences } from '../providers/model-preferences';
 import type { T3Client } from '../client/client';
 import { terminalAvailable, terminalOpen } from '../terminal/terminal-drawer-view';
 import type { DispatchContext } from './keyboard-dispatch'; // terminal labels resolve with terminalFocus
@@ -19,7 +22,6 @@ import { diffNotGit } from '../diff/diff';
 import { threadNotifications, providerUpdates, nativeNotifyStatus, reportWindowFacts, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from '../client/protocol-reader'; // answered requests whose answer was let go end on the next shell read
-import { nightlyMobileBetaNotice } from './shell-nightly';
 import { permissionUpdateNotices } from './permission-update-notice';
 import { pullRequestPanelTarget } from '../panel/shell-pr';
 import { composerFileView } from '../composer/composer-chip-file';
@@ -177,10 +179,10 @@ export function surfaces(client: T3Client): ShellSurface[] {
   const row = (id: string, label: string, icon: string, shortcut: string, available: boolean, reason: string): ShellSurface =>
     ({ id, label, icon, shortcut, letter: shortcut.toLowerCase(), available, reason: available ? '' : reason });
   return [
-    row('browser', 'Browser', 'earth', 'B', client.available === true, 'Only available in the desktop app.'), // the module's WKWebView (isPreviewSupportedInRuntime)
-    row('terminal', 'Terminal', 'square-terminal', 'T', terminalAvailable(client), 'Available when a project is open.'),
+    row('browser', 'Browser', 'earth', 'B', client.available === true && hasPermission(client, 'preview:operate'), client.available === true ? 'This connection requires preview:operate.' : 'Only available in the desktop app.'), // the module's WKWebView (isPreviewSupportedInRuntime)
+    row('terminal', 'Terminal', 'square-terminal', 'T', terminalAvailable(client) && hasPermission(client, 'terminal:operate'), hasPermission(client, 'terminal:operate') ? 'Available when a project is open.' : 'This connection requires terminal:operate.'),
     row('files', 'Files', 'files', 'F', can.files, 'Available when a project is open.'),
-    row('diff', 'Diff', 'file-diff', 'D', !!client.threadId && client.ready && !diffNotGit(client), 'Available for Git repositories.'),
+    row('diff', 'Diff', 'file-diff', 'D', can.diff, 'Available for Git repositories.'),
     // ChatView pullRequestSurfaceAvailable (supportsPullRequests and a panel target); the detail panel opens beside the thread.
     row('pull-request', 'Pull request', 'git-pull-request-arrow', 'P', can.pullRequest && !!target, 'No pull request on this branch yet.'),
     row('pull-requests', 'Linked pull requests', 'link-2', 'L', can.pullRequests, 'No linked pull requests available.'),
@@ -270,14 +272,15 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   // A closed toast's onClose may change saved preferences (shell-prefs.ts): write them now.
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
   const state = shellState(client);
-  nightlyMobileBetaNotice(client, client.preferencesLoaded); // shell-nightly.ts
   permissionUpdateNotices(client, client.preferencesLoaded);
   if (native?.available) {
+    if (client.writable) void migrateModelPreferences(client, native).catch(() => {});
     native.watch('t3.notify');
     state.status = await nativeNotifyStatus(native, state.status, page.focused);
     await reportWindowFacts(client, native, page.visible, page.focused);
     noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
     await providerUpdates(client, storage);
+    updateEverythingPass(client, native, now);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await threadNotifications(client, native, state.status); // every connected environment: the focus and the fleet (shell-notify.ts)
     if (tracking(client)) await settleLiveTraces(client, native);
@@ -288,7 +291,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   const menu = titleMenu(client, now);
   return {
-    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client),
+    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client),
     ...(await activationOpen(client, native, state.status)), // openRequest, openThreadId: a clicked notification's thread or a `t3 app` request (desktop-activation.ts)
     keyRightPanel: commandShortcut(client.config, 'rightPanel.toggle'), keyThreadPanel: commandShortcut(client.config, 'threadPanel.toggle'),
     keyTerminal: commandShortcut(client.config, 'terminal.toggle'), keyNewThread: commandShortcut(client.config, 'chat.new'),

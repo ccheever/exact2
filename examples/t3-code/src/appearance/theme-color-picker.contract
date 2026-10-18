@@ -26,7 +26,7 @@
 // range values (LLP 1116 D8), as the reference's: a stop's `<input type="range" min=0 max=100>`
 // with `aria-valuetext="N%"`, the hue slider's `aria-valuemin=0 aria-valuemax=360 aria-valuenow`;
 // each stop's `aria-describedby` names the plane's sr-only instructions, as the reference's.
-use CorePalette from "../settings/settings-core.contract"
+use CorePalette from "../settings/settings-core-shared.contract"
 use EditorRow from "./settings-appearance-editor-shapes.contract"
 use sbByte from "../providers/settings-b-accent.contract"
 use Tip from "../shell/shell-tip.contract"

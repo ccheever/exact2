@@ -231,6 +231,7 @@ function fakeClient(replies: Record<string, Reply>, settings: Obj = {}) {
       return reply(payload);
     },
   } as unknown as T3Client;
+  client.projectGroups = () => client.shell.projects.map(project => ({ key: String(project.id), name: String(project.title ?? ''), members: [project] }));
   return { client, calls, writes: () => calls.filter(call => call.method === 'pullRequests.runAction').map(call => call.payload) };
 }
 const defaults = (detail: Obj, extra: Record<string, Reply> = {}): Record<string, Reply> => ({
@@ -601,4 +602,25 @@ describe('inline confirmation input', () => {
     root.call('prConfirmDisarm', {}, { command: (...args: unknown[]) => requests.push(args) }, sent[0]!);
     expect(requests).toEqual([['chatlocal:pr-ui-disarm', 'pr7', 'serial:9', 0]]);
   });
+});
+
+
+test('source branch deletion keeps its destructive dialog alongside inline merge confirmations', async () => {
+  const detail = base({ state: 'merged', capabilities: { ...CAPABILITIES, deleteBranch: true, actions: ['delete-branch'] }, viewerPermissions: { actions: ['delete-branch'] } });
+  const { client, writes } = fakeClient(defaults(detail));
+  (client as unknown as Obj).writable = true;
+  await panel(client);
+  prUiLocal(client, 'ask', selected, 'delete-branch');
+  let actions = (await panel(client)).actions;
+  expect(actions).toMatchObject({ dialogOpen: true, dialogDestructive: true, dialogTitle: 'Delete branch feature/changelog?', dialogConfirm: 'Delete branch', dialogValue: 'delete-branch', armedAction: '', armedControl: '' });
+  expect(actions.dialogDescription).toContain('lane/sandbox');
+  expect(writes()).toEqual([]);
+  prUiLocal(client, 'disarm', selected, '');
+  expect((await panel(client)).actions.dialogOpen).toBe(true);
+  prUiLocal(client, 'cancel', selected, '');
+  expect((await panel(client)).actions.dialogOpen).toBe(false);
+  prUiLocal(client, 'ask', selected, 'delete-branch');
+  await prCommand(client, native, 'action', selected, 'delete-branch');
+  expect(writes().map(payload => payload.action)).toEqual(['delete-branch']);
+  expect((await panel(client)).actions.dialogOpen).toBe(false);
 });

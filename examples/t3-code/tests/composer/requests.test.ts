@@ -240,3 +240,25 @@ describe('requests arriving while typing', () => {
     expect(committed).toEqual([]);
   });
 });
+
+describe('Pi editor initial answers', () => {
+  test('seeds once, keeps literal whitespace, and accepts a deliberately cleared editor', async () => {
+    const initial = '  @src/file.ts\n\n  literal [file](path)  \n';
+    const f = harness(input([question('edit', { initialAnswer: initial })]));
+    expect(requestPresentation(f.client).draft).toBe(initial);
+    await f.command('answer', '', '   \n');
+    expect(requestPresentation(f.client)).toMatchObject({ draft: '   \n', questions: [{ complete: true, canAdvance: true }] });
+    await f.command('answer', '', '');
+    expect(requestPresentation(f.client).draft).toBe('');
+    expect(requestPresentation(f.client).questions[0]?.complete).toBe(true);
+    expect(requestPresentation(f.client).draft).toBe('');
+  });
+  test('does not seed a question that forbids custom answers or replace an existing option draft', () => {
+    const f = harness(input([question('scope', { initialAnswer: 'prefilled', allowCustomAnswer: false })]));
+    expect(requestPresentation(f.client).draft).toBe('');
+    const g = harness(input([question('scope', { initialAnswer: 'prefilled' })]));
+    g.client.answers['r1::scope'] = { selected: ['Workspace'], custom: '', index: 0 };
+    expect(requestPresentation(g.client).draft).toBe('');
+    expect(g.client.answers['r1::scope']?.selected).toEqual(['Workspace']);
+  });
+});

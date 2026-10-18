@@ -21,6 +21,7 @@ use BrowserProfileChoice from "./browser-shapes.contract"
 use BrowserCaptureButtons from "./browser-capture.contract"
 use BrowserRecent from "./browser-shapes.contract"
 use BrowserServer from "./browser-shapes.contract"
+use ServerBrowserFrame from "./server-browser.contract"
 use BrowserStage from "./browser-stage.contract"
 
 keyframes bsSpin
@@ -87,6 +88,7 @@ component BrowserBody
 // address field, Annotate, Capture, Float preview and More, and the loading bar along its bottom edge.
 component BrowserChrome
   inject
+    serverFrame: ServerBrowserFrame
     still: bool
   props
     view: BrowserPanel
@@ -130,21 +132,21 @@ component BrowserChrome
     column position="relative" flex-shrink=0 width="100%"
       row height="2.5rem" flex-shrink=0 width="100%" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.25rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId="browser-chrome"
         row gap="0.125rem" align-items="center" flex-shrink=0 role="group" aria-label="Navigation"
-          BsButton(icon="arrow-left", label="Back", tip="Back", disabled=(not view.canGoBack), pressed=false, spin=false, align="start", press=local("surface-browser-back", view.tabId, ""), testId="browser-back")
-          BsButton(icon="arrow-right", label="Forward", tip="Forward", disabled=(not view.canGoForward), pressed=false, spin=false, align="center", press=local("surface-browser-forward", view.tabId, ""), testId="browser-forward")
+          BsButton(icon="arrow-left", label="Back", tip="Back", disabled=(not view.canGoBack or (view.server and not serverFrame.controlled)), pressed=false, spin=false, align="start", press=local("surface-browser-back", view.tabId, ""), testId="browser-back")
+          BsButton(icon="arrow-right", label="Forward", tip="Forward", disabled=(not view.canGoForward or (view.server and not serverFrame.controlled)), pressed=false, spin=false, align="center", press=local("surface-browser-forward", view.tabId, ""), testId="browser-forward")
           // The reference names the button Stop while a page loads, and pressing it reloads (PreviewManager.refresh).
-          BsButton(icon="refresh-cw", label=(view.loading ? "Stop" : "Refresh"), tip=(view.loading ? "Loading…" : "Refresh"), disabled=view.refreshDisabled, pressed=false, spin=(view.loading and not still), align="center", press=local("surface-browser-refresh", view.tabId, ""), testId="browser-refresh")
+          BsButton(icon="refresh-cw", label=(view.loading ? "Stop" : "Refresh"), tip=(view.loading ? "Loading…" : "Refresh"), disabled=(view.refreshDisabled or (view.server and not serverFrame.controlled)), pressed=false, spin=(view.loading and not still), align="center", press=local("surface-browser-refresh", view.tabId, ""), testId="browser-refresh")
         // leadingActions: the tab's profile, only when it is not the configured default, its name on hover.
         if view.showProfile
           BsProfileBadge(name=view.profileName)
         // InputGroup ghost (h-7): transparent until hovered (muted/40) or focused (the background and a ring).
         row flex=1 min-width=0 height="1.75rem" box-sizing="border-box" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(focused ? "light-dark(#a1a1aa, #71717a)" : "#00000000") box-shadow=(focused ? "0 0 0 3px light-dark(#a1a1aa3d, #71717a3d)" : "none") background-color=(focused ? "light-dark(#ffffff, #0a0a0a)" : addressOver ? "light-dark(#f4f4f566, #ffffff0a)" : "#00000000") hover=addressHover role="group" testId="browser-address"
-          input id="browser-url" value=(focused or touched ? draft : view.url) input=edit submit=go key=fieldKey focus=focusField(true) blur=focusField(false) placeholder="Search or enter URL" class=FieldPlaceholder aria-label="Search or enter URL" autocorrect="off" spellcheck="false" testId="browser-url" flex=1 min-width=0 height="1.625rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
+          input id="browser-url" readonly=(view.server and not serverFrame.controlled) value=(focused or touched ? draft : view.url) input=edit submit=go key=fieldKey focus=focusField(true) blur=focusField(false) placeholder="Search or enter URL" class=FieldPlaceholder aria-label="Search or enter URL" autocorrect="off" spellcheck="false" testId="browser-url" flex=1 min-width=0 height="1.625rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
           // Revealed on hover, so a resting address bar reads as plain text, and while it has the focus.
           if not focused
             BsRevealButton(shown=addressOver, press=local("surface-browser-external", view.tabId, ""))
         // Annotate, Capture (Shift-click records) and Float preview (browser-capture.contract).
-        BrowserCaptureButtons(view=view.capture, tabId=view.tabId, local=local)
+        BrowserCaptureButtons(view=view.capture, server=view.server, tabId=view.tabId, local=local)
         BrowserMore(view=view, local=local, pw=pw, ph=ph)
       // The loading bar: 2pt, the primary colour, from the left edge; it stops moving with reduced motion.
       box position="absolute" left=0 right=0 bottom=0 height="0.125rem" overflow="hidden" pointer-events="none" aria-hidden=true
@@ -212,7 +214,8 @@ component BrowserMore
   action zoomRowHover(on: bool)
     if on
       hidePopover("browser-appearance-menu")
-  derive menuItems = (view.hasWebContents ? [KmItem(id="browser-more-hard-reload", label="Hard reload"), KmItem(id="browser-more-window", label=(view.capture.separateWindow ? "Close separate preview window" : "Open separate preview window")), KmItem(id="browser-more-device-toolbar", label=(view.viewportMode != "fill" ? "Hide device toolbar" : "Show device toolbar")), KmItem(id="browser-more-appearance", label="Appearance"), KmItem(id="browser-more-clear-cookies", label="Clear cookies"), KmItem(id="browser-more-clear-cache", label="Clear cache")] : [KmItem(id="browser-more-clear-cookies", label="Clear cookies"), KmItem(id="browser-more-clear-cache", label="Clear cache")])
+  derive allMenuItems = (view.hasWebContents ? [KmItem(id="browser-more-hard-reload", label="Hard reload"), KmItem(id="browser-more-window", label=(view.capture.separateWindow ? "Close separate preview window" : "Open separate preview window")), KmItem(id="browser-more-device-toolbar", label=(view.viewportMode != "fill" ? "Hide device toolbar" : "Show device toolbar")), KmItem(id="browser-more-appearance", label="Appearance"), KmItem(id="browser-more-clear-cookies", label="Clear cookies"), KmItem(id="browser-more-clear-cache", label="Clear cache")] : [KmItem(id="browser-more-clear-cookies", label="Clear cookies"), KmItem(id="browser-more-clear-cache", label="Clear cache")])
+  derive menuItems = allMenuItems.filter(item => not view.server or item.id != "browser-more-window")
   action triggerKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
       preventDefault()
@@ -232,7 +235,8 @@ component BrowserMore
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Preview menu" testId="browser-more-popup"
           KeyMenu(menuId="browser-more-keys", items=menuItems, keyed=0, gap="0px", modal=true)
             BsMenuItem(keysId="browser-more-keys", id="browser-more-hard-reload", label="Hard reload", note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-hard-reload", view.tabId, ""))
-            BsMenuItem(keysId="browser-more-keys", id="browser-more-window", label=(view.capture.separateWindow ? "Close separate preview window" : "Open separate preview window"), note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-window", view.tabId, ""))
+            if not view.server
+              BsMenuItem(keysId="browser-more-keys", id="browser-more-window", label=(view.capture.separateWindow ? "Close separate preview window" : "Open separate preview window"), note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-window", view.tabId, ""))
             BsMenuItem(keysId="browser-more-keys", id="browser-more-device-toolbar", label=(view.viewportMode != "fill" ? "Hide device toolbar" : "Show device toolbar"), note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-device-toolbar", view.tabId, `${pw}|${ph}`))
             BrowserAppearanceItem(keysId="browser-more-keys", view=view, local=local)
             box width="100%" height=1 margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"

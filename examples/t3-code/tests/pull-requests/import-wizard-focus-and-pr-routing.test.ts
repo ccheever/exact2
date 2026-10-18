@@ -32,7 +32,7 @@ function setup() {
   // What the paired server was sent, with its payload and, for a detached write, the key its reply is filed under.
   const lane: { method: string; payload: Obj; deliver: string }[] = [];
   const entry: FleetEntry = { key: KEY_B, origin: B, environmentId: 'env-lane', phase: 'connected', message: '', traceId: '', generation: 4, synchronized: 4, lastEvent: 0, subscriptions: {},
-    config: { environment: { label: 'GitHub lane', capabilities: { pullRequests: true } } }, scopes: [], error: '', requested: true,
+    config: { environment: { label: 'GitHub lane', capabilities: { pullRequests: true } } }, scopes: ['orchestration:read', 'source-control:write'], error: '', requested: true,
     shell: { ...initialShell(), projects: [{ id: 'p-lane', title: 'playground', repositoryIdentity: { provider: 'github', canonicalKey: 'github.com/acme/playground' } }] } };
   fleet.entries.set(KEY_B, entry);
   const answer = (op: string, method: string): unknown => {
@@ -46,7 +46,7 @@ function setup() {
   // The focused server: the embedded one, which holds no GitHub project and refuses a pull request read.
   const refuse = () => { throw Object.assign(new Error('Change requests cannot be browsed for this project\'s host yet.'), { kind: 'PullRequestUnavailableError' }); };
   const client = {
-    environmentId: 'env-local', origin: 'http://127.0.0.1:16642', connection: 'connected', ready: true, generation: 1, revision: 0, local: {} as Obj, diffState: {}, scopes: [],
+    environmentId: 'env-local', origin: 'http://127.0.0.1:16642', connection: 'connected', ready: true, generation: 1, revision: 0, local: {} as Obj, diffState: {}, scopes: ['orchestration:read', 'source-control:write'],
     config: { environment: { label: 'This machine', capabilities: { pullRequests: true } } }, shell: { projects: [{ id: 'p-work', title: 'work' }], threads: [] },
     // The panel's own reads (pullRequests.detail, .activity) already go to the listing server (T3Client.rpc's router).
     rpc: async (_native: unknown, method: string) => { sent.push({ at: 'lane', op: 'request', method }); return answer('request', method); },
@@ -136,14 +136,14 @@ describe('the Viewed write is routed as the reference routes it', () => {
   function shared() {
     const calls: { at: string; method: string; payload: Obj }[] = [], delivered: string[] = [];
     fleet.entries.set(KEY_R, { key: KEY_R, origin: REMOTE, environmentId: 'env-lane', phase: 'connected', message: '', traceId: '', generation: 4, synchronized: 4, lastEvent: 0, subscriptions: {},
-      config: { environment: { label: 'GitHub lane', capabilities: { pullRequests: true } } }, scopes: [], error: '', requested: true,
+      config: { environment: { label: 'GitHub lane', capabilities: { pullRequests: true } } }, scopes: ['orchestration:read', 'source-control:write'], error: '', requested: true,
       shell: { ...initialShell(), projects: [{ id: 'p-lane', title: 'playground', repositoryIdentity: { provider: 'github', canonicalKey: 'github.com/acme/playground' } }] } });
     fleet.saved = [{ origin: LOCAL, environmentId: 'env-local', enabled: true }, { origin: REMOTE, environmentId: 'env-lane', enabled: true }];
     const answer = (method: string): unknown => method === 'pullRequests.routing' || method === 'pullRequests.routingIdentity' ? identity
       : method === 'pullRequests.filesViewed' ? { files: [], truncated: false } : method === 'pullRequests.detail' ? detail
       : method === 'pullRequests.activity' ? { author: detail.author, comments: [], commentCount: 0, commits: [], reviewThreads: [] } : {};
     const client = {
-      environmentId: 'env-local', origin: LOCAL, connection: 'connected', statusMessage: '', ready: true, generation: 1, revision: 0, local: {} as Obj, diffState: {}, scopes: [],
+      environmentId: 'env-local', origin: LOCAL, connection: 'connected', statusMessage: '', ready: true, generation: 1, revision: 0, local: {} as Obj, diffState: {}, scopes: ['orchestration:read', 'source-control:write'],
       config: { environment: { label: 'This machine', capabilities: { pullRequests: true } } }, shell: { projects: [{ id: 'p-work', title: 'work' }], threads: [] },
       rpc: async (_native: unknown, method: string) => answer(method),
       request: async (_native: unknown, method: string, payload: Obj) => { calls.push({ at: 'local', method, payload }); return answer(method); },

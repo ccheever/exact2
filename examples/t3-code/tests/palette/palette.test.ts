@@ -14,7 +14,7 @@ const NOW = Date.parse('2026-10-03T12:00:00.000Z');
 const binding = (key: string, command: string, extra: Obj = {}): Obj => ({ command, shortcut: { key, modKey: true, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...extra } });
 function client(): T3Client {
   const c = new T3Client();
-  Object.assign(c, { connection: 'connected', configLive: true, shellLive: true, threadLive: true, generation: 1, environmentId: 'env1', origin: 'http://127.0.0.1:14805', scopes: ['orchestration:read', 'orchestration:operate'] });
+  Object.assign(c, { connection: 'connected', configLive: true, shellLive: true, threadLive: true, generation: 1, environmentId: 'env1', origin: 'http://127.0.0.1:14805', scopes: ['orchestration:read', 'orchestration:operate', 'filesystem:read'] });
   c.config = { environment: { label: 'Local', capabilities: { serverResolvedCommandContext: true, threadPullRequests: true } }, newProjectsRoot: '/home/me/projects', availableEditors: ['zed', 'cursor'],
     keybindings: [binding('k', 'commandPalette.toggle'), binding('p', 'filePicker.toggle'), binding('f', 'projectSearch.toggle', { shiftKey: true }), binding('n', 'chat.new'), binding('o', 'chat.new', { shiftKey: true }), binding('n', 'chat.newLocal', { shiftKey: true }),
       binding('a', 'theme.select', { altKey: true }), binding('a', 'appearance.cycle', { altKey: true, shiftKey: true }), binding('t', 'themeEditor.toggle', { altKey: true, shiftKey: true }),
@@ -39,6 +39,16 @@ class Fake implements Native {
   }
 }
 const files = (): Files => ({ fs: { async mkdir() {}, async readFile() { throw new Error('none'); }, async atomicWriteFile() {} } });
+
+test('a new project picks its ready publish host beside the publish toggle', async () => {
+  const c = client(), native = new Fake();
+  native.replies['server.discoverSourceControl'] = { sourceControlProviders: ['github', 'gitcafe'].map(kind => ({ kind, status: 'available', auth: { status: 'authenticated', account: 'fixture' } })) };
+  const view = await addProjectView(c, native, { page: 'add-project/new-project', query: 'App', highlighted: false });
+  expect(view.rows.find(row => row.arg === 'toggle-publish')).toMatchObject({ title: 'Create private repository', publishHost: 'github', publishHosts: [{ value: 'github', selected: true }, { value: 'gitcafe', selected: false }] });
+  await paletteCommand(c, native, files(), 'publish-host', 'gitcafe', '');
+  const changed = await addProjectView(c, native, { page: 'add-project/new-project', query: 'App', highlighted: false });
+  expect(changed.rows.find(row => row.arg === 'toggle-publish')).toMatchObject({ publishHost: 'gitcafe', publishHostLabel: 'GitCafe', checked: false });
+});
 
 describe('command palette root', () => {
   test('actions follow the reference order with shortcut labels, then recent threads', () => {
@@ -156,7 +166,7 @@ describe('add project', () => {
     const c = client(), native = new Fake();
     native.replies['server.discoverSourceControl'] = { sourceControlProviders: [{ kind: 'github', label: 'GitHub', status: 'available', auth: { status: 'authenticated' } }, { kind: 'gitlab', label: 'GitLab', status: 'missing', installHint: 'Install glab' }] };
     const view = await addProjectView(c, native, { page: 'add-project', query: '', highlighted: false });
-    expect(view.rows.map(entry => entry.title)).toEqual(['New project', 'Local folder', 'Git URL', 'GitHub repository', 'Azure DevOps repository', 'Bitbucket repository', 'Forgejo / Gitea repository', 'GitLab repository']);
+    expect(view.rows.map(entry => entry.title)).toEqual(['New project', 'Local folder', 'Git URL', 'GitHub repository', 'Azure DevOps repository', 'Bitbucket repository', 'Forgejo / Gitea repository', 'GitCafe repository', 'GitLab repository']);
     expect(view.rows[0]!.header).toBe('Sources');
     expect(view.rows[1]!.description).toBe('Browse a folder on disk');
     expect(view.rows[4]!.badge).toBe('Setup Required');
@@ -205,6 +215,8 @@ describe('add project', () => {
     expect(view.rows.map(entry => entry.title)).toEqual(['Add existing project']);
     expect(view.enterArg).toBe('new-project');
     expect(view.enterLabel).toBe('Create');
+    const highlighted = await addProjectView(c, native, { page: 'new-project', query: 'My App', highlighted: true });
+    expect(highlighted).toMatchObject({ enterLabel: 'Select', accessoryKey: '⌘ Enter', accessoryOp: 'flow', accessoryArg: 'new-project', accessoryArg2: 'My App' });
   });
   test('adding a path creates the project and opens a new thread in it', async () => {
     const c = client(), native = new Fake();

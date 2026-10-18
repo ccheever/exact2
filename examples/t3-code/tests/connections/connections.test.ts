@@ -1,8 +1,9 @@
+import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
 import { afterEach, test, expect } from 'bun:test';
 
 afterEach(resetPrimary);
 import { connectionsProjection, connectionsPage, environmentStatus, runConnectionOp, savedStatus, statusText, versionMismatch, compareSemver,
-  machineKind, decodePrefs, loadPreference, summarizeLoad, summarizeRouting, routingKey, type ConnectionHost } from '../../src/connections/connections';
+  environmentMcpUrl, machineKind, decodePrefs, loadPreference, summarizeLoad, summarizeRouting, routingKey, type ConnectionHost } from '../../src/connections/connections';
 import { fleet, phaseOf, environmentKey, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 import { initialShell } from '../../src/client/domain';
@@ -12,11 +13,11 @@ import { AUTH_STANDARD_CLIENT_SCOPES, LEGACY_CLIENT_SCOPES, encodeOAuthScope } f
 const STANDARD_SCOPE = encodeOAuthScope(AUTH_STANDARD_CLIENT_SCOPES), LEGACY_SCOPE = encodeOAuthScope(LEGACY_CLIENT_SCOPES);
 
 const host = (connection = 'connected', extra: Partial<ConnectionHost> = {}): ConnectionHost => ({
-  connection, origin: 'http://127.0.0.1:14796', environmentId: 'env-a', statusMessage: 'Connected.', scopes: ['orchestration:read', 'orchestration:operate'],
+  connection, origin: 'http://127.0.0.1:14796', environmentId: 'env-a', statusMessage: 'Connected.', scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
   config: { environment: { label: 'Fixture A', platform: { machine: 'laptop' }, serverVersion: '0.1.1', capabilities: { environmentIcon: true } } }, ...extra,
 });
 const entry = (key: string, extra: Partial<FleetEntry> = {}): FleetEntry => ({ key, origin: key.split('\n')[0]!, environmentId: key.split('\n')[1]!, phase: 'connected', message: '', traceId: '',
-  generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config: {}, shell: initialShell(), scopes: [], error: '', requested: true, ...extra });
+  generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config: {}, shell: initialShell(), scopes: [...AUTH_STANDARD_CLIENT_SCOPES], error: '', requested: true, ...extra });
 
 class FakeTransport implements Native {
   available = true; calls: Obj[] = []; saved: Obj[] = []; prefs = '{}';
@@ -206,4 +207,16 @@ test('trace IDs copy, preferences persist on this device, and icon writes need a
   await expect(runConnectionOp(native, 'load-weight', 'env-b', '42', true)).rejects.toThrow('Choose a load preference.');
   await expect(runConnectionOp(native, 'environment-icon', environmentKey('https://remote.example.com', 'env-b'), 'cloud', true)).rejects.toThrow('Connect to this environment to change its icon.');
   await expect(runConnectionOp(native, 'environment-icon', environmentKey('https://remote.example.com', 'env-b'), 'toaster', true)).rejects.toThrow('Choose one of the listed icons.');
+});
+
+test('MCP URLs prefer the connected direct route and skip SSH forwards', async () => {
+  const source = { origin: 'http://127.0.0.1:16473', phase: 'connected' as const, activeRouteId: 'lan', routes: [
+    { id: 'ssh', origin: 'http://127.0.0.1:16555', kind: 'ssh' }, { id: 'public', origin: 'https://example.com/base?token=secret#hash' }, { id: 'lan', origin: 'http://192.168.1.20:3773' },
+  ] };
+  expect(environmentMcpUrl(source)).toBe('http://192.168.1.20:3773/mcp');
+  expect(environmentMcpUrl({ ...source, phase: 'error' })).toBe('https://example.com/mcp');
+  expect(environmentMcpUrl({ ...source, routes: [source.routes[0]!] })).toBe('');
+  const native = new FakeTransport();
+  await runConnectionOp(native, 'environment-mcp', '', 'http://192.168.1.20:3773/mcp');
+  expect(native.copied).toEqual(['http://192.168.1.20:3773/mcp']);
 });

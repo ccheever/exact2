@@ -26,7 +26,7 @@ import { assetUrl } from '../settings/settings-b-icons';
 import { openHome } from '../pages/home-landing';
 
 export type BrowserLinkTarget = 'system' | 'app';
-export type LinkEvent = { readonly metaKey: boolean; readonly ctrlKey: boolean };
+export type LinkEvent = { readonly metaKey: boolean; readonly ctrlKey: boolean; readonly button?: number };
 const NO_MODIFIER: LinkEvent = { metaKey: false, ctrlKey: false };
 
 /** Only http(s) can load in the in-app browser; mailto:, vscode:// and the rest belong to the shell. */
@@ -36,7 +36,7 @@ export function isWebUrl(url: string): boolean {
 /** "app" only when the preference asks for it, the runtime can honour it, the URL can load in-app and the click
  *  carried no modifier: the modifier is the one-gesture way out when the default is in-app. */
 export function resolveLinkTarget(input: { url: string; event: LinkEvent; preference: BrowserLinkTarget; canOpenInApp: boolean }): BrowserLinkTarget {
-  if (input.event.metaKey || input.event.ctrlKey) return 'system';
+  if (input.event.metaKey || input.event.ctrlKey || input.event.button === 1) return 'system';
   if (input.preference !== 'app') return 'system';
   if (!input.canOpenInApp) return 'system';
   if (!isWebUrl(input.url)) return 'system';
@@ -157,7 +157,7 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
   // `kind|meta+shift`: the press's own modifiers (app-window.contract linkOpen).
   const bar = pressed.indexOf('|'), kind = bar < 0 ? pressed : pressed.slice(0, bar), held = bar < 0 ? [] : pressed.slice(bar + 1).split('+').filter(Boolean);
   if (!url) return '';
-  if (kind === 'link' && url.startsWith('#')) return openFragmentLink(client, native, held);
+  if (kind === 'link' && url.startsWith('#')) return openFragmentLink();
   // ChatMarkdown leaves a mailto, irc or xmpp link's click to the desktop shell, whose window-open
   // handler opens only http(s) and remote-editor links (DesktopWindow.ts, parseSafeExternalUrl): nothing opens.
   if (kind === 'link' && !isWebUrl(url)) return '';
@@ -175,17 +175,12 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
   return '';
 }
 
-/** A Markdown `#fragment` link's click (ChatMarkdown `handleMarkdownFragmentClick`):
- *  it scrolls to an element with that id where the page has one (a GFM footnote or a raw-HTML id, neither of which the
- *  clone draws); with none the click goes on and sets the page's hash, which Electron's hash router (main.tsx
- *  `createHashHistory`) reads as the index route, whose IndexDraftLanding opens the draft of the most recently active
- *  project and the composer takes the focus (`sidebar:new-thread`, app.contract commandCompleted). A click with ⌘, ⌥, ⇧
- *  or ⌃ held the handler leaves to the shell, which opens nothing for it (a new window it denies). */
-export async function openFragmentLink(client: T3Client, native: Native, held: string[] = []): Promise<string> {
-  if (held.length) return '';
-  try { await openHome(client, native); }
-  catch (error) { if (letGo(error)) throw error; }
-  return 'sidebar:new-thread';
+/** A Markdown `#fragment` link's click (ChatMarkdown `handleMarkdownFragmentClick` at 9c161462c9): it never
+ *  follows the fragment or writes it to the hash, which the desktop's hash router would read as another route. The
+ *  transcript scrolls to the heading it names (markdown.contract `fragmentJump`); one that reaches here (an image
+ *  inside a fragment link) or names nothing does nothing. */
+export async function openFragmentLink(): Promise<string> {
+  return '';
 }
 
 /** openTerminalLinkInPreview: a terminal hyperlink where the setting says, unless ⌘ or Ctrl asked for the system

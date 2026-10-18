@@ -105,3 +105,15 @@ test('find shortcuts have a renderer branch and its command arguments open each 
     if (slot === 'pr') expect(peekCode(client)?.find.open).toBeTrue();
   }
 });
+
+test('file, citation and skill faces paint the displayed label while preserving a different raw run text', async () => {
+  const { contractComponent } = await import('../support/contract-action-fixture');
+  const run = { text: 'src/needle.ts:7', findParts: [{ id: '0', text: 'needle', find: 3 }, { id: '1', text: '.ts · L7', find: 0 }] };
+  const label = 'needle.ts · L7';
+  for (const name of ['FileChipFace', 'CitationContextChip', 'ChipFace']) {
+    const face = contractComponent('markdown.contract', name);
+    const scope = { run, label, chip: { kind: 'skill', label }, urls: [] };
+    expect(face.drawn('FindParts(parts=run.findParts)', scope)).toBeTrue();
+    expect(face.drawn('FindParts(parts=run.findParts)', { ...scope, label: 'Different', chip: { kind: 'skill', label: 'Different' } })).toBeFalse();
+  }
+});

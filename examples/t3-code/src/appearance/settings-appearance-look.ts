@@ -8,7 +8,7 @@
 // palette's light-dark() tokens.
 import type { T3Client } from '../client/client';
 import { CLIENT_DEFAULTS, decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
-import { effectiveMode, fontStack, palette, themeRoles } from './settings-appearance';
+import { alpha, effectiveMode, fontStack, palette, themeRoles } from './settings-appearance';
 import type { CustomTheme } from './settings-themes';
 import type { DiffState } from '../diff/diff';
 import { STANDARD, previewTheme } from './settings-appearance-editor';
@@ -18,6 +18,8 @@ export type Look = {
   themed: boolean; mode: string;
   canvas: string; sidebar: string; sidebarBorder: string; sidebarText: string; sidebarMuted: string; rowActive: string;
   surface: string; popover: string; border: string; input: string; text: string; muted: string; accent: string; accentText: string; message: string;
+  /** ui/wizard.tsx: WizardSteps' bg-background (dark:bg-white/4) and WizardPanel's bg-background/80 (dark:bg-white/2). */
+  wizardSteps: string; wizardPanel: string;
   chatMax: number; artwork: boolean; pill: string; diff: string;
   diffAdd: string; diffDel: string; diffAddSurface: string; diffDelSurface: string; diffAddLine: string; diffDelLine: string;
   terminalLight: string; terminalDark: string; terminalFont: string; terminalSize: number;
@@ -63,13 +65,16 @@ export function look(client: T3Client): Look {
   const diff = DIFF[prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green'];
   // applyAppearanceFontVariables: the root font size (app.contract `rootFont` sets it), 16 until the preferences load.
   const rootFontSize = clampInterfaceFontSize(prefs.fontSizeInterface);
+  // Light mode paints the theme's background; dark mode a white wash whatever the theme.
+  const background = themed ? palette(prefs, custom, 'light').canvas : '#fcfcfc';
+  const half = (light: string, dark: string) => mode === 'light' ? light : mode === 'dark' ? dark : `light-dark(${light}, ${dark})`;
   return {
     themed, mode,
     terminalLight: terminalTheme(prefs.themeLight, 'light', custom), terminalDark: terminalTheme(prefs.themeDark, 'dark', custom),
     terminalFont: prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode,
     terminalSize: prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode,
     canvas: pal.canvas, sidebar: pal.sidebar, sidebarBorder: pal.sidebarBorder, sidebarText: pal.sidebarText, sidebarMuted: pal.sidebarMuted, rowActive: pal.rowActive,
-    message: messageSurface(prefs, custom, mode), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
+    message: messageSurface(prefs, custom, mode), wizardSteps: half(background, '#ffffff0a'), wizardPanel: half(alpha(background, 0.8), '#ffffff05'), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
     diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize), artwork: prefs.environmentIdentificationMode === 'artwork', pill: prefs.environmentIdentificationMode === 'pill' ? 'Nightly' : '',
     diffAdd: diff.add, diffDel: diff.del, diffAddSurface: diff.addSurface, diffDelSurface: diff.delSurface, diffAddLine: diff.addLine, diffDelLine: diff.delLine,
     fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize, promptSize: clampPromptFontSize(prefs.fontSizePrompt), promptFont: fontStack(prefs.fontFamilyComposer.trim() ? prefs.fontFamilyComposer : prefs.fontFamilySans, false), codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace',
