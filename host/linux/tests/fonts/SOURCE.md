@@ -22,7 +22,8 @@ their source and license are recorded beside them.
 `NotoSansCJKsc-subset.otf` contains exactly 中 (U+4E2D) and 日 (U+65E5),
 the CJK characters in the mixed-script ink test. It is a subset of
 [Noto Sans CJK SC 2.004](https://github.com/notofonts/noto-cjk/tree/Sans2.004).
-Copyright 2014–2021 Adobe. The font is licensed under the SIL Open Font
+Copyright 2014–2021 Adobe (http://www.adobe.com/), with Reserved Font Name
+'Source'. The font is licensed under the SIL Open Font
 License 1.1; see `NotoSansCJK-LICENSE`.
 
 Source: [NotoSansCJKsc-Regular.otf](https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf),
