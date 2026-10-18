@@ -23,6 +23,9 @@ use contract_syntax::{BinOp, Component, Expr, File, Node, Span, TemplatePart};
 /// stand in.
 fn row(tag: &str, name: &str) -> bool {
     use crate::tags::AttrTarget;
+    // A state part's row is a row (LLP 1121 D8, stage 8 F: a param read only
+    // by `:active` is reached).
+    let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
     matches!(
         crate::tags::attr(name),
         Some(AttrTarget::Styles(_) | AttrTarget::Shorthand | AttrTarget::Flex)
@@ -607,9 +610,8 @@ fn read(c: &mut Component) -> Vec<String> {
 }
 
 /// Each param of `file` no row of its component reaches, directly or
-/// through another of its params (`tamber-param-unused`). A state part's
-/// rows (D8) land with stage 8, so a param only one would read is refused
-/// here too.
+/// through another of its params (`tamber-param-unused`); a state part's
+/// row is a row (D8, D15's `pressed`).
 pub fn unused(file: &File) -> Vec<LowerError> {
     let mut errors = Vec::new();
     for c in &file.components {
@@ -643,7 +645,7 @@ pub fn unused(file: &File) -> Vec<LowerError> {
                 errors.push(LowerError {
                     id: "tamber-param-unused",
                     message: format!(
-                        "param `{}` is read by no row of `{}`, directly or through another of its params: read it in a row (`param.{}`), or remove it; a param read only by a state part (D8) lands with stage 8",
+                        "param `{}` is read by no row of `{}`, directly or through another of its params: read it in a row or a state part's row (`param.{}`), or remove it",
                         full_name(&identity, &p.name),
                         c.name,
                         p.name

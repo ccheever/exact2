@@ -704,8 +704,8 @@ style PostButton
   host-side inheritance designed for it. Another row is `lower-state-row`.
 - **Runner-known states** (`:disabled`, `:checked`) lower to the conditional rows an author
   can write today. **Host-known states** (`:active`, `:hover`, `:focus-visible`) lower to a
-  **state look**: an interned entry `{ state, rows }` the node points to, applied by the
-  host on its own tracking, with no round trip (LLP 1061 D1's reason).
+  **state look**: a `looks` row `{ node, state, rows }`, keyed by node and state, applied by
+  the host on its own tracking, with no round trip (LLP 1061 D1's reason).
 - **`:active` is the host's existing press**, not CSS's: the innermost node with a `press`
   handler (LLP 1061), eased on the curve the host uses for `-exact-press-scale` today
   (`cubic-bezier(.16, 1, .3, 1)` on Apple), held under Reduce Motion with colour changes
@@ -3316,3 +3316,56 @@ paired with a row rewrite. Its `.contract` ownership infrastructure arrives with
 verifying build (not reproduced in three replays); and the iOS tamber smoke's relaunch.
 
 **Stage 7 is closed.**
+
+
+### Stage 8, commit A: state parts, grammar and lowering (draft for theme2)
+
+- **Grammar** (`contract_syntax::parser::states`). `:active`, `:hover`, `:focus-visible`, `:disabled`
+  or `:checked` alone on a line, then its rows indented, in a `style` (literal rows) or under a node
+  before its children (computed rows, as the node's own). Each row is carried as an attribute named
+  for the state and the row (`:disabled background-color`, `contract_syntax::state`), so a class's
+  and the node's merge as any row does and the node's wins. `syntax-state`: an unknown state, a
+  combination, a state twice at one place, a block inside a state, a state after the node's
+  children. `contract fmt` keeps the block, its `:` against the name.
+- **Rows and targets** (`contract/lower/src/states.rs`). A runner-known state takes
+  `background-color`, `color`, `border-color` (each side's longhand too), `opacity`, `box-shadow` and
+  `-exact-tint-color`; a host-known one `background-color`, `border-color`, `opacity`, `box-shadow`
+  and `-exact-press-scale`. Another is `lower-state-row`. A host state's row is a literal
+  (`lower-state-literal`; a token's name is one, theme2's ruling (b)). A part on a native control
+  (`controls::control`, or a `Control` node) or on a cell list's row (through its `for`, `if` and
+  `match` regions) is `lower-state-target`.
+- **Runner-known states fold** into the node's rows, per longhand: `disabled ? D : (checked ? C :
+  B)`. B is the base the class and the node compose, a `border-color` split into its sides and a
+  side a `border` or `border-top` writes as its component, so a state's `border-color` overrides
+  each side the base wrote, longhand or not. `disabled` is the node's own `disabled`; `checked` is
+  `checked || aria-checked || aria-selected || aria-pressed`, the last compared with `"true"` unless
+  it is a bool. `:disabled` sets `DisabledStyled`, beside the heuristic.
+- **`lower-state-dead`** (a lint, theme2's ruling (a)): a node's own `:disabled` where it writes no
+  `disabled`, or its own `:checked` where it writes none of the four. A class's part is not judged.
+- **Host-known states are recorded** (the plan break, ruling (c), shape agreed with x2-perf4): a
+  `looks` table, `{node, state, bindings}` (0 `:active`, 1 `:hover`, 2 `:focus-visible`) in node
+  order, one look a state a node with the class's and the node's rows composed by longhand, each a
+  literal style row as a static row's (a token's name stays a name, for a live batch and a mode). A
+  node with no look has no row, so a plan without state parts pays 4 bytes (a nodes column cost the
+  clone's plan 159,596 bytes, 4%: theme2 asked to key the table by node). No host reads it until B.
+  FORMAT_DIGEST moves to `0x73dd_d2b7_978c_aec0`: every host takes a new binary (plan decode is
+  generated), and none applies looks yet.
+- **LLP 1001** declares the `:checked` deviation.
+- **Tests:** `contract/cli/tests/it/state_parts.rs`: `:checked` under `:disabled` on a checked,
+  disabled toggle (the gate line); a state's `border-color` over a `border` and a side's longhand;
+  the node's part over its class's; the disabled-look mark; every refusal; the lint; looks one a
+  state, composed; fmt.
+
+### Stage 8, commit F: params read by state parts (draft for theme2)
+
+- **Stage 7 A's refusal is lifted.** A state part's row is a row where a param may stand
+  (`params::rewrite`'s `row` reads `:active background-color` as `background-color`), so
+  `param.x` there is rewritten to its token and reaches the param: D15's `PostButton.pressed`,
+  read by `:active` alone, compiles and folds. `tamber-param-unused`'s message no longer points at
+  stage 8.
+- **What it does at run time** is A's and B's: a `:disabled` or `:checked` row reading a param
+  folds into the node's row, which reads the param's token, so a live `set-param` reaches it as
+  any token row's; a host look's row keeps the token's name as a static row does, which B's hosts
+  resolve per node tuple and follow live (theme2's ruling (b), 17:37).
+- **Tests:** `state_parts.rs`'s `a_param_read_only_by_a_state_part_is_reached` (refused as unused
+  before, `tamber-param-unused`).

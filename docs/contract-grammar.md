@@ -139,6 +139,20 @@ one the placeholder keeps the platform's colour. Another property in it is
 is any other part. `placeholder-color` and `-exact-placeholder-color` are
 refused with the block to write.
 
+A state part is a block of one state's rows (LLP 1121 D8): `:active`, `:hover`,
+`:focus-visible`, `:disabled` or `:checked` alone on its line, then rows indented
+beneath it, in a `style` (literal) or under a node before its children (where a
+value may compute). One state a block, once at a place, never nested and never
+combined (`syntax-state`). `:disabled` and `:checked` (when `checked`,
+`aria-checked`, `aria-selected` or `aria-pressed` is true) take
+`background-color`, `color`, `border-color` (each side), `opacity`, `box-shadow`
+and `-exact-tint-color`, and fold into the node's own rows, `:checked` under
+`:disabled`; the host's states take the rows that do not inherit,
+`background-color`, `border-color`, `opacity`, `box-shadow` and
+`-exact-press-scale`, each a literal (`lower-state-literal`; a token's name is
+one). Another row is `lower-state-row`; a part on a native control or a list's
+row is `lower-state-target`. The node's block wins over its class's, row by row.
+
 A length attribute's string is CSS's own text, read by the kernel: a px or
 other absolute length, a percentage, a viewport length, `auto`,
 `env(safe-area-inset-*)`, `env(viewport-segment-* x y)`, a layout region's

@@ -13,6 +13,10 @@ pub(super) struct ElementStep<'n> {
     pub(super) bounded: bool,
     pub(super) horizontal_flex: Option<bool>,
     pub(super) nav_place: routes::NavPlace,
+    /// How many element levels below this one a list's rows are (LLP 1121
+    /// D8's `lower-state-target`): 1 a cell list's, 3 a grouped list's
+    /// (its sections' group's); 0 none.
+    pub(super) rows: u8,
 }
 
 impl Lowerer<'_> {
@@ -168,6 +172,8 @@ impl Lowerer<'_> {
         self.check_collection(tag, expanded, children, *span, scope)?;
         // @ref LLP 1115.000 D16 — whether this list's rows are cells.
         let cells = cells::rows(tag, expanded, children, grouped.is_some());
+        let grouped_list = grouped.is_some();
+        // A cell's row is no state part's target (LLP 1121 D8).
         // @ref LLP 1116.020 D1 — a cell's `delete=`, its swipe.
         let swiped = cells.then(|| swipe_rows::cells(children)).flatten();
         // A row list is a flex item of its column like any carousel;
@@ -253,6 +259,33 @@ impl Lowerer<'_> {
                 *span,
             );
         }
+        // @ref LLP 1121 D8 — the state parts, folded or recorded.
+        let target = if control.is_some() || t.node_type == NodeType::Control {
+            Some("a native control")
+        } else if self.row_depth == 1 {
+            Some("a list's row, whose press is the cell's highlight")
+        } else {
+            None
+        };
+        // What the node takes unwritten, a state's base where its author
+        // writes none: its tag's fixed rows (an `hr`'s separator colour),
+        // then a link's colour, which is pushed after them.
+        let mut implied: Vec<(&str, Expr)> = t
+            .fixed_styles
+            .iter()
+            .filter_map(|(id, v)| {
+                Some((
+                    crate::states::row_name(*id)?,
+                    Expr::Str(v.to_string(), *span),
+                ))
+            })
+            .collect();
+        implied.extend(
+            self.link_colour(tag, parent_tag, expanded, children)
+                .map(|e| ("color", e)),
+        );
+        let states = self.fold_states(expanded, target, &implied, class_len, scope, locals)?;
+        let expanded = states.as_ref().map_or(expanded, |s| s.attrs.as_slice());
         let mut bindings: Vec<BindingsRow> = Vec::new();
         let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
         let mut surface: Option<exact_plan::SurfacesId> = None;
@@ -267,7 +300,10 @@ impl Lowerer<'_> {
             bindings.push(prop_row(exact_kernel::PropId::ListRows, rows, IMPLIED));
         }
         // @ref LLP 1115.000 D6 — the author's own disabled look: no default dim.
-        if disabled_look::styled(expanded) {
+        let styled = states
+            .as_ref()
+            .map_or_else(|| disabled_look::styled(expanded), |s| s.disabled_look);
+        if styled {
             let styled = self.b.constant(&Value::Bool(true));
             bindings.push(prop_row(
                 exact_kernel::PropId::DisabledStyled,
@@ -409,10 +445,23 @@ impl Lowerer<'_> {
                 self.errors.push(native::name_the_fix(n, e));
             }
             if let Some(origins) = &mut origins {
-                let origin = if index < sheet.len() {
-                    Origin::Tag
-                } else if index < class_len {
+                // A folded state part's (LLP 1121 D8): its class's where
+                // the class wrote every state row in it.
+                let (class_len, folded) = match &states {
+                    Some(s) => (
+                        s.class_len,
+                        (index >= s.base_len).then(|| s.by_class[index - s.base_len]),
+                    ),
+                    None => (class_len, None),
+                };
+                let class = class_label.is_some();
+                let origin = if class
+                    && (folded == Some(true)
+                        || folded.is_none() && index >= sheet.len() && index < class_len)
+                {
                     Origin::Class(class_label.clone().expect("class attribute"))
+                } else if folded.is_none() && index < sheet.len() {
+                    Origin::Tag
                 } else {
                     Origin::Own
                 };
@@ -603,6 +652,33 @@ impl Lowerer<'_> {
                 })
                 .or_insert(Some(style));
         }
+        // @ref LLP 1121 D8 — its host-known states' looks, each row lowered
+        // as the node's own literal rows are (before the node is made: a
+        // refusal leaves no node behind).
+        let mut look_rows = Vec::new();
+        for (state, attrs) in states.as_ref().map_or(&[][..], |s| s.looks.as_slice()) {
+            let mut bindings = Vec::new();
+            for a in attrs {
+                let (mut handlers, mut surface) = (Vec::new(), None);
+                self.attr(
+                    tag,
+                    None,
+                    a,
+                    scope,
+                    locals,
+                    &mut bindings,
+                    &mut handlers,
+                    &mut surface,
+                    &font,
+                )?;
+            }
+            let state = match state.as_str() {
+                "active" => 0,
+                "hover" => 1,
+                _ => 2,
+            };
+            look_rows.push((state, bindings));
+        }
         let id = self.b.node(
             t.node_type as u8,
             parent,
@@ -612,6 +688,9 @@ impl Lowerer<'_> {
             &handler_refs,
             surface,
         );
+        if !look_rows.is_empty() {
+            self.b.set_looks(id, &look_rows);
+        }
         if let Some(sites) = &mut self.sites {
             debug_assert_eq!(sites.nodes.len(), id.0 as usize);
             sites.nodes.push(sites::node_site(
@@ -657,6 +736,17 @@ impl Lowerer<'_> {
                 warnings::horizontal_flex(t.fixed_styles, expanded)
             },
             nav_place,
+            // A row that says `delete=` is its swipe's `scroll` (swipe_rows.rs):
+            // the author's row is the scroll's content, a row still.
+            rows: if grouped_list {
+                3
+            } else if cells
+                || self.row_depth == 1 && expanded.iter().any(|a| a.name == "swipeTrailing")
+            {
+                1
+            } else {
+                0
+            },
         })
     }
 }

@@ -29,6 +29,7 @@ mod roles;
 mod root_replace;
 mod rows;
 mod screens;
+mod states;
 mod svg;
 mod title;
 mod width;
@@ -157,6 +158,8 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     out.extend(parts::empty_state_in_list(checked));
     // @ref LLP 1116.021 D7 — a summary card in a grouped list's card.
     out.extend(parts::summary_card_in_list(checked));
+    // @ref LLP 1121 D8 — a node's own state part it never meets.
+    states::dead(&root.view, &mut out);
     performance_now(root, &checked.file.fns, &mut out);
     // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
     launch::launch_identity(root, &checked.file.fns, &mut out);

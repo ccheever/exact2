@@ -457,6 +457,19 @@ impl Plan {
         {
             return Err(PlanError::GenericStacks);
         }
+        // @ref LLP 1121 D8 — looks by node, then state, one a state a node
+        // (hosts binary-search by node).
+        if let Some(i) = self
+            .looks
+            .windows(2)
+            .position(|pair| (pair[0].node.0, pair[0].state) >= (pair[1].node.0, pair[1].state))
+        {
+            return Err(PlanError::BadReference {
+                table: "looks",
+                row: i as u32 + 1,
+                field: "node",
+            });
+        }
         self.validate_texts()?;
         self.validate_site_depth()?;
         self.validate_acyclic_types()

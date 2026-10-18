@@ -842,7 +842,8 @@ fn a_progress_bar_is_a_row_of_blocks() {
 fn headless_time_uses_agent_facts_and_survives_an_invalid_place() {
     let path = entry("live-time-facts");
     std::fs::write(&path, "component App\n  view\n    column\n      time datetime=1767234600000 format=\"relative\"\n      time datetime=1767225600000 format=\"time-short\"\n").unwrap();
-    for (locale, clock) in [("en-US", "7:00 PM"), ("invalid@locale", "12:00 AM")] {
+    // A refused locale falls back to en-US alone; the zone it came with stays.
+    for (locale, clock) in [("en-US", "7:00 PM"), ("invalid@locale", "7:00 PM")] {
         let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
             .arg(&path)
             .args(["--size", "80x6", "print"])

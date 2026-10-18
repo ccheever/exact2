@@ -370,6 +370,8 @@ pub fn prop_ty(prop: PropId) -> PropTy {
 }
 /// Whether an attribute sets style rows.
 pub fn style(name: &str) -> bool {
+    // A state part's row (`:disabled opacity`, LLP 1121 D8) is the row it is.
+    let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
     matches!(
         attr(name),
         Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand)
@@ -1372,6 +1374,31 @@ impl crate::Lowerer<'_> {
         locals: u16,
         bindings: &mut Vec<BindingsRow>,
     ) {
+        use contract_syntax::Expr;
+        let Some(chosen) = self.link_colour(tag, parent_tag, attrs, children) else {
+            return;
+        };
+        let link = match &chosen {
+            Expr::Str(word, _) if word == "LinkText" => self.fixed(true, "LinkText"),
+            // A value the attribute's own lowering refuses is said there.
+            _ => match self.expr_code(&chosen, scope, locals) {
+                Ok(code) => code,
+                Err(_) => return,
+            },
+        };
+        bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
+    }
+
+    /// The colour a link's text takes when its author writes none: `LinkText`,
+    /// or `inherit` where its computed target is empty; `None` for a node that
+    /// is no link's text (a state part's base, LLP 1121 D8, reads it too).
+    pub(crate) fn link_colour(
+        &self,
+        tag: &str,
+        parent_tag: Option<&str>,
+        attrs: &[contract_syntax::Attr],
+        children: &[contract_syntax::Node],
+    ) -> Option<contract_syntax::Expr> {
         use contract_syntax::{BinOp, Expr, Node, TemplatePart};
         // Texts and images alone, an `if` or a `for` of them included.
         fn words(node: &Node) -> bool {
@@ -1394,33 +1421,31 @@ impl crate::Lowerer<'_> {
             && !children.is_empty()
             && children.iter().all(words);
         if !(run || block) {
-            return;
+            return None;
         }
-        let link = match href.map(|a| &a.value) {
-            Some(Expr::Str(to, _)) if to.is_empty() => return,
+        let span = href.map_or(contract_syntax::Span::default(), |a| a.value.span());
+        let word = |w: &str| Expr::Str(w.into(), span);
+        Some(match href.map(|a| &a.value) {
+            Some(Expr::Str(to, _)) if to.is_empty() => return None,
             // A written target, a template with words of its own, or a
             // block `link` that is its `press`: a link whatever happens.
-            None | Some(Expr::Str(..)) => self.fixed(true, "LinkText"),
+            None | Some(Expr::Str(..)) => word("LinkText"),
             Some(Expr::Template(parts, _))
                 if parts
                     .iter()
                     .any(|p| matches!(p, TemplatePart::Text(t) if !t.is_empty())) =>
             {
-                self.fixed(true, "LinkText")
+                word("LinkText")
             }
             Some(to) => {
-                let span = to.span();
-                let word = |w: &str| Box::new(Expr::Str(w.into(), span));
-                let empty = Expr::Binary(BinOp::Eq, Box::new(to.clone()), word(""), span);
-                let chosen =
-                    Expr::Ternary(Box::new(empty), word("inherit"), word("LinkText"), span);
-                // A value the attribute's own lowering refuses is said there.
-                let Ok(code) = self.expr_code(&chosen, scope, locals) else {
-                    return;
-                };
-                code
+                let empty = Expr::Binary(BinOp::Eq, Box::new(to.clone()), Box::new(word("")), span);
+                Expr::Ternary(
+                    Box::new(empty),
+                    Box::new(word("inherit")),
+                    Box::new(word("LinkText")),
+                    span,
+                )
             }
-        };
-        bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
+        })
     }
 }
