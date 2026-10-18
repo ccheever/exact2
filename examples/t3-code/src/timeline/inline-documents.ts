@@ -114,6 +114,7 @@ export async function syncInlineDocuments(client: T3Client, native: Native, now:
         frame.runtime = makeDocumentRuntime(client, { app: ref.reference, sourceThreadId: str(row.sourceThreadId) || threadId, itemId: str(item.id), conversationThreadId: threadId,
           post: message => { if (owned()) postToDocument(client, frame, message); },
           theme: () => inlineTheme(client, held.systemScheme), owned,
+          beforePermission: () => { if (owned()) for (const other of held.frames.values()) { other.fullscreen = false; if (other.runtime) { other.runtime.fullscreen = false; other.runtime.host.updateHostContext(); } } },
           width: () => frame.width ?? 728, viewportHeight: () => frame.viewportHeight ?? 700, canExpand: () => ![...held.frames.values()].some(other => other.runtime?.permission || other !== frame && (other.fullscreen || other.runtime?.fullscreen)), height: height => { frame.height = height; client.revision++; } });
         const result = obj(item.output);
         frame.runtime.host.setToolCall({ arguments: item.input, result: { ...result, content: arr(result.content) } });
