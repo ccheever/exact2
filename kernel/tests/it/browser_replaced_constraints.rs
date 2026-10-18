@@ -788,3 +788,230 @@ fn absolute_flex_intrinsic_width_uses_the_clamped_definite_height() {
         failures.len()
     );
 }
+
+// Chrome 151.0.7922.34, 2026-10-18: cross-axis auto margins and wrapping
+// prevent a definite container height from sizing intrinsic contributions.
+#[test]
+fn intrinsic_flex_stretch_requires_a_single_line_and_non_auto_cross_margins() {
+    let variants: &[(&str, &str, Frames)] = &[
+        (
+            "height:300px",
+            "flex-grow:1;padding:10px",
+            &[
+                [0.0, 0.0, 1160.0, 300.0],
+                [0.0, 0.0, 580.0, 300.0],
+                [580.0, 0.0, 580.0, 300.0],
+            ],
+        ),
+        (
+            "height:300px",
+            "flex-grow:1;padding:10px;margin-top:auto",
+            &[
+                [0.0, 0.0, 640.0, 300.0],
+                [0.0, 130.0, 320.0, 170.0],
+                [320.0, 130.0, 320.0, 170.0],
+            ],
+        ),
+        (
+            "height:300px",
+            "flex-grow:1;padding:10px;margin-bottom:auto",
+            &[
+                [0.0, 0.0, 640.0, 300.0],
+                [0.0, 0.0, 320.0, 170.0],
+                [320.0, 0.0, 320.0, 170.0],
+            ],
+        ),
+        (
+            "height:300px",
+            "flex-grow:1;padding:10px;margin-top:auto;margin-bottom:auto",
+            &[
+                [0.0, 0.0, 640.0, 300.0],
+                [0.0, 65.0, 320.0, 170.0],
+                [320.0, 65.0, 320.0, 170.0],
+            ],
+        ),
+        (
+            "height:300px;flex-wrap:wrap",
+            "flex-grow:1;padding:10px",
+            &[
+                [0.0, 0.0, 640.0, 300.0],
+                [0.0, 0.0, 320.0, 300.0],
+                [320.0, 0.0, 320.0, 300.0],
+            ],
+        ),
+        (
+            "height:300px;flex-wrap:wrap-reverse",
+            "flex-grow:1;padding:10px",
+            &[
+                [0.0, 0.0, 640.0, 300.0],
+                [0.0, 0.0, 320.0, 300.0],
+                [320.0, 0.0, 320.0, 300.0],
+            ],
+        ),
+        (
+            "height:300px",
+            "flex-grow:1;padding:10px;align-self:flex-start",
+            &[
+                [0.0, 0.0, 640.0, 300.0],
+                [0.0, 0.0, 320.0, 170.0],
+                [320.0, 0.0, 320.0, 170.0],
+            ],
+        ),
+        (
+            "height:300px",
+            "flex-grow:1;padding:10px;height:150px",
+            &[
+                [0.0, 0.0, 640.0, 300.0],
+                [0.0, 0.0, 320.0, 170.0],
+                [320.0, 0.0, 320.0, 170.0],
+            ],
+        ),
+        (
+            "height:300px",
+            "flex-grow:1;padding:10px;margin-left:auto",
+            &[
+                [0.0, 0.0, 1160.0, 300.0],
+                [0.0, 0.0, 580.0, 300.0],
+                [580.0, 0.0, 580.0, 300.0],
+            ],
+        ),
+    ];
+    let cases: Vec<_> = ["absolute", "held"]
+        .into_iter()
+        .flat_map(|mode| {
+            variants
+                .iter()
+                .map(move |&(row, item, frames)| (mode, row, item, frames))
+        })
+        .collect();
+    check_intrinsic_flex_rows(&cases);
+}
+
+// Percentages and opposing insets resolve against the laid-out containing
+// block even when its own height is automatic (Chrome 151.0.7922.34).
+#[test]
+fn absolute_flex_height_resolves_against_an_auto_height_containing_block() {
+    let cases: &[(&str, &str, &str, Frames)] = &[
+        (
+            "auto-parent",
+            "height:100%",
+            "flex-grow:1;padding:10px",
+            &[
+                [0.0, 400.0, 1560.0, 400.0],
+                [0.0, 400.0, 780.0, 400.0],
+                [780.0, 400.0, 780.0, 400.0],
+            ],
+        ),
+        (
+            "auto-parent",
+            "height:100%",
+            "flex-grow:1;padding:10px;min-width:0",
+            &[
+                [0.0, 400.0, 1560.0, 400.0],
+                [0.0, 400.0, 780.0, 400.0],
+                [780.0, 400.0, 780.0, 400.0],
+            ],
+        ),
+        (
+            "auto-parent",
+            "height:calc(100% - 100px)",
+            "flex-grow:1;padding:10px",
+            &[
+                [0.0, 400.0, 1160.0, 300.0],
+                [0.0, 400.0, 580.0, 300.0],
+                [580.0, 400.0, 580.0, 300.0],
+            ],
+        ),
+        (
+            "auto-parent",
+            "height:calc(100% - 100px)",
+            "flex-grow:1;padding:10px;min-width:0",
+            &[
+                [0.0, 400.0, 1160.0, 300.0],
+                [0.0, 400.0, 580.0, 300.0],
+                [580.0, 400.0, 580.0, 300.0],
+            ],
+        ),
+        (
+            "auto-parent",
+            "top:0;bottom:0",
+            "flex-grow:1;padding:10px",
+            &[
+                [0.0, 0.0, 1560.0, 400.0],
+                [0.0, 0.0, 780.0, 400.0],
+                [780.0, 0.0, 780.0, 400.0],
+            ],
+        ),
+        (
+            "auto-parent",
+            "top:0;bottom:0",
+            "flex-grow:1;padding:10px;min-width:0",
+            &[
+                [0.0, 0.0, 1560.0, 400.0],
+                [0.0, 0.0, 780.0, 400.0],
+                [780.0, 0.0, 780.0, 400.0],
+            ],
+        ),
+    ];
+    check_intrinsic_flex_rows(cases);
+}
+
+fn check_intrinsic_flex_rows(cases: &[(&str, &str, &str, Frames)]) {
+    use crate::browser_cases::{css_rows as rows, lay_out_as, props};
+    use exact_kernel::{Offer, Op};
+    let mut failures = Vec::new();
+    for &(mode, container, item, frames) in cases {
+        let root = props(&rows("position:relative;width:800px;height:600px"));
+        let (parent, mut nodes) = match mode {
+            "held" => (2, vec![(2, 1, rows("position:absolute"))]),
+            "auto-parent" => (
+                2,
+                vec![
+                    (2, 1, rows("position:relative;width:800px")),
+                    (6, 2, rows("height:400px")),
+                ],
+            ),
+            _ => (1, vec![]),
+        };
+        let position = if mode == "held" {
+            ""
+        } else {
+            "position:absolute;"
+        };
+        nodes.push((
+            3,
+            parent,
+            rows(&format!("{position}display:flex;{container}")),
+        ));
+        let mut k = lay_out_as(root, nodes, &[], &[], NodeType::View);
+        let mut ops = Vec::new();
+        for id in [4, 5] {
+            ops.push(Op::CreateView {
+                id,
+                node_type: NodeType::Canvas,
+            });
+            ops.push(Op::SetStyle {
+                id,
+                patch: Box::new(props(&rows(item))),
+            });
+        }
+        ops.push(Op::SetChildren {
+            id: 3,
+            children: vec![4, 5],
+        });
+        k.apply(0, 2, &ops).unwrap();
+        k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+        let want: Vec<_> = (3..).zip(frames.iter().copied()).collect();
+        failures.extend(mismatches(
+            &format!("{mode}; {container}; {item}"),
+            &k,
+            &want,
+        ));
+    }
+    assert!(
+        failures.is_empty(),
+        "{}\n{} failures",
+        failures.join("\n"),
+        failures.len()
+    );
+}

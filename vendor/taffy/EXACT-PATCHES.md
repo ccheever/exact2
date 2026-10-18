@@ -1193,6 +1193,22 @@ an authored height overriding insets, growing and zero-grow items, authored
 border-box ratios, and automatic-height controls with only a maximum.
 The separate automatic-height constraint gaps are recorded in `QUEUE.md`.
 
+## Patch 41: restrict intrinsic flex stretching to eligible items
+
+An intrinsic main-size contribution uses the container's cross size for stretch
+only in a single-line container with a definite cross size and with neither
+cross-axis margin automatic. Otherwise the item contributes its content size
+without a transferred stretch. This applies both to an absolute flex container's
+width probe and to a flex container inside a shrink-to-fit block.
+
+**Held by** `browser_replaced::constraints::intrinsic_flex_stretch_requires_a_single_line_and_non_auto_cross_margins`:
+literal Chrome 151.0.7922.34 frames for top, bottom and paired auto margins,
+wrap and wrap-reverse, with controls for ordinary stretch, main-axis auto
+margins, non-stretch alignment and an authored item height, in both containers.
+`absolute_flex_height_resolves_against_an_auto_height_containing_block` holds
+percentage and calc heights and opposing insets against the containing block's
+used height, with automatic and zero item minima.
+
 ## Cargo workspace boundary
 
 `Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested

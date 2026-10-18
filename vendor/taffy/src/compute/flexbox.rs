@@ -1677,7 +1677,16 @@ fn determine_container_main_size(
                                 // Known dimensions for child sizing
                                 let child_known_dimensions = {
                                     let mut ckd = item.size.with_main(dir, None);
-                                    if item.align_self == AlignSelf::STRETCH && ckd.cross(dir).is_none() {
+                                    // EXACT PATCH 41: intrinsic contributions can transfer a stretch
+                                    // only from a definite single-line cross size, without auto margins.
+                                    if item.align_self == AlignSelf::STRETCH
+                                        && !constants.is_wrap
+                                        && constants.has_definite_cross_size
+                                        && cross_axis_parent_size.is_some()
+                                        && !item.margin_is_auto.cross_start(dir)
+                                        && !item.margin_is_auto.cross_end(dir)
+                                        && ckd.cross(dir).is_none()
+                                    {
                                         ckd.set_cross(
                                             dir,
                                             cross_axis_available_space
