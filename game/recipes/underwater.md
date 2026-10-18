@@ -22,7 +22,7 @@ fn tank(w: &mut World) {
         Transform::at(0., 8., -12.).looking_at(Vec3::new(0., 8., -13.), Vec3::NEG_Y),
         Mesh::plane(20., 36.), Material::rgb(0.6, 0.9, 0.95).alpha(0.25)));
     for (i, z) in [-4., -12., -24.].into_iter().enumerate() {
-        w.spawn_named(&format!("rock-{i}"), (Transform::at(-3. + 3. * i as f32, 0.6, z),
+        w.spawn_named(format!("rock-{i}"), (Transform::at(-3. + 3. * i as f32, 0.6, z),
             Mesh::sphere(1.2), Material::rgb(0.1, 0.1, 0.09).rough(0.9)));
     }
     w.spawn_named("sub", (Transform::at(0., 2., 0.), Mesh::cuboid(Vec3::new(1.2, 1., 2.5)),

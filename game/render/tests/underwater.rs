@@ -72,7 +72,7 @@ fn tank(w: &mut World) {
     );
     for (i, z) in [-4., -12., -24.].into_iter().enumerate() {
         w.spawn_named(
-            &format!("rock-{i}"),
+            format!("rock-{i}"),
             (
                 Transform::at(-3. + 3. * i as f32, 0.6, z),
                 Mesh::sphere(1.2),
