@@ -20,7 +20,7 @@ impl Kernel {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Dimension, Kernel, NodeType, Offer, Op, StyleId, StyleProps};
+    use crate::{Dimension, Kernel, NodeFlags, NodeType, Offer, Op, PropId, StyleId, StyleProps};
 
     fn styled(width: f32) -> Box<StyleProps> {
         let mut s = StyleProps::default();
@@ -83,5 +83,80 @@ mod tests {
         k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
         assert_eq!(k.node(550).unwrap().frame.width, 20.0);
         assert_eq!(k.node(5).unwrap().frame.width, 10.0);
+    }
+
+    /// A node's changed geometry names the pass of the root that published
+    /// it. That root can be freed and its slot trimmed while the node lives
+    /// on (it moved to another root), or the node's own slot can be freed
+    /// and reused: neither may read the gone root's passes, and the change
+    /// expires with its root.
+    #[test]
+    fn a_geometry_change_published_by_a_trimmed_root_expires_with_it() {
+        let mut k = Kernel::with_monospace();
+        // Slots in creation order: the page root 1 at 0, then 2 (freed and
+        // reused), 3 (kept), 4 (moved), filler, and a second root 200 last.
+        let mut ops = vec![Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        }];
+        create(&mut ops, 2..=199, 10.0);
+        ops.push(Op::CreateView {
+            id: 200,
+            node_type: NodeType::View,
+        });
+        ops.push(Op::SetChildren {
+            id: 1,
+            children: (3..=3).chain(5..=199).collect(),
+        });
+        ops.push(Op::SetChildren {
+            id: 200,
+            children: vec![2, 4],
+        });
+        ops.push(Op::AttachRoot { id: 1 });
+        ops.push(Op::AttachRoot { id: 200 });
+        k.apply(0, 1, &ops).unwrap();
+        let offer = Offer::definite(400.0, 400.0);
+        k.compute_layout(1, offer).unwrap();
+        k.compute_layout(200, offer).unwrap();
+        let moved = k.arena().slot_of(4).unwrap();
+        assert!(k.arena().flags(moved).has(NodeFlags::GEOMETRY_CHANGED));
+
+        // 4 moves to the page; its root and everything above slot 3 go.
+        let mut ops = vec![Op::SetChildren {
+            id: 1,
+            children: vec![3, 4],
+        }];
+        ops.push(Op::DestroyView { id: 200 });
+        ops.extend((5..=199).map(|id| Op::DestroyView { id }));
+        k.apply(0, 2, &ops).unwrap();
+        k.trim();
+        assert_eq!(k.arena().slot_count(), 4);
+        assert!(!k.arena().flags(moved).has(NodeFlags::GEOMETRY_CHANGED));
+
+        // A new node takes 2's freed slot, and a prop write marks it and 4.
+        let ops = [
+            Op::CreateView {
+                id: 300,
+                node_type: NodeType::View,
+            },
+            Op::SetProp {
+                id: 300,
+                prop: PropId::TestId,
+                value: "fresh".into(),
+            },
+            Op::SetProp {
+                id: 4,
+                prop: PropId::TestId,
+                value: "moved".into(),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![3, 4, 300],
+            },
+        ];
+        k.apply(0, 3, &ops).unwrap();
+        assert_eq!(k.arena().slot_of(300), Some(1));
+        k.compute_layout(1, offer).unwrap();
+        assert_eq!(k.node(300).unwrap().frame.width, 400.0);
     }
 }

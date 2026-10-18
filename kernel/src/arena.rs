@@ -51,7 +51,13 @@ pub struct NodeArena {
     prop_counts: Vec<u32>,
     type_counts: Vec<u32>,
     flags: Vec<NodeFlags>,
+    /// Each root's latest publication, numbered across all roots from
+    /// `last_pass` (0: none). A freed root's publications are over.
     layout_passes: Vec<u64>,
+    last_pass: u64,
+    /// The root and publication that last changed each node's geometry. Its
+    /// `GEOMETRY_CHANGED` holds while that is still the root's latest; the
+    /// root may since have been freed, reused or trimmed away, which ends it.
     geometry_passes: Vec<(u32, u64)>,
     frames: Vec<Frame>,
     // @ref LLP 1043.000 §3 D4 — no per-node vector or allocation.
@@ -159,6 +165,7 @@ impl Clone for NodeArena {
             type_counts: self.type_counts.clone(),
             flags: self.flags.clone(),
             layout_passes: self.layout_passes.clone(),
+            last_pass: self.last_pass,
             geometry_passes: self.geometry_passes.clone(),
             frames: self.frames.clone(),
             flow: self.flow.clone(),
@@ -261,6 +268,7 @@ impl NodeArena {
             self.styles[slot] = self.shared.default_style();
             self.props[slot].clear();
             self.flags[slot] = NodeFlags::default();
+            self.layout_passes[slot] = 0;
             self.prop_counts.clear();
             self.type_counts.clear();
             self.frames[slot] = Frame::default();
@@ -413,7 +421,8 @@ impl NodeArena {
     pub fn flags(&self, slot: u32) -> NodeFlags {
         let mut flags = self.flags[slot as usize];
         let (root, pass) = self.geometry_passes[slot as usize];
-        if self.layout_passes[root as usize] != pass {
+        // A root trimmed away is past the column's end.
+        if self.layout_passes.get(root as usize) != Some(&pass) {
             flags.remove(NodeFlags::GEOMETRY_CHANGED);
         }
         flags
@@ -866,6 +875,7 @@ impl NodeArena {
         self.styles[s] = self.shared.default_style();
         self.props[s] = PropList::new();
         self.flags[s] = NodeFlags::default();
+        self.layout_passes[s] = 0;
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
         self.set_inset(slot, None);
@@ -914,7 +924,8 @@ impl NodeArena {
     }
 
     pub(crate) fn begin_layout_publication(&mut self, root: u32) {
-        self.layout_passes[root as usize] += 1;
+        self.last_pass += 1;
+        self.layout_passes[root as usize] = self.last_pass;
     }
 
     pub(crate) fn mark_geometry_changed(&mut self, slot: u32, root: u32) {
