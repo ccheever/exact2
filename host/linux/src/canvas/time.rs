@@ -41,7 +41,7 @@ pub unsafe fn attach(env: *mut JNIEnv) {
             env,
             class,
             c"format".as_ptr(),
-            c"(DDLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"
+            c"(DDLjava/lang/String;Ljava/lang/String;Ljava/lang/String;DI)Ljava/lang/String;"
                 .as_ptr(),
         );
         if method.is_null() {
@@ -74,12 +74,19 @@ pub fn format(r: &TimeRequest<'_>) -> Option<String> {
             return None;
         }
         let names = [r.format, r.locale, r.time_zone].map(|s| super::field::java(env, s));
+        let (n, unit) = exact_kernel::time::relative(r.datetime - r.now);
+        let unit = ["minute", "hour", "day", "month", "year"]
+            .iter()
+            .position(|s| *s == unit)
+            .unwrap() as i32;
         let args = [
             jvalue { d: r.datetime },
             jvalue { d: r.now },
             jvalue { l: names[0] },
             jvalue { l: names[1] },
             jvalue { l: names[2] },
+            jvalue { d: n as f64 },
+            jvalue { i: unit },
         ];
         let value =
             ((**env).CallStaticObjectMethodA?)(env, reader.class, reader.method, args.as_ptr())

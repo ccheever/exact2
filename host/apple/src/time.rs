@@ -10,6 +10,10 @@ pub struct CTimeRequest {
     pub datetime: f64,
     /// Runner date in Unix milliseconds.
     pub now: f64,
+    /// Kernel-relative value and unit (minute, hour, day, month, year = 0..4).
+    pub relative_value: f64,
+    /// Unit of relative_value.
+    pub relative_unit: u32,
     /// Minutes east of UTC.
     pub utc_offset: f64,
     /// Presentation name, UTF-8.
@@ -31,9 +35,16 @@ pub type TimeFormatFn = extern "C" fn(*mut c_void, *const CTimeRequest, *mut u8,
 
 /// Copy the synchronous platform answer into owned, validated UTF-8.
 pub fn format(f: TimeFormatFn, ctx: *mut c_void, r: &TimeRequest<'_>) -> Option<String> {
+    let (value, unit) = exact_kernel::time::relative(r.datetime - r.now);
+    let unit = ["minute", "hour", "day", "month", "year"]
+        .iter()
+        .position(|s| *s == unit)
+        .unwrap() as u32;
     let q = CTimeRequest {
         datetime: r.datetime,
         now: r.now,
+        relative_value: value as f64,
+        relative_unit: unit,
         utc_offset: r.utc_offset,
         format: r.format.as_ptr(),
         format_len: r.format.len(),

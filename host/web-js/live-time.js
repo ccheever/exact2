@@ -21,28 +21,39 @@ export function relativeDelay(datetime, now) {
   }
   return 60000 - ((now - datetime) % 60000 + 60000) % 60000 + (lo - 1) * 60000;
 }
+const formatters = new Map();
+function intl(kind, locale, options) {
+  const key = JSON.stringify([kind, locale, options]);
+  if (!formatters.has(key)) formatters.set(key, new Intl[kind](locale, options));
+  return formatters.get(key);
+}
 export function formatted(datetime, now, format, locale, timeZone) {
   if (!valid(datetime)) return null;
   if (format === 'relative') {
     const [n, unit] = relative(datetime - now);
-    return new Intl.RelativeTimeFormat(locale, { style: 'short', numeric: n === 0 ? 'auto' : 'always' }).format(n, n === 0 ? 'second' : unit);
+    return intl('RelativeTimeFormat', locale, { style: 'short', numeric: n === 0 ? 'auto' : 'always' }).format(n, n === 0 ? 'second' : unit);
   }
   if (format === 'timer' || format === 'countdown') {
     const s = seconds(datetime, now, format), hours = Math.floor(s / 3600), minutes = Math.floor(s / 60) % 60;
-    if (typeof Intl.DurationFormat === 'function') return new Intl.DurationFormat(locale, { style: 'digital', hoursDisplay: 'auto', minutesDisplay: 'always', secondsDisplay: 'always' }).format({ hours, minutes, seconds: s % 60 });
+    if (typeof Intl.DurationFormat === 'function') return intl('DurationFormat', locale, { style: 'digital', hoursDisplay: 'auto', minutesDisplay: 'always', secondsDisplay: 'always' }).format({ hours, minutes, seconds: s % 60 });
     const pad = n => String(n).padStart(2, '0');
     return `${hours ? hours + ':' : ''}${pad(minutes)}:${pad(s % 60)}`;
   }
   const [kind, style] = format.split('-');
   if (!['date', 'time'].includes(kind) || !['short', 'medium', 'long', 'full'].includes(style)) return null;
-  return new Intl.DateTimeFormat(locale, { timeZone, [kind + 'Style']: style }).format(datetime);
+  return intl('DateTimeFormat', locale, { timeZone, [kind + 'Style']: style }).format(datetime);
 }
-export function relativeReservation(_locale, sign) {
-  // Intl.RelativeTimeFormat cannot format two units in one relative phrase.
-  // Use the kernel's English width samples, as the native formatters do.
+export function relativeReservation(locale, sign) {
+  if (typeof Intl.DurationFormat === 'function') {
+    const phrase = intl('DurationFormat', locale, { style: 'short' }).format({ minutes: 59, seconds: 59 });
+    const unit = intl('NumberFormat', locale, { style: 'unit', unit: 'minute', unitDisplay: 'long' }).format(59);
+    const wrapper = intl('RelativeTimeFormat', locale, { style: 'long', numeric: 'always' }).format(sign * 59, 'minute');
+    if (wrapper.includes(unit)) return wrapper.replace(unit, phrase);
+  }
   return sign < 0 ? '59 min, 59 sec ago' : 'in 59 min, 59 sec';
 }
-export function durationReservation(model, locale, timeZone) {
+export function durationReservation(model, locale, timeZone, fields) {
+  if (fields != null) model = formatted(0, 3600000 * 10 ** fields, 'timer', locale, timeZone);
   const digits = Array.from({ length: 10 }, (_, i) => [...formatted(0, i * 1000, 'timer', locale, timeZone)].reverse().find(c => /\p{Number}/u.test(c)));
   return [...digits.map(digit => [...model].map(c => digits.includes(c) ? digit : c).join('')), model];
 }
@@ -53,7 +64,7 @@ export function measureReservation(e, strings, font = getComputedStyle(e)) {
   for (const key of fontKeys) if (font[key]) measure.style[key] = font[key];
   for (const text of strings) { const line = document.createElement('span'); line.style.display = 'block'; line.textContent = text; measure.append(line); }
   document.body.append(measure);
-  const rect = measure.getBoundingClientRect(), width = font.writingMode.startsWith('vertical') ? rect.height : rect.width;
+  const rect = measure.getBoundingClientRect(), width = /^(vertical|sideways)/.test(font.writingMode) ? rect.height : rect.width;
   measure.remove();
   return width;
 }
@@ -83,7 +94,7 @@ export function liveTime(e, read, reserve = true) {
     }
     e.setAttribute('datetime', new Date(datetime).toISOString());
     if (reserve) {
-      const key = `${datetime}/${format}/${locale}/${timeZone}/${epoch}`;
+      const key = `${datetime}/${format}/${locale}/${timeZone}`;
       const currentFields = shape(seconds(datetime, now, format));
       if (key !== identity || (format === 'timer' && currentFields > fields)) {
         identity = key; fields = currentFields; model = text; reserved = '';
@@ -94,7 +105,7 @@ export function liveTime(e, read, reserve = true) {
         if (format === 'relative') {
           strings.push(relativeReservation(locale, -1), relativeReservation(locale, 1));
           for (const minutes of [59, 23 * 60, 29 * 1440, 11 * 43200, 9998 * 525600]) for (const sign of [-1, 1]) strings.push(formatted(0, sign * minutes * 60000, format, locale, timeZone));
-        } else if (format === 'timer' || format === 'countdown') strings = durationReservation(model, locale, timeZone);
+        } else if (format === 'timer' || format === 'countdown') strings = durationReservation(model, locale, timeZone, format === 'timer' ? fields : undefined);
         e.style.minInlineSize = `${Math.ceil(measureReservation(e, strings, font))}px`;
         reserved = stamp;
       }
