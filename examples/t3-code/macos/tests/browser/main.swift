@@ -6,12 +6,14 @@ import XCTest
 // The Browser tab's page (T3BrowserSession.swift, T3BrowserSessions.swift,
 // T3BrowserView.swift, T3BrowserFavicon.swift) against a loopback fixture server: page states, history,
 // refresh, a load failure, crash recovery, the favicon, pop-ups, refused schemes, downloads, the permission set, the
-// native user agent, Web Inspector, the profile stores and a tab's lifetime across views. Ported reference
-// tests (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own names: webviewCrashRecovery.test.ts (2) and
-// Manager.test.ts `previewWindowOpenAction` (3). `T3_BROWSER_TEST_DIR` receives page PNGs.
+// native user agent, Web Inspector, the profile stores, a tab's lifetime across views, links that open tabs, the
+// custom-scheme prompt and HTML fullscreen. Ported reference tests (MIT, see LICENSE-T3), under their own names:
+// webviewCrashRecovery.test.ts (2) at T3 Code 1e2ecbd975; Manager.test.ts `previewWindowOpenAction` (5) and
+// BrowserSession.test.ts's custom-scheme test at 9c161462c9. `T3_BROWSER_TEST_DIR` receives page PNGs.
 final class Fixture {
     private let listener: NWListener
     private(set) var paths: [String] = []
+    private var methods: [String: String] = [:]
     /// path → (status, content type, body, delay in seconds)
     var routes: [String: (Int, String, Data, Double)] = [:]
     /// path → Location (a 302)
@@ -30,6 +32,7 @@ final class Fixture {
     }
     var base: String { "http://127.0.0.1:\(port)" }
     var seen: [String] { queue.sync { paths } }
+    func method(for path: String) -> String? { queue.sync { methods[path] } }
     func page(_ path: String, _ html: String, delay: Double = 0) { routes[path] = (200, "text/html", Data(html.utf8), delay) }
 
     private func serve(_ connection: NWConnection) {
@@ -38,6 +41,7 @@ final class Fixture {
             guard let self, let data, let head = String(data: data, encoding: .utf8)?.split(separator: "\r\n").first else { return connection.cancel() }
             let path = String(head.split(separator: " ").dropFirst().first ?? "")
             self.paths.append(path)
+            self.methods[path] = head.split(separator: " ").first.map(String.init)
             let route = String(path.split(separator: "?").first ?? "")
             if let location = self.redirects[route] {
                 let response = Data("HTTP/1.1 302 Found\r\nLocation: \(location)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
@@ -286,7 +290,7 @@ final class BrowserSessionTests: XCTestCase {
         view.destroy()
     }
 
-    func testScriptedPopupsOpenAWindowAndBlankLinksStayInTheTab() throws {
+    func testScriptedPopupsOpenAWindowAndBlankLinksOpenATab() throws {
         fixture.page("/opener", "<!doctype html><title>Opener</title><a id=blank href=/target target=_blank>blank</a>")
         fixture.page("/target", "<!doctype html><title>Target</title>")
         fixture.page("/auth", "<!doctype html><title>Sign in</title><script>window.opener && window.opener.postMessage('hello', '*')</script>")
@@ -307,8 +311,115 @@ final class BrowserSessionTests: XCTestCase {
         spin(until: { (session.report["popups"] as? Int ?? 1) == 0 }, timeout: 3)
         XCTAssertEqual(session.report["popups"] as? Int, 0)
         _ = evaluate(session.web, "document.getElementById('blank').click(); 'ok'")
-        spin(until: { session.report["title"] as? String == "Target" })
-        XCTAssertEqual(session.report["title"] as? String, "Target", "a target=_blank link loads in the tab")
+        spin(until: { !session.links.requests.isEmpty }, timeout: 5)
+        XCTAssertEqual(session.links.requests.map(\.url), ["\(fixture.base)/target"], "a target=_blank link asks for another tab")
+        XCTAssertEqual(session.links.requests.first?.background, false)
+        XCTAssertEqual(session.report["title"] as? String, "Opener", "the page that held the link stays")
+        XCTAssertEqual(session.report["popups"] as? Int, 0)
+        view.destroy()
+    }
+
+    func testABlankWindowIsNullAndAModifiedClickOpensABackgroundTab() throws {
+        fixture.page("/links", "<!doctype html><title>Links</title><a id=plain href=/next>next</a><a id=blank href=/other target=_blank>other</a>"
+            + "<form id=post method=post action=/posted target=_blank><input name=a value=1></form>")
+        fixture.page("/next", "<!doctype html><title>Next</title>")
+        let (view, session) = mounted("tab-links", url: "\(fixture.base)/links")
+        spin(until: { self.kind(session) == "Success" })
+        XCTAssertEqual(evaluate(session.web, "String(window.open())"), "null", "window.open() with no URL answers null")
+        XCTAssertEqual(evaluate(session.web, "String(window.open('about:blank', 'x', 'width=300,height=200'))"), "null", "a blank pop-up too")
+        XCTAssertEqual(session.report["popups"] as? Int, 0)
+        XCTAssertEqual(session.report["title"] as? String, "Links", "the opener is not blanked")
+        func click(_ id: String, modifiers: NSEvent.ModifierFlags, count: Int) throws {
+            let position = evaluate(session.web, "(() => { const r = document.getElementById('\(id)').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2].join(','); })()")
+            let coordinates = position.split(separator: ",").compactMap { Double($0) }
+            XCTAssertEqual(coordinates.count, 2)
+            guard coordinates.count == 2 else { return }
+            window.makeKeyAndOrderFront(nil)
+            window.makeFirstResponder(session.web)
+            let pagePoint = NSPoint(x: coordinates[0], y: session.web.isFlipped ? coordinates[1] : session.web.bounds.height - coordinates[1])
+            let point = session.web.convert(pagePoint, to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: modifiers,
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, eventNumber: count, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+                window.sendEvent(event)
+            }
+            spin(until: { session.links.requests.count == count }, timeout: 5)
+        }
+        try click("plain", modifiers: .command, count: 1)
+        try click("blank", modifiers: .command, count: 2)
+        try click("blank", modifiers: [.command, .shift], count: 3)
+        XCTAssertEqual(session.links.requests.map(\.url), ["\(fixture.base)/next", "\(fixture.base)/other", "\(fixture.base)/other"])
+        XCTAssertEqual(session.links.requests.map(\.background), [true, true, false], "⌘-click a background tab, ⌘⇧-click a foreground one")
+        XCTAssertEqual(session.report["title"] as? String, "Links")
+        // A form POST with a body keeps loading in place (a new tab could only reopen it as a GET).
+        _ = evaluate(session.web, "document.getElementById('post').submit(); 'ok'")
+        spin(until: { self.fixture.seen.contains("/posted") }, timeout: 5)
+        XCTAssertEqual(session.links.requests.count, 3)
+        XCTAssertEqual(fixture.method(for: "/posted"), "POST", "the form stays a POST when loaded in place")
+        let taken = try XCTUnwrap(session.links.requests.last?.serial)
+        XCTAssertEqual((sessions.performLinks(["op": "browserOpenLinks", "tab": "tab-links", "taken": taken])?["value"] as? [String: Any])?["done"] as? Bool, true)
+        XCTAssertTrue(session.links.requests.isEmpty, "the data module took them")
+        XCTAssertNil(sessions.performLinks(["op": "browserSet"]))
+        view.destroy()
+    }
+
+    // BrowserSession.test.ts "opens custom-scheme links externally only after the user confirms"
+    func testACustomSchemeOpensItsAppOnlyAfterThePersonConfirms() throws {
+        fixture.page("/apps", "<!doctype html><title>Apps</title><a id=slack href='slack://open?team=T1'>slack</a><a id=zoom href='zoommtg://zoom.us/join'>zoom</a>"
+            + "<a id=file href='file:///etc/passwd'>file</a>")
+        let (view, session) = mounted("tab-apps", url: "\(fixture.base)/apps")
+        spin(until: { self.kind(session) == "Success" })
+        session.dialogs = true
+        var asked: [(String, String)] = [], answers = [true, false], opened: [String] = []
+        session.askExternal = { message, detail, _, done in asked.append((message, detail)); done(answers.removeFirst()) }
+        session.openExternal = { opened.append($0.absoluteString) }
+        _ = evaluate(session.web, "document.getElementById('slack').click(); 'ok'")
+        spin(until: { asked.count == 1 }, timeout: 3)
+        _ = evaluate(session.web, "document.getElementById('zoom').click(); 'ok'")
+        spin(until: { asked.count == 2 }, timeout: 3)
+        XCTAssertEqual(asked.map(\.0), ["Open this slack link?", "Open this zoommtg link?"])
+        XCTAssertEqual(asked.first?.1, "A page in the browser wants to open another application:\n\nslack://open?team=T1")
+        XCTAssertEqual(opened, ["slack://open?team=T1"], "only the confirmed link opens")
+        XCTAssertTrue((session.report["refused"] as? [String] ?? []).contains("zoommtg://zoom.us/join"))
+        _ = evaluate(session.web, "document.getElementById('file').click(); 'ok'")
+        spin(until: { (session.report["refused"] as? [String] ?? []).contains { $0.hasPrefix("file:") } }, timeout: 3)
+        XCTAssertEqual(asked.count, 2, "file: never asks")
+        // One prompt at a time: a second link while one is up is denied without another sheet.
+        session.askExternal = { message, _, _, _ in asked.append((message, "")) } // never answers
+        _ = evaluate(session.web, "document.getElementById('slack').click(); document.getElementById('zoom').click(); 'ok'")
+        spin(until: { asked.count == 3 }, timeout: 3)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertEqual(asked.count, 3)
+        XCTAssertEqual(session.report["title"] as? String, "Apps", "the page stays")
+        view.destroy()
+    }
+
+    func testThePromptsWordsAndTheSchemesThatNeverLeave() {
+        for url in ["file:///etc/passwd", "javascript:alert(1)", "data:text/html,x", "about:blank", "blob:https://a.test/1", "https://a.test/", "view-source:https://a.test/"] {
+            XCTAssertNil(T3BrowserSession.externalPromptURL(url), url)
+        }
+        XCTAssertEqual(T3BrowserSession.externalPromptURL("mailto:alice@example.com"), "mailto:alice@example.com")
+        let long = "slack://" + String(repeating: "a", count: 400)
+        XCTAssertEqual(T3BrowserSession.externalPrompt(long).detail, "A page in the browser wants to open another application:\n\n\(long.prefix(300))…")
+    }
+
+    func testHTMLFullscreenFillsTheTabNotTheScreen() throws {
+        fixture.page("/video", "<!doctype html><title>Video</title><body style='margin:0'><button id=enter onclick=\"document.getElementById('player').requestFullscreen()\">Fullscreen</button><div id=player style='width:120px;height:80px;background:red'></div></body>")
+        let (view, session) = mounted("tab-full", url: "\(fixture.base)/video")
+        spin(until: { self.kind(session) == "Success" })
+        XCTAssertEqual(evaluate(session.web, "String(document.fullscreenEnabled)"), "true")
+        _ = evaluate(session.web, "window.changes = 0; document.addEventListener('fullscreenchange', () => window.changes++); document.getElementById('enter').focus(); 'ok'")
+        try view.agentInput(.key("Enter", phase: nil))
+        spin(until: { self.evaluate(session.web, "String(window.changes)") == "1" }, timeout: 3)
+        XCTAssertEqual(evaluate(session.web, "String(document.fullscreenElement && document.fullscreenElement.id)"), "player")
+        let box = evaluate(session.web, "(() => { const r = document.getElementById('player').getBoundingClientRect(); return [r.width, r.height].join('x'); })()")
+        XCTAssertEqual(box, "\(Int(session.web.bounds.width))x\(Int(session.web.bounds.height))", "the element fills the page's viewport")
+        XCTAssertNil(session.web.window?.styleMask.contains(.fullScreen) == true ? "fullscreen" : nil, "the window stays as it is")
+        _ = evaluate(session.web, "document.exitFullscreen(); 'ok'")
+        XCTAssertEqual(evaluate(session.web, "String(document.fullscreenElement)"), "null")
+        XCTAssertEqual(evaluate(session.web, "String(window.changes)"), "2")
+        XCTAssertEqual(evaluate(session.web, "String(document.getElementById('player').getBoundingClientRect().width)"), "120")
         view.destroy()
     }
 
@@ -409,19 +520,45 @@ final class BrowserReferenceTests: XCTestCase {
     }
 
     // Manager.test.ts previewWindowOpenAction
+    private let auth = "https://accounts.google.com/o/oauth2/auth"
     func testOpensARealWindowForScriptedPopupsSoTheOpenerSurvives() {
-        XCTAssertEqual(T3BrowserSession.windowOpenAction(url: "https://accounts.google.com/o/oauth2/auth", newWindow: true), "popup")
-        XCTAssertEqual(T3BrowserSession.windowOpenAction(url: "http://localhost:5173/auth", newWindow: true), "popup")
+        XCTAssertEqual(T3BrowserSession.windowOpenAction(url: auth, disposition: "new-window"), "popup")
+        XCTAssertEqual(T3BrowserSession.windowOpenAction(url: "http://localhost:5173/auth", disposition: "new-window"), "popup")
     }
 
-    func testKeepsTargetBlankLinksInThePreviewTab() {
-        XCTAssertEqual(T3BrowserSession.windowOpenAction(url: "https://accounts.google.com/o/oauth2/auth", newWindow: false), "navigate")
+    func testOpensTargetBlankLinksAsANewTab() {
+        XCTAssertEqual(T3BrowserSession.windowOpenAction(url: auth, disposition: "foreground-tab"), "new-tab")
+        XCTAssertEqual(T3BrowserSession.windowOpenAction(url: auth, disposition: "background-tab"), "new-tab")
+    }
+
+    func testKeepsAFormPostWithABodyOnTheInPlacePath() {
+        XCTAssertEqual(T3BrowserSession.windowOpenAction(url: auth, disposition: "foreground-tab", postBody: true), "navigate")
     }
 
     func testDoesNotHandAWindowToSchemesThatCannotBeHardened() {
-        for url in ["about:blank", "javascript:alert(1)", "file:///etc/passwd", "vscode://vscode-remote/ssh-remote+box/tmp", "not a url"] {
-            XCTAssertEqual(T3BrowserSession.windowOpenAction(url: url, newWindow: true), "navigate", url)
+        for url in ["javascript:alert(1)", "file:///etc/passwd", "vscode://vscode-remote/ssh-remote+box/tmp", "not a url"] {
+            XCTAssertEqual(T3BrowserSession.windowOpenAction(url: url, disposition: "new-window"), "navigate", url)
         }
+    }
+
+    func testDeniesABlankWindowInsteadOfBlankingTheOpener() {
+        for url in ["about:blank", ""] {
+            for disposition in ["new-window", "foreground-tab"] {
+                XCTAssertEqual(T3BrowserSession.windowOpenAction(url: url, disposition: disposition), "deny", "\(url) \(disposition)")
+            }
+        }
+    }
+
+    /// Chromium's dispositions: a scripted window with features is a pop-up, without a tab; a link's ⌘ or middle button a
+    /// background tab, ⌘⇧ a foreground one, ⇧ a new window.
+    func testWindowRequestsGetChromiumsDispositions() {
+        XCTAssertEqual(T3BrowserSession.disposition(scripted: true, features: true, modifiers: [], button: 0), "new-window")
+        XCTAssertEqual(T3BrowserSession.disposition(scripted: true, features: false, modifiers: [], button: 0), "foreground-tab")
+        XCTAssertEqual(T3BrowserSession.disposition(scripted: false, features: false, modifiers: [], button: 1), "foreground-tab")
+        XCTAssertEqual(T3BrowserSession.disposition(scripted: false, features: false, modifiers: .command, button: 1), "background-tab")
+        XCTAssertEqual(T3BrowserSession.disposition(scripted: false, features: false, modifiers: [], button: 4), "background-tab")
+        XCTAssertEqual(T3BrowserSession.disposition(scripted: false, features: false, modifiers: [.command, .shift], button: 1), "foreground-tab")
+        XCTAssertEqual(T3BrowserSession.disposition(scripted: false, features: false, modifiers: .shift, button: 1), "new-window")
     }
 
     func testFaviconCandidatesAreBoundedAsTheReferenceBoundsThem() throws {
