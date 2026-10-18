@@ -161,7 +161,7 @@ describe('general rows', () => {
 });
 
 describe('traits picker', () => {
-  test('sections, Default badges and the bolt; a pick keeps the other traits (TraitsPicker)', () => {
+  test('sections, Default badges and the speed label; a pick keeps the other traits (TraitsPicker)', () => {
     const tier = { id: 'serviceTier', label: 'Service Tier', type: 'select', options: [{ id: 'default', label: 'Standard', isDefault: true }, { id: 'priority', label: 'Fast', description: '2x speed, increased usage' }] };
     const descriptors = (provider.models[0]!.capabilities as Obj).optionDescriptors as Obj[];
     descriptors.push(tier);
@@ -169,7 +169,7 @@ describe('traits picker', () => {
       const client = as(fake({ defaultModelSelection: { instanceId: 'fixture', model: 'luna', options: [{ id: 'reasoningEffort', value: 'high' }, { id: 'serviceTier', value: 'priority' }] } }));
       const context = serverContext(client, resolveScope(client, '', '', ''), new Map());
       const model = generalSections(client, context).flatMap(section => section.rows).find(entry => entry.id === 'default-model')!;
-      expect([model.label2, model.icon]).toEqual(['High', 'fast']);
+      expect([model.label2, model.icon]).toEqual(['High Fast', '']);
       expect(model.options2.map(entry => [entry.value, entry.icon, entry.selected])).toEqual([['section:reasoningEffort', 'section', false], ['reasoningEffort=low', '', false],
         ['reasoningEffort=medium', 'default', false], ['reasoningEffort=high', '', true], ['section:serviceTier', 'section-rule', false], ['serviceTier=default', 'default', false], ['serviceTier=priority', '', true]]);
       expect(model.options2.find(entry => entry.value === 'serviceTier=priority')!.detail).toBe('2x speed, increased usage');

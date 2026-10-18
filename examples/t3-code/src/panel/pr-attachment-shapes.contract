@@ -41,6 +41,9 @@ shape DetailsPrRow
   actionTooltip: string
   actionDisabled: bool
   extra: PrRowExtra
+  watching: bool
+  watchKey: string
+  stopWatchLabel: string
 shape DetailsPrRowList
   show: bool
   rows: DetailsPrRow[]

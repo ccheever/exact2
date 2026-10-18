@@ -109,6 +109,8 @@ const NOT_MODAL: Record<string, string> = {
   'settings-appearance-editor.contract "theme-editor"': 'ThemeEditorPanel, a floating panel that is no modal',
   'settings-b-accent.contract "provider-accent-panel"': 'Popover',
   'settings-mobile-beta.contract mark.caption': 'MobileAppSettingsRow Popover',
+  'settings-rows.contract `settings-scope-search-${scope}`': 'Combobox popup',
+
   'settings-rows.contract `setting-inheritance-${row.id}-popover`': 'Popover',
   'settings-source-control.contract `device-versions-${tool.kind}-popover`': 'Popover',
   'shell-details.contract "thread-details"': 'Popover',

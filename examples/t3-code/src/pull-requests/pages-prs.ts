@@ -1,3 +1,4 @@
+import { sharedPullRequestSummary } from './pages-pr-shared';
 // The Pull Requests page: pullRequests.list / listStats /
 // detail / activity, grouped, sorted and presented as the reference page does.
 // Sources: T3 Code (MIT, see LICENSE-T3) apps/web/src/routes/_chat.pull-requests.tsx
@@ -15,8 +16,10 @@ import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRef
 import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // the panel's onActed
 import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, readSpeedMode } from './pages-pr-quick';
 import { pullRequestEntryKey, pullRequestEntryViewer } from './pages-pr-routing'; // several servers' rows
-import { environmentQueries, filterKeyOf, foldAnswers, listTargets, loadMore, noteAnswer, noteShowing, orderAnswer, pagingFooter, refreshPaging, statsBatches, type ListTarget } from './pages-pr-paging';
+import { environmentQueries, filterKeyOf, foldAnswers, largestPullRequestReadCount, listTargets, loadMore, noteAnswer, noteShowing, orderAnswer, pagingFooter, refreshPaging, statsBatches, type ListTarget } from './pages-pr-paging';
 import { openOnHostLabel } from '../shared/context-menus'; // the number's menu label
+import { isScratchProject, scratchRoot } from '../pages/pages-home';
+import { projectScopes } from '../sidebar/sidebar-view'; // the project filter's order
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -332,7 +335,7 @@ async function readList(client: T3Client, native: Native, input: PrInput, round:
       ? { ...merged, entries, viewers: { ...obj(previous.result.viewers), ...merged.viewers }, providers: arr(previous.result.providers).length ? previous.result.providers : merged.providers }
       : { ...merged, entries };
     cached.result = result;
-    noteAnswer(client, scope, merged, entries.length);
+    noteAnswer(client, scope, merged, largestPullRequestReadCount(entries));
     // The host's word outranks the reader's once it has said it: an override goes when an answer agrees with it.
     settleListOverrides(client, entries, input.now);
     const unmeasured = entries.filter(entry => !measured(entry) && !cached.stats.has(entryKey(entry)));
@@ -358,6 +361,22 @@ async function readList(client: T3Client, native: Native, input: PrInput, round:
   return lists.get(client) ?? cached;
 }
 /**
+ * The project filter's projects: those the page can read, never the Scratch folder (it is no repository), in the
+ * sidebar's project order (PullRequestFiltersMenuInSidebarOrder over useSidebarProjectGroups).
+ */
+export function pullRequestProjects(client: T3Client): Obj[] {
+  const root = scratchRoot(client.config);
+  const projects = client.shell.projects.filter(project => !isScratchProject(project, root));
+  return sortProjectsByGroupOrder(projects, projectScopes(client).map(group => ({ memberProjectIds: group.members.map(member => str(member.id)) })));
+}
+/** sortProjectsByGroupOrder: the groups' order, each group's members in the list's own order; ungrouped ones last. */
+export function sortProjectsByGroupOrder<P extends Obj>(projects: readonly P[], groups: readonly { memberProjectIds: readonly string[] }[]): P[] {
+  const rankByProject = new Map<string, number>();
+  groups.forEach((group, rank) => { for (const id of group.memberProjectIds) if (!rankByProject.has(id)) rankByProject.set(id, rank); });
+  const rankOf = (project: P) => rankByProject.get(str(project.id)) ?? groups.length;
+  return [...projects].sort((left, right) => rankOf(left) - rankOf(right));
+}
+/**
  * The list last drawn, per client, with the server it was drawn for. While the
  * focused connection resynchronizes on the same server (a return to the app resubscribes its shell and thread streams,
  * the transport's `foreground`, and `ready` waits for the shell's completion marker), the page keeps these rows, as the
@@ -371,8 +390,9 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   const view = emptyList(prefs, query);
   view.diffScheme = diffSchemeOf(client);
   view.available = obj(obj(client.config.environment).capabilities).pullRequests === true;
-  view.hasProjects = client.shell.projects.length > 0;
-  view.projects = client.shell.projects.map(project => {
+  const projects = pullRequestProjects(client);
+  view.hasProjects = projects.length > 0;
+  view.projects = projects.map(project => {
     const identity = projectIdentity(str(project.title));
     return { id: str(project.id), name: str(project.title), mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface, selected: prefs.projectId === project.id, unavailable: '' };
   });
@@ -425,7 +445,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     }
   }
   // The reader's pending answers (a closed pull request leaves an open list on the click), before the filters.
-  const answered = cached.result ? { ...cached.result, entries: overrideListEntries(client, arr(cached.result.entries), prefs.state) } : null;
+  const answered = cached.result ? { ...cached.result, entries: overrideListEntries(client, arr(cached.result.entries).map(entry => ({ ...entry, ...sharedPullRequestSummary(client, entry, entry, str(entry.environmentId) || client.environmentId) })), prefs.state) } : null;
   const presented = presentList(view, answered, answered ? '' : cached.error, cached.stats, prefs, query, input.now, input.selected);
   // The list footer (Load more, Loading more, Narrow your search) and a failed read over shown rows.
   Object.assign(presented, pagingFooter(client, round.key, cached.result?.truncated === true, arr(answered?.entries).length, false, false));

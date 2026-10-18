@@ -28,7 +28,6 @@ shape PrCard
 shape PrRowExtra
   destructive: bool
   suffix: bool
-  actionWidth: number
   tail: number
   popId: string
   method: string
