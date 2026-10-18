@@ -168,6 +168,31 @@ impl Engine {
         Some(played)
     }
 
+    /// Take a transition its host plays back (LLP 1121 D8, stage 9 G2): the
+    /// host now paints something over the property (a press row, a look
+    /// naming it) that composes on the engine's sample. It is sampled again
+    /// from where its curve is now, presented there, and runs on to its
+    /// target as before. Whether one was played there.
+    pub fn reclaim_played(&mut self, node: u64, property: Property) -> bool {
+        let key = (node, property);
+        if !self.played.remove(&key) {
+            return false;
+        }
+        let at = self.sample_time();
+        if let Some(slot) = self.slots.get_mut(&key) {
+            if let Some(shown) = slot.running().map(|r| r.sample(at)) {
+                if !shown.done {
+                    slot.set_presented(shown.value);
+                    self.running.insert(key);
+                } else {
+                    slot.set_running(None);
+                }
+            }
+        }
+        self.dirty.insert(key);
+        true
+    }
+
     /// A `d` transition its host plays (LLP 1115.003 D4): the paths at its
     /// ends, when it starts moving and its curve, from progress 0 to 1.
     /// `None` when `node`'s `d` is not moving or the engine samples it.
