@@ -869,7 +869,8 @@ fn main() {
         let _ = writeln!(w, "        let {} = {expr};", f.name);
     }
     let _ = writeln!(w, "        if snapshot_entry != snapshot.unwrap_or(\"\") || snapshot_entry.is_empty() != snapshot_refresh.is_none() {{ return Err(PlanError::WrongEntry); }}");
-    let _ = writeln!(w, "        let n = r.count()?; let mut strings = Vec::with_capacity(n.min(crate::bytes::RESERVE)); for _ in 0..n {{ strings.push(r.string()?); }}");
+    // A string is its 4-byte length and its bytes.
+    let _ = writeln!(w, "        let n = r.count()?; let mut strings = Vec::with_capacity(r.reserve(n, 4)); for _ in 0..n {{ strings.push(r.string()?); }}");
     let _ = writeln!(
         w,
         "        let n = r.count()?; let code = r.bytes(n)?.to_vec();"
@@ -883,9 +884,21 @@ fn main() {
     let _ = writeln!(w, "        let mut s = crate::bytes::Sticky::new(r);");
     for t in &schema.tables {
         let p = pascal(&t.name);
+        // A row's encoded size, every field fixed-width: the rows the bytes
+        // left can hold bound the reservation.
+        let row: usize = t
+            .fields
+            .iter()
+            .map(|f| match parse_codec(&f.codec) {
+                Codec::U8 | Codec::Bool | Codec::Enum(_) => 1,
+                Codec::U16 => 2,
+                Codec::U32 | Codec::I32 | Codec::Str | Codec::Idx(_) | Codec::Opt(_) => 4,
+                Codec::F64 | Codec::Range(_) | Codec::Code | Codec::Bytes => 8,
+            })
+            .sum();
         let _ = writeln!(
             w,
-            "        let n = s.count(); let mut {} = Vec::with_capacity(n.min(crate::bytes::RESERVE)); for _ in 0..n {{ if s.failed() {{ break; }}",
+            "        let n = s.count(); let mut {} = Vec::with_capacity(s.reserve(n, {row})); for _ in 0..n {{ if s.failed() {{ break; }}",
             t.name
         );
         let _ = writeln!(w, "            {} .push({p}Row {{", t.name);
