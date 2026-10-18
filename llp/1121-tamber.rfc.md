@@ -3996,3 +3996,70 @@ site is located as the map has it (`sitesAt` outlines by it) and a component use
   over two lines is; an icon param asked about; a motion literal in a component used twice (two
   sites, the literal kept), an animation longhand's instance at its node, one in an unused
   component (`site: null`); a design the app doesn't build has no sites.
+
+### Stage 9, commit B: symbol images take their written colour (draft for theme2)
+
+theme2's ruling (2026-10-18 17:32) on every host but Linux and the reader, which keep their own
+rule (the tint, else the text colour). An untinted symbol **image** draws in:
+
+1. its `-exact-tint-color`, where written;
+2. else a `color` its author wrote on it, or on the nearest ancestor that sets one. A token or a role counts. The inherited default label colour and a sheet's colour don't.
+3. else the platform's unsaid symbol colour: the accent on the web and iOS, `secondaryLabelColor` on the Mac.
+
+This is D10's "colour from `-exact-tint-color` and `color`". It applies to page images only: a symbol
+on a native control's face (a bar item, a tab, a segment, a button) keeps the control's tint (D9,
+LLP 1115 D4).
+
+- **The kernel** (`NodeRef::symbol_color_said`, kernel/src/node.rs). An image with a `symbol:`
+  source, not a native button's face (a `Control`'s child), for which `says(TextColor)` is true.
+  `says` walks up to the first node that sets `color`: true where its author wrote it, false where only
+  a sheet did. A platform start (the neutral sheet's route header) stops the walk. A change of an
+  ancestor's colour, or of whether it was written, already touches every descendant that inherits it
+  (`propagate_inherited`), so each host re-sends the image. `NodeFacts` carries the answer
+  (`symbol_color`, false for any other node), so `props_of` writes it for live batches and server
+  documents alike. `DocTree::facts` computes it the same way for a document written without a kernel,
+  and also stops at the neutral route header.
+- **The web.** The image is marked `data-symbol-color` (element.rs). The glue's symbol sheet adds
+  `:where(img[data-symbol-path][data-symbol-color]){--exact-tint:currentcolor}`. That rule has zero
+  specificity, so an authored tint still wins. In Chrome, the registered `<color>` `--exact-tint`
+  resolves `currentcolor` on the image to the image's own `color`: a `light-dark()` colour by its
+  scheme, and a later colour at once.
+- **The JS target.** The same mark and the same sheet (symbols.js). `style::symbol_color` marks what
+  the static tree can't decide alone:
+  - a bound source that can name a symbol (its code holds a `symbol:` string);
+  - a bound `color`, which counts as written whatever it evaluates to, as the kernel marks a written row that unsets.
+
+  Not marked: a source that only its data names (a photo's URL looks the same), which stays the
+  accent here; and a colour that only a state look sets (`:hover`).
+- **Apple.** `props_for` sends `symbolColorWritten: "1"`, priced in `content_region.rs` as
+  `symbolName` is. `NodeView.symbolInk` (Affordances.swift) is the node's `text_color` where nobody
+  tinted it and the prop is set:
+  - on iOS, `tintColor = symbolTint ?? symbolInk`. A colour that names the accent is `nil`, so UIKit's live tint is inherited as before;
+  - on the Mac, `contentTintColor = symbolTint ?? symbolInk ?? unsaidSymbolTint`. The accent is `inheritedTint`;
+  - a hierarchical configuration takes the same colour, and `symbolLookKey` holds it when the glyph bakes it.
+
+  Only the page image's `updateSymbol` reads it; bar items, tab faces, segments and button faces
+  don't. A props change of the word re-runs `updateSymbol`. An unwritten symbol is unchanged, and
+  `PlatformDefaultsMacTests` is unchanged.
+- **Movers** (condition 1). Each app's static tree (the JS target's, every site with its arms
+  flattened, a component per use) was walked for symbol images with no tint and a written colour:
+  - **Shelf: none.** Its stars write no colour ("in the tint"), so they stay the accent on the web and iOS and `secondaryLabelColor` on the Mac. Its tab and header symbols are control faces.
+  - **The clone (`95d7d41`): 8 sites** of 1,968 symbol and photo images (683 symbols):
+    - the chat message menu's Translate, Copy, Delete and Report (chat.contract:1272, 1287, 1302, 1318);
+    - the lightbox's Share (viewer.contract:453, used 4 times).
+
+    Their colour and their accent both come from the root's `color="text"` and `accent-color="text"`. So on the web and iOS they look the same as before (the accent, now the colour: both `text`). On the Mac they move from `secondaryLabelColor` to `text`, the colour of the menu's labels. Every other clone symbol writes its own tint or is a control face.
+- **Tests:**
+  - the kernel's `symbol_color.rs`:
+    - no colour;
+    - an ancestor's written colour, its token form, and its clear touching the image;
+    - a nearer colour no author wrote;
+    - a nearer tint not deciding it;
+    - its own colour;
+    - not on a native button's face;
+  - the web's `tint.rs`: batch, server document and kernel-free document agree;
+  - Chrome's `a symbol draws in its written colour` (`document.test.mjs`, both sheets): the written colour, `light-dark()`, a live change, an authored tint winning, an unmarked symbol staying the accent;
+  - the JS target's `a_symbol_under_a_written_colour_is_marked`;
+  - Apple's `inherited.rs` (the prop, the colour beside it);
+  - `SymbolColorMacTests`: Shelf's star under `color="AccentColor"` is the accent, a token colour, unwritten unchanged, a written tint wins, the word and the colour followed live, a hierarchical glyph remade;
+  - `SymbolColorIOSTests`: the same on iOS.

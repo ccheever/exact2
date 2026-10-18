@@ -356,11 +356,68 @@ pub fn project(
             };
             parts.css.push_str(&format!("justify-self:{justify};"));
         }
+        if parts.tag == "img" {
+            if symbol_color(plan, &kernel, &parents, i) {
+                parts
+                    .props
+                    .insert("data-symbol-color".into(), String::new());
+            } else {
+                parts.props.remove("data-symbol-color");
+            }
+        }
     }
     Ok(out)
 }
 
 pub const PROGRESS_JUSTIFY: &str = "var(--exact-progress-justify,start)";
+
+/// Whether image `i` draws a symbol in its author's `color` (LLP 1121 stage
+/// 9 B; `NodeRef::symbol_color_said`), which the static tree alone can't
+/// say of a bound source or a bound `color`: a symbol source, literal or a
+/// binding that can be one (it names a `symbol:` string; one only its data
+/// names is not marked, so it stays the accent here), and a `color` its
+/// author wrote, literal or bound, on it or on the nearest node that sets
+/// one. A bound `color` counts as written whatever it evaluates to, as the
+/// kernel marks a written row that unsets; a colour only a state look sets
+/// (`:hover`) does not.
+fn symbol_color(plan: &Plan, kernel: &Kernel, parents: &[Option<usize>], i: usize) -> bool {
+    let view = |i: usize| -> ViewId { i as u32 + 1 };
+    let rows = |i: usize| plan.nodes[i].bindings.iter().map(|b| plan.binding(b));
+    let bound = |i: usize, kind: BindingKind, id: u16| {
+        rows(i).find(|b| b.kind == kind && b.id == id && literal(plan, plan.code(b.expr)).is_none())
+    };
+    let node = kernel.node(view(i)).expect("template node");
+    let symbol = node
+        .props
+        .str(PropId::ImageSource)
+        .is_some_and(|s| s.starts_with("symbol:"))
+        || bound(i, BindingKind::Prop, PropId::ImageSource as u16)
+            .is_some_and(|b| can_be(plan, plan.code(b.expr), &|s| s.starts_with("symbol:")));
+    if !symbol
+        || parents[i].is_some_and(|p| {
+            kernel
+                .node(view(p))
+                .is_some_and(|p| p.node_type == NodeType::Control)
+        })
+    {
+        return false;
+    }
+    let mut at = Some(i);
+    while let Some(j) = at {
+        if let Some(row) = bound(j, BindingKind::Style, StyleId::TextColor as u16) {
+            return row.written;
+        }
+        let node = kernel.node(view(j)).expect("template node");
+        if node.style.written.has(StyleId::TextColor) {
+            return true;
+        }
+        if node.style.mask.has(StyleId::TextColor) || node.starts(StyleId::TextColor) {
+            return false;
+        }
+        at = parents[j];
+    }
+    false
+}
 
 /// Every `for` row's roots, through any region at its top.
 fn each_rows(plan: &Plan, sites: &crate::emit::Sites) -> Vec<usize> {

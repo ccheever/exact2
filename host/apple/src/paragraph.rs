@@ -597,6 +597,10 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, S
                 out.insert("symbolPath".into(), d);
                 out.insert("symbolViewBox".into(), view_box.into());
             }
+            // Untinted, it draws in its `color` (LLP 1121 stage 9 B).
+            if node.symbol_color_said() {
+                out.insert("symbolColorWritten".into(), "1".into());
+            }
         }
     }
     out

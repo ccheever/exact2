@@ -40,8 +40,8 @@ extension NodeView {
                 presenter.intrinsic(self.id, size)
             }
         }
-        // An icon path is the node's tint, else its colour (D10).
-        symbolView?.contentTintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint ?? unsaidSymbolTint
+        // An icon path is the node's tint, else its colour (D10); a symbol is its tint, else its written colour (stage 9 B).
+        symbolView?.contentTintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint ?? symbolInk ?? unsaidSymbolTint
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
     }

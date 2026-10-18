@@ -175,3 +175,64 @@ fn the_accent_colour_role_is_the_nearest_accent_color() {
     let plain = create("plain");
     assert!(plain.contains("color:CanvasText;"), "{plain}");
 }
+
+/// LLP 1121 stage 9 B (D10): a symbol nobody tinted whose `color` its
+/// author wrote, on it or on the nearest ancestor that sets one, is marked
+/// (`data-symbol-color`) for the glue to draw it in that colour, in a live
+/// batch, a server document and a document written with no kernel alike.
+#[test]
+fn a_symbol_under_a_written_colour_is_marked_to_draw_in_it() {
+    let plan = contract::compile(
+        r##"component App
+  view
+    column
+      column color="#ff0000"
+        image "symbol:star" testId="under"
+        image "symbol:star" testId="tinted" -exact-tint-color="#00ff00"
+        image "assets/mark.png" testId="photo"
+        column color="AccentColor"
+          image "symbol:star" testId="accent"
+      column
+        image "symbol:star" testId="bare"
+        image "symbol:star" testId="own" color="-exact-secondary-label"
+"##,
+    )
+    .unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let doc = host.document().unwrap().root;
+    let tree = host.runner().document_tree().unwrap();
+    let (detached, _) =
+        exact_web::document::project_tree(&tree, host.runner(), Default::default()).unwrap();
+    assert_eq!(detached.root, doc, "the kernel-free document agrees");
+    for (name, marked) in [
+        ("under", true),
+        ("tinted", true),
+        ("photo", false),
+        ("accent", true),
+        ("bare", false),
+        ("own", true),
+    ] {
+        let id = view_with_test_id(&host, name);
+        let at = first.find(&format!("\"id\":{id},\"tag\":\"img\"")).unwrap();
+        let create = first[at..].split("\"op\":").next().unwrap();
+        assert_eq!(
+            create.contains("data-symbol-color"),
+            marked,
+            "{name}: {create}"
+        );
+        let at = doc.find(&format!(" data-view=\"{id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        let end = at + doc[at..].find('>').unwrap();
+        assert_eq!(
+            doc[start..end].contains("data-symbol-color"),
+            marked,
+            "{name}"
+        );
+    }
+}

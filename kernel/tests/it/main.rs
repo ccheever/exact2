@@ -47,6 +47,7 @@ mod reader;
 mod regions;
 mod rem;
 mod symbol;
+mod symbol_color;
 mod support {
     pub mod reader;
 }

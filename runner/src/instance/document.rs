@@ -102,7 +102,42 @@ impl DocTree {
             props: &node.props,
             is_root: node.is_root,
             inline_run,
+            symbol_color: self.symbol_color(node),
         })
+    }
+
+    /// [`exact_kernel::NodeRef::symbol_color_said`] over this tree: the
+    /// nearest node that sets `color` decides, said when its author wrote
+    /// it, and the neutral sheet's route header (the kernel's start) stops
+    /// the walk where its author wrote none.
+    fn symbol_color(&self, node: &DocNode) -> bool {
+        let symbol = node.node_type == NodeType::Image
+            && node
+                .props
+                .str(exact_kernel::PropId::ImageSource)
+                .is_some_and(|s| s.starts_with("symbol:"));
+        let parent = |n: &DocNode| n.parent.and_then(|p| self.node(p));
+        if !symbol || parent(node).is_some_and(|p| p.node_type == NodeType::Control) {
+            return false;
+        }
+        let mut at = Some(node);
+        while let Some(n) = at {
+            if n.style.written.has(StyleId::TextColor) {
+                return true;
+            }
+            let header = || {
+                use exact_kernel::style::metrics::{column, Column};
+                column() == Column::Neutral
+                    && n.props.str(exact_kernel::PropId::SemanticTag) == Some("header")
+                    && parent(n)
+                        .is_some_and(|p| p.props.get(exact_kernel::PropId::NavigationKey).is_some())
+            };
+            if n.style.mask.has(StyleId::TextColor) || header() {
+                return false;
+            }
+            at = parent(n);
+        }
+        false
     }
 
     /// The active head, as [`crate::Runner::head`] reads a kernel's tree.
