@@ -212,6 +212,11 @@ fn activity_slots_keep_snapshot_edits_and_require_known_unique_slots() {
             "`slot` must be a string literal",
         ),
         ("slot=\"minimal\"", "slot=\"unknown\"", "unknown placement"),
+        (
+            "view slot=\"minimal\"",
+            "text \"x\"",
+            "not a placement view",
+        ),
         ("slot=\"minimal\"", "slot=\"lockScreen\"", "repeats"),
         (
             "    view slot=\"minimal\"\n      text title\n",
@@ -326,7 +331,15 @@ fn caltrain_activities_bake_with_state_schemas_and_unchanged_app_plan() {
         extra["unexpected"] = json!(true);
         assert!(!conforms(&extra, &schema));
         let mut wrong = a.preview.clone();
-        wrong[field] = json!([]);
+        let field_schema = &schema["properties"][field];
+        let field_type = field_schema
+            .get("anyOf")
+            .map_or(field_schema, |choices| &choices[0]);
+        wrong[field] = match field_type["type"].as_str().unwrap() {
+            "array" | "object" | "string" => json!(false),
+            "number" | "boolean" | "null" => json!([]),
+            unknown => panic!("uncovered schema type: {unknown}"),
+        };
         assert!(!conforms(&wrong, &schema));
     }
     assert!(
@@ -378,31 +391,69 @@ fn shape_digest_tracks_nested_order_types_enums_and_not_presentation() {
 }
 
 #[test]
-fn shared_envelope_fixture_has_the_same_conservative_budget_as_swift() {
+fn shared_envelope_fixtures_bound_both_encoders_without_rejecting_routes() {
+    // XCTest bundles these files; include that same source so the two rules cannot drift.
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../host/apple/tests/ExactKitTests/SnapshotFixtures/activity-envelope.json"
     ))
     .unwrap();
     let attributes = &fixture["attributes"];
-    let state = &fixture["content"]["state"];
-    let budget = fixture["budget"].as_u64().unwrap() as usize;
-    let measure = |s: &Value| {
-        payload_bytes(
+    for case in fixture["cases"].as_array().unwrap() {
+        let state = &case["state"];
+        let budget = case["budget"].as_u64().unwrap() as usize;
+        let content = json!({"shape": attributes["shape"], "state": state});
+        let measured = payload_bytes(
             attributes["kind"].as_str().unwrap(),
             attributes["generation"].as_str().unwrap(),
             attributes["shape"].as_str().unwrap(),
-            s,
-        )
-    };
-    assert_eq!(measure(state), Ok(budget));
-    assert!(
-        serde_json::to_vec(attributes).unwrap().len()
-            + serde_json::to_vec(&fixture["content"]).unwrap().len()
-            <= budget
-    );
-    let mut padded = state.clone();
-    padded["padding"] = json!("x".repeat(4096 - budget));
-    assert_eq!(measure(&padded), Ok(4096));
-    padded["padding"] = json!("x".repeat(4097 - budget));
-    assert!(measure(&padded).unwrap_err().contains("4097 bytes"));
+            state,
+        );
+        let encoded = serde_json::to_vec(attributes).unwrap().len()
+            + serde_json::to_vec(&content).unwrap().len();
+        assert!(encoded <= budget, "{}: {encoded} > {budget}", case["name"]);
+        if budget <= 4096 {
+            assert_eq!(measured, Ok(budget), "{}", case["name"]);
+        } else {
+            assert_eq!(budget, 4097);
+            assert_eq!(encoded, 4097);
+            assert!(measured.unwrap_err().contains("4097 bytes"));
+        }
+    }
+}
+
+#[test]
+fn shared_number_spellings_cover_format_boundaries_and_double_extremes() {
+    // These are the same bit patterns and encoder spellings XCTest checks.
+    let cases: Value = serde_json::from_str(include_str!(
+        "../../../../host/apple/tests/ExactKitTests/SnapshotFixtures/activity-numbers.json"
+    ))
+    .unwrap();
+    let digest = "a".repeat(64);
+    let overhead = payload_bytes("train", &digest, &digest, &Value::Null).unwrap() - 4;
+    for case in cases.as_array().unwrap() {
+        let value =
+            f64::from_bits(u64::from_str_radix(case["bits"].as_str().unwrap(), 16).unwrap());
+        let budget = case["budget"].as_u64().unwrap() as usize;
+        assert_eq!(
+            serde_json::to_string(&value).unwrap(),
+            case["serde"].as_str().unwrap()
+        );
+        assert_eq!(
+            payload_bytes("train", &digest, &digest, &json!(value)),
+            Ok(overhead + budget),
+            "{case}"
+        );
+        assert!(budget <= 24);
+    }
+    // serde_json can retain an integer literal longer than its Double spelling.
+    for value in [
+        json!(10_000_000_000_000_000_000_u64),
+        json!(i64::MIN),
+        json!(u64::MAX),
+    ] {
+        assert!(
+            payload_bytes("train", &digest, &digest, &value).unwrap()
+                >= overhead + serde_json::to_vec(&value).unwrap().len()
+        );
+    }
 }

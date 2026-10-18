@@ -30,12 +30,38 @@ public indirect enum ActivityJSON: Codable, Hashable, Sendable {
         }
     }
 
-    // The same conservative UTF-8 JSON accounting as the bake's payload_bytes:
-    // 32 bytes per finite number, six per control/line separator, two per slash.
+    // serde_json and Foundation share shortest digits. Mirror serde_json's
+    // fixed/scientific cutoffs from Foundation's Double description.
+    private func numberSizeBound(_ value: Double) -> Int {
+        var swift = String(value)
+        if swift.hasSuffix(".0") { swift.removeLast(2) }
+        let unsigned = swift.drop(while: { $0 == "-" })
+        let parts = unsigned.split(separator: "e")
+        let mantissa = parts[0]
+        let decimal = mantissa.firstIndex(of: ".").map { mantissa.distance(from: mantissa.startIndex, to: $0) } ?? mantissa.count
+        let digits = mantissa.filter { $0 != "." }
+        let leading = digits.prefix(while: { $0 == "0" }).count
+        let significant = digits.trimmingCharacters(in: CharacterSet(charactersIn: "0")).count
+        let point = decimal + (parts.count == 2 ? Int(parts[1])! : 0) - leading
+        let serde: Int
+        if significant == 0 { serde = 3 }
+        else if point > 0 && point <= 16 {
+            serde = point >= significant ? point + 2 : significant + 1
+        } else if point > -5 && point <= 0 {
+            serde = 2 - point + significant
+        } else {
+            let exponent = point - 1
+            serde = significant + (significant > 1 ? 1 : 0) + 2 + String(abs(exponent)).count
+        }
+        return min(24, max(swift.utf8.count, serde + (value.sign == .minus ? 1 : 0)))
+    }
+
+    // The same UTF-8 escape accounting as the bake's payload_bytes.
     fileprivate func encodedSizeBound() throws -> Int {
         func string(_ value: String) -> Int {
             2 + value.unicodeScalars.reduce(0) { count, scalar in
                 switch scalar.value {
+                case 8, 9, 10, 12, 13: return count + 2
                 case 0...31, 0x2028, 0x2029: return count + 6
                 case 34, 47, 92: return count + 2
                 default: return count + String(scalar).utf8.count
@@ -47,7 +73,7 @@ public indirect enum ActivityJSON: Codable, Hashable, Sendable {
         case let .bool(value): return value ? 4 : 5
         case let .number(value):
             guard value.isFinite else { throw ExactActivityAttributes.Failure(description: "activity state needs finite JSON numbers") }
-            return 32
+            return numberSizeBound(value)
         case let .string(value): return string(value)
         case let .array(items):
             return try 2 + max(0, items.count - 1) + items.reduce(0) { try $0 + $1.encodedSizeBound() }

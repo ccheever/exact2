@@ -1038,6 +1038,7 @@ test('snapshot plans are public files and authenticated dev generation assets', 
 });
 
 
+// The first build may compile the web modules when the machine cache is cold.
 test('a production web root serves every authenticated asset card, including activity schemas and types', async () => {
   const root = resolve(import.meta.dir, '..');
   mkdirSync(join(root, 'target'), {recursive:true});
@@ -1069,4 +1070,4 @@ test('a production web root serves every authenticated asset card, including act
     rmSync(join(web, 'activities/card.schema.json'));
     if (!await rejects(() => publishRoot({origin, row:{}, web}), error => error.message.includes('web envelope does not bind activities/card.schema.json'))) throw new Error('missing asset was published');
   } finally { rmSync(dir, {recursive:true,force:true}); }
-}, 30000);
+}, 300000);

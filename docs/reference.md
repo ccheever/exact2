@@ -417,13 +417,14 @@ order. The universal envelope's attributes are `{kind, generation, shape}`;
 its content state is `{shape, state}`, where `state` is a JSON value, not an
 encoded JSON string. `generation` names the immutable publication digest. The
 preview and sends share a conservative 4096-byte JSON budget, including both
-shape digests. Both reserve 32 bytes per finite number (covering either encoder's
-Double spelling), six per U+0000–U+001F or U+2028/U+2029, and two per slash;
-other characters and JSON punctuation use their compact UTF-8 size. This margin
-covers Foundation/serde_json differences in number spelling and escaping, so a
-state admitted at bake also passes the send check. A refusal reports the budgeted
-bytes and asks for shorter state. The shared `activity-envelope.json` fixture
-pins this rule in Rust and Swift, including the 4096/4097-byte boundary.
+shape digests. Numbers reserve the longer of serde_json's and Foundation's
+shortest Double spellings, capped at 24 bytes; the bake also covers a preview's
+original integer spelling before Double decoding. Both reserve two bytes for
+`\b`, `\t`, `\n`, `\f`, `\r` and slashes, and six for the other U+0000–U+001F
+characters and U+2028/U+2029. Other characters and JSON punctuation use their
+compact UTF-8 size. A refusal reports the budgeted bytes and asks for shorter
+state. Shared Rust/Swift fixtures pin encoder spellings, escape counts, admission
+of a 60-point route and 150 small integers, and refusal at 4097 bytes.
 
 An activity pins its named generation within the installed compatibility cohort,
 even after `current` moves. Publications currently keep every generation. The

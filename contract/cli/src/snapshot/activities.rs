@@ -55,6 +55,13 @@ pub(super) fn compile_file(
             else {
                 return Err(refusal("snapshot-placement", "declare each placement with `view slot=\"lockScreen\"` (and `view slot=\"expanded\"` with its four regions)", node.span()));
             };
+            if tag != "view" || !positional.is_empty() {
+                return Err(refusal(
+                    "snapshot-placement",
+                    format!("`{tag}` is not a placement view; use `view slot=…`"),
+                    *span,
+                ));
+            }
             let names: Vec<_> = attrs.iter().filter(|a| a.name == "slot").collect();
             let name = match names.as_slice() {
                 [a] => match &a.value {
@@ -83,10 +90,7 @@ pub(super) fn compile_file(
                 }
             };
             let full = format!("{prefix}{name}");
-            if tag != "view"
-                || !positional.is_empty()
-                || (full != "expanded" && !ACTIVITY_PLACEMENTS.contains(&full.as_str()))
-            {
+            if full != "expanded" && !ACTIVITY_PLACEMENTS.contains(&full.as_str()) {
                 return Err(refusal("snapshot-placement", format!("unknown placement `{full}`; use lockScreen, compactLeading, compactTrailing, minimal or expanded's leading, trailing, center and bottom"), *span));
             }
             let at = names[0].span;
@@ -229,15 +233,42 @@ pub fn shape_digest(plan: &Plan) -> String {
     )
 }
 
-// Foundation and serde_json choose different number spellings and escapes.
-// Reserve 32 bytes per finite number, six per control/line separator and two
-// per slash. Everything else is compact UTF-8 JSON. Both send and bake use
-// this upper bound, so neither can admit a state the other refuses at 4 KiB.
+// serde_json and Foundation use the same shortest digits, with different
+// fixed/scientific cutoffs and exponent padding. SwiftDtoa uses scientific
+// notation below 1e-4 and above 2^53; JSONEncoder removes a final `.0`.
+fn number_size_bound(number: &serde_json::Number) -> usize {
+    let value = number.as_f64().unwrap();
+    let serde = serde_json::to_string(&value).unwrap();
+    let unsigned = serde.trim_start_matches('-');
+    let (mantissa, exponent) = unsigned.split_once('e').unwrap_or((unsigned, "0"));
+    let decimal = mantissa.find('.').unwrap_or(mantissa.len()) as i32;
+    let digits = mantissa.replace('.', "");
+    let leading = digits.len() - digits.trim_start_matches('0').len();
+    let significant = digits.trim_matches('0').len();
+    let point = decimal + exponent.parse::<i32>().unwrap() - leading as i32;
+    let swift = if significant == 0 {
+        1
+    } else if point >= -3 && value.abs() <= 9_007_199_254_740_992.0 {
+        if point <= 0 {
+            2 + (-point) as usize + significant
+        } else {
+            (point as usize).max(significant) + usize::from(significant > point as usize)
+        }
+    } else {
+        significant + usize::from(significant > 1) + 2 + (point - 1).abs().to_string().len().max(2)
+    } + usize::from(serde.starts_with('-'));
+    // A JSON preview can retain an i64/u64 spelling before its Double decode.
+    serde.len().max(swift).max(number.to_string().len()).min(24)
+}
+
+// Both encoders use short escapes for these five controls. Foundation may also
+// escape slashes and line separators; reserve those spellings on both sides.
 fn encoded_size_bound(value: &Value) -> usize {
     fn string(s: &str) -> usize {
         2 + s
             .chars()
             .map(|c| match c {
+                '\u{8}' | '\t' | '\n' | '\u{c}' | '\r' => 2,
                 '\u{0}'..='\u{1f}' | '\u{2028}' | '\u{2029}' => 6,
                 '"' | '\\' | '/' => 2,
                 _ => c.len_utf8(),
@@ -248,7 +279,7 @@ fn encoded_size_bound(value: &Value) -> usize {
         Value::Null => 4,
         Value::Bool(true) => 4,
         Value::Bool(false) => 5,
-        Value::Number(_) => 32,
+        Value::Number(number) => number_size_bound(number),
         Value::String(s) => string(s),
         Value::Array(items) => {
             2 + items.len().saturating_sub(1) + items.iter().map(encoded_size_bound).sum::<usize>()

@@ -30,26 +30,54 @@ final class ActivityEnvelopeTests: XCTestCase {
 
     func testBothEncodersUseTheSharedEnvelopeBudget() throws {
         struct Fixture: Decodable {
+            struct Case: Decodable {
+                var name: String
+                var state: ActivityJSON
+                var budget: Int
+            }
             var attributes: ExactActivityAttributes
-            var content: ExactActivityAttributes.ContentState
-            var budget: Int
+            var cases: [Case]
         }
         let path = Bundle.module.resourceURL!.appendingPathComponent("SnapshotFixtures/activity-envelope.json")
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: path))
-        XCTAssertEqual(try fixture.attributes.validate(fixture.content), fixture.budget)
-        for formatting: JSONEncoder.OutputFormatting in [[], [.sortedKeys, .withoutEscapingSlashes]] {
-            let encoder = JSONEncoder(); encoder.outputFormatting = formatting
-            let encoded = try encoder.encode(fixture.attributes).count + encoder.encode(fixture.content).count
-            XCTAssertLessThanOrEqual(encoded, fixture.budget)
+        for sample in fixture.cases {
+            let content = ExactActivityAttributes.ContentState(shape: fixture.attributes.shape, state: sample.state)
+            if sample.budget <= 4096 {
+                XCTAssertEqual(try fixture.attributes.validate(content), sample.budget, sample.name)
+            } else {
+                XCTAssertEqual(sample.budget, 4097)
+                XCTAssertThrowsError(try fixture.attributes.validate(content)) { error in
+                    XCTAssertTrue(String(describing: error).contains("4097 bytes"))
+                }
+            }
+            for formatting: JSONEncoder.OutputFormatting in [[], [.sortedKeys, .withoutEscapingSlashes]] {
+                let encoder = JSONEncoder(); encoder.outputFormatting = formatting
+                let encoded = try encoder.encode(fixture.attributes).count + encoder.encode(content).count
+                XCTAssertLessThanOrEqual(encoded, sample.budget, sample.name)
+                if sample.budget == 4097 { XCTAssertEqual(encoded, 4097) }
+            }
         }
-        var boundary = fixture.content
-        guard case var .object(state) = boundary.state else { return XCTFail("fixture state must be an object") }
-        state["padding"] = .string(String(repeating: "x", count: 4096 - fixture.budget))
-        boundary.state = .object(state)
-        XCTAssertEqual(try fixture.attributes.validate(boundary), 4096)
-        state["padding"] = .string(String(repeating: "x", count: 4097 - fixture.budget))
-        boundary.state = .object(state)
-        XCTAssertThrowsError(try fixture.attributes.validate(boundary))
+    }
+
+    func testSharedNumberSpellingsCoverFormatBoundariesAndDoubleExtremes() throws {
+        struct Fixture: Decodable {
+            var bits: String
+            var foundation: String
+            var serde: String
+            var budget: Int
+        }
+        let path = Bundle.module.resourceURL!.appendingPathComponent("SnapshotFixtures/activity-numbers.json")
+        let fixtures = try JSONDecoder().decode([Fixture].self, from: Data(contentsOf: path))
+        let digest = String(repeating: "a", count: 64)
+        let attributes = ExactActivityAttributes(kind: "train", generation: digest, shape: digest)
+        let overhead = try attributes.validate(.init(shape: digest, state: .null)) - 4
+        for sample in fixtures {
+            let value = Double(bitPattern: try XCTUnwrap(UInt64(sample.bits, radix: 16)))
+            XCTAssertEqual(String(data: try JSONEncoder().encode(value), encoding: .utf8), sample.foundation)
+            XCTAssertEqual(try attributes.validate(.init(shape: digest, state: .number(value))), overhead + sample.budget, sample.foundation)
+            XCTAssertEqual(sample.budget, max(sample.serde.utf8.count, sample.foundation.utf8.count))
+            XCTAssertLessThanOrEqual(sample.budget, 24)
+        }
     }
 
     func testLastDecodableStateIsPerActivityAndReportsFailedWrites() throws {
