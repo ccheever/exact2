@@ -539,6 +539,17 @@ test('keeps source workspace metadata when an alternate answers a detail read', 
     .toEqual({ projectId: 'project-1', projectTitle: 'source project', workspaceRoot: '/srv/source/repo', title: 'github title' });
 });
 
+test('a routed PR read reports its state to the origin without waiting for the report', async () => {
+  const identity = { host: 'github.com', provider: 'github', viewer: 'fixture', accountId: '123' };
+  const host = new FakeHost({
+    [ORIGIN]: { 'pullRequests.routing': () => identity, 'pullRequests.reportState': () => STALL },
+    [LOCAL]: { 'pullRequests.routingIdentity': () => identity, 'pullRequests.detail': () => ({ projectId: 'remote-project', state: 'closed' }) },
+  });
+  const reference = { projectId: 'project-1', repository: 'acme/web', number: 7 };
+  expect(await new PullRequestRouter().request(host, 'pullRequests.detail', { ...reference, allowStale: false }, false)).toMatchObject({ projectId: 'project-1', state: 'closed' });
+  expect(host.calls.find(call => call.method === 'pullRequests.reportState')).toMatchObject({ environment: ORIGIN, payload: { reference, state: 'closed' }, timeoutSeconds: 5 });
+});
+
 test('refreshes identity before writes and invalidates prior readers across router instances', async () => {
   let originAccountId = '123';
   const mutations: { environment: string; expectedAccountId: unknown }[] = [];

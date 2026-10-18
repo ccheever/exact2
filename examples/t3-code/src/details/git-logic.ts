@@ -1,3 +1,4 @@
+import { sourceControlHosts } from '../shared/source-control-hosts';
 // Git action rules for the workspace card, adapted from T3 Code (MIT;
 // see LICENSE-T3): apps/web/src/components/GitActionsControl.logic.ts (quick action,
 // menu items, default-branch copy, progress), GitActionsControl.tsx
@@ -12,6 +13,7 @@ const PRESENTATION: Record<string, { short: string; long: string; icon: string; 
   gitlab: { short: 'MR', long: 'merge request', icon: 'gitlab', name: 'GitLab' },
   forgejo: { short: 'PR', long: 'pull request', icon: 'forgejo', name: 'Forgejo' },
   'azure-devops': { short: 'PR', long: 'pull request', icon: 'azure-devops', name: 'Azure DevOps' },
+  gitcafe: { short: 'PR', long: 'pull request', icon: 'gitcafe', name: 'GitCafe' },
   bitbucket: { short: 'PR', long: 'pull request', icon: 'bitbucket', name: 'Bitbucket' },
   unknown: { short: 'change request', long: 'change request', icon: 'pull-request', name: 'source control' },
 };
@@ -159,13 +161,7 @@ export function workingFiles(status: Obj | null): { path: string; insertions: nu
 }
 
 // ── Publish repository (PublishRepositoryDialog) ─────────────────────────────
-export const PUBLISH_PROVIDERS = [
-  { value: 'forgejo', label: 'Forgejo / Gitea', host: 'your server', placeholder: 'owner/repo' },
-  { value: 'github', label: 'GitHub', host: 'github.com', placeholder: 'owner/repo' },
-  { value: 'gitlab', label: 'GitLab', host: 'gitlab.com', placeholder: 'group/project' },
-  { value: 'bitbucket', label: 'Bitbucket', host: 'bitbucket.org', placeholder: 'workspace/repository' },
-  { value: 'azure-devops', label: 'Azure DevOps', host: 'dev.azure.com', placeholder: 'project/repository' },
-] as const;
+export const PUBLISH_PROVIDERS = sourceControlHosts.map(host => ({ value: host.kind, label: host.pickerLabel, host: host.host, placeholder: host.pathHint }));
 const optionNone = (value: unknown): string => { const option = obj(value); return option._tag === 'Some' ? str(option.value) : typeof value === 'string' ? value : ''; };
 /** getPublishProviderReadiness over the discovery's providers. */
 export function publishReadiness(provider: string, discovered: Obj[]): { ready: boolean; hint: string; account: string; host: string } {

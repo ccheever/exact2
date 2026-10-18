@@ -10,16 +10,24 @@ const column = contractComponent('app-main.contract', 'ChatColumn');
 /** The root's rest slots over a 100pt port of a 500pt transcript, on a clock `now` in ms. */
 function transcript(canRest = true) {
   const state: Env = { restOwner: '', restResting: false, restAtEnd: true, restPulls: 0, restGestureUntil: -1, restLastPull: -1000000,
-    restTop: -1, restHeight: -1, restContent: -1, restWidth: -1, restMovement: 0 };
+    restTop: -1, restHeight: -1, restContent: -1, restWidth: -1, restMovement: 0, findViewport: '' };
   const clock = { now: 0 };
   const scope = () => ({ canRest, max: Math.max, performanceNow: () => clock.now });
-  const at = (top: number, owner = 'A', size: { content?: number; width?: number } = {}) =>
-    root.call('restScrolled', state, scope(), [owner, { scrollTop: top, scrollHeight: size.content ?? 500, clientHeight: 100, clientWidth: size.width ?? 300 }]);
+  const at = (top: number, owner = 'A', size: { content?: number; width?: number; key?: string } = {}) =>
+    root.call('restScrolled', state, scope(), [owner, { scrollTop: top, scrollHeight: size.content ?? 500, clientHeight: 100, clientWidth: size.width ?? 300, firstVisibleKey: size.key }]);
   const gesture = (towardEnd: boolean) => root.call('restGesture', state, scope(), [towardEnd]);
   return { state, clock, at, gesture };
 }
 
 describe('the composer rests on a reader\'s movement away from the end', () => {
+  test('the same scroll report records the find viewport key and clears a missing key', () => {
+    const t = transcript();
+    t.at(400, 'A', { key: '["thread","message"]' });
+    expect(t.state.findViewport).toBe('["thread","message"]');
+    t.at(350);
+    expect(t.state.findViewport).toBe('');
+  });
+
   test('programmatic movement never rests it; a gesture authorizes the movement after it; the end and a new owner end it', () => {
     const t = transcript();
     t.at(400); t.at(350);
