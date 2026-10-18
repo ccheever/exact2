@@ -514,14 +514,17 @@ const BOX_PLAYED: [Property; 2] = [Property::Opacity, Property::BackgroundColor]
 /// the engine presents the target, the box's specs carry the transition
 /// ([`transition_specs`]), and nothing samples it, so a fade keeps no
 /// display link awake. One waiting for its first frame goes at that frame
-/// (LLP 1003.001 D4). Every batch, a played transition that no longer
-/// qualifies ([`playable`]: an ancestor gained a filter, the box a border)
-/// comes back to the engine at the value its curve has reached, and its spec
-/// goes in the same batch. Returns the views either way.
+/// (LLP 1003.001 D4), and none goes unless `new` (the display drives the
+/// clock). Every batch, a played transition that no longer qualifies
+/// ([`playable`]: an ancestor gained a filter, the box a border), or any once
+/// `new` is off (the agent took the clock), comes back to the engine at the
+/// value its curve has reached, and its spec goes in the same batch. Returns
+/// the views either way.
 pub(crate) fn hand_over_transitions(
     kernel: &Kernel,
     engine: &mut Engine,
     skip: &dyn Fn(exact_kernel::ViewId) -> bool,
+    new: bool,
 ) -> Vec<exact_kernel::ViewId> {
     let played: Vec<(u64, Property)> = engine
         .played_transitions()
@@ -534,12 +537,12 @@ pub(crate) fn hand_over_transitions(
     let mut views = Vec::new();
     let node = |key: u64| kernel.node_by_key(exact_kernel::motion::node_key(key));
     for (key, p) in played {
-        if !playable(kernel, engine, key, p, skip) && engine.reclaim_transition(key, p) {
+        if (!new || !playable(kernel, engine, key, p, skip)) && engine.reclaim_transition(key, p) {
             views.extend(node(key).map(|n| n.id));
         }
     }
-    for (key, p) in moving {
-        let waits = engine.transition(key, p).is_none_or(|(_, waits)| waits);
+    for (key, p) in moving.into_iter().filter(|_| new) {
+        let waits = engine.transition_ends(key, p).is_none_or(|t| t.waits);
         if !waits
             && playable(kernel, engine, key, p, skip)
             && engine.play_transition(key, p).is_some()
@@ -585,8 +588,8 @@ fn playable(
             layer_paints_background(&n)
                 && background_on_layer(kernel, &n)
                 && engine
-                    .transition(key, p)
-                    .is_some_and(|(t, _)| t.from.w == t.to.w)
+                    .transition_ends(key, p)
+                    .is_some_and(|t| t.from.w == t.to.w)
         }
     }
 }
@@ -652,11 +655,26 @@ fn background_on_layer(kernel: &Kernel, n: &exact_kernel::NodeRef<'_>) -> bool {
 /// A box's played transitions ([`hand_over_transitions`]) as specs, one
 /// iteration of each transition's curve from when it starts moving, holding
 /// its start through a delay (a backwards fill); after it ends, the target
-/// the engine presents shows.
-pub(crate) fn transition_specs(engine: &Engine, key: u64) -> Vec<String> {
+/// the engine presents shows. A spec is made once per transition and kept in
+/// `made` until the transition changes: a spring's track samples its whole
+/// curve.
+pub(crate) fn transition_specs(
+    engine: &Engine,
+    key: u64,
+    made: &mut std::collections::BTreeMap<(u64, usize), (exact_motion::TransitionEnds, String)>,
+) -> Vec<String> {
     let mut out = Vec::new();
     for p in BOX_PLAYED {
-        if !engine.is_played(key, p) {
+        let slot = (key, p as usize);
+        let ends = engine
+            .transition_ends(key, p)
+            .filter(|_| engine.is_played(key, p));
+        let Some(ends) = ends else {
+            made.remove(&slot);
+            continue;
+        };
+        if let Some((_, spec)) = made.get(&slot).filter(|(kept, _)| *kept == ends) {
+            out.push(spec.clone());
             continue;
         }
         let Some((t, _)) = engine.transition(key, p) else {
@@ -689,10 +707,12 @@ pub(crate) fn transition_specs(engine: &Engine, key: u64) -> Vec<String> {
             "backgroundColor"
         };
         let (times, values, curves) = track_json(&track, p, 1.0, 0, None);
-        out.push(format!(
+        let spec = format!(
             "{{\"id\":\"transition#{path}\",\"k\":\"{path}\",\"s\":{},\"dl\":0,\"d\":{duration},\"n\":1,\"t\":[{times}],\"v\":[{values}],\"c\":[{curves}],\"fill\":2,\"h\":null}}",
             t.start,
-        ));
+        );
+        made.insert(slot, (ends, spec.clone()));
+        out.push(spec);
     }
     out
 }

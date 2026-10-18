@@ -29,7 +29,7 @@ pub use links::EngineLinks;
 mod path;
 mod played;
 mod slots;
-pub use played::{PlayedCurve, PlayedTransition};
+pub use played::{PlayedCurve, PlayedTransition, TransitionEnds};
 mod timeline;
 pub use animate::AnimationPlay;
 pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};

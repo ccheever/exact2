@@ -243,6 +243,90 @@ fn what_core_animation_cannot_play_as_uikit_draws_it_stays_sampled() {
     assert!(motion(&fogged), "the display drives it again");
 }
 
+/// Review round 2 (Astra 3): when the agent takes the clock, what Core
+/// Animation played comes back to the engine where its curve is, and its
+/// spec goes in the takeover's batch; nothing new is handed over after.
+#[test]
+fn the_agents_takeover_reclaims_what_core_animation_plays() {
+    let mut host = boot();
+    host.svg.play_transitions = true;
+    let (go, fade) = (id(&host, "go"), id(&host, "fade"));
+    let key = exact_kernel::motion::motion_node(host.runner.kernel().node(fade).unwrap().key);
+    host.dispatch_at(go, Event::Press, 100.0);
+    host.tick_at(112.0, 116.0);
+    assert!(host.engine.is_played(key, Property::Opacity));
+    let taken = host.start_on_frame(false, 300.0);
+    assert!(!host.engine.is_played(key, Property::Opacity));
+    assert!((opacity(&host) - 0.816).abs() < 1e-3, "where the curve is");
+    let v: serde_json::Value = serde_json::from_str(&taken).unwrap();
+    let withdrawn = v["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|op| op["op"] == "animations" && op["id"] == fade);
+    assert_eq!(
+        withdrawn.map(|op| op["specs"].clone()),
+        Some(serde_json::json!([])),
+        "{taken}"
+    );
+    host.dispatch_at(go, Event::Press, 400.0);
+    host.advance(500.0);
+    assert!(
+        !host.engine.is_played(key, Property::Opacity),
+        "the agent's clock samples"
+    );
+}
+
+/// Review round 2 (Astra 2): a played spring's track is made once and kept
+/// while the transition stands, and dropped with it.
+#[test]
+fn a_played_springs_spec_is_made_once() {
+    const SPRING: &str = r##"component A
+  state on = false
+  action go
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      box testId="fade" width=24 height=24 opacity=(on ? 0 : 1) transition="opacity -exact-spring(300, 30, 1)"
+"##;
+    let plan = contract::compile(SPRING).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.svg.box_motion = true;
+    host.svg.play_transitions = true;
+    host.engine.set_lowered_properties(&svg::lowered(true));
+    host.start_on_frame(true, 0.0);
+    let (go, fade) = (id(&host, "go"), id(&host, "fade"));
+    host.dispatch_at(go, Event::Press, 100.0);
+    let started = host.tick_at(112.0, 116.0);
+    let first = spec(&started, fade);
+    assert!(
+        first["v"].as_array().unwrap().len() > 2,
+        "a spring is its frames: {first}"
+    );
+    assert_eq!(host.svg.played_specs.len(), 1);
+    let later = host.tick_at(140.0, 150.0);
+    assert!(
+        !later.contains("\"animations\""),
+        "an unchanged spec is not sent again: {later}"
+    );
+    host.advance(5000.0);
+    host.tick_at(5000.0, 5016.0);
+    assert!(
+        host.svg.played_specs.is_empty(),
+        "dropped once the spring ended"
+    );
+}
+
 /// D5: a display frame's batch starts what waits, as its tick would, so
 /// a transition reaches Core Animation in the frame's own batch.
 #[test]

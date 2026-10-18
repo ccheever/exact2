@@ -93,6 +93,9 @@ pub(crate) struct SvgState {
     /// so one retargeted, cancelled or ended leaves Core Animation as it
     /// leaves the engine.
     played: IdSet<ViewId>,
+    /// Each played transition's spec and the transition it was made for.
+    pub(crate) played_specs:
+        std::collections::BTreeMap<(u64, usize), (exact_motion::TransitionEnds, String)>,
     /// SVG elements with a press handler (LLP 1055.000 D17).
     pressable: IdSet<ViewId>,
     /// Whether a `foreignObject` was met: its boxes are then looked for
@@ -275,6 +278,14 @@ impl SvgState {
             .collect();
         self.boxes.extend(resized);
         self.boxes.extend(self.played.iter().copied());
+        // A spec kept for a transition that ended, or whose box went.
+        if !self.played_specs.is_empty() {
+            let live: std::collections::BTreeSet<(u64, usize)> = engine
+                .played_transitions()
+                .map(|(key, p)| (key, p as usize))
+                .collect();
+            self.played_specs.retain(|slot, _| live.contains(slot));
+        }
         let mut boxes: Vec<ViewId> = self.boxes.drain().collect();
         boxes.sort_unstable();
         for id in boxes {
@@ -315,7 +326,7 @@ impl SvgState {
                 &underlying,
                 Some((size.0 as f64, size.1 as f64)),
             );
-            let played = transition_specs(engine, key);
+            let played = transition_specs(engine, key, &mut self.played_specs);
             if played.is_empty() {
                 self.played.remove(&id);
             } else {

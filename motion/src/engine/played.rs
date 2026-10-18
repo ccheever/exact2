@@ -22,6 +22,19 @@ pub struct PlayedTransition {
     pub curve: PlayedCurve,
 }
 
+/// A transition's ends and timing ([`Engine::transition_ends`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TransitionEnds {
+    /// Value at the start.
+    pub from: Value,
+    /// Value at the end.
+    pub to: Value,
+    /// Clock time it starts moving, seconds.
+    pub start: f64,
+    /// Whether it waits for the frame that starts it (LLP 1003.001 D1).
+    pub waits: bool,
+}
+
 /// A played transition's shape.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlayedCurve {
@@ -84,6 +97,19 @@ impl Engine {
         }
         self.dirty.insert(key);
         true
+    }
+
+    /// The transition running or played on `property` of `node` without its
+    /// curve (a spring's frames are not made): its ends, when it starts
+    /// moving, and whether it waits for the frame that starts it.
+    pub fn transition_ends(&self, node: u64, property: Property) -> Option<TransitionEnds> {
+        let running = self.slots.get(&(node, property))?.running()?;
+        Some(TransitionEnds {
+            from: running.from,
+            to: running.to,
+            start: running.start_at(self.sample_time()),
+            waits: running.pending.is_some(),
+        })
     }
 
     /// The transition running or played on `property` of `node`, as a host
