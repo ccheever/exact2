@@ -1,3 +1,4 @@
+import { can } from '../connections/command-permissions';
 // Settings → Diagnostics view model (reference DiagnosticsSettings.tsx): the
 // resource telemetry sections (settings-a-telemetry.ts), then the server's live
 // processes, resource history and trace diagnostics as stat grids and tables.
@@ -69,7 +70,7 @@ const cache = new WeakMap<T3Client, Reads>();
 
 export async function diagnosticsPage(client: T3Client, native: Native | null | undefined, environmentId: string, period: string, active: boolean, now = 0, refresh = 0) {
   const blankTable: DxTable = { id: '', minWidth: 0, headers: [], rows: [], empty: '' };
-  const scoped = active && !!native?.available && client.ready && (environmentId === '' || environmentId === client.environmentId);
+  const scoped = active && !!native?.available && can(client, 'diagnostics:read') && (environmentId === '' || environmentId === client.environmentId);
   const window = WINDOWS[period];
   if (!active) cache.delete(client);
   const pageReads = async (): Promise<[Read, Read, Read] | null> => {
@@ -94,7 +95,7 @@ export async function diagnosticsPage(client: T3Client, native: Native | null | 
     historyStats: [] as Stat[], historyErrors: [] as string[], history: blankTable, buckets: [] as { id: string; avg: number; peak: number; label: string }[],
     traceStats: [] as Stat[], traceErrors: [] as string[], latestFailures: blankTable, commonFailures: blankTable, slowest: blankTable, logs: blankTable, topSpans: blankTable, telemetry };
   if (!active) return empty;
-  if (!scoped) return { ...empty, error: 'Choose one connected environment to view diagnostics.' };
+  if (!scoped) return { ...empty, error: client.ready && !can(client, 'diagnostics:read') ? 'This connection does not have access to diagnostics and usage.' : 'Choose one connected environment to view diagnostics.' };
   if (!reads) return { ...empty, error: 'Unsupported resource history period.' };
   const [processes, history, traces] = reads;
   const checked = (value: Obj) => str(value.readAt) ? relativeTimeLabel(str(value.readAt), now) : '';
@@ -125,7 +126,7 @@ export async function diagnosticsPage(client: T3Client, native: Native | null | 
         return dxRow(pid, [dxCell('name', processName(str(entry.command)), 24, { tip: str(entry.command) }), dxCell('cpu', `${num(entry.cpuPercent).toFixed(1)}%`, 8, { mono: true, align: 'right' }),
           dxCell('memory', bytes(entry.rssBytes), 10, { mono: true, align: 'right' }), dxCell('command', str(entry.command), 33, { tone: 'muted', tip: str(entry.command) }),
           dxCell('pid', pid, 8, { mono: true, align: 'right', tone: 'muted' }), dxCell('type', processType(entry), 11, { tone: 'muted' }), dxCell('kill', '', 6, { align: 'right' })],
-        { depth: Math.min(num(entry.depth), 6), toggle: children ? (collapsed.has(pid) ? 'expand' : 'collapse') : '', dot: 'success', name: processName(str(entry.command)), signal: true,
+        { depth: Math.min(num(entry.depth), 6), toggle: children ? (collapsed.has(pid) ? 'expand' : 'collapse') : '', dot: 'success', name: processName(str(entry.command)), signal: can(client, 'environment:maintain'),
           target: `source=live&pid=${pid}&start=${num(entry.startTimeMs)}` });
       }) }),
     historyStats: [

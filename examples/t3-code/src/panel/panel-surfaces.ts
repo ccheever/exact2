@@ -1,3 +1,4 @@
+import { can } from '../connections/command-permissions';
 import { parseScopedThreadKey } from '../terminal/terminal-ui-state';
 import { addTerminalSurface, focusPanelTerminal, terminalPanelLocal, terminalPanelView, panelTerminalLabel, terminalSurfaceCloseCopy, installTerminalPanelCleanup, type PanelTerminal } from '../terminal/terminal-panel';
 import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerView, type TerminalDrawerView } from '../terminal/terminal-drawer-view';
@@ -31,7 +32,6 @@ import { emptyAttachment, type AttachmentView, type AttachmentMeta } from './att
 import { crumbsHidden } from './files-crumbs-mount'; // The Files preview unmounted
 import { restoreRightPanel } from './saved-panel'; // The panel as the last launch left it
 import { restoredEffects } from './saved-surfaces'; // With its Diff and device
-import { requestDiff } from '../diff/diff-outside-root';
 import { deviceTargetOf, deviceThreadId, miniStoreOf, restoreDeviceTarget, type DeviceTarget } from '../device/device-session';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import type { PrTarget } from './pr-surface';
@@ -44,7 +44,9 @@ import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, b
 import { browserTabAudio, browserTabMute } from '../browser/browser-automation-tabs'; // Mute / Unmute and the audible indicator
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
-export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal; browser?: { tabId: string; threadKey: string } };
+export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number;
+  /** Files and file surfaces: set when breadcrumbs moved a folder browser up, the deepest path the crumbs keep offering on the way back down. */
+  folderTrail?: string; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal; browser?: { tabId: string; threadKey: string } };
 export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number };
 export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[]; favicon: string; faviconFallback: string; audio: string };
 export type PanelView = {
@@ -108,6 +110,27 @@ export function openFileIn(state: PanelState, requested: string, line: number): 
   return surface;
 }
 
+/**
+ * rightPanelStore.navigateFolder: moves the folder browser in `surfaceId` to `path` in place, so walking the breadcrumbs
+ * leaves no tab behind per folder. `""` is the workspace root, the files explorer. `folderTrail` is kept for the way
+ * back down; `keepSource` opens the folder beside the source tab instead (a file preview). A tab already showing the
+ * target wins, so its state is never replaced; a file surface replaces the standalone explorer, as openFile does.
+ */
+export function navigateFolderIn(state: PanelState, surfaceId: string, path: string, folderTrail: string, keepSource = false): Surface | null {
+  const index = state.surfaces.findIndex(entry => entry.id === surfaceId);
+  if (index < 0) return null;
+  const trail = folderTrail === path ? {} : { folderTrail };
+  const target: Surface = path === '' ? { ...singleton('files'), ...trail } : { id: `file:${path}`, kind: 'file', path, line: 0, reveal: 1, ...trail };
+  const source = state.surfaces[index]!;
+  const existing = state.surfaces.find((entry, at) => at !== index && entry.id === target.id);
+  state.surfaces = state.surfaces.flatMap((entry, at) => {
+    if (at === index) { const kept = keepSource ? [source] : []; return existing ? kept : [...kept, target]; }
+    return !existing && target.kind === 'file' && entry.kind === 'files' ? [] : [entry];
+  });
+  state.active = target.id; state.visible = true;
+  return existing ?? target;
+}
+
 /** Keeps the Diff tab in step with the client's diff panel, which other paths open and close. */
 export function syncDiff(client: T3Client, state = panelState(client)): void {
   if (client.diffOpen) {
@@ -128,12 +151,12 @@ export function availability(client: T3Client) {
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   return {
     terminal: terminalAvailable(client),
-    files: !!project && !!workspaceOf(client).cwd,
+    files: can(client, 'filesystem:read') && !!project && !!workspaceOf(client).cwd,
     // ChatView `deviceAvailable={activeThreadRef !== null}`: a draft has its thread ref too (its id is allocated on open).
     device: !!client.environmentId && (!!client.threadId || !!client.projectId),
     pullRequests: !!thread && capabilities(client).threadPullRequests === true && visiblePullRequests(thread.pullRequests).length > 0,
     pullRequest: !!threadPrTarget(client), // supportsPullRequests && threadPullRequestPanelTarget
-    diff: !!client.threadId && client.ready && !diffNotGit(client), // ChatView: isServerThread && isGitRepo
+    diff: !!client.threadId && can(client, 'filesystem:read') && !diffNotGit(client), // ChatView: isServerThread && isGitRepo
   };
 }
 
@@ -146,7 +169,7 @@ async function showDiff(client: T3Client, native: Native): Promise<void> {
   const threadId = client.threadId;
   client.diffLoading = true;
   try {
-    const result = await requestDiff(client.config, request, (method, payload) => client.restAccess(native).request(method, payload)); // diff-outside-root.ts
+    const result = await client.restAccess(native).request(request.method, request.payload)
     if (threadId === client.threadId && client.diffOpen) client.diffText = adoptDiff(client, request, result);
   } catch (error) { if (threadId === client.threadId && !letGo(error)) client.diffError = error instanceof Error ? error.message : String(error); }
   finally { if (threadId === client.threadId) client.diffLoading = false; }
@@ -331,7 +354,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   const deviceSetup = store.deviceSetup !== '' && store.deviceSetup === panelKey(client);
   const deviceShown = !!live && open && active.kind === 'device';
   if (!deviceShown) deviceHidden(client); // DevicePanel lists the devices each time it shows (device-surface.ts deviceView)
-  const device = live && (deviceSetup || deviceShown) ? await deviceView(client, live, deviceShown) : emptyDevice();
+  const device = live && (deviceSetup || deviceShown) ? await deviceView(client, live, deviceShown, deviceSetup) : emptyDevice();
   if (live && open && active.kind === 'device' && !deviceSetup) device.session = await deviceSessionView(client, live, deviceStateOf(client) ?? {}, device.loaded, panelKey(client));
   const prs = open && active.kind === 'pull-requests' ? prsView(client, now) : emptyPrs();
   if (live && open && active.kind === 'pull-requests') prs.speedMode = await readSpeedMode(client, live);

@@ -4,8 +4,7 @@
 // masks each overflowing edge over `min(1.5rem, overflow)`). The crumb row here is end-justified inside
 // a clipping row (files-surface.contract), so an overflowing trail shows its end, as the scrolled
 // reference does; both rows are hooked (`t3-anchor`: `crumbs` is the trail's [x, width] in the
-// clipping row, `crumbs-clip` the clip's [x, width] in the subheader), which gives the left fade and
-// the shift the folder menu's anchor needs.
+// clipping row, `crumbs-clip` the clip's [x, width] in the subheader), which gives the left fade.
 import type { Obj } from '../client/domain';
 import { anchorFrame } from '../shared/laid-out-widths';
 

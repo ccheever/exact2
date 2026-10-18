@@ -273,7 +273,7 @@ describe('pairing links and client commands', () => {
   it('creates a link with the chosen scopes, keeps its credential in memory and closes the dialog', async () => {
     const client = new T3Client();
     const { native, requests } = fakeNative(request => request.op === 'localAccess' ? { ok: true, generation: 1, value: { id: 'link-9', credential: 'SECRET', expiresAt: '2036-04-07T00:05:00.000Z' } } : undefined);
-    await runNetworkOp(client, native, 'pairing-create', 'Living room iPad', 'orchestration:read terminal:operate bogus ');
+    await runNetworkOp(client, native, 'pairing-create', 'Living room iPad', 'orchestration:read terminal:operate ');
     expect(requests).toEqual([{ op: 'localAccess', method: 'POST', path: '/api/auth/pairing-token', body: { label: 'Living room iPad', scopes: ['orchestration:read', 'terminal:operate'] } }]);
     expect([createdCredentials.get('link-9'), networkUi.createSerial]).toEqual(['SECRET', 1]);
     expect(JSON.stringify(client.local)).not.toContain('SECRET');

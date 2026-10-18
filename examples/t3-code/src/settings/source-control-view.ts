@@ -1,5 +1,6 @@
 // Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
 import { hostCredentials, type HostCredentials } from './source-control-credentials';
+import { can } from '../connections/command-permissions';
 // Settings → Source control and Integrations view models (reference
 // SourceControlSettings.tsx, ProjectDefaultsSettings.tsx, BranchNamingSettings.tsx,
 // SourceControlWritingSettings.tsx, IntegrationsSettings.tsx, SettingInheritance.tsx).
@@ -266,7 +267,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
     // useScopedSettings (SourceControlSettings.tsx): the connection's subscribed config, never a read per answer.
     const config = client.config, settings = obj(config.settings);
     if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
-    const rows = sourceControlRows(settings, projectId, environmentLabel(client), arr(config.providers), client.writable);
+    const rows = sourceControlRows(settings, projectId, environmentLabel(client), arr(config.providers), can(client, 'settings:write'));
     const legacy = !projectKey && projectId ? groupOfMember(client, projectId) : undefined;
     const scope = resolveScope(client, machine, legacy?.key ?? projectKey, checkout);
     const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope));
@@ -297,7 +298,7 @@ export async function integrationsPage(client: T3Client, native: Native | null |
     // re-asked this page: device.list's inspection publishes to the device stream, whose event bumps data.revision.
     const config = client.config, settings = obj(config.settings);
     if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
-    const rows = integrationRows(settings, projectId, environmentLabel(client), client.writable);
+    const rows = integrationRows(settings, projectId, environmentLabel(client), can(client, 'settings:write'));
     // Device hub and Agent device access follow the settings scope: the representative's value, mixed across
     // the selected targets, and Agent device access open once any connected environment runs the hub.
     // A bare project id (settingsProjectId with no project key: Project settings' target) is its project on every environment (settingsScopeOf).
@@ -307,9 +308,9 @@ export async function integrationsPage(client: T3Client, native: Native | null |
     const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope));
     for (const row of [...rows.browser, rows.deviceHub, rows.agentDevice, rows.hostsRow]) row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
     rows.deviceHub = { ...rows.deviceHub, checked: devices.checked.enableDeviceSupport, mixed: devices.mixed.enableDeviceSupport,
-      disabled: devices.project || devices.unavailable || devices.connectedCount === 0 || !client.writable };
+      disabled: devices.project || devices.unavailable || devices.connectedCount === 0 || !can(client, 'settings:write') };
     rows.agentDevice = { ...rows.agentDevice, checked: devices.checked.enableAgentDeviceAccess, mixed: devices.mixed.enableAgentDeviceAccess,
-      disabled: !client.writable || devices.connectedCount === 0 || (!devices.project && !devices.anyHubEnabled) };
+      disabled: !can(client, 'settings:write') || devices.connectedCount === 0 || (!devices.project && !devices.anyHubEnabled) };
     // DeviceToolVersions over the stream's state; "Check versions" (rest:device-tools) is the one inspection.
     await watchDevice(client, native);
     await watchDeviceHostStates(client, native, scope.selected.map(environment => environment.environmentId));

@@ -4,6 +4,7 @@
 // packages/shared/src/projectSettings.ts. Server rows read and write the connected
 // environment's ServerSettings (server.updateSettings); device rows are the
 // reference ClientSettings, saved in this app's own preferences file.
+import { changeCliCommand } from './cli-command';
 import { installedFonts } from '../appearance/appearance-fonts';
 import { pushToast } from '../shell/toast';
 import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
@@ -225,7 +226,7 @@ export const PROJECT_SCOPED = new Set(['worktreeCleanup', 'defaultModelSelection
 export const SERVER_DEFAULTS: Record<string, Json> = {
   defaultModelSelection: null, defaultRuntimeMode: 'full-access', defaultThreadEnvMode: null, worktreeSubmodules: null, autoResumeLimitedThreads: false,
   snoozeLimitedThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
-  continueThreadsAfterServerUpdate: false, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
+  continueThreadsAfterServerUpdate: true, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
   addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] },
   enableAgentBrowserAccess: true,
 };
@@ -260,7 +261,7 @@ export function effectiveSetting(settings: Obj, projectId: string, key: string, 
 
 /** One control's context: the representative target's settings (display) and every connected target (mixed, writes). */
 export type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string, Obj | null>; capabilities: Obj; providers: Obj[]; environmentLabel: string;
-  targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean;
+  targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean; settingsWritable: boolean;
   /** Each known environment's advertised providers: a model choice must exist on every target (useScopedModelDisabledReason). */
   catalogs: Map<string, Obj[]> };
 /** A target's value for a key: its effective value, a file-backed key's built-in when nothing set it (effectiveSetting). */
@@ -283,7 +284,7 @@ function serverState(context: ServerContext, key: string) {
     : project && source === 't3.json' ? ['inherited', "Inherited from the repository's t3.json"]
     : project && scoped ? ['inherited', `Inherited from ${context.environmentLabel}`]
     : customized ? ['environment', 'Set on the environment'] : ['default', 'Built-in default'];
-  const note = !scope.connected ? 'Reconnect the selected environment to change this setting.' : environmentWide ? 'Environment-wide setting. Select an environment to change it.' : '';
+  const note = !context.settingsWritable ? 'This connection requires settings:write.' : !scope.connected ? 'Reconnect the selected environment to change this setting.' : environmentWide ? 'Environment-wide setting. Select an environment to change it.' : '';
   return { value: first, mixed, source, inheritance, note, inert: note !== '', resettableProject: project && scoped && (source === 'project' || source === 'mixed') };
 }
 const MERGE_METHOD_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
@@ -552,6 +553,7 @@ export function serverContext(client: T3Client, scope: CoreScope, files: Map<str
   const restartEverywhere = connected.length > 0 && connected.every(entry => obj(obj((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).environment).capabilities).threadRestartContinuation === true);
   return { settings: raw, scope, files, capabilities: obj(environment.capabilities), providers: arr(config.providers), environmentLabel: representative?.label || str(environment.label, 'environment'),
     targets: resolveScopedSettingsTargets(scope.resolved, connectedOf(client, scope, settings), files), restartEverywhere,
+    settingsWritable: connected.length > 0 && connected.every(entry => entry.scopes?.includes('settings:write') === true),
     catalogs: new Map(scope.environments.map(entry => [entry.environmentId, arr((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).providers)])) };
 }
 /**
@@ -586,7 +588,9 @@ export function settingsModelTarget(client: T3Client, id: string) {
   const [instanceId = '', model = ''] = str(control.value).split('|');
   // Text generation offers only the providers that support it (textGenerationProviders).
   const providers = context.providers.filter(provider => !textGeneration || provider.supportsTextGeneration !== false);
-  return { context, providers, instanceId, model };
+  const { environment: representative } = selectScopedSettingsEnvironments(scope.resolved, scope.environments, client.environmentId || null);
+  const config = !representative || representative.environmentId === client.environmentId ? client.config : obj(representative.serverConfig);
+  return { context, config, providers, instanceId, model };
 }
 const fleetConfig = (key: string) => fleet.entries.get(key)?.config ?? {};
 
@@ -721,6 +725,7 @@ export function scopeTarget(client: T3Client, context: ServerContext): ScopedSet
 
 export async function applyCoreSetting(client: T3Client, native: Native, id: string, value: string): Promise<string> {
   const target = parseCoreTarget(id);
+  if (target.row === 'cli-command') return changeCliCommand(client, native, value);
   const local = client.local as unknown as LocalPrefs;
   const key = SERVER_ROW_KEYS[target.row];
   if (target.row === 'theme-import' || target.row === 'theme-save' || target.row === 'theme-remove') return applyThemeCommand(local, target.row, value);

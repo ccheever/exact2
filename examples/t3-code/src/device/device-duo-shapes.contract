@@ -6,6 +6,8 @@ shape DuoStand
   tip: string
   selected: bool
   glyph: string
+  rotated: bool
+  waits: bool
 shape DuoStandGroup
   id: string
   label: string

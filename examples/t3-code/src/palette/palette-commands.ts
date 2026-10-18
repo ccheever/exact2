@@ -4,6 +4,7 @@ import { sourceControlHost } from '../shared/source-control-hosts';
 // and the Restart agent session action). Each returns how the overlay continues: close,
 // stay, or move to another page with a new query. Failures are toasts, as in the reference.
 import type { T3Client } from '../client/client';
+import { composerPromptLink, copyPromptLink } from '../prompt-links/copy-prompt-link';
 import { applyShell, arr, initialShell, obj, str, type Obj } from '../client/domain';
 import type { Files, Native } from '../client/protocol';
 import { dismissToast, pushToast } from '../shell/toast';
@@ -62,6 +63,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
   const current = client.shell.projects.find(project => project.id === client.projectId);
   const cwd = str(current?.workspaceRoot);
   try {
+    if (op === 'copy-prompt-link') { await copyPromptLink(client, native, composerPromptLink(client, id === 'context')); return done(client); }
     if (op === 'restart-session') return await restartSession(client, native, storage, id);
     if (op === 'open-project') return openProject(client, id);
     if (op === 'publish-host') { if (newProjectPublishTargets(flow.discovery?.value ?? null).some(target => target.definition.kind === id)) flow.publishKind = id; return stay(client); }
