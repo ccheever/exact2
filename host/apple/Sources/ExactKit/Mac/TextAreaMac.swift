@@ -20,6 +20,7 @@ package final class TextArea: NSTextView {
 
     weak var owner: NodeView?
     package var markup: MarkdownEditing?
+    package var decorations: FieldDecorating?
     var nativeOrigin: NSPoint?
     // AppKit asks the first responder for the mask: the native bezel's
     // scroll view, or the bare node's whole authored box.
@@ -50,7 +51,61 @@ package final class TextArea: NSTextView {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { owner?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
     }
     package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        owner?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+        if let projection = decorations?.projection {
+            switch attribute {
+            case .value: return projection.value
+            case .numberOfCharacters: return projection.value.utf16.count
+            case .selectedTextRange: return NSValue(range: projection.display(selectedRange()))
+            case .selectedText: return (projection.value as NSString).substring(with: projection.display(selectedRange()))
+            default: break
+            }
+        }
+        return owner?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    }
+
+    package override func accessibilityValue() -> String? { decorations?.projection?.value ?? super.accessibilityValue() }
+    package override func accessibilityNumberOfCharacters() -> Int { decorations?.projection?.value.utf16.count ?? super.accessibilityNumberOfCharacters() }
+    package override func accessibilitySelectedTextRange() -> NSRange { decorations?.projection?.display(selectedRange()) ?? super.accessibilitySelectedTextRange() }
+    package override func accessibilitySelectedText() -> String? {
+        guard let projection = decorations?.projection else { return super.accessibilitySelectedText() }
+        return (projection.value as NSString).substring(with: projection.display(selectedRange()))
+    }
+    package override func setAccessibilitySelectedTextRange(_ range: NSRange) {
+        super.setAccessibilitySelectedTextRange(decorations?.projection?.source(range) ?? range)
+    }
+    package override func accessibilityString(for range: NSRange) -> String? {
+        guard let projection = decorations?.projection else { return super.accessibilityString(for: range) }
+        guard range.location >= 0, NSMaxRange(range) <= projection.value.utf16.count else { return nil }
+        return (projection.value as NSString).substring(with: range)
+    }
+    package override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
+        guard decorations?.projection != nil else { return super.accessibilityAttributedString(for: range) }
+        return accessibilityString(for: range).map { NSAttributedString(string: $0) }
+    }
+    package override func accessibilityFrame(for range: NSRange) -> NSRect {
+        super.accessibilityFrame(for: decorations?.projection?.source(range) ?? range)
+    }
+    package override func accessibilityRange(for index: Int) -> NSRange {
+        guard let projection = decorations?.projection else { return super.accessibilityRange(for: index) }
+        guard index >= 0, index < projection.value.utf16.count else { return NSRange(location: NSNotFound, length: 0) }
+        return (projection.value as NSString).rangeOfComposedCharacterSequence(at: index)
+    }
+    package override func accessibilityLine(for index: Int) -> Int {
+        guard let projection = decorations?.projection else { return super.accessibilityLine(for:index) }
+        guard index >= 0, index <= projection.value.utf16.count else { return NSNotFound }
+        return super.accessibilityLine(for:projection.source(NSRange(location:index,length:0)).location)
+    }
+    package override func accessibilityRange(forLine line: Int) -> NSRange {
+        let range = super.accessibilityRange(forLine:line)
+        return decorations?.projection?.display(range) ?? range
+    }
+    package override func accessibilityRange(for point: NSPoint) -> NSRange {
+        let range = super.accessibilityRange(for:point)
+        return decorations?.projection?.display(range) ?? range
+    }
+    package override func accessibilityVisibleCharacterRange() -> NSRange {
+        let range = super.accessibilityVisibleCharacterRange()
+        return decorations?.projection?.display(range) ?? range
     }
 
     package override func resignFirstResponder() -> Bool {
@@ -73,6 +128,23 @@ package final class TextArea: NSTextView {
     }
 
     package override func doCommand(by selector: Selector) {
+        if !hasMarkedText(), let decorations {
+            let current = selectedRange(), text = string as NSString
+            if current.length == 0 {
+                let name = NSStringFromSelector(selector)
+                if name == "deleteBackward:", current.location > 0 {
+                    let range = decorations.replacement(text.rangeOfComposedCharacterSequence(at: current.location - 1))
+                    if range.length > text.rangeOfComposedCharacterSequence(at: current.location - 1).length {
+                        insertText("", replacementRange: range); return
+                    }
+                }
+                if name == "deleteForward:", current.location < text.length {
+                    let unit = text.rangeOfComposedCharacterSequence(at: current.location)
+                    let range = decorations.replacement(unit)
+                    if range != unit { insertText("", replacementRange: range); return }
+                }
+            }
+        }
         let types = ["deleteBackward:": "deleteContentBackward", "deleteForward:": "deleteContentForward", "deleteWordBackward:": "deleteWordBackward", "deleteWordForward:": "deleteWordForward", "deleteToBeginningOfLine:": "deleteSoftLineBackward", "deleteToEndOfLine:": "deleteSoftLineForward", "deleteToBeginningOfParagraph:": "deleteHardLineBackward", "deleteToEndOfParagraph:": "deleteHardLineForward"]
         if let type = types[NSStringFromSelector(selector)], let fields = owner?.presenter?.fieldSelections {
             fields.withIntent(owner, type) { super.doCommand(by: selector) }
@@ -82,6 +154,32 @@ package final class TextArea: NSTextView {
         guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
         guard let owner else { return true }
         return owner.presenter?.fieldSelections.shouldEdit(owner, range: affectedCharRange, replacement: replacementString ?? "", marked: hasMarkedText()) ?? true
+    }
+
+    package override func setSelectedRange(_ charRange: NSRange) {
+        let range = hasMarkedText() ? charRange : decorations?.selection(charRange, previous: selectedRange()) ?? charRange
+        super.setSelectedRange(range)
+    }
+
+    package override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        guard !hasMarkedText(), let decorations else { super.setSelectedRanges(ranges,affinity:affinity,stillSelecting:stillSelecting); return }
+        let previous = selectedRange()
+        super.setSelectedRanges(ranges.map { NSValue(range:decorations.selection($0.rangeValue,previous:previous)) },affinity:affinity,stillSelecting:stillSelecting)
+    }
+
+    package override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        let range = replacementRange.location == NSNotFound ? selectedRange() : replacementRange
+        super.insertText(insertString, replacementRange: hasMarkedText() ? replacementRange : decorations?.replacement(range) ?? replacementRange)
+    }
+
+    package override func mouseDown(with event: NSEvent) {
+        if !hasMarkedText(), decorations?.click(convert(event.locationInWindow, from: nil)) == true { return }
+        super.mouseDown(with: event)
+    }
+
+    package override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        decorations?.draw(background: true)
     }
     /// AppKit posts no change while text is marked: the owner hears each one
     /// here, and a commit's steps as one (`settlingComposition`).
@@ -179,6 +277,7 @@ package final class TextArea: NSTextView {
     var placeholderColor: NSColor? { didSet { if placeholderColor != oldValue { needsDisplay = true } } }
     package override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        decorations?.draw(background: false)
         if string.isEmpty, !placeholder.isEmpty {
             let origin = textContainerOrigin
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
@@ -278,6 +377,7 @@ extension NodeView {
         restyleMarkup()
     }
     func configureMarkup() {
+        configureDecorations()
         guard let f = textArea as? TextArea else { return }
         if props["markup"] == "markdown" {
             if f.markup == nil { f.markup = MarkdownLink.installed?.editor() }
@@ -355,6 +455,7 @@ extension NodeView {
     }
     package func textDidChange(_ notification: Notification) {
         guard let f = textArea else { return }
+        if (f as? TextArea)?.decorations?.styling == true { return }
         if let editor = (f as? TextArea)?.markup, editor.applying || editor.styling { return }
         f.needsDisplay = true
         // What AppKit says of the app's own value going in, or of a
@@ -370,6 +471,7 @@ extension NodeView {
         publishMarkupSelection(force: true)
     }
     package func textViewDidChangeSelection(_ notification: Notification) {
+        if !fieldComposing { fieldDecorations?.restyle(self) }
         guard let f = textArea as? TextArea, let editor = f.markup, !editor.applying, !editor.styling, !f.hasMarkedText() else { return }
         if f.window?.firstResponder === f { editor.bookmark = f.selectedRange() }
         restyleMarkup()

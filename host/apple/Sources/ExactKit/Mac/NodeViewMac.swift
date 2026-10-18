@@ -775,7 +775,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// names whatever is drawing at that instant, and colours are not all
     /// applied inside a draw — a field's `textColor` is assigned in
     /// `applyStyle`. @ref LLP 1034 D2
-    var drawsDark: Bool {
+    package var drawsDark: Bool {
         effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 

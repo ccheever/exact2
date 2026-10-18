@@ -97,6 +97,7 @@ package final class Runtime {
     private(set) package var destroyed = false
     package var topLayer: (() -> (frames: [(UInt32, CGRect)], modal: Int?))?
     package var inlineFrame: ((UInt32) -> CGRect?)?
+    package var rangeFrame: ((UInt32, UInt32, UInt32) -> CGRect?)?
     #if DEBUG
     // Per-runtime observation for differential tests of actual session traffic.
     // Release builds have neither the callback nor a copy of the wire bytes.

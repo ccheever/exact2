@@ -24,9 +24,15 @@ macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr) => {
         $crate::grouped_list_exports!();
         $crate::markup_exports!();
+
         $crate::host!(@core $data, $plan, $compat, $delivery, $api, $new, $region, $crate::link::ALL);
     };
     (@core $data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr, $linked:expr) => {
+        /// Native intrinsic field layout using the optional editor's applier.
+        #[no_mangle]
+        pub extern "C" fn exact_set_decorated_measure(rt:u32,read:Option<$crate::measure::DecoratedMeasureFn>) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES,rt,|e|e.bridge.set_decorated_measure(read));
+        }
         $crate::raster_exports!();
         $crate::textflow_exports!();
         $crate::collapse_exports!();
@@ -390,8 +396,8 @@ macro_rules! host {
 
         /// The presenter's synchronous viewport union for an inline run.
         #[no_mangle]
-        pub extern "C" fn exact_set_inline_geometry(rt: u32, read: Option<$crate::geometry::InlineFrameFn>, ctx: *mut ::std::ffi::c_void) {
-            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_inline_geometry(read, ctx));
+        pub extern "C" fn exact_set_inline_geometry(rt: u32, read: Option<$crate::geometry::InlineFrameFn>, range: Option<$crate::geometry::RangeFrameFn>, ctx: *mut ::std::ffi::c_void) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_inline_geometry(read, range, ctx));
         }
 
         /// The open top-layer nodes before a native action read. No batch.

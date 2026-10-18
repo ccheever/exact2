@@ -995,7 +995,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     // Resolve the same light-dark() wire value as the shared paragraph builder.
     // @ref LLP 1034 D1/D2
-    var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
+    package var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
     package func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
         style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) }
     }

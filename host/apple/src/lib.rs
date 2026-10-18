@@ -46,6 +46,7 @@ pub mod collapse;
 pub mod content_region;
 pub mod control_text;
 pub mod corner;
+pub mod decorations;
 #[cfg(target_vendor = "apple")]
 mod defaults;
 pub mod delivery;
