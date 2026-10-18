@@ -182,10 +182,13 @@ component RowText
 // ink, which reads on every accent in either scheme: a solid accent under
 // white ink is 1.4:1 on yellow and 3.5:1 on the system blue, short of the
 // 4.5:1 a caption needs), or a state's hue (`some("-exact-system-orange")`
-// for Full, the system red for Cancelled, green for Open) under dark ink,
-// which reads on every system hue but indigo (white there), in either
-// scheme. It keeps its own size: centred in a row, beside a title that gives
-// way (`flex=1 min-width=0`), and at the start of a column.
+// for Full, the system red for Cancelled, green for Open). On a hue the ink
+// is white (the label's in the dark scheme, the fill in the page's), as UIKit
+// draws a filled button's title and a badge's count on any colour (black on
+// red was the tell, polls); the light hues, green, mint,
+// teal, cyan, yellow and orange, which white fails (green is 2.2:1), keep
+// dark ink. It keeps its own size: centred in a row, beside a title that
+// gives way (`flex=1 min-width=0`), and at the start of a column.
 // Call: Badge(label="Full", tint=some("-exact-system-orange"))
 component Badge
   props
@@ -202,10 +205,13 @@ component Badge
           view position="absolute" inset=0 background-color="AccentColor" opacity=0.16 aria-hidden=true
           text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
             position="relative"
+      else if ["-exact-system-green", "-exact-system-mint", "-exact-system-teal", "-exact-system-cyan", "-exact-system-yellow", "-exact-system-orange"].includes(fill)
+        row padding="2px 8px" border-radius=999 background-color=fill color-scheme="light"
+          text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
       else
         row padding="2px 8px" border-radius=999 background-color=fill
-          color-scheme=(fill == "-exact-system-indigo" ? "dark" : "light")
           text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
+            color-scheme="dark"
 
 // A large round button, as the Clock's Start, Stop and Lap: the platform's
 // own button drawn as an 80-point circle, so its press, focus and disabled

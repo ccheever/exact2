@@ -893,8 +893,8 @@ component App
 /// LLP 1116.004 D9: a status is a `Badge`, not coloured text: its label in a
 /// capsule that keeps its own size at the start of a column and centred in a
 /// row, never stretched; its ink legible on its fill in either scheme (dark
-/// on a system hue, white on indigo, the platform's own on the accent and on
-/// the neutral grey); and a reader hears its text.
+/// on a light system hue, white on the others, the platform's own on the
+/// accent and on the neutral grey); and a reader hears its text.
 #[test]
 fn exact_content_draws_a_status_badge() {
     use exact_kernel::style::roles::role;
@@ -913,6 +913,7 @@ component App
         Badge(label="Full", tint=some("-exact-system-orange"))
         Badge(label="New", tint=some("AccentColor"))
         Badge(label="Indigo", tint=some("-exact-system-indigo"))
+        Badge(label="Closed", tint=some("-exact-system-red"))
 "#,
     );
     let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
@@ -967,7 +968,7 @@ component App
         .iter()
         .map(|(_, t)| t.props.str(PropId::Text).unwrap())
         .collect();
-    assert_eq!(words, ["Full", "New", "Indigo"]);
+    assert_eq!(words, ["Full", "New", "Indigo", "Closed"]);
     for (c, _) in &row {
         assert!(
             c.frame.height < 40.0 && c.frame.y > 0.0,
@@ -975,14 +976,21 @@ component App
             c.frame
         );
     }
-    let (full, new, indigo) = (&row[0], &row[1], &row[2]);
+    let (full, new) = (&row[0], &row[1]);
     assert_eq!(
         full.0.color_scheme_dark(),
         Some(false),
         "dark ink on orange"
     );
     assert_eq!(full.1.style.text_color, named("-exact-label"));
-    assert_eq!(indigo.0.color_scheme_dark(), Some(true), "white on indigo");
+    // White on a hue white reads on, as UIKit's filled button and badge: the
+    // label's ink in the dark scheme, the fill in the page's own.
+    for (c, t) in &row[2..] {
+        let word = t.props.str(PropId::Text);
+        assert_eq!(c.color_scheme_dark(), None, "{word:?}");
+        assert_eq!(t.color_scheme_dark(), Some(true), "{word:?}");
+        assert_eq!(t.style.text_color, named("-exact-label"));
+    }
     // LLP 1116.007 D3.10: the accent is a tint, not a fill under white ink (1.4:1 on
     // yellow, 3.5:1 on the system blue, against a caption's 4.5:1): the accent at 16% on a
     // layer under the label, which keeps its own ink, so it reads on every accent.
