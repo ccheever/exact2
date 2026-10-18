@@ -1,6 +1,7 @@
 # Qualify platform-specific carrier code in the async verification lane
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Tier 2 of the async lane cross-checks the Linux host with every Linux app and the Windows host with Windows Desk, so cfg(linux) and cfg(windows) breakage fails it by file and line; native Linux and Windows 11 runs were published 2026-10-16.
 **Systems:** Windows carrier, Linux KMS/input, async verification
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06
@@ -149,3 +150,7 @@ Zig 0.17 served as `cc` and `c++`; Bun 1.4.2 was installed privately.
 - Linux app crates beyond Caltrain natively: only tier 2's cross-check
   compiles them. Natively they need the pinned Linux Hermes bundle, which
   450b has not installed.
+
+## Closed, 2026-10-18
+
+A deliberate type error in `host/windows/src/window.rs` and in `host/linux/src/input.rs` fails the tier 2 cross-checks (fbf1cb78e, ca1943246) while the macOS build passes. The native runs (bc91d62a3, b2cb4d986) publish what remains unqualified. What needs hardware is in QUEUE.md: Linux on KMS, Grey box's game proof on Windows, the font-dependent Linux tests and the Apple host's pick path with a space.

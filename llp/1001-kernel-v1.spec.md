@@ -30,7 +30,7 @@ references remain unqualified. `position: fixed` is not a schema value. Percenta
 behavior: height for top/bottom, width for left/right, diverging from the
 [W3C draft's width rule](https://w3c.github.io/IntersectionObserver/#dom-intersectionobserver-rootmargin).
 Windows and Android inherit the Linux path without carrier qualification;
-terminal does not sample. The issue stays open. The margin is an observer option, not a CSS layout row.
+terminal does not sample. The margin is an observer option, not a CSS layout row.
 
 ## 1. One declaration authority (WS-B)
 

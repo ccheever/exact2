@@ -517,7 +517,7 @@ Once stage 1 proves it, these are deleted:
 - holding the background's geometry while a sheet is up (`ModalHost.deferGeometry` and its replay): the background is laid out at its own size throughout;
 - the dismissal-width cover guard in `NavigationBarIOS.reportCovers`;
 - side covers (`HostCover::Edges` right and left) and the `header_inset` transfer (`kernel/src/kernel/cover.rs`);
-- the app-side workaround in Lexy that holds its layout wide across a sheet's dismissal.
+- an app-side workaround that holds an app's layout wide across a sheet's dismissal.
 
 The provisional-title sampling (`scrollOriginProvisional`) goes only if the publication rule covers its case. The matching `QUEUE.md` entries go too.
 

@@ -59,6 +59,10 @@ pub fn parts_with(
     let node = kernel.node(id)?;
     let tag = tag_for(&node, in_button(kernel, &node));
     let mut props = props_for(&node);
+    if let Some(raw) = props.get("data-decoration-styles") {
+        let css = crate::css::decoration_styles(raw, &font_names(plan));
+        props.insert("data-decoration-styles".into(), css);
+    }
     svg_props(kernel, &node, &mut props);
     let (text, skipped) =
         crate::css::css_text_relative(&css_style_named(kernel, &node, false), &font_names(plan));

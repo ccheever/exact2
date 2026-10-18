@@ -909,6 +909,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::MenuPlacement | PropId::MenuRemove => continue,
             PropId::Text => "text",
             PropId::Markup => "markup",
+            PropId::Decorations => "data-decorations",
+            PropId::DecorationStyles => "data-decoration-styles",
             PropId::TestId => "data-testid",
             // An image's label is its `alt`: the replaced element's text
             // alternative, shown when it does not load.

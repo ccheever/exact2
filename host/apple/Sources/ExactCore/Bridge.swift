@@ -23,6 +23,10 @@ public struct Batch {
     public let busy: Bool
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
+    /// Store refresh acknowledged no runner commit; keep the current timers.
+    public var unchanged = false
+    public var storeReadPending = false
+    public var storeActivationPending = false
     public var pending = false
     /// A module generation refused while requests are in flight: ask again (LLP 1007 §6).
     public var requests = false
@@ -279,6 +283,7 @@ package final class Runtime {
         }
     }
     package func dataReady() -> Batch { on { read(exact_data_ready(rt)) } }
+    package func storeChanged(retryOnly: Bool = false) -> Batch { on { read(exact_store_changed(rt, retryOnly ? 1 : 0)) } }
     package func discardPlan() { on { exact_discard_plan(rt) } }
     package func trim() { on { exact_trim(rt) } }
 

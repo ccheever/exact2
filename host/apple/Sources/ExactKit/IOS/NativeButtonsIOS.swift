@@ -97,6 +97,42 @@ final class NativeButtonIOS: UIButton {
         return false
         #endif
     }
+    #if os(iOS)
+    /// A native invoker of a `role="menu"` popover shows it as its own
+    /// pull-down (`MenuHost.nativeMenu`), as `MenuButton` does for a custom one.
+    weak var menuFocus: MenuFocus?
+    weak var popover: NodeView?
+    var toggled: ((Bool) -> Void)?
+    /// The target and heading its menu was built for.
+    var menuShape: String?
+    private(set) var isMenuOpen = false
+    private var menuConfiguration: UIContextMenuConfiguration?
+    func dismissMenu() {
+        guard isMenuOpen else { return }
+        isMenuOpen = false
+        toggled?(false)
+        contextMenuInteraction?.dismissMenu()
+    }
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
+        super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
+        menuFocus?.setAside()
+        menuConfiguration = configuration
+        isMenuOpen = true
+        toggled?(true)
+    }
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
+        super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
+        guard menuConfiguration === configuration else { return }
+        if isMenuOpen { isMenuOpen = false; toggled?(false) }
+        let ended: () -> Void = { [weak self] in
+            guard let self, self.menuConfiguration === configuration else { return }
+            self.menuConfiguration = nil
+            self.menuFocus?.restore()
+        }
+        guard let animator else { ended(); return }
+        animator.addCompletion(ended)
+    }
+    #endif
     #if os(tvOS)
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
@@ -275,4 +311,38 @@ extension ControlHost {
                 "size": [Agent.r2(button.bounds.width), Agent.r2(button.bounds.height)]]
     }
 }
+
+#if os(iOS)
+extension MenuHost {
+    /// A native button that opens a `role="menu"` popover is UIKit's
+    /// pull-down button: its menu is its primary action (`showsMenuAsPrimaryAction`),
+    /// anchored at it, the rows read as it opens (`pullDown`), as a
+    /// hand-built `UIButton(menu:)` is. Without it a real touch ran the
+    /// button's activation, which opens the popover as written: bare rows
+    /// with no menu's material (household-list). The agent's
+    /// `tap` still sends the primary action, which opens the painted copy.
+    func nativeMenu(_ button: NativeButtonIOS, of v: NodeView, popover pop: NodeView, shape: String, heading: String) {
+        if button.popover !== pop { button.dismissMenu() }
+        button.popover = pop
+        button.menuFocus = focus
+        button.toggled = { [weak self, weak presenter, weak pop] open in
+            if let pop { presenter?.popoverEvents.changed(pop, open: open) }
+            if !open, let pop, self?.presentedMenu[pop.id] != nil { self?.presentedMenu = [:] }
+        }
+        button.showsMenuAsPrimaryAction = true
+        guard button.menu == nil || shape != button.menuShape else { return }
+        button.menuShape = shape
+        button.menu = pullDown(of: v, titled: heading)
+    }
+    /// The native button no longer opens a menu: its primary action is its activation again.
+    static func endNativeMenu(_ button: NativeButtonIOS) {
+        button.dismissMenu()
+        button.menu = nil
+        button.menuShape = nil
+        button.showsMenuAsPrimaryAction = false
+        button.popover = nil
+        button.toggled = nil
+    }
+}
+#endif
 #endif
