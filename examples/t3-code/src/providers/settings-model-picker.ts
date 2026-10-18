@@ -1,5 +1,5 @@
 // Settings' model pickers: the composer's ProviderModelPicker catalog (model-catalog.ts) over a settings
-// row, at T3 Code 1e2ecbd975 (MIT, see LICENSE-T3).
+// row, at T3 Code 9c161462c9 (MIT, see LICENSE-T3).
 // - General (New threads › Model, Text generation model): ProjectDefaultsSettings.tsx and SettingsPanels.tsx
 //   give the shared picker lockedProvider null, the representative environment's instance entries (only
 //   those that support text generation, for that row), the setting's own selection and
@@ -34,9 +34,9 @@ export function taskModelView(client: T3Client, context: string): View {
 }
 
 /** The writer model's selection for the page's project (its override, else the environment's). */
-export function writerSelection(settings: Obj, projectId: string): Obj {
+export function writerSelection(settings: Obj, projectId: string, key = 'sourceControlWriterModelSelection'): Obj {
   const override = obj(obj(settings.projectSettingsOverrides)[projectId]);
-  return obj(projectId && Object.prototype.hasOwnProperty.call(override, 'sourceControlWriterModelSelection') ? override.sourceControlWriterModelSelection : settings.sourceControlWriterModelSelection);
+  return obj(projectId && Object.prototype.hasOwnProperty.call(override, key) ? override[key] : settings[key]);
 }
 
 /** useScopedModelDisabledReason over the Source Control page's one environment. */
@@ -51,10 +51,11 @@ export function settingsPickerCatalog(client: T3Client, target: string, requeste
   if (target.startsWith('task-model:|')) {
     return pickerCatalog(taskModelView(client, target.slice('task-model:|'.length)), requested, query, badge, { reason: () => '', setup: false });
   }
-  if (target.startsWith('source-control-writer-model:|')) {
-    const scope = target.slice('source-control-writer-model:|'.length), projectId = scope.slice(scope.lastIndexOf(':') + 1);
+  if (target.startsWith('source-control-writer-model:|') || target.startsWith('review-guide-model:|')) {
+    const review = target.startsWith('review-guide-model:|');
+    const scope = target.slice((review ? 'review-guide-model:|' : 'source-control-writer-model:|').length), projectId = scope.slice(scope.lastIndexOf(':') + 1);
     const providers = arr(client.config.providers).filter(provider => provider.supportsTextGeneration !== false);
-    const selection = writerSelection(obj(client.config.settings), projectId);
+    const selection = writerSelection(obj(client.config.settings), projectId, review ? 'reviewGuideModelSelection' : 'sourceControlWriterModelSelection');
     return pickerCatalog(view(client, providers, str(selection.instanceId), str(selection.model)), requested, query, badge,
       { reason: (instanceId, model) => writerModelReason(client, instanceId, model) });
   }

@@ -2,6 +2,7 @@
 // every scoped route, the scope boundary messages, and the General and Appearance pages.
 use SettingsCore from "./settings-core.contract"
 use ScopeSentence from "./settings-rows.contract"
+use ScopeNotice from "./settings-scope-notice.contract"
 use CoreSections from "./settings-rows.contract"
 use AppearanceLibrary from "../appearance/settings-appearance.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
@@ -23,6 +24,7 @@ component SettingsCoreBody
     slide: action
     navigate: action
     choose: action
+    noticeChoose: action
     dialog: action
     reduced: bool
   view
@@ -30,7 +32,7 @@ component SettingsCoreBody
       if core.showScope
         ScopeSentence(pal=core.palette, projectLabel=core.projectLabel, projectMark=core.projectMark, projectInk=core.projectInk, projectSurface=core.projectSurface, environmentLabel=core.environmentLabel, environmentIcon=core.environmentIcon, connective=core.connective, projects=core.projectChoices, environments=core.environmentChoices, projectKeyed=core.projectKeyed, environmentKeyed=core.environmentKeyed, menu=menu, openMenu=openMenu, closeMenu=closeMenu, choose=choose)
       if core.notice != ""
-        text core.notice role="status" font-size="0.875rem" line-height="1.25rem" color=core.palette.muted padding-left="1rem" padding-right="1rem" testId="settings-scope-notice" id="settings-scope-notice" data-paint="mutedForeground" data-pick="mutedForeground"
+        ScopeNotice(message=core.notice, groups=core.noticeGroups, noticeId="settings-scope-notice", choose=noticeChoose)
       if core.message != "" and core.showScope
         text core.message role="status" font-size="0.875rem" line-height="1.25rem" color=core.palette.muted padding-left="1rem" padding-right="1rem" testId="settings-unavailable" id="settings-unavailable" data-paint="mutedForeground" data-pick="mutedForeground"
       if route == "general" and core.message == "" and core.notice == ""

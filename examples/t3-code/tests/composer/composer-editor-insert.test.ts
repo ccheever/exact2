@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { insertContext, localId } from '../../src/composer/composer-editor';
+import { insertContext, localId, reviewCommentRecords } from '../../src/composer/composer-editor';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import type { T3Client } from '../../src/client/client';
@@ -30,6 +30,14 @@ describe('insert-context', () => {
     await insertContext(client, native, 'folder', 'docs/');
     await insertContext(client, native, 'folder', 'my docs');
     expect(inserted).toEqual(['[app (1).ts](src/app%20%281%29.ts)', '@docs', '@"my docs"']);
+  });
+  test('a linked pull request drops as a chip with its saved context record', async () => {
+    const { native, client, inserted } = harness();
+    client.local = {} as T3Client['local'];
+    await insertContext(client, native, 'pull-request', JSON.stringify({ number: 17, title: 'Keep the review readable', url: 'https://github.com/a/b/pull/17', headBranch: 'review', baseBranch: 'main', state: 'open', isDraft: false }));
+    expect(inserted[0]).toContain('[#17](t3-context://v1/review-comment/');
+    expect(Object.values(reviewCommentRecords(client))[0]).toMatchObject({ pullRequest: { number: 17, title: 'Keep the review readable', url: 'https://github.com/a/b/pull/17' } });
+    await expect(insertContext(client, native, 'pull-request', JSON.stringify({ number: 17, url: 'file:///repo' }))).rejects.toThrow('Unable to add to chat');
   });
   test('citations insert an Assistant quote link and refuse other hrefs', async () => {
     const { native, client, inserted } = harness();

@@ -82,6 +82,10 @@ shape Activity
   // SubagentAvatar's driver mark (`detail` is the driver) and a live agent's start (ms; 0 when settled).
   initials: string
   driverIcon: string
+  modelLine: string
+  effort: string
+  speed: string
+  speedLabel: string
   startedMs: number
   // The trailing button's text for targetId ("Open chat" for a created thread, "Open subagent").
   targetLabel: string
