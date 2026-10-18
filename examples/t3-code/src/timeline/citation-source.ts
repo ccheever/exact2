@@ -1,9 +1,8 @@
 // An assistant citation's "View source" (T3 Code, MIT; see LICENSE-T3:
 // components/chat/AssistantCitationChip.tsx assistantCitationNavigation, ChatView's
 // citationRequest and AssistantCitationSource.tsx). The cited thread opens and its
-// answer scrolls to min(120pt, a third of the viewport) under the transcript's top,
-// measured from the answer's own row (timeline.contract registers each assistant
-// row as a `cite:` jump target for modules/apple/T3TimelineTurns.swift).
+// answer scrolls to min(120pt, a third of the viewport) under the transcript's top:
+// this names the row, and the chat column places it (app-main.contract citePlace).
 import type { T3Client } from '../client/client';
 import { ClientError, type Native } from '../client/protocol';
 import type { MinimapRow } from './timeline-minimap';
@@ -23,17 +22,17 @@ export function citedRow(rows: readonly MinimapRow[], messageId: string): number
   return rows.findIndex(row => row.kind === 'assistant' && (row.id === messageId || bare(item(row.id)) === wanted));
 }
 
-/** The jump request for row `index` (padding-top 2 separates the hooked row from its Markdown). */
-export function citationJump(rows: readonly MinimapRow[], index: number) {
-  return { op: 'timelineJump', id: `cite:${rows[index]!.id}`, index, count: rows.length, lead: 'citation', inset: 2 };
+/** The transcript row a citation's View source places: the cited answer's, by the list's key. */
+export function citationJump(rows: readonly MinimapRow[], index: number): string {
+  return rows[index]!.id;
 }
 
 /**
  * Opens the cited thread when it is another one, waits (at most ~2 s) for its
- * rows to be drawn, then brings the cited answer into view. A citation whose
- * answer is gone leaves the thread open where it is.
+ * rows to be drawn, then asks for the cited answer's placement (`place`, the
+ * row's key). A citation whose answer is gone leaves the thread open where it is.
  */
-export async function revealCitation(client: T3Client, native: Native, threadId: string, messageId: string, rows: () => readonly MinimapRow[]): Promise<string> {
+export async function revealCitation(client: T3Client, native: Native, threadId: string, messageId: string, rows: () => readonly MinimapRow[], place: (key: string) => void): Promise<string> {
   if (!threadId || !client.shell.threads.some(thread => thread.id === threadId)) throw new ClientError('Thread no longer available');
   const access = client.restAccess(native);
   if (threadId !== client.threadId) await client.openSelected(native, threadId);
@@ -41,7 +40,7 @@ export async function revealCitation(client: T3Client, native: Native, threadId:
     if (client.threadId !== threadId) return '';
     const current = rows(), index = citedRow(current, messageId);
     if (index >= 0) {
-      await access.call(citationJump(current, index));
+      place(citationJump(current, index));
       // resolveAssistantCitationRange found no quote: the answer shows unhighlighted, with the reference's warning.
       if (quoteChanged(current, index, messageId)) pushToast(client, { kind: 'warning', title: 'The quoted text has changed', description: 'Showing the source response. The saved quote is unchanged.' });
       return '';

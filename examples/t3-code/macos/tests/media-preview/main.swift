@@ -222,7 +222,7 @@ final class MediaPreviewTests: XCTestCase {
     }
 
     /// A composer file chip's preview of a draft: its staged copy, never a URL (`t3-staged:<id>`).
-    func testADraftsStagedPdfPageAndAudioAreReadFromTheirCopy() throws {
+    func testADraftsStagedPdfAndPageAreReadFromTheirCopy() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("staged-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -285,11 +285,9 @@ final class MediaPreviewTests: XCTestCase {
         XCTAssertEqual(frame("self.origin"), "null", "the navigated frame keeps the sandbox")
         XCTAssertEqual(web.url?.absoluteString, wrapper)
         XCTAssertEqual(Set(other.seen.map { String($0.split(separator: "?").first ?? "") }), ["/next.html"], "the popup and the top navigation never reached the host")
-        // Audio: AVKit's inline controls, from a typed link beside the staged copy.
+        // Audio is a Contract player: the media body mounts nothing for it.
         media.mount(host: host, kind: "audio", raw: "t3-staged:\(audioID)", name: "memo.mp3")
-        let audio = try XCTUnwrap(host.subviews.first as? T3AudioBody)
-        XCTAssertNotNil(audio.player.player)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("\(audioID).mp3").path))
+        XCTAssertTrue(host.subviews.isEmpty)
         // A copy that is gone says so.
         media.mount(host: host, kind: "pdf", raw: "t3-staged:\(UUID().uuidString.lowercased())", name: "gone.pdf")
         let gone = try XCTUnwrap(host.subviews.first as? T3PDFBody)

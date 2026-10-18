@@ -331,6 +331,8 @@ component T3Window
     hoverShown: bool
     hoverTipAt: action
     composerFocused: bool
+    // Whether the composer may rest while the reader scrolls the transcript (app.contract canRest).
+    canRest: bool
     settingsEnvironmentId: string
     settingsProjectId: string
     clearModalError: action
@@ -443,6 +445,11 @@ component T3Window
   // A link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
   // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button"). The
   // click's modifiers are its press's own (`kind|meta+shift`; no native gesture read).
+  // The Save panel copied the file out, or was dismissed: nothing follows, as a browser download shows nothing more.
+  action saveChosen(name: string)
+    let saved = name
+  action saveDismissed
+    let dismissed = true
   // A ref list scrolled toward its end (ref-paging.contract RefPageScroll): ref-paging.ts loads its next page.
   action refScrollEnd(name: string)
     chatLocal("ref-scroll-end", name, "")
@@ -631,7 +638,6 @@ component T3Window
   action search(value: string)
     command("search", "", value, 0)
   // The root rewrite: the composer's resting state and left edge, which only the view reads (moved from app.contract).
-  derive canRest = data.composerCollapseOnScroll and data.threadId != "" and not composerFocused and not composerText.includes("\n") and data.approvals.length == 0 and data.questions.length == 0 and not data.settled
   derive resting = data.composerResting and canRest
   derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (canvas.ready ? canvas.left : (conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * data.look.fontSize)) / 2) // the chat lane (chat-canvas-view.ts)
   // The root rewrite: whether Add provider has tried to go past an invalid id (AddProviderDialog shows its error),
@@ -826,6 +832,8 @@ component T3Window
       dragDy = 0
   view
     main testId="t3-code" -exact-menu-remove="show-tab-bar show-all-tabs" focusin=windowFocused focusout=windowBlurred pointerdown=outsidePressDown pointerup=outsidePressUp viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
+      // Save file's target (app.contract saveNow): the Save panel's chosen name or dismissal lands here.
+      input id="save-file" testId="save-file" display="none" change=saveChosen cancel=saveDismissed autocorrect="off"
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
       // (composer-chip-popover.contract ChipPopoverEscape); outside the SSH prompt's inert
       // background, so it gives the key up while the prompt shows, as the details under it did.

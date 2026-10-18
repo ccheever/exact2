@@ -41,11 +41,13 @@ final class T3ComposerAttach {
             try FileManager.default.copyItem(at: url, to: staged.appendingPathComponent(id))
         } catch { return ["kind": "unreadable", "name": name, "sizeBytes": size] }
         file["id"] = id
-        // A video's tile shows its first frame; the expanded preview's `video` plays the typed link, whose
-        // extension tells AVFoundation its type (composer-attachments.ts stagedVideoSrc).
-        if Self.isVideo(url) {
+        // A video or audio file plays from a typed link beside the copy, whose extension tells AVFoundation its type
+        // (the Contract players, composer-attachments.ts stagedMediaSrc); a video's tile shows its first frame.
+        if Self.isVideo(url) || Self.isAudio(url) {
             let ext = url.pathExtension.lowercased()
             try? FileManager.default.linkItem(at: staged.appendingPathComponent(id), to: staged.appendingPathComponent("\(id).\(ext)"))
+        }
+        if Self.isVideo(url) {
             try? FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
             // The frame at its natural (oriented) size names the preview's; the poster keeps at most 512 px.
             if let frame = Self.firstFrame(of: url), Self.writePNG(Self.scaled(frame, to: 512), to: drafts.appendingPathComponent("\(id).png")) {
@@ -59,6 +61,12 @@ final class T3ComposerAttach {
     static func isVideo(_ url: URL) -> Bool {
         guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
         return type.conforms(to: .movie)
+    }
+
+    /// An audio file AudioPreview plays.
+    static func isAudio(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
+        return type.conforms(to: .audio)
     }
 
     /// prepareVideoFirstFrame: the frame near 0.1 s (the nearest one for a shorter video), oriented.

@@ -47,7 +47,7 @@ component T3Code
     after(1, clearThemeInspecting)
   state elapsed = 0
   resource wallTime = exactTime() as shape Time
-  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode) as shape Snapshot // full screen drops the traffic lights' inset (presentation.ts)
+  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode, restOwner, restResting, restAtEnd, restPulls) as shape Snapshot // full screen drops the traffic lights' inset (presentation.ts); the transcript's viewport (transcript-facts.ts)
   state reconnectGraceKey = ""
   state disconnectDelayKey = ""
   task reconnectGrace when data.serverUpdate.reconnecting != "" key=data.serverUpdate.reconnecting
@@ -77,6 +77,117 @@ component T3Code
     welcomeCopyDone
     routeKeyboard
     routeKeyboardInput
+    citeEnd
+    restScrolled
+    restGesture
+  // AssistantCitationSource: View source brings the cited answer's text to min(120pt, a third of the transcript) under
+  // its top (the answer's column, `cite-<row>`, has 2pt of padding above it). A row the list has not built is approached
+  // by its key first; each later pass places the built answer again until it holds (rows measured as they mount move
+  // it), the scroll cannot take it further, or 40 passes have run. The first placement is smooth unless reduced motion
+  // asks otherwise, and the next pass waits for it. The reader's wheel or a minimap jump ends it.
+  state citeKey = ""
+  state citeNonce = 0
+  state citeDone = 0
+  state citeTries = 0
+  state citeSmooth = false
+  state citeMiss = 0
+  task citeRequested when data.citeJump.nonce > citeNonce key=data.citeJump.nonce
+    after(1, citeBegin)
+  action citeBegin
+    citeKey = data.citeJump.key
+    citeNonce = data.citeJump.nonce
+    citeTries = 0
+    citeSmooth = false
+    citeMiss = 1000000
+  task citePass when citeNonce > citeDone and not citeSmooth and citeTries < 40 key=`${citeNonce}|${citeTries}|${citeSmooth}`
+    after(50, citePlace)
+  task citeSmoothPass when citeNonce > citeDone and citeSmooth key=`${citeNonce}|${citeTries}`
+    after(400, citeAfterSmooth)
+  action citeAfterSmooth
+    citeSmooth = false
+  action citeEnd
+    citeDone = citeNonce
+  // The transcript's viewport, read from its own scroll, wheel and keys, never estimated from message lengths: whether
+  // it is at its end, whether the composer rests (Settings' "Collapse composer on scroll": only a reader's movement of
+  // 24pt away from the end within 0.8 s of their wheel or key, with the geometry still, rests it; layout changes,
+  // history arriving and the follow of the end do not), and the pulls toward the end made while already there, which
+  // let a grown composer's reservation through (composer-overlay.ts). The snapshot reads them (transcript-facts.ts).
+  derive canRest = data.composerCollapseOnScroll and data.threadId != "" and not composerFocused and not composerText.includes("\n") and data.approvals.length == 0 and data.questions.length == 0 and not data.settled
+  state restOwner = ""
+  state restResting = false
+  state restAtEnd = true
+  state restPulls = 0
+  state restGestureUntil = -1
+  state restLastPull = -1000000
+  state restTop = -1
+  state restHeight = -1
+  state restContent = -1
+  state restWidth = -1
+  state restMovement = 0
+  task restLapsed when restResting and not canRest key=restResting
+    after(1, restLapse)
+  action restLapse
+    restResting = false
+  action restScrolled(owner: string, e: ScrollEvent)
+    let fresh = owner != restOwner
+    let end = e.scrollHeight <= e.clientHeight + 2 or e.scrollTop >= e.scrollHeight - e.clientHeight - 2
+    let still = not fresh and restHeight >= 0 and max(restHeight - e.clientHeight, e.clientHeight - restHeight) < 0.5 and max(restContent - e.scrollHeight, e.scrollHeight - restContent) < 0.5 and max(restWidth - e.clientWidth, e.clientWidth - restWidth) < 0.5
+    let moved = restMovement + max(e.scrollTop - restTop, restTop - e.scrollTop)
+    if end
+      restResting = false
+      restMovement = 0
+    else if canRest and still and performanceNow() <= restGestureUntil
+      restMovement = moved
+      if moved >= 24
+        restResting = true
+    else
+      restMovement = 0
+      restGestureUntil = -1
+      if fresh
+        restResting = false
+    restOwner = owner
+    restTop = e.scrollTop
+    restHeight = e.clientHeight
+    restContent = e.scrollHeight
+    restWidth = e.clientWidth
+    restAtEnd = end
+  // A wheel over the transcript or a scroll key inside it: toward the end, while there, is a pull (one each 0.5 s);
+  // either way it opens the 0.8 s in which movement may rest the composer.
+  action restGesture(towardEnd: bool)
+    let now = performanceNow()
+    if towardEnd and restAtEnd and now - restLastPull > 500
+      restLastPull = now
+      restPulls = restPulls + 1
+    if canRest
+      restGestureUntil = now + 800
+  // Save file and the media menu's Save (save-file.ts): the host's Save panel, a sheet on the window, copies the app
+  // file out under its name (the hidden `save-file` field, app-window.contract, hears its change and cancel).
+  state saveNonce = 0
+  task saveRequested when data.saveRequest.nonce > saveNonce key=data.saveRequest.nonce
+    after(1, saveNow)
+  action saveNow
+    saveNonce = data.saveRequest.nonce
+    saveFile("save-file", data.saveRequest.from, data.saveRequest.name)
+  action citePlace
+    let target = frame(`cite-${citeKey}`)
+    let row = frame(`row-${citeKey}`)
+    let port = frame("transcript")
+    let lead = min(120, port.height / 3)
+    if target.unavailable or row.unavailable
+      scrollIntoView("transcript", citeKey, offset=0 - lead, behavior="instant")
+      citeTries = citeTries + 1
+    else
+      let miss = target.y + 2 - port.y - lead
+      if (miss > 1 or miss < -1) and (citeMiss - miss > 0.5 or miss - citeMiss > 0.5)
+        if citeTries == 0 and not viewport.prefersReducedMotion
+          scrollIntoView("transcript", citeKey, offset=target.y - row.y + 2 - lead, behavior="smooth")
+          citeSmooth = true
+        else
+          scrollIntoView("transcript", citeKey, offset=target.y - row.y + 2 - lead, behavior="instant")
+        citeMiss = miss
+        citeTries = citeTries + 1
+      else
+        citeDone = citeNonce
   mutation balanceLoaded as shape Change refreshes data // auto-balance.ts (issues/closed/20261009-typescript-failure-parity.md, issues/20261009-runner-owned-bidirectional-streams.md): an unresolved Auto draft asks its machines' host resources, at the window's time.
   task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
     after(1, balanceLoadNow)
@@ -1565,4 +1676,4 @@ component T3Code
   action citeDismissed
     citeDismissals = citeDismissals + 1
   view
-    T3Window(data=data, viewport=viewport, scheme=scheme, hoverTip=hoverTip, hoverShown=hoverShown, hoverTipAt=hoverTipAt, themeInspecting=themeInspecting, setThemeInspecting=setThemeInspecting, themeRevealRequest=themeRevealRequest, themeUsage=themeUsage, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, settings=settings, utilityPage=utilityPage, home=home, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, pageBack=pageBack, openProviderSettings=openProviderSettings, sidebarHoverId=sidebarHoverId, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, command=command, resizeSidebar=resizeSidebar, resetSidebarWidth=resetSidebarWidth, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details, jumpRequest=jumpRequest, composerOwner=composerOwner, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, conversationWidth=conversationWidth, editor=editor, chip=chip, chipCovered=chipCovered, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, menuPick=menuPick, branches=branches, terminalDrawer=terminalDrawer, confirmOp=confirmOp, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, filesMarkdown=filesMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prClose=prSelect(""), openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, storageSettings=storageSettings, archives=archives, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, providerPage=providerPage, providerDialog=providerDialog, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, pickModel=pickModel, taskModelPick=taskModelPick, paletteRun=paletteRun, restSubject=restSubject, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, origin=origin, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerTarget=providerTarget, providerVisit=providerVisit, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged), sidebarHoverRoot=sidebarHover, panelUiRoot=panelUi, detailsActRoot=detailsAct, titleMenuPickRoot=titleMenuPick, chatLocal=chatLocal, scrollToEnd=scrollToEnd, foldHold=foldHold, releaseFold=releaseFold, titleSend=titleSend, openConnectionRoot=openConnection, closeConnectionRoot=closeConnection, editOriginRoot=editOrigin, editCredentialRoot=editCredential, connectionOp=connectionOp, connectionRemove=connectionRemove, connectionMenu=connectionMenu, connectionAskRemove=connectionAskRemove, connectionToggleMenu=connectionToggleMenu, closeModalRoot=closeModal, clearModalError=clearModalError, restOpenRoot=restOpen, restCloseRoot=restClose, taskBaseRoot=restTaskBase, restRawRoot=restRaw, settingsEnvironmentId=settingsEnvironmentId, settingsProjectId=settingsProjectId, providerUiRoot=providerUi, providerAddRoot=providerAdd, composerFocused=composerFocused, citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeDismissals=citeDismissals)
+    T3Window(data=data, viewport=viewport, scheme=scheme, hoverTip=hoverTip, hoverShown=hoverShown, hoverTipAt=hoverTipAt, themeInspecting=themeInspecting, setThemeInspecting=setThemeInspecting, themeRevealRequest=themeRevealRequest, themeUsage=themeUsage, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, settings=settings, utilityPage=utilityPage, home=home, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, pageBack=pageBack, openProviderSettings=openProviderSettings, sidebarHoverId=sidebarHoverId, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, command=command, resizeSidebar=resizeSidebar, resetSidebarWidth=resetSidebarWidth, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details, jumpRequest=jumpRequest, composerOwner=composerOwner, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, conversationWidth=conversationWidth, editor=editor, chip=chip, chipCovered=chipCovered, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, menuPick=menuPick, branches=branches, terminalDrawer=terminalDrawer, confirmOp=confirmOp, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, filesMarkdown=filesMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prClose=prSelect(""), openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, storageSettings=storageSettings, archives=archives, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, providerPage=providerPage, providerDialog=providerDialog, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, pickModel=pickModel, taskModelPick=taskModelPick, paletteRun=paletteRun, restSubject=restSubject, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, origin=origin, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerTarget=providerTarget, providerVisit=providerVisit, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged), sidebarHoverRoot=sidebarHover, panelUiRoot=panelUi, detailsActRoot=detailsAct, titleMenuPickRoot=titleMenuPick, chatLocal=chatLocal, scrollToEnd=scrollToEnd, foldHold=foldHold, releaseFold=releaseFold, titleSend=titleSend, openConnectionRoot=openConnection, closeConnectionRoot=closeConnection, editOriginRoot=editOrigin, editCredentialRoot=editCredential, connectionOp=connectionOp, connectionRemove=connectionRemove, connectionMenu=connectionMenu, connectionAskRemove=connectionAskRemove, connectionToggleMenu=connectionToggleMenu, closeModalRoot=closeModal, clearModalError=clearModalError, restOpenRoot=restOpen, restCloseRoot=restClose, taskBaseRoot=restTaskBase, restRawRoot=restRaw, settingsEnvironmentId=settingsEnvironmentId, settingsProjectId=settingsProjectId, providerUiRoot=providerUi, providerAddRoot=providerAdd, composerFocused=composerFocused, canRest=canRest, citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeDismissals=citeDismissals)

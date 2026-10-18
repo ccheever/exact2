@@ -22,18 +22,18 @@ describe('citation View source (AssistantCitationSource)', () => {
     expect(citedRow(served, 'turn-item:provider:codex:native-item:7a52')).toBe(1);
     expect(citedRow(served, 'message:provider:codex:native-item:7a5')).toBe(-1);
   });
-  test('the jump names the row\'s citation target and the reference\'s lead', () => {
-    expect(citationJump(rows, 3)).toEqual({ op: 'timelineJump', id: 'cite:["t1","a2"]', index: 3, count: 4, lead: 'citation', inset: 2 });
+  test('the jump names the cited answer\'s row by the list\'s key', () => {
+    expect(citationJump(rows, 3)).toBe('["t1","a2"]');
   });
-  test('a citation on the open thread jumps at once; one whose thread is gone fails', async () => {
-    const calls: Record<string, unknown>[] = [];
-    const native = { available: true, watch() {}, async later(request: Record<string, unknown>) { calls.push(request); return { ok: true, generation: request.generation, value: {} }; } } as unknown as Native;
+  test('a citation on the open thread is placed at once; one whose thread is gone fails', async () => {
+    const native = { available: true, watch() {}, async later(request: Record<string, unknown>) { return { ok: true, generation: request.generation, value: {} }; } } as unknown as Native;
     const client = new T3Client();
     Object.assign(client, { threadId: 't1', connection: 'connected' });
     client.shell.threads = [{ id: 't1' }] as typeof client.shell.threads;
-    await revealCitation(client, native, 't1', 'a1', () => rows);
-    expect(calls.filter(call => call.op === 'timelineJump')).toEqual([{ ...citationJump(rows, 1), generation: -1 }]);
-    await expect(revealCitation(client, native, 'gone', 'a1', () => rows)).rejects.toThrow('Thread no longer available');
+    const placed: string[] = [];
+    await revealCitation(client, native, 't1', 'a1', () => rows, key => placed.push(key));
+    expect(placed).toEqual(['["t1","a1"]']);
+    await expect(revealCitation(client, native, 'gone', 'a1', () => rows, key => placed.push(key))).rejects.toThrow('Thread no longer available');
   });
   // While View source places its answer the snapshot says so, and ChatColumn restores
   // no remembered position over it (timeline-anchor.test.ts); the flag clears once it lands or fails.
@@ -42,14 +42,19 @@ describe('citation View source (AssistantCitationSource)', () => {
     Object.assign(client, { threadId: 't1', connection: 'connected' });
     client.shell.threads = [{ id: 't1' }] as typeof client.shell.threads;
     timelineView(client).lastRows = { threadId: 't1', rows };
-    const during: boolean[] = [];
     const native = { available: true, watch() {}, async later(request: Record<string, unknown>) {
-      if (request.op === 'timelineJump') during.push(timelineSnapshot(client).citing);
       return { ok: true, generation: request.generation, value: {} };
     } } as unknown as Native;
     expect(timelineSnapshot(client).citing).toBe(false);
+    expect(timelineSnapshot(client).citeJump).toEqual({ key: '', nonce: 0 });
     await chatLocal(client, native, 'chip-citation', 't1', 'a2');
-    expect([during, timelineSnapshot(client).citing]).toEqual([[true], false]);
+    // The request lands in the snapshot (ChatColumn citeBegin places it); a second one is a new nonce.
+    expect([timelineSnapshot(client).citeJump, timelineSnapshot(client).citing]).toEqual([{ key: '["t1","a2"]', nonce: 1 }, false]);
+    await chatLocal(client, native, 'chip-citation', 't1', 'a2');
+    expect(timelineSnapshot(client).citeJump.nonce).toBe(2);
+    client.threadId = 't2';
+    expect(timelineSnapshot(client).citeJump).toEqual({ key: '', nonce: 0 });
+    client.threadId = 't1';
     await expect(chatLocal(client, native, 'chip-citation', 'gone', 'a2')).rejects.toThrow('Thread no longer available');
     expect(timelineSnapshot(client).citing).toBe(false);
   });

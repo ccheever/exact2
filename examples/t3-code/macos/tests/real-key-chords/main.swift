@@ -10,7 +10,7 @@ import XCTest
 // path can lose a chord. Every ⌘ chord of the reference's defaults that holds in an open thread is sent here as the
 // window server sends it (a CGEvent-backed NSEvent through NSApp.sendEvent), from the composer and with nothing
 // focused, past the clone's own monitors (T3Menus, T3Composer with its launcher-letter guard, T3ComposerInput, T3LatinChords, T3Sidebar,
-// T3TextContextMenu, T3ComposerIntent, T3Timeline, RightPanelTabsInput, T3ActivityReporter) and its menu bar
+// T3TextContextMenu, T3ComposerIntent, RightPanelTabsInput, T3ActivityReporter) and its menu bar
 // (T3Menus.augment, T3MenuBar.arrange) over the host's, and must reach the host's monitor and the host's item for
 // that chord, leaving the composer's text and the focus alone. The host's parts are stand-ins, as in menu-bar: its bar
 // (DevMenuMac.makeMenu's items), a session monitor that only records (the host's presses and consumes), and
@@ -165,7 +165,7 @@ final class Fixture {
     let composerText = NSTextView(frame: NSRect(x: 20, y: 300, width: 600, height: 80))
     let composer = T3Composer(), menus = T3Menus()
     let composerInput = T3ComposerInput(), latinChords = T3LatinChords(agent: false), sidebar = T3Sidebar(agent: false, changed: { _ in })
-    let textMenu = T3TextContextMenu(agent: false), intent = T3ComposerIntent(), timeline = T3Timeline(changed: { _ in })
+    let textMenu = T3TextContextMenu(agent: false), intent = T3ComposerIntent()
     let panelTabs = RightPanelTabsInput(), activity = T3ActivityReporter(persistent: false, dataDirectory: nil, pageFacts: true)
     var elements: [ExactElement] = []
     /// What the host's session monitor saw: each keydown's key code and modifiers.
@@ -195,15 +195,14 @@ final class Fixture {
         }
         let composerElement = element(.t3Composer, "composer", 3, composerText, ["snapshot-owner": "t1"])
         let sendElement = element(.t3Send, "send", 4, send)
-        let transcriptElement = element(.t3Transcript, "transcript", 5, transcript, ["timeline-owner": "t1", "timeline-rest": "yes"])
         let tabElement = element(.t3Anchor, "", 6, tab, ["anchor": "tab-editor:files"])
         activate()
         menus.updatesDisabledReason = { "no feed" }
         sidebar.install(); textMenu.install()
         activity.connect(UUID(), environment: "env") { _, done in done() }
         // T3Module.element's order.
-        for element in [composerElement, sendElement, transcriptElement, tabElement] {
-            panelTabs.install(element); composer.install(element); timeline.install(element); menus.install(element); composerInput.install(element)
+        for element in [composerElement, sendElement, tabElement] {
+            panelTabs.install(element); composer.install(element); menus.install(element); composerInput.install(element)
         }
         tick(0.2)
         // The next plan batch files the window's commands over the clone's bar.
@@ -235,7 +234,7 @@ final class Fixture {
     func destroy() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        composer.destroy(); latinChords.destroy(); timeline.destroy(); panelTabs.destroy(); textMenu.destroy(); activity.destroy()
+        composer.destroy(); latinChords.destroy(); panelTabs.destroy(); textMenu.destroy(); activity.destroy()
         window.orderOut(nil)
         NSApp.mainMenu = nil
     }

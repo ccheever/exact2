@@ -14,7 +14,7 @@ shape ComposerVideoPreview
   // The first frame's natural size (0 when unknown, then 16:9).
   width: number
   height: number
-  // The staged file as an app file (composer-attachments.ts stagedVideoSrc).
+  // The staged file as an app file (composer-attachments.ts stagedMediaSrc).
   src: string
 
 // A video on the shelf: a 64pt black square (border-border/80, rounded-lg)

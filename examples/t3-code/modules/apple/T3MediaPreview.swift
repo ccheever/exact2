@@ -1,6 +1,5 @@
 #if os(macOS)
 import AppKit
-import AVKit
 import PDFKit
 import WebKit
 
@@ -32,9 +31,8 @@ import WebKit
 /// draft's Blob: a PDF the same way; an HTML page in the same wrapper and sandboxed frame as a sent one, both served
 /// to that web view alone by `T3DraftPages` (`t3-draft://<token>/`), so the page has the frame's opaque origin and
 /// its rules (a link navigates the frame in place, a popup opens externally, the window never navigates) and, as a
-/// Blob URL's page has, no siblings: any other path under the token is not found; an audio file in an AVPlayerView
-/// with inline controls (AudioPreview's `<audio controls>`), whose typed link beside the staged copy names its type for
-/// AVFoundation.
+/// Blob URL's page has, no siblings: any other path under the token is not found. Audio, sent or drafted, is a Contract
+/// player (attachment-media.contract).
 final class T3MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     static let maximumBytes = 64 * 1024 * 1024
     /// The iframe's sandbox, as BrowserDocumentFrame.tsx sets it.
@@ -44,6 +42,13 @@ final class T3MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     static let wrapperPolicy = "default-src 'none'; style-src 'unsafe-inline'; frame-src 'self' blob: http: https:; base-uri 'none'; form-action 'none'"
     /// Schemes a frame inside the preview may navigate to (`frame-src`, plus about:blank / srcdoc).
     static let frameSchemes: Set<String> = ["http", "https", "blob", "about"]
+
+    /// Only a signed asset route of an http(s) server: never a file URL or another path.
+    static func assetURL(_ raw: String) -> URL? {
+        guard let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", url.host != nil, url.user == nil, url.path.hasPrefix("/api/assets/") else { return nil }
+        return url
+    }
 
     /// The wrapper's URL: the asset's origin (so the page's secure-context status follows its own
     /// URL, as under the desktop renderer), at a path that is never fetched.
@@ -107,7 +112,7 @@ final class T3MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         if entries[key]?.identity == identity { return }
         detach(key)
         if raw.hasPrefix(Self.stagedScheme) { return mountStaged(host: host, key: key, identity: identity, kind: kind, id: String(raw.dropFirst(Self.stagedScheme.count)), name: name) }
-        guard let url = T3AttachmentFiles.assetURL(raw), kind == "pdf" || kind == "html" else { return }
+        guard let url = Self.assetURL(raw), kind == "pdf" || kind == "html" else { return }
         let view: NSView = kind == "pdf" ? T3PDFBody(name: name) : webView(name: name)
         view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
@@ -130,16 +135,15 @@ final class T3MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     static let stagedScheme = "t3-staged:"
 
     private func mountStaged(host: NSView, key: ObjectIdentifier, identity: String, kind: String, id: String, name: String) {
-        guard ["pdf", "html", "audio"].contains(kind) else { return }
+        guard ["pdf", "html"].contains(kind) else { return }
         let pages = kind == "html" ? T3DraftPages() : nil
-        let view: NSView = kind == "pdf" ? T3PDFBody(name: name) : kind == "html" ? webView(name: name, drafts: pages) : Self.audioView(name: name)
+        let view: NSView = kind == "pdf" ? T3PDFBody(name: name) : webView(name: name, drafts: pages)
         view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
         host.addSubview(view)
         let entry = Entry(host: host, identity: identity, view: view)
         entries[key] = entry
         guard let file = stagedFile(id) else { return fail(entry, "Could not load this file.") }
-        if kind == "audio" { return showAudio(entry, file: file, name: name) }
         DispatchQueue.global(qos: .userInitiated).async { [weak self, weak entry] in
             let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
             let bytes = size <= Self.maximumBytes ? try? Data(contentsOf: file) : nil
@@ -160,28 +164,6 @@ final class T3MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         loaded[name] = "html"
     }
 
-    static func audioView(name: String) -> NSView {
-        let box = T3AudioBody()
-        box.player.setAccessibilityLabel(name)
-        return box
-    }
-
-    private func showAudio(_ entry: Entry, file: URL, name: String) {
-        guard let body = entry.view as? T3AudioBody else { return }
-        let ext = (name as NSString).pathExtension.lowercased()
-        let typed = file.deletingLastPathComponent().appendingPathComponent("\(file.lastPathComponent).\(ext.isEmpty ? "audio" : ext)")
-        if !FileManager.default.fileExists(atPath: typed.path) { try? FileManager.default.linkItem(at: file, to: typed) }
-        let player = AVPlayer(url: FileManager.default.fileExists(atPath: typed.path) ? typed : file)
-        player.isMuted = agent // agent runs play silently, as the shelf's video does
-        body.player.player = player
-        // AudioPreview's onError: "Unable to load audio." in the body.
-        body.status = player.currentItem?.observe(\.status) { [weak self, weak entry] item, _ in
-            guard item.status == .failed else { return }
-            DispatchQueue.main.async { if let self, let entry, self.entries.values.contains(where: { $0 === entry }) { self.fail(entry, "Unable to load audio.") } }
-        }
-        loaded[name] = "audio"
-    }
-
     func remove(_ element: ExactElement) {
         if let host = element.view { detach(ObjectIdentifier(host)) }
         for (key, entry) in entries where entry.host == nil { entries[key] = nil; release(entry) }
@@ -199,7 +181,6 @@ final class T3MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     private func release(_ entry: Entry) {
         entry.task?.cancel()
         if let web = entry.view as? WKWebView { web.stopLoading(); web.navigationDelegate = nil; web.uiDelegate = nil }
-        if let audio = entry.view as? T3AudioBody { audio.status = nil; audio.player.player?.pause() }
         entry.view.removeFromSuperview()
     }
 
@@ -389,32 +370,6 @@ final class T3DraftPages: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
-}
-
-/// AudioPreview: `<audio controls preload="metadata" class="w-full max-w-xl">` centred in `p-6`, Chrome's controls a
-/// 54 px pill; here AVKit's inline controls at that size.
-final class T3AudioBody: NSView {
-    let player = AVPlayerView()
-    var status: NSKeyValueObservation?
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        player.controlsStyle = .inline
-        player.showsFullScreenToggleButton = false
-        player.wantsLayer = true
-        player.layer?.cornerRadius = 27
-        player.layer?.masksToBounds = true
-        addSubview(player)
-    }
-
-    @available(*, unavailable) required init?(coder: NSCoder) { nil }
-
-    override var isFlipped: Bool { true }
-    override func layout() {
-        super.layout()
-        let width = max(0, min(bounds.width - 48, 576)), height: CGFloat = 54
-        player.frame = NSRect(x: ((bounds.width - width) / 2).rounded(), y: ((bounds.height - height) / 2).rounded(), width: width, height: height)
-    }
 }
 
 /// The PDF body's box. Chromium's viewer (`#toolbar=0&view=FitH`) starts the document at the top of the

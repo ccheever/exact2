@@ -80,10 +80,10 @@ const previews = new WeakMap<object, string>();
 
 export type ComposerVideoPreview = { open: boolean; id: string; name: string; width: number; height: number; src: string };
 /**
- * The staged video as an app file: Attach files stages a video at `composer-files/<id>` under the app's data directory
- * with a typed link `<id>.<ext>` beside it (T3ComposerAttach.swift), which AVFoundation needs to know the type.
+ * A staged video or audio file as an app file: Attach files stages it at `composer-files/<id>` under the app's data
+ * directory with a typed link `<id>.<ext>` beside it (T3ComposerAttach.swift), which AVFoundation needs to know the type.
  */
-export function stagedVideoSrc(id: string, name: string): string {
+export function stagedMediaSrc(id: string, name: string): string {
   const ext = /\.([^./]+)$/.exec(name)?.[1]?.toLowerCase();
   return `app:/data/composer-files/${id.toLowerCase()}${ext ? `.${ext}` : ''}`;
 }
@@ -93,7 +93,7 @@ export function composerVideoSnapshot(client: T3Client): { composerVideos: Array
   const open = previews.get(client) ?? '', tile = tiles.find(candidate => candidate.id === open);
   const size = frameOf(client, open);
   return { composerVideos: tiles.map(video => ({ id: video.id, name: video.name })),
-    composerVideoPreview: tile ? [{ open: true, id: tile.id, name: tile.name, width: size?.width ?? 0, height: size?.height ?? 0, src: stagedVideoSrc(tile.id, tile.name) }] : [] };
+    composerVideoPreview: tile ? [{ open: true, id: tile.id, name: tile.name, width: size?.width ?? 0, height: size?.height ?? 0, src: stagedMediaSrc(tile.id, tile.name) }] : [] };
 }
 
 /** `editorlocal:shelf-video-*`: Play opens the expanded preview, Remove is removeComposerFileFromDraft. */

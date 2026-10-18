@@ -1,4 +1,5 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { serveAssets } from '../support/asset-server';
 import { attachmentLocal, attachmentView, previewKind, type AttachmentMeta } from '../../src/panel/attachment-surface';
 import { isMediaPreview, mediaBody, mediaErrorMessage } from '../../src/media/attachment-media';
 import type { T3Client } from '../../src/client/client';
@@ -23,11 +24,15 @@ function client(calls: Obj[] = [], list: AttachmentMeta[] = files) {
     },
     restAccess: () => ({ call: async (request: Obj) => {
       calls.push({ op: request.op });
-      return request.op === 'attachmentText' ? { ok: true, text: '<!doctype html><p>Hi</p>', truncated: false } : { ok: true };
+      return { ok: true };
     } }),
   } as unknown as T3Client;
 }
 const native = { available: true } as Native;
+// The asset server answers an HTML attachment's text (attachment-files.ts reads it).
+let server: ReturnType<typeof serveAssets>;
+beforeEach(() => { server = serveAssets(() => ({ body: '<!doctype html><p>Hi</p>' })); });
+afterEach(() => server.restore());
 
 describe('attachment media bodies', () => {
   test('filePreviewKind classifies the four media kinds by MIME type and by name', () => {
@@ -45,7 +50,7 @@ describe('attachment media bodies', () => {
       expect([view.preview, view.url, view.error, view.canRender, view.canCopy, view.canSave, view.noPreview])
         .toEqual([preview, `http://127.0.0.1:1/api/assets/${meta.id}?sig=1`, '', false, false, true, '']);
     }
-    expect(calls.filter(call => call.op === 'attachmentText')).toEqual([]);
+    expect(server.calls).toEqual([]);
     expect(calls.map(call => (call.resource as Obj | undefined)?.disposition)).toEqual(['inline', 'inline', 'inline']);
   });
 

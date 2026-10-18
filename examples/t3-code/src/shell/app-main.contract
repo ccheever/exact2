@@ -56,6 +56,11 @@ use DialogFinalFocus from "../shared/dialog-trap.contract"
 component ChatColumn
   inject
     rem: number
+    // Ends a citation's placement (app.contract citePlace): the reader's wheel or a minimap jump moves the transcript.
+    citeEnd: action
+    // The transcript's viewport for the composer (app.contract restScrolled, restGesture).
+    restScrolled: action
+    restGesture: action
     // The timeline's scroll hides the window's Cite (observeSelectionActions' scroll).
     citeScrolled: action
   props
@@ -170,6 +175,7 @@ component ChatColumn
   state fallbackJump = -1
   action transcriptScrolled(left: number, top: number, e: ScrollEvent)
     citeScrolled(left, top)
+    restScrolled(composerOwner, e)
     if tipArmed
       tipEpoch = tipEpoch + 1
       tipArmed = false
@@ -195,16 +201,24 @@ component ChatColumn
       if restore and turnIds.includes(saved.key)
         scrollIntoView("transcript", saved.key, offset=saved.offset, behavior="instant")
   // The minimap's strip or chevron: the turn's row 24pt under the top edge (scrollToIndex viewOffset 24; offset is the
-  // port's start into the row wrapper), smooth unless reduced motion asks otherwise. It ends a citation's native hold
-  // first (T3TimelineTurns.swift), so one writer moves the transcript.
+  // port's start into the row wrapper), smooth unless reduced motion asks otherwise. It ends a citation's placement
+  // first, so one writer moves the transcript.
   action turnJump(id: string, index: number)
     let target = id != "" ? id : data.minimap.filter((item) => item.index == index).map((item) => item.id).join("")
     if target != ""
-      chatLocal("timeline-release", "", "")
+      citeEnd()
     if target != "" and viewport.prefersReducedMotion
       scrollIntoView("transcript", target, offset=-24, behavior="instant")
     else if target != ""
       scrollIntoView("transcript", target, offset=-24, behavior="smooth")
+  // The reader's wheel ends a citation's placement (the root's citePlace) and is the composer's resting gesture.
+  action transcriptWheel(e: WheelEvent)
+    citeEnd()
+    restGesture(e.deltaY > 0)
+  // A scroll key with the focus in the transcript is a resting gesture too (End, Page Down, ↓ and Space toward the end).
+  action transcriptKeys(k: string)
+    if k == "Home" or k == "End" or k == "PageUp" or k == "PageDown" or k == "ArrowUp" or k == "ArrowDown" or k == " "
+      restGesture(k == "End" or k == "PageDown" or k == "ArrowDown" or k == " ")
   // resolveChatCanvasLayout (chat-canvas-view.ts) places the lane: centred, moved left and then narrowed for the docked
   // workspace card (32pt clear of it) and for the floating player. Every lane container keeps its own 20pt padding and
   // adds the canvas's insetEnd (`--chat-lane-inset-end`) on its end side; the composer stack is the lane itself. Until
@@ -235,7 +249,7 @@ component ChatColumn
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         column flex=1 min-height=0 width="100%" position="relative"
           // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
-          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scroll=transcriptScrolled scrollTop=(fallbackJump == jumpRequest ? fallbackTop : 1000000 + jumpRequest) id="transcript" testId="transcript" hatch="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
+          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scroll=transcriptScrolled wheel=transcriptWheel keycapture=transcriptKeys scrollTop=(fallbackJump == jumpRequest ? fallbackTop : 1000000 + jumpRequest) id="transcript" testId="transcript" flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             for message in data.messages key=message.id
               TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
           if not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
