@@ -10,6 +10,7 @@ fn frame(now_ms: f64) -> Frame {
         width: 320.,
         height: 180.,
         scale: 1.,
+        headroom: 1.0,
         now_ms,
         seekable: true,
         period_ms: 0.,
