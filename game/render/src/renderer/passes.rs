@@ -658,7 +658,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     }
                 }
             }
-            state.draws += passes - 1; // The bright pass is a compute dispatch.
+            state.draws += passes;
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game ACES"),
