@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
-import { obj } from '../../src/client/domain';
+import { obj, type Obj } from '../../src/client/domain';
 import { inlineDocumentEvent, inlineDocumentKey, inlineDocumentView, inlineReference, syncInlineDocuments } from '../../src/timeline/inline-documents';
 import { timelineEntries } from '../../src/timeline/timeline-rows';
 import { transcriptRows } from '../../src/timeline/timeline-presentation';
@@ -10,7 +10,7 @@ const native = { available: true } as Native;
 const html = { attachmentId: 'a', title: 'Report', height: 400 };
 const item = { id: 'i', type: 'dynamic_tool', status: 'completed', toolName: 'html_render', output: { htmlRender: html } };
 const ref = inlineReference(item)!;
-function fixture(renderItem = item) {
+function fixture(renderItem: Obj = item) {
   const client = new T3Client(); client.threadId = 't'; client.environmentId = 'env'; client.generation = 1; client.origin = 'http://127.0.0.1:1';
   client.thread = { projection: { thread: { id: 't' }, visibleTurnItems: [{ sourceThreadId: 't', sourceItemId: 'i', item: renderItem }] } };
   return client;
@@ -106,3 +106,33 @@ test('inline width selects responsive measurements and is retained while fullscr
   await inlineDocumentEvent(client, key, 'fullscreen', 'close');
   expect(inlineDocumentView(client, key, responsiveRef).height).toBe(560);
 });
+
+for (const identity of ['generation', 'environment', 'origin', 'thread'] as const) {
+  test(`MCP queued reads stay with their ${identity} identity while the first read awaits`, async () => {
+    const appItem = { ...item, toolName: 'weather.forecast', output: { t3McpApp: { attachmentId: 'mcp', server: 'weather', tool: 'forecast', resourceUri: 'ui://weather' } } };
+    const client = fixture(appItem), appRef = inlineReference(appItem)!;
+    let release!: () => void, started!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const firstStarted = new Promise<void>(resolve => { started = resolve; });
+    const reads: { origin: string; payload: unknown }[] = [];
+    client.rpc = async (_native, method, payload) => {
+      if (method === 'assets.createUrl') return { relativeUrl: '/api/assets/mcp', expiresAt: 10_000_000 };
+      if (method === 'mcpApps.readResource') { reads.push({ origin: client.origin, payload }); if (reads.length === 1) { started(); await gate; } return { contents: [] }; }
+      return {};
+    };
+    const key = inlineDocumentKey(client, 't', 'i', appRef);
+    await syncInlineDocuments(client, native, 0);
+    const initial = inlineDocumentView(client, key, appRef);
+    const config = JSON.parse(decodeURIComponent(initial.src.split('#')[1]!));
+    const message = (id: number) => JSON.stringify({ t3Document: config.token, message: { jsonrpc: '2.0', id, method: 'resources/read', params: { uri: `ui://weather/${id}` } } });
+    const draining = inlineDocumentEvent(client, key, 'message', message(1), native);
+    await firstStarted;
+    await inlineDocumentEvent(client, key, 'message', message(2));
+    if (identity === 'generation') client.generation++;
+    else if (identity === 'environment') client.environmentId = 'replacement';
+    else if (identity === 'origin') client.origin = 'http://127.0.0.1:2';
+    else client.threadId = 'replacement';
+    release(); await draining;
+    expect(reads).toEqual([{ origin: 'http://127.0.0.1:1', payload: { threadId: 't', itemId: 'i', uri: 'ui://weather/1' } }]);
+  });
+}
