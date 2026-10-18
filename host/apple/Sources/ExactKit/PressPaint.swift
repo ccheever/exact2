@@ -285,6 +285,9 @@ extension NodeView {
     /// to show again when they change.
     func presented(_ s: NodeStyle) -> NodeStyle {
         pressPaint.lookBase = s["looks"] == nil ? nil : s
+        #if os(iOS)
+        lookHover(Self.look("hover", in: s) != nil) // a pointer's hover (LookHoverIOS.swift)
+        #endif
         let shown = pressPainted(looked(s))
         applyLookOpacity()
         return shown
