@@ -627,7 +627,7 @@ describe('a row\'s hover and focus as the host reports them (LegacyThread, Legac
     expect(run.view.inside).toBe(false);
     expect(run.view.revealed).toBe(false); // its time, not Archive
     const view = readFileSync(appPath('legacy-sidebar.contract'), 'utf8');
-    expect(view.match(/dblclick=nested /g) ?? []).toHaveLength(2); // the pull request and the port: no rename under them
+    expect(view.match(/dblclick=nested /g) ?? []).toHaveLength(3); // the pull request, port and terminal: no rename under them
   });
 });
 

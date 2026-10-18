@@ -152,6 +152,18 @@ describe('the Code tab and its slices (PullRequestCodeTab, POST /api/pull-reques
     view = await f.settle();
     expect([view.codeTab.filesLabel, view.codeTab.items.at(-1)?.error]).toEqual(['200 files+', false]);
   });
+  test('file counts describe the source change when whitespace-only lines are hidden', async () => {
+    const patch = ['diff --git a/a.ts b/a.ts', '--- a/a.ts', '+++ b/a.ts', '@@ -1 +1 @@', '-const a=1;', '+const a = 1;'].join('\n');
+    const f = fixture({}, () => ({ patch, nextCursor: null, omittedFileStats: [] }));
+    let view = await f.settle();
+    const counts = () => view.codeTab.items.filter(item => item.kind === 'pr-file').map(item => [item.additions, item.deletions]);
+    expect(counts()).toEqual([[1, 1]]);
+    await f.press('whitespace'); view = await f.settle();
+    expect(counts()).toEqual([[1, 1]]);
+    await f.press('whitespace'); view = await f.settle();
+    expect(counts()).toEqual([[1, 1]]);
+    expect(f.of('prDiff')).toHaveLength(1);
+  });
   test('a first slice that fails takes the list\'s place, under the toolbar', async () => {
     const f = fixture({}, () => { throw new ClientError('This pull request diff is too large.', 'PullRequestOperationError'); });
     const view = await f.settle();

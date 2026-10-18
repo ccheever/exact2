@@ -335,6 +335,8 @@ component SnapshotSetup
   inject
     dialogEntered: action
     dialogFallback: action
+    wizardPanel: string
+    wizardSteps: string
   props
     data: SnapshotSettings
     busy: bool
@@ -362,7 +364,7 @@ component SnapshotSetup
         DialogOpenFocus(target=(busy ? (error != "" ? "snapshot-setup-advanced" : "") : (data.setupReady and not back ? "snapshot-setup-record" : (not data.screenRecording ? "snapshot-permission-screen-allow" : (not data.accessibility ? "snapshot-permission-accessibility-allow" : (error != "" ? "snapshot-setup-advanced" : "snapshot-setup-cancel"))))))
         column padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" gap="0.5rem" box-sizing="border-box"
           text "Set up snapshots" font-size="1.25rem" font-weight=600 line-height="1.25rem" class=SnapInk role="heading" aria-level=2
-          row gap="0.25rem" padding="0.25rem" border-radius="0.875rem" background-color="light-dark(#fcfcfc, #ffffff0a)" box-shadow="0 0 0 1px light-dark(#0000000d, #ffffff0d)" role="list" aria-label="Setup progress"
+          row gap="0.25rem" padding="0.25rem" border-radius="0.875rem" background-color=wizardSteps box-shadow="0 0 0 1px light-dark(#0000000d, #ffffff0d)" role="list" aria-label="Setup progress"
             row flex=1 min-width=0 gap="0.5rem" align-items="center" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.625rem" background-color=(data.setupReady and not back ? "#00000000" : "light-dark(#ffffff, #111111)") box-shadow=(data.setupReady and not back ? "none" : "0 1px 2px #0000000d, 0 0 0 1px light-dark(#0000000d, #ffffff0d)") testId="snapshot-setup-step-access"
               row width="1.25rem" height="1.25rem" border-radius="0.625rem" align-items="center" justify-content="center" flex-shrink=0 background-color=(data.setupReady and not back ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#1b4ed81a, #346bf11a)") box-shadow=(data.setupReady and not back ? "0 0 0 1px light-dark(#1b4ed8, #346bf1)" : "0 0 0 1px light-dark(#1b4ed84d, #346bf14d)")
                 if data.setupReady and not back
@@ -374,7 +376,7 @@ component SnapshotSetup
               row width="1.25rem" height="1.25rem" border-radius="0.625rem" align-items="center" justify-content="center" flex-shrink=0 background-color=(data.setupReady and not back ? "light-dark(#1b4ed81a, #346bf11a)" : "light-dark(#ffffff, #ffffff0d)") box-shadow=(data.setupReady and not back ? "0 0 0 1px light-dark(#1b4ed84d, #346bf14d)" : "0 0 0 1px light-dark(#0000001a, #ffffff1a)")
                 text "2" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(data.setupReady and not back ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #818181)")
               text "Shortcut" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(data.setupReady and not back ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
-        column padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" gap="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfccc, #ffffff05)" box-shadow="0 0 0 1px light-dark(#0000000d, #ffffff0d)"
+        column padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" gap="1rem" box-sizing="border-box" background-color=wizardPanel box-shadow="0 0 0 1px light-dark(#0000000d, #ffffff0d)"
           if data.setupReady and not back
             column gap="0.5rem"
               text "Choose your shortcut" font-size="0.875rem" font-weight=500 line-height="1.25rem" class=SnapInk role="heading" aria-level=3

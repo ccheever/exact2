@@ -20,7 +20,6 @@ import { diffNotGit } from '../diff/diff';
 import { threadNotifications, providerUpdates, nativeNotifyStatus, reportWindowFacts, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from '../client/protocol-reader'; // answered requests whose answer was let go end on the next shell read
-import { nightlyMobileBetaNotice } from './shell-nightly';
 import { permissionUpdateNotices } from './permission-update-notice';
 import { pullRequestPanelTarget } from '../panel/shell-pr';
 import { composerFileView } from '../composer/composer-chip-file';
@@ -271,7 +270,6 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   // A closed toast's onClose may change saved preferences (shell-prefs.ts): write them now.
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
   const state = shellState(client);
-  nightlyMobileBetaNotice(client, client.preferencesLoaded); // shell-nightly.ts
   permissionUpdateNotices(client, client.preferencesLoaded);
   if (native?.available) {
     if (client.writable) void migrateModelPreferences(client, native).catch(() => {});

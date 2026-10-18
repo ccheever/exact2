@@ -10,6 +10,7 @@ use PvIconButton from "../settings/providers-kit.contract"
 use PvMicro from "../settings/providers-kit.contract"
 use PvIcon from "./provider-icons.contract"
 use CnTooltip from "../settings/settings-b-kit.contract"
+use Tip from "../shell/shell-tip.contract"
 use ProviderAccentPicker from "./settings-b-accent.contract"
 use DriverMark from "./provider-icons-kit.contract"
 use ProviderSetupView from "./providers-setup.contract"
@@ -183,14 +184,21 @@ component ProvidersPanel
           text page.message font-size="0.875rem" line-height="1.25rem" padding="2rem" color="light-dark(#71717b, #818181)" testId="providers-unavailable"
       else
         column width="100%" gap="0.625rem"
-          PvSectionTitle(title="Providers")
-            if page.updateAll.show
-              ProviderUpdatesAllButton(updateAll=page.updateAll, op=op)
-            button press=op("provider-refresh", "", "", "", true) class=PvGhost disabled=busy aria-label="Refresh provider status" testId="refresh-providers"
-              PvIcon(name="refresh", size=14, color="light-dark(#71717b, #818181)")
-              text (busy ? "Refreshing providers" : page.checked) font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
-            button press=ui("open", "add") class=PvIconButton aria-label="Add provider" disabled=(busy or not page.writable) testId="add-provider" id="add-provider" title=""
-              PvIcon(name="plus", size=14, color="light-dark(#71717b, #818181)")
+          // SettingsSection's title row: Add provider sits right after the title (titleAction); the updates and refresh
+          // controls stay at the end (headerAction).
+          row min-height="1.75rem" padding-left="1rem" padding-right="1rem" gap="1rem" align-items="flex-start" justify-content="space-between" box-sizing="border-box" width="100%"
+            row min-height="1.75rem" gap="0.25rem" align-items="center" min-width=0
+              text "Providers" font-size="0.875rem" line-height="1.25rem" font-weight=400 color="light-dark(#27272ab3, #f5f5f5b3)" role="heading" aria-level=2
+              if page.writable
+                Tip(label="Add provider", side="top", align="center", offset=28)
+                  button press=ui("open", "add") class=PvIconButton aria-label="Add provider" disabled=busy testId="add-provider" id="add-provider" title=""
+                    PvIcon(name="plus", size=14, color="light-dark(#71717b, #818181)")
+            row min-height="1.75rem" min-width="1.75rem" gap="0.5rem" align-items="center" justify-content="flex-end"
+              if page.updateAll.show
+                ProviderUpdatesAllButton(updateAll=page.updateAll, op=op)
+              button press=op("provider-refresh", "", "", "", true) class=PvGhost disabled=busy aria-label="Refresh provider status" testId="refresh-providers"
+                PvIcon(name="refresh", size=14, color="light-dark(#71717b, #818181)")
+                text (busy ? "Refreshing providers" : page.checked) font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
           if not page.writable
             PvGroup()
               PvRow(title="Limited permissions", description=page.message, status="", policy="", wide=(width - 34 >= 512), divided=false)
@@ -226,6 +234,9 @@ component ProvidersPanel
                             PvIcon(name="undo", size=12, color="light-dark(#71717b, #818181)")
                         button press=op("provider-enabled", row.id, "", (row.enabled ? "false" : "true"), true) role="switch" aria-checked=row.enabled aria-label=`Enable ${row.name}` disabled=(busy or not page.writable) testId=`provider-enable-${row.id}` width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(row.enabled ? "flex-end" : "flex-start") flex-shrink=0 background-color=(row.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
                           box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
+                  // The list's last row opens the same wizard.
+                  if page.writable
+                    AddProviderRow(divided=(page.rows.length > 0), busy=busy, open=ui("open", "add"))
               scroll flex-grow=1 flex-shrink=1 flex-basis=(wide ? "0%" : "auto") min-width=0 width=(wide ? "auto" : "100%") height=(wide ? "100%" : "auto") testId="provider-editor-scroll"
                 column width="100%" padding="1rem" gap="1.5rem" box-sizing="border-box"
                   for editor in page.editors key=editor.key
@@ -626,3 +637,17 @@ component ProviderCommandArgumentRow
       input value=value input=edit blur=op("provider-argument-value", instance, `${arg.index}`, value, true) submit=op("provider-argument-value", instance, `${arg.index}`, value, true) disabled=(not writable) aria-label=`Argument ${arg.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 testId=`provider-argument-${arg.index}`
       button press=op("provider-argument-remove", instance, `${arg.index}`, "", true) disabled=(not writable) class=PvIconButton aria-label=`Remove argument ${arg.index + 1}` title=""
         PvIcon(name="x", size=12, color="light-dark(#71717b, #818181)")
+
+// ProviderSettingsPanel's list row "Add provider": muted until hovered (hover:bg-muted/25 hover:text-foreground).
+component AddProviderRow
+  props
+    divided: bool
+    busy: bool
+    open: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=open hover=hover disabled=busy testId="add-provider-row" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.75rem" width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" border-width=0 border-top-style="solid" border-top-width=(divided ? 1 : 0) border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(over ? "light-dark(#f4f4f540, #ffffff0a)" : "#00000000") title=""
+      PvIcon(name="plus", size=16, color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+      text "Add provider" font-size="0.875rem" line-height="1.25rem" text-align="left" color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
