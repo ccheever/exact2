@@ -30,16 +30,16 @@ function harness(files: DraftFile[], prompt = `see [notes.js](t3-context://v1/fi
     calls.push(request);
     if (request.op === 'editorEdit' && request.all === true) {
       expect(client.local.drafts['env:t1']).toBe(request.expect as string);
-      client.local.drafts['env:t1'] = request.text as string;
+      client.local.drafts['env:t1'] = request.text as string; observeComposer(client, String(request.text), true);
       return { ok: true, generation: 0, value: { applied: true } };
     }
     if (request.op === 'editorEdit') return { ok: true, generation: 0, value: { applied: acceptComposerEdit(client, request) } };
     return { ok: true, generation: 0, value: {} };
   } } as unknown as Native;
-  const client = { draftKey: 'env:t1', environmentId: 'env', snapshotOwner: 'env:t1', generation: 1, projection: { turnItems: [], runtimeRequests: [] }, ready: true, origin: 'http://127.0.0.1:16600', local: { drafts: { 'env:t1': prompt }, clientSettings: {} },
+  const client = { persist: async () => {}, draftKey: 'env:t1', environmentId: 'env', snapshotOwner: 'env:t1', generation: 1, projection: { turnItems: [], runtimeRequests: [] }, ready: true, origin: 'http://127.0.0.1:16600', local: { drafts: { 'env:t1': prompt }, clientSettings: {} },
     rpc: async (_native: Native, method: string, payload: Obj) => { calls.push({ op: method, ...payload }); return { relativeUrl: '/api/assets/token/notes.js' }; },
     restAccess: () => ({ call: async (request: Obj) => { calls.push(request); return reply(request); } }) } as unknown as T3Client;
-  setDraftFiles(client.local, files);
+  setDraftFiles(client.local, files); observeComposer(client, prompt);
   return { calls, native, client, appFiles };
 }
 

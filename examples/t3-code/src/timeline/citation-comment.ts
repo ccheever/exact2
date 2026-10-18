@@ -1,3 +1,4 @@
+import { requestComposerField } from '../composer/composer-field-request';
 // An assistant citation's comment, adapted from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // AssistantCitationChip.tsx (the chip's PopoverTrigger "Add comment to citation" / "Edit citation comment" and its
 // popover "Edit citation comment"), AssistantCitationCommentEditor.tsx (Enter saves, Command/Ctrl+Enter saves and sends,
@@ -64,10 +65,10 @@ async function editCitation(client: T3Client, native: Native, current: ComposerF
   const receipt = composerCitationPrepare(client, current.value, expected, effect);
   if (!receipt) return false;
   try {
-    const reply = await bridgeReply(native, { op: 'editorEdit', snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: current.value,
+    const reply = await requestComposerField(native, { op: 'editorEdit', snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: current.value,
       start: edit.start, end: edit.end, expect: current.value.slice(edit.start, edit.end), text: edit.text,
       caret: edit.selection.end, focus, citation: receipt.citation });
-    if (!reply.ok || obj(reply.value).applied !== true) throw new ClientError('The prompt could not be updated.');
+    if (!reply.accepted) throw new ClientError('The prompt could not be updated.');
     return true;
   } catch (error) {
     composerChipStore(client).citations.refuse(receipt);

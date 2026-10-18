@@ -29,15 +29,16 @@ function setup(value = 'seed') {
 
 test('fold staging settles once in the independent ACK, before its caller continuation', async () => {
   const state = setup(), { client, snapshot, owner, native } = state;
-  const waiting = composerFieldResource(client, [snapshot, 0], owner);
+  const waiting = () => composerFieldResource(client, [snapshot, 0], owner);
   const taking = takeFold(client, native, { id: 1, snapshotOwner: snapshot.snapshotOwner, fieldOwner: owner, value: snapshot.value,
     start: 4, end: 4, expect: '', text: 'x'.repeat(40_000) }, 'fold-1');
-  const command = await waiting;
+  await taking;
+  const command = waiting();
   expect(command.completion).toBeGreaterThan(0);
   expect(draftFiles(client.local)).toHaveLength(1);
   expect(toasts(client)).toEqual([]);
   const current = state.input(command.value.slice(0, command.start) + command.text + command.value.slice(command.end), 1);
-  expect(composerFieldAcknowledged(client, [current, command.seq, true], owner).applied).toBe(true);
+  expect((await composerFieldAcknowledged(client, [current, command.seq, true], owner)).applied).toBe(true);
   expect(toasts(client).map(toast => toast.title)).toEqual(['Large paste attached as pasted-text.txt']);
   await taking;
   expect(toasts(client)).toHaveLength(1);
@@ -45,10 +46,11 @@ test('fold staging settles once in the independent ACK, before its caller contin
 
 test('a refused fold clears its reserved bytes and metadata without a success toast', async () => {
   const state = setup(), { client, snapshot, owner, native } = state;
-  const waiting = composerFieldResource(client, [snapshot, 0], owner);
+  const waiting = () => composerFieldResource(client, [snapshot, 0], owner);
   const taking = takeFold(client, native, { id: 1, snapshotOwner: snapshot.snapshotOwner, fieldOwner: owner, value: snapshot.value,
     start: 4, end: 4, expect: '', text: 'large paste' }, 'fold-2');
-  await waiting;
+  await taking;
+  waiting();
   state.input('manual edit', 1);
   await taking;
   expect(draftFiles(client.local)).toEqual([]);
@@ -59,12 +61,13 @@ test('annotation send receipt requires the accepted expected source at ACK and a
   for (const change of ['input-before-ack', 'input-after-ack', 'owner-after-ack', 'undo-to-same-source']) {
     const state = setup(), { client, snapshot, owner, native } = state;
     const completion = prepareAttachmentEffect(client, snapshot, 'seed!', { kind: 'annotation-send', draftKey: client.draftKey });
-    const waiting = composerFieldResource(client, [snapshot, 0], owner);
-    const pending = native.later({ op: 'editorEdit', value: 'seed', start: 4, end: 4, text: '!', completion });
-    const command = await waiting;
+    const waiting = () => composerFieldResource(client, [snapshot, 0], owner);
+    waiting();
+  const pending = native.later({ op: 'editorEdit', value: 'seed', start: 4, end: 4, text: '!', completion });
+    const command = waiting();
     let current = state.input('seed!', 1);
     if (change === 'input-before-ack') current = state.input('seed!x', 2);
-    composerFieldAcknowledged(client, [current, command.seq, true], owner);
+    (await composerFieldAcknowledged(client, [current, command.seq, true], owner));
     await pending;
     if (change === 'input-before-ack') { expect(captureHost(client).sendSerial).toBe(0); continue; }
     expect(captureHost(client).sendSerial).toBe(1);

@@ -23,6 +23,7 @@ export function citationField(value = '', start = value.length, end = start, cli
   publish(observation, false);
   const underlying: Native = raw ?? { available: true, watch() {}, async later(request) {
     calls.push(request);
+    if ((request as {op?:string}).op === 'wake') return {ok:true,generation:client.generation,value:{}};
     throw new Error('Unexpected native composer request');
   } };
   const native = composerFieldNative(client, underlying, owner);
@@ -42,7 +43,7 @@ export function citationField(value = '', start = value.length, end = start, cli
     },
     ack(command: ComposerFieldCommand, applied = true) {
       after = command.seq;
-      return composerFieldAcknowledged(client, [observation, command.seq, applied], owner());
+      return composerFieldAcknowledged(client, [observation, command.seq, applied], owner(), underlying);
     },
     press(kind = 'citation') {
       const chip = session.chips.find(candidate => candidate.kind === kind);

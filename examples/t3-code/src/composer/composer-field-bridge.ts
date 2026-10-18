@@ -1,3 +1,4 @@
+import { completeFieldRequest, fieldCompletion } from './composer-field-request';
 import type { Native } from '../client/protocol';
 import { ComposerFieldCommands, type ComposerFieldCommand, type ComposerFieldIdentity, type ComposerFieldResult, type ComposerFieldSnapshot } from './composer-field-commands';
 import { composerFieldReplacement } from './composer-field-edit';
@@ -8,22 +9,23 @@ import { chipDecorations, composerChips } from './composer-source-chips';
 import { composerHistoryComplete, composerHistoryReset } from './composer-prompt-history';
 import { finishAttachmentEffect, resetAttachmentEffects } from './composer-attachment-receipts';
 
-export type ComposerFieldHost = { generation: number; snapshotOwner: string; draftKey: string };
+export type ComposerFieldHost = { generation: number; snapshotOwner: string; draftKey: string; error?: string };
 export type ComposerFieldObservation = ComposerFieldSnapshot & { focused: boolean; inputSerial: number };
-export type ComposerFieldAcknowledgement = ComposerFieldResult & ComposerFieldIdentity & { seq: number; then: string; send: boolean };
-type Field = { commands: ComposerFieldCommands; inputSerial: number; focused: boolean; active: ComposerFieldCommand | null };
+export type ComposerFieldAcknowledgement = ComposerFieldResult & ComposerFieldIdentity & { seq: number; then: string; send: boolean; focus: string; removedImage: string; inputSerial: number };
+type Field = { commands: ComposerFieldCommands; inputSerial: number; focused: boolean; active: ComposerFieldCommand | null; effects: Map<number, ReturnType<typeof fieldCompletion>> };
 const fields = new WeakMap<object, Field>();
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
 function field(host: ComposerFieldHost, owner: string): Field {
   let result = fields.get(host);
-  if (!result) { result = { commands: new ComposerFieldCommands(), inputSerial: -1, focused: false, active: null }; fields.set(host, result); }
+  if (!result) { result = { commands: new ComposerFieldCommands(), inputSerial: -1, focused: false, active: null, effects: new Map() }; fields.set(host, result); }
   const current = result.commands.read();
   if (current && (current.generation !== host.generation || current.snapshotOwner !== host.snapshotOwner || current.owner !== owner)) {
     composerHistoryReset(host);
     resetAttachmentEffects(host);
     composerChipStore(host).citations.reset();
     result.commands.observe({ ...current, generation: host.generation, snapshotOwner: host.snapshotOwner, owner, live: false }, false);
+    drainRefused(host, result);
     result.active = null;
   }
   return result;
@@ -55,24 +57,37 @@ function observe(host: ComposerFieldHost, owner: string, value: ComposerFieldObs
   if (!sameOwner) { entry.inputSerial = input ? value.inputSerial : -1; entry.active = null; }
   else if (input) entry.inputSerial = Math.max(entry.inputSerial, value.inputSerial);
   entry.focused = value.focused;
-  entry.commands.observe(value, acceptedInput);
+  entry.commands.observe(value, acceptedInput, entry.inputSerial);
+  drainRefused(host, entry);
   composerChipStore(host).presses.observe(value, 'composer');
   return entry;
 }
 
-/** Root resources publish current owner/selection facts, then wait for one
- *  request. Only the separate typed input turn may confirm its source edit. */
-export function composerFieldResource(host: ComposerFieldHost, args: readonly unknown[], owner: string): ComposerFieldCommand | Promise<ComposerFieldCommand> {
+function drainRefused(host: ComposerFieldHost, entry: Field): void {
+  for (const { command, result } of entry.commands.drain()) {
+    composerHistoryComplete(host, command, false);
+    finishAttachmentEffect(host, command, false, entry.commands.read());
+    const current = entry.commands.read();
+    if (current) composerChipStore(host).citations.complete(command, false, current);
+    try { completeFieldRequest(entry.effects.get(command.seq), result); }
+    catch { host.error = 'The edit was refused; please try again.'; }
+    finally { entry.effects.delete(command.seq); }
+    if (entry.active?.seq === command.seq) entry.active = null;
+    if (command.generation === host.generation && command.snapshotOwner === host.snapshotOwner && command.owner === entry.commands.read()?.owner)
+      host.error = 'The prompt changed before the edit could be applied. Please try again.';
+  }
+}
+
+/** A completed resource watches the existing wake topic; it never waits on a future input turn. */
+export function composerFieldResource(host: ComposerFieldHost, args: readonly unknown[], owner: string, native?: Native | null): ComposerFieldCommand {
+  if (native?.available) native.watch('t3.notify');
   const value = composerFieldObservation(args[0]), after = integer(args[1]) && args[1] >= 0 ? args[1] : 0;
   const entry = value ? observe(host, owner, value, false) ?? field(host, owner) : field(host, owner);
   const identity = value ?? { generation: host.generation, snapshotOwner: host.snapshotOwner, owner: '' };
-  const command = entry.commands.wait(after, identity);
-  const delivered = (next: ComposerFieldCommand) => {
-    const current = entry.commands.read();
-    if (next.ready && current?.live && identityMatches(next, current)) entry.active = next;
-    return next;
-  };
-  return command instanceof Promise ? command.then(delivered) : delivered(command);
+  const next = entry.commands.wait(after, identity);
+  const current = entry.commands.read();
+  if (next.ready && current?.live && identityMatches(next, current)) entry.active = next;
+  return next;
 }
 
 export function composerFieldObserved(host: ComposerFieldHost, args: readonly unknown[], owner: string): ComposerFieldResult {
@@ -82,17 +97,33 @@ export function composerFieldObserved(host: ComposerFieldHost, args: readonly un
   return entry ? result(entry) : result(field(host, owner), 'field observation stale');
 }
 
-export function composerFieldAcknowledged(host: ComposerFieldHost, args: readonly unknown[], owner: string): ComposerFieldAcknowledgement {
+export async function composerFieldAcknowledged(host: ComposerFieldHost, args: readonly unknown[], owner: string, native?: Native | null): Promise<ComposerFieldAcknowledgement> {
   const value = composerFieldObservation(args[0]), seq = integer(args[1]) && args[1] > 0 ? args[1] : 0;
   const entry = field(host, owner), active = entry.active;
-  const fallback = { ...result(entry, 'field acknowledgement stale'), generation: host.generation, snapshotOwner: host.snapshotOwner, owner: value?.owner ?? '', seq, then: '', send: false };
+  const fallback = { ...result(entry, 'field acknowledgement stale'), generation: host.generation, snapshotOwner: host.snapshotOwner, owner: value?.owner ?? '', seq, then: '', send: false, focus: '', removedImage: '', inputSerial: -1 };
   if (!value || typeof args[2] !== 'boolean' || !active || active.seq !== seq || !identityMatches(active, value)
     || value.generation !== host.generation || value.snapshotOwner !== host.snapshotOwner || value.owner !== owner) return fallback;
   // The independent ACK is a current selection read, never an input event.
   observe(host, owner, value, false);
   const current = entry.commands.read();
   if (!current) return fallback;
+  const inputSerial = entry.inputSerial, generatedInputSerial = entry.commands.generatedInputSerial(seq);
+  const expected = active.value.slice(0, active.start) + active.text + active.value.slice(active.end);
+  const generatedCurrent = inputSerial === generatedInputSerial && current.value === expected && current.start === active.selectionStart && current.end === active.selectionEnd;
   const completed = entry.commands.acknowledge(seq, value, current, args[2]);
+  const completions = entry.commands.drain();
+  if (!completed.applied) host.error = 'The prompt changed before the edit could be applied. Please try again.';
+  const receipt = entry.effects.get(seq);
+  entry.effects.delete(seq);
+  const currentNative: Native | undefined = native ? { available: native.available, watch: topic => native.watch(topic), later: async request => {
+    const valid = () => active.generation === host.generation && active.snapshotOwner === host.snapshotOwner && active.owner === entry.commands.read()?.owner
+      && entry.inputSerial === inputSerial && entry.commands.read()?.value === current.value;
+    if (!valid()) throw new Error('The composer changed before cleanup.');
+    const response = await native.later(request);
+    if (!valid()) throw new Error('The composer changed during cleanup.');
+    return response;
+  } } : undefined;
+
   composerHistoryComplete(host, active, completed.applied);
   finishAttachmentEffect(host, active, completed.applied, current);
   const effect = composerChipStore(host).citations.complete(active, completed.applied, current);
@@ -102,9 +133,17 @@ export function composerFieldAcknowledged(host: ComposerFieldHost, args: readonl
   const atoms = effect?.kind === 'open' ? composerMarkdown(current.value, { styling: session.mode === 'rich', atoms: chipDecorations(chips),
     blockOrigins: session.matches(current.owner, current.value) ? session.blockOrigins : undefined }).decorations.atoms : [];
   const send = composerChipCompleted(host, effect, current, chips.filter(chip => atoms.some(atom => atom.start === chip.start && atom.end === chip.end)));
+  let cleanupSucceeded = true;
+  if (completions.some(item => item.command.seq === seq)) {
+    try { await completeFieldRequest(receipt, completed, currentNative); }
+    catch (error) { cleanupSucceeded = false; if (active.generation === host.generation && active.snapshotOwner === host.snapshotOwner && active.owner === entry.commands.read()?.owner) host.error = error instanceof Error ? error.message : 'The edit was applied but its cleanup failed.'; }
+  }
+  const latest = entry.commands.read();
+  const unchanged = generatedCurrent && cleanupSucceeded && entry.inputSerial === inputSerial && latest && identityMatches(active, latest) && active.generation === host.generation && active.snapshotOwner === host.snapshotOwner
+    && latest.value === current.value && latest.start === current.start && latest.end === current.end && !latest.composing && latest.live;
   if (entry.active?.seq === seq) entry.active = null;
   return { ...completed, generation: value.generation, snapshotOwner: value.snapshotOwner, owner: value.owner, seq,
-    then: completed.applied ? active.then : '', send };
+    then: completed.applied && unchanged ? active.then : '', send: send && !!unchanged, focus: completed.applied && unchanged ? receipt?.effects.focus ?? '' : '', removedImage: completed.applied && unchanged ? receipt?.effects.removedImage ?? '' : '', inputSerial: completed.applied && unchanged ? inputSerial : -1 };
 }
 
 /** Retained OS/paste calls pass through. These three app operations route
@@ -119,14 +158,26 @@ export function composerFieldNative(host: ComposerFieldHost, native: Native, cur
     if (!current || !current.live || scoped.generation !== host.generation || scoped.snapshotOwner !== host.snapshotOwner
       || scoped.draftKey !== host.draftKey || scoped.owner !== current.owner) return reply({ applied: false, reason: 'no composer' });
     if (request.op === 'editorState') return reply({ text: current.value, caret: current.start, selectionLength: current.end - current.start, focused: entry.focused, composing: current.composing });
+    const inputSerial = entry.inputSerial;
     const session = composerSourceSession(host);
     const replacement = composerFieldReplacement(request, { snapshot: current, draftOwner: host.draftKey, mode: session.mode, chips: session.chips,
       blockOrigins: session.matches(current.owner, current.value) ? session.blockOrigins : undefined });
-    if (replacement.kind === 'refused') return reply({ applied: false, reason: replacement.reason });
+    if (replacement.kind === 'refused') return reply({ accepted: false, queued: false, applied: false, reason: replacement.reason });
     if (replacement.fold !== null) await native.later({ op: 'editorForgetFold', id: replacement.fold });
     field(host, currentOwner());
-    const completed = await entry.commands.request(replacement.edit, { focus: replacement.focus, then: replacement.then, history: replacement.history, citation: replacement.citation, completion: replacement.completion });
-    finishAttachmentEffect(host, { ...replacement.edit, completion: replacement.completion ?? 0 }, completed.applied, entry.commands.read());
-    return reply({ applied: completed.applied, reason: completed.reason, caret: completed.start });
+    const latest = entry.commands.read();
+    if (entry.inputSerial !== inputSerial || !latest || latest.start !== current.start || latest.end !== current.end || latest.value !== current.value || latest.composing)
+      return reply({ accepted: false, queued: false, applied: false, reason: 'field source changed' });
+    const admitted = entry.commands.request(replacement.edit, { focus: replacement.focus, then: replacement.then, history: replacement.history, citation: replacement.citation, completion: replacement.completion });
+    if (!admitted.accepted) return reply(admitted);
+    entry.effects.set(admitted.seq, fieldCompletion(request));
+    try {
+      // Existing app wake: the completed resource watches t3.notify (T3LatinChords.swift).
+      await native.later({ op: 'wake', topic: 't3.notify' });
+    } catch (error) {
+      entry.commands.cancel(admitted.seq, 'field wake failed'); drainRefused(host, entry);
+      throw error;
+    }
+    return reply(admitted);
   } };
 }

@@ -1,3 +1,4 @@
+import { observeComposer, acceptComposerEdit } from '../support/composer-field-fixture';
 // The Diff panel's tree, large-diff loading, hidden-line expansion and line comments, driven through
 // T3Client.command as the Contract drives them (diff-review.ts), against a scripted server.
 import { describe, test, expect } from 'bun:test';
@@ -31,7 +32,8 @@ function harness(large: boolean) {
           : { kind: 'branch-range', diff: smallPatch, truncated: false, diffHash: 'h2', baseRef: 'main', headRef: 'feat', files: [{ path: 'a.ts', previousPath: null, additions: 2, deletions: 1 }] }] } };
     }
     if (request.op === 'request' && request.method === 'review.getDiffFileContents') return { ok: true, generation: 1, value: contents };
-    if (request.op === 'editorInsert' || request.op === 'editorEdit') return { ok: true, generation: 1, value: { applied: true } };
+    if (request.op === 'editorInsert') return { ok: true, generation: 1, value: { applied: true } };
+    if (request.op === 'editorEdit') return { ok: true, generation: 1, value: { applied: acceptComposerEdit(client, request) } };
     return { ok: true, generation: 1, value: {} };
   } };
   const storage: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('missing'); }, async atomicWriteFile() {} } };
@@ -114,7 +116,7 @@ describe('diff review engine', () => {
     const insert = calls.filter(call => call.op === 'editorInsert').at(-1)!;
     const id = /review-comment\/([^)]+)\)/.exec(String(insert.text))![1]!;
     expect(insert.text).toBe(`[a.ts 3 to 5](t3-context://v1/review-comment/${id}) `);
-    client.local.drafts[client.draftKey] = `Please look ${insert.text}`;
+    client.local.drafts[client.draftKey] = `Please look ${insert.text}`; observeComposer(client, client.draft);
     expect(snapshot(client).diffItems.find(item => item.kind === 'note')).toMatchObject({ text: 'Why this order?', entry: id });
     const sent = (await import('../../src/composer/composer-editor')).messageContext(client, client.draft);
     expect(sent).toMatchObject({ version: 1, records: [{ kind: 'review-comment', contextId: id, label: 'a.ts 3 to 5', sectionId: 'branch', sectionTitle: 'Changes', filePath: 'a.ts',
@@ -217,9 +219,10 @@ describe('Cite', () => {
     const { client, command, calls, native } = harness(false);
     const state = citationField('', 0, 0, client, { ...native, later: native.later.bind(native) });
     native.later = state.native.later;
-    const stream = 'First paragraph of the answer.\nSecond block with more words.', waiting = state.next();
+    const stream = 'First paragraph of the answer.\nSecond block with more words.', waiting = () => state.next();
     const pending = command('diffreview', 'cite:["t1","turn-item:provider:codex:native-item:a1"]', `23-30,31-37|412,180.5,540,22|${stream}`);
-    const insertion = await waiting;
+    await pending;
+    const insertion = waiting();
     const citations = collectAssistantCitations(insertion.text);
     expect(citations).toHaveLength(1);
     expect(citations[0]?.citation).toEqual({ version: 1, environmentId: 'env', threadId: 't1', messageId: 'message:provider:codex:native-item:a1',
@@ -227,7 +230,7 @@ describe('Cite', () => {
     expect(insertion.citation).toBeGreaterThan(0);
     state.input(insertion);
     expect(composerChipCurrent(client)).toBeNull();
-    expect(state.ack(insertion).applied).toBe(true);
+    expect((await state.ack(insertion)).applied).toBe(true);
     expect(composerChipCurrent(client)).toMatchObject({ kind: 'citation', open: true, anchor: 'source', anchorFrame: [412, 180.5, 540, 22] });
     await pending;
     expect(collectAssistantCitations(state.current().value)).toHaveLength(1);
@@ -238,10 +241,11 @@ describe('Cite', () => {
     const { client, command, calls, native } = harness(false);
     const state = citationField('kept', 4, 4, client, { ...native, later: native.later.bind(native) });
     native.later = state.native.later;
-    const waiting = state.next();
+    const waiting = () => state.next();
     const pending = command('diffreview', 'cite:["t1","a1"]', '0-5|10,20,80,18|Hello world');
-    const insertion = await waiting;
-    expect(state.ack(insertion, false).applied).toBe(false);
+    await pending;
+    const insertion = waiting();
+    expect((await state.ack(insertion, false)).applied).toBe(false);
     await pending;
     expect(state.current().value).toBe('kept');
     expect(composerChipCurrent(client)).toBeNull();

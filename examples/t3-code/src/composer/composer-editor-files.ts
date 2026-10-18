@@ -1,3 +1,4 @@
+import { requestComposerField } from './composer-field-request';
 // Large pastes fold into a `pasted-text.txt` file attachment (ChatComposer
 // foldPastedText, client-runtime textPaste.ts): the native editor holds the
 // paste back and reports it; this stages the file and puts its inline file
@@ -227,8 +228,8 @@ export async function takeFold(client: T3Client, native: Native, fold: Obj, id: 
   const expected = edit.edit.value.slice(0, edit.edit.start) + edit.edit.text + edit.edit.value.slice(edit.edit.end);
   const completion = prepareAttachmentEffect(client, snapshot, expected, { kind: 'fold', file: file.id });
   if (!completion) { settleFold(client, file.id, false); return; }
-  const result = await nativeCall(native, { ...request, completion }).catch(() => ({ applied: false }));
-  finishAttachmentEffect(client, { ...edit.edit, completion }, result.applied === true, composerFieldCurrent(client, fact.fieldOwner));
+  const result = await requestComposerField(native, { ...request, completion }).catch(() => ({ accepted: false, queued: false, applied: false }));
+  if (!result.queued) finishAttachmentEffect(client, { ...edit.edit, completion }, result.applied, composerFieldCurrent(client, fact.fieldOwner));
 }
 
 /** attachmentUploadQueue at send time: mint an upload URL, send the bytes (base64), keep the id. */

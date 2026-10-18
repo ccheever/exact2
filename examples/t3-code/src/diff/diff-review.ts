@@ -115,14 +115,14 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     const comment = buildDiffReviewComment({ id: draft.id, sectionId: section.id, sectionTitle: section.title, filePath: draft.path, lines: reviewLinesOf(state, target), range: draft.range, text: value });
     if (!comment) throw new ClientError('Those lines are no longer in the diff.');
     const record = reviewCommentContextRecord(comment);
-    await addReviewCommentChip(client, native, record);
-    state.saved.push({ contextId: record.contextId, scope: draft.scope, path: draft.path, range: draft.range, rangeLabel: comment.rangeLabel, text: comment.text });
-    state.draft = null; state.selection = null; noteDraftFocus(client, false);
+    await addReviewCommentChip(client, native, record, { applied: () => {
+      state.saved.push({ contextId: record.contextId, scope: draft.scope, path: draft.path, range: draft.range, rangeLabel: comment.rangeLabel, text: comment.text });
+      if (state.draft === draft) { state.draft = null; state.selection = null; noteDraftFocus(client, false); }
+    } });
     return '';
   }
   if (action === 'delete') {
-    await removeReviewCommentChip(client, native, value);
-    state.saved = state.saved.filter(entry => entry.contextId !== value);
+    await removeReviewCommentChip(client, native, value, { applied: () => { state.saved = state.saved.filter(entry => entry.contextId !== value); } });
     return '';
   }
   throw new ClientError('Unsupported diff review action.');
