@@ -5,7 +5,9 @@
 //! Unsupported rows are reported in [`Skipped`].
 
 mod clears;
+mod decorations;
 mod fonts;
+pub use decorations::decoration_styles;
 pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
 use exact_kernel::style::ColorValue;

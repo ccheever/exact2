@@ -118,6 +118,13 @@ function createGeometry(root) {
 
   return {
     point, points, namedPoints,
+    range(el, start, end, out) {
+      if (!el?.isConnected || !root.contains(el)) return 0;
+      const box = el.exactDecorations?.rangeFrame(start, end);
+      if (!box) return 0;
+      out.set([box.x, box.y, box.width, box.height]);
+      return ANSWERED | (el.exactDecorations.applied?.provisional ? PROVISIONAL : 0);
+    },
     read(op, el, out) {
       if (!el?.isConnected || !root.contains(el)) return 0;
       const box = frame(el);

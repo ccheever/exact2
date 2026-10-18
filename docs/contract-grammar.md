@@ -1017,8 +1017,9 @@ expression grammar. Platform looks and stand-ins are documented in
 ### Plain textarea decorations (core surface; host adoption pending)
 
 `decoration` declares literal CSS appearance for app-computed UTF-16 ranges. The field's
-value stays a plain string. The compiler accepts the shared surface below; rendering,
-composition and undo acceptance remain pending in the host implementations.
+value stays a plain string. Both web targets render these records, preserve source
+selections and composition, and support undoable replacements. Other host acceptance
+is tracked separately.
 
 ```text
 decoration mention color="#1083fe"
@@ -1041,7 +1042,12 @@ arguments are named. Its other record types and freshness rules are in
 An action may call `rangeFrame(id, start, end)` for viewport `Geometry` of a source range;
 a host without a range reader returns unavailable. `setRangeText(id, text, "undo")`, or
 `setRangeText(id, text, start, end, selectionMode, "undo")`, requests one undo step once
-its host adopts that mode. Existing calls keep their behaviour.
+its host adopts that mode. The web supports it on plain fields and decorated
+textareas; each replacement emits one input event and can be undone independently
+of preceding typing. Existing calls keep their behaviour. Paint-only declarations
+retain the browser's native textarea when value ranges and custom highlights are
+available; font/layout changes, hidden ranges and chips use the optional source
+editor. Copying from that editor preserves the selected source, including markers.
 
 ### Markdown: `markup`, `format`, `select`
 
