@@ -34,7 +34,8 @@ export function vocabulary(doc) {
       return;
     }
     const path = explicit ? prefix : `${prefix}::${item.name}`;
-    if (!paths.has(String(id)) || path.length < paths.get(String(id)).length) paths.set(String(id), path);
+    const previous = paths.get(String(id));
+    if (!previous || (item.inner.function ? path.length > previous.length : path.length < previous.length)) paths.set(String(id), path);
     for (const child of item.inner.module?.items ?? []) {
       if (index[child]?.visibility === 'public') walk(child, path);
     }
@@ -44,6 +45,19 @@ export function vocabulary(doc) {
   for (const [id, path] of paths) {
     const item = index[id];
     if (item.inner.type_alias) { entries.push({name:item.name, path, item, kind:'alias', replacement:type(item.inner.type_alias.type)}); continue; }
+    if (item.inner.function) {
+      entries.push({name:path.replace('exact_game::', ''), short:item.name, path, item, kind:'function'});
+      continue;
+    }
+    if (item.inner.trait) {
+      entries.push({name:item.name, path, item, kind:'trait'});
+      for (const id of item.inner.trait.items) {
+        const method = index[id];
+        if (method?.inner.function) entries.push({name:`${item.name}::${method.name}`, short:method.name,
+          path:`${path}::${method.name}`, item:method, kind:'trait verb'});
+      }
+      continue;
+    }
     if (!item.inner.struct && !item.inner.enum) continue;
     const impls = itemIds(item).map(id => index[id]?.inner.impl).filter(Boolean);
     const policy = impls.find(i => ['Component', 'Resource'].includes(traitName(i)));
@@ -91,7 +105,10 @@ function fieldDefault(entry, field) {
   if (!entry.defaults) return 'no Default implementation';
   const value = field.variant ? entry.default?.[field.variant] : entry.default;
   if (value === undefined) return `default uses another variant`;
-  return JSON.stringify(value?.[field.name] ?? (Array.isArray(value) ? value[Number(field.name)] : value));
+  let result = value !== null && Object.hasOwn(value, field.name) ? value[field.name] : value;
+  // Data's JSON sink encodes Option as a sequence; show the Rust field's meaning.
+  if (field.type.startsWith('Option<') && Array.isArray(result)) result = result.length ? result[0] : null;
+  return JSON.stringify(result);
 }
 function recipes(entry, doc) {
   const names = [entry.short ?? entry.name, entry.name.split('::')[0]];

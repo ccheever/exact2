@@ -1,8 +1,10 @@
 import {test, expect} from 'bun:test';
-import {readFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
 import {lookup} from './vocab.mjs';
-// Generate once before this integration test: bun game/vocab.mjs --json.
-const entries = JSON.parse(readFileSync(new URL('./target/vocab/game-vocab/cards.json', import.meta.url), 'utf8'));
+const cli = (...args) => spawnSync(process.execPath, ['game/vocab.mjs', ...args], {cwd:new URL('..', import.meta.url), encoding:'utf8'});
+const generated = cli('--json');
+if (generated.status !== 0) throw new Error(generated.stderr || String(generated.error));
+const entries = JSON.parse(generated.stdout);
 
 test('rustdoc vocabulary evaluates defaults and keeps public World and handle verbs', () => {
   const find = name => entries.find(e => e.name === name);
@@ -24,3 +26,12 @@ test('rustdoc vocabulary evaluates defaults and keeps public World and handle ve
     if (entry.defaults) expect(entry.default).toBeDefined();
   }
 });
+
+test('CLI exposes free functions, trait verbs and null defaults from current sources', () => {
+  for (const name of ['animation::step', 'audio::step', 'scene::follow', 'Game::tick']) {
+    expect(entries.find(e => e.name === name)?.arguments.length).toBeGreaterThan(0);
+  }
+  const result = cli('Environment.background');
+  expect(result.status, result.stderr || String(result.error)).toBe(0);
+  expect(result.stdout).toContain('Default: null');
+}, 180000);

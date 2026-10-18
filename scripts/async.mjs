@@ -119,6 +119,8 @@ export function checks(sha, since, selection = {}) {
     prepareCheck,
     ['test', 'env', ['EXACT_REQUIRED=1', `EXACT_FIELDNOTES_DIST=${resolve(DISTS, 'fieldnotes')}`, 'cargo', 'test', ...workspace, '--tests', '--no-fail-fast']],
     gameCheck,
+    ['game-recipes', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '-p', 'exact-game', '--locked', '--doc', '--no-fail-fast']],
+    ['game-vocab', 'bun', ['test', 'game/vocab.test.mjs']],
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
@@ -385,6 +387,11 @@ async function once(state) {
 }
 
 if (import.meta.main) {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    console.log('Usage: bun scripts/async.mjs [--once] [--from <rev>] [--worktree <dir>] [--interval <seconds>] [--branch <ref>] [--tier 1|2] [--newest] [--explain [<rev>]]');
+    console.log('Runs asynchronous workspace, game, recipe, vocabulary, web and platform checks. --help performs no work.');
+    process.exit(0);
+  }
   if (!existsSync(WT)) git(['worktree', 'add', '--detach', WT, BRANCH]);
   mkdirSync(STATE_DIR, { recursive: true });
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
