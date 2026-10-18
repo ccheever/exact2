@@ -161,4 +161,4 @@ received review is from the author's family, not a two-family refinement.
 
 ## Number allocation after base update
 
-[observed] The 2026-10-07 rebase onto d82fb6a introduced upstream LLP1106, the semantics prompt research. This mobile family was previously allocated1106 on its separate branch. The fetched corpus and reachable history reserve no higher number. The mobile family now uses1107, preserving child identifiers, review provenance and Draft statuses. Upstream LLP1106 and the current/foundation links are unchanged.
+[observed] The 2026-10-07 rebase onto d82fb6a introduced upstream LLP1106, the semantics prompt research. This mobile family was previously allocated1106 on its separate branch. The fetched corpus and reachable history reserve no higher number. At that historical checkpoint the mobile family used1107, preserving child identifiers, review provenance and Draft statuses. The current app-local continuation uses1130; see [the integration placement decision](1130.000-mobile-app-layout.decision.md#integration-base-and-document-placement-2026-10-18). Upstream LLP1106 and the current/foundation links are unchanged.

@@ -1,3 +1,4 @@
+use DiffFindView, DiffFindBar from "../diff/diff-find.contract"
 // The pull request panel's Code tab, measured against T3 Code 9c161462c9
 // (MIT, see LICENSE-T3) components/pullRequest/PullRequestCodeTab.tsx: the toolbar (the scope menu,
 // the counts and their caveats, whitespace, fold all, layout, wrapping, the file tree), the
@@ -44,6 +45,7 @@ shape PrOrphanGroup
   path: string
   threads: PrOrphanRef[]
 shape PrCodeView
+  find: DiffFindView
   available: bool
   mounted: bool
   key: string
@@ -124,6 +126,14 @@ component PrdCode
     act: action
     scrolled: action
   state draftText = ""
+  action findOp(op: string, value: string)
+    local(`pr-code-find-${op}`, ref, value)
+  action findJump(e: IntersectionObserverEntry)
+    if code.find.target != ""
+      if listId == "pr-surface-scroll-code"
+        scrollIntoView("pr-surface-scroll-code", code.find.target, offset=-48, behavior="instant")
+      else
+        scrollIntoView("pr-page-scroll-code", code.find.target, offset=-48, behavior="instant")
   action press(op: string, value: string)
     local(`pr-code-${op}`, ref, value)
   // DiffRow's commands (diff.contract): a hidden range's, and the gutter's drags (their own queued send, app.contract).
@@ -149,8 +159,12 @@ component PrdCode
       act("code-agent", `${surface}|${draftText}`)
       draftText = ""
   view
-    column width="100%" height="100%" min-height=0 testId="pull-request-code"
+    column width="100%" height="100%" min-height=0 testId="pull-request-code" pointerdown=local("pr-code-find-focus", ref, "") focusin=local("pr-code-find-focus", ref, "")
       PrdCodeToolbar(width=width, code=code, menuId=`${listId}-scope`, scheme=scheme, press=press)
+      if code.find.open
+        DiffFindBar(find=code.find, op=findOp, prefix="pr-code")
+        for navigation in [code.find.navigation] key=navigation
+          box intersect=findJump width=0 height=0 position="absolute" pointer-events="none"
       if code.phase == "loading"
         // DiffPanelLoadingState: the header skeleton under the toolbar.
         column flex=1 padding-top="0.25rem" gap="0.5rem" role="status" aria-label="Loading pull request diff..." testId="pull-request-code-loading"

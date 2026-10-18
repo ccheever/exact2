@@ -30,8 +30,8 @@ describe('storage cleanup (StorageSettings.tsx)', () => {
     expect(() => storagePatch(settings, '', 'unknown', 'true')).toThrow('Unsupported');
   });
   test('an environment with a stored worktree policy keeps it in step', () => {
-    const custom = { ...settings, worktreeCleanup: { mode: 'custom', rules: { worktreeOnDelete: true, worktreeAfterDays: 3, worktreeOnMerge: false, worktreeUnchanged: false } } };
-    expect(storagePatch(custom, '', 'worktreeOnMerge', 'true')).toEqual({ storageCleanup: { worktreeOnMerge: true }, worktreeCleanup: { mode: 'custom', rules: { worktreeOnDelete: true, worktreeAfterDays: 3, worktreeOnMerge: true, worktreeUnchanged: false } } });
+    const custom = { ...settings, worktreeCleanup: { mode: 'custom', rules: { worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeOnDelete: true, worktreeAfterDays: 3, worktreeOnMerge: false, worktreeUnchanged: false } } };
+    expect(storagePatch(custom, '', 'worktreeOnMerge', 'true')).toEqual({ storageCleanup: { worktreeOnMerge: true }, worktreeCleanup: { mode: 'custom', rules: { worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeOnDelete: true, worktreeAfterDays: 3, worktreeOnMerge: true, worktreeUnchanged: false } } });
     expect(storagePatch(custom, '', 'logsAfterDays', '2')).toEqual({ storageCleanup: { logsAfterDays: 2 } });
   });
   test('project mode inherit/off/custom keeps sibling override keys; rules need Custom', () => {
@@ -39,14 +39,14 @@ describe('storage cleanup (StorageSettings.tsx)', () => {
     expect(storagePatch(settings, 'p1', 'mode', 'custom')).toEqual({ projectSettingsOverrides: { p1: { defaultRuntimeMode: 'full-access', worktreeCleanup: { mode: 'custom', rules: resolveWorktreeCleanup(settings, 'p1') } } } });
     expect(() => storagePatch(settings, 'p1', 'worktreeOnDelete', 'true')).toThrow('Choose Custom');
     expect(() => storagePatch(settings, 'p1', 'logsAfterDays', '8')).toThrow('environment');
-    const customised = { ...settings, projectSettingsOverrides: { p1: { worktreeCleanup: { mode: 'custom', rules: { worktreeOnDelete: false, worktreeAfterDays: null, worktreeOnMerge: true, worktreeUnchanged: false } } } } };
-    expect(storagePatch(customised, 'p1', 'worktreeAfterDays', '5')).toEqual({ projectSettingsOverrides: { p1: { worktreeCleanup: { mode: 'custom', rules: { worktreeOnDelete: false, worktreeAfterDays: 5, worktreeOnMerge: true, worktreeUnchanged: false } } } } });
+    const customised = { ...settings, projectSettingsOverrides: { p1: { worktreeCleanup: { mode: 'custom', rules: { worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeOnDelete: false, worktreeAfterDays: null, worktreeOnMerge: true, worktreeUnchanged: false } } } } };
+    expect(storagePatch(customised, 'p1', 'worktreeAfterDays', '5')).toEqual({ projectSettingsOverrides: { p1: { worktreeCleanup: { mode: 'custom', rules: { worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeOnDelete: false, worktreeAfterDays: 5, worktreeOnMerge: true, worktreeUnchanged: false } } } } });
     expect(storagePatch(customised, 'p1', 'mode', 'inherit')).toEqual({ projectSettingsOverrides: { p1: null } });
     expect(() => storagePatch(settings, '', 'mode', 'off')).toThrow('Choose a project');
   });
   test('resolveWorktreeCleanup: off clears every rule, inherit reads storageCleanup', () => {
-    expect(resolveWorktreeCleanup({ ...settings, projectSettingsOverrides: { p1: { worktreeCleanup: { mode: 'off' } } } }, 'p1')).toEqual({ worktreeAfterDays: null, worktreeOnMerge: false, worktreeOnDelete: false, worktreeUnchanged: false });
-    expect(resolveWorktreeCleanup(settings, 'p2')).toEqual({ worktreeAfterDays: null, worktreeOnMerge: true, worktreeOnDelete: false, worktreeUnchanged: false });
+    expect(resolveWorktreeCleanup({ ...settings, projectSettingsOverrides: { p1: { worktreeCleanup: { mode: 'off' } } } }, 'p1')).toEqual({ worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeAfterDays: null, worktreeOnMerge: false, worktreeOnDelete: false, worktreeUnchanged: false });
+    expect(resolveWorktreeCleanup(settings, 'p2')).toEqual({ worktreeKeepWhen: 'uncommitted-changes', worktreeSettledAfterDays: null, worktreeAfterDays: null, worktreeOnMerge: true, worktreeOnDelete: false, worktreeUnchanged: false });
   });
 });
 
