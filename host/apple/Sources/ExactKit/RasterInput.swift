@@ -30,9 +30,14 @@ final class RasterInput: @unchecked Sendable {
     let url: URL
     let encodedBytes: Int
     private let temporary: Bool
-    private init(url: URL, encodedBytes: Int, temporary: Bool) {
-        self.url = url; self.encodedBytes = encodedBytes; self.temporary = temporary
+    /// The asset catalog's name for this file, when it is the launch image
+    /// (`ExactLaunchImageSource`, host/apple/assets.mjs) and a plain PNG:
+    /// decoded from the catalog at the size the launch screen shows it.
+    private(set) var catalog: String?
+    private init(url: URL, encodedBytes: Int, temporary: Bool, catalog: String? = nil) {
+        self.url = url; self.encodedBytes = encodedBytes; self.temporary = temporary; self.catalog = catalog
     }
+    private static let launchSource = Bundle.main.object(forInfoDictionaryKey: "ExactLaunchImageSource") as? String
     deinit { if temporary { try? FileManager.default.removeItem(at: url) } }
     static func open(_ name: String, resolver: AssetResolver, cancellation: RasterCancellation = RasterCancellation()) throws -> RasterInput {
         guard !cancellation.isCancelled else { throw URLError(.cancelled) }
@@ -62,7 +67,8 @@ final class RasterInput: @unchecked Sendable {
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
         guard values.isRegularFile == true, let count = values.fileSize,
               count > 0, count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
-        return RasterInput(url: url, encodedBytes: count, temporary: false)
+        return RasterInput(url: url, encodedBytes: count, temporary: false,
+                           catalog: name == launchSource ? "ExactLaunchImage" : nil)
     }
     /// A `data:` URL's bytes: base64 after `;base64`, else percent-decoded;
     /// whitespace and percent escapes in base64 forgiven, as browsers do.
@@ -86,6 +92,10 @@ final class RasterInput: @unchecked Sendable {
         let file = try FileHandle(forReadingFrom: url)
         defer { try? file.close() }
         let prefix = try file.read(upToCount: RasterMetadata.headerLimit) ?? Data()
+        if catalog != nil {
+            if let plain = RasterMetadata.plainPNG(prefix: prefix, encodedBytes: encodedBytes) { return plain }
+            catalog = nil
+        }
         return try RasterMetadata.read(prefix: prefix, encodedBytes: encodedBytes)
     }
     func bytes() throws -> Data {

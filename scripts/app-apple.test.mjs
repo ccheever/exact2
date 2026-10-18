@@ -122,6 +122,7 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
     assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
     assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
     assert.equal(keys.UILaunchScreen.UIImageName, 'ExactLaunchImage', 'the picture the launch screen centres on its colour');
+    assert.equal(keys.ExactLaunchImageSource, 'icon.png', 'an image of the picture decodes from the catalog');
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(bundle, 'Assets.car')], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const assets = JSON.parse(result.stdout);
