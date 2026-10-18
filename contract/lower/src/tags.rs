@@ -388,6 +388,17 @@ pub fn attr_valued(name: &str, value: &contract_syntax::Expr) -> Option<AttrTarg
     }
     attr(name)
 }
+/// The style rows an attribute writes: its own, a shorthand's longhands,
+/// none for a prop or a handler.
+pub fn rows(a: &contract_syntax::Attr) -> Vec<StyleId> {
+    match attr_valued(&a.name, &a.value) {
+        Some(AttrTarget::Styles(ids)) => ids.to_vec(),
+        Some(AttrTarget::Shorthand) => crate::shorthands::rows(&a.name).to_vec(),
+        Some(AttrTarget::Flex) => vec![StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis],
+        _ => Vec::new(),
+    }
+}
+
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
     if let Some(target) = crate::style_names::lookup(name) {

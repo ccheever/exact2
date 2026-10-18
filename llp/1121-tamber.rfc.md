@@ -3820,3 +3820,31 @@ Built to the approved plan (`~/x2theme/x2p4-s9e-plan.md`; theme2's 16:13 ruling 
   - A site the inspect table lacks gives the held answer no instance path (not the root's `[]`).
   - Tests: the runtime's id names a JS link; a role override named; `cargo fmt` over the new tests.
 - **After review round 3 (Astra RIGHT WITH CHANGES, Grok RIGHT):** the JS target checks each token reference on its own, so a role it names beside a token it can't name still leaves the answer `provenance: "incomplete"` (a test with both).
+
+### Stage 9, commit D2: `set-row` (draft for theme2)
+
+LLP 1122 D6's checked edit of one Contract row (`contract/cli/src/tamber_rows.rs`), on stage 8 D's
+`.contract` ownership.
+- **At a place:** `set-row {file, at {line, col}, sha256, row, state?, value}`, the
+  selection's row's `at`, `attr` and digest from D1's join. The file must be the one the tool saw
+  (its digest), the attribute there the one named (`row` is the attribute's name as written; with
+  `state`, a node's own state part's row, which `set-state` refuses), and a paint row written as one
+  value (a string, a token's or param's name as one, `"param.fill"`, or a number). Only the value is spliced; several places in one
+  file go together, from the last up, before the transaction's other writes to it.
+- **On a style:** `set-row {style, row, state?, value, file?}` edits a row the style writes (the
+  last that writes it, as lowering keeps), in its
+  own file (`file` named where two files declare it); with `state` it is `set-state`.
+- **Refused, each saying why and where instead:** a stale digest; another attribute at the place
+  (select again) or none (a tag's or derived row: write the row on the node); a longhand of a
+  shorthand written there (the shorthand and its current text named, so the tool composes the new
+  value); a layout row (D14) or a prop; a value written as an expression; a style row the style
+  doesn't write. Then `contract fmt`, the whole app compiled in memory (a failing candidate writes
+  nothing), the journal; the class is `rebuild`, and the inverse restores the preimage byte for
+  byte.
+- **Tests** (`tamber_serve_rows.rs`): one line in a formatted file and undo; a node's own `:active`
+  row; an unformatted file restored exactly; a stale digest and a failing candidate writing
+  nothing; each refusal; a class's row in its style's own file with two files declaring it.
+- **History:** a style's own row joins `history` and `revert` by (style, row), its value put back
+  with `set-row`; a row the commit added or removed is refused. A node's own attribute stays code:
+  it has no key across versions (QUEUE; theme2 17:18).
+
