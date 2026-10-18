@@ -3329,8 +3329,11 @@ The clone at `d2406b4` was run on exact2 `272f117e3`.
 sections) lands with LLP 1122 T5's `set-row`. A refuses an unread param, so either op only works
 paired with a row rewrite. Its `.contract` ownership infrastructure arrives with stage 8 D.
 
-**Queued:** a stale duration seen once on the JS loop after writes queued behind a slow first
-verifying build (not reproduced in three replays).
+**Queued, then closed:** a stale duration seen once on the JS loop after writes queued behind a
+slow first verifying build (not reproduced in three replays). Closed by rt1's JS-loop builds
+(`7a1c8e84f..bf2e295c2`): a build that started before a newer edit is stopped or set aside, never
+published; the clone's sequence (`Drawer.fade` 400ms then 250ms behind slow builds) now reads 0.25s
+on a fresh page.
 
 **Stage 7 is closed.**
 
