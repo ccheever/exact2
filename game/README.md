@@ -52,6 +52,8 @@ Run these commands from the Exact2 repository root. With the pinned Bun and rust
 installed, `bun scripts/exact.mjs setup` installs the SDK's Rust toolchains,
 wasm-bindgen, Binaryen and Bun dependencies. `setup --check` diagnoses missing or
 mismatched tools. See [offline setup](#offline-setup) for populating Cargo's cache.
+Cargo installs wasm-bindgen into `$CARGO_HOME/bin` (normally `~/.cargo/bin`);
+include that directory in `PATH` for web builds and the dev loop.
 
 ```sh
 bun game/new.mjs ./my-game
@@ -65,6 +67,10 @@ before building, if that port is in use. `--lan` serves a phone on this network.
 app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
+The first web build uses the size-tuned `web` profile and `wasm-opt`. After a
+Rust edit, the dev loop builds only the affected GPU module under `gpu-dev`,
+then runs wasm-bindgen and swaps it into the page without `wasm-opt`. The first
+such edit compiles that profile's dependencies; later edits reuse them.
 To explore the existing sample instead, run `bun game/dev.mjs beacons`.
 `game/dev.mjs` passes the dev server's flags through (`--port`, `--lan`, and
 `--allow-host <name>`, repeatable, to serve the game through a tunnel such as
@@ -633,9 +639,11 @@ the core’s vendored patches and `host-dev` profile; the existing SDK test chec
 those against the root workspace. Web builds retain the game’s non-contracting
 floating-point flag alongside the core’s path-remapping flags.
 
-Linux development uses `gpu-dev` with separate completed host and GPU receipts;
+Linux proofs use `gpu-dev` with separate completed host and GPU receipts;
 a logic-only edit can rebuild the GPU alone. Completed development receipts bind
-the whole file. Release/production bakes bind the product digest: a signed 64-bit
+the whole file. `bun proof.mjs linux --build-only` builds this host/module pair.
+The generic `bun exact.mjs linux` verb builds only the host, under `host-dev`.
+Release/production bakes bind the product digest: a signed 64-bit
 Mach-O leaves out its signature and normalizes the signature and `__LINKEDIT` size
 fields; other files hash whole. Generated profiles disable floating-point contraction; `gpu-dev` disables
 debug assertions and overflow checks as release does. These profiles come from `game/Cargo.toml`, not authored per-game host code.

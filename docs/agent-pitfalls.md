@@ -1420,6 +1420,9 @@ screen, 2026-10-16.)
 
 ## Games
 
+- **`exact.mjs linux` builds the host, not the game's GPU module.** For the
+  `gpu-dev` host/module pair, use `bun proof.mjs linux --build-only` from the
+  game directory. See [game build profiles](../game/README.md#exact2-integration).
 - **A socket follower's local pose is `SocketFollow::offset`.** Its `Transform`
   is the fallback when the socket cannot resolve; rotating that fallback does not
   rotate a resolved attachment. Use `SocketFollow.offset.rotation` for the local
