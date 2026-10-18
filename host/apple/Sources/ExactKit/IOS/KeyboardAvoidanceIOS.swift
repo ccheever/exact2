@@ -25,6 +25,7 @@ extension Presenter {
     /// With `rect`, in the node's space, only that part of it is shown.
     func reveal(_ node: NodeView?, rect: CGRect? = nil) {
         guard let node, node.window != nil else { return }
+        if surface(containing: node)?.kind == .popover { menus.rehostPopovers() }
         var v: UIView? = node.superview, nearest = true
         while let cur = v {
             var target: UIScrollView? = cur is ScrollView || cur is GroupedScroller ? cur as? UIScrollView : nil
@@ -138,8 +139,15 @@ extension Presenter {
         var visible = sv.bounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset)
         visible.size.height = max(0, visible.height - covered)
         var r = field.insetBy(dx: 0, dy: -8)
-        if keep, let span = Self.kept(node, field: field, in: sv), span.height + 16 <= visible.height {
-            r = CGRect(x: field.minX, y: span.minY, width: field.width, height: span.height).insetBy(dx: 0, dy: -8)
+        if keep, let span = Self.kept(node, field: field, in: sv) {
+            if span.height + 16 <= visible.height {
+                r = CGRect(x: field.minX, y: span.minY, width: field.width, height: span.height).insetBy(dx: 0, dy: -8)
+            } else if span.maxY > field.maxY {
+                // Too tall to show whole: the field at the top and as much of
+                // what follows it as fits, its hint first.
+                let end = min(span.maxY, field.minY + visible.height - 16)
+                r = CGRect(x: field.minX, y: field.minY, width: field.width, height: max(field.height, end - field.minY)).insetBy(dx: 0, dy: -8)
+            }
         }
         var o = sv.contentOffset
         if r.maxY > visible.maxY { o.y += r.maxY - visible.maxY } else if r.minY < visible.minY { o.y -= visible.minY - r.minY }

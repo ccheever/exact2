@@ -1,5 +1,5 @@
-// `state <name>` (agent-inspect.mjs `stateOp`, LLP 1116.007 D3.9): a view's testId keeps its meaning; a name that is no view
-// but a state, derive or resource (or a field of the record) reads that, down a dotted path, as `expect state` does.
+// `state <name>` (agent-inspect.mjs `stateOp`, LLP 1116.007 D3.9): a state, derive or resource (or a field of the record)
+// reads by name, down a dotted path, as `expect state` does, even where a view carries the name; a plain view's is the record.
 import { test, expect } from 'bun:test';
 import { render, renderTrace, stateOp } from './agent-inspect.mjs';
 
@@ -11,16 +11,29 @@ test('log rendering skips canvas error rows and preserves journal order', () => 
   expect(render('logs', { lines: [], world: [error] })).toBe('(nothing new)');
 });
 
-const record = { slots: { liked: true, draft: '' }, derives: { left: 2 }, resources: { groceries: [{ title: 'Eggs', done: false }, { title: 'Milk', done: true }], weather: { temp: 21 } }, mediaSession: { owner: null }, clock: 0 };
-// A session whose views are `like` (a testId); asking `state` of anything else is refused as a missing view, as the driver's is.
+const record = { slots: { liked: true, draft: '' }, derives: { left: 2 }, resources: { groceries: [{ title: 'Eggs', done: false }, { title: 'Milk', done: true }], weather: { temp: 21 } }, mediaSession: { owner: null }, transport: { state: 'stopped' }, clock: 0 };
+// A session whose views are `like` and `transport` (testIds); asking `state` of anything else is refused as a missing view, as
+// the driver's is. A view's answer is the whole record, as every host's is for a view that is not a world.
 const session = () => {
   const asked = [];
   return { asked, state: async (target) => {
     asked.push(target);
-    if (target != null && target !== 'like') throw new Error(`no view matches ${target} by testId, label or text; targets here: like`);
+    if (target != null && target !== 'like' && target !== 'transport') throw new Error(`no view matches ${target} by testId, label or text; targets here: like, transport`);
     return record;
   } };
 };
+
+test('a view named like a section of the record reads that section, once', async () => {
+  const s = session();
+  expect(await stateOp(s, ['transport'])).toEqual({ state: 'stopped' }); // a sequencer's `transport` bar: 142 KB was the record
+  expect(s.asked).toEqual(['transport']);
+  expect(await stateOp(session(), ['transport.state'])).toBe('stopped');
+});
+
+test('a world\'s view keeps its own answer: it has no slots', async () => {
+  const world = { tick: 3, entities: [{ name: 'transport' }] };
+  expect(await stateOp({ state: async () => world }, ['transport'])).toBe(world);
+});
 
 test('a view keeps `state <testId>`; a state, derive, resource or field of the record reads by name and dotted path', async () => {
   expect(await stateOp(session(), [])).toBe(record);

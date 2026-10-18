@@ -77,7 +77,7 @@ mod tamber;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
-use exact_plan::{EventKind, Plan};
+use exact_plan::EventKind;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
 use height_drag::{HeightDrag, HeightHandle};
@@ -96,6 +96,8 @@ use layout::{content_size, published_content_box};
 mod resize;
 #[path = "scale.rs"]
 mod scale;
+#[path = "snapshot.rs"]
+pub(crate) mod snapshot;
 pub(crate) use scale::LaunchLayout;
 #[cfg(test)]
 #[path = "spacing_tests.rs"]
@@ -223,6 +225,9 @@ pub struct Host<D: DataSource> {
     /// or grants that do not parse).
     secrets: Option<Box<dyn crate::store::KeptStore>>,
     data_activated: bool,
+    store_refresh_pending: bool,
+    store_activation_pending: bool,
+    store_retry_names: Vec<String>,
     /// The session's wake (`listen`), which a pending activation leaves with the data source.
     preload_wake: exact_runner::PreloadWake,
     doc_watch: Option<crate::doc_watch::DocWatch>,
@@ -240,22 +245,7 @@ pub struct Host<D: DataSource> {
     closed: layout::closed::Closed,
 }
 
-/// A plan's bytes at boot: copied from while decoding, or linked into the
-/// program, whose data pool the decoded plan then keeps in place.
-#[derive(Clone, Copy)]
-pub(crate) enum PlanBytes<'a> {
-    Copied(&'a [u8]),
-    Static(&'static [u8]),
-}
-
-impl PlanBytes<'_> {
-    fn decode(self) -> Result<Plan, exact_plan::PlanError> {
-        match self {
-            PlanBytes::Copied(bytes) => Plan::decode(bytes),
-            PlanBytes::Static(bytes) => Plan::decode_static(bytes),
-        }
-    }
-}
+pub(crate) use crate::plan_bytes::PlanBytes;
 
 impl<D: DataSource> Host<D> {
     /// Boot from plan bytes with the app's text measurer and viewport (points):
@@ -416,6 +406,13 @@ impl<D: DataSource> Host<D> {
             }
         }
         let plan = plan_bytes.decode().map_err(HostError::Plan)?;
+        let entry_props = match plan_bytes {
+            PlanBytes::Entry(_, _, Some(bytes)) => {
+                Some(snapshot::props(&plan, bytes).map_err(HostError::Layout)?)
+            }
+            _ => None,
+        };
+        let carried = entry_props.as_ref().or(carried);
         // Before anything is built from it (LLP 1047.001 D5).
         if let Some(names) = crate::link::missing(&plan, crate::link::linked()) {
             return Err(HostError::Unlinked(names));
@@ -542,6 +539,9 @@ impl<D: DataSource> Host<D> {
             viewport: (viewport.width as f32, viewport.height as f32),
             now_ms: 0.0,
             data_activated: false,
+            store_refresh_pending: false,
+            store_activation_pending: false,
+            store_retry_names: Vec::new(),
             preload_wake: Default::default(),
             doc_watch: None,
             secrets,
@@ -788,6 +788,7 @@ impl<D: DataSource> Host<D> {
     /// the app is otherwise unaffected, as a web app is when `setItem`
     /// throws: the next launch will not remember.
     fn persist(&mut self) {
+        let mut changed = self.runner.data().take_storage_changed();
         for line in self.kept_failures() {
             self.runner.log(line);
         }
@@ -797,7 +798,12 @@ impl<D: DataSource> Host<D> {
             };
             if let Err(e) = secrets.write(&w) {
                 self.runner.log(format!("store {} failed: {e}", w.name));
+            } else {
+                changed = true;
             }
+        }
+        if changed {
+            crate::store::widget_changed(self.runner.data_ref().app_id());
         }
     }
 

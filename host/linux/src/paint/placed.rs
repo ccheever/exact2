@@ -52,6 +52,7 @@ impl Painter {
             scene: walk.scene,
             boxes: Vec::new(),
             text: BTreeMap::new(),
+            fields: HashMap::new(),
             skip: None,
             replay: None,
             ranks: Rc::clone(&walk.ranks),
@@ -60,6 +61,7 @@ impl Painter {
         };
         painter.node(&mut child_walk, id, Transform::identity(), (f.x, f.y), None);
         walk.text.extend(child_walk.text);
+        walk.fields.extend(child_walk.fields);
         if let Ok(source) = painter.backend.finish() {
             if let Some((pixels, rect)) =
                 placement::warp_clipped(&source, h, clip_depth, self.scale, self.viewport)

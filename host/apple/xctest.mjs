@@ -8,6 +8,40 @@ import { resolve } from 'node:path';
 
 const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...opts });
 
+/** The fixtures tests boot (scripts/fixtures), compiled at this commit with `run` and named in `env` as `<prefix>_<KEY>_PLAN`:
+ *  a plan carries the kernel schema's digest, so one compiled once and kept in a test goes stale. The snapshot driver's
+ *  entries (LLP 1126.000 WP4) likewise: Caltrain's and the open-question fixture's, each an entry plan, compiled from a
+ *  copy whose manifest carries the test app's identity (`appId`), as the native fixture is: a plan boots in no other app. */
+export function compileFixtures(root, run, env, dir, prefix, appId) {
+  const contract = (args) => run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', ...args]);
+  for (const [name, key] of [['store-refresh', 'STORE_REFRESH'], ['headless', 'HEADLESS'], ['headless-markdown', 'HEADLESS_MARKDOWN'], ['headless-hidden-markdown', 'HEADLESS_HIDDEN_MARKDOWN'], ['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL'], ['cover-scroll', 'COVER_SCROLL']]) {
+    contract([resolve(root, `scripts/fixtures/${name}.contract`), '-o', env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`)]);
+  }
+  // HeldStateTests' own (a card that presses over a flat leaf), beside them.
+  contract([resolve(root, 'host/apple/tests/fixtures/held-state.contract'), '-o', env[`${prefix}_HELD_STATE_PLAN`] = resolve(dir, 'held-state.plan')]);
+  const question = 'host/apple/tests/ExactKitTests/SnapshotFixtures/open-question';
+  const refusing = resolve(dir, 'entries/refusing');
+  mkdirSync(refusing, { recursive: true });
+  writeFileSync(resolve(refusing, 'app.contract'), 'shape Props\n  title: string\ncomponent App\n  view\n    text "App"\ncomponent Card\n  props\n    title: string\n  view\n    text title\n');
+  writeFileSync(resolve(refusing, 'app.json'), JSON.stringify({ name: 'Refusing refresh', app: { id: appId, name: 'Refusing refresh' }, widgets: [{ kind: 'refusing', families: ['systemSmall'], component: 'Card', props: 'Props', refresh: 'nextTrains', preview: { title: 'Preview' } }] }));
+  // Caltrain's nextTrains answers a different Props shape: the refresh must refuse.
+  contract([resolve(refusing, 'app.contract'), '--entry', 'refusing', '-o', env[`${prefix}_SNAPSHOT_REFUSING_PLAN`] = resolve(dir, 'refusing.plan')]);
+  const copies = new Map();
+  for (const [app, kind, key] of [['apps/caltrain', 'next-trains', 'SNAPSHOT_TRAINS'], [question, 'question-small', 'SNAPSHOT_QUESTION_SMALL'],
+    [question, 'question-medium', 'SNAPSHOT_QUESTION_MEDIUM'], [question, 'question-rectangular', 'SNAPSHOT_QUESTION_RECTANGULAR'], [question, 'question-adaptive', 'SNAPSHOT_QUESTION_ADAPTIVE'], [question, 'gradient-card', 'SNAPSHOT_GRADIENT']]) {
+    let copy = copies.get(app);
+    if (!copy) {
+      copy = resolve(dir, 'entries', app.split('/').pop());
+      mkdirSync(copy, { recursive: true });
+      for (const file of readdirSync(resolve(root, app)).filter(f => f.endsWith('.contract'))) cpSync(resolve(root, app, file), resolve(copy, file));
+      const manifest = JSON.parse(readFileSync(resolve(root, app, 'app.json'), 'utf8'));
+      writeFileSync(resolve(copy, 'app.json'), JSON.stringify({ ...manifest, $schema: undefined, id: appId, app: { ...manifest.app, id: appId } }));
+      copies.set(app, copy);
+    }
+    contract([resolve(copy, 'app.contract'), '--entry', kind, '-o', env[`${prefix}_${key}_PLAN`] = resolve(dir, `${kind}.plan`)]);
+  }
+}
+
 /** The Swift host tests on this Mac, built under `scratch`: each test class
  *  in an `xctest` process of its own, as many at once as there are cores, so
  *  a crash ends its class and not the run. The classes whose files use what

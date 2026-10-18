@@ -18,7 +18,7 @@ use std::{
 /// directories even if their names are subsequently moved or replaced.
 #[derive(Clone, Debug)]
 pub struct AppDirectories {
-    roots: Arc<[File; 3]>,
+    roots: Arc<[Option<File>; 3]>,
     paths: Arc<[std::path::PathBuf; 3]>,
 }
 fn error(e: impl std::fmt::Display) -> HostError {
@@ -246,30 +246,47 @@ impl AppDirectories {
         cache: impl AsRef<Path>,
         tmp: impl AsRef<Path>,
     ) -> Result<Self, HostError> {
-        fn root(path: &Path) -> Result<File, HostError> {
+        Self::open_roots([data.as_ref(), cache.as_ref(), tmp.as_ref()], false)
+    }
+    /// Pin the roots already published by the app without creating any. A
+    /// missing root stays absent for this snapshot, and reads fail as missing
+    /// files so the data module can apply its first-launch behavior (LLP 1126 D8).
+    pub fn snapshot(
+        data: impl AsRef<Path>,
+        cache: impl AsRef<Path>,
+        tmp: impl AsRef<Path>,
+    ) -> Result<Self, HostError> {
+        Self::open_roots([data.as_ref(), cache.as_ref(), tmp.as_ref()], true)
+    }
+    fn open_roots(paths: [&Path; 3], missing_ok: bool) -> Result<Self, HostError> {
+        let mut roots = [None, None, None];
+        let mut physical = paths.map(Path::to_owned);
+        for (i, path) in paths.iter().enumerate() {
             if !path.is_absolute() {
                 return Err(error("app directory must be absolute"));
             }
-            let file = File::open(path).map_err(error)?;
+            let file = match File::open(path) {
+                Ok(file) => file,
+                Err(e) if missing_ok && e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(error(e)),
+            };
             if !file.metadata().map_err(error)?.is_dir() {
                 return Err(error("app root is not a directory"));
             }
-            Ok(file)
+            physical[i] = std::fs::canonicalize(path).map_err(error)?;
+            roots[i] = Some(file);
         }
-        let roots = [
-            root(data.as_ref())?,
-            root(cache.as_ref())?,
-            root(tmp.as_ref())?,
-        ];
-        let paths = [
-            std::fs::canonicalize(data).map_err(error)?,
-            std::fs::canonicalize(cache).map_err(error)?,
-            std::fs::canonicalize(tmp).map_err(error)?,
-        ];
         Ok(Self {
             roots: Arc::new(roots),
-            paths: Arc::new(paths),
+            paths: Arc::new(physical),
         })
+    }
+    fn root(&self, index: usize) -> Result<File, HostError> {
+        self.roots[index]
+            .as_ref()
+            .ok_or_else(|| error(io::Error::from(io::ErrorKind::NotFound)))?
+            .try_clone()
+            .map_err(error)
     }
     fn parse<'a>(&self, path: &'a str) -> Result<(usize, Vec<&'a str>), HostError> {
         let tail = path
@@ -296,7 +313,7 @@ impl AppDirectories {
         let (leaf, parents) = parts
             .split_last()
             .ok_or_else(|| error("operation needs a path below the app root"))?;
-        let mut dir = self.roots[index].try_clone().map_err(error)?;
+        let mut dir = self.root(index)?;
         for part in parents {
             dir = directory(&dir, part).map_err(error)?;
         }
@@ -328,7 +345,7 @@ impl AppDirectories {
     fn open(&self, path: &str) -> Result<File, HostError> {
         let (index, parts) = self.parse(path)?;
         if parts.is_empty() {
-            return self.roots[index].try_clone().map_err(error);
+            return self.root(index);
         }
         let (parent, leaf) = self.open_parent(path)?;
         open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK).map_err(error)
@@ -444,7 +461,7 @@ impl AppDirectories {
             }
             FsOp::Mkdir => {
                 let (i, parts) = self.parse(path)?;
-                let mut dir = self.roots[i].try_clone().map_err(error)?;
+                let mut dir = self.root(i)?;
                 for part in parts {
                     mkdir(&dir, part).map_err(error)?;
                     dir = directory(&dir, part).map_err(error)?;

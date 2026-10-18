@@ -1,0 +1,24 @@
+# The Exact side of the Material oracle (LLP 1115.001.001 D4): each specimen of
+# host/android/reference/specimens.json drawn headless with Android's look, as
+# the reader would show it, beside what the oracle compares. No shipped host
+# has this door.
+[package]
+name = "material-specimens-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Material oracle's specimens, drawn by the Linux presenter with the Android look"
+publish = false
+
+[[bin]]
+name = "material-specimens"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+contract = { path = "../../../contract/cli" }
+exact-kernel = { path = "../../../kernel" }
+exact-linux = { path = "../../../host/linux" }
+serde_json = "1.0"
+tiny-skia = "0.12"

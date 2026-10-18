@@ -15,6 +15,8 @@ impl<D: DataSource> Host<D> {
         };
         let (batch, live, unsupported) = match self.runner.apply_live(&edit) {
             Ok(applied) => {
+                // A scrub's frame shows with no transition (LLP 1121 D13).
+                let _still = edit.scrub.is_some().then(exact_kernel::motion::still);
                 let mut batch = crate::batch::Batch::new();
                 if applied.roles {
                     self.roles_moved(&mut batch);

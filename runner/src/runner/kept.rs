@@ -407,6 +407,93 @@ impl<D: DataSource> Runner<D> {
         false
     }
 
+    /// A peer committed to the app's store (LLP 1126.001 WP12). The host
+    /// supplies a fresh snapshot; only store readers and persisted slots
+    /// are refreshed. Ordinary window state and pure resources stay local.
+    pub fn store_changed(
+        &mut self,
+        snapshot: Vec<(String, Vec<u8>)>,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        let result = self.restore_store(snapshot).and_then(|change| {
+            if !change.any {
+                return Ok(None);
+            }
+            if change.read {
+                let readers = self.store_readers();
+                self.owe(&readers);
+                self.refresh_next.extend(readers);
+            }
+            if self.poisoned {
+                return Err(RunnerError::Poisoned);
+            }
+            self.settle(false)
+                .and_then(|_| self.gate_step())
+                .and_then(|_| self.update())
+                .map(Some)
+        });
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_next(result.is_ok());
+        match result {
+            Ok(receipt) => {
+                if let Some(receipt) = &receipt {
+                    self.log_outcome("store changed", &Ok(receipt.clone()), was_poisoned);
+                }
+                Ok(receipt)
+            }
+            Err(error) => {
+                let refused = Err(error);
+                self.log_outcome("store changed", &refused, was_poisoned);
+                refused.map(Some)
+            }
+        }
+    }
+
+    /// Adopt a pre-pixel change without asking; `data_ready_after_store`
+    /// performs the activation's one settlement, including queued sends.
+    pub fn adopt_store(
+        &mut self,
+        snapshot: Vec<(String, Vec<u8>)>,
+    ) -> Result<crate::StoreChange, RunnerError> {
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        let result = self.restore_store(snapshot);
+        self.conclude(checkpoint, &result, was_poisoned);
+        result
+    }
+
+    fn restore_store(
+        &mut self,
+        snapshot: Vec<(String, Vec<u8>)>,
+    ) -> Result<crate::StoreChange, RunnerError> {
+        let change = self.store.refresh_snapshot(snapshot);
+        if !change.any {
+            return Ok(change);
+        }
+        for i in 0..self.slots.len() {
+            if self.plan.slots[i].persist {
+                let initial = self.eval(self.plan.slots[i].init, &[], &[])?;
+                self.slots[i] = self.restore_persisted(i, initial);
+            }
+        }
+        Ok(change)
+    }
+
+    fn store_readers(&self) -> Vec<usize> {
+        self.store_readers
+            .iter()
+            .enumerate()
+            .filter_map(|(i, reads)| {
+                (*reads
+                    && !exact_plan::runner_owned_source(
+                        self.plan.str(self.plan.resources[i].source),
+                    ))
+                .then_some(i)
+            })
+            .collect()
+    }
+
     /// The data source is ready — a host loaded its TypeScript module after
     /// the first pixel (LLP 1027 D4): every deferred resource shown
     /// from a placeholder is asked again, and every send made before now
@@ -416,15 +503,30 @@ impl<D: DataSource> Runner<D> {
     /// commit, and a refusal fails the resource, which `refresh` asks again,
     /// as after a failed reply.
     pub fn data_ready(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.data_ready_after_store(crate::StoreChange::default())
+    }
+
+    /// Activation after adopting a peer's pre-pixel store revision.
+    pub fn data_ready_after_store(
+        &mut self,
+        change: crate::StoreChange,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         if !self.data.ready() {
             self.log("data_ready: the data source is not ready");
             return Ok(None);
         }
-        let stale: Vec<usize> = (0..self.stale.len()).filter(|i| self.stale[*i]).collect();
+        let readers = if change.read {
+            self.store_readers()
+        } else {
+            Vec::new()
+        };
+        let stale: Vec<usize> = (0..self.stale.len())
+            .filter(|i| self.stale[*i] || readers.contains(i))
+            .collect();
         // Writes made before the source was ready are overlaid from here
         self.overlays.iter_mut().for_each(|o| *o = None);
         if self.unsent.is_empty() {
-            if stale.is_empty() && self.writes.records.is_empty() {
+            if !change.any && stale.is_empty() && self.writes.records.is_empty() {
                 return Ok(None);
             }
             self.owe(&stale);
@@ -507,10 +609,13 @@ impl<D: DataSource> Runner<D> {
             let target = super::Target::Mutation(m);
             let name = self.plan.str(self.plan.mutations[m].name).to_string();
             self.mutation_requests += 1;
-            let refused = match self
+            let answer = self
                 .data
-                .answer_for(target, &mut self.store, &source, &args)
-            {
+                .answer_for(target, &mut self.store, &source, &args);
+            // What its turn sent as an answer (LLP 1016.000 D7, the amendment
+            // of 2026-10-18).
+            self.stage_answer(target);
+            let refused = match answer {
                 Ok(super::Answer::Now(value))
                     if self.conforms(&value, self.plan.mutations[m].ty) =>
                 {

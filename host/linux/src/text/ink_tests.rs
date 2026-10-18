@@ -8,13 +8,23 @@ use tiny_skia::{Color, FillRule, PathBuilder, Rect};
 pub(super) mod messages_envelope_model;
 
 fn engine() -> TextEngine {
-    TextEngine::with_catalog(catalog::Catalog::installed_with(
-        Path::new(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/fixtures/fonts/assets"
-        )),
+    TextEngine::from_font_files(
+        &[
+            Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../scripts/fixtures/fonts/assets"
+            )),
+            Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fonts/NotoColorEmoji-subset.ttf"
+            )),
+            Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fonts/NotoSansCJKsc-subset.otf"
+            )),
+        ],
         "DejaVu Sans",
-    ))
+    )
 }
 
 fn spec(text: &str) -> Spec {
@@ -279,6 +289,17 @@ fn fallback_cjk_combining_and_emoji_match_full_paint() {
     let mut engine = engine();
     let s = spec(&"Latin e\u{301} 中日 🦀 🌈\n".repeat(80));
     let p = engine.layout(&s, Some(230.0));
+    let mut cjk = 0;
+    for run in p.layout_runs() {
+        for glyph in run.glyphs {
+            let cluster = &run.text[glyph.start as usize..glyph.end as usize];
+            assert_ne!(glyph.glyph_id, 0, "missing glyph for {cluster:?}");
+            if cluster == "中" || cluster == "日" {
+                cjk += 1;
+            }
+        }
+    }
+    assert_eq!(cjk, 160, "both CJK characters shape on every hard line");
     for y in [0.0, -100.375, -p.height + 80.0] {
         compare(&mut engine, &p, &palette(), View::at(y, 1.25), None);
     }
@@ -333,7 +354,7 @@ fn actual_color_bitmap_placement_matches_full_paint() {
         let mut catalog = p.source.catalog.borrow_mut();
         let slots = ink::slots(&mut catalog, p.lines());
         let (key, _, _) = ink::physical(g, slots[g.face as usize], (0.0, 0.0), 1.25);
-        catalog.renders_color(key)
+        catalog.renders_color_bitmap(key)
     });
     assert!(color, "fixture must exercise an actual Swash color bitmap");
     for y in [-0.625, -119.375, -p.height + 70.25] {

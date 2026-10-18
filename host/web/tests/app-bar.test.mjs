@@ -133,6 +133,36 @@ check('a pushed route draws Back at its app bar\'s leading edge, and goes back a
   expect(await evaluate(`select('3'); press('r3'); press('r2'); calls.splice(0)`)).toEqual(['pressed r3']);
 }), 60000);
 
+check('Escape closes a sheet as its Cancel does; with no Cancel the root names, as the app bar\'s Back does', () => inChrome(async (evaluate, call) => {
+  const escape = async () => {
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    return evaluate('calls.splice(0)');
+  };
+  await evaluate(`document.querySelector('#r4 #back').addEventListener('click', () => calls.push('pressed r4')); select('4'); calls.splice(0)`);
+  expect(await escape()).toEqual(['pressed r4']);
+  // A Cancel whose id the root does not name (LLP 1129's probe): the runner's own back, as iOS's swipe down takes it.
+  await evaluate(`document.querySelector('#r4 #back').id = 'cancel'; select('4')`);
+  expect(await escape()).toEqual(['host back 4']);
+  // The innermost shown sheet is the one Escape closes, and one that closes only by its own buttons stays: a sheet
+  // inside it that says `closedby="none"` is not passed over for this one.
+  await evaluate(`document.getElementById('r4').insertAdjacentHTML('beforeend', '<main id="inner" navigationKey="31" navigationBack="back"><div navigationKey="30"></div><div navigationKey="31" navigationPresentation="modal" closedby="none"></div></main>'); select('4')`);
+  expect(await escape()).toEqual([]);
+  await evaluate(`document.getElementById('inner').remove(); select('4')`);
+  // A sheet that is not shown is passed over for the one that is.
+  await evaluate(`document.getElementById('r4').insertAdjacentHTML('beforeend', '<div id="hidden" style="visibility:hidden"><main navigationKey="51" navigationBack="back"><div navigationKey="50"></div><div navigationKey="51" navigationPresentation="modal"></div></main></div>'); select('4')`);
+  expect(await escape()).toEqual(['host back 4']);
+  await evaluate(`document.getElementById('hidden').remove(); select('4')`);
+  // Nor an inert one.
+  await evaluate(`nav.inert = true`);
+  expect(await escape()).toEqual([]);
+  await evaluate(`nav.inert = false; document.getElementById('r4').setAttribute('closedby', 'none'); select('4')`);
+  expect(await escape()).toEqual([]);
+  // A sheet with nothing beneath it is closed by its named control.
+  await evaluate(`select('2'); document.getElementById('exact-root').insertAdjacentHTML('beforeend', '<main navigationKey="40" navigationBack="back"><div navigationKey="40" navigationPresentation="fullscreen"><button id="back">Close</button></div></main>'); document.querySelector('[navigationKey="40"] > #back').addEventListener('click', () => calls.push('pressed 40'))`);
+  expect(await escape()).toEqual(['pressed 40']);
+}), 60000);
+
 check('a block link of text is in the accent and points; the author\'s look wins', () => inChrome(async (evaluate) => {
   // A link of text (or a symbol and text) is in the accent, the app's when it names one; an authored colour, a row
   // inside it, a role or a buttonStyle keeps the author's look; an inline run keeps its LinkText row. Every link points.

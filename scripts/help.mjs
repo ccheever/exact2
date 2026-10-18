@@ -42,9 +42,10 @@ const DRIVE = [
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
+  ['--family <name> · --mode fullColor|accented|vibrant · --scheme light|dark · --props <json>', 'widget only: variant and props; --size large|xxxl is its text size'],
   ['--json', 'one compact JSON object per op reply, one per line (default: short text)'],
 ];
-const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json'];
+const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json', '--family <name>', '--mode <name>', '--scheme <name>', '--props <json>'];
 // The drive flags a first build reaches for; `--help all` shows the rest.
 const DRIVE_FIRST = ['--storage', '--size', '--chrome', '--epoch', '--sim', '--json'];
 const naming = (names, keep) => ([row]) => specs(row).some((spec) => names.includes(name(spec))) === keep;
@@ -53,7 +54,7 @@ const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; m
 
 // host/apple/build.mjs's flags, which `ios` and `mac` both run: each documents its own, and takes the rest.
 const APPLE = ['--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--release', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
-  '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>'];
+  '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>', '--widget-gallery'];
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
@@ -126,8 +127,9 @@ store, after its first data has landed; its leading lines (size, epoch, fail fet
 override flags.
 Server   runs server.ts on DB=.exact/test/db.sqlite; refuses a live server or an entry ignoring DB.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
-Backend  start snapback4 dev on app.ts’s origin’s port; checked before launch. EXACT_PORT is the page’s.
-Lines    tap, type, expect text|tree|state|disabled, clock data|settle|+<ms>, reload, back, fail|pass
+Backend  test web never starts a Snapback backend: start snapback4 dev on app.ts’s selected origin’s port
+         first; checked before launch. The app's own server.ts is managed as above. EXACT_PORT is the page’s.
+Lines    tap, type, expect text|tree|state|disabled|refusal, clock data|settle|+<ms>, reload, back, fail|pass
          fetch, request <METHOD> "/path" [json] [as <persona>] [expect <status>]: docs/recipes/tests.md;
          all: docs/contract-grammar.md "Authored tests".`,
     bodyAll: `A phone's build is ios --device's.
@@ -137,7 +139,7 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     example: 'bun exact.mjs test ios tests/*.test.contract --size 390x844',
   },
   agent: {
-    line: 'drive the app as a person would: tree, tap, type, state, screenshot, clock … on a host',
+    line: 'drive an app: tree, tap, type, state, screenshot, clock …',
     usage: 'bun exact.mjs agent [web|ios|macos|linux|android] [flags] <op> [<op> …]',
     common: ['agent [web|ios] [--storage <name>] [--size <w>x<h>] [--sim <name>] <op> …',
       '  each op one quoted argument: "tap <target>" "type <target> <text>" "clock data|settle|+<ms>"',
@@ -145,18 +147,17 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Builds if stale, launches, runs each quoted op on the agent's clock and closes.
-No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's.
-An app's server.ts runs for the drive, its database per --storage.
+    body: `An app's server.ts runs for the drive, its database per --storage. Widgets: ios|macos widget <entry> tree|state|screenshot|clock.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
-  state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done
+  state [<name>] [--full]  a state, resource or field, dotted: groceries.0.done; >8 KB: sizes
   tap <target> [contextmenu|hover|drag <dx> <dy>|…] · held: "tap <t> down" "screenshot <png>" "tap up"
   type <target> <text>|key <Name>   (a select, date or checkbox: its value)
   clock data|settle|+<ms> [real]    land in-flight work · end transitions
   check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
   screenshot <png> compare <ref> · prefer <feature> <value> · fail|pass fetch <prefix>`,
-    bodyAll: `Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
+    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's.
+Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {
@@ -181,9 +182,10 @@ relaunch, then "verify: clean" or "verify: N problems". A clean verify is done. 
 screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme,
 each test's named by the test, the relaunch's): look at them when the features work.
 Large    each of those screens again at the largest text size (ios: the simulator's, put back
-         after; web: a 53 px root, iOS's body there, at 390x844): what spills (past the edge,
-         squeezed, overlapping), each with a remedy that gives the text room; a smaller or
-         fixed font is the tell. Counted ("3 at the largest text size"), never failing.
+         after; web: a 53 px root, iOS's body there, at 390x844, and the tests run again there
+         to read up to 12 screens they pass through): what spills (past the edge, squeezed,
+         overlapping) in the app's own layout, each with a remedy that gives the text room; a
+         smaller or fixed font is the tell. Counted ("3 at the largest text size"), never failing.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's, the largest text size's) and the compiler's
          warnings are counted, never fail it. A screen no test ends on is not checked: end a test there.
@@ -381,11 +383,11 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     example: 'bun exact.mjs shells',
   },
   lock: {
-    line: 'fetch (the network), resolve Cargo.lock again and print what changed',
+    line: 'refresh the app or game Cargo.lock against this Exact checkout',
     usage: 'bun exact.mjs lock',
     flags: [],
     internal: ['--lock'],
-    body: 'When a build says exact2 moved since the lock was captured, or after adding a dependency;\nbuilds never change the lock.\nPorts    none. Runs to completion.',
+    body: 'Use after exact update reports app lock drift, after this checkout moves or after adding a dependency.\nApps preserve locked versions where possible, resolve offline first and fetch missing dependencies when needed; games fetch and recapture their lock. Builds never change the lock.\nPorts    none. Runs to completion.',
     example: 'bun exact.mjs lock',
   },
   windows: {
@@ -413,8 +415,10 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
   // exact2's own verb that makes an app (scripts/exact.mjs new), not one of an app's.
   new: {
     line: 'a new app outside this repo, using this checkout',
-    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--game [--assets]]',
+    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--name <name>] [--bundle-id <id>] [--game [--assets]]',
     flags: [
+      ['--name <name>', 'the name people see (app.json app.name); default: the path\'s last part, capitalised'],
+      ['--bundle-id <id>', 'the reverse-DNS id (app.json app.id, app.ts appId); default: com.example.<name>-<hex>'],
       ['--online', 'use the server without a local device'],
       ['--snapback', 'write a guestbook wired to the Snapback backend above the app'],
       ['--port <n>', 'the Snapback origin’s port with --snapback (default 4400)'],
@@ -423,10 +427,12 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
       ['--update', 'rewrite an existing app\'s generated files (its exact.mjs update runs this)'],
       ['--without <platform>', 'with --update: stop building and shipping linux or android'],
     ],
-    body: `The path's last part names the app. Then cd there: its exact.mjs runs everything, and
-bun exact.mjs help lists its verbs. Read docs/start-here.md first.
+    body: `The path's last part names the app's crates. Give --name and --bundle-id here, before the
+first build: a later change to the id makes the next build cold and leaves the old app installed.
+Then cd there: its exact.mjs runs everything, and bun exact.mjs help lists its verbs. Read
+docs/start-here.md first.
 Ports    none. Runs to completion.`,
-    example: 'bun scripts/exact.mjs new ~/notes && cd ~/notes && bun exact.mjs test web',
+    example: 'bun scripts/exact.mjs new ~/notes --name Notes --bundle-id com.yourcompany.notes && cd ~/notes && bun exact.mjs test web',
   },
 };
 

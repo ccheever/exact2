@@ -10,6 +10,8 @@ type Build = { status: any; plan?: string | null; design?: string | null; pinRev
  * it is no longer current, once it is not. */
 export type Selected = { e: any; at: string; axes: string; scheme: string; stale: string };
 
+// An `:active` part's rows as their press paint carries them (LLP 1121 D8), by the part's spelling.
+const ACTIVE: Record<string, string> = { press_background_color: 'background-color', press_color: 'color', press_opacity_to: 'opacity', press_scale: '-exact-press-scale' };
 const SOURCES: Record<string, string> = { authored: 'set here', dynamic: 'a dynamic expression', inherited: 'inherited', initial: 'initial' };
 // The wire's row names that authors spell otherwise (contract/lower's
 // style_names.rs); any other is its name with dashes.
@@ -63,9 +65,10 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
     has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !axes.length ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
     source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any) => at(x)), modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
     rows: (e.rows ?? []).map((r: any) => ({
-      name: rowName(String(r.name)), value: typeof r.value === 'string' ? r.value : JSON.stringify(r.value),
+      name: r.state ? `:${r.state} ${ACTIVE[String(r.name)] ?? rowName(String(r.name))}` : rowName(String(r.name)), value: typeof r.value === 'string' ? r.value : JSON.stringify(r.value),
       source: `${SOURCES[r.source] ?? String(r.source)}${r.source === 'inherited' && r.from != null ? ` from #${r.from}` : ''}${r.origin ? ` (${r.origin})` : ''}${r.token?.implied ? ' · a mode boundary' : ''}`,
       rung: usable ? String(r.editable?.rung ?? '') : '', token: usable ? String(r.editable?.token ?? r.editable?.link ?? '') : '',
+      param: usable ? String(r.editable?.param ?? '') : '', short: usable ? String(r.editable?.short ?? r.editable?.param ?? '') : '',
       reason: String(r.editable?.reason ?? ''), column: col?.id ?? '',
     })),
   };

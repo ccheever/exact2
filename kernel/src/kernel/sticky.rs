@@ -153,8 +153,8 @@ impl Kernel {
 
 fn scrolls(arena: &crate::arena::NodeArena, slot: u32) -> bool {
     let s = arena.style(slot);
-    s.overflow_x != Overflow::Visible
-        || s.overflow_y != Overflow::Visible
+    !matches!(s.overflow_x, Overflow::Visible | Overflow::Clip)
+        || !matches!(s.overflow_y, Overflow::Visible | Overflow::Clip)
         || (!s.mask.has(crate::generated::StyleId::OverflowY)
             && arena.node_type(slot).scrolls_by_default())
 }

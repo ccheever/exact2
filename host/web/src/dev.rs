@@ -67,6 +67,13 @@ pub struct Session {
     /// The published plan's structure digest and the design the builds run
     /// (the plan's, or the last batch's).
     design: Option<(String, Vec<exact_runner::design::Token>)>,
+    /// The published plan's design shape, which a patched frame's batch is
+    /// for.
+    shape: String,
+    /// The SHA-256 (hex) of the design file's bytes `design`'s committed
+    /// tokens were compiled from: a scrub's frame folded over others is
+    /// not patched on them. None when the file moved during the build.
+    design_source: Option<String>,
     /// An open scrub's last preview (LLP 1121 stage 4, commit 6): its
     /// design shape and the design the builds run while it lasts.
     scrub: Option<(String, Vec<exact_runner::design::Token>)>,
@@ -138,6 +145,8 @@ impl Session {
             failed: false,
             source_map: true,
             design: None,
+            shape: String::new(),
+            design_source: None,
             scrub: None,
             released: false,
         }
@@ -153,6 +162,12 @@ impl Session {
     /// The source path.
     pub fn source(&self) -> &Path {
         &self.source
+    }
+
+    /// The SHA-256 (hex) of the design file's bytes the committed design
+    /// was compiled from, as the design server's `files` digests name it.
+    pub fn design_source(&self) -> Option<&str> {
+        self.design_source.as_deref()
     }
 
     /// Look once. `None` when the source has not changed since the last
@@ -223,6 +238,14 @@ impl Session {
         saved_ms: f64,
         design_only: bool,
     ) -> Result<Built, String> {
+        // The design file's bytes, before the compile reads them and after:
+        // the same, they are the ones it read.
+        let design_bytes = || {
+            use sha2::Digest;
+            let bytes = std::fs::read(contract::design_path(&self.source)?).ok()?;
+            Some(format!("{:x}", sha2::Sha256::digest(bytes)))
+        };
+        let design_before = design_bytes();
         let t = Instant::now();
         // Compile exactly the snapshot `poll` compared with `last`. Reading
         // the path again here can observe the middle of the next save and
@@ -293,6 +316,8 @@ impl Session {
         // stream publishes only its batch.
         write_atomic(&self.out, &bytes)?;
         self.design = Some((structure, tokens));
+        self.design_source = design_before.filter(|b| design_bytes().as_ref() == Some(b));
+        self.shape = shape;
         Ok(Built {
             bytes,
             saved_ms,
@@ -311,7 +336,108 @@ impl Session {
     /// they read) and its snapshot. A structure change is refused: a
     /// rebuild has no scrub.
     pub fn scrub<D: DataSource + Default>(&mut self, text: String) -> Result<Scrubbed, String> {
-        let (published, committed) = self.design.as_ref().ok_or("no plan is built yet")?;
+        let (shape, tokens) = self.compile_design::<D>(text)?;
+        Ok(self.show(shape, tokens))
+    }
+
+    /// A scrub's frame patched (LLP 1121 D13): each folded row
+    /// (`scrub-fold`'s `values`, a name and its CSS text per full app
+    /// tuple) set on the committed design, compiling nothing; the batch from
+    /// the design the builds run and the snapshot, as [`Session::scrub`]
+    /// answers. `Ok(None)` when it cannot patch the frame (a row would gain
+    /// or lose its slices, which is a structure change): the caller compiles
+    /// it instead; so too when it was folded over design file bytes
+    /// (`source`, their SHA-256) the committed design was not compiled from
+    /// (a write or hand edit whose build has, or has not yet, landed). A
+    /// name the plan keeps no row for changes nothing the builds read.
+    pub fn patch(
+        &mut self,
+        source: Option<&str>,
+        values: &[(String, Vec<String>)],
+    ) -> Result<Option<Scrubbed>, String> {
+        let (_, committed) = self.design.as_ref().ok_or("no plan is built yet")?;
+        if source.is_none() || source != self.design_source.as_deref() {
+            return Ok(None);
+        }
+        let mut tokens = committed.clone();
+        for (name, css) in values {
+            let Some(t) = tokens.iter_mut().find(|t| t.name == *name) else {
+                continue;
+            };
+            let Some(first) = css.first() else {
+                return Ok(None);
+            };
+            let varies = css.iter().any(|c| c != first);
+            if varies != !t.slices.is_empty() || varies && css.len() != t.slices.len() {
+                return Ok(None);
+            }
+            t.value.clone_from(first);
+            if varies {
+                t.slices.clone_from(css);
+            }
+        }
+        Ok(Some(self.show(self.shape.clone(), tokens)))
+    }
+
+    /// A check of the scrub's frame shown, to run off this thread: the
+    /// design `text` compiled in full (unbaked: baking leaves the theme as it
+    /// is), its shape and tokens, for [`Session::verified`].
+    pub fn verify_job(
+        &self,
+        text: String,
+    ) -> impl FnOnce() -> Result<(String, Vec<exact_runner::design::Token>), String> + Send + 'static
+    {
+        let (source, src) = (self.source.clone(), self.last.clone());
+        move || {
+            let path = contract::design_path(&source).ok_or("the app has no design")?;
+            let src = src.ok_or("no plan is built yet")?;
+            let (plan, _) = contract::with_design_text(&path, text, || {
+                contract::compile_path_source_all(&source, &src, false)
+            })
+            .map_err(|errors| {
+                errors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })?;
+            Ok((
+                exact_runner::design::shape(&plan),
+                exact_runner::design::tokens(&plan),
+            ))
+        }
+    }
+
+    /// The scrub's frame shown, against `compiled` ([`Session::verify_job`]'s):
+    /// `Some` naming what differs. None with no frame shown.
+    pub fn verified(
+        &self,
+        compiled: &(String, Vec<exact_runner::design::Token>),
+    ) -> Option<String> {
+        let (shape, shown) = self.scrub.as_ref()?;
+        let (compiled_shape, compiled) = compiled;
+        if compiled_shape != shape || compiled.len() != shown.len() {
+            return Some("its compile changes the design's shape".into());
+        }
+        compiled
+            .iter()
+            .zip(shown)
+            .find(|(a, b)| a != b)
+            .map(|(a, b)| {
+                format!(
+                    "`{}`: compiled {:?} {:?}, patched {:?} {:?}",
+                    a.name, a.value, a.slices, b.value, b.slices
+                )
+            })
+    }
+
+    /// The design `text` compiled in place of the file's and baked, written
+    /// nowhere: its shape and tokens. A structure change is refused.
+    fn compile_design<D: DataSource + Default>(
+        &self,
+        text: String,
+    ) -> Result<(String, Vec<exact_runner::design::Token>), String> {
+        let (published, _) = self.design.as_ref().ok_or("no plan is built yet")?;
         let path = contract::design_path(&self.source).ok_or("the app has no design")?;
         let src = self.last.clone().ok_or("no plan is built yet")?;
         let (plan, _) = contract::with_design_text(&path, text, || {
@@ -330,16 +456,25 @@ impl Session {
                 "the scrub changes the plan's structure: a rebuild applies on release".into(),
             );
         }
-        let shape = exact_runner::design::shape(&baked);
-        let tokens = exact_runner::design::tokens(&baked);
-        let from = self.scrub.as_ref().map_or(committed, |(_, t)| t);
-        let batch =
-            exact_runner::design::batch(&shape, from, &tokens).filter(|b| !b.tokens.is_empty());
+        Ok((
+            exact_runner::design::shape(&baked),
+            exact_runner::design::tokens(&baked),
+        ))
+    }
+
+    /// Show the design `tokens` while a scrub lasts: the batch from the one
+    /// the builds run (none when nothing they read moved) and its snapshot.
+    fn show(&mut self, shape: String, tokens: Vec<exact_runner::design::Token>) -> Scrubbed {
+        let committed = self.design.as_ref().map(|(_, t)| t);
+        let from = self.scrub.as_ref().map(|(_, t)| t).or(committed);
+        let batch = from
+            .and_then(|from| exact_runner::design::batch(&shape, from, &tokens))
+            .filter(|b| !b.tokens.is_empty());
         let snapshot = exact_runner::design::snapshot(&shape, &tokens);
         // A new preview is no released scrub's.
         self.scrub = Some((shape, tokens));
         self.released = false;
-        Ok((batch, snapshot))
+        (batch, snapshot)
     }
 
     /// A scrub being written: the build of what it writes goes from it.
@@ -451,8 +586,20 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
             }
         }
     });
+    // A command that woke the wait, answered before the next poll.
+    let mut pending: Option<String> = None;
+    // Verifications compiled off this thread, answered as they finish.
+    let verified = std::sync::mpsc::channel::<(String, Result<_, String>)>();
     loop {
-        while let Ok(line) = commands.try_recv() {
+        while let Ok((id, compiled)) = verified.1.try_recv() {
+            let reply = match compiled.map(|c| session.verified(&c)) {
+                Ok(Some(m)) => format!("{{\"mismatch\":{}}}", json_string(&m)),
+                Ok(None) => "{}".into(),
+                Err(e) => format!("{{\"error\":{}}}", json_string(&e)),
+            };
+            let _ = writeln!(stdout, "scrubbed {id} {reply}");
+        }
+        while let Some(line) = pending.take().or_else(|| commands.try_recv().ok()) {
             let mut parts = line.splitn(3, ' ');
             let (verb, id, rest) = (parts.next(), parts.next().unwrap_or(""), parts.next());
             let answer = match (verb, rest) {
@@ -460,6 +607,47 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
                     .map_err(|e| format!("scrub: {e}"))
                     .and_then(|text| session.scrub::<D>(text))
                     .map(|(b, s)| (b, Some(s))),
+                (Some("patch"), Some(frame)) => {
+                    // `{source, values}`: the design file's digest it was
+                    // folded over, and its rows.
+                    match serde_json::from_str::<serde_json::Value>(frame)
+                        .and_then(|mut f| {
+                            let values = serde_json::from_value::<Vec<(String, Vec<String>)>>(
+                                f["values"].take(),
+                            )?;
+                            Ok((f["source"].as_str().map(str::to_string), values))
+                        })
+                        .map_err(|e| format!("patch: {e}"))
+                        .and_then(|(source, values)| session.patch(source.as_deref(), &values))
+                    {
+                        Ok(Some((b, s))) => Ok((b, Some(s))),
+                        Ok(None) => {
+                            let _ = writeln!(stdout, "scrubbed {id} {{\"fallback\":true}}");
+                            continue;
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+                (Some("verify"), Some(text)) => {
+                    // Compiled off this thread: frames keep coming meanwhile.
+                    match serde_json::from_str::<String>(text) {
+                        Ok(text) => {
+                            let (job, tx, id) =
+                                (session.verify_job(text), verified.0.clone(), id.to_string());
+                            std::thread::spawn(move || {
+                                let _ = tx.send((id, job()));
+                            });
+                        }
+                        Err(e) => {
+                            let _ = writeln!(
+                                stdout,
+                                "scrubbed {id} {{\"error\":{}}}",
+                                json_string(&format!("verify: {e}"))
+                            );
+                        }
+                    }
+                    continue;
+                }
                 (Some("restore"), _) => Ok(session
                     .restore()
                     .map_or((None, None), |(b, s)| (b, Some(s)))),
@@ -481,7 +669,13 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
             };
             let _ = writeln!(stdout, "scrubbed {id} {reply}");
         }
-        match session.poll::<D>() {
+        let built = session.poll::<D>();
+        // Each build's design file bytes, before what it says (an empty
+        // batch says nothing else): the served design's (LLP 1122 D5).
+        if let Some(Ok(_)) = &built {
+            let _ = writeln!(stdout, "source {}", session.design_source().unwrap_or("-"));
+        }
+        match built {
             // Nothing the builds read changed.
             Some(Ok(Built {
                 live: Some(live), ..
@@ -518,6 +712,12 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
             None => {}
         }
         let _ = stdout.flush();
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        // The next poll in 10 ms; a command wakes it at once.
+        let tick = std::time::Duration::from_millis(10);
+        match commands.recv_timeout(tick) {
+            Ok(line) => pending = Some(line),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => std::thread::sleep(tick),
+        }
     }
 }

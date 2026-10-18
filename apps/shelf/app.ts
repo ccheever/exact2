@@ -122,6 +122,12 @@ function patchBook(storage: Storage, id: string, patch: Partial<Book>) {
 }
 
 const sources: Sources = {
+  widgetLibrary: async ([date], _store, storage) => {
+    const { books } = await load(storage);
+    const latest = [...books].sort((a, b) => b.addedAt - a.addedAt)[0]?.title ?? 'Add your first book';
+    return [{ date, props: { count: books.length, latest } }];
+  },
+
   library: async (_args, _store, storage) => {
     try {
       const { books, goal } = await load(storage);

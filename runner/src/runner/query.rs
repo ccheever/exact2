@@ -77,12 +77,16 @@ impl<D: DataSource> Runner<D> {
         }
         // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
         self.log(lines::query(&resource, &source));
-        if self.live {
+        if self.live.admitted {
             self.count_churn(i, args, &resource);
         }
+        self.snapshot_sockets();
         let answer =
             self.data
                 .answer_for(super::Target::Resource(i), &mut self.store, &source, args);
+        // What its turn sent on its module's sockets (LLP 1016.000 D7, the
+        // amendment of 2026-10-18), whatever it answered.
+        self.stage_answer(super::Target::Resource(i));
         for line in self.data.take_logs() {
             self.log(line);
         }

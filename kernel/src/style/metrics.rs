@@ -43,6 +43,10 @@ pub enum Column {
     /// The neutral look's (LLP 1115.000 D4 part B, D17): the web's, and a
     /// host's that paints its own controls.
     Neutral,
+    /// Android's Material look (LLP 1115.001.001 D2.4): Compose Material 3's
+    /// values at the pinned version, and the web's first look's where a row
+    /// has none of its own.
+    Material,
 }
 
 /// The column this process said. One platform a process, so one switch.
@@ -57,6 +61,7 @@ pub fn set_column(column: Column) {
         Column::Ios => 1,
         Column::Mac => 2,
         Column::Neutral => 3,
+        Column::Material => 4,
     };
     COLUMN.store(index, Ordering::Release);
 }
@@ -69,6 +74,7 @@ pub fn column() -> Column {
         1 => Column::Ios,
         2 => Column::Mac,
         3 => Column::Neutral,
+        4 => Column::Material,
         _ if roles::column() == roles::Column::Neutral => Column::Neutral,
         _ => Column::Web,
     }
@@ -91,6 +97,7 @@ pub fn value(metric: &Metric, column: Column) -> MetricValue {
         Column::Ios => metric.ios,
         Column::Mac => metric.macos,
         Column::Neutral => metric.neutral,
+        Column::Material => metric.material,
     }
 }
 
@@ -117,9 +124,14 @@ pub fn length_in(index: usize, column: Column, em: f32, rem: f32) -> Option<f32>
 /// A `number` metric in this process's column: a ratio, a weight or an
 /// opacity. `None` where the column has no value.
 pub fn number(index: usize) -> Option<f32> {
+    number_in(index, column())
+}
+
+/// [`number`] in a column.
+pub fn number_in(index: usize, column: Column) -> Option<f32> {
     let metric = &METRICS[index];
     debug_assert_eq!(metric.kind, MetricKind::Number, "{}", metric.name);
-    match value(metric, column()) {
+    match value(metric, column) {
         MetricValue::Number(n) => Some(n as f32),
         _ => None,
     }

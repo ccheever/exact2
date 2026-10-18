@@ -64,7 +64,7 @@ package final class Presenter {
     /// Shared elements in flight, by the arriver's id (LLP 1013.000, `FlightsIOS.swift`).
     var flights: [UInt32: Flight] = [:]
     private(set) var chrome = ChromeIndex()
-    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); DragLink.installed?.updateReorderGesture(view); view.updateRefresh() }
+    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); DragLink.installed?.updateReorderGesture(view); view.updateRefresh(); view.relook() }
     package func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
     func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
@@ -319,6 +319,7 @@ package final class Presenter {
                 self.setKeyboardInset(overlap)
             }
             if top == nil { self.pinnedRoom.release() }
+            self.menus.rehostPopovers()
             self.revealEditorAsTheKeysMove()
         }
         // Under the agent (LLP 1012) the change applies at once, as the
@@ -354,6 +355,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        MainActor.assumeIsolated { HeldState.retire(self) } // before its views leave the map (HeldState.swift)
         WakeLock.hold(self, false) // the new host's first batch says it again
         focusEvents.reset()
         // Every hatched node ends first, its view and platform object there.
@@ -872,7 +874,7 @@ package final class Presenter {
                 v.handlers = op.handlers
                 // Before the style makes it a scroll container: a swipe row's waits.
                 v.swipeOwner = op.props["swipeContent"] != nil
-                v.applyStyle(v.pressPainted(op.style))
+                v.applyStyle(v.presented(op.style))
                 v.applyProps(set: op.props, clear: [])
                 if reused != nil { v.finishReuse() }
                 views[id] = v
@@ -892,7 +894,7 @@ package final class Presenter {
                 if flats.isFlat(id), flats.style(id, op) { continue }
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"], old = v.style
-                v.applyStyle(v.pressPainted(op.style))
+                v.applyStyle(v.presented(op.style))
                 anchorChanges.note(id, from: old, to: v.style)
                 flats.styleChanged(id)
                 if v.surface != nil { v.applySurface() }
@@ -938,6 +940,7 @@ package final class Presenter {
                 if flats.isFlat(id) { flats.promote(id) }
                 views[id]?.applyColumns(op.payload)
             case .destroy:
+                views[id]?.holdGone()
                 elements.destroyed(id)
                 stickies.forget(id)
                 forgetFlight(id)

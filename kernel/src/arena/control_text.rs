@@ -76,7 +76,9 @@ static WEB_PROJECTED_BUTTON_START: std::sync::LazyLock<StyleProps> =
 /// reset does (LLP 1115.000 D4 part B; `host/web/neutral.css`), and what it
 /// says stops at the control as the reset's rows do: its text sits on a line
 /// of the look's height (1.25 of its size, so a control is 36 px in every
-/// engine), a field's ink is the label's whatever the page's `color`, and a
+/// engine), a field's ink is the design's `FieldText` whatever the page's
+/// `color` (LLP 1115 D4, LLP 1121 D9: the label's where the design doesn't
+/// override it; motion and press start from it, as the field paints it), and a
 /// button's title is the look's weight. Each is a row of the schema's
 /// `metrics`, so a kernel that lays the control out (a host that paints its
 /// own, D17) sizes the box the page draws. `[field, button, projected]`.
@@ -93,7 +95,7 @@ static NEUTRAL_STARTS: std::sync::LazyLock<[StyleProps; 3]> = std::sync::LazyLoc
     };
     let mut field = on_line(WEB_START.clone());
     field.text_color =
-        crate::ColorValue::Role(crate::style::roles::role("-exact-label").expect("schema role"));
+        crate::ColorValue::Role(crate::style::roles::role("FieldText").expect("schema role"));
     field.mask.set(StyleId::TextColor);
     let titled = |start: &StyleProps| {
         let mut start = on_line(start.clone());

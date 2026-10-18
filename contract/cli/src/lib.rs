@@ -29,6 +29,7 @@ mod surface;
 mod symbols;
 mod tests_json;
 pub use tests_json::tests_json;
+pub mod snapshot;
 /// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
 pub mod tamber_params;
 pub mod tamber_uses;
@@ -40,7 +41,7 @@ pub use contract_types::strings::Strings;
 /// crate its grants for the compatibility id (`Caltrain.grants()`).
 pub use exact_runner::DataSource;
 pub use logic::{apple_linked, rust_entry, web_linked, web_rust_mode};
-pub use manifest::Manifest;
+pub use manifest::{Activity, Manifest, Widget};
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
@@ -341,14 +342,15 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
         .map(|(plan, _)| plan)
         .map_err(first)
 }
-/// At most this many diagnostics from one compile.
+/// At most this many diagnostics from one compile, except retired spellings.
 pub const MAX_DIAGNOSTICS: usize = 20;
 /// Compile a file by path, as [`compile_path`] does, and report every
 /// independent refusal rather than the first: within a pass each
 /// declaration, statement, element and attribute is checked whatever its
 /// neighbours' fate, a misspelled or mistyped call site comes before what
 /// it broke, and a pass runs only when the ones before it succeeded. At
-/// most [`MAX_DIAGNOSTICS`]. `mapped` also returns the development map.
+/// most [`MAX_DIAGNOSTICS`], except retired spellings, which are all reported.
+/// `mapped` also returns the development map.
 pub fn compile_path_all(
     path: &Path,
     mapped: bool,

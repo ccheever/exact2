@@ -119,8 +119,7 @@ extension Agent {
     /// navigation controller holding it, and a tab bar controller's tab bar.
     func bars(over sv: UIScrollView) -> [UIView] {
         var out: [UIView] = []
-        var at: UIResponder? = sv
-        while let responder = at {
+        for responder in ViewPresentation.controllers(for: sv) {
             if let nav = responder as? UINavigationController {
                 if !nav.isNavigationBarHidden { out.append(nav.navigationBar) }
                 #if !os(tvOS)
@@ -128,7 +127,6 @@ extension Agent {
                 #endif
             }
             if let tabs = responder as? UITabBarController { out.append(tabs.tabBar) }
-            at = responder.next
         }
         return out.filter { $0.window === sv.window && !$0.isHidden && $0.alpha > 0.01 }
     }

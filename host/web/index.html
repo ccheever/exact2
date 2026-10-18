@@ -74,7 +74,7 @@
   #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(
     :disabled,
     [data-button-style], [data-native], input, select, textarea, [data-action],
-    [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"],
+    [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-opacity-to:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"],
     [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"],
     [data-exact-surface],
     [data-listrows] *, [data-liststyle] > section > * > *,
@@ -88,7 +88,7 @@
      reader's setting or the agent's `prefer root-font-size` says otherwise),
      as the kernel resolves an `em` under no sized ancestor. */
   body { font: 1rem system-ui, sans-serif; }
-  button, input, textarea { all: unset; display: block; box-sizing: content-box; cursor: default; }
+  button, input, textarea, .exact-decoration-editor { all: unset; display: block; box-sizing: content-box; cursor: default; }
   /* Native text fields keep the UA's chrome and content-box sizing, with
      the common reset's inherited typography (LLP 1104 D4, D8). */
   #exact-root [data-native] { all: revert; display: block; font: inherit; letter-spacing: inherit; color: inherit; }
@@ -147,7 +147,7 @@
   hr { margin: 0; border: 0 none; }
   #exact-root button:not([data-native]):focus-visible,
   #exact-root input:not([data-native]):focus-visible,
-  #exact-root textarea:not([data-native]):not([markup="markdown"]):focus-visible { outline: revert; outline-offset: 2px; }
+  #exact-root :is(textarea:not([markup="markdown"]), .exact-decoration-editor):not([data-native]):focus-visible { outline: revert; outline-offset: 2px; }
   /* The UA's own reset, which \`all: unset\` undid: a field shows what was
      typed, as the kernel measures it and native fields draw it (LLP 1064 D6). */
   #exact-root [data-native], input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
@@ -243,7 +243,7 @@
      its chevron is drawn in its ink, at its inline end. A date, time or local date-time control
      whose appearance is the platform's (`data-exact-field`) is a border box
      the same way (LLP 1116.001 D1); the browser keeps its picker and icon. */
-  #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid; border-radius: 8px; }
+  #exact-root input[data-native], #exact-root :is(textarea, .exact-decoration-editor)[data-native] { border: 1px solid; border-radius: 8px; }
   #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: 2.125; padding-block: 0; padding-inline: .75em 2em; border: 1px solid; border-radius: 8px; background: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%) right .75em center / 4px 4px no-repeat, transparent; }
   /* LLP 1115.000 D4.14: the chevron is at the inline end, so on a right-to-left page it is at the left. */
   #exact-root select:not([multiple]):dir(rtl) { background-position: left .75em center, left calc(.75em + 4px) center, 0 0; }
@@ -255,8 +255,8 @@
      draw in their focus colour as `auto`. Only the lines the page draws: an
      authored border or outline wins, and a bare field (`appearance="none"`)
      draws none. */
-  #exact-root :is(input[data-native], textarea[data-native], input[data-exact-field], select:not([multiple]))[aria-invalid="true"] { border-color: var(--exact-system-red); }
-  #exact-root :is(input[data-native], textarea[data-native], input[data-exact-field], select:not([multiple]))[aria-invalid="true"]:focus-visible { outline: 2px solid var(--exact-system-red); outline-offset: 0; }
+  #exact-root :is(input[data-native], :is(textarea, .exact-decoration-editor)[data-native], input[data-exact-field], select:not([multiple]))[aria-invalid="true"] { border-color: var(--exact-system-red); }
+  #exact-root :is(input[data-native], :is(textarea, .exact-decoration-editor)[data-native], input[data-exact-field], select:not([multiple]))[aria-invalid="true"]:focus-visible { outline: 2px solid var(--exact-system-red); outline-offset: 0; }
   /* An indeterminate progress (LLP 1069.001, amended 2026-10-07): HTML's draws a bar, so the page draws the
      platform's spinner instead, the one deliberate divergence from the web's own control: an arc fading to `color`
      in a circle at the shorter side of the content box, centred, a turn a second (UIActivityIndicatorView's period).
@@ -303,6 +303,8 @@
      the glue reads with the paint off. Important, so the page's own declarations do not hide it. */
   @property --exact-press-paint { syntax: "<number>"; inherits: false; initial-value: 0; }
   #exact-root [data-exact-painting][style*="--exact-press-opacity:"] { opacity: calc(var(--exact-press-base-opacity) * (1 - var(--exact-press-paint) * (1 - clamp(0, var(--exact-press-opacity), 1)))) !important; }
+  /* LLP 1121 D8: `:active`'s opacity, an absolute target the press eases to from the opacity beneath. */
+  #exact-root [data-exact-painting][style*="--exact-press-opacity-to:"] { opacity: calc(var(--exact-press-base-opacity) + (clamp(0, var(--exact-press-opacity-to), 1) - var(--exact-press-base-opacity)) * var(--exact-press-paint)) !important; }
   #exact-root [data-exact-painting][style*="--exact-press-background-color:"] { background-color: color-mix(in srgb, var(--exact-press-background-color) calc(var(--exact-press-paint) * 100%), var(--exact-press-base-background)) !important; }
   #exact-root [data-exact-painting][style*="--exact-press-color:"] { color: color-mix(in srgb, var(--exact-press-color) calc(var(--exact-press-paint) * 100%), var(--exact-press-base-color)) !important; }
   [data-scroll="true"] { overflow: auto; }

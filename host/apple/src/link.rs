@@ -98,9 +98,14 @@ impl Grammars {
 pub struct IoLinks {
     /// Bind the app's grants: [`crate::store::endowed`].
     pub endow: fn(&str, &str, bool) -> crate::store::Endowed,
+    /// Read the stores only on an explicitly requested refresh.
+    pub snapshot: StoreSnapshot,
     /// Start the executor: [`crate::executor::start_io`].
     pub start: StartIo,
 }
+
+/// Read a linked app's stores through its endowed bindings.
+pub type StoreSnapshot = fn(Option<&ibex2::host::Bindings>, &str) -> Vec<(String, Vec<u8>)>;
 
 /// How [`IoLinks`] starts the executor: over the bindings, for the grants,
 /// waking the presenter through the hook.
@@ -114,6 +119,7 @@ impl IoLinks {
     /// The platform's.
     pub const LINKED: IoLinks = IoLinks {
         endow: crate::store::endowed,
+        snapshot: crate::store::snapshot_for,
         start: crate::executor::start_io,
     };
 }

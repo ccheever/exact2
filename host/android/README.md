@@ -554,6 +554,7 @@ ScrollView would.
 | `Native.fieldComposing(id, generation, composing, value)` | the field's text began to compose, holding `value`, or its composition ended, committed or cancelled: before the edit that began or ended it | while it composes a statement says the field's own text, and the app's value is held; once it ends, the value the app then shows |
 | `Native.fieldSelected(id, generation, start, end)` | the selection moved with no edit | kept for the next `input`; `select` fires for a range |
 | `Native.fieldAction(id, generation, action)` | the action key, or Enter or Tab on a hardware keyboard: 0 Enter with no action, 2 done, 3 go, 4 next, 5 previous, 6 search, 7 send, 16 Tab, 17 Shift+Tab | Enter's `key` handlers, then `change` and `submit` for a single line; then `next` and `previous` move to the field after or before (the focus leaves where there is none), and `done`, `go`, `search` and `send` leave the field, which puts the keyboard away. Tab is the page's own Tab |
+| `Native.fieldInput(id, generation)` | a finger came down in the field (it is the field's), or a key went down in it | real input on the field: a state held on it (LLP 1122 D8, `hold`, `holdState`) lets go |
 
 What a call says of a generation exact2 has moved on from is dropped.
 
@@ -1130,3 +1131,22 @@ The cut was the smallest one. Left in the reader:
   a book's page. Nothing of this host's is missing for it; the loader has no door for a remote source.
 - `exact new` writes no `android/` crate.
 - **The benchmark still builds its own copy** of the reader, which no longer matches this repository's JNI names.
+
+## The Material reference
+
+`reference/` is Compose Material 3 at the pinned version (`gradle/libs.versions.toml`), drawn on Robolectric's native
+graphics, and the oracle that compares it with Exact's drawing of the same specimens (LLP 1115.001.001). It is in no
+app. On a machine with the SDK, Java 21 (`JAVA_HOME`) and Cargo:
+
+    bun host/android/reference/oracle.mjs            # draw both sides, compare, report
+    bun host/android/reference/oracle.mjs --compare  # compare what is already drawn
+    bun host/android/reference/tokens.mjs            # hold the schema's Material column to the pinned source
+    bun host/android/reference/tokens.mjs --diff 1.3.2   # what a version changed, for a bump
+
+The report is `reference/build/oracle/report.html`. `specimens.json` lists the specimens, their probes and the planted
+defects; each specimen's Exact half is `apps/material-specimens/specimens/<id>.contract`.
+
+On a phone (O2's calibration, LLP 1115.001.001 §3): `./gradlew :reference:assembleDebug` builds the catalogue, which
+draws the specimen `--es id <id> --es scheme light|dark` names over the whole screen, and `bun
+scripts/agent-android.mjs build material-specimens --apk` the specimen app, whose reader boots a specimen's plan
+(`contract build`) pushed to the phone and named by `--es x_plan <path>`.

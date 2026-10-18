@@ -150,12 +150,14 @@ public final class ExactApp {
     private(set) var selectedToken: UInt64 = 0
     private var sessionRefs: [WeakSession] = []
     let notificationProcessID = UUID().uuidString
+    let sharedStore = SharedStoreRefresh()
     /// Every live session, in creation order.
     public var sessions: [ExactSession] { sessionRefs.compactMap(\.session) }
     /// The one dev connection (D11): the app URL `dev.mjs` prints, resolved
     /// and subscribed once; every `{seq}` applies to every session.
     private(set) var connection: PlanURL?
     private init() {
+        WidgetContainer.configure()
         #if canImport(UIKit)
         let fallback = Bundle.main.bundlePath
         #else
@@ -164,6 +166,7 @@ public final class ExactApp {
         #endif
         assetRoot = URL(fileURLWithPath: ExactEnv.environment["EXACT_ASSETS"] ?? fallback, isDirectory: true)
         resolver = AssetResolver(root: assetRoot)
+        observeSharedStore()
     }
     /// The immutable Rust executor policy carried by this binary's bake.
     public var rustPolicy: (mode: String, target: String) {
@@ -192,7 +195,10 @@ public final class ExactApp {
         return true
     }
 
-    func firstPixel(_ token: UInt64) { lifecycle?.firstPixel(self, token: token) }
+    func firstPixel(_ token: UInt64) {
+        lifecycle?.firstPixel(self, token: token)
+        WidgetContainer.publishAfterFirstPixel(resolver)
+    }
 
     /// Refresh generic delivery facts after a composition-owned event.
     public func refreshDelivery() {
@@ -291,14 +297,20 @@ public final class ExactApp {
         transaction = true
         let batches = prepared.map { (session, candidate) in (session, session.commit(candidate)) }
         resolver = candidateResolver
+        #if EXACT_WIDGET_GALLERY
+        NotificationCenter.default.post(name: Notification.Name("ExactWidgetGeneration"), object: self)
+        #endif
         devGeneration = identity
         lastPlan = bytes
         lastModule = module
         selectedToken = token
         if let shaderSources { surfaces?.replaceShaders(shaderSources) }
         for (session, _) in batches { session.awaitingTree = true } // each report waits for its own tree: one tree may retint the window
+        MainActor.assumeIsolated { HeldState.swap() } // the hold let go unsaid before the old tree goes, real input none till after (HeldState.swift)
         for (session, batch) in batches { session.presentCommitted(batch, label: label) }
         for session in participants { session.apply(session.runtime.deliverySync()) }
+        MainActor.assumeIsolated { HeldState.swapping = false }
+        rehold()
         transaction = false
         let callbacks = notifications
         notifications = []
@@ -344,6 +356,7 @@ public final class ExactSession {
     }
     /// Bumped by every reboot; a callback from an older generation is dropped.
     public private(set) var generation = 0
+    let storeRefresh = SessionStoreRefresh()
     private var activatedGeneration: Int?
     /// The generation whose deferred data has activated (or failed to): the
     /// agent's `clock data` waits for it before a test's first step.
@@ -415,7 +428,7 @@ public final class ExactSession {
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
     // main instead, and runs after the slice lands, in order.
     private(set) var fillInFlight = false
-    private var afterFill: [(generation: Int, work: () -> Void)] = []
+    private var afterFill: [(generation: Int, work: () -> Void, cancelled: (() -> Void)?)] = []
     private let published = NSLock()
     /// What the owner committed without main waiting.
     private enum Published { case fill(UInt32), tick, canvas }
@@ -464,7 +477,8 @@ public final class ExactSession {
     private var colorObserver: NSObjectProtocol?
     #endif
 
-    init(app: ExactApp, label: String) {
+    init(app: ExactApp, label: String, launchPlace: LaunchPlace = LaunchPlace()) {
+        self.launchPlace = launchPlace
         self.app = app
         self.label = label
         let runtime = Runtime()
@@ -576,8 +590,8 @@ public final class ExactSession {
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
     /// Run `work` now, or after the slice in flight lands (LLP 1072 §3).
-    package func whenIdle(_ work: @escaping () -> Void) {
-        if fillInFlight { afterFill.append((generation, work)) } else { work() }
+    package func whenIdle(_ work: @escaping () -> Void, cancelled: (() -> Void)? = nil) {
+        if fillInFlight { afterFill.append((generation, work, cancelled)) } else { work() }
     }
 
     /// Send a build-only slice to the owner; its batch comes back published.
@@ -650,8 +664,12 @@ public final class ExactSession {
             guard state != .destroyed, next.generation == generation else {
                 // A replaced runtime's slice: its waiters go, the current runtime's run
                 guard case .fill = next.kind else { continue }
-                let current = state == .destroyed ? [] : afterFill.filter { $0.generation == generation }
-                afterFill.removeAll(); current.forEach { $0.work() }; continue
+                let waiting = afterFill
+                afterFill.removeAll()
+                for entry in waiting {
+                    if state != .destroyed && entry.generation == generation { entry.work() } else { entry.cancelled?() }
+                }
+                continue
             }
             let batch = next.batch
             if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
@@ -1209,6 +1227,7 @@ public final class ExactSession {
     private func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
         guard state != .destroyed, generation == drawnGeneration else { return }
         if firstDrawMs == nil { firstDrawMs = ExactEnv.wall() }
+        app.sharedStore.firstPixel()
         guard activatedGeneration != drawnGeneration else { return }
         activatedGeneration = drawnGeneration
         DispatchQueue.main.async { [weak self] in
@@ -1223,10 +1242,12 @@ public final class ExactSession {
             appFileRoots = AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
             dataGeneration = drawnGeneration
-            if batch.error == nil {
-                presenter.collections.dataReady()
-                app.firstPixel(token)
+            storeRefresh.activated = { [weak self] in
+                guard let self, state != .destroyed, generation == drawnGeneration else { return }
+                presenter.collections.dataReady(); app.firstPixel(token)
             }
+            storeRefresh.record(batch)
+            retryStoreActivation()
             canvases.loadIfNeeded()
             natives.activateAfterCommit { [weak self] in self.map { $0.state != .destroyed && $0.generation == drawnGeneration } ?? false } // @ref LLP 1024 D3
             drainSurfaceWork()
@@ -1236,7 +1257,7 @@ public final class ExactSession {
     }
 
     /// Drawn once per launch; the same across a dev reload's new runner.
-    let launchPlace = LaunchPlace()
+    let launchPlace: LaunchPlace
     /// The machine zone's offset now, told when it is not the one last told:
     /// at boot and before each advance, so a DST change or a new zone reaches
     /// the timer that fires after it (habits F6). Under the agent, the
@@ -1445,6 +1466,8 @@ public final class ExactSession {
     public func destroy() {
         guard state != .destroyed else { return }
         state = .destroyed
+        let waiting = afterFill; afterFill.removeAll()
+        waiting.forEach { $0.cancelled?() }
         generation += 1
         cancelAuthSessions()
         clockTimer?.invalidate()

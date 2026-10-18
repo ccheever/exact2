@@ -106,12 +106,21 @@ object Legacy {
     internal fun haptic(kind: Int): Int = if (kind == 7) HapticFeedbackConstants.VIRTUAL_KEY else HapticFeedbackConstants.LONG_PRESS
 
     /** Material 3's baseline scheme (no dynamic colour before Android 12), [Palette]'s roles in its order: light, then
-     * dark. */
+     * dark. They are Compose Material 3's `lightColorScheme()` and `darkColorScheme()` at the pinned version, which the
+     * reference writes (`reference/`, `schemes.json`). */
     internal fun palette(): IntArray = longArrayOf(
         0xFF6750A4, 0xFFFFFFFF, 0xFFE8DEF8, 0xFFFEF7FF, 0xFF1D1B20, 0xFF49454F,
         0xFFF7F2FA, 0xFFF3EDF7, 0xFFECE6F0, 0xFFE6E0E9, 0xFFCAC4D0, 0xFFB3261E,
+        0xFFEADDFF, 0xFF21005D, 0xFFD0BCFF, 0xFF625B71, 0xFFFFFFFF, 0xFF1D192B,
+        0xFF7D5260, 0xFFFFFFFF, 0xFFFFD8E4, 0xFF31111D, 0xFFFEF7FF, 0xFF1D1B20,
+        0xFFE7E0EC, 0xFF6750A4, 0xFF322F35, 0xFFF5EFF7, 0xFFFFFFFF, 0xFFF9DEDC,
+        0xFF410E0B, 0xFF79747E, 0xFF000000, 0xFFFEF7FF, 0xFFDED8E1, 0xFFFFFFFF,
         0xFFD0BCFF, 0xFF381E72, 0xFF4A4458, 0xFF141218, 0xFFE6E0E9, 0xFFCAC4D0,
         0xFF1D1B20, 0xFF211F26, 0xFF2B2930, 0xFF36343B, 0xFF49454F, 0xFFF2B8B5,
+        0xFF4F378B, 0xFFEADDFF, 0xFF6750A4, 0xFFCCC2DC, 0xFF332D41, 0xFFE8DEF8,
+        0xFFEFB8C8, 0xFF492532, 0xFF633B48, 0xFFFFD8E4, 0xFF141218, 0xFFE6E0E9,
+        0xFF49454F, 0xFFD0BCFF, 0xFFE6E0E9, 0xFF322F35, 0xFF601410, 0xFF8C1D18,
+        0xFFF9DEDC, 0xFF938F99, 0xFF000000, 0xFF3B383E, 0xFF141218, 0xFF0F0D13,
     ).let { roles -> IntArray(roles.size) { roles[it].toInt() } }
 
     /** A two-circle radial gradient before RadialGradient's constructor for one (API 31): the end circle's, with the

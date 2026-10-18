@@ -162,7 +162,7 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
                         // tokens the text reads there.
                         values.push(
                             k.node(i as u32 + 1)
-                                .map_or(Json::Null, |n| row_value(row, &n.style)),
+                                .map_or(Json::Null, |n| row_value(row, n.style)),
                         );
                         let before = bridge::set_tuple(t as u32);
                         let mut patch = StyleProps::default();
@@ -189,7 +189,7 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
                     for k in &kernels {
                         values.push(
                             k.node(i as u32 + 1)
-                                .map_or(Json::Null, |n| row_value(row, &n.style)),
+                                .map_or(Json::Null, |n| row_value(row, n.style)),
                         );
                     }
                 }

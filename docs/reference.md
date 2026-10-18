@@ -181,14 +181,19 @@ array per refusal. Compilation returns the first refusal. Action-interface
 mismatches link the invocation, declaration and caller binding, each with its
 own source file, including forwarded props and injected actions. Locations use the same byte columns as symbols; zero
 means no source range, and a null file means no file is associated. No prose is
-mixed into JSON, including argument and output-write failures. Exit codes are
+mixed into JSON, including argument and output-write failures, and nothing is
+written to stderr: advice the human form prints there (a resource fed by a live
+clock, a game's stale surface arguments) is among the warnings. `bun exact.mjs
+contract build app.contract --json` appends `app.ts`'s type-check errors to the
+same array, one per TypeScript diagnostic (`id` `typescript-TS<n>`). Exit codes are
 0 for success, 1 for compilation/I/O failure, and 2 for invalid arguments.
 `-o <file.plan>` writes the same plan bytes in either output mode.
 
 `build --map -o <file.plan>` also writes `<file.plan>.map.json`, keyed by
 SHA-256 of the plan bytes. Each plan node has its original file and range,
 component call-site chain, and the winning style row's origin (`own`,
-`class:<Name>`, or `tag`). Slots, derives and actions retain their declarations,
+`class:<Name>`, or `tag`); a row an `:active` part lowered to the press paint
+also has `"state": "active"` and `at`, where that row is written (LLP 1121 D8). Slots, derives and actions retain their declarations,
 including state and actions lifted from child components. Maps are separate
 files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
 `compile_path_mapped` and `compile_path_source_mapped` return the map alongside
@@ -311,6 +316,12 @@ The web manifest carries the same entries; browser registration is subject to
 the browser's supported schemes and installation behavior. Linux's CLI URL
 argument retains the ordinary location conversion because it does not
 register OS protocol handlers.
+For packaged-only Apple registration, add `"distribution_only": true` to an
+entry, for example `{"protocol":"notes","url":"/open?u=%s","distribution_only":true}`.
+Archives and `--distribution` builds include it; local builds, including
+`--bundle` and `--release` alone, omit it from both the registered schemes and
+native handler templates. The default is `false`. This option does not filter
+the web manifest or explicit `host.<platform>.urlSchemes`.
 A file chosen in the app's own picker (`showOpenFilePicker`,
 `showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
 and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside
@@ -321,6 +332,188 @@ app storage is ready and before a TypeScript data module has loaded: a send its
 refused (studio diary R14; notes diary). When nothing takes the path, the
 host says why — no `open-file` field, or the `change` the app refused, and the
 refusal — on stderr and in the journal. `exact uninstall <app>` takes both halves away.
+
+Widget entries are top-level `app.json` `widgets` rows. For example:
+
+```json
+{"kind":"next-trains","families":["systemSmall","systemMedium","accessoryRectangular"],
+ "component":"NextTrains","props":"NextTrainsProps","refresh":"nextTrains",
+ "preview":{"station":"Mountain View","departures":[]}}
+```
+
+Optional `title` and `description` strings supply the widget gallery's labels;
+each defaults to the humanised `kind` when omitted.
+
+`component` and the `props` shape are declared or imported by `app.contract`;
+every component prop must match a field of that shape. `preview` supplies all
+fields, with their declared types. `refresh` names a data-source function taking
+an epoch-millisecond number and returning a timeline: records with `date` (epoch
+milliseconds) and `props` (the declared shape), in that field order. The plan's
+`snapshot_refresh` header selects its typed source row; the render has no resource
+for it. A data bake checks an immediate refresh answer against that signature at epoch
+zero; pending answers are checked by the source declarations. TypeScript checks
+the generated `Sources` type, including async refreshes. Compile entries once
+with `contract::snapshot::entries(app)`, then pass that map to `source_plan`,
+`check_refreshes` and receipt generation. `snapshot::bake_app` takes separate
+data instances for the app and refresh, so refresh state cannot affect the app
+first frame. The TypeScript and replaceable Rust producers use the same check.
+
+On iOS, a TypeScript refresh runs under Hermes from the module bytes in the
+app's pinned App Group generation (or the extension's embedded cohort before
+the app first publishes it). The receipt admits both the entry plan and bytecode.
+It can return immediately or await `fetch`
+and `storage.fs` reads from `app:/`. File writes, SQLite, document handles and
+native modules are unavailable in stage 1; `secret.keep` values are read from
+the shared Keychain only during refresh. The extension never persists store
+writes. The app reloads widget timelines after a successful write readable by a refresh.
+Refresh has a 900 ms deadline starting when it begins, including boot. Each JS
+turn gets the time remaining to that deadline, rather than the app's 100 ms
+per-call budget. This leaves 100 ms below LLP 1126 D8's one-second
+line for completion and teardown. Failure or timeout uses the last good timeline
+cached in the App Group for this kind and generation, only while the app's store
+has not changed since it was cached (a store write, such as an account switch,
+expires it), or else an “Open app” placeholder,
+and schedules a retry no sooner than 15 minutes later. Rendering and gallery
+previews do not load Hermes or read the store.
+
+Live Activity entries are top-level `live_activities` rows, each with a `kind`
+(LLP 1126 D9). The packaging reads two flags: `push: true` for an activity the
+app's own server advances, which signs `aps-environment` into the app (never
+the extension, which reads no token), and `frequent: true` for one that needs
+the frequent-update budget (`NSSupportsLiveActivitiesFrequentUpdates`). An
+entry of either kind, a widget or an activity, gives the iOS build its WidgetKit
+extension, the shared `ExactCore` framework, the App Group and the Keychain
+group; an activity entry alone adds `NSSupportsLiveActivities` to the app's
+`Info.plist` (a widget-only app has no such key). An app with activities alone
+ships the extension with an empty widget bundle until its activity
+configuration lands (LLP 1126.001 WP10). The entry's root, state shape and
+preview are stage 2's bake (WP8).
+
+A device build of an app with entries embeds two profiles, the app's and the
+extension's (`<id>.widgets`), of one team, App ID prefix and distribution
+method (development, Ad Hoc, enterprise or App Store), each granting the App
+Group `group.<id>` and the Keychain group `<prefix>.<id>` (Keychain Sharing;
+the team wildcard `<prefix>.*` grants it), the app's also `aps-environment`
+(`development` on a development profile, `production` on the others) when an
+activity takes pushes. A team wildcard profile grants no App Group, so each is
+a profile for its exact App ID; `build.mjs --device` refuses before building
+anything, naming for each App ID the profile that was close and the condition
+it failed (expired, not this phone, another team or prefix, the other method),
+and the capabilities to register and profiles to install. `EXACT_PROFILE` names
+the app's, under the same conditions; the extension's is found among the
+installed profiles by its id. An archive (`--archive`) matches the extension's
+profile to the named one's method, and an Ad Hoc pair must cover the same
+devices.
+
+The render's props slot is named `snapshot_props`; find it by name, since a
+`path(...)` link also needs a router slot. Its initial value is the preview; reached bindings cannot use that reserved name.
+The bake writes `plans/<kind>.plan` beside `app.plan`. The envelope's `plans`
+map indexes these authenticated assets in the app's compatibility cohort.
+Kinds, families and gallery labels are binary compatibility inputs; views and preview props
+are plan contents. A running host refuses a snapshot plan at decode, and a
+snapshot reader requires its exact kind. A widget also requires a refresh
+signature; an activity has named placements and no refresh source.
+
+Live Activities are top-level `app.json` `live_activities` rows:
+
+```json
+{"kind":"departure","component":"DepartureActivity","state":"DepartureState",
+ "preview":{"station":"Mountain View","at":1787915700000},"push":true}
+```
+
+The root's props match every field of `state`. Optional `title` and `description`
+follow the widget label rule; `push` and `frequent` are Booleans, defaulting to
+false. Kinds are unique across both entry lists, ignoring case. Unknown keys fail
+the bake with an edit. Capability flags and labels require a new binary; state
+shapes, previews and views ride the bundle.
+
+Declare the placements in that one component's view with `view slot="lockScreen"`,
+`view slot="compactLeading"`, `view slot="compactTrailing"`, `view slot="minimal"`
+and `view slot="expanded"`. Under `expanded`, declare four `view` children with
+`slot="leading"`, `slot="trailing"`, `slot="center"` and `slot="bottom"`. Each slot
+is required once. Put its layout attributes and content on that slot's view;
+`expanded` only groups its regions. See `apps/caltrain/activities.contract`.
+
+The activity plan has one `snapshot_state` slot and an `activity_slots` table
+mapping each placement name to a node site under a synthetic container. One
+session serves the activity. For each slot, the driver sets the session's viewport
+to the region's proposed content size, lays out, takes that slot's subtree and
+measures its `fit_content_height`. `snapshot_viewport` thus reads the current
+region's size; no app-visible slot selector is injected. The other slots' frames
+are not a shared surface layout. Rendering remains read-only, with the same
+clock, request, input and handler refusals as widgets. `time` and `progress`
+remain platform live views. Activity rendering and sends are separate host work.
+
+The bake writes `plans/activities.json` and `activities/<kind>.schema.json` plus
+`activities/<kind>.d.ts` (exporting `State`, `Attributes` and `ContentState`). The
+state uses JSON Schema 2020-12 with required fields and no additional properties.
+The shape digest hashes its canonical schema, including each record's field
+order. The universal envelope's attributes are `{kind, generation, shape}`;
+its content state is `{shape, state}`, where `state` is a JSON value, not an
+encoded JSON string. `generation` names the immutable publication digest. The
+preview and sends share a conservative 4096-byte JSON budget, including both
+shape digests. Numbers reserve the longer of serde_json's and Foundation's
+shortest Double spellings, capped at 24 bytes; the bake also covers a preview's
+original integer spelling before Double decoding. Both reserve two bytes for
+`\b`, `\t`, `\n`, `\f`, `\r` and slashes, and six for the other U+0000–U+001F
+characters and U+2028/U+2029. Other characters and JSON punctuation use their
+compact UTF-8 size. A refusal reports the budgeted bytes and asks for shorter
+state. Shared Rust/Swift fixtures pin encoder spellings, escape counts, admission
+of a 60-point route and 150 small integers, and refusal at 4097 bytes.
+
+An activity pins its named generation within the installed compatibility cohort,
+even after `current` moves. Publications currently keep every generation. The
+cache has one file per activity id. The caller supplies the pinned plan's decoder:
+a state it cannot decode falls back to its last decodable state with the driver's
+outdated flag. Without a decodable kept state the placeholder has no outdated
+flag. A failed write returns an error to the caller. ActivityKit's `isStale` is a separate system
+fact. Rendering across a compatibility-changing binary update remains subject
+to LLP 1126.001 §5 Q6's pending ruling.
+
+The `snapshot` columns on the style and prop rows declare admission. Unsupported
+rows, scrolling, sticky positioning, timers, requests, native modules and handlers
+fail with an edit. A snapshot declares no resource. The one fact a render reads
+is the family's size, through the reserved inject `snapshot_viewport`: write
+`inject` with `snapshot_viewport: <shape>` on the entry's component (or one it
+uses; every injecting component names one shape), and the entry's plan
+declares `exactViewport()` for it and provides it. `width` and `height` are the
+family's content size in points, inside the system margins, given at boot and
+again when the family's size changes; the preference fields are a still page's.
+Choose a layout by them as `docs/recipes/responsive-columns.md` does for a page
+(a Lock Screen row is under 100 pt tall; a medium widget is over 250 wide), so
+one entry serves every family it declares. The app's own plan is untouched: an
+unused component's inject is not demanded by the app's view. A `performanceNow()` call is refused everywhere, including
+inside `time` and `progress`; pass instants from refresh for platform time
+presentation. A variable's name imposes no restriction. A class is a style name
+or `class=(condition ? A : B)`. Only literal font families reached through the
+entry are bundled; a dynamic font string selects installed or generic families.
+Images use a bundle-relative path, an `app:/` path written by the app, or a
+`symbol:` source. Computed paths need a fixed local prefix; refresh downloads
+remote images. A live `time` (`relative`, `timer`, `countdown`) must own its
+text paragraph, so the widget can reserve its width; calendar formats may be
+inline. Links must be their own elements, not runs among other paragraph text.
+Snapshot handlers are refused; use a link to open the app.
+
+Snapshot accessibility admits labels, roles, hints, heading levels and hidden
+content. Live announcements and control-state accessibility rows are refused.
+
+Snapshot paint uses document order and the system colour scheme. Use a condition
+or `display: none` to hide content; `visibility` and `z-index` are refused.
+Borders have one width, colour and solid, dashed, dotted or `none` style on all sides.
+Radii are px or percentages; percentages on non-square boxes produce ellipses.
+Radius calculations are refused. Overflow is the same on both axes: visible,
+hidden or clip. Raster images author both width and height, and `object-fit` is
+fill, contain, cover or scale-down. An entry declaring
+any small or accessory family has at most one link; entries declaring only
+medium, large and extra large families may have several.
+
+Text aligns start, center or end; use `line-clamp` for truncation. Give an inline
+highlight its own box. Colours are sRGB, system roles or named assets; wide-gamut
+and profiled colours are refused. Gradients are nonrepeating linear or radial,
+interpolated in sRGB or srgb-linear, with strictly increasing stops. Stop order
+must hold at every box size; use a single unit when mixed units could cross.
+Restricted paint values are literals or choices of literals, so their admission
+is checked at bake.
 
 App icons come from `app.json`'s Web App Manifest `icons` array: Apple uses
 the first square raster of at least 512 px. To select an
@@ -766,9 +959,10 @@ Call `sendFrame` through a Contract `mutation`, after the feed reports `open`.
 `send` accepts a string, ArrayBuffer or ArrayBufferView; bytes are copied at
 the call. `close(code = 1000, reason = "")` accepts 1000 or 3000–4999 and a
 reason of at most 123 UTF-8 bytes. In a mutation, both methods are allowed
-only during its source's synchronous call. A source that stages socket operations
-must answer now with a value: not a promise, not a stream answer, and with
-no `fetch` in the same mutation. Whichever of a socket operation and a
+during its source's synchronous call, and after it only when the source
+answered with a promise (below). A source that stages socket operations
+answers now with a value or with a promise (then it is an answer in flight,
+below), not a stream answer, and makes no `fetch` in the same source. Whichever of a socket operation and a
 `fetch` comes second throws `a mutation cannot both send on a socket and
 fetch`, and the mutation is refused before either takes effect: no frame is
 sent and no request starts. A thrown source, wrong-shaped answer or refused
@@ -798,7 +992,52 @@ throw, a wrong-shaped snapshot or a refused commit sends none of it, and
 call has a mutation's bounds below; overload throws `QuotaExceededError` and
 fails that frame's snapshot even if the mapper catches it. On `close` and
 `error` the handle is already closed and refuses; so do another socket's
-handle, a continuation the mapper schedules, and a `fetch` in the call.
+handle and a `fetch` in the call. A continuation the mapper schedules is not
+the call's: it runs in a later turn (below).
+
+A resource's answer may also `send` and `close` on a socket a stream
+resource of the same module owns, so it sends its own request and awaits
+the reply, with no timer, and so may a mutation whose source answers with
+a promise (LLP 1016.000 D7, amended 2026-10-18):
+
+```ts
+const waiting = new Map<string, (reply: string) => void>();
+// In `feed`'s mapper, for a reply: waiting.get(reply.id)?.(reply.text)
+if (source === "request") {
+  const socket = feeds.get(id);
+  if (!socket) throw new Error("feed is not open");
+  socket.send(JSON.stringify({ _tag: "Request", id: n }));
+  return new Promise<string>(resolve => waiting.set(n, resolve));
+}
+```
+
+What each turn of an answer sends goes out in the order it sent it once
+the commit that ran the turn stands, as its fetches do; a refused commit
+takes it back and says so, and nothing the answer does afterwards (a
+value, a failure) takes it back. Natively its turns are its source's call
+and each delivery of its own `fetch` or storage step. Code that resumes
+from an `await` runs in the next turn that drains microtasks (its own
+delivery, or the answer's that settled what it awaited) and sends as that
+turn's answer; a mapper's call drains none, so code a mapper resumes runs
+in the next answer asked, or in none (and its send refuses) when that is
+the waiting answer's own re-ask. Send before the first `await`, or settle
+waiters from an answer. An answer asked again sends again, so key a
+request that must not repeat. On the web build only the source's
+synchronous call may send; a continuation refuses, since the page cannot
+tell whose it is. An answer
+the runner lets go (new arguments, `refresh`, a newer send, leaving the
+view) sends nothing more as its own; what it sent stays sent. It may also
+`fetch`, though a mutation's synchronous source still may not do both. A
+refused commit's batches are taken back without telling the code, so a
+protocol that awaits a reply times out. Its bounds are a mutation's, over all its turns (`socket answer
+exceeds 256 operations`, `… 1 MiB`); overload throws without failing the
+answer. A handle that is not open, or whose socket a mutation's stream
+owns, throws `InvalidStateError`, and so does an operation after the
+answer's own `close` of that socket. A batch the host refuses is said in
+`logs` as `answer <resource or mutation> failed: …; socket frames were refused`. Its
+`bufferedAmount` counts the transport's bytes as the turn began and what
+this turn has sent, and natively also what earlier turns sent that the host
+has not yet taken.
 
 A mutation or mapper call stages at most 256 operations and 1 MiB, including
 bytes already buffered by the browser. Overflow throws `QuotaExceededError`; a stale or
@@ -1234,7 +1473,9 @@ For a module client's `build.rs`, depend on `exact-js-bake` and call
 `exact_js_bake::build(Path::new(".."), "web")` (or `"macos"` / `"ios"`). This writes the
 paired artifacts, `compat.json`, and `module.rs` constants (`APP`, `GRANTS`,
 `REVISION`) into `OUT_DIR`, and on Apple `host.rs`, the host entry its `deploy.store`
-names. With a store (`"A"`), a signed update carries the module pair under
+names, which includes `baked.rs`: `exact_plan()` and `exact_compat()`. An Apple build
+(`host/apple/build.mjs`) bakes before Cargo and links the plan and `compat.json` into
+the executable, so an edit that changes only the plan compiles no Rust. With a store (`"A"`), a signed update carries the module pair under
 `typescript/` (`app.module.json`, `app.hbc`); it needs the binary's TypeScript runtime
 and exactly its grants. An app with both a TypeScript and a Rust module still sets its
 `deploy.store` entries to `"0"`: signed delivery of both is not implemented.
@@ -1815,3 +2056,24 @@ clamps outside it. Supply both instants with `end` after `start`, without
 `value` or `max`. The existing forms remain: `progress value=0.4 max=1` is
 a determinate bar, and `progress` is the platform activity indicator. A
 progress control takes no children; `aria-label` names it.
+
+### Widget development gallery
+
+A development Apple build with `widgets`, made with `--widget-gallery` or
+`EXACT_WIDGET_GALLERY=1`, has **Widgets…** in its dev menu (Develop on macOS). It shows every declared family in full colour, accented and
+vibrant modes, light and dark, at large and XXXL text sizes. It uses the entry's
+headless plan and the extension's snapshot driver. In-process containers and
+mode presentation are stand-ins; archive fidelity needs the real extension.
+
+| Agent address | Reads |
+|---|---|
+| `bun scripts/agent.mjs ios widget next-trains --family systemMedium --mode accented --scheme dark --size xxxl tree "screenshot target/widget.png" state` | Snapshot tree, the entry alone, and its props |
+| `bun scripts/agent.mjs macos widget next-trains tree state` | First declared family, full colour, light, large text |
+| `bun scripts/agent.mjs ios widget next-trains --epoch 2026-08-28T09:05:00Z "clock +600000" tree state` | Refresh and render at the app’s advanced clock |
+
+An immediate refresh answer supplies its first timeline entry. Pending, empty
+or unavailable data keeps the preview; `state` reports which. `--props <json>`
+replaces the preview props for this read and takes precedence over refresh. Widget
+reads accept only `tree`, `screenshot <png>`, `state` and the app’s `clock`; film,
+window, compare and `--scale` options are refused. Ordinary builds name the
+`--widget-gallery` rebuild. Production builds include no gallery code.

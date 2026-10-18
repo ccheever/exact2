@@ -694,6 +694,38 @@ fn with(node: &Node, sheet: Vec<Attr>) -> Node {
     }
 }
 
+/// A field whose authored `flex` is a number alone (`flex=1`, CSS's `1 1
+/// 0%`) with no `flex-basis` after it, written as its grow and shrink: the
+/// row's sheet keeps the basis. `None` for any other field.
+fn grown_field(node: &Node) -> Option<Node> {
+    let Node::Element { attrs, .. } = node else {
+        return None;
+    };
+    let flex = attrs.iter().rposition(|a| a.name == "flex")?;
+    let grow = match &attrs[flex].value {
+        Expr::Str(v, _) => v.trim().parse::<f64>().ok()?,
+        v => crate::values::numeric_literal(v)?,
+    };
+    if attrs[flex..].iter().any(|a| a.name == "flex-basis") {
+        return None;
+    }
+    let mut node = node.clone();
+    let Node::Element { attrs, .. } = &mut node else {
+        return None;
+    };
+    let a = attrs.remove(flex);
+    let longhand = |name: &str, value: f64| Attr {
+        name: name.into(),
+        value: Expr::Number(value, a.span),
+        ..a.clone()
+    };
+    attrs.splice(
+        flex..flex,
+        [longhand("flex-grow", grow), longhand("flex-shrink", 1.0)],
+    );
+    Some(node)
+}
+
 /// `yes` where the boolean attribute `name` is true, else `otherwise`; a
 /// bound one chooses as it changes.
 fn by_flag(attrs: &[Attr], name: &str, yes: &str, otherwise: Expr, span: Span) -> Expr {
@@ -1246,9 +1278,12 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         // one too, keeps the rest; 8rem and a short label fit on one line up
         // to the largest size before the accessibility ones, and past it the
         // row wraps the field under the label. A date, time or menu keeps its
-        // own width. Under the label either is as narrow as the line.
+        // own width. Under the label either is as narrow as the line. An
+        // author's `flex=1` on the field (the number-field recipe writes it)
+        // grows it from the same basis: CSS's `1 1 0%` let the label squeeze
+        // it to "…" at the accessibility sizes instead of wrapping.
         ("input", _) if texts.low() >= 1 && text_field(child) => with(
-            child,
+            &grown_field(child).unwrap_or_else(|| child.clone()),
             vec![
                 m("text-align", "field-align", at),
                 n("flex-grow", 0.0, at),
@@ -1272,9 +1307,15 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             };
             // LLP 1116.020 D5: a stack before any text is the title, and
             // grows as a title does, so a text after it is the value at the
-            // far edge (`RowText` straight in a section drew it mid-row).
+            // far edge (`RowText` straight in a section drew it mid-row). A
+            // stack its author sized is laid out as written: three `flex=1`
+            // columns of figures keep CSS's `min-width: auto`, and a first
+            // one given `min-width: 0` here was squeezed under its caption's
+            // width at the largest text size (event-rsvp, round 21).
             if matches!(texts, Count::Known(0)) {
-                margins.extend([attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)]);
+                if !sized(child) {
+                    margins.extend([attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)]);
+                }
                 *texts = Count::Known(1);
             }
             // A control's lines are its label, in its own colour.
@@ -1352,6 +1393,11 @@ fn text_lines(nodes: &[Node]) -> Option<(usize, usize)> {
 /// Whether a row's part is lines stacked in the row: a shown element that
 /// lays out as a column around two parts or more (a column with nothing in
 /// it is a box, as a cover's placeholder is). `part` reads an `if` through.
+/// Whether the author wrote how wide `node` is in its row.
+fn sized(node: &Node) -> bool {
+    matches!(node, Node::Element { attrs, .. } if attrs.iter().any(|a| matches!(a.name.as_str(), "flex" | "flex-grow" | "flex-basis" | "width" | "min-width")))
+}
+
 fn stacks(node: &Node) -> bool {
     matches!(node, Node::Element { tag, attrs, children, .. }
         if !hidden(node) && column_row(tag, attrs) && children.iter().filter(|c| !hidden(c)).count() >= 2)

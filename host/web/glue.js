@@ -399,24 +399,24 @@ function refreshSymbols() {
 // The app's `value` into an editor as a person types: the changed middle only (`setRangeText` keeps the selection where a whole assignment throws the caret to the end), never mid-composition — held, applied at compositionend. LLP 1045 D5.
 const composing = new WeakSet(), heldValues = new WeakMap(), compositionFlush = new WeakMap();
 function writeValue(el, value) {
-  if (el.exactMarkup) { el.exactMarkup.setValue(value); return; } if (el instanceof HTMLTextAreaElement) el.exactSourceValue = String(value);
+  if (el.exactMarkup) { el.exactMarkup.setValue(value); return; } if (el.exactDecorations) { el.value = String(value); el.exactDecorations.sync(); return; } if (el instanceof HTMLTextAreaElement) el.exactSourceValue = String(value);
   const old = el.value; if (old === value) { heldValues.delete(el); return; } if (composing.has(el)) { heldValues.set(el, value); return; } heldValues.delete(el);
   if (typeof el.setRangeText !== "function" || valuedControl(el) || old === "" || document.activeElement !== el) { el.value = value; return; }
   let a = 0, z = 0; while (a < old.length && a < value.length && old[a] === value[a]) a++; while (z < old.length - a && z < value.length - a && old[old.length - 1 - z] === value[value.length - 1 - z]) z++;
   const end = old.length - z, text = value.slice(a, value.length - z), { selectionStart: s0, selectionEnd: s1 } = el, carry = (p) => p <= a ? p : p >= end ? p + text.length - (end - a) : a + text.length;
   el.setRangeText(text, a, end, "preserve"); if (el.value !== value) el.value = value; else el.setSelectionRange(carry(s0), Math.max(carry(s0), carry(s1))); }
-let markupModule; const markupPending = new WeakSet();
-function syncMarkup(el) {
-  if (el.exactMarkup) { el.exactMarkup.sync(); return; }
-  if (!(el instanceof HTMLTextAreaElement) || el.getAttribute('markup') !== 'markdown' || markupPending.has(el)) return;
+const editorModules = {}; const markupPending = new WeakSet(); function syncMarkup(el) {
+  const existing = el.exactMarkup ?? el.exactDecorations; if (existing) { existing.sync(); return; }
+  const decorated = el.hasAttribute('data-decorations'), kind = decorated ? 'decoration' : 'markup';   if (!(el instanceof HTMLTextAreaElement) || !decorated && el.getAttribute('markup') !== 'markdown' || markupPending.has(el)) return;
   markupPending.add(el);
-  (markupModule ??= moduleReady.then(() => loadAfterPaint('./markup-editor.js', 'installMarkupEditor'))).then(install => {
+  (editorModules[kind] ??= moduleReady.then(() => loadAfterPaint(`./${kind}-editor.js`, decorated ? 'installDecorationEditor' : 'installMarkupEditor'))).then(install => {
     const id = Number(el.dataset.view), live = node => views.get(id) === node && node.isConnected && !retiredViews.has(node);
     if (composing.has(el)) return; // Keep the native marked range until its final input has committed.
-    markupPending.delete(el); if (!live(el) || el.getAttribute('markup') !== 'markdown') return;
+    markupPending.delete(el); if (!live(el)) return;
     install(el, { live, replace(node) { views.set(id, node); attach(node, id, el.exactHandlers); },
-      select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); } });
-  }).catch(error => console.error('exact: Markdown editor:', error));
+      select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); },
+      toggle(node, checked, start, end) { if (live(node) && inputReady && node.exactHandlers.includes('toggle')) send(wasm.exact_dispatch(id, 50, writeIn(`${checked ? 'checked,unchecked' : 'unchecked,checked'},${start},${end}`), now())); } });
+  }).catch(error => console.error(`exact: ${kind} editor:`, error));
 }
 // LLP 1048.003 D4: `<html data-scrolldocument>` while an element is the page's scroller, which the shell's rule reads (never a `:has()` over the tree).
 const scrollDocs = new Set(), markScrollDocument = (on = false) => { for (const el of scrollDocs) if (!el.isConnected) scrollDocs.delete(el); else on ||= el.getAttribute("data-scrolldocument") === "true"; document.documentElement.toggleAttribute("data-scrolldocument", on); };
@@ -612,7 +612,7 @@ function apply(batch) {
     try {
       switch (op.op) {
       case "textflow": break; // consumed once after the complete DOM batch
-      case "keyframes": motion.keyframes(op.name, op.css); break; case "theme": (document.getElementById("exact-theme") ?? document.head.appendChild(Object.assign(document.createElement("style"), { id: "exact-theme" }))).textContent = op.css; break; // LLP 1055 D7: the page's @keyframes; LLP 1095 D4: the theme's :root rule
+      case "keyframes": motion.keyframes(op.name, op.css); break; case "looks": { const sheet = document.getElementById("exact-looks") ?? document.head.appendChild(Object.assign(document.createElement("style"), { id: "exact-looks" })), rules = sheet.exactRules ??= new Map(); if (op.css) rules.set(op.id, op.css); else rules.delete(op.id); if (!sheet.exactFlush) queueMicrotask(sheet.exactFlush = () => { sheet.exactFlush = null; sheet.textContent = [...rules.values()].join(""); }); break; } case "theme": (document.getElementById("exact-theme") ?? document.head.appendChild(Object.assign(document.createElement("style"), { id: "exact-theme" }))).textContent = op.css; break; // LLP 1055 D7: the page's @keyframes; LLP 1121 D8: a view's state looks (src/host/looks.rs); LLP 1095 D4: the theme's :root rule
       case "language": if (op.lang) document.documentElement.lang = op.lang; document.documentElement.dir = op.dir; break; // a plan with no strings table names no language: the page keeps the manifest's (LLP 1115.000 D4.6) // a plan with no strings table names no language: the page keeps the manifest's (LLP 1115.000 D4.6)
       case "head": pageTitle(op.title ?? null); (headGlue ??= loadAfterPaint('./document-glue.js', 'documentHead')).then(head => head(op)); break; // the title at once: the head's, else the route's (LLP 1115.000 D4.1)
       case "router": navigation.apply(op); break;
@@ -780,7 +780,7 @@ function apply(batch) {
           else try { el.showPicker(); } catch (e) { log(`picker: refused: ${e.name}`); const p = picker().then(m => m.cancel(Number(el.dataset.view))); inflight.add(p); p.finally(() => inflight.delete(p)); }
         }
         else if (op.name === "fastSeek" || op.name === "load") { const el = [...views.values()].find(el => el.id === op.args?.[0]), queue = () => ((el.exactMedia ??= { props: {}, handlers: [] }).commands ??= []).push([op.name, op.args?.[1]]); if (!(el instanceof HTMLMediaElement)) log(`${op.name} "${op.args?.[0]}" refused: ${el ? "not a video or audio" : "no live node with that id"}`); else if (op.name === "load" && el["exactApp-src"]) appSource(el, "src", el["exactApp-src"], queue); else { queue(); syncMedia(el); } } // a media element's, by HTML's method names (podcast F8, F18): queued for media-glue.js `run`; a `load` of an `app:/` source resolves the file again first
-        else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (markupModule) markupModule.then(run); else run(); }
+        else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (editorModules.markup) editorModules.markup.then(run); else run(); }
         else if (op.name === "openURL") {
           if (op.args?.length !== 1 || typeof op.args[0] !== "string") console.error("exact: openURL requires one string");
           else try { const target = navigableURL(new URL(op.args[0]).href); if (!target) throw Error("unsupported external URL scheme"); window.open(target, "_blank", "noopener,noreferrer"); } catch (error) { console.error("exact: openURL refused", String(error)); }
@@ -823,7 +823,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement)) el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -1014,7 +1014,7 @@ function nodeDetail(id, plan = false) {
   const el = views.get(id);
   if (!el || !el.isConnected) return { error: `stale node #${id}` };
   const node = ask({ op: "node", id, ...(plan ? { plan: true } : {}) });
-  if (node.error) return node;
+  if (node.error) return node; Object.assign(node, globalThis.exact.heldOf?.(el)); // what is held on it, and its rows (LLP 1122 D8)
   if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: shownValue(el) };
   delete node.frame;
   delete node.absolute;
@@ -1159,7 +1159,7 @@ function agentReply(request) {
       case "tap": {
         const i = request.into; // @ref LLP 1070.000 §5 — the runner's request, its batch applied now
         if (i) { for (const a of [i.block === undefined ? 'start' : i.block, i.inline === undefined ? 'nearest' : i.inline]) if (!['start', 'center', 'end', 'nearest'].includes(a)) return { error: `no alignment ${typeof a === "string" ? a : JSON.stringify(a)}: start, center, end or nearest`, malformed: true }; const { batch } = sendBatch(wasm.exact_into_view(request.id, writeIn(`${i.key ?? ''}\n${i.block ?? 'start'}\n${i.inline ?? 'nearest'}`))); return batch.error != null ? { error: batch.error } : tagged({ tapped: request.id, into: i }); }
-        const frame = views.get(request.id);
+        const frame = views.get(request.id); if (request.holdState !== undefined) return (async () => { for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise(ok => setTimeout(ok, 50)); return globalThis.exact.hold ? (r => r.error ? { error: r.error, ...(r.malformed ? { malformed: true } : {}) } : tagged({ tapped: request.id, holdState: r.held, delivery: "recognized" }))(globalThis.exact.hold(frame, request.holdState)) : { error: "the input glue is not loaded" }; })(); // LLP 1122 D8: `holdState`, once the glue loads (it loads after paint)
         if (request.history !== undefined || request.back) return request.back ? navigation.back(root) : navigation.travel(frame, request.history); // the agent's `back` (LLP 1116.006 D4)
         if (frame && (inertAncestor(frame) || ["hidden", "collapse"].includes(getComputedStyle(frame).visibility)))
           return { handled: true, error: `view ${request.id} is hidden or inert` };
@@ -1191,7 +1191,7 @@ function agentReply(request) {
 // @ref LLP 1043.000 §3 D7/D8 — reads keep the last settled facts (LLP 1012).
 // Await flow only when requested; ordinary agent calls retain their return types.
 async function agentSettled(request) {
-  const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (markupModule) await markupModule;
+  const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; await Promise.all(Object.values(editorModules));
   if (flowLoading) await flowLoading;
   if (textflow) await textflow.settle();
   return agent(request);
@@ -1345,13 +1345,13 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   collections.reset();
   for (const el of lists.keys()) forgetList(el);
   for (const el of views.values()) if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
-  for (const el of views.values()) { el.exactAppFrame?.dispose(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); } views.clear();
+  for (const el of views.values()) { el.exactAppFrame?.dispose(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactNative?.destroy(); } views.clear();
   messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = []; grantSet = null; unparsed = "";
   for (const controller of controllers) controller.abort();
   controllers.clear(); forgettable.clear(); inflight.clear(); mediaAttaching.clear();
-  if (!page?.holding) root.replaceChildren(); document.getElementById("exact-theme")?.remove(); // the last plan's theme (LLP 1095 D4): this boot's batch sets its own
+  globalThis.exact.holdQuiet?.(); if (!page?.holding) root.replaceChildren(); document.getElementById("exact-theme")?.remove(); document.getElementById("exact-looks")?.remove(); // a held state goes unsaid (dev.js holds it again); the last plan's theme (LLP 1095 D4) and state looks (LLP 1121 D8): this boot's batch sets its own
   commitFonts(preparedFonts);
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   toldOffset = null; followOffset(now()); // @ref LLP 1027.000.000 — the date, as the clock the runner already reads
@@ -1431,7 +1431,7 @@ async function main() {
   // again: a task after Stop (`navigateerror`, fired mid-stop) or Back from the
   // bfcache (`pageshow`); a 204 or a download says nothing, so after a second.
   // The page names the build in its preload (`./app.wasm?v=…`, LLP 1047.000 §9), so this file is the same across builds.
-  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_grants: grantOrigins(() => memory), exact_js: { call: moduleCall }, exact_rust: rustImports, exact_data: dataImports, exact_clock: { now: () => performance.now() - t0 }, exact_geometry: { shown: (view, first) => { if (first) { structuralModalLayers = modalLayers(); queueMicrotask(() => { structuralModalLayers = null; }); } const el = views.get(view); if (!el?.isConnected || !root.contains(el) || inertAncestor(el)) return 0; const live = structuralModalLayers; if (live && !live.some(layer => layer.contains(el))) return 0; for (let at = el; at && at !== root; at = at.parentElement) if (getComputedStyle(at).display === "none") return 0; return 1; }, read: (op, view, out) => geometry?.read(op, views.get(view), new Float64Array(memory.buffer, out, 4)) ?? 0, point: (x, y) => { const el = geometry?.point(x, y)?.closest("[data-view]"), id = el && root.contains(el) ? Number(el.dataset.view) : NaN; return views.get(id) === el ? id + 1 : 0; }, points: (x, y, out, cap) => { const hits = (geometry?.points(x, y) ?? []).flatMap(hit => { const el = hit.closest("[data-view]"), id = el && root.contains(el) ? Number(el.dataset.view) : NaN; return views.get(id) === el ? [id + 1] : []; }); if (cap) new Uint32Array(memory.buffer, out, Math.min(cap, hits.length)).set(hits.slice(0, cap)); return hits.length; } } }, aborted = e => e?.name === "AbortError";
+  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_grants: grantOrigins(() => memory), exact_js: { call: moduleCall }, exact_rust: rustImports, exact_data: dataImports, exact_clock: { now: () => performance.now() - t0 }, exact_geometry: { shown: (view, first) => { if (first) { structuralModalLayers = modalLayers(); queueMicrotask(() => { structuralModalLayers = null; }); } const el = views.get(view); if (!el?.isConnected || !root.contains(el) || inertAncestor(el)) return 0; const live = structuralModalLayers; if (live && !live.some(layer => layer.contains(el))) return 0; for (let at = el; at && at !== root; at = at.parentElement) if (getComputedStyle(at).display === "none") return 0; return 1; }, read: (op, view, out) => geometry?.read(op, views.get(view), new Float64Array(memory.buffer, out, 4)) ?? 0, range: (view, start, end, out) => geometry?.range(views.get(view), start, end, new Float64Array(memory.buffer, out, 4)) ?? 0, point: (x, y) => { const el = geometry?.point(x, y)?.closest("[data-view]"), id = el && root.contains(el) ? Number(el.dataset.view) : NaN; return views.get(id) === el ? id + 1 : 0; }, points: (x, y, out, cap) => { const hits = (geometry?.points(x, y) ?? []).flatMap(hit => { const el = hit.closest("[data-view]"), id = el && root.contains(el) ? Number(el.dataset.view) : NaN; return views.get(id) === el ? [id + 1] : []; }); if (cap) new Uint32Array(memory.buffer, out, Math.min(cap, hits.length)).set(hits.slice(0, cap)); return hits.length; } } }, aborted = e => e?.name === "AbortError";
   const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), preload()?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
   const stayed = () => new Promise(done => { const later = () => setTimeout(done); globalThis.navigation?.addEventListener("navigateerror", later, { once: true }); addEventListener("pageshow", later, { once: true }); setTimeout(done, 1000); });
   let response = (globalThis.exact.runtime ??= download()).then(r => r.url === url.href ? r : download(), e => aborted(e) ? Promise.reject(e) : download()), instance;

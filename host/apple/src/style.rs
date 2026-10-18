@@ -25,6 +25,8 @@ use exact_kernel::{
 use exact_motion::Property;
 use std::fmt::Write as _;
 
+#[cfg(test)]
+mod crossing_tests;
 mod kept;
 use kept::kept_geometry;
 
@@ -103,7 +105,7 @@ pub(crate) fn style_json_resolved(style: &StyleProps) -> (String, Vec<Skipped>) 
     style_json_rows(style, None, StyleMask::EMPTY)
 }
 
-fn style_json_rows(
+pub(crate) fn style_json_rows(
     style: &StyleProps,
     env: Option<&Env>,
     keep: StyleMask,
@@ -709,8 +711,7 @@ pub fn push_num(out: &mut String, n: f32) {
 
 /// A node's effective overflow per axis — the kernel's own rule
 /// (`StyleProps::to_taffy`): a `ScrollView`/`List` scrolls on y unless its
-/// row says otherwise, and an unset x follows a non-visible y (CSS Overflow
-/// §3). The presenter scrolls and clips from these, never from the node
+/// row says otherwise; both axes compute through CSS Overflow §3. The presenter scrolls and clips from these, never from the node
 /// type.
 pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let s = node.style;
@@ -721,20 +722,12 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     } else {
         Overflow::Visible
     };
-    let mut x = if s.mask.has(StyleId::OverflowX) {
+    let x = if s.mask.has(StyleId::OverflowX) {
         s.overflow_x
     } else {
         Overflow::Visible
     };
-    let mut y = y;
-    // Symmetric, as the kernel computes: a `visible` axis beside a
-    // non-visible one computes to `auto` (CSS Overflow §3).
-    if x == Overflow::Visible && y != Overflow::Visible {
-        x = Overflow::Auto;
-    } else if y == Overflow::Visible && x != Overflow::Visible {
-        y = Overflow::Auto;
-    }
-    (x, y)
+    (x.computed(y), y.computed(x))
 }
 
 /// The style dictionary with CSS inheritance resolved and effective
@@ -826,9 +819,19 @@ fn paint_over(computed: &mut StyleProps, shown: &Shown) {
     }
 }
 
+/// Whether a `color` moving on the node is its author's: its keyframes
+/// name it, or it is a text field, which inherits none (see
+/// [`style_json_presented`]).
+fn says_moving_color(node: &NodeRef<'_>) -> bool {
+    node.node_type == NodeType::TextInput
+        || node.style.animation.properties().contains(&Property::Color)
+}
+
 /// A leaving view's last style with its presented paint over it: its node
-/// is gone, so the rows are the ones it last showed (LLP 1063 D5).
-pub fn restyle_presented(last: &str, env: &Env, shown: &Shown) -> String {
+/// is gone, so the rows are the ones it last showed (LLP 1063 D5). `own`:
+/// the exit's keyframes name `color`, so a moving one is its author's and
+/// `"written"` names it, as [`style_json_presented`] does.
+pub fn restyle_presented(last: &str, env: &Env, shown: &Shown, own: bool) -> String {
     let mut paint = StyleProps::default();
     paint_over(&mut paint, shown);
     for (p, id) in [
@@ -873,7 +876,17 @@ pub fn restyle_presented(last: &str, env: &Env, shown: &Shown) -> String {
             }
         });
     let over = over.into_iter().map(str::to_string);
-    format!("{{{}}}", kept.chain(over).collect::<Vec<_>>().join(","))
+    let mut rows: Vec<String> = kept.chain(over).collect();
+    if own && shown.get(Property::Color).is_some() {
+        match rows.iter_mut().find(|e| e.starts_with("\"written\":[")) {
+            Some(w) if !w.contains("\"text_color\"") => {
+                w.insert_str("\"written\":[".len(), "\"text_color\",");
+            }
+            Some(_) => {}
+            None => rows.push("\"written\":[\"text_color\"]".into()),
+        }
+    }
+    format!("{{{}}}", rows.join(","))
 }
 
 /// The top-level `"key":value` entries of a JSON object the host wrote.
@@ -905,10 +918,34 @@ fn entries(json: &str) -> Vec<&str> {
 /// shadow animation or transition moves them (LLP 1055.000 D6, LLP 1062):
 /// `color` (and the `currentcolor` border sides that follow it), the
 /// background, the border sides, a symbol's tint, and the shadow.
+/// `shown` is the node's own motion. A moving `color` is its author's where
+/// its keyframes name `color`, or on a text field, whose colour stops at it
+/// (a platform start, LLP 1104 D4): `"written"` names it then, as a field
+/// reads its colour only where the node says one (LLP 1115 D4). A
+/// transition over an inherited colour is not the node's say.
 pub fn style_json_presented(
     node: &NodeRef<'_>,
     env: &Env,
     shown: &Shown,
+) -> (String, Vec<Skipped>) {
+    style_json_shown(node, env, shown, true)
+}
+
+/// [`style_json_presented`] with `shown` an ancestor's moving `color`,
+/// which the node inherits: not its own, so not written.
+pub fn style_json_inherited(
+    node: &NodeRef<'_>,
+    env: &Env,
+    shown: &Shown,
+) -> (String, Vec<Skipped>) {
+    style_json_shown(node, env, shown, false)
+}
+
+fn style_json_shown(
+    node: &NodeRef<'_>,
+    env: &Env,
+    shown: &Shown,
+    own: bool,
 ) -> (String, Vec<Skipped>) {
     let rows = if matches!(
         node.node_type,
@@ -943,16 +980,15 @@ pub fn style_json_presented(
     // PlaceholderColor's initial payload is an unread sentinel; absence
     // selects the platform placeholder colour, including after a clear. So
     // for the pressed paint: a cleared row is no pressed look (LLP 1061 D7).
-    computed.mask = computed.mask.union(
-        computed.written.minus(
-            StyleMask::of(StyleId::PlaceholderColor)
-                .union(StyleMask::of(StyleId::PressOpacity))
-                .union(StyleMask::of(StyleId::PressBackgroundColor))
-                .union(StyleMask::of(StyleId::PressColor)),
-        ),
-    );
+    computed.mask =
+        computed.mask.union(computed.written.minus(
+            StyleMask::of(StyleId::PlaceholderColor).union(crate::looks::press_paint_rows()),
+        ));
     computed.mask.set(StyleId::TextColor);
     paint_over(&mut computed, shown);
+    if own && shown.get(Property::Color).is_some() && says_moving_color(node) {
+        computed.written.set(StyleId::TextColor);
+    }
     // The presenter must inset editors/images and paint the same border area
     // that the kernel laid out. Authored widths survive separately in the node.
     let widths = computed.border_widths();
@@ -1004,15 +1040,21 @@ pub fn style_json_presented(
         StyleId::MarginLeft,
     ];
     let insets = [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left];
-    let crossing = if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") {
-        Some(insets)
-    } else if computed.position_area != PositionArea::None {
-        Some(placed)
-    } else {
-        None
-    };
+    // A sticky box's vertical insets say whether it sticks while its
+    // scroller scrolls: an iOS header's search field stays in view.
+    let vertical = [StyleId::Top, StyleId::Bottom];
+    let crossing: Option<&[StyleId]> =
+        if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") {
+            Some(&insets)
+        } else if computed.position_area != PositionArea::None {
+            Some(&placed)
+        } else if computed.position_type == exact_kernel::PositionType::Sticky {
+            Some(&vertical)
+        } else {
+            None
+        };
     if let Some(rows) = crossing {
-        for id in rows {
+        for &id in rows {
             if !computed.mask.has(id) {
                 continue;
             }
@@ -1029,6 +1071,7 @@ pub fn style_json_presented(
     let name = |o: Overflow| match o {
         Overflow::Visible => "visible",
         Overflow::Hidden => "hidden",
+        Overflow::Clip => "clip",
         Overflow::Scroll => "scroll",
         Overflow::Auto => "auto",
     };
@@ -1044,6 +1087,7 @@ pub fn style_json_presented(
             head + "," + &json[1..]
         };
     }
+    json = crate::looks::with_looks(json, node, env, current);
     // @ref LLP 1053.000.000.000 D2 — an auto glass group's spacing rides the
     // string the host compares, so a gap, direction or display change sends it.
     if let Some(points) = glass_auto_spacing(node) {
@@ -1139,114 +1183,6 @@ mod flow_tests {
             s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
         }
         assert_eq!(style_json(&s, &Env::default()), ("{}".into(), vec![]));
-    }
-
-    #[test]
-    fn only_dialogs_keep_viewport_positioning_rows() {
-        use exact_kernel::{Kernel, MonospaceMeasurer, Op, PropId};
-        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
-        let mut style = StyleProps::default();
-        style
-            .set_dynamic(StyleId::Left, &StyleValue::Number(12.0))
-            .unwrap();
-        style
-            .set_dynamic(StyleId::Bottom, &StyleValue::Text("calc(10% + 8px)".into()))
-            .unwrap();
-        kernel
-            .apply(
-                0,
-                1,
-                &[
-                    Op::CreateView {
-                        id: 1,
-                        node_type: NodeType::View,
-                    },
-                    Op::SetStyle {
-                        id: 1,
-                        patch: Box::new(style),
-                    },
-                ],
-            )
-            .unwrap();
-        let ordinary: serde_json::Value =
-            serde_json::from_str(&style_json_for(&kernel.node(1).unwrap(), &Env::default()).0)
-                .unwrap();
-        assert!(ordinary.get("left").is_none());
-        assert!(ordinary.get("bottom").is_none());
-        kernel
-            .apply(
-                0,
-                2,
-                &[Op::SetProp {
-                    id: 1,
-                    prop: PropId::SemanticTag,
-                    value: "dialog".into(),
-                }],
-            )
-            .unwrap();
-        let dialog: serde_json::Value =
-            serde_json::from_str(&style_json_for(&kernel.node(1).unwrap(), &Env::default()).0)
-                .unwrap();
-        assert_eq!(dialog["left"], 12);
-        assert_eq!(dialog["bottom"], serde_json::json!({ "pct": 10, "px": 8 }));
-    }
-
-    /// LLP 1021 "Placement": a popover placed by `position-area` carries its
-    /// margins to the host, which aligns its margin box; without the row
-    /// they stay the kernel's, as every other box's.
-    #[test]
-    fn a_placed_popover_carries_its_margins() {
-        use exact_kernel::{Kernel, MonospaceMeasurer, Op};
-        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
-        let mut style = StyleProps::default();
-        style
-            .set_dynamic(StyleId::MarginBottom, &StyleValue::Number(12.0))
-            .unwrap();
-        style
-            .set_dynamic(StyleId::MarginLeft, &StyleValue::Auto)
-            .unwrap();
-        let create = [
-            Op::CreateView {
-                id: 1,
-                node_type: NodeType::View,
-            },
-            Op::SetStyle {
-                id: 1,
-                patch: Box::new(style),
-            },
-        ];
-        kernel.apply(0, 1, &create).unwrap();
-        let json = |kernel: &Kernel| -> serde_json::Value {
-            serde_json::from_str(&style_json_for(&kernel.node(1).unwrap(), &Env::default()).0)
-                .unwrap()
-        };
-        assert!(json(&kernel).get("margin_bottom").is_none());
-        let mut area = StyleProps::default();
-        area.set_dynamic(StyleId::PositionArea, &StyleValue::Text("top".into()))
-            .unwrap();
-        area.set_dynamic(
-            StyleId::PositionTryFallbacks,
-            &StyleValue::Text("flip-block, flip-inline, flip-block flip-inline".into()),
-        )
-        .unwrap();
-        kernel
-            .apply(
-                0,
-                2,
-                &[Op::SetStyle {
-                    id: 1,
-                    patch: Box::new(area),
-                }],
-            )
-            .unwrap();
-        let placed = json(&kernel);
-        assert_eq!(placed["position_area"], "top", "{placed}");
-        assert_eq!(
-            placed["position_try_fallbacks"],
-            "flip-block, flip-inline, flip-block flip-inline"
-        );
-        assert_eq!(placed["margin_bottom"], 12, "{placed}");
-        assert_eq!(placed["margin_left"], "auto", "{placed}");
     }
 
     /// CSS `visibility` is inherited. A box that does not set it still
@@ -1373,6 +1309,59 @@ mod flow_tests {
         assert!(json(5).get("written").is_none(), "no row");
     }
 
+    /// LLP 1115 D4: a colour moving on a field is its own, so `"written"`
+    /// names it (a field reads its colour only there); an ancestor's moving
+    /// colour, which it inherits, is not named.
+    #[test]
+    fn an_own_moving_colour_is_written_and_an_inherited_one_is_not() {
+        use exact_kernel::{Kernel, MonospaceMeasurer, Op};
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let node_type = NodeType::TextInput;
+        kernel
+            .apply(0, 1, &[Op::CreateView { id: 1, node_type }])
+            .unwrap();
+        let mut shown = Shown::default();
+        shown.set(
+            Property::Color,
+            Some(exact_motion::Value::rgba8(0, 0, 255, 255)),
+        );
+        let node = kernel.node(1).unwrap();
+        let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+        let own = json(style_json_presented(&node, &Env::default(), &shown).0);
+        assert_eq!(own["written"], serde_json::json!(["text_color"]), "{own}");
+        assert_eq!(own["text_color"], serde_json::json!([0, 0, 255, 255]));
+        let inherited = json(style_json_inherited(&node, &Env::default(), &shown).0);
+        assert!(inherited.get("written").is_none(), "{inherited}");
+        let still = json(style_json_presented(&node, &Env::default(), &Shown::default()).0);
+        assert!(still.get("written").is_none(), "{still}");
+        // Off a field, a transition's colour is not the node's say (a
+        // spinner under a changing parent keeps its own ink).
+        let view = NodeType::View;
+        kernel
+            .apply(
+                0,
+                2,
+                &[Op::CreateView {
+                    id: 2,
+                    node_type: view,
+                }],
+            )
+            .unwrap();
+        let other = json(style_json_presented(&kernel.node(2).unwrap(), &Env::default(), &shown).0);
+        assert!(other.get("written").is_none(), "{other}");
+        // A leaving view whose exit's keyframes name `color`.
+        let last = r#"{"text_color":[0,0,0,255],"written":["background_color"]}"#;
+        let left = json(restyle_presented(last, &Env::default(), &shown, true));
+        assert_eq!(
+            left["written"],
+            serde_json::json!(["text_color", "background_color"])
+        );
+        let left = json(restyle_presented("{}", &Env::default(), &shown, true));
+        assert_eq!(left["written"], serde_json::json!(["text_color"]));
+        let left = json(restyle_presented(last, &Env::default(), &shown, false));
+        assert_eq!(left["written"], serde_json::json!(["background_color"]));
+    }
+
     /// Quarters are written as `{n}` writes them.
     #[test]
     fn quarters_spell_as_display_does() {
@@ -1459,7 +1448,7 @@ mod flow_tests {
             Some(exact_motion::Value::rgba8(255, 0, 0, 128)),
         );
         let json: serde_json::Value =
-            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
+            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown, false)).unwrap();
         assert_eq!(
             json["system_colors"],
             serde_json::json!({"text_color": "-apple-system-label"})
@@ -1473,7 +1462,7 @@ mod flow_tests {
             Some(exact_motion::Value::rgba8(0, 0, 255, 255)),
         );
         let json: serde_json::Value =
-            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
+            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown, false)).unwrap();
         assert!(json.get("system_colors").is_none(), "{json}");
     }
 }

@@ -14,9 +14,12 @@ use exact_kernel::{Kernel, SortedMap, ViewId};
 use exact_plan::Plan;
 
 pub use super::element::attribute_rows;
+// A node's state looks as page rules (LLP 1121 D8), for the JS target's sheet.
+use super::mode::looks;
+pub use super::mode::looks::rules as look_rules;
 
 /// An element as the live host would create it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Parts {
     /// The element's tag (a canvas is still `canvas`; the host wraps it).
     pub tag: String,
@@ -26,6 +29,9 @@ pub struct Parts {
     pub css: String,
     /// Rows this host does not lower, with the reason.
     pub skipped: Vec<(String, &'static str)>,
+    /// Its host-known state looks' declarations (LLP 1121 D8), for
+    /// [`look_rules`].
+    pub looks: Vec<(u8, String)>,
 }
 
 /// The kernel the web host keeps: no layout engine.
@@ -53,6 +59,10 @@ pub fn parts_with(
     let node = kernel.node(id)?;
     let tag = tag_for(&node, in_button(kernel, &node));
     let mut props = props_for(&node);
+    if let Some(raw) = props.get("data-decoration-styles") {
+        let css = crate::css::decoration_styles(raw, &font_names(plan));
+        props.insert("data-decoration-styles".into(), css);
+    }
     svg_props(kernel, &node, &mut props);
     let (text, skipped) =
         crate::css::css_text_relative(&css_style_named(kernel, &node, false), &font_names(plan));
@@ -71,5 +81,8 @@ pub fn parts_with(
             .into_iter()
             .map(|s| (s.row.name().to_string(), s.reason))
             .collect(),
+        looks: looks::declarations(node.looks(), |l| {
+            crate::css::css_text_relative(l, &font_names(plan)).0
+        }),
     })
 }

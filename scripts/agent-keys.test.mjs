@@ -107,3 +107,9 @@ test('key validation uses each browser carrier vocabulary without a target looku
   }
   expect(() => tapWords([])).toThrow('tap: needs a target');
 });
+
+test('a held state is a form of tap, by its own word (LLP 1122 D8)', () => {
+  expect(tapWords(['post', 'hold-state', 'active'])).toEqual(['post', { holdState: 'active' }]);
+  expect(tapWords(['post', 'hold-state', 'none'])).toEqual(['post', { holdState: null }]);
+  expect(() => tapWords(['post', 'hold-state', 'pressed'])).toThrow(/hold-state takes/);
+});

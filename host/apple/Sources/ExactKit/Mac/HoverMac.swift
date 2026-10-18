@@ -1,0 +1,69 @@
+#if os(macOS)
+import AppKit
+
+// The pointer's hover on the Mac, beside `Presenter.setHoverPath`: a native
+// module's, and a node's `:hover` look (LLP 1121 D8), which every node under
+// the pointer that has one shows at once, with no runner round trip and
+// whether or not it hears `hover`.
+extension Presenter {
+    /// Native-module hover dispatch uses the same ancestor coverage.
+    func hover(_ view: NodeView, _ over: Bool) {
+        guard views[view.id] === view else { return }
+        if over {
+            var path: [NodeView] = []
+            var current: NSView? = view
+            while let node = current {
+                if let node = node as? NodeView { path.append(node) }
+                current = node.superview
+            }
+            setHoverPath(path)
+        } else {
+            setHoverPath(hoveredNodes.filter { !$0.isDescendant(of: view) })
+        }
+    }
+    /// Whether the pointer rests over `node` (or a node inside it) now, by a
+    /// live hit test, as a held hover takes it (HeldState.swift); nil with
+    /// no resting pointer to ask (a button held down).
+    func pointerOver(_ node: NodeView) -> Bool? {
+        guard pointerHeld == nil, pointerSource == nil else { return nil }
+        guard let p = restingPointer(), let content = viewport.window?.contentView,
+              let hit = TableRowCell.whatIsThere({ content.hitTest(content.superview?.convert(p, from: nil) ?? p) }) else { return false }
+        return MainActor.assumeIsolated { HeldState.within(hit, node) }
+    }
+    /// A button going down (the window's monitor, ExactViewMac): a held node
+    /// it lands on or in lets its hold go (HeldState.swift). Its hit is what
+    /// the hover path and the driver's aim see, a pressable table row's own
+    /// views where AppKit's hit test gives the table (`TableRowCell.whatIsThere`).
+    func heldPointerDown(_ event: NSEvent) {
+        guard let content = event.window?.contentView else { return }
+        let hit = TableRowCell.whatIsThere { content.hitTest(content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow) }
+        MainActor.assumeIsolated { HeldState.input(at: hit) }
+    }
+    /// The `:hover` looks of the path from `leaf` in its own window (a
+    /// sheet's, a popover's): it and its authored ancestors.
+    func hoverLooks(from leaf: NodeView?) {
+        var path: [NodeView] = []
+        var view: NSView? = leaf
+        while let current = view {
+            if let node = current as? NodeView { path.append(node) }
+            view = eventParent(of: current)
+        }
+        hoverLooks(path)
+    }
+    /// The `:hover` looks of the hover path `path` (innermost first, every
+    /// ancestor): on for those that have one and show, off for the rest.
+    func hoverLooks(_ path: [NodeView]) {
+        MainActor.assumeIsolated { HeldState.hovered(path) } // the pointer coming over a held hover's node or leaving it lets it go (HeldState.swift)
+        let next = path.filter {
+            // In the page, or in a sheet's or a popover's own window (`trackPointer`).
+            views[$0.id] === $0 && $0.window != nil && !$0.inert && !$0.isHiddenOrHasHiddenAncestor
+                && NodeView.look("hover", in: $0.style) != nil
+        }
+        for held in lookHovered {
+            if let view = held.view, !next.contains(where: { $0 === view }) { view.lookState(hovered: false) }
+        }
+        for view in next { view.lookState(hovered: true) }
+        lookHovered = next.map { WeakNodeView(view: $0) }
+    }
+}
+#endif

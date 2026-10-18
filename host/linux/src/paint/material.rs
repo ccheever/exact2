@@ -1,57 +1,98 @@
 //! Material 3's filled text field (LLP 1115.001 D9: "a field's container is
 //! Material's filled text field"), which Android's reader paints for a text
 //! field round its `EditText` and for a field that shows a value: a select,
-//! and a date or time control. The metrics and roles are the component's
-//! (<https://m3.material.io/components/text-fields/specs>): a 56 dp
-//! container in `surfaceContainerHighest`, its top corners 4 dp, its text
-//! 16 dp in, an active indicator along its foot (1 dp `onSurfaceVariant`,
-//! 2 dp `primary` while focused) and a 24 dp trailing icon 12 dp from its
-//! end. Its states are layers of `onSurface` over the container: 8 % where a
-//! pointer hovers, 10 % while a field that opens something is pressed. The
-//! colours are the roles the shell reported (`presenter/palette.rs`).
+//! and a date or time control. Its numbers are the schema's Material column
+//! (the `field-` and `state-` rows), Compose Material 3's at the pinned
+//! version (LLP 1115.001.001 D2; `host/android/reference/rows.json` names
+//! each one's symbol): a 56 dp container in `surfaceContainerHighest`, its
+//! top corners 4 dp, its text 16 dp in, an active indicator along its foot
+//! (1 dp `onSurfaceVariant`, 2 dp `primary` while focused) and a 24 dp
+//! trailing icon 12 dp from its end. Its states are layers of `onSurface`
+//! over the container: 8 % where a pointer hovers, 10 % while a field that
+//! opens something is pressed. The colours are the roles the shell reported
+//! (`presenter/palette.rs`).
 //!
 //! A field's `placeholder` is its label, as an `EditText`'s hint is in a
 //! `TextInputLayout`: on the middle line in the field's own size while the
 //! field is empty and unfocused, and otherwise floated above its text in
 //! Material's body small (12 dp on a 16 dp line, 8 dp from the top), the
 //! text below it on a 24 dp line. It moves between the two in 150 ms, at
-//! once under Reduce Motion.
+//! once under Reduce Motion: that is Exact's, where Material 3 1.4 moves it
+//! by its motion scheme's fast spatial spring (`MotionSchemeKeyTokens
+//! .FastSpatial` in `TextFieldImpl.kt`), owed to LLP 1115.001.001 O3.
 use super::{look, rgba, Rect4, Shape};
+use exact_kernel::generated::metric;
+use exact_kernel::style::metrics::{self, Column};
 use exact_kernel::{Direction, FieldChrome, NodeRef, PropId, StyleId, StyleMask, ViewId};
 use std::collections::{HashMap, HashSet};
 use tiny_skia::Transform;
 
-/// The container's height.
-pub(crate) const HEIGHT: f32 = 56.0;
-/// The text's inset from either side, and the gap before a trailing icon.
-const INSET: f32 = 16.0;
-/// A trailing icon's size and its inset from the container's end.
-const ICON: f32 = 24.0;
-const ICON_INSET: f32 = 12.0;
-/// What a field with a trailing icon has beside its text.
-pub(crate) const WITH_ICON: f32 = INSET + INSET + ICON + ICON_INSET;
+/// A length of the Material look, dp, whatever look the process shows: the
+/// Material look reads its own column.
+fn dp(index: usize) -> f32 {
+    metrics::length_in(index, Column::Material, 0.0, 0.0).expect("a Material row")
+}
 
-/// A floated label's top, the line it is set on, and the top of the text
-/// under it.
-const LABEL_TOP: f32 = 8.0;
-const LABEL_LINE: f32 = 16.0;
-const LABELLED_TOP: f32 = 24.0;
-/// How long a label takes to float or to rest, ms.
+/// An opacity of the Material look.
+fn opacity(index: usize) -> f32 {
+    metrics::number_in(index, Column::Material).expect("a Material row")
+}
+
+/// The container's height.
+pub(crate) fn height() -> f32 {
+    dp(metric::FIELD_HEIGHT)
+}
+
+/// The text's inset from either side, and the gap before a trailing icon.
+fn inset() -> f32 {
+    dp(metric::FIELD_PADDING)
+}
+
+/// A trailing icon's size.
+fn icon_size() -> f32 {
+    dp(metric::FIELD_ICON_SIZE)
+}
+
+/// A trailing icon's inset from the container's end.
+fn icon_inset() -> f32 {
+    dp(metric::FIELD_ICON_INSET)
+}
+
+/// What a field with a trailing icon has beside its text.
+pub(crate) fn with_icon() -> f32 {
+    inset() + inset() + icon_size() + icon_inset()
+}
+
+/// A floated label's top, and the line it is set on.
+fn label_top() -> f32 {
+    dp(metric::FIELD_LABEL_TOP)
+}
+
+fn label_line() -> f32 {
+    dp(metric::FIELD_LABEL_LINE)
+}
+
+/// The top of the text under a floated label.
+fn labelled_top() -> f32 {
+    label_top() + label_line()
+}
+
+/// How long a label takes to float or to rest, ms (Exact's: see above).
 const LABEL_MS: f64 = 150.0;
 
 /// A text field's chrome: the text 16 dp in on every side of a 56 dp line;
 /// below a label, from 24 dp down to 8 dp above the foot.
 pub(crate) fn chrome(labelled: bool) -> FieldChrome {
     let (top, bottom) = match labelled {
-        true => (LABELLED_TOP, LABEL_TOP),
-        false => (INSET, INSET),
+        true => (labelled_top(), label_top()),
+        false => (inset(), inset()),
     };
     FieldChrome {
         top,
-        right: INSET,
+        right: inset(),
         bottom,
-        left: INSET,
-        minimum_height: HEIGHT,
+        left: inset(),
+        minimum_height: height(),
         provisional: false,
     }
 }
@@ -70,6 +111,46 @@ pub(crate) struct Labels {
     painted: HashSet<ViewId>,
     /// The latest paint's clock, ms.
     now: f64,
+    /// Where the latest paint put each field's texts, and this paint's.
+    texts: HashMap<ViewId, FieldTexts>,
+    walking: HashMap<ViewId, FieldTexts>,
+}
+
+/// Where a field's label and value were painted, in the viewport's points,
+/// for an inspector (the Material oracle's specimen door): what a text
+/// node's box is to any other text. A value the shell's own field shows
+/// (LLP 1115.001 D8) is that field's, not here.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FieldTexts {
+    /// The label, resting or floated.
+    pub label: Option<FieldText>,
+    /// The value, where the field painted one.
+    pub value: Option<FieldText>,
+}
+
+/// One painted line: its box (x, y, width, height) and its baseline.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FieldText {
+    /// The paragraph's box.
+    pub rect: Rect4,
+    /// Its first baseline.
+    pub baseline: f32,
+}
+
+impl FieldText {
+    pub(super) fn painted(
+        paragraph: &crate::text::Paragraph,
+        at: (f32, f32),
+        ts: Transform,
+    ) -> Self {
+        let rect = (at.0, at.1, paragraph.width, paragraph.height);
+        let mut base = tiny_skia::Point::from_xy(at.0, at.1 + paragraph.first_baseline);
+        ts.map_point(&mut base);
+        Self {
+            rect: super::bbox(ts, rect),
+            baseline: base.y,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -133,6 +214,17 @@ impl Labels {
     pub(super) fn painted(&mut self) {
         let painted = std::mem::take(&mut self.painted);
         self.at.retain(|id, _| painted.contains(id));
+        self.texts = std::mem::take(&mut self.walking);
+    }
+
+    /// Where the latest paint put `id`'s label and value.
+    pub(crate) fn texts(&self, id: ViewId) -> Option<FieldTexts> {
+        self.texts.get(&id).copied()
+    }
+
+    /// The walk painted `id`'s value.
+    pub(super) fn value(&mut self, id: ViewId, text: FieldText) {
+        self.walking.entry(id).or_default().value = Some(text);
     }
 }
 
@@ -170,27 +262,34 @@ impl super::Painter {
     ) -> Shape {
         let dark = self.dark;
         let off = disabled(node);
-        let shape = Shape::new(rect, [4.0, 4.0, 0.0, 0.0]);
-        // Disabled: `onSurface` at 4 %, and the indicator at 38 %.
-        let fill = match off {
-            true => look::fade(look::role("CanvasText", dark), 0.04),
-            false => look::role("Field", dark),
-        };
-        self.backend.fill(&shape, fill, ts);
-        let layer = match (off, self.feedback) {
+        let corner = dp(metric::FIELD_CORNER);
+        let shape = Shape::new(rect, [corner, corner, 0.0, 0.0]);
+        // Disabled, the container is the enabled one's, as the library draws
+        // it (`TextFieldDefaults.colors`: `disabledContainerColor` is
+        // `ContainerColor`, not the token's `onSurface` at 4 %), and the
+        // indicator `onSurface` at 38 %.
+        self.backend.fill(&shape, look::role("Field", dark), ts);
+        let layer = match (
+            off,
+            (self.feedback.0, self.presses(node.id).then_some(node.id)),
+        ) {
             (true, _) => 0.0,
-            (_, (_, Some(id))) if opens && id == node.id => 0.10,
-            (_, (Some(id), _)) if id == node.id => 0.08,
+            (_, (_, Some(id))) if opens && id == node.id => opacity(metric::STATE_PRESSED_OPACITY),
+            (_, (Some(id), _)) if id == node.id => opacity(metric::STATE_HOVER_OPACITY),
             _ => 0.0,
         };
         if layer > 0.0 {
             let state = look::fade(look::role("CanvasText", dark), layer);
             self.backend.fill(&shape, state, ts);
         }
+        let (thin, thick) = (
+            dp(metric::FIELD_INDICATOR),
+            dp(metric::FIELD_INDICATOR_FOCUSED),
+        );
         let (line, thick) = match (off, focused) {
-            (true, _) => (look::role("GrayText", dark), 1.0),
-            (false, true) => (super::control::ring(node, dark), 2.0),
-            (false, false) => (look::role("-exact-secondary-label", dark), 1.0),
+            (true, _) => (look::role("GrayText", dark), thin),
+            (false, true) => (super::control::ring(node, dark), thick),
+            (false, false) => (look::role("-exact-secondary-label", dark), thin),
         };
         let (x, y, w, h) = rect;
         self.backend
@@ -225,23 +324,28 @@ impl super::Painter {
             .paragraph(&super::text_spec(&style, text), None);
         let (x, y, w, h) = rect;
         let rest = y + (h - paragraph.height) / 2.0;
-        let floated = y + LABEL_TOP + (LABEL_LINE - paragraph.height) / 2.0;
+        let floated = y + label_top() + (label_line() - paragraph.height) / 2.0;
         let oy = rest + (floated - rest) * up;
         let rtl = style.direction == Direction::Rtl;
         let ox = if rtl {
-            x + w - INSET - paragraph.width
+            x + w - inset() - paragraph.width
         } else {
-            x + INSET
+            x + inset()
         };
-        // An authored `::placeholder` colour wins (LLP 1104 D3).
+        // An authored `::placeholder` colour wins (LLP 1104 D3). Enabled and
+        // unfocused, resting or floated, the label is Material's
+        // onSurfaceVariant (`-exact-secondary-label`), or the design's
+        // `placeholder` where it overrides that role (LLP 1121 D9).
         let ink = match super::control::authored_placeholder(node.style, dark) {
             Some(ink) => ink,
             None if disabled(node) => look::role("GrayText", dark),
             None if focused => super::control::ring(node, dark),
-            None => look::role("-exact-secondary-label", dark),
+            None => resting_label(dark),
         };
+        let painted = FieldText::painted(&paragraph, (ox, oy), ts);
+        self.labels.walking.entry(node.id).or_default().label = Some(painted);
         self.backend.push_clip(
-            &Shape::rect((x + INSET, y, (w - 2.0 * INSET).max(0.0), h)),
+            &Shape::rect((x + inset(), y, (w - 2.0 * inset()).max(0.0), h)),
             ts,
         );
         self.backend.text(
@@ -282,31 +386,35 @@ impl super::Painter {
         };
         let rtl = style.direction == Direction::Rtl;
         let (x, y, w, h) = rect;
+        let (inset, size, icon_inset) = (inset(), icon_size(), icon_inset());
         // The label's box ends at the icon, which RTL puts at the start.
         let beside = match rtl {
-            true => (x + ICON + ICON_INSET, y, w - ICON - ICON_INSET, h),
-            false => (x, y, w - ICON - ICON_INSET, h),
+            true => (x + size + icon_inset, y, w - size - icon_inset, h),
+            false => (x, y, w - size - icon_inset, h),
         };
         let labelled = self.field_label(node, beside, focused, text.is_empty(), ts);
         let paragraph = self
             .text
             .borrow_mut()
             .paragraph(&super::text_spec(&style, text), None);
-        let room = (w - WITH_ICON + INSET).max(0.0);
+        let room = (w - with_icon() + inset).max(0.0);
         let ox = if rtl {
-            x + w - INSET - paragraph.width.min(room)
+            x + w - inset - paragraph.width.min(room)
         } else {
-            x + INSET
+            x + inset
         };
+        let (top, label_top) = (labelled_top(), label_top());
         let oy = match labelled {
-            true => y + LABELLED_TOP + (h - LABELLED_TOP - LABEL_TOP - paragraph.height) / 2.0,
+            true => y + top + (h - top - label_top - paragraph.height) / 2.0,
             false => y + ((h - paragraph.height) / 2.0).max(0.0),
         };
         let clip = if rtl {
-            (x + w - INSET - room, y, room, h)
+            (x + w - inset - room, y, room, h)
         } else {
-            (x + INSET, y, room, h)
+            (x + inset, y, room, h)
         };
+        let painted = FieldText::painted(&paragraph, (ox, oy), ts);
+        self.labels.value(node.id, painted);
         self.backend.push_clip(&Shape::rect(clip), ts);
         self.backend.text(
             &mut self.text.borrow_mut(),
@@ -320,11 +428,11 @@ impl super::Painter {
         );
         self.backend.pop_clip();
         let ix = if rtl {
-            x + ICON_INSET
+            x + icon_inset
         } else {
-            x + w - ICON_INSET - ICON
+            x + w - icon_inset - size
         };
-        let at = (ix, y + (h - ICON) / 2.0, ICON, ICON);
+        let at = (ix, y + (h - size) / 2.0, size, size);
         let tint = match off {
             true => look::role("GrayText", dark),
             false => look::role("-exact-secondary-label", dark),
@@ -344,5 +452,59 @@ fn role_path(d: &str, filled: bool) -> exact_kernel::SymbolPath<'_> {
         filled,
         even_odd: true,
         view_box: "0 0 24 24",
+    }
+}
+
+/// An enabled, unfocused label's ink: the design's `placeholder` where it
+/// overrides that role (LLP 1121 D9), else Material's onSurfaceVariant.
+fn resting_label(dark: bool) -> [u8; 4] {
+    match placeholder_overridden() {
+        true => look::role("-exact-placeholder", dark),
+        false => look::role("-exact-secondary-label", dark),
+    }
+}
+
+/// Whether the design overrides the `placeholder` role (LLP 1095 D4).
+fn placeholder_overridden() -> bool {
+    exact_kernel::style::roles::role("-exact-placeholder")
+        .is_some_and(|id| exact_kernel::style::roles::overridden(id).is_some())
+}
+
+#[cfg(test)]
+mod placeholder_tests {
+    use exact_kernel::style::roles;
+    use exact_kernel::ColorValue;
+
+    /// The label's role: `placeholder` only where the design overrides it,
+    /// else Material's onSurfaceVariant as before (stage 8 C's gap, review 1).
+    #[test]
+    fn the_label_reads_placeholder_only_where_the_design_overrides_it() {
+        roles::set_overrides(Vec::new());
+        assert!(!super::placeholder_overridden());
+        // No override: secondary-label's ink, never placeholder's fainter default.
+        for dark in [false, true] {
+            assert_eq!(
+                super::resting_label(dark),
+                super::look::role("-exact-secondary-label", dark)
+            );
+            assert_ne!(
+                super::resting_label(dark),
+                super::look::role("-exact-placeholder", dark)
+            );
+        }
+        let id = roles::role("-exact-placeholder").unwrap();
+        roles::set_overrides(vec![(
+            id,
+            ColorValue::LightDark(
+                exact_kernel::Color(0xd948_0fff),
+                exact_kernel::Color(0xd948_0fff),
+            ),
+        )]);
+        assert!(super::placeholder_overridden());
+        // The override's own colour, in both schemes.
+        for dark in [false, true] {
+            assert_eq!(super::resting_label(dark), [0xd9, 0x48, 0x0f, 0xff]);
+        }
+        roles::set_overrides(Vec::new());
     }
 }

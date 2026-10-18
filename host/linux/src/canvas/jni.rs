@@ -141,6 +141,7 @@ macro_rules! canvas_jni {
                 std::env::set_var("HOME", &dir);
                 std::env::set_var("XDG_DATA_HOME", format!("{dir}/data"));
                 std::env::set_var("EXACT_ASSETS", format!("{dir}/app"));
+                $crate::app::show_material_look();
                 std::env::set_var("EXACT_FONTS", "/system/fonts");
                 std::env::set_var("EXACT_FONT", "Roboto");
                 std::env::set_var("BENCH_LIVE", if live == JNI_TRUE { "1" } else { "0" });
@@ -202,6 +203,7 @@ macro_rules! canvas_jni {
                 std::env::set_var("HOME", &dir);
                 std::env::set_var("XDG_DATA_HOME", format!("{dir}/data"));
                 std::env::set_var("EXACT_ASSETS", format!("{dir}/app"));
+                $crate::app::show_material_look();
                 std::env::set_var("EXACT_FONTS", "/system/fonts");
                 std::env::set_var("EXACT_FONT", "Roboto");
                 std::env::set_var("BENCH_LIVE", if live == JNI_TRUE { "1" } else { "0" });
@@ -409,7 +411,15 @@ macro_rules! canvas_jni {
                 // then the host's own turn.
                 let primed = PRIMED.with(|p| p.borrow_mut().take());
                 let waiting = primed.or_else($crate::canvas::agent::next_stream);
-                let Some(ops) = waiting.or_else(|| with(|h| h.frame()).flatten()) else {
+                // The host's own turn is the frame a scrub frame's trace waits
+                // for (EXACT_SCRUB_TRACE), its stream or none (a view of the
+                // app's own took it), never a stream queued before.
+                let own = waiting.is_none();
+                let ops = waiting.or_else(|| with(|h| h.frame()).flatten());
+                if own {
+                    $crate::presenter::preferences::scrub_frame_drawn();
+                }
+                let Some(ops) = ops else {
                     return std::ptr::null_mut();
                 };
                 let new = (**env).NewDirectByteBuffer.expect("jni");
@@ -587,6 +597,18 @@ macro_rules! canvas_jni {
                 focused: jboolean,
             ) {
                 with(|h| h.field_focused(id as u32, generation as u32, focused == JNI_TRUE));
+            }
+
+            /// The reader's field `id`, known at `generation`, had real input
+            /// (a finger down, a key down).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fieldInput(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                generation: jint,
+            ) {
+                with(|h| h.field_input(id as u32, generation as u32));
             }
 
             /// The reader's field `id` holds `value` after its edit number
@@ -831,6 +853,8 @@ macro_rules! canvas_jni {
                 _env: *mut JNIEnv, _class: jclass,
             ) {
                 with(|h| h.display_frame());
+                // A scrub frame's trace waits for the frame this reader draws.
+                $crate::presenter::preferences::scrub_frames_said();
             }
 
             #[no_mangle]

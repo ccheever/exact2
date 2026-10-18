@@ -54,7 +54,8 @@ const utf8Compare = (a, b) => {
   for (let i = 0; i < Math.min(aa.length, bb.length); i++) if (aa[i] !== bb[i]) return aa[i] - bb[i];
   return aa.length - bb.length;
 };
-const validName = (name) => typeof name === "string" && /^(assets|deck|shaders)\//.test(name)
+// The trees a generation carries (serve.mjs `listAssets`), entry plans (`plans/`) among them.
+const validName = (name) => typeof name === "string" && /^(assets|deck|shaders|plans)\//.test(name)
   && !name.includes("\\") && !name.includes(":") && !name.includes("\0")
   && name.split("/").every((part) => part && part !== "." && part !== "..");
 const sameOrigin = (path, base) => {
@@ -221,7 +222,10 @@ if (es) {
     apply: async (candidate, current) => {
       if (!current()) return false;
       const t = performance.now();
-      const accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust, true);
+      // (A hold command meanwhile is the new generation's: `rehold` or the server's replay has it.)
+      swaps += 1;
+      let accepted = false;
+      try { accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust, true); } finally { swaps -= 1; if (!accepted) rehold(); }
       if (accepted) {
         navigator.sendBeacon(`/__dev/reloaded?epoch=${candidate.epoch}&seq=${candidate.seq}&dom=${Date.now()}&fetch=${candidate.fetchMs.toFixed(1)}&boot=${(performance.now() - t).toFixed(1)}`);
         requestAnimationFrame(() => navigator.sendBeacon(`/__dev/painted?epoch=${candidate.epoch}&seq=${candidate.seq}&paint=${Date.now()}`));
@@ -233,7 +237,7 @@ if (es) {
     // and the design its runner runs (read from it: /__dev/design is 204 when the
     // plan's own is the one to run, so no live answer would say it).
     // An inspect outline drawn on the old generation's boxes goes.
-    applied: (candidate) => { clearTimeout(retry); show(null); generations += 1; outlineNone(); delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; knownPlan(candidate?.planSha256); if (channel.held) command(channel.held); else if (channel.nonce) status(); },
+    applied: (candidate) => { clearTimeout(retry); if (stillUntil) stillEnds(); show(null); generations += 1; outlineNone(); delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; knownPlan(candidate?.planSha256); if (channel.held) command(channel.held); else if (channel.nonce) status(); rehold(); },
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
@@ -268,6 +272,8 @@ if (es) {
   // build asks for the snapshot. A frame before boot waits for it, the
   // latest only (a snapshot carries the whole design).
   let designing = Promise.resolve();
+  // A scrub's status, taken once its drag rests.
+  let statusLater = null;
   // Applied in place (the wasm's `exact_design_rows`): its batch is the
   // page's only when `live` says applied.
   // `still()`, after every wait, says whether the frame is still this page's.
@@ -277,11 +283,41 @@ if (es) {
     if (!still()) return { live: "structure" };
     if (typeof x.wasm?.exact_design_rows !== "function") return { live: "unsupported" };
     const n = x.wasm.exact_design_rows(x.writeIn(JSON.stringify(frame))), out = JSON.parse(x.readOut(n));
-    if (out.live === "applied") x.send(n);
-    if (typeof out.design === "string" && out.design !== x.designDigest) { x.designDigest = out.design; status(); }
+    // A scrub's frames say the design once the drag rests (a status reads the
+    // root's computed style and posts, each frame otherwise), the commit's
+    // own report with it; one the runner dropped (an older frame) moves
+    // nothing, and leaves the rest as it was.
+    const moves = typeof out.design === "string" && out.design !== x.designDigest;
+    if (out.live === "applied") {
+      if (frame.scrub && moves) { clearTimeout(statusLater); statusLater = setTimeout(status, 150); scrubSend = true; try { unmoving(() => x.send(n)); } finally { scrubSend = false; } }
+      else x.send(n);
+    }
+    if (moves) { x.designDigest = out.design; if (!frame.scrub) status(); }
     if (out.unsupported) { console.warn("exact dev: the wide colour table is full: a colour was refused, its rows keep their value"); report({ kind: "unsupported", what: "batch", detail: "the wide colour table is full: a colour was refused" }); }
     return out;
   };
+  // A scrub's frame (LLP 1121 D13) shows with no transition, as the tool
+  // drags it: every transition off while its rows are set and styled, then
+  // back on, with nothing left to move.
+  const unmoving = (apply) => {
+    const root = document.documentElement;
+    if (!document.getElementById("x-scrub-still")) {
+      const sheet = document.createElement("style");
+      sheet.setAttribute("id", "x-scrub-still");
+      sheet.textContent = "[data-x-scrub],[data-x-scrub] *,[data-x-scrub] *::before,[data-x-scrub] *::after{transition:none!important}";
+      document.head.append(sheet);
+    }
+    // Off through the drag (one style change of the whole page as it starts
+    // and one as it rests, not two each frame), its last values styled
+    // before transitions come back.
+    if (!root.hasAttribute("data-x-scrub")) root.setAttribute("data-x-scrub", "");
+    try { apply(); } finally {
+      clearTimeout(stillUntil);
+      stillUntil = setTimeout(stillEnds, 150);
+    }
+  };
+  let stillUntil = null, scrubSend = false;
+  const stillEnds = () => { clearTimeout(stillUntil); stillUntil = null; void document.documentElement.offsetWidth; document.documentElement.removeAttribute("data-x-scrub"); };
   // One at a time, in the stream's order: a snapshot fetched is never older
   // than a batch applied before it.
   // A snapshot asked for under one generation is that generation's: one
@@ -307,7 +343,8 @@ if (es) {
   // nonce, reports its effective facts, and takes `pin` and `inspect` from
   // the design server's clients; the other commands are reserved, and
   // answered unsupported. Every report waits for the stream's registration.
-  const channel = { nonce: null, registered: null, revision: null, before: null, held: null, plan: null, told: null };
+  const channel = { nonce: null, registered: null, revision: null, before: null, held: null, hold: null, holdLatest: null, plan: null, told: null };
+  let applying = null;
   // The tab's own id, kept across its reloads (sessionStorage); a duplicated
   // tab, which copies that storage, takes another when this one answers.
   const buildId = (async () => {
@@ -378,14 +415,15 @@ if (es) {
     const contrast = matchMedia("(prefers-contrast: more)").matches ? "more" : matchMedia("(prefers-contrast: less)").matches ? "less" : "no-preference";
     return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision };
   };
-  const status = async () => { const body = await facts(); channel.told = JSON.stringify(body); report(body); };
+  const status = async () => { clearTimeout(statusLater); statusLater = null; const body = await facts(); channel.told = JSON.stringify(body); report(body); };
   // The facts change under the page too, and by the app's own `setScheme`,
   // `setMode` and `setRootFontSize`: after its commits, once a turn, a status
   // when they moved.
   for (const query of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)"]) matchMedia(query).addEventListener?.("change", () => { if (channel.nonce) status(); });
   let due = false;
   const committed = () => {
-    if (due || !channel.nonce) return;
+    // A scrub frame's own commit is said once the drag rests, with these facts.
+    if (due || !channel.nonce || scrubSend) return;
     due = true;
     setTimeout(() => {
       designing = designing.then(async () => {
@@ -487,7 +525,7 @@ if (es) {
     // (Under the inspect command it was made in: one replaced since is refused.)
     // (And a click's token, which the outline answering it names.)
     const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: channel.plan, design, revision: channel.revision });
-    let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), trimmed: false };
+    let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), held: x.heldOf?.(x.views?.get(id))?.held ?? null, trimmed: false };
     if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, token }) => ({ name, value, source, from, token })), trimmed: true };
     while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
     if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
@@ -668,6 +706,72 @@ if (es) {
     }
     place();
   };
+  // `hold {revision, hold}` (LLP 1122 D4, D8; *1.11*): `{site, instance, state}` of this page's plan, the view by
+  // its site and instance path (exactly one, as a refresh finds it), held by the input glue as the real state; null
+  // lets it go. What it holds or let go, and why, is reported (`held`), to every client.
+  // A new generation's tree takes the hold again (the glue let it go unsaid with the old tree): under the same plan
+  // here; under another the server replays it, its site corresponded, once the status says the new plan.
+  const canonical = (v) => JSON.stringify(v ?? [], (_, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
+  let swaps = 0;
+  // A hold frame names the plan its site addresses (`plan`; else it is bound, as it arrives, to the generation it
+  // addresses and that generation's digest): under another plan, a generation swapped in since or swapping now, it is
+  // nothing, unsaid; the server's replay after the status that names the new plan corresponds it, and `rehold` takes
+  // it under the same plan. A revision the page ended itself (input, disabled, gone, a refusal) is not taken again
+  // when its frame comes again (a poll's resent answer); a lower revision is a new server's, and forgets them.
+  const holdAt = new WeakMap(), ended = new Set();
+  // (`epoch`: the server's run the revisions are of; a let-go of an earlier run's hold ends nothing now.)
+  let lastRevision = 0, epoch = 0;
+  const end = (revision, of) => { if (of !== epoch) return; ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); };
+  const digestNow = () => {
+    const x = globalThis.exact;
+    if (planDigestOf === (x.generation ?? null)) return planDigestNow;
+    try { const sites = typeof x.wasm?.exact_agent === "function" ? ask({ op: "sites" }) : null; return typeof sites?.planDigest === "string" ? sites.planDigest : null; } catch { return null; }
+  };
+  const bindHold = (frame) => { const was = holdAt.get(frame); holdAt.set(frame, { gen: globalThis.exact.generation ?? null, digest: digestNow(), epoch: was?.epoch ?? epoch, stream: was ? was.stream : channel.nonce }); };
+  const rehold = async () => {
+    const kept = channel.hold;
+    if (!kept || swaps || (await planDigest()) !== kept.digest || channel.hold !== kept || channel.holdLatest !== kept.frame) return;
+    bindHold(kept.frame);
+    command(kept.frame);
+  };
+  const hold = async (frame) => {
+    const at = holdAt.get(frame) ?? { gen: globalThis.exact.generation ?? null, digest: null, epoch, stream: channel.nonce };
+    for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise((ok) => setTimeout(ok, 50)); // the input glue loads after paint
+    // Only the latest frame applies (a replay queued before a newer clear does not), and only on the stream it came
+    // on (a new one's server knows nothing of it).
+    const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
+    const current = () => channel.holdLatest === frame && at.stream === channel.nonce && at.epoch === epoch;
+    if (!current() || (h && ended.has(revision))) return;
+    const digest = swaps ? null : await planDigest();
+    if (!current()) return;
+    const addressed = typeof frame.plan === "string" ? frame.plan : at.digest;
+    const moved = addressed ? digest !== addressed : at.gen !== null && (globalThis.exact.generation ?? null) !== at.gen;
+    if (h && (swaps || moved)) { channel.hold = addressed ? { frame, digest: addressed } : null; return; }
+    channel.hold = h ? { frame, digest } : null;
+    if (!holds) { report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
+    if (!h) { holds(null); report({ kind: "held", state: null, revision }); return; }
+    let found = null, two = false;
+    for (const [id] of globalThis.exact.views ?? []) {
+      const node = ask({ op: "node", id, plan: true });
+      if (node.error || globalThis.exact.views.get(id)?.closest?.("[data-exiting]")) continue; // a leaving view is no match
+      if (node.site === h.site && canonical(node.instance) === canonical(h.instance)) { if (found != null) { two = true; break; } found = id; }
+    }
+    const el = found != null && !two ? globalThis.exact.views.get(found) : null;
+    applying = revision;
+    // (No one view there: the one held before is let go too.)
+    const r = el ? holds(el, h.state, (reason) => {
+      // (The same frame taken again, a resent one or `rehold`'s, replaces nothing.)
+      if (reason === "replaced" && applying === revision) return;
+      if (at.epoch !== epoch || at.stream !== channel.nonce) return; // a hold of an earlier stream's: no news to this one
+      if (channel.hold?.frame === frame) channel.hold = null;
+      if (reason !== "replaced") end(revision, at.epoch);
+      report({ kind: "held", state: null, reason, revision });
+    }) : (holds(null), { reason: "gone" });
+    applying = null;
+    if (r.reason && channel.hold?.frame === frame) channel.hold = null;
+    if (r.reason) end(revision, at.epoch);
+    report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
+  };
   const inspect = async (frame) => {
     // `{refresh: true}`: the selection again, under the digests now.
     // (`status: true`: its status again first, one lost on the way.)
@@ -701,6 +805,7 @@ if (es) {
       if (frame.kind === "pin") return pin(frame);
       if (frame.kind === "inspect") return inspect(frame);
       if (frame.kind === "outline") return outlineSites(frame);
+      if (frame.kind === "hold") return hold(frame);
       report({ kind: "unsupported", what: frame.kind });
     }).catch((error) => console.error("exact dev:", String(error)));
   };
@@ -724,14 +829,22 @@ if (es) {
       return;
     }
     if (message.kind === "tamber-batch" || message.kind === "tamber-snapshot") { design(message); return; }
+    if (message.kind === "hold") {
+      if (message.revision < lastRevision) { ended.clear(); epoch += 1; }
+      lastRevision = message.revision;
+      channel.holdLatest = message;
+      bindHold(message);
+    }
     if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold") { command(message); return; }
     if (message.hello && message.nonce && message.nonce !== channel.nonce) {
       const nonce = channel.nonce = message.nonce;
+      // A new stream may be a new server's: a hold of the one before ends nothing, and says nothing, now.
+      epoch += 1; ended.clear(); lastRevision = 0;
       channel.plan ??= message.generation ?? null;
       // Reports wait for this; a refused registration sends none.
       channel.registered = (async () => {
         await globalThis.exact.ready;
-        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin", "inspect"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
+        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin", "inspect", "hold"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
         return answer.ok;
       })().catch(() => false);
       status();

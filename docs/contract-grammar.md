@@ -93,7 +93,7 @@ word.
 
 ```ebnf
 file          = { declaration } ;
-declaration   = use | shape | function | style | keyframes | font | sound
+declaration   = use | shape | function | style | decoration | keyframes | font | sound
               | theme | routes | component | test ;
 use           = "use" use-name { "," use-name } "from" STRING NL ;
 use-name      = IDENT [ "as" IDENT ] ;
@@ -104,6 +104,7 @@ function      = "fn" IDENT "(" [ typed-params ] ")" ":" type "="
 typed-params  = typed-param { "," typed-param } [ "," ] ;
 typed-param   = IDENT ":" type ;
 style         = "style" IDENT block(style-line | part) ;
+decoration    = "decoration" IDENT ( style-line | block(style-line) ) ;
 style-line    = { FIELD "=" style-literal } NL ;
 part          = "::" "placeholder" NL block(style-line) ;
 style-literal = STRING | NUMBER | "-" NUMBER | "true" | "false" ;
@@ -147,11 +148,15 @@ combined (`syntax-state`). `:disabled` and `:checked` (when `checked`,
 `aria-checked`, `aria-selected` or `aria-pressed` is true) take
 `background-color`, `color`, `border-color` (each side), `opacity`, `box-shadow`
 and `-exact-tint-color`, and fold into the node's own rows, `:checked` under
-`:disabled`; the host's states take the rows that do not inherit,
-`background-color`, `border-color`, `opacity`, `box-shadow` and
-`-exact-press-scale`, each a literal (`lower-state-literal`; a token's name is
-one). Another row is `lower-state-row`; a part on a native control or a list's
-row is `lower-state-target`. The node's block wins over its class's, row by row.
+`:disabled`; `:active` takes `background-color`, `color`, `opacity` and
+`-exact-press-scale` and lowers to the press paint (LLP 1061 D7: its `opacity` an
+absolute target), `:hover` and `:focus-visible` take `background-color`,
+`border-color`, `opacity` and `box-shadow`; a host state's row is a literal
+(`lower-state-literal`; a token's name is one). Another row is `lower-state-row`;
+a part on a native control, a list's row, or (for `:active`, `:hover` and
+`:focus-visible`) a run inside a paragraph is `lower-state-target`. An `:active`
+row beside the same paint's `-exact-press-` row is `lower-state-press-paint`.
+The node's block wins over its class's, row by row.
 
 A length attribute's string is CSS's own text, read by the kernel: a px or
 other absolute length, a percentage, a viewport length, `auto`,
@@ -544,6 +549,7 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" ( "disabled" | "enabled" ) STRING NL  (* a control's `disabled` (LLP 1116.010 D3) *)
+              | "expect" "refusal" STRING NL          (* one observed refusal of the named mutation slot *)
               | "expect" "text" STRING "==" STRING NL
               | "expect" "state" IDENT { "." ( IDENT | NUMBER ) } "==" test-value NL
               | "expect" "sound" ( "has" | "missing" ) STRING
@@ -556,6 +562,12 @@ json          = "{" [ STRING ":" json { "," STRING ":" json } ] "}"   (* strict 
               | "[" [ json { "," json } ] "]"                         (* trailing comma; brackets may *)
               | STRING | [ "-" ] NUMBER | "true" | "false" | "null" ; (* span lines *)
 ```
+
+`expect refusal "saved"` names a mutation slot, after `clock data` or `clock settle`
+lands its send. It asserts one observed refusal since the previous such assertion for
+that slot. Verify accepts that observed failure; other refusals remain findings. A refused
+send keeps the slot's prior value and skips its `then`; assert the rendered failure code
+or message as well.
 
 Targets are driver test ids. `expect disabled "send"` (`enabled`) reads the control's
 `disabled`, which every host's tree carries (LLP 1116.010 D3). A `tap` on a disabled control
@@ -779,6 +791,7 @@ says. Every roster function has a row and an example, and each example written
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
+| `rangeFrame(id, start, end)` | `Geometry`, actions only; UTF-16 source range in a field, in viewport coordinates; unavailable until its host supplies a range reader (LLP 1114.007) | `rangeFrame("composer", 0, 6).height`, in an action, is the range's drawn height |
 | `measure("id")` | `Geometry`, actions only; literal id, the border box as if `height` were `auto`, other styles kept (padding, border, `min-height`, `max-height`, insets): 0 for a bare box whose children are all absolutely positioned (a navigation root); `frame` is the laid-out box | `measure("note").height`, in an action, is the note's natural height |
 | `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over | `elementFromPoint(x, y)`, in a pointer action, is `some("card-3")` over that card |
 | `elementsFromPoint(x, y)` | `string[]`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
@@ -1000,6 +1013,44 @@ tinted text on iOS, a push button on macOS, bordered on the web and on the hosts
 that paint their own (`contract vocab button`). This adds no tag or new
 expression grammar. Platform looks and stand-ins are documented in
 [LLP 1069.011](../llp/1069.011-native-buttons.rfc.md).
+
+### Plain textarea decorations
+
+`decoration` declares literal CSS appearance for app-computed UTF-16 ranges. The field's
+value stays a plain string. Both web targets render these records, preserve source
+selections and composition, and support undoable replacements. Other host acceptance
+is tracked separately.
+
+```text
+decoration mention color="#1083fe"
+component Composer
+  state draft = "hello @alice"
+  derive marks = TextDecorations(value=draft, spans=[TextDecorationSpan(name="mention", start=6, end=12)], blocks=[], hidden=[], atoms=[])
+  action edit(value: string)
+    draft = value
+  view
+    textarea id="composer" value=draft decorations=marks input=edit
+```
+
+Declarations use CSS font, colour and text-decoration properties, plus block margins,
+left padding/border, radius and line-height. They are scoped and imported like styles.
+`decorations` takes `TextDecorations(value, spans, blocks, hidden, atoms)`; constructor
+arguments are named. Its other record types and freshness rules are in
+[LLP 1114.007](../llp/1114.007-highlights-in-a-text-field.rfc.md). `input` and
+`textarea markup="markdown"` refuse this binding.
+
+An action may call `rangeFrame(id, start, end)` for viewport `Geometry` of a source range;
+a host without a range reader returns unavailable. Both web targets measure decorated
+source editors; plain fields and paint-only textareas require the browser's native
+value-range API. Browsers without that API return unavailable for plain fields.
+`setRangeText(id, text, "undo")`, or
+`setRangeText(id, text, start, end, selectionMode, "undo")`, requests one undo step once
+its host adopts that mode. The web supports it on plain fields and decorated
+textareas; each replacement emits one input event and can be undone independently
+of preceding typing. Existing calls keep their behaviour. Paint-only declarations
+retain the browser's native textarea when value ranges and custom highlights are
+available; font/layout changes, hidden ranges and chips use the optional source
+editor. Copying from that editor preserves the selected source, including markers.
 
 ### Markdown: `markup`, `format`, `select`
 
@@ -1466,8 +1517,11 @@ platform's activity indicator: `UIActivityIndicatorView` on iOS (`.medium`,
 and Linux a spinner the host draws, since HTML's own indeterminate progress is
 a bar (the one deliberate divergence, [LLP 1069.001](../llp/1069.001-form-controls.rfc.md)).
 It is a 20 × 20 box until `width` or `height` sizes it, and the indicator is
-centred in it. `color` colours it on iOS, the web and Linux; macOS draws the
-system's colour, as AppKit gives a spinner no tint. Its role is `progressbar`,
+centred in it. Its own `color` colours it on iOS, the web, Linux and Android's
+reader, else an authored `accent-color` (on it or around it, or the design's
+`AccentColor`), else the platform's ink (an inherited colour never does: LLP
+1115 D4, LLP 1121 D9); macOS draws the system's colour, as AppKit gives a
+spinner no tint. Its role is `progressbar`,
 busy (`aria-busy`); name it with `aria-label`. It turns while it shows, and
 stops where it is hidden or gone; under the agent's held clock it shows one
 still frame (on the web, the frame at the agent's time, as every CSS animation;
@@ -1873,7 +1927,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(scheme)`: the app's scheme, `"light"`, `"dark"` or `"system"` (follow the system's appearance) | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
-| `share(title=, text=, url=, files=)`: the system share sheet by the Web Share API's names, at least one of `text`, `url` and `files`; `url` absolute `http(s)`. `files=` lists `app:/` files, each behind the app's `fs.read` grant (on Apple a regular file of at most 64 MB, reached through no symbolic link), and `"#id"` entries: a PNG of that element as it is drawn now, at the display's scale (iOS and macOS; the web refuses it, `share: refused: a picture of an element is not available on the web`; Android and Linux refuse files). A literal `#id` no element carries is refused here (`lower-share-picture`), a missing one at run time in the journal. Offer it where `exactPage()`'s `canShareFiles` and `canSharePictures` hold (LLP 1125 D12). The outcome is a journal line | [share corpus](../contract/corpus/share.contract), [Metronome](../apps/metronome/app.contract) |
+| `share(title=, text=, url=, files=)`: the system share sheet by the Web Share API's names, at least one of `text`, `url` and `files`; `url` absolute `http(s)`. `files=` lists `app:/` files, each behind the app's `fs.read` grant (on Apple a regular file of at most 64 MB, reached through no symbolic link), and `"#id"` entries: a PNG of that element as it is drawn now, at the display's scale, named by the share's `title` (else by the id) (iOS and macOS; the web refuses it, `share: refused: a picture of an element is not available on the web`; Android and Linux refuse files). A literal `#id` no element carries is refused here (`lower-share-picture`), a missing one at run time in the journal. Offer it where `exactPage()`'s `canShareFiles` and `canSharePictures` hold (LLP 1125 D12). The outcome is a journal line | [share corpus](../contract/corpus/share.contract), [Metronome](../apps/metronome/app.contract) |
 | `showNotification(title=, body=, tag=, showTrigger=, navigate=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a click opens `navigate=` through the navigation root, cold or warm. A newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(id, from, suggestedName)`: the host copies the `app:/` file `from` to where the person chooses; `change` at `id` carries the chosen name, `cancel` a dismissal. `saveFile(id, text=…, suggestedName=…)` saves the text itself (UTF-8), no file written first and no grant, so "export what's on screen" is one press | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract), [Linux's save tests](../host/linux/src/presenter/save_tests.rs) |
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |

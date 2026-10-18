@@ -1101,10 +1101,23 @@ fn align_content(v: AlignContent) -> Option<taffy::style::AlignContent> {
     })
 }
 
+impl Overflow {
+    /// CSS Overflow 3 §3.1: visible/clip compute to auto/hidden beside
+    /// a scrolling axis; together they remain non-scrolling.
+    pub fn computed(self, other: Self) -> Self {
+        match self {
+            Self::Visible if !matches!(other, Self::Visible | Self::Clip) => Self::Auto,
+            Self::Clip if !matches!(other, Self::Visible | Self::Clip) => Self::Hidden,
+            value => value,
+        }
+    }
+}
+
 fn overflow(v: Overflow) -> taffy::style::Overflow {
     match v {
         Overflow::Visible => taffy::style::Overflow::Visible,
         Overflow::Hidden => taffy::style::Overflow::Hidden,
+        Overflow::Clip => taffy::style::Overflow::Clip,
         Overflow::Scroll | Overflow::Auto => taffy::style::Overflow::Scroll,
     }
 }
@@ -1259,23 +1272,15 @@ impl StyleProps {
             // scroller scrolls (`sticky.rs`).
             PositionType::Sticky => taffy::style::Position::Relative,
         };
-        let overflow_y = if !self.mask.has(StyleId::OverflowY) && node_type.scrolls_by_default() {
-            taffy::style::Overflow::Scroll
+        let y = if !self.mask.has(StyleId::OverflowY) && node_type.scrolls_by_default() {
+            Overflow::Auto
         } else {
-            overflow(self.overflow_y)
+            self.overflow_y
         };
-        // CSS: a visible axis beside a scrolling one computes to auto.
-        let mut overflow_x = overflow(self.overflow_x);
-        let mut overflow_y = overflow_y;
-        use taffy::style::Overflow as O;
-        if overflow_x == O::Visible && overflow_y != O::Visible {
-            overflow_x = O::Scroll;
-        } else if overflow_y == O::Visible && overflow_x != O::Visible {
-            overflow_y = O::Scroll;
-        }
+        let x = self.overflow_x;
         s.overflow = taffy::geometry::Point {
-            x: overflow_x,
-            y: overflow_y,
+            x: overflow(x.computed(y)),
+            y: overflow(y.computed(x)),
         };
         s.scrollbar_width = 0.0;
 

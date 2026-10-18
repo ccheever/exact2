@@ -37,6 +37,15 @@ struct PressFeedback {
     static let unseen: CFTimeInterval = 1.0 / 60
 
     var idle: Bool { from == 1 && to == 1 }
+    /// As a node that was never pressed holds it.
+    var atRest: Bool { rests(at: 1) }
+    /// Held at `value` since time 0, with nothing pending.
+    func rests(at value: CGFloat) -> Bool {
+        #if os(iOS) || os(tvOS)
+        if easedAbout != nil || dimmedAt != nil { return false }
+        #endif
+        return from == value && to == value && start == 0 && !releaseHeld
+    }
     func factor(at t: CFTimeInterval) -> CGFloat {
         let p = min(1, max(0, (t - start) / Self.duration))
         return from + (to - from) * CGFloat(Self.ease(p))
@@ -95,27 +104,41 @@ extension NodeView {
     /// Mac's pressed effect (LLP 1115.000 D6, `tintPress`,
     /// Mac/PressLookMac.swift).
     func pressChanged() {
+        if !pressed { pressPaint.outside = false }
+        // A press held (HeldState.swift) shows as long as it is held: a real
+        // press down on the node as it was held is taken over, and its
+        // release shows nothing (the click is still its own).
+        if holds("active") { return }
         if pressed { pressHaptic() }
+        showPress(pressed)
+    }
+    /// The press shown (`down`), or taken off: the scale and the paint, or
+    /// the platform's own. A held press (HeldState.swift) shows it as a
+    /// real press does, with no haptic.
+    func showPress(_ down: Bool) {
         // What a press shows goes at its release whatever the style says now:
         // an authored look the style dropped while held included.
-        if !pressed { paintPress(false); aimPress(false, release: true) }
+        if !down { paintPress(false); aimPress(false, release: true) }
         #if os(iOS)
         // A list's row is its cell: the cell's ground, not the dim (LLP 1115.000 D16).
-        if platformPressDims, presenter?.rowCells.press(self, pressed) == true { return }
-        if platformPressDims { dimPress(pressed); return }
-        if !pressed { dimPress(false) }
+        if platformPressDims, presenter?.rowCells.press(self, down) == true { return }
+        if platformPressDims { dimPress(down); return }
+        if !down { dimPress(false) }
         #elseif os(macOS)
-        if platformPressTints { tintPress(pressed); return }
-        if !pressed { tintPress(false) }
+        if platformPressTints { tintPress(down); return }
+        if !down { tintPress(false) }
         #endif
-        guard pressed else { return }
+        guard down else { return }
         paintPress(true)
         aimPress(true)
     }
     /// The pointer moved while pressed: the feedback follows whether it is
-    /// still inside, as the tap's own acceptance does on release.
+    /// still inside, as the tap's own acceptance does on release (a press
+    /// held stays as it is).
     func pressFollows(inside: Bool) {
         guard pressed else { return }
+        pressPaint.outside = !inside
+        if holds("active") { return }
         if !inside { paintPress(false); aimPress(false) }
         #if os(iOS)
         if platformPressDims, presenter?.rowCells.press(self, inside) == true { return }

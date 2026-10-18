@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // Independently link and bake a Rust business-logic module. LLP 1029.000.
 // The dev server calls the same producer; CLI use is an explicit build boundary.
+import { filesystem } from './filesystem.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
@@ -363,7 +364,7 @@ export async function buildRust(app, { compat, env = developmentBuildEnv(), nati
         variants.tiered={receipt:rustReceipt(app,compat,plan,bytes,nativeTarget,'tiered'),bytes};
       }
     }
-    return { plan, variants, inputs, inputDigest: before, sourceMap: map };
+    return { plan, variants, inputs, inputDigest: before, sourceMap: map, entries: new Map(['plans', 'activities'].flatMap(tree => Object.entries(filesystem({op:'tree',root:resolve(scratch,tree),optionalRoot:true}) ?? {}).map(([name,bytes]) => [`${tree}/${name}`,Buffer.from(bytes,'base64')]))) };
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
 
@@ -435,9 +436,9 @@ async function produce(app, env, baker = null) {
   const nativeTarget=['darwin','linux'].includes(process.platform) && ['native','tiered'].includes(rustPolicy(app.manifest,process.platform==='darwin'?'macos':'linux'))?host:null;
   const built=await buildRust(app,{compat,env,nativeTarget,baker,sourceMap:true});
   const directory=rustOutput(app);mkdirSync(directory,{recursive:true});
-  const generation=hash(Buffer.concat([built.plan,...Object.values(built.variants).map(v=>v.bytes),built.sourceMap]));
+  const generation=hash(Buffer.concat([built.plan,...Object.values(built.variants).map(v=>v.bytes),built.sourceMap,...built.entries.values()]));
   const stage=mkdtempSync(resolve(directory,'stage-'));
-  for(const [name,bytes] of new Map([['app.plan',built.plan],['app.plan.map.json',built.sourceMap],...rustFiles(built)])){mkdirSync(dirname(resolve(stage,name)),{recursive:true});writeFileSync(resolve(stage,name),bytes);}
+  for(const [name,bytes] of new Map([['app.plan',built.plan],['app.plan.map.json',built.sourceMap],...rustFiles(built),...built.entries])){mkdirSync(dirname(resolve(stage,name)),{recursive:true});writeFileSync(resolve(stage,name),bytes);}
   const final=resolve(directory,generation);
   if(existsSync(final))rmSync(stage,{recursive:true,force:true});else renameSync(stage,final);
   const pointer=resolve(directory,`current-${process.pid}.tmp`);

@@ -81,7 +81,7 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { buildChannel } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
-import { current, join, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { current, join, paramsOf, published, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 
@@ -90,7 +90,7 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64;
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
-const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'scrub', 'scrub-release', 'scrub-cancel']);
+const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'uses', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'export', 'pin', 'preview', 'inspect', 'outline', 'hold', 'scrub', 'scrub-release', 'scrub-cancel']);
 /** Where `bun exact.mjs tamber tool` builds the design tool, and the wire
  * serves it from. */
 export const TOOL_DIST = resolve(ROOT, 'target/design-tool-web');
@@ -179,7 +179,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     events.push(event);
     if (events.length > KEPT) events.shift();
     const line = `data: ${JSON.stringify(event)}\n\n`;
-    for (const res of subscribers) res.write(line);
+    // One `only` a client (a hold's refusal, its owner's: theme2's 07:48 (c)) is that client's alone.
+    for (const res of subscribers) if (!event.only || res.client === event.only) res.write(line);
     for (const poll of polls) poll();
   };
   // The dev loop's running builds (LLP 1122 D4): registered on its streams,
@@ -205,6 +206,14 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   };
   const channel = buildChannel({
     send: e => send({ ...e, seq: ++seq, epoch }), log,
+    // A held site in a build's new plan (LLP 1122 D8): the one site at the
+    // old site's source location, by the two plans' maps; none otherwise.
+    correspond: (from, to, site) => {
+      const a = mapOf(from), b = mapOf(to), node = a?.nodes[site];
+      if (!node || !b || staleMap(b)) return null;
+      const sites = sitesAt(b, node);
+      return sites.length === 1 ? sites[0] : null;
+    },
     selected: (build, report, ask) => {
       if (!current(build, report)) {
         // Asked again once per status: its status first (one lost on the way
@@ -216,7 +225,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       refreshed.delete(build.id);
       // (A selection that does not name its plan joins with no map: read-only.)
       const map = report.selected.planDigest ? mapOf(report.selected.planDigest) : null;
-      const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir) });
+      // A plan the params were not read for (a package's component changed,
+      // which moves no file of the app's): read again, its names kept
+      // meanwhile and no alias offered.
+      if (report.selected.planDigest && report.selected.planDigest !== params.plan) learnParams(null, report.selected.planDigest);
+      const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir), params: params.map });
       send({ event: 'selection', seq: ++seq, epoch, ...selection });
       // Outlined as the client that owns inspect mode on that build, naming
       // the click it answers (its page does not scroll for it).
@@ -233,17 +246,21 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
           return at.get(m.digest) ? { sites: at.get(m.digest), plan: m.digest } : null;
         }, report.click ?? null);
       }
-      return null;
+      return { publish: published(report.selected, params.map) };
     },
   });
   // Scrub sessions (tamber-scrub.mjs): previewed by the dev loop (`scrub`:
-  // `{preview(texts), restore()}`), one at a time, each end told.
+  // `{patch(values, frame, files)?, verify(texts)?, preview(texts, frame),
+  // restore(frame)}`, each frame its batch's mark), one at a time, each end
+  // told.
   const scrubs = scrubSessions({
     ask: r => ask(r),
     write: r => write(r),
-    preview: texts => scrub.preview(texts),
-    restore: () => scrub?.restore(),
-    released: () => scrub?.released?.(),
+    patch: scrub?.patch ? (values, frame, files) => scrub.patch(values, frame, files) : null,
+    verify: scrub?.verify ? texts => scrub.verify(texts) : null,
+    preview: (texts, frame) => scrub.preview(texts, frame),
+    restore: frame => scrub?.restore(frame),
+    released: frame => scrub?.released?.(frame),
     opened: e => send({ event: 'scrub', seq: ++seq, epoch, ...e, reason: 'opened' }),
     ended: e => send({ event: 'scrub', seq: ++seq, epoch, ...e }),
     idleMs: scrubIdleMs,
@@ -278,6 +295,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // A hand edit competes with a scrub as a write does.
     if (!rest.client && edited.length) scrubs.compete();
     if (edited.length || rest.client) send({ event: 'changed', seq: ++seq, epoch, ...rest, files: Object.fromEntries(known), edited });
+    // A write's files are the design's now: its params are read again.
+    if (edited.length) learnParams(Object.fromEntries(known));
   };
 
   // The server gone (never started, the lock another's, exited): every
@@ -348,6 +367,31 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (first && known.size === 0) { first = false; for (const [path, d] of Object.entries(reply.ok.files)) known.set(path, d); }
     else { first = false; publish(reply.ok.files, { changed: null, client: null }, [...known.keys()].filter(path => !(path in reply.ok.files))); }
     watchAll(Object.keys(reply.ok.files));
+    learnParams(reply.ok.files);
+  };
+  // The app's component params (LLP 1122 T3), read again when its files
+  // move: the join names a row's param by them, never by its IR token. A
+  // file change empties the map until the read answers (a row reading a
+  // param is read-only meanwhile, said so); a read that fails is tried
+  // again at the next change. A new plan (`plan`) reads them again too.
+  // While a new plan's read is out, the names stand but no alias is offered
+  // (one may have moved with a package's component).
+  const params = { key: null, plan: null, map: new Map(), reading: 0 };
+  const learnParams = (files, plan = params.plan) => {
+    const key = files ? JSON.stringify(Object.entries(files).sort()) : params.key;
+    if (params.key === key && params.plan === plan) return;
+    if (files && params.key !== key) params.map = new Map();
+    else params.map = new Map([...params.map].map(([ir, p]) => [ir, { ...p, token: null }]));
+    params.key = key; params.plan = plan;
+    const at = ++params.reading;
+    const failed = () => { if (at === params.reading) { params.key = null; params.plan = null; } };
+    ask({ method: 'describe' }).then(r => {
+      if (at !== params.reading) return;
+      // Of the files this read was for, or not kept (they moved meanwhile).
+      const of = r?.ok?.files ? JSON.stringify(Object.entries(r.ok.files).sort()) : null;
+      if (r?.ok?.ir && (!files || of === key)) params.map = paramsOf(r.ok.ir);
+      else failed();
+    }, failed);
   };
   const refresh = () => ask({ method: 'hello' }, { wait: first ? 0 : answerMs, done: read });
   // The app's directory (where a new design beside it appears) and the
@@ -441,9 +485,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (down) { json(res, 503, { error: { message: down } }); return true; }
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
       res.write(`data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() })}\n\n`);
-      subscribers.add(res);
       // `{client}`: its commands live while it is present (LLP 1122 D4).
       const client = typeof request?.client === 'string' && request.client ? request.client : null;
+      res.client = client;
+      subscribers.add(res);
       attend(client, 1);
       res.on('close', () => {
         subscribers.delete(res);
@@ -464,7 +509,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     async function longPoll() {
       const after = request?.after ?? seq;
       const answer = () => {
-        const since = events.filter(e => e.seq > after);
+        const since = events.filter(e => e.seq > after && (!e.only || e.only === request?.client));
         // Fewer kept than asked for, or a number from before this server
         // started: the client missed some, and reads again.
         const missed = (request?.epoch !== undefined && request.epoch !== epoch) || after > seq || after < seq && (events[0]?.seq ?? seq + 1) > after + 1;
@@ -544,6 +589,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
     if (request.method === 'inspect') return needsClient(request) ?? inspect(request, scope);
     if (request.method === 'outline') return needsClient(request) ?? outline(request, scope);
+    if (request.method === 'hold') return needsClient(request) ?? holdState(request, scope);
     if (request.method.startsWith('scrub')) return needsClient(request) ?? scrubbing(request, scope);
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request);
@@ -607,6 +653,20 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const sites = (map && sitesOf(map)) ?? [];
     log(`tamber: ${request.client} outlined ${request.at.length} location(s) on ${builds.length} build(s)`);
     return { ok: { sites, builds } };
+  }
+
+  /** A state held on one node of one build (LLP 1122 D4, D8; *1.11*):
+   * `{build, site, instance, state}`, `state` null to let it go; its
+   * client's while present, one a build. */
+  function holdState(request, scope) {
+    if (scope !== 'write') return { status: 403, error: { message: 'hold needs write scope: it drives a running build' } };
+    if (!present(request.client)) return { status: 409, error: { message: `hold: \`${request.client}\` is not present` } };
+    if (typeof request.build !== 'string') return { status: 400, error: { message: 'hold names its `build`, a registered build\'s id' } };
+    const held = request.state == null ? null : { site: request.site, instance: request.instance ?? [], state: request.state };
+    const done = channel.hold(request.client, request.build, held, typeof request.plan === 'string' ? request.plan : null);
+    if (done.error) return { status: 400, error: { message: done.error } };
+    if (done.unsupported) return { status: 409, error: { message: done.unsupported, unsupported: 'hold' } };
+    return { ok: { held: true, ...done } };
   }
 
   /** A pin on one build or every build (LLP 1122 D4), its client's while
@@ -816,6 +876,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return done;
   }
 
+  // The app's own Contract sources the server has now (stage 8 D), whose
+  // state parts history reads and revert writes.
+  const ownContracts = () => [...known.keys()].filter(path => path.endsWith('.contract'));
   // The design as app.json names it, whether or not it is there now.
   const designRel = () => {
     let named = null;
@@ -828,7 +891,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) return { status: 400, error: { message: '`limit` is a count from 1 to 100' } };
     if (!Number.isInteger(skip) || skip < 0 || skip > 10_000) return { status: 400, error: { message: '`skip` is a count up to 10,000' } };
     let log;
-    try { log = designLog(appDir, designRel(), { limit, skip }); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
+    try { log = designLog(appDir, designRel(), { limit, skip, contracts: ownContracts() }); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
     if (!log.ok) return log;
     const commits = [];
     for (const c of log.ok.commits) {
@@ -838,9 +901,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         const compared = await ask({ method: 'compare', pairs: [{ file: f.file, before, after }] });
         if (!compared.ok && compared.status !== 413) return compared;
         const read = compared.ok?.files[0];
-        files.push({ ...f, edits: read?.edits ?? null, ...(compared.ok ? (read?.refused ? { refused: read.refused } : {}) : { refused: 'its versions are too large to compare (over 1 MiB)' }) });
+        files.push({ ...f, edits: read?.edits ?? null, ...(read?.code ? { code: true } : {}), ...(compared.ok ? (read?.refused ? { refused: read.refused } : {}) : { refused: 'its versions are too large to compare (over 1 MiB)' }) });
       }
-      commits.push({ ...c, files });
+      // A Contract source's change outside its state parts is the app's
+      // code, not its design: a commit with nothing else is no design commit
+      // (so a page may hold fewer than `limit`).
+      const design = files.filter(f => !f.file.endsWith('.contract') || f.edits?.length || f.refused);
+      if (design.length) commits.push({ ...c, files: design });
     }
     return { ok: { commits, more: log.ok.more } };
   }
@@ -854,10 +921,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * edit that cannot apply. */
   async function planRevert(rev, only) {
     let c;
-    try { c = designCommit(appDir, designRel(), rev); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
+    try { c = designCommit(appDir, designRel(), rev, 'all'); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
     if (!c.ok) return c;
     if (!c.ok.files.length) return { status: 400, error: { message: `commit ${c.ok.commit.slice(0, 12)} changed no design file` } };
-    const ops = [], already = [], conflicts = [], moved = [], files = {};
+    const ops = [], already = [], conflicts = [], moved = [], code = [], files = {};
     // One file a request, each within the server's line.
     for (const { file, before, after } of c.ok.files) {
       const planned = await ask({ method: 'revert-plan', pairs: [{ file, before, after }] });
@@ -868,17 +935,19 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       ops.push(...planned.ok.ops.filter(o => kept(revertKey(o)))); already.push(...planned.ok.already);
       // An edit's conflict counts for a kept item on it (any of an axis's values).
       const on = (x, prefix) => only.some(k => k.startsWith(prefix));
-      conflicts.push(...planned.ok.conflicts.filter(x => !only || (x.edit ? (x.edit.what === 'axis' ? on(x, `${x.file}\0axis\0${x.edit.name}\0`) : kept(editKey(x.file, x.edit))) : on(x, `${x.file}\0`)))); moved.push(...planned.ok.moved);
+      code.push(...(planned.ok.code ?? [])); conflicts.push(...planned.ok.conflicts.filter(x => !only || (x.edit ? (x.edit.what === 'axis' ? on(x, `${x.file}\0axis\0${x.edit.name}\0`) : kept(editKey(x.file, x.edit))) : on(x, `${x.file}\0`)))); moved.push(...planned.ok.moved);
       if (planned.ok.files[file] !== undefined) files[file] = planned.ok.files[file];
     }
     const short = c.ok.commit.slice(0, 12);
     if (conflicts.length) {
-      const named = conflicts.map(x => `${x.file}${x.edit ? ` ${x.edit.name}${x.edit.when.length ? ` when ${x.edit.when.map(w => `${w.axis}=${w.value}`).join(' ')}` : ''}` : ''}: ${x.why}`);
+      const named = conflicts.map(x => `${x.file}${x.edit ? ` ${x.edit.name}${x.edit.what === 'state' ? ` :${x.edit.state} ${x.edit.row}` : ''}${x.edit.when.length ? ` when ${x.edit.when.map(w => `${w.axis}=${w.value}`).join(' ')}` : ''}` : ''}: ${x.why}`);
       return { status: 409, error: { message: `revert of ${short} refused: ${named.join('; ')}`, refused: conflicts } };
     }
+    // Only Contract code (no state row) is no design change.
+    if (!ops.length && !already.length) return { status: 400, error: { message: `commit ${short} changed no design file (only the app's code in ${code.join(', ')})` } };
     if (!ops.length) return { status: 409, error: { message: `nothing to revert: the files have ${short}'s edits undone already`, already } };
     const subject = c.ok.message.split('\n')[0];
-    return { ok: { ops, files, review: { revert: { commit: c.ok.commit, subject, moved, already, ...(only ? { only } : {}) } } } };
+    return { ok: { ops, files, review: { revert: { commit: c.ok.commit, subject, moved, already, ...(code.length ? { code } : {}), ...(only ? { only } : {}) } } } };
   }
   /** An import the tool started: planned by the server from the source's
    * text, held with its review. */
@@ -917,7 +986,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     });
   }
 
-  return { handle, close, ready, channel, get token() { return token; }, get down() { return down; } };
+  // `compete()`: the dev loop's build of an edit the watcher does not see
+  // (a Contract source's), which ends a scrub as a hand edit does.
+  return { handle, close, ready, channel, compete: () => scrubs.compete(), get token() { return token; }, get down() { return down; } };
 }
 
 /** The app directory an argument names (a directory, or a file in it). */
@@ -1192,8 +1263,9 @@ export async function op(argv) {
  * axis, and the `when` (conditions in any order), so a selection of a
  * revert's items is the same edits when it is planned again. */
 const whenKey = when => JSON.stringify([...(when ?? [])].map(c => `${c.axis}=${c.value}`).sort());
-const editKey = (file, e) => `${file}\0${e.what}\0${e.name}\0${whenKey(e.when)}`;
-const revertKey = o => editKey(o.file, {
+// A state part's row is its style's, by state and row (stage 8 D).
+const editKey = (file, e) => `${file}\0${e.what}\0${e.name}${e.what === 'state' ? `\0${e.state}\0${e.row}` : ''}\0${whenKey(e.when)}`;
+const revertKey = o => /^(un)?set-state$/.test(o.op) ? editKey(o.file, { what: 'state', name: o.style, state: o.state, row: o.row, when: [] }) : editKey(o.file, {
   what: o.op === 'set-dial' ? 'dial' : /axis/.test(o.op) ? 'axis' : 'token',
   name: o.op === 'add-axis' ? o.name : o.axis ?? o.name,
   // An axis's values each their own item, as a token's `when`s are.

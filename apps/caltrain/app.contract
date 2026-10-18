@@ -1,3 +1,6 @@
+use DepartureActivity, DepartureState, ServiceAlertActivity, ServiceAlertState from "./activities.contract"
+use NextTrains, NextTrainsProps from "./widget.contract"
+
 // Caltrain — the v1 app, in Contract, on the LLP 1004 boundary.
 //
 // No JavaScript anywhere: schedule data comes from the Rust data crate
