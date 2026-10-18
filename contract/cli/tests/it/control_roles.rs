@@ -252,8 +252,18 @@ fn a_branch_is_judged_whole() {
 fn unreachable_survives_the_warning_cap() {
     let mut view = String::from("component App\n  state on = true\n  action check(checked: bool)\n    on = checked\n  view\n    column accent-color=\"accent.brand\"\n      input type=\"checkbox\" switch checked=on change=check aria-label=\"S\"\n");
     for i in 0..25 {
-        view.push_str(&format!("      column role=\"dialog\" testId=\"d{i}\"\n        text \"d\"\n"));
+        view.push_str(&format!(
+            "      column role=\"dialog\" testId=\"d{i}\"\n        text \"d\"\n"
+        ));
     }
-    let said = unreachable(&app("cap", "\"macos\": {}", "  accent.brand = #e0218a\n", &view));
-    assert!(said.iter().any(|m| m.contains("macOS switches")), "{said:?}");
+    let said = unreachable(&app(
+        "cap",
+        "\"macos\": {}",
+        "  accent.brand = #e0218a\n",
+        &view,
+    ));
+    assert!(
+        said.iter().any(|m| m.contains("macOS switches")),
+        "{said:?}"
+    );
 }
