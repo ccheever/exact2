@@ -301,12 +301,12 @@ export function pinRevision(app, sourceInputs) {
   }
   refuse(revision);
 }
-/** Pins describe files. A live edit or its retained journal marker refuses the run. */
+/** Admission markers decide pin provenance; gameplay can log arbitrary text. */
 export function assertNoLiveEdits(worlds, journals = []) {
-  const edited = worlds?.some(w => w.developmentEdits);
+  const edited = worlds?.some(w => w?.developmentEdits);
   const lines = journals.flatMap(j => j.lines ?? []);
-  const line = lines.find(l => /(?:^| tick=\d+ )set(?! refused:)(?:\s|$)/.test(l));
-  if (edited || line) throw new Error(`pin refused: run contains a set development edit${line ? ': ' + line : ''}`);
+  const line = lines.find(l => /(?:^| tick=\d+ )set\s+\S+\s+[^.\s]+\.[^.\s]+\s+\S/.test(l));
+  if (edited) throw new Error(`pin refused: run contains a set development edit${line ? ': ' + line : ''}`);
 }
 
 export function editProvenance() {

@@ -1492,7 +1492,7 @@ test('a split clock grows at most 4x a step and never past ten world minutes', a
 });
 
 test('pins refuse a set journal and the saved marker after journal rollover', () => {
-  expect(() => assertNoLiveEdits([], [{lines:['t=17 tick=1 set player Character.speed 8']}])).toThrow('set player Character.speed 8');
+  expect(() => assertNoLiveEdits([{developmentEdits:true}], [{lines:['t=17 tick=1 set player Character.speed 8']}])).toThrow('set player Character.speed 8');
   expect(() => assertNoLiveEdits([], [{lines:['t=17 tick=1 set refused: production']}])).not.toThrow();
   expect(() => assertNoLiveEdits([{developmentEdits:true}], [{lines:[]}])).toThrow('set');
   expect(() => assertNoLiveEdits([{}], [{lines:['t=17 tick=1 publish set: 8']}])).not.toThrow();

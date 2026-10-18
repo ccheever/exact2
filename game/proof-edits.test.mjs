@@ -25,7 +25,7 @@ test('admitted edits refuse capture, match and collection across restart, restor
     expect(recorder.pins).toEqual({ticks:{}, saves:{}});
   }
   const refused = editProvenance();
-  refused.observe([{}], [{lines:['t=17 tick=1 set refused: production bake']}]);
+  refused.observe([{}], [{lines:['t=17 tick=1 set refused: production bake', 't=17 tick=1 set difficulty hard', 't=17 tick=1 set player Missing.speed 8']}]);
   expect(() => refused.assert()).not.toThrow();
 });
 
