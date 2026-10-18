@@ -74,7 +74,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   await s.world('world').save(eventSave);
   const beforeDelivery = await s.world('world').snapshot();
   await s.clock('+17');
-  const eventBatch = await s.op({op:'state', ...await s.target('world'), events:true, event_type:'BeaconLit'});
+  const eventBatch = await s.op({op:'state', ...await s.target('world'), world:true, events:true, event_type:'BeaconLit'});
   check('beacon event names its target on the next tick', eventBatch.events?.[0]?.records?.[0]?.target?.index === beforeDelivery.entities.find(e => e.name === 'beacon-1')?.id, eventBatch);
   const delivered = await s.world('world').snapshot();
   pin(delivered.tick, delivered);
@@ -83,7 +83,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   check('pending beacon save restores exactly', equal(await eventRestore.world('world').snapshot(), beforeDelivery));
   await eventRestore.clock('+0');
   await eventRestore.clock('+17');
-  const replayBatch = await eventRestore.op({op:'state', ...await eventRestore.target('world'), events:true, event_type:'BeaconLit'});
+  const replayBatch = await eventRestore.op({op:'state', ...await eventRestore.target('world'), world:true, events:true, event_type:'BeaconLit'});
   check('restored beacon batch preserves order and tick', equal(replayBatch.events, eventBatch.events) && replayBatch.hash === eventBatch.hash, replayBatch);
   check('restored beacon delivery preserves hash', (await eventRestore.world('world').snapshot()).hash === delivered.hash);
   await eventRestore.close();
@@ -199,7 +199,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   writeFileSync(refusedFile, 'invalid simulation save');
   session = await open({fresh:true, world:refusedFile});
   let refusal;
-  try { await session.tap('play'); } catch (error) { refusal = error.message; }
+  try { refusal = (await session.tap('play')).landError; } catch (error) { refusal = error.message; }
   check('the operation creating the canvas reports its restore refusal', refusal?.includes('restore refused'), refusal);
   const fresh = (await session.state()).world[0];
   check('refusal belongs to canvas state and leaves a fresh world', fresh.tick === 0 && fresh.restoreError?.includes('restore refused'), fresh);
