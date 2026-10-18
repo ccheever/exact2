@@ -407,23 +407,27 @@ the page as composited where the canvas draws, and a contact sheet over 600 ms a
 half resolution, and prints each as a `LOOK` path. A tell fails the look: a
 near-black or near-white frame, more than 5% of pixels clipped, a particle draw that
 covered nothing, a shadowed sun whose shadow passes drew no caster. Tells are judged
-on whole frames from the game's camera: the close step's, and the one a drawing host
+on whole frames from the game's camera: the close step's, the one a drawing host
 takes at every `clock settle` and pixel `screenshot` (their replies carry its
-`look` lines, `lookGaps` and `lookFailed`). The contact sheet and the orbit and plan
-views are pictures. A tell is counted once a frame that told it, and fails the look
-alone: the simulation result and its failures do not change. A look the game
-intends is silenced by name in `app.json`, `"game": {"look": {"silence":
-["near-black"]}}`, and still printed and recorded. The look passes only when every
-world each session showed was seen and every measurement a tell reads was taken; a
-world with no picture (the GPU-less host without a GPU, or a model-capable module
-there: `look: no picture on this host`), a look frame that failed, or a gap
-(`particles: not measured`) leaves it `UNVERIFIED`, named on a `look: unverified`
-line. `prove.mjs` passes the look only when every host's every run did. The tells
-see brightness and coverage, not colour, facing or layout: open a `LOOK` picture once
-before reporting. A proof script takes its own with `look(session, view, label)`,
-`view` being `{}` (the game's camera, judged), `{top: 30}` or `{yaw: 35, pitch: -20,
-distance: 40}`; the look step runs in mode 0 only, beside the simulation the
-paranoid modes check, whose journal comparison leaves the `look:` lines out. `prove.mjs` prints its unique
+`look` lines, `lookGaps`, `lookFailed` and the canvases looked at, `lookSeen`), and
+each frame of a full-resolution `from camera` film. The contact sheet and the orbit
+and plan views are pictures. A tell is counted once a frame that told it, and fails
+the look alone: the simulation result and its failures do not change, and a repin
+records its pins. A look the game intends is silenced by name in `app.json`,
+`"game": {"look": {"silence": ["near-black"]}}`, and still printed and recorded.
+The look passes only when every world any reply showed (a settle's or a state's
+world list, a tree's canvases) was looked at, at its close or in a judged frame, and
+every measurement a tell reads was taken. A world with no picture (the GPU-less host
+without a GPU, or a model-capable module there: `look: no picture on this host`), a
+drawing canvas with no picture, a look frame that failed, a world shown and never
+looked at, or a gap (`particles: not measured`) leaves it `UNVERIFIED`, named on a
+`look: unverified` line. `prove.mjs` passes the look only when every requested
+host's every run did; a run with no summary is a gap. The tells see brightness and
+coverage, not colour, facing or layout: open a `LOOK` picture once before reporting.
+A proof script takes its own with `look(session, view, label)`, `view` being `{}`
+(the game's camera, judged), `{top: 30}` or `{yaw: 35, pitch: -20, distance: 40}`;
+the look step runs in mode 0 only, beside the simulation the paranoid modes check,
+whose journal comparison leaves the `look:` lines out. `prove.mjs` prints its unique
 `ARTIFACTS` directory; direct `proof.mjs` runs use `artifacts/<host>/`.
 Use `--report` on `prove.mjs` to explain recorded stalls and refusals.
 `ios` selects the simulator; `--device` selects a paired phone and requires an
