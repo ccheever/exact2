@@ -4,7 +4,7 @@
 // are the open ones among `existingThreadKeys` = every environment's `serverThreadKeys` plus `draftThreadKeys`.
 // The clone opens a background environment's thread by moving the focus there (settings-b-fleet.ts), so the drawers
 // the focus leaves behind must stay mounted: their sessions stay retained natively (`terminalRetain`) and ride on
-// their own environment's transport (T3TerminalSessions.swift; the AppKit test in macos/tests/transport). These tests
+// their own environment's link (T3TerminalSessions.swift over T3Link.swift; the AppKit test in macos/tests/terminal). These tests
 // use only the drawer's resource and ops, so they run against the base as well (the before record).
 import { afterEach, expect, test } from 'bun:test';
 

@@ -62,7 +62,7 @@ describe('slow request notice', () => {
     ackC();
     slowRequests(client, t0 + 26_000);
     expect(toasts(client)).toHaveLength(0);
-    // The update still waits: T3Transport fails every request at 30 s, which ends it (shell-slow.test.ts).
+    // The update still waits: the transport fails every request at 30 s, which ends it (shell-slow.test.ts).
     expect(tracking(client)).toBe(true);
     ackB();
     slowRequests(client, t0 + 27_000);

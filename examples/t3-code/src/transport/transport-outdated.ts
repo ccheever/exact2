@@ -12,7 +12,7 @@
 // A job's socket is one of the transport's update sockets; its HTTP steps run in the answer the
 // transport asks for each step (the descriptor, the ticket, each poll); the tick schedules polls.
 import { TransportFailure, canSelfUpdate, compatibility, credential as parseCredential, decode, encode, exchangeForm, failure as wireFailure,
-  failureMessage, identifier, origin as parseOrigin, path as onOrigin, protocolOf, request as wireRequest, PROTOCOL_VERSION } from './transport-wire';
+  failureMessage, identifier, letGoAbort, origin as parseOrigin, path as onOrigin, protocolOf, request as wireRequest, PROTOCOL_VERSION } from './transport-wire';
 import { json, type Http } from './transport-routes';
 import { socketURL, type SocketEvent, type SocketHandle } from './transport-session';
 import type { Catalog } from './transport-catalog';
@@ -74,7 +74,10 @@ export class OutdatedHosts {
         }
         default: throw new TransportFailure('Arguments', 'Unsupported outdated-host operation.');
       }
-    } catch (error) { return this.bad(error instanceof TransportFailure ? error : new TransportFailure('Network', String(error))); }
+    } catch (error) {
+      if (letGoAbort(error)) throw error;
+      return this.bad(error instanceof TransportFailure ? error : new TransportFailure('Network', String(error)));
+    }
   }
 
   destroy(): void { this.alive = false; this.runs.clear(); this.slots = this.slots.map(() => null); }
@@ -87,7 +90,10 @@ export class OutdatedHosts {
     if (init.bearer) headers.Authorization = `Bearer ${init.bearer}`;
     let reply;
     try { reply = await this.hooks.http(onOrigin(where, at), { method: init.method ?? 'GET', headers, body: init.body, timeoutMs: 15_000 }); }
-    catch (error) { throw new TransportFailure('Network', String(error instanceof Error ? error.message : error).slice(0, 300)); }
+    catch (error) {
+      if (letGoAbort(error)) throw error;
+      throw new TransportFailure('Network', String(error instanceof Error ? error.message : error).slice(0, 300));
+    }
     const decoded = json(reply);
     if (reply.status < 200 || reply.status >= 300 || typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
       throw new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', failureMessage(decoded, reply.status));
@@ -114,7 +120,10 @@ export class OutdatedHosts {
     if (!blocked.serverUpdateRequired) throw new TransportFailure('Protocol', blocked.message);
     let grant: Obj;
     try { grant = await this.http('/oauth/token', origin, { method: 'POST', body: exchangeForm(code, scope) }); }
-    catch (error) { const failure = error as TransportFailure; throw new TransportFailure(failure.kind, failure.message.split(code).join('[redacted]')); }
+    catch (error) {
+      if (letGoAbort(error)) throw error;
+      const failure = error as TransportFailure; throw new TransportFailure(failure.kind, failure.message.split(code).join('[redacted]'));
+    }
     if (grant.token_type !== 'Bearer' || !str(grant.access_token)) throw new TransportFailure('Protocol', 'The server did not issue a bearer access token.');
     this.hooks.catalog.saveToken(str(grant.access_token), origin, environment);
     this.hooks.catalog.remember(origin, descriptor, this.hooks.wall(this.hooks.now()));
@@ -199,7 +208,7 @@ export class OutdatedHosts {
 
   private async open(run: Run, step: number): Promise<string> {
     let descriptor: Obj;
-    try { descriptor = await this.descriptor(run.origin); } catch (error) { this.fail(run.key, (error as Error).message); return ''; }
+    try { descriptor = await this.descriptor(run.origin); } catch (error) { if (letGoAbort(error)) throw error; this.fail(run.key, (error as Error).message); return ''; }
     if (!this.alive || this.runs.get(run.key) !== run) return '';
     const label = str(descriptor.label) || hostOf(run.origin) || 'This environment';
     run.label = label;
@@ -215,7 +224,7 @@ export class OutdatedHosts {
     if (!token) { this.fail(run.key, `Pair with ${label} again to update it.`); return ''; }
     let ticket = '';
     try { ticket = str((await this.http('/api/auth/websocket-ticket', run.origin, { method: 'POST', body: '', bearer: token })).ticket); }
-    catch (error) { this.fail(run.key, (error as Error).message); return ''; }
+    catch (error) { if (letGoAbort(error)) throw error; this.fail(run.key, (error as Error).message); return ''; }
     if (!this.alive || this.runs.get(run.key) !== run || run.step !== step) return '';
     if (!ticket) { this.fail(run.key, 'The server did not issue a socket ticket.'); return ''; }
     // The bare socket: no orchestrationProtocol query (resolver.ts prepareForUpdate); a connected server refuses one that does not name it.
@@ -304,7 +313,7 @@ export class OutdatedHosts {
 
   private async poll(run: Run): Promise<void> {
     let descriptor: Obj | null = null;
-    try { descriptor = await this.descriptor(run.origin); } catch { descriptor = null; }
+    try { descriptor = await this.descriptor(run.origin); } catch (error) { if (letGoAbort(error)) throw error; descriptor = null; }
     if (!this.alive || this.runs.get(run.key) !== run || this.jobs[run.key]?.status !== 'running') return;
     // A connected server resumed once it reports the target version (matchesServerUpdateReadyEvent).
     if (run.connected) {

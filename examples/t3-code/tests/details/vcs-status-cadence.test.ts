@@ -7,8 +7,8 @@
 // answers go. The strip used to ask vcs.refreshStatus until a reply arrived, so a
 // slow reply (it can wait on a remote fetch) was asked for on every tick. Now the
 // status comes from the stream, and a kept read is shared: the transport answers an
-// identical read still pending with the same reply (T3Transport `share`, tested in
-// macos/tests/transport). The fake below models that sharing.
+// identical read still pending with the same reply (the transport's shared read, tested in
+// tests/transport/transport-session.test.ts). The fake below models that sharing.
 import { describe, expect, test } from 'bun:test';
 import { obj, str, type Obj } from '../../src/client/domain';
 import { ClientError, type Native } from '../../src/client/protocol';

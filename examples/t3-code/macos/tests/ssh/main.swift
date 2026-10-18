@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// Add Environment → SSH (T3Ssh.swift). Compiles T3Protocol.swift and T3Ssh.swift
+// Add Environment → SSH (T3Ssh.swift). Compiles T3Link.swift (its T3Failure) and T3Ssh.swift
 // directly. Discovery reads a temporary fixture home (never ~/.ssh). The live
 // test runs only with T3_SSH_COMMAND naming an ssh test double whose "remote"
 // is a local fixture T3 server (FAKE_SSH_REMOTE_HOME/.t3), and checks the whole

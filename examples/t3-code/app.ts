@@ -73,7 +73,7 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
   if (source === 'transportUpdateSocket') return transport.updateSocket(Number(args[0]) || 0, String(args[1] ?? ''));
   if (source === 'transportDeliver') return transport.deliver();
   if (source === 'transportPump') return transport.pump(Number(args[0]) || 0, String(args[1] ?? ''));
-  return answerClient(source, args, store, storage, transport.wrap(native) as Native | null | undefined);
+  return answerClient(source, args, store, storage, transport.wrap(native, source) as Native | null | undefined);
 }
 
 // The client's answers, given the bridge it talks to: `answer` puts the transport in front of the app's module; a test

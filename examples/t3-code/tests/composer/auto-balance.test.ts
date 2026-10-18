@@ -1,7 +1,7 @@
 // Auto balance. Ports of T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // packages/client-runtime/src/state/projectGrouping.test.ts "load balancing shared project
 // machines" (every case, original names) and apps/web/src/components/ServerUpdateAction.test.tsx
-// "ServerUpdatesAction" (every case, original names; the clone's update is a T3Fleet job, so a
+// "ServerUpdatesAction" (every case, original names; the clone's update is an outdated-hosts job, so a
 // machine's success toast follows its reconnect, as server-update.test.ts shows). Then the
 // clone's wiring: ChatView's automatic-environment state, the load, the Run on menu, Send, and
 // the multi-machine banner.
@@ -189,7 +189,7 @@ function setup(machines: FleetEntry[] = [entry('b', 'Studio'), entry('c', 'Build
   const native: Native = { available: true, watch() {}, later: async input => {
     const request = obj(input); calls.push(request);
     if (request.op === 'connect') {
-      // The Run on move refocuses the window's connection on the chosen machine (T3Transport connect).
+      // The Run on move refocuses the window's connection on the chosen machine (the transport's connect).
       const failure = await hooks.connect?.(request);
       if (failure instanceof Error) return { ok: false, generation: 0, error: { kind: 'Connection', message: failure.message } };
       const target = machines.find(machine => machine.origin === request.origin);

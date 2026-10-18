@@ -9,6 +9,7 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
+import { randomBytes } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 
 export type HostConfig = { id: string; label: string; target: string; identityFile?: string; port?: number };
 type Check = { status: 'pending' | 'local' | 'connected' | 'failed'; platforms: Obj[]; tools: Obj | null; error: string };
@@ -44,8 +45,8 @@ export function updateDeviceHosts(hosts: HostConfig[], host: HostConfig, remove:
 }
 const hostsOf = (settings: Obj): HostConfig[] => arr(settings.deviceHosts).map(host => ({ id: str(host.id), label: str(host.label), target: str(host.target),
   ...(str(host.identityFile) ? { identityFile: str(host.identityFile) } : {}), ...(typeof host.port === 'number' ? { port: host.port } : {}) }));
-// randomUUID's shape from crypto.getRandomValues (Math.random and Date.now are unavailable in data sources).
-const randomId = () => { const bytes = crypto.getRandomValues(new Uint8Array(16)); return Array.from(bytes, (byte, index) => `${[4, 6, 8, 10].includes(index) ? '-' : ''}${byte.toString(16).padStart(2, '0')}`).join(''); };
+// randomUUID's shape (Math.random and Date.now are unavailable in data sources).
+const randomId = () => Array.from(randomBytes(16), (byte, index) => `${[4, 6, 8, 10].includes(index) ? '-' : ''}${byte.toString(16).padStart(2, '0')}`).join('');
 const envLabel = (client: T3Client) => str(obj(client.config.environment).label, 'this environment');
 
 // ── Views ──────────────────────────────────────────────────────────────────

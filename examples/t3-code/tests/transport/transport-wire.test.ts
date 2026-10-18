@@ -1,7 +1,7 @@
 // The Effect RPC wire, addresses, the token exchange form and the retry policy (transport-wire.ts).
 import { describe, test, expect } from 'bun:test';
 import { decode, encode, failure, origin, path, credential, exchangeForm, failureMessage, compatibility, canSelfUpdate,
-  retryDelayMs, streamRetryMs, retriesStream, request, TransportFailure, pullRequestUnavailable } from '../../src/transport/transport-wire';
+  retryDelayMs, streamRetryMs, retriesStream, request, TransportFailure, pullRequestUnavailable, random, randomBytes, refillRandom, uuid } from '../../src/transport/transport-wire';
 import { Inbox } from '../../src/transport/transport-inbox';
 import { stableJSON, pullRequestDiffBody, socketURL } from '../../src/transport/transport-session';
 
@@ -108,6 +108,18 @@ describe('the inbox', () => {
     for (let index = 0; index < 3; index++) inbox.append(1, 'k', '', index);
     expect(inbox.read(1).reset).toBe(true);
     expect(inbox.read(2).events.map(event => event.value)).toEqual([2]);
+  });
+});
+
+describe('randomness drawn ahead', () => {
+  test('ids and jitter come from the pool, which an answer tops up', () => {
+    refillRandom();
+    const ids = Array.from({ length: 64 }, () => uuid());
+    expect(new Set(ids).size).toBe(64);
+    for (const id of ids) expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    const value = random();
+    expect(value >= 0 && value < 1).toBe(true);
+    expect(randomBytes(3).length).toBe(3);
   });
 });
 

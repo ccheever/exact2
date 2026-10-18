@@ -7,7 +7,7 @@ type Obj = Record<string, unknown>;
 const value = (reply: Obj) => reply.value as Obj;
 const A = 'http://127.0.0.1:4001', B = 'http://127.0.0.1:4002';
 
-describe('background environments (registry.ts, T3Fleet)', () => {
+describe('background environments (registry.ts)', () => {
   test('a connect with a fleet key opens a background session in its own slot; fleetStop ends it', async () => {
     const a = new FakeServer(A, 'env-a'), b = new FakeServer(B, 'env-b');
     const drive = new Drive(a, b);
@@ -84,12 +84,32 @@ describe('routes (driver.ts connectOverRoutes, supervisor.ts checkBetterRoutes)'
   }
 
   test('a saved environment walks its routes: an unreachable first route falls to the next', async () => {
-    const { drive, home } = await twoRoutes();
+    const { drive, home, lan } = await twoRoutes();
     await drive.op({ op: 'disconnect', forget: false });
     home.up = false;
     await drive.op({ op: 'connect', origin: A, credential: '' });
     const status = value(await drive.op({ op: 'status' }));
     expect([status.state, status.origin, status.activeRouteId, status.homeOrigin]).toEqual(['connected', B, B, A]);
+    // The learned route asks for the descriptor with no credential first, then borrows the paired route's token, and owns none.
+    const lanRequests = lan.requests.map(request => `${request.path} ${request.headers.Authorization ?? '-'}`);
+    expect(lanRequests[0]).toBe('/.well-known/t3/environment -');
+    expect(lanRequests).toContain('/api/auth/session Bearer token-1');
+    expect(lanRequests).toContain('/api/auth/websocket-ticket Bearer token-1');
+    expect(Object.keys(JSON.parse(drive.store.get('t3-catalog')!).tokens)).toEqual([`${A}\nenv-1`]);
+  });
+
+  test('a learned route above the one in use is checked at once and takes over, not at the 60 s check', async () => {
+    const home = new FakeServer(A, 'env-1'), lan = new FakeServer(B, 'env-1');
+    lan.tokens = home.tokens; lan.tickets = home.tickets;
+    const drive = new Drive(home, lan);
+    await drive.op(pairing(A));
+    await drive.op({ op: 'setRoutes', environmentId: 'env-1', routes: [
+      { id: B, origin: B, kind: '', learned: true, credential: A },
+      { id: A, origin: A, kind: '', learned: false, credential: A }] });
+    await drive.advance(5_000, 250);
+    const status = value(await drive.op({ op: 'status' }));
+    expect([status.state, status.origin, status.activeRouteId]).toEqual(['connected', B, B]);
+    expect(lan.requests.some(request => request.path === '/api/auth/session' && request.headers.Authorization === 'Bearer token-1')).toBe(true);
   });
 
   test('over a fallback route, the 60 s check moves back to the better route once it answers', async () => {

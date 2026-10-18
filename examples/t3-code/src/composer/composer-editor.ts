@@ -7,6 +7,7 @@ import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { arr, messages, obj, str, type Obj } from '../client/domain';
 import { pushToast } from '../shell/toast';
+import { uuid } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 import { commandChords } from './composer-presentation';
 import { openUsageLimits } from './composer-controls-usage';
 import { MAX_STASH_ENTRIES, deleteStashEntry, stashPrompt, stashView, takeStashEntry, type StashView } from './composer-editor-stash';
@@ -205,11 +206,7 @@ async function prSearch(client: T3Client, native: Native, entry: EditorCache, qu
 }
 
 /** A v4 UUID for a staged file or stash entry (Math.random is unavailable in data sources). */
-export function localId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40; bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  return Array.from(bytes, (byte, index) => `${[4, 6, 8, 10].includes(index) ? '-' : ''}${byte.toString(16).padStart(2, '0')}`).join('');
-}
+export const localId = (): string => uuid();
 
 
 /** The `composerEditor` resource: the menu for the trigger at the caret, the prompt-length line, and where the drawers go. */

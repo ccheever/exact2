@@ -41,7 +41,7 @@ test('Update all starts the shared update job for each eligible environment and 
   } };
   const client = { origin: 'http://127.0.0.1:3773', environmentId: 'env-a', connection: 'connected', generation: 3, config: config('This Mac', '0.0.39', 'respawn') } as unknown as T3Client;
   await runConnectionOp(native, 'environment-update-all', '', '', true, client);
-  // server-update.ts: one T3Fleet job per environment, in the connected mode, toward this client's version.
+  // server-update.ts: one update job per environment, in the connected mode, toward this client's version.
   expect(calls.filter(call => call.op === 'fleetOutdatedUpdate').map(call => [call.fleet, call.mode, call.targetVersion, call.label]))
     .toEqual([['http://127.0.0.1:3773\nenv-a', 'connected', CLIENT_VERSION, 'This Mac server']]);
   expect(calls.some(call => call.op === 'request')).toBe(false);
