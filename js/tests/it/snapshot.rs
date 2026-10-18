@@ -164,6 +164,21 @@ fn completed_app_writes_signal_once_but_reads_do_not() {
     assert!(!m.take_storage_changed());
     super::storage::call(&mut m, &mut store, "read", "");
     assert!(!m.take_storage_changed());
+    super::storage::call(&mut m, &mut store, "write-only", "");
+    assert!(
+        !m.take_storage_changed(),
+        "a refresh cannot read a write-only cache path"
+    );
+    super::storage::call(&mut m, &mut store, "copy-to-write-only", "");
+    assert!(
+        !m.take_storage_changed(),
+        "copying a readable source does not change it"
+    );
+    super::storage::call(&mut m, &mut store, "sqlite", "row");
+    assert!(
+        !m.take_storage_changed(),
+        "stage-1 refresh cannot read SQLite"
+    );
 }
 
 #[test]

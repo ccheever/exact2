@@ -148,6 +148,11 @@ export function assembleIOS({shared, triple, app, paths, binDir, bin, device, de
     if (signingProfile) copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
     // Unsigned, the re-signer's profile decides; ask for no debugger, as a distribution profile grants none.
     writeFileSync(ent, entitlements({ ...app, id, widgetTV: tv, widgetHost: host }, signingProfile?.team, signingProfile?.dev ?? !unsigned, appleReach, { simulator: !device, prefix: signingProfile?.prefix }));
+    if (shared && !host) {
+      const group = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', ent]).stdout)['keychain-access-groups'][0];
+      runApple('plutil', ['-insert', 'ExactKeychainAccessGroup', '-string', group, resolve(assembled, 'Info.plist')]);
+      runApple('plutil', ['-insert', 'ExactWidgetTypeScript', '-bool', String(existsSync(resolve(app.dir, 'app.ts'))), resolve(assembled, 'Info.plist')]);
+    }
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true, ['typescript']));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : paths.executable), bakedCompat.id);
     const whole = receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,

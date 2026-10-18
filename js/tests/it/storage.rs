@@ -10,7 +10,7 @@ use std::{
 };
 pub(crate) const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage.hbc"));
 pub(crate) const APP: &str = "dev.exact.storage-test";
-pub(crate) const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+pub(crate) const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
 pub(crate) fn plan() -> Plan {
     contract::compile(
         r#"

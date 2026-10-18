@@ -22,7 +22,7 @@ struct ExactWidgetEntry: TimelineEntry {
     var unavailable = false
 }
 private func embeddedRoot() -> URL {
-    Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()
+    Bundle.main.bundleURL
 }
 private func facts(_ traits: UITraitCollection, at date: Date) -> SessionFacts {
     SessionFacts(displayScale: max(1, traits.displayScale), preferences: Preferences(traits: traits),
@@ -51,7 +51,7 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
         // Both sample paths contain no account data. Only placeholder(in:) is redacted.
         placeholder: entry.preview,
         linkBase: (Bundle.main.object(forInfoDictionaryKey: "ExactLinkBase") as? String).flatMap(URL.init(string:)),
-        imageRoots: [entry.root, embeddedRoot()], appGroup: WidgetContainer.root, entryDate: entry.date)
+        imageRoots: [entry.root, embeddedRoot(), embeddedRoot().deletingLastPathComponent().deletingLastPathComponent()], appGroup: WidgetContainer.root, entryDate: entry.date)
     #if EXACT_INSPECT
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
         widgetLog.notice("afterArchive pid=\(getpid()) peak=\(footprint())")
@@ -60,10 +60,46 @@ private func widgetSnapshotView(_ entry: ExactWidgetEntry, displaySize: CGSize, 
     // SnapshotView retains the session until WidgetKit has evaluated its layout and leaves.
     return SnapshotDriver.view(session: session, displaySize: displaySize, environment: environment)
 }
-// One refresh at a time; cache only props/plan, never a live session or secrets.
+// Families of a kind share one in-flight source answer, then archive their own layout.
 private enum WidgetRefresh {
     static let queue = DispatchQueue(label: "exact.widget-refresh", qos: .userInitiated)
-    static var lastGood: [String: [ExactWidgetEntry]] = [:]
+    static let lock = NSLock()
+    static var waiting: [String: [(Timeline<ExactWidgetEntry>) -> Void]] = [:]
+    static func begin(_ kind: String, completion: @escaping (Timeline<ExactWidgetEntry>) -> Void) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let first = waiting[kind] == nil
+        waiting[kind, default: []].append(completion)
+        return first
+    }
+    static func finish(_ kind: String, _ timeline: Timeline<ExactWidgetEntry>) {
+        lock.lock()
+        let callbacks = waiting.removeValue(forKey: kind) ?? []
+        lock.unlock()
+        for callback in callbacks { callback(timeline) }
+    }
+    // This is the extension's cached answer, never the app's store or update pointer.
+    static func cache(_ kind: String, root: URL) -> URL? {
+        let generation = root == embeddedRoot()
+            ? "embedded-" + (Bundle.main.object(forInfoDictionaryKey: "ExactWidgetGeneration") as? String ?? "")
+            : root.lastPathComponent
+        return WidgetContainer.root?.appendingPathComponent("Library/Caches/widget-timelines/\(generation)/\(kind).json")
+    }
+    static func entries(_ bytes: Data, kind: String, plan: Data, root: URL) throws -> [ExactWidgetEntry] {
+        guard bytes.count <= 1 << 20,
+              let rows = try JSONSerialization.jsonObject(with: bytes) as? [[String: Any]],
+              !rows.isEmpty, rows.count <= 100 else {
+            throw TimelineFailure(description: "refresh must return 1 to 100 entries within 1 MiB")
+        }
+        var last = -Double.infinity
+        return try rows.map { row in
+            guard let ms = row["date"] as? Double, ms.isFinite, ms > last, let props = row["props"] else {
+                throw TimelineFailure(description: "timeline dates must be finite and strictly increasing")
+            }
+            last = ms
+            return ExactWidgetEntry(date: Date(timeIntervalSince1970: ms / 1000), kind: kind, plan: plan,
+                props: try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys]), root: root, preview: false, placeholder: false)
+        }
+    }
 }
 struct ExactTimelineProvider: TimelineProvider {
     let kind: String
@@ -75,56 +111,55 @@ struct ExactTimelineProvider: TimelineProvider {
     func placeholder(in context: Context) -> ExactWidgetEntry { preview(context, placeholder: true) }
     func getSnapshot(in context: Context, completion: @escaping (ExactWidgetEntry) -> Void) { completion(preview(context, placeholder: false)) }
     func getTimeline(in context: Context, completion: @escaping (Timeline<ExactWidgetEntry>) -> Void) {
+        let start = DispatchTime.now(), deadline = start + .milliseconds(900)
+        guard WidgetRefresh.begin(kind, completion: completion) else { return }
         let size = context.displaySize, date = Date(), inputs = facts(.current, at: Date())
         let placeholder = preview(context, placeholder: true)
-        #if EXACT_INSPECT
-        let start = DispatchTime.now().uptimeNanoseconds
-        #endif
         WidgetRefresh.queue.async {
-            do {
+            let timeline: Timeline<ExactWidgetEntry> = autoreleasepool {
                 WidgetContainer.configure()
-                let root = try WidgetContainer.pin()
-                let plan = try Data(contentsOf: root.appendingPathComponent("plans/\(kind).plan"))
-                let refresh = try HeadlessSession(plan: plan, entry: kind, size: size, facts: inputs, assetRoot: root)
-                let bytes: Data
+                // A binary update can precede the app's first launch/publication.
+                let root = (try? WidgetContainer.pin()) ?? embeddedRoot()
+                let plan = try? Data(contentsOf: root.appendingPathComponent("plans/\(kind).plan"))
+                let cache = WidgetRefresh.cache(kind, root: root)
                 do {
-                    defer { refresh.close() }
-                    let module = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true ? root : nil
-                    bytes = try refresh.timeline(at: date, moduleRoot: module)
-                }
-                guard bytes.count <= 1 << 20,
-                      let rows = try JSONSerialization.jsonObject(with: bytes) as? [[String: Any]],
-                      !rows.isEmpty, rows.count <= 100 else {
-                    throw TimelineFailure(description: "refresh must return 1 to 100 entries within 1 MiB")
-                }
-                var last = -Double.infinity
-                let entries = try rows.map { row -> ExactWidgetEntry in
-                    guard let ms = row["date"] as? Double, ms.isFinite, ms > last, let props = row["props"] else {
-                        throw TimelineFailure(description: "timeline dates must be finite and strictly increasing")
+                    guard DispatchTime.now() < deadline else { throw TimelineFailure(description: "refresh deadline expired") }
+                    guard let plan else { throw TimelineFailure(description: "entry plan unavailable") }
+                    let refresh = try HeadlessSession(plan: plan, entry: kind, size: size, facts: inputs, assetRoot: root)
+                    let bytes: Data
+                    do {
+                        defer { refresh.close() }
+                        let module = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true ? root : nil
+                        bytes = try refresh.timeline(at: date, moduleRoot: module, deadline: deadline)
                     }
-                    last = ms
-                    let data = try JSONSerialization.data(withJSONObject: props, options: [.sortedKeys])
-                    return ExactWidgetEntry(date: Date(timeIntervalSince1970: ms / 1000), kind: kind, plan: plan, props: data, root: root, preview: false, placeholder: false)
+                    let entries = try WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root)
+                    if let cache {
+                        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try bytes.write(to: cache, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                    }
+                    #if EXACT_INSPECT
+                    measurement("getTimeline", start: start.uptimeNanoseconds, details: "kind=\(kind) entries=\(entries.count) bytes=\(plan.count)")
+                    #endif
+                    return Timeline(entries: entries, policy: .after(max(date.addingTimeInterval(900), entries.last!.date.addingTimeInterval(1))))
+                } catch {
+                    #if EXACT_INSPECT
+                    measurement("getTimeline refused", start: start.uptimeNanoseconds, details: "kind=\(kind)")
+                    #endif
+                    widgetLog.error("getTimeline refused: \(String(describing: error), privacy: .private)")
+                    if let cache, let plan, let bytes = try? Data(contentsOf: cache),
+                       let entries = try? WidgetRefresh.entries(bytes, kind: kind, plan: plan, root: root) {
+                        return Timeline(entries: entries, policy: .after(Date().addingTimeInterval(900)))
+                    }
+                    // Privacy modifiers can suppress redaction: an unredacted
+                    // placeholder would show fixture values as live account data.
+                    var unavailable = placeholder
+                    unavailable.unavailable = true
+                    return Timeline(entries: [unavailable], policy: .after(Date().addingTimeInterval(900)))
                 }
-                WidgetRefresh.lastGood[kind] = entries
-                #if EXACT_INSPECT
-                measurement("getTimeline", start: start, details: "kind=\(kind) entries=\(entries.count) bytes=\(plan.count)")
-                #endif
-                completion(Timeline(entries: entries, policy: .after(max(date.addingTimeInterval(900), entries.last!.date.addingTimeInterval(1)))))
-            } catch {
-                #if EXACT_INSPECT
-                measurement("getTimeline refused", start: start, details: "kind=\(kind)")
-                #endif
-                widgetLog.error("getTimeline refused: \(String(describing: error), privacy: .private)")
-                // A failed cold refresh must never archive fixture values as data.
-                // WidgetKit's privacy modifiers can suppress explicit redaction.
-                var unavailable = placeholder
-                unavailable.unavailable = true
-                completion(Timeline(entries: WidgetRefresh.lastGood[kind] ?? [unavailable], policy: .after(Date().addingTimeInterval(900))))
             }
+            WidgetRefresh.finish(kind, timeline)
         }
     }
-
 }
 #if EXACT_INSPECT
 private func measurement(_ phase: String, start: UInt64, details: String) {

@@ -142,7 +142,6 @@
       fixed(dateFormat, "formatToParts", explicitFormat(dateFormat.formatToParts, "formatToParts"));
     }
   }
-
   // --- crypto (LLP 1069.005): digests are pure; entropy is a device read ---
   // Each draw inside an answer counts as an external read (op 8), as a secret
   // or SQLite read does: bake compiles no value that drew one, and the host
@@ -206,7 +205,6 @@
       return stream ? formatUuid(stream) : platformUuid();
     });
   };
-
   // Host work an answer waits on that is neither a fetch nor storage (the
   // browser's digest settles in a later task): on the web it joins the
   // answer's storage turn, so the answer is pending on it, not on nothing.
@@ -275,7 +273,6 @@
       throw new DOMException("crypto.subtle.digest(): " + name + " needs a secure context (HTTPS or localhost)", "NotSupportedError");
     });
   };
-
   // ECDSA P-256 for DPoP (D1b): generate, sign (ES256, raw r‖s), and JWK
   // import and export, with the web's names, argument shapes and errors.
   // Generating and signing draw a nonce: each is a counted read, and refuses
@@ -455,7 +452,6 @@
   Object.defineProperty(global, "SubtleCrypto", { value: SubtleCrypto, writable: true, configurable: true });
   Object.defineProperty(global, "Crypto", { value: Crypto, writable: true, configurable: true });
   fixed(global, "crypto", cryptoObject);
-
   function fromBase64(text) {
     return Uint8Array.from(global.atob(text), function (c) { return c.charCodeAt(0); });
   }
@@ -472,7 +468,6 @@
     }
     return out.join("");
   }
-
   // A string's UTF-8 bytes as TextEncoder makes them: a pair is 4, a lone
   // surrogate its replacement character's 3.
   function utf8Length(s) {
@@ -486,7 +481,6 @@
     }
     return n;
   }
-
   // --- fetch: a request the host runs; a Promise for its reply -------------
   var nextTicket = 1;
   // ticket -> { resolve, reject, call, claimed, stream, signal, release }:
@@ -505,7 +499,6 @@
     call.storage--;
     if (!call.storage) storing.delete(call);
   }
-
   // --- background work (LLP 1097 D1–D3) ------------------------------------
   // An answer replies when its value is ready, as in a browser: storage it
   // started and did not await moves to `background`, the module's own owner,
@@ -563,7 +556,6 @@
     if (p) { pending.delete(ticket); p.release(); }
     return p;
   }
-
   function Response(r) {
     this.status = r.status;
     this.ok = r.status >= 200 && r.status < 300;
@@ -932,7 +924,14 @@
         unstore(at);
         if (ok) {
           storageCounts.done++;
-          if (/^(writeFile|atomicWriteFile|appendFile|mkdir|rm|rename|copyFile|execute|transaction)$/.test(method)) storageCounts.writes++;
+          if (/^(writeFile|atomicWriteFile|appendFile|mkdir|rm|rename|copyFile)$/.test(method) && [method === "copyFile" ? argv[1] : argv[0], method === "rename" ? argv[1] : null].some(function (path) {
+            if (typeof path !== "string" || !/^app:\//.test(path)) return false;
+            path = new URL(path).href.replace(/\/$/, "");
+            return String(global.exact.grants).split("\n").some(function (line) {
+              var grant = line.trim().split(/\s+/), root = (grant[1] || "").replace(/\/$/, "");
+              return grant[0] === "fs.read" && /^app:\//.test(root) && (path === root || path.indexOf(root + "/") === 0 || root.indexOf(path + "/") === 0);
+            });
+          })) storageCounts.writes++;
           try { resolve(convert ? convert(value) : value); } catch (e) { reject(e); }
           return;
         }

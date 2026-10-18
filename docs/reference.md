@@ -353,14 +353,19 @@ data instances for the app and refresh, so refresh state cannot affect the app
 first frame. The TypeScript and replaceable Rust producers use the same check.
 
 On iOS, a TypeScript refresh runs under Hermes from the module bytes in the
-app's pinned App Group generation. It can return immediately or await `fetch`
+app's pinned App Group generation (or the extension's embedded cohort before
+the app first publishes it). The receipt admits both the entry plan and bytecode.
+It can return immediately or await `fetch`
 and `storage.fs` reads from `app:/`. File writes, SQLite, document handles and
 native modules are unavailable in stage 1; `secret.keep` values are read from
 the shared Keychain only during refresh. The extension never persists store
-writes. The app reloads widget timelines after a successful store write.
-Refresh has a 900 ms deadline, leaving 100 ms below LLP 1126 D8's one-second
-line for completion and teardown. Failure or timeout keeps the extension
-process's last good timeline, or an “Open app” placeholder after a cold start,
+writes. The app reloads widget timelines after a successful write readable by a refresh.
+Refresh has a 900 ms deadline starting at `getTimeline`, including boot. Each JS
+turn gets the time remaining to that deadline, rather than the app's 100 ms
+per-call budget. This leaves 100 ms below LLP 1126 D8's one-second
+line for completion and teardown. Failure or timeout uses the last good timeline
+cached in the App Group for this kind and generation, or an “Open app”
+placeholder if none exists,
 and schedules a retry no sooner than 15 minutes later. Rendering and gallery
 previews do not load Hermes or read the store.
 

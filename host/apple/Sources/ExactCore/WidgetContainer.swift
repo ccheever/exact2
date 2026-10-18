@@ -16,7 +16,10 @@ public enum WidgetContainer {
         guard let root, let appID else { return }
         setenv("EXACT_APP_GROUP_ROOT", root.path, 1)
         setenv("EXACT_APP_GROUP_APP", appID, 1)
-        if Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") != nil { _ = storeObserver }
+        if Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") != nil {
+            setenv("EXACT_WIDGET_WRITER", appID, 1)
+            _ = storeObserver
+        }
     }
     public static var updateBase: URL? { root?.appendingPathComponent("Library/Application Support", isDirectory: true) }
     private static var compatibility: String {
@@ -67,9 +70,9 @@ public enum WidgetContainer {
     }
     package static func publish(_ assets: AssetResolver) throws -> Bool {
         guard let root, let kinds = Bundle.main.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String], !kinds.isEmpty else { return false }
-        return try publish(assets, root: root, kinds: kinds, compatibility: compatibility)
+        return try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: Bundle.main.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true)
     }
-    package static func publish(_ assets: AssetResolver, root: URL, kinds: [String], compatibility: String) throws -> Bool {
+    package static func publish(_ assets: AssetResolver, root: URL, kinds: [String], compatibility: String, typescript: Bool = false) throws -> Bool {
         // A signed bake or accepted delivery identifies the bytes already. An
         // unchanged launch reads only current, without opening any asset.
         let stamp = Data((compatibility + "\n" + assets.publicationID).utf8)
@@ -85,6 +88,9 @@ public enum WidgetContainer {
         if !fm.fileExists(atPath: final.path) {
             let names = try assets.widgetNames()
             for kind in kinds where !names.contains("plans/\(kind).plan") { throw HeadlessSession.Failure(description: "generation lacks widget \(kind)") }
+            if typescript && !["typescript/app.hbc", "typescript/app.module.json"].allSatisfy(names.contains) {
+                throw HeadlessSession.Failure(description: "widget generation lacks the TypeScript module pair")
+            }
             let staging = base.appendingPathComponent(".\(UUID().uuidString)", isDirectory: true)
             try fm.createDirectory(at: staging, withIntermediateDirectories: false)
             defer { try? fm.removeItem(at: staging) }
