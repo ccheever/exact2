@@ -2,18 +2,20 @@
 
 use std::{io::Write, path::Path, process::ExitCode};
 
-const USAGE: &str =
-    "usage: contract build <file.contract> [-o <file.plan>] [--json] [--map (requires -o)]";
+const USAGE: &str = "usage: contract build <file.contract> [-o <file.plan>] [--json] [--map (requires -o)] [--entry <kind>]";
 
 struct Options<'a> {
     input: &'a str,
     output: Option<&'a str>,
     json: bool,
     map: bool,
+    /// A widget entry's kind (LLP 1126 D2): its plan instead of the app's,
+    /// compiled as the bake compiles it from `app.json` beside the input.
+    entry: Option<&'a str>,
 }
 
 fn options(args: &[String]) -> Option<Options<'_>> {
-    let (mut input, mut output, mut json, mut map) = (None, None, false, false);
+    let (mut input, mut output, mut json, mut map, mut entry) = (None, None, false, false, None);
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -25,11 +27,17 @@ fn options(args: &[String]) -> Option<Options<'_>> {
                     return None;
                 }
             }
+            "--entry" if entry.is_none() => {
+                entry = Some(args.next()?.as_str());
+                if entry?.starts_with('-') {
+                    return None;
+                }
+            }
             name if !name.starts_with('-') && input.is_none() => input = Some(name),
             _ => return None,
         }
     }
-    if map && output.is_none() {
+    if (map || entry.is_some()) && output.is_none() {
         return None;
     }
     Some(Options {
@@ -37,7 +45,54 @@ fn options(args: &[String]) -> Option<Options<'_>> {
         output,
         json,
         map,
+        entry,
     })
+}
+
+/// `--entry`: the named widget's plan, from `app.json` beside the input.
+fn build_entry(input: &str, kind: &str, output: &str, json: bool) -> ExitCode {
+    let dir = Path::new(input)
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let manifest = match contract::Manifest::read(dir) {
+        Ok(manifest) => manifest,
+        Err(message) => {
+            return report(
+                &error("contract-build-manifest", message, Some(input)),
+                json,
+                1,
+            )
+        }
+    };
+    let entries = match contract::snapshot::compile_widgets(dir, &manifest) {
+        Ok(entries) => entries,
+        Err(errors) => return report_all(&errors, &[], json, 1),
+    };
+    let Some(entry) = entries.get(kind) else {
+        let message = format!(
+            "app.json declares no widget `{kind}`; its kinds are {:?}",
+            entries.keys().collect::<Vec<_>>()
+        );
+        return report(
+            &error("contract-build-entry", message, Some(input)),
+            json,
+            1,
+        );
+    };
+    let bytes = entry.plan.encode();
+    if let Err(error) = write_output(output, &bytes) {
+        return report(&error, json, 1);
+    }
+    if json {
+        return report_all(&[], &[], true, 0);
+    }
+    println!(
+        "{input}: entry {kind}, {} nodes, {} bytes",
+        entry.plan.nodes.len(),
+        bytes.len()
+    );
+    ExitCode::SUCCESS
 }
 
 fn error(id: &str, message: String, file: Option<&str>) -> contract::CompileError {
@@ -84,6 +139,7 @@ pub(super) fn run(args: &[String]) -> ExitCode {
         output,
         json,
         map,
+        entry,
     }) = options(args)
     else {
         return report(
@@ -92,6 +148,9 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             2,
         );
     };
+    if let (Some(kind), Some(output)) = (entry, output) {
+        return build_entry(input, kind, output, json);
+    }
     // The map is always built: it prices each component for the summary.
     let want_map = map;
     // A game's surface arguments are checked apart: against a declaration
