@@ -208,6 +208,8 @@ shape Changes
   // The files' digests as the poll has them: what a design read follows
   // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
   files: string
+  // The files' changes and the commits told: what a commit's dry run follows.
+  writes: string
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -542,7 +544,7 @@ component DesignTool
   resource inspected = loadSelection(changes.answer, design.answer) as shape Inspected else empty()
   mutation inspectSent as shape Pinned refreshes inspected
   state impactToken = ""
-  resource uses = loadUses(impactToken, changes.answer) as shape Uses else empty(ok=true)
+  resource uses = loadUses(impactToken, changes.files) as shape Uses else empty(ok=true)
   mutation outlined as shape Pinned
   state draftName = ""
   // The long poll's place: the last sequence number seen, in which run, and
@@ -624,7 +626,7 @@ component DesignTool
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
-  resource scope = loadScope(client, changes.answer) as shape Scope else empty(open=0, refused=false, unavailable=false)
+  resource scope = loadScope(client, changes.writes) as shape Scope else empty(open=0, refused=false, unavailable=false)
   // The items of held proposals picked for "Accept picked"
   // (`<proposal>:<index>`), and the last change whose highlight has faded.
   state picked: string[] = []
@@ -685,8 +687,9 @@ component DesignTool
 
   action advance
     // A change (the files' digests moved), another run, more missed than
-    // the server keeps, or no answer: read the files again.
-    if changes.missed or not hello.ok or not changes.ok or changes.seq != since
+    // the server keeps, or no answer: read the files again (not for a
+    // build's status or a scrub's frame, which move only `seq`).
+    if changes.missed or not hello.ok or not changes.ok or changes.files != filesAt
       refresh hello
     if not design.ok
       refresh design

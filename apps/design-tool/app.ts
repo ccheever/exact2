@@ -492,6 +492,8 @@ let lastFiles: Record<string, string> = {};
 // Each file change the poll has seen, and each fresh start of it: what a
 // design read follows (with the digests), not every event's `seq`.
 let fileChanges = 0;
+// Commits told (with fileChanges, what a commit's dry run follows).
+let commitsTold = 0;
 const digestKey = (files: Record<string, string> = {}) => JSON.stringify(Object.keys(files).sort().map(f => [f, files[f]]));
 // Each read's stored values, axes and columns, by `<file>|<its digest>`; a few.
 const reads = new Map<string, { stored: Map<string, Stored[][]>; axes: Axis[]; columns: Column[] }>();
@@ -639,6 +641,7 @@ const opText = (o: any): string => {
 /** An event as the changeset keeps it. */
 function noted(e: any) {
   if (e.event === 'committed') {
+    commitsTold += 1;
     // What was written before the commit, in its files.
     for (const n of changeset) if (n.seq < e.seq && n.files.some(f => (e.files ?? []).includes(f))) n.committed = true;
     return;
@@ -1070,7 +1073,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, writes: `${fileChanges} ${commitsTold}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
@@ -1240,7 +1243,8 @@ const sources: Sources = {
     // What a commit would take now (a dry run, of the run the poll is on),
     // so Commit is on when there is something, writes from before the tool
     // opened among them, a refusal to say, or no answer (it says why when
-    // pressed). Read again with each poll answer.
+    // pressed). Read again when a poll answer moves the files or tells a
+    // commit (not for a build's status or a scrub's frame).
     const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
     const refused = ((dry.reply.error as { refused?: unknown[] } | undefined)?.refused ?? []).length;
     const nothing = /nothing to commit|written nothing/.test(dry.error);
