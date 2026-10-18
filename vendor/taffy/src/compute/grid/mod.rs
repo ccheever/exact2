@@ -69,19 +69,23 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
     let box_sizing_adjustment =
         if style.box_sizing() == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
 
+    // EXACT PATCH 56: omit preferred sizes before ratio resolution in a content
+    // probe, keeping the transfer from the incoming dimensions in either mode.
+    let preferred_size = if inputs.sizing_mode == SizingMode::InherentSize {
+        style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment)
+    } else {
+        Size::NONE
+    };
     // EXACT PATCH 12: the container's own size styles through the ratio (`compute::ratio`).
     // A definite width assigned by the parent (including grid-item stretch during track
     // measurement) supplies the ratio's automatic height floor just as an authored width does.
-    let (style_size, min_size, max_size) = sizes_through_ratio(
+    let (preferred_size, min_size, max_size) = sizes_through_ratio(
         &style,
         padding_border_size,
-        known_dimensions.or(
-            style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
-        ),
+        known_dimensions.or(preferred_size),
         style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
         style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
     );
-    let preferred_size = if inputs.sizing_mode == SizingMode::InherentSize { style_size } else { Size::NONE };
 
     // Scrollbar gutters are reserved when the `overflow` property is set to `Overflow::Scroll`.
     // However, the axis are switched (transposed) because a node that scrolls vertically needs

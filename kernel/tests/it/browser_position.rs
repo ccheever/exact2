@@ -41,6 +41,9 @@
 //! 151.0.7922.34. It covers preferred heights in shorter columns, definite
 //! stretch versus wrapping, alignment and auto margins, content minima,
 //! authored widths, shrink opt-outs, padding, borders and row controls.
+//! `Chrome 151 ratio container minimum` uses that version and date for flex,
+//! grid and block items in short columns, including ratio floors, taller
+//! content, percentage children, shrink opt-outs, box sizing and row controls.
 //! `Chrome 151 column stretch floor` uses that version and date for RTL
 //! columns with items wider than the line's stretch size. Controls cover
 //! ratios, LTR, fitting items, alignment, explicit widths, padding, borders

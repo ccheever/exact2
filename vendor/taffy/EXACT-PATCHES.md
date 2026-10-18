@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54 and 55 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55 and 56 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1713,6 +1713,32 @@ authored bounds keep their box-sizing adjustment and minimum precedence.
 ratio under either box-sizing mode. Controls cover LTR, fitting items,
 `flex-start`, explicit widths, padding and borders, and minimum/maximum
 bounds under both box-sizing modes. Existing ratio-stretch fixtures pass.
+
+## Patch 56: transfer incoming dimensions in flex and grid content measurement
+
+Flex resolves Patch 12's ratio from the incoming dimensions when computing its
+layout constants, as block layout does. Grid omits preferred sizes before
+ratio resolution in `ContentSize`, retaining the sizes and limits derived from
+incoming dimensions. A content probe can therefore transfer a definite cross
+size without restoring the preferred main size it was asked to ignore
+([Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto),
+[§9.8](https://www.w3.org/TR/css-flexbox-1/#definite-sizes)).
+
+The existing ratio machinery supplies a height floor that content can exceed,
+using the declared box sizing. Both incoming dimensions remain authoritative;
+an authored size replaced by flexing no longer supplies a second ratio floor.
+Percentage definiteness and the parent-side rules of patches 44, 50, 54 and 55
+are unchanged.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+40 literal `Chrome 151 ratio container minimum` cases measured with Chrome
+151.0.7922.34 on 2026-10-19. Seventeen frames failed before the patch. Flex and
+grid items with `height:80px;aspect-ratio:1` in a 50×20 column change from
+50×20 to Chrome's 50×50. The row analogues change from 20×80 (flex) and 20×50
+(grid) to 50×50 through the same fix. Controls cover block items, taller
+content, zero minima, hidden overflow, alignment, wrapping, explicit widths,
+padding and borders under both box-sizing modes, specified-height caps,
+disabled shrinking, percentage children and a nested flex column.
 
 ## Cargo workspace boundary
 

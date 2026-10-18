@@ -347,6 +347,7 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
         parent_size,
         available_space,
     );
+    let known_dimensions = constants.node_outer_size;
 
     // 9. Flex Layout Algorithm
 
@@ -636,6 +637,16 @@ fn compute_constants(
         Direction::Rtl => content_box_inset.left += scrollbar_gutter.x,
     };
 
+    // EXACT PATCH 56: transfer the incoming dimensions, as block layout does.
+    // ContentSize omits preferred sizes; final dimensions must not regain a
+    // ratio floor derived from an authored size that flexing has replaced.
+    let (known_dimensions, min_size, max_size) = sizes_through_ratio(
+        &style,
+        padding_border_sum,
+        known_dimensions,
+        style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+    );
     let node_outer_size = known_dimensions;
     let node_inner_size = node_outer_size.map_height(|height| height.or_else(||
         crate::compute::ratio::percentage_height(&style, padding_border_sum, node_outer_size.width)))
@@ -649,15 +660,6 @@ fn compute_constants(
 
     let container_size = Size::zero();
     let inner_container_size = Size::zero();
-
-    // EXACT PATCH 12: the container's own limits through the ratio (`compute::ratio`).
-    let (_, min_size, max_size) = sizes_through_ratio(
-        &style,
-        padding_border_sum,
-        style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
-        style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
-        style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
-    );
 
     AlgoConstants {
         dir,
