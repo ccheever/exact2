@@ -168,13 +168,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 frame.ambient_occlusion.is_some() || self.soft_retained,
             )
         };
-        self.quads.soft_pass(
-            &self.device,
-            &self.queue,
-            soft.then_some(&self.targets.depth),
-            (frame.proj * frame.view).inverse(),
-            self.depth_split(),
-        );
         let cascades = self.prepare_effects(frame);
         let map = frame.environment_map.and_then(|m| {
             let texture = self.models.textures.get(m.texture).filter(|t| t.active)?;
@@ -220,6 +213,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         uniform[31] *= self.environment.ambient_scale();
         self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
         self.prepare_cull(frame, cascades.as_ref(), hooks.materials(), size);
+        self.quads.soft_pass(
+            &self.device,
+            &self.queue,
+            soft.then_some(&self.targets.depth),
+            (frame.proj * frame.view).inverse(),
+            self.depth_split(),
+        );
         self.prepare_shadow_cache(cascades.as_ref(), frame, hooks.materials());
         if direct {
             self.prepare_direct(target.texture().size());

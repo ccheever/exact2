@@ -671,3 +671,162 @@ fn reflected_socket_normals_light_a_non_emissive_surface() {
     );
     assert_eq!(wrong.count(|p| p[0] > 100), 0);
 }
+
+struct SoftDepth;
+impl Game for SoftDepth {
+    const ID: &'static str = "soft-current-depth";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.insert_resource(Environment {
+            background: Some([0.; 3]),
+            bloom: None,
+            fog: None,
+            tone_mapping: ToneMapping::None,
+            ..Default::default()
+        });
+        w.spawn((Transform::at(0., 0., 5.), Camera::default()));
+        w.spawn((
+            Transform::at(0., 0., -2.),
+            Mesh::cube(4.),
+            Material::rgb(0., 0., 0.),
+        ));
+        w.spawn((
+            Transform::at(0., 0., 0.1),
+            Emitter {
+                rate: 0.,
+                lifetime: 10.,
+                speed: 0.,
+                spread: 0.,
+                gravity: Vec3::ZERO,
+                size: [1., 1.],
+                color: [[1.; 4], [1.; 4]],
+                additive: false,
+                ..Default::default()
+            }
+            .burst(1),
+            ParticleLook {
+                soft: 1.,
+                ..Default::default()
+            },
+        ));
+        // Seed a live particle before the renderer's first frame.
+        emitter::step(w);
+        w.spawn_named(
+            "viewmodel",
+            (
+                Transform::at(1.5, 0., 0.),
+                Mesh::sphere(0.1),
+                Material::glow([1., 0., 0.]).alpha(0.5),
+            ),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+#[test]
+fn soft_particles_use_current_depth_on_first_frame_and_viewmodel_transitions() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let make = || {
+        let mut s = WorldSurface::<SoftDepth>::default();
+        s.bind(&[], None).unwrap();
+        s
+    };
+    let mut baseline = make();
+    let reference = fixture::render(&gpu, &mut baseline, &frame())
+        .unwrap()
+        .0
+        .at(64, 64)[0];
+    assert!(
+        reference > 10 && reference < 150,
+        "intersection fade: {reference}"
+    );
+    for starts_attached in [true, false] {
+        let mut s = make();
+        for member in [starts_attached, !starts_attached, starts_attached] {
+            let w = s.world_for_test();
+            let e = w.named("viewmodel").unwrap();
+            if member {
+                w.insert(e, ViewModel);
+            } else {
+                w.remove::<ViewModel>(e);
+            }
+            let pixels = fixture::render(&gpu, &mut s, &frame()).unwrap().0;
+            let actual = pixels.at(64, 64)[0];
+            assert!(
+                actual.abs_diff(reference) <= 2,
+                "starts={starts_attached}, member={member}: {actual} != {reference}"
+            );
+            assert_eq!(
+                s.renderer_for_test().unwrap().depth_split(),
+                if member { crate::VIEWMODEL_DEPTH } else { 0. }
+            );
+        }
+    }
+}
+
+#[test]
+fn cone_picking_matches_rendered_resolved_follower_and_parented_socket_child() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut masks = Vec::new();
+    for child in [false, true] {
+        let mut s = WorldSurface::<SocketShape, crate::ModelExecutor, true>::default();
+        s.bind(&[], None).unwrap();
+        let w = s.world_for_test();
+        w.require_mut::<Transform>("owner").scale = Vec3::new(-3., 1., 1.);
+        let shape = w.named("shape").unwrap();
+        let signed = Transform {
+            scale: Vec3::new(1., -1., 1.),
+            ..Default::default()
+        };
+        let cone = if child {
+            w.remove::<Mesh>(shape);
+            w.spawn((
+                signed,
+                Parent(shape),
+                Mesh::cone(0.6, 1.6),
+                Material::glow([1., 0., 0.]).alpha(0.5),
+            ))
+        } else {
+            *w.get_mut::<Transform>(shape).unwrap() = signed;
+            w.get_mut::<SocketFollow>(shape).unwrap().offset = signed;
+            *w.get_mut::<Mesh>(shape).unwrap() = Mesh::cone(0.6, 1.6);
+            shape
+        };
+        let pixels = fixture::render(&gpu, &mut s, &frame()).unwrap().0;
+        let visible = |x, y| pixels.at(x, y)[0] > 10;
+        let (mut hits, mut misses) = (0, 0);
+        // Interior pixels avoid the polygonal silhouette's raster edge. The
+        // analytic picker must hit exactly the same projected surface as the GPU.
+        for y in 3..125 {
+            for x in 3..125 {
+                let red = visible(x, y);
+                if !(y - 2..=y + 2).all(|v| (x - 2..=x + 2).all(|u| visible(u, v) == red)) {
+                    continue;
+                }
+                let hit = s
+                    .sim()
+                    .unwrap()
+                    .pick(Vec2::new(x as f32 + 0.5, y as f32 + 0.5));
+                assert_eq!(
+                    hit.map(|h| h.entity),
+                    red.then_some(cone),
+                    "child={child}, {x},{y}"
+                );
+                if red {
+                    hits += 1;
+                } else {
+                    misses += 1;
+                }
+            }
+        }
+        assert!(hits > 300 && misses > 300, "hits={hits}, misses={misses}");
+        masks.push(pixels.data);
+    }
+    assert_ne!(
+        masks[0], masks[1],
+        "full socket affine differs from decomposed child pose"
+    );
+}

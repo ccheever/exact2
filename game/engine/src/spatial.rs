@@ -299,22 +299,11 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
         let Some(mut pose) = w.global(e) else {
             continue;
         };
-        let mut attached = false;
-        if let Some(attachments) = w.attachments {
-            let mut at = e;
-            for remaining in (1..=w.len()).rev() {
-                if (attachments.pose)(w, at, remaining).is_some() {
-                    attached = true;
-                    break;
-                }
-                let Some(parent) = w.get::<crate::Parent>(at) else {
-                    break;
-                };
-                at = parent.0;
-            }
-        }
-        // Resolved sockets retain their full affine map; ordinary primitives
-        // interpolate absolute scales, preserving a root's authored rotation.
+        let attached = w
+            .attachments
+            .is_some_and(|attachments| (attachments.pose)(w, e, w.len() + 1).is_some());
+        // Only a resolved follower draws its full socket affine. Other primitives
+        // use absolute scales after decomposition, preserving a root's rotation.
         if !matches!(mesh, Mesh::Asset(_)) && !attached {
             let (scale, rotation, position) = if !w.has::<crate::Parent>(e) {
                 let t = w.get::<crate::Transform>(e)?;
