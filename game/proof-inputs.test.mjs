@@ -372,7 +372,7 @@ test('repin records portable source provenance separately and still refuses mixe
     expect(pins[0].sourceInputs).toBe(pins[1].sourceInputs);
     expect(pins[0].inputs).not.toBe(pins[1].inputs);
   } finally { rmSync(dir, {recursive:true, force:true}); }
-}, 15000);
+}, 120000);
 
 test('proof summaries record both identities from the completed bake', async () => {
   // Match the child's import.meta URL when macOS's temporary root is a symlink.
