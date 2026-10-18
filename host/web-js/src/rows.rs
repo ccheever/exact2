@@ -282,7 +282,7 @@ impl Em<'_> {
         .then(|| self.uses.constant("$cm", || style::color_map(plan)));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
-        let writes: Vec<(String, String, Option<String>)> = match id {
+        let mut writes: Vec<(String, String, Option<String>)> = match id {
             // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.
@@ -507,6 +507,23 @@ impl Em<'_> {
                 })
                 .collect(),
         };
+        if id == StyleId::Display && parts.css.contains("--exact-progress-justify:") {
+            let normal = self.uses.rt("normal");
+            writes.push(("--exact-progress-justify".into(), String::new(), Some(format!(
+                "v=>[\"flex\",\"grid\",\"none\"].includes({normal}(\"display\",String(v??\"\")))?\"normal\":\"start\""
+            ))));
+        }
+        if id == StyleId::PositionType && parts.props.contains_key("data-exact-progress") {
+            let normal = self.uses.rt("normal");
+            writes.push((
+                "justify-self".into(),
+                String::new(),
+                Some(format!(
+                    "v=>{normal}(\"position\",String(v??\"\"))===\"absolute\"?\"normal\":{:?}",
+                    style::PROGRESS_JUSTIFY
+                )),
+            ));
+        }
         // A longhand bound beside a bound `font` shorthand: where it says
         // nothing, the shorthand's style's (above), as the kernel has it.
         let writes = if matches!(id, StyleId::FontWeight | StyleId::LineHeight)
