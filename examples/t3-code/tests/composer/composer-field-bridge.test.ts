@@ -24,6 +24,23 @@ const fieldCommandKeys = readFileSync(appPath('src/composer/composer-rich.contra
   .match(/^shape ComposerFieldCommand\n((?:  [^\n]+\n)+)/m)![1]!.trim().split('\n').map(line => line.trim().split(':')[0]!).sort();
 
 describe('composer field app bridge', () => {
+  for (const order of ['resource-echo-before-input', 'ACK-before-input']) test(`early ACK defers through finite wake for authoritative input: ${order}`, async () => {
+    const state = setup(), owner = state.host.renderedOwner;
+    const native = composerFieldNative(state.host, state.native, () => owner);
+    await native.later({ op: 'editorEdit', text: '!', then: 'models' });
+    const command = state.resource, entered = { ...state.observation, value: 'one!', start: 4, end: 4, inputSerial: 1 };
+    if (order === 'resource-echo-before-input') composerFieldResource(state.host, [entered, command.seq], owner);
+    const calls: unknown[] = [];
+    const current = { available: true, watch() {}, later: async (request: unknown) => {
+      calls.push(request); composerFieldObserved(state.host, [entered, true], owner);
+      return { ok: true, generation: 1, value: {} };
+    } };
+    const ack = await composerFieldAcknowledged(state.host, [order === 'ACK-before-input' ? state.observation : entered, command.seq, true], owner, current);
+    expect(calls).toEqual([{ op: 'wake', topic: 't3.notify' }]);
+    expect(ack).toMatchObject({ applied: true, value: 'one!', start: 4, end: 4, inputSerial: 1, then: 'models' });
+    expect((state.host as { error?: string }).error).toBeUndefined();
+    expect(await native.later({ op: 'editorState' })).toMatchObject({ value: { text: 'one!', caret: 4 } });
+  });
   for (const live of [true, false]) test(`idle resource emits exactly the declared command keys when live=${live}`, () => {
     const state = setup(), observation = { ...state.observation, live, composing: !live, focused: true, inputSerial: 7 };
     const command = composerFieldResource(state.host, [observation, 12], state.host.renderedOwner);

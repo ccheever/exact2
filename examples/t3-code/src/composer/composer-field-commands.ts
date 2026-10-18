@@ -66,6 +66,7 @@ export class ComposerFieldCommands {
   }
 
   generatedInputSerial(seq: number): number { return this.requests.find(item => item.command.seq === seq)?.inputSerial ?? -1; }
+  awaitingInput(seq: number): boolean { return this.requests.some(item => item.command.seq === seq && item.delivered && !item.observedInput); }
 
   drain(): ComposerFieldCompleted[] { return this.completed.splice(0); }
   cancel(seq: number, reason: string): void {

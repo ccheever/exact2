@@ -37,6 +37,39 @@ test('completed resource watches actual wake; queued admission never runs an eff
   await f.ack(command.seq); expect(applied).toBe(1);
 });
 
+test('early ACK uses its current native once after independent input, never the initiating ticket', async () => {
+  const f=setup();let effects=0;
+  await requestComposerField(f.native,{op:'editorEdit',all:true,text:'new'},{applied:async native=>{effects++;await native.later({op:'cleanup'});}});
+  const command=f.next(),calls:unknown[]=[];
+  const current:Native={available:true,watch(){},async later(request){calls.push(request);if((request as {op:string}).op==='wake')f.input('new');return{ok:true,generation:f.client.generation,value:{}};}};
+  const ack=await composerFieldAcknowledged(f.client,[f.observation(),command.seq,true],f.owner,current);
+  expect(ack.applied).toBe(true);expect(f.client.error).toBe('');expect(effects).toBe(1);
+  expect(calls).toEqual([{op:'wake',topic:'t3.notify'},{op:'cleanup'}]);
+  await f.ack(command.seq);expect(effects).toBe(1);expect(f.initiating).toEqual([{op:'wake',topic:'t3.notify'}]);
+});
+
+test('manual source and owner loss during an early ACK still refuse each receipt once', async () => {
+  for(const invalidation of ['source','owner','owner-rejected-wake']){
+    const f=setup();let applied=0,refused=0,wakes=0;
+    await requestComposerField(f.native,{op:'editorEdit',all:true,text:'new'},{applied:()=>{applied++;},refused:()=>{refused++;}});
+    const command=f.next(),current:Native={available:true,watch(){},async later(){wakes++;if(invalidation==='source')f.input('manual');else{f.client.generation++;if(invalidation==='owner-rejected-wake')throw Error('superseded');f.next();}return{ok:true,generation:f.client.generation,value:{}};}};
+    expect((await composerFieldAcknowledged(f.client,[f.observation(),command.seq,true],f.owner,current)).applied).toBe(false);
+    expect(wakes).toBe(1);expect(applied).toBe(0);expect(refused).toBe(1);
+    await f.ack(command.seq,false);expect(refused).toBe(1);
+    if(invalidation!=='source')expect(f.client.error).toBe('');else expect(f.client.error).toContain('prompt changed');
+  }
+});
+
+test('a bounded early ACK without input never invents application and retires with a specific missing-input diagnostic', async () => {
+  const f=setup();let effects=0,refused=0,wakes=0;
+  await requestComposerField(f.native,{op:'editorEdit',all:true,text:'new'},{applied:()=>{effects++;},refused:()=>{refused++;}});
+  const command=f.next(),current:Native={available:true,watch(){},async later(){wakes++;return{ok:true,generation:f.client.generation,value:{}};}};
+  const ack=await composerFieldAcknowledged(f.client,[f.observation(),command.seq,true],f.owner,current);
+  expect(ack.applied).toBe(false);expect(effects).toBe(0);expect(refused).toBe(1);expect(wakes).toBeGreaterThan(0);expect(wakes).toBeLessThanOrEqual(16);
+  expect(f.client.error).toBe('The editor did not acknowledge this edit. Please try again.');
+  expect(f.next(command.seq).ready).toBe(false);expect((await requestComposerField(f.native,{op:'editorEdit',text:'!'})).accepted).toBe(true);
+});
+
 test('refused ACK and source/owner invalidation drain completion metadata once without external work', async () => {
   for (const invalidation of ['ack','source','owner']) {
     const f=setup(); let applied=0,refused=0;

@@ -1,6 +1,10 @@
 import AppKit
 import Carbon
 import Foundation
+if ProcessInfo.processInfo.environment["T3_SNAPSHOT_TILES_ONLY"] == "1" {
+    try runImageTileChecks()
+    exit(0)
+}
 let bounds = CGRect(x: 10, y: 20, width: 300, height: 200)
 func expect(_ value: Bool, _ name: String) { guard value else { fatalError(name) } }
 expect(T3SnapshotAccessibility.uniqueWindow([(nil, bounds), (nil, bounds)], windowId: 12, bounds: bounds) == nil, "ambiguous geometry must not attach other window text")
@@ -149,6 +153,7 @@ shortcuts.destroy()
 print("5 physical modifier and timeout checks passed")
 expect(T3SnapshotFeedback.screenFrame(CGRect(x: 10, y: 20, width: 300, height: 200), screenHeight: 900) == CGRect(x: 10, y: 680, width: 300, height: 200), "capture overlay preserves original screen geometry")
 print("1 capture animation screen-geometry check passed (no OS capture)")
+try runImageTileChecks()
 runFeedbackChecks()
 runComposerFocusChecks()
 runPermissionHelperChecks()
