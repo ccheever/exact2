@@ -97,12 +97,12 @@ impl Game for SmallGame {
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
         let mut near = "";
-        if let Some((entity, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+        if let Some((_, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
             if input.pressed("light") {
                 beacon.lit = true;
-                w.require_mut::<Glow>(entity).0.to(w.tick_end(), 1.0, 0.5);
+                beacon.glow_to(1.0, 0.5);
             } else {
-                near = w.name(entity).unwrap_or_default();
+                near = beacon.name().unwrap_or_default();
             }
         }
         w.publish("lit", w.count::<Beacon>(|b| b.lit));

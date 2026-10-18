@@ -68,6 +68,7 @@ impl<C> Deref for Ref<'_, C> {
 /// An exclusive component/resource borrow of one row. Other rows of the component
 /// stay free to borrow; this row refuses every other borrow until the guard drops.
 pub struct RefMut<'a, C> {
+    pub(crate) owner: Option<(&'a crate::World, crate::Entity)>,
     ptr: *mut C,
     _lease: Lease<'a>,
     _life: PhantomData<&'a mut C>,
@@ -162,6 +163,7 @@ impl<C: Data> Storage<C> {
         self.mark_page(index / PAGE);
         self.mark_row(index);
         Ok(Some(RefMut {
+            owner: None,
             ptr: self.ptr(index),
             _lease: lease,
             _life: PhantomData,

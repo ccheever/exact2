@@ -83,6 +83,7 @@ impl<C: Data> Singleton<C> {
         // SAFETY: the exclusive lease excludes all other references to this cell.
         let value = unsafe { &mut *self.value.get() }.as_mut()?;
         Some(RefMut {
+            owner: None,
             ptr: value,
             _lease: lease,
             _life: PhantomData,

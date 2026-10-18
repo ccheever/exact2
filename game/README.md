@@ -265,10 +265,10 @@ The dev compiler retains its last good plan on an error.
 | Change speed while playing | `w.require_mut::<character::Character>("player").speed = 8.0` preserves velocity and the rest of the character. |
 | Move against colliders | [Physics controller example](physics/tests/living.rs), with explicit `Move`, `Jump` and `Gravity` |
 | Follow the player | Attach `Follow`; the scene steps it after the tick. Call `scene::follow(w)` explicitly to choose an earlier order. |
-| Find a nearby unlit beacon | `w.nearest_xz_mut::<Beacon>("player", 1.5, \|b\| !b.lit)` returns its entity and mutable component together. |
+| Find a nearby unlit beacon | `w.nearest_xz_mut::<Beacon>("player", 1.5, \|b\| !b.lit)` returns its entity and mutable row handle together; `beacon.name()` reads its name. |
 | Count for the HUD | `w.count::<Beacon>(\|b\| b.lit)` |
 | Grid and fog | `Material::grid(color, spacing)` and the saved `Environment`/`Fog` resource |
-| Fade a glowing mesh | Attach `Glow(Tween)` to `Material::glow`; retarget once and let the renderer sample at frame time. |
+| Fade a glowing mesh | Attach `Glow` to `Material::glow`; call `beacon.glow_to(1.0, 0.5)` once. The renderer samples at frame time. |
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
 | Shadows from a lamp | Add `LightShadows` to a `SpotLight` or `PointLight`; the renderer shadows the nearest few |

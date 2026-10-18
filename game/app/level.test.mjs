@@ -177,3 +177,12 @@ test('the bake writes the render crate its assembled shader inventory, engine pr
     expect(readFileSync(resolve(dir, '.shells/.cargo/config.toml'), 'utf8')).toContain(`EXACT_GAME_SHADERS = ${JSON.stringify(resolve(realpathSync(dir), '.shells/shaders'))}`);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
+
+test('starter and Beacons retarget glow through the row handle', () => {
+  for (const file of ['../new/logic/src/lib.rs', '../games/beacons/logic/src/lib.rs']) {
+    const source = readFileSync(resolve(import.meta.dir, file), 'utf8');
+    expect(source).toContain('beacon.glow_to(1.0, 0.5)');
+    expect(source).toContain('beacon.name()');
+    expect(source).not.toMatch(/require_mut::<Glow>|\.0\.to\(|tick_end\(/);
+  }
+});

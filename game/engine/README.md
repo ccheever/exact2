@@ -159,8 +159,12 @@ new followers and preserves saved poses. It then steps after each tick. Call
 twice. Primitive dimensions belong to `Mesh`;
 `Collider::of(&mesh)` supplies matching collision geometry.
 
-Retarget `Glow(Tween)` or `Lit(Spring)` once, using `w.tick_end()`. The renderer
-samples them between ticks; keep authored emission or light intensity constant.
+Retarget a glow through its row handle: `w.require_mut::<Glow>("beacon").glow_to(1.0, 0.5)`,
+or `beacon.glow_to(1.0, 0.5)` on the row from `nearest_xz_mut`. Handles also offer
+`name()`, `tint([r, g, b])` (authored linear colour) and `offset(x, y, z)` (local
+simulation metres). The related components must already exist; row leases still apply.
+Retarget `Lit(Spring)` using `lit.to(w.tick_end(), intensity)`. The renderer
+samples both between ticks; keep authored emission or light intensity constant.
 Negative light overshoot clamps to zero. See [effects](../render/README.md#effects).
 
 Animation order is explicit: `let motion = animation::step(w)`, apply root motion,
