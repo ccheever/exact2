@@ -106,7 +106,9 @@ struct ExactTimelineProvider: TimelineProvider {
     func placeholder(in context: Context) -> ExactWidgetEntry { preview(context, placeholder: true) }
     func getSnapshot(in context: Context, completion: @escaping (ExactWidgetEntry) -> Void) { completion(preview(context, placeholder: false)) }
     func getTimeline(in context: Context, completion: @escaping (Timeline<ExactWidgetEntry>) -> Void) {
+        #if EXACT_INSPECT
         let start = DispatchTime.now()
+        #endif
         let size = context.displaySize, date = Date(), inputs = facts(.current, at: Date())
         // Privacy modifiers can suppress redaction: an unredacted placeholder
         // would show fixture values as live account data. Fail with "Open app".

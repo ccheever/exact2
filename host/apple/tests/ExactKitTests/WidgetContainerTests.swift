@@ -82,7 +82,7 @@ final class WidgetContainerTests: XCTestCase {
         XCTAssertThrowsError(try next.resolve { throw RefreshFailure.offline })
     }
 
-    func testUnknownStoreCounterAndUnversionedCacheCannotAuthorizeAccountData() throws {
+    func testAnUnknownCounterOrUnversionedCacheIsNeverReusedAndALiveRefreshStillAnswers() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("Library/Caches/widget-timelines/one/question.json")
@@ -101,6 +101,11 @@ final class WidgetContainerTests: XCTestCase {
         try FileManager.default.removeItem(at: file)
         XCTAssertEqual(try unknown.resolve { Data("account B".utf8) }, Data("account B".utf8))
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        // A write that makes the counter readable mid-refresh refuses delivery.
+        XCTAssertThrowsError(try unknown.resolve {
+            try Data("2".utf8).write(to: root.appendingPathComponent("widget-store-generation"), options: .atomic)
+            return Data("account A".utf8)
+        })
     }
 
     func testAFailedCacheWriteKeepsTheGoodRefreshAndAnOlderEntryIsRemoved() throws {

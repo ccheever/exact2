@@ -30,13 +30,19 @@ public struct WidgetTimelineCache: Hashable {
     }
 
     /// Recheck after refresh and before delivery: a write can race either path.
-    /// An unreadable counter cannot authorize account content.
-    public var isCurrent: Bool { counter == nil || (try? Self.readCounter(counterFile)) == counter }
+    /// An unreadable counter cannot authorize account content: it stays current
+    /// only while it stays unreadable, and the app's next write makes it a number.
+    public var isCurrent: Bool { (try? Self.readCounter(counterFile)) == counter }
 
     /// Only validated timeline bytes belong here. A failure may reuse an answer
     /// from this store revision, never one written before an account switch.
     public func resolve(_ refresh: () throws -> Data) throws -> Data {
-        guard let counter else { return try refresh() }
+        guard let counter else {
+            guard isCurrent else { throw Failure.storeChanged }
+            let bytes = try refresh()
+            guard isCurrent else { throw Failure.storeChanged }
+            return bytes
+        }
         let bytes: Data
         do {
             guard isCurrent else { throw Failure.storeChanged }

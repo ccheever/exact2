@@ -552,6 +552,7 @@ fn publish_widget_change(root: std::path::PathBuf, app: String) {
             .is_ok()
     });
     if !published {
+        let _ = std::fs::remove_file(&temporary);
         return;
     }
     #[cfg(target_vendor = "apple")]
