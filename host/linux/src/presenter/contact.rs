@@ -942,7 +942,7 @@ impl<D: DataSource> Presenter<D> {
                     let hit = hit.unwrap_or(id);
                     self.note_press(hit, false);
                     if !self.pointerdown_prevents_focus(hit) {
-                        self.focus_for_press(hit, now_ms, self.contact_is_direct());
+                        self.focus_for_press(hit, (x, y), now_ms, self.contact_is_direct());
                     }
                     self.activate(id, now_ms);
                 }

@@ -116,6 +116,7 @@ impl<D: DataSource> Presenter<D> {
             images: &self.images.bitmaps,
             focus: self.focus,
             selection,
+            caret_upstream: self.focus.is_some_and(|id| self.field_cursor(id).upstream),
             pointer: self.pointer,
             controls: &self.controls,
             chosen: &self.chosen,

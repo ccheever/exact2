@@ -411,7 +411,15 @@ macro_rules! canvas_jni {
                 // then the host's own turn.
                 let primed = PRIMED.with(|p| p.borrow_mut().take());
                 let waiting = primed.or_else($crate::canvas::agent::next_stream);
-                let Some(ops) = waiting.or_else(|| with(|h| h.frame()).flatten()) else {
+                // The host's own turn is the frame a scrub frame's trace waits
+                // for (EXACT_SCRUB_TRACE), its stream or none (a view of the
+                // app's own took it), never a stream queued before.
+                let own = waiting.is_none();
+                let ops = waiting.or_else(|| with(|h| h.frame()).flatten());
+                if own {
+                    $crate::presenter::preferences::scrub_frame_drawn();
+                }
+                let Some(ops) = ops else {
                     return std::ptr::null_mut();
                 };
                 let new = (**env).NewDirectByteBuffer.expect("jni");
@@ -833,6 +841,8 @@ macro_rules! canvas_jni {
                 _env: *mut JNIEnv, _class: jclass,
             ) {
                 with(|h| h.display_frame());
+                // A scrub frame's trace waits for the frame this reader draws.
+                $crate::presenter::preferences::scrub_frames_said();
             }
 
             #[no_mangle]

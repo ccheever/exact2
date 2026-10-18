@@ -52,6 +52,7 @@ serde_json = "1.0"
 libloading = "0.8"
 base64 = "0.22"
 tiny-skia = "0.12"
+unicode-segmentation = "1.13"
 # Text (LLP 1085.000): Parley lays out, fontique finds and matches faces
 # (its `system` feature off: no fontconfig, no platform font API), swash
 # rasterizes the face Parley chose. Every one is Rust.

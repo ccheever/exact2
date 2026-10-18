@@ -83,7 +83,7 @@ mod hosted;
 mod images;
 mod links;
 mod palette;
-mod preferences;
+pub mod preferences;
 mod requests;
 mod retained_action;
 mod reveal;

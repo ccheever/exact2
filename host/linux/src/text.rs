@@ -19,6 +19,7 @@ pub(crate) mod cache;
 mod catalog;
 mod catalog_recipe;
 mod fallback;
+pub(crate) mod field;
 mod flow;
 #[cfg(test)]
 mod flow_tests;
