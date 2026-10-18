@@ -74,7 +74,7 @@ export function presentThreads(client: object, state: ThreadState, reference: Wr
     return {
       // Named with the pull request too: two pull requests can hand out the same thread id.
       id, key: `${reference.projectId}#${reference.number}:${id}`, resolved: thread.isResolved === true, outdated: thread.isOutdated === true,
-      countLabel: `${thread.isResolved === true ? 'Resolved' : 'Open'} · ${count} ${count === 1 ? 'comment' : 'comments'}`, canReply, canResolve, canReact,
+      countLabel: `${thread.isResolved === true ? 'Resolved' : 'Open'} · ${count} ${count === 1 ? 'comment' : 'comments'}`, canReply, canResolve: canResolve && thread.canResolve !== false, canReact,
       fix: pullRequestFindingKey({ kind: 'thread', thread }), more: nextCursor !== null, loadingMore: state.loading.has(id), pending: state.pending, repliedSerial: state.replied.get(id) ?? 0,
       lineLabel: num(thread.line) > 0 ? `Line ${num(thread.line)}` : '', path: str(thread.path),
       comments: comments.map(comment => {
@@ -84,7 +84,7 @@ export function presentThreads(client: object, state: ThreadState, reference: Wr
           id: commentId, author: login, avatar: str(actor.avatarUrl), initial: login.slice(0, 1).toUpperCase(), authorTip: named(actor),
           age: relativeLabel(comment.createdAt, now), bodyId: body === null ? '' : `pr-thread-comment:${commentId}`, raw: str(comment.body),
           // A conversation on a line is made of review comments, whatever the host filed them as.
-          canEdit: canEditPullRequestComment(detail, { author: comment.author, kind: 'review-comment' }), saving: state.saving === commentId, savedSerial: state.saved.get(commentId) ?? 0,
+          canEdit: canEditPullRequestComment(detail, { author: comment.author, kind: 'review-comment', canEdit: comment.canEdit }), saving: state.saving === commentId, savedSerial: state.saved.get(commentId) ?? 0,
           reactions: pills.pills, reacted: pills.reacted,
         };
       }),

@@ -45,6 +45,7 @@ export function canonicalRepositoryKey(key: string): string {
 function changeRequestUrlFor(kind: string, host: string, repository: string, number: number, remoteUrl: string): string | null {
   switch (kind) {
     case 'github': return `https://${host}/${repository}/pull/${number}`;
+    case 'gitcafe': return `https://${host}/${repository}/pulls/${number}`;
     case 'forgejo': {
       try {
         const remote = new URL(remoteUrl);
