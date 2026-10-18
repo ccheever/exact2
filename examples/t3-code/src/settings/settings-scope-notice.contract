@@ -1,0 +1,61 @@
+// SettingsScopeNotice (T3 Code 9c161462c9): the status line, then the targets that own the category as rows of a
+// SettingsGroup (or a SettingsSection titled by its project): the target's icon, its name, the line that tells it
+// apart (its tooltip the whole line) and a chevron. A press selects that target (settings-scope-notice.ts) and a
+// search jump's row stays the jump's target.
+use SettingsSection from "./settings-kit.contract"
+use CnMachineIcon from "./settings-b-kit.contract"
+use CoreMark from "./settings-core.contract"
+use LucideChevronRight from "./settings-icons.contract"
+use LucideLayers from "./settings-icons.contract"
+use ScopeNoticeChoice from "./settings-core.contract"
+use ScopeNoticeGroup from "./settings-core.contract"
+
+
+component ScopeNotice
+  props
+    message: string
+    groups: ScopeNoticeGroup[]
+    noticeId: string
+    // The scope sentence's choose(project axis?, id, member).
+    choose: action
+  view
+    column width="100%" gap="0.75rem" testId=noticeId
+      text message role="status" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" padding-left="1rem" padding-right="1rem" testId=`${noticeId}-message`
+      column width="100%" gap="1rem"
+        for group in groups key=group.key
+          if group.title != ""
+            SettingsSection(title=group.title, sectionId=`${noticeId}-${group.key}`)
+              for item in group.choices key=item.key
+                ScopeNoticeRow(item=item, first=(group.choices.indexOf(item) == 0), noticeId=noticeId, choose=choose)
+          else
+            column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d" testId=`${noticeId}-${group.key}`
+              for item in group.choices key=item.key
+                ScopeNoticeRow(item=item, first=(group.choices.indexOf(item) == 0), noticeId=noticeId, choose=choose)
+
+// ITEM_ROW_CLASSNAME (px-4 py-3) as a full-width button: hover:bg-accent/50; rows after the first draw the group's divider.
+component ScopeNoticeRow
+  props
+    item: ScopeNoticeChoice
+    first: bool
+    noticeId: string
+    choose: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  action pick
+    choose(true, item.project, item.member)
+    choose(false, item.machine, "")
+  view
+    button press=pick hover=hover aria-label=(item.secondary != "" ? `${item.label}, ${item.secondary}` : item.label) testId=`${noticeId}-choice-${item.key}` display="flex" flex-direction="row" align-items="center" gap="0.75rem" width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" border-width=0 border-top-width=(first ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" border-radius=0 background-color=(hovered ? "light-dark(#f4f4f580, #ffffff05)" : "#00000000") title=""
+      if item.icon == "environment"
+        CnMachineIcon(kind=item.kind, size=16, color="light-dark(#71717b, #818181)")
+      if item.icon == "project"
+        CoreMark(label=item.mark, ink=item.ink, surface=item.surface)
+      if item.icon == "layers"
+        LucideLayers(size=16, color="light-dark(#71717b, #818181)")
+      column flex=1 min-width=0 align-items="flex-start"
+        text item.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" max-width="100%" line-clamp=1 white-space="nowrap" text-align="left"
+        if item.secondary != ""
+          row max-width="100%" title=item.secondary
+            text item.secondary font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" min-width=0 line-clamp=1 white-space="nowrap" text-align="left" testId=`${noticeId}-secondary-${item.key}`
+      LucideChevronRight(size=16, color="light-dark(#71717b, #818181)")
