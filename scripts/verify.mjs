@@ -432,7 +432,7 @@ const NOTE_ADVICE = '  a saved value must survive a reload; a game or a draft in
  * journal's `t=N` and the host's `app: exact: ` taken off. A refusal the app's own rule makes when a person tries (a
  * dismissal its `closedby` refuses, a Back its control disables) and a connection a `fail fetch` refused are the app's design. */
 export function refusalsOf({ lines = [], host = [] } = {}, expected = []) {
-  const found = [], journal = new Set(), accepted = new Map();
+  const found = [], journal = new Map(), accepted = new Map();
   for (const line of expected) accepted.set(line,(accepted.get(line) ?? 0)+1);
   const normalized = raw => String(raw).replace(/^t=\d+(?:\.\d+)?\s+/, '').replace(/^(?:app|console\.\w+|chrome|warning|error): /, '').replace(/^exact: /, '').trim();
   const collect = line => {
@@ -440,11 +440,14 @@ export function refusalsOf({ lines = [], host = [] } = {}, expected = []) {
   };
   for (const raw of lines) {
     const line=normalized(raw), count=accepted.get(String(raw)) ?? 0;
-    journal.add(line);
+    journal.set(line,(journal.get(line) ?? 0)+1);
     if (count) accepted.set(String(raw),count-1); else collect(line);
   }
   // A native host can also print its journal; that mirror is one event.
-  for (const raw of host) { const line=normalized(raw); if (!journal.has(line)) collect(line); }
+  for (const raw of host) {
+    const line=normalized(raw), mirrors=journal.get(line) ?? 0;
+    if (mirrors) journal.set(line,mirrors-1); else collect(line);
+  }
   return found;
 }
 

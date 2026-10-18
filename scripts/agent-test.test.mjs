@@ -200,7 +200,10 @@ test('expect refusal asserts an observed mutation failure and preserves unrelate
   expect(refusalsOf({lines:[synchronous]},sync.expected)).toEqual([]);
   const repeated=[...lines.slice(0,2),...lines.slice(0,2)];
   expect(refusalsOf({lines:repeated},first.expected)).toEqual(['refused reply saved; wall 3 ms: Not permitted']);
-  expect(refusalsOf({lines:lines.slice(0,2),host:['exact: refused reply saved; wall 3 ms: Not permitted']},first.expected)).toEqual([]);
+  const mirror='exact: refused reply saved; wall 3 ms: Not permitted';
+  expect(refusalsOf({lines:lines.slice(0,2),host:[mirror]},first.expected)).toEqual([]);
+  expect(refusalsOf({lines:lines.slice(0,2),host:[mirror,mirror]},first.expected)).toEqual(['refused reply saved; wall 3 ms: Not permitted']);
+  expect(refusalsOf({lines:repeated,host:[mirror,mirror,mirror]},[...first.expected,...first.expected])).toEqual(['refused reply saved; wall 3 ms: Not permitted']);
 });
 
 
@@ -221,19 +224,26 @@ component App
     send saved = write(false)
   action refuse
     send saved = write(true)
+  action refuseNow
+    send saved = reject()
   view
     column
       button "Accept" press=accept testId="accept"
       button "Refuse" press=refuse testId="refuse"
+      button "Refuse immediately" press=refuseNow testId="refuse-now"
       text stored testId="stored"
       text error testId="error"
 `);
   writeFileSync(join(dir,'app.ts'),`import type {Answer} from './app.contract.d.ts';
 export const appId='test.exact.refusal';
 export const grants='';
-export const answer: Answer=async(_source,args)=>{
-  if(args[0]) throw Object.assign(new Error('Refused on purpose'),{reason:'DENIED'});
-  return {value:'kept'};
+export const answer: Answer=(_source,args)=>{
+  const refused=()=>Object.assign(new Error('Refused on purpose'),{reason:'DENIED'});
+  if(_source==='reject') throw refused();
+  return Promise.resolve().then(()=>{
+    if(args[0]) throw refused();
+    return {value:'kept'};
+  });
 };
 `);
   writeFileSync(file,`test "a refused send keeps the previous reply"
@@ -247,6 +257,15 @@ export const answer: Answer=async(_source,args)=>{
   expect text "stored" == "kept"
   expect text "error" == "DENIED"
   expect state completions == 1
+
+test "an expected refusal before reload does not accept the next journal"
+  tap "refuse-now"
+  clock data
+  expect refusal "saved"
+  reload
+  tap "refuse-now"
+  clock data
+  expect text "error" == "DENIED"
 `);
   const root=new URL('..',import.meta.url).pathname;
   const build=spawnSync(process.execPath,['host/web-js/build.mjs','refusal','--out',dist,'--render','none'],{cwd:root,env:{...process.env,EXACT_APP_DIR:dir},encoding:'utf8'});
@@ -258,14 +277,17 @@ export const answer: Answer=async(_source,args)=>{
     const r=await runTests({host:'web',file,app:'caltrain',url:`http://127.0.0.1:${server.address().port}/`,atEnd:async(s,t)=>{
       const logs=await s.logs();
       observed.push(refusalsOf(logs).length);
-      findings.push(...refusalsOf(logs,t.expectedRefusals));
+      findings.push({expected:t.expectedRefusals,refused:refusalsOf(logs,t.expectedRefusals),lines:logs.lines});
       return {};
     }});
-    expect(r.results.map(t=>t.failures)).toEqual([[]]);
-    expect(r.passed).toBe(1);
-    expect(observed).toHaveLength(1);
-    expect(observed[0]).toBeGreaterThan(0);
-    expect(r.results[0].end?.error).toBeUndefined();
-    expect(findings).toEqual([]);
+    expect(r.results.map(t=>t.failures)).toEqual([[],[]]);
+    expect(r.passed).toBe(2);
+    expect(observed).toHaveLength(2);
+    expect(observed.every(count=>count>0)).toBe(true);
+    expect(r.results.map(t=>t.end?.error)).toEqual([undefined,undefined]);
+    expect(findings[0].refused).toEqual([]);
+    expect(findings[1].expected).toEqual([]);
+    expect(findings[1].refused).toEqual(['send saved failed: Refused on purpose; it ends unsent']);
+    expect(findings[1].lines).toContain('t=0 send saved failed: Refused on purpose; it ends unsent');
   } finally { server.close(); rmSync(dir,{recursive:true,force:true}); }
 },180_000);

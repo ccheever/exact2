@@ -121,3 +121,47 @@ fn migration_preserves_compound_receivers_multiline_arguments_and_utf8_templates
         contract::compile(expected).unwrap().encode()
     );
 }
+
+#[test]
+fn migration_preserves_call_and_type_trivia_and_accepts_trailing_commas() {
+    let before = r#"fn first(xs: list // type-name trivia
+  <list // inner-type-name trivia
+    <string>>): string = (trim // function-name trivia
+      (" é ", // receiver trailing trivia
+      ))
+component App
+  state value = " é "
+  derive size = length(value,)
+  derive nested = (length // outer-name trivia
+    (trim // inner-name trivia
+      (value, // inner trailing trivia
+      ), // outer trailing trivia
+    ))
+  derive piece = slice(value, 0, 1, // argument trailing trivia
+  )
+  view
+    text `${size} ${nested} ${piece}`
+"#;
+    let expected = r#"fn first(xs: string[][]): string = " é ".trim()
+component App
+  state value = " é "
+  derive size = value.length
+  derive nested = value.trim().length
+  derive piece = value.slice(0, 1)
+  view
+    text `${size} ${nested} ${piece}`
+"#;
+    let after = contract_syntax::migrate::migrate(before).unwrap();
+    let comments = |source: &str| {
+        source
+            .lines()
+            .filter_map(|line| line.split_once("//").map(|(_, text)| text.to_owned()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(comments(&after), comments(before));
+    assert_eq!(
+        contract::compile(&after).unwrap().encode(),
+        contract::compile(expected).unwrap().encode()
+    );
+    assert_eq!(contract_syntax::migrate::migrate(&after).unwrap(), after);
+}

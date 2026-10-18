@@ -621,7 +621,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               }
               delivered(await s.type(st.target, text)); input = st.line; break;
             }
-            case 'reload': await reload(); refusalCursors.clear(); await data(); input = null; loaded = true; break;
+            case 'reload': await reload(); refusalCursors.clear(); expectedRefusals.length = 0; await data(); input = null; loaded = true; break;
             case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
             case 'pick': {

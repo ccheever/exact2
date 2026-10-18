@@ -51,14 +51,14 @@ impl Parser {
                 _ => {}
             }
         }
-        let mut edits = vec![Edit::new(
-            self.tokens[start].span,
-            self.tokens[start + 1].span,
-            "(",
-        )];
-        if let Some(comma) = comma {
+        let name_span = self.tokens[start].span;
+        let mut edits = vec![Edit::new(name_span, name_span, "")];
+        if let Some(comma) = comma.filter(|_| count > 1) {
             edits.push(Edit::new(comma, comma, format!(").{name}(")));
         } else {
+            if let Some(comma) = comma {
+                edits.push(Edit::new(comma, comma, ""));
+            }
             edits.push(Edit::new(
                 close,
                 close,

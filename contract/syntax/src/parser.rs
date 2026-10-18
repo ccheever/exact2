@@ -720,7 +720,8 @@ impl Parser {
                 let open = self.next().span;
                 let inner = self.type_expr()?;
                 let close = self.expect_punct(">")?;
-                self.edits.push(crate::migrate::Edit::new(span, open, ""));
+                self.edits.push(crate::migrate::Edit::new(span, span, ""));
+                self.edits.push(crate::migrate::Edit::new(open, open, ""));
                 self.edits
                     .push(crate::migrate::Edit::new(close, close, "[]"));
                 self.retired.push(SyntaxError {
