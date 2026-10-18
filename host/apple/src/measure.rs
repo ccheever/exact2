@@ -267,6 +267,7 @@ pub fn install_fonts(plan: &Plan, runtime: &[String], callback: FontsFn, ctx: *m
 /// A kernel measurer backed by the app's callback.
 pub struct CallbackMeasurer {
     f: MeasureFn,
+    time_format: Option<crate::time::TimeFormatFn>,
     field_chrome: Option<crate::control_text::FieldChromeFn>,
     button_measure: Option<crate::control_text::ButtonMeasureFn>,
     measure_revision: Option<std::rc::Rc<std::cell::Cell<u64>>>,
@@ -289,6 +290,7 @@ impl CallbackMeasurer {
     pub fn new(f: MeasureFn, ctx: *mut c_void, lines: Option<LinesFn>) -> CallbackMeasurer {
         CallbackMeasurer {
             f,
+            time_format: None,
             field_chrome: None,
             button_measure: None,
             measure_revision: None,
@@ -327,6 +329,12 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
 }
 
 impl CallbackMeasurer {
+    /// Install the platform date formatter beside text measurement.
+    pub fn with_time_format(mut self, f: Option<crate::time::TimeFormatFn>) -> Self {
+        self.time_format = f;
+        self
+    }
+
     /// Install the optional UIKit chrome callback with the text engine's context.
     pub fn with_field_chrome(
         mut self,
@@ -465,6 +473,12 @@ fn sanitize(m: CMetrics) -> TextMetrics {
 }
 
 impl TextMeasurer for CallbackMeasurer {
+    fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
+        match self.time_format {
+            Some(f) => crate::time::format(f, self.ctx, r),
+            None => exact_kernel::time::english(r),
+        }
+    }
     fn measure_revision(&self) -> u64 {
         self.measure_revision
             .as_ref()

@@ -573,6 +573,22 @@ impl<D: DataSource> Runner<D> {
             );
             self.log(line);
         }
+        if self.live_times.due().is_some_and(|due| due <= self.now_ms) {
+            match self.tick_live_times() {
+                Ok(None) => {}
+                Ok(Some(receipt)) => receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Err(error) => {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(error),
+                    }
+                }
+            }
+        }
         Advanced {
             receipts,
             now_ms: self.now_ms,

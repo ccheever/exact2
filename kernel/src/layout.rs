@@ -1238,6 +1238,7 @@ impl LayoutTree {
                         metrics
                     };
                     let mut metrics = metrics;
+                    crate::time::reserve(arena, slot, measurer, &mut metrics);
                     if let Some(h) = style.multicol.and_then(|m| m.used_height) {
                         metrics.height = h;
                     }

@@ -41,6 +41,7 @@ struct InlineText {
     }
 
     var text: String { lightRun.text }
+
     /// A run with an `href`: the web's `<a>` in its paragraph.
     var isLink: Bool { !(props["href"] ?? "").isEmpty }
     /// The run in its paragraph owner's traits: `contrast` and `elevated`

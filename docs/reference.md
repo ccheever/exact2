@@ -1820,3 +1820,35 @@ the shared native sampler after resize settlement and presented scrolling.
 Native inline runs, moving presentation geometry, rotated roots and SVG clip references remain unqualified;
 percentage margins follow Chrome (LLP 1001). See LLP 1005's intersection
 visibility deviation; other native hosts remain unqualified.
+
+## Live time and progress
+
+`time` is HTML's instant, in epoch milliseconds. `format` names the platform
+presentation: `relative`, `timer`, `countdown`, `date-short`, `date-medium`
+(the default), `date-long`, `date-full`, or `time-short` and `time-medium` (with seconds). Date and time styles use the viewer's locale and
+time zone. Children are fallback text if the host cannot format the instant.
+
+```contract
+component Clock
+  view
+    column
+      time datetime=1792209600000 format="relative"
+        text "Departure"
+      time datetime=1792209600000 format="countdown"
+      progress start=1792209000000 end=1792209600000 aria-label="Trip"
+```
+
+Relative time changes at minute boundaries, timers and countdowns each second.
+A timer counts elapsed or remaining time on either side of its instant; a
+countdown stops at zero. The runner drives them without an app task, including
+under the agent's `clock +60000`. A standalone live `time` reserves its box
+for the widest presentation at its font, including two units for relative
+time. A live `time` inside a `text` with other runs reflows as on the web;
+make it its own text node when its width must stay fixed. Changing numeric
+text uses tabular digits by default.
+
+`progress start=… end=…` advances from zero to one over the interval and
+clamps outside it. Supply both instants with `end` after `start`, without
+`value` or `max`. The existing forms remain: `progress value=0.4 max=1` is
+a determinate bar, and `progress` is the platform activity indicator. A
+progress control takes no children; `aria-label` names it.

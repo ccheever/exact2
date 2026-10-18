@@ -1612,6 +1612,37 @@
       "name": "fontShorthand",
       "kind": "bool",
       "_comment": "@ref LLP 1115.000 D12.2: the node's text style was named through the `font` shorthand (or a type token), which resets the weight and the leading as CSS's shorthand does, so the style's beat an inherited `font-weight` and `line-height`; a bare `font-size` naming a style fills only what nothing above says. Set by Contract, never written by an author (`contract/lower/src/shorthands.rs`)."
+    },
+    {
+      "id": 271,
+      "name": "datetime",
+      "kind": "float",
+      "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
+    },
+    {
+      "id": 272,
+      "name": "timeFormat",
+      "kind": "str",
+      "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
+    },
+    {
+      "id": 273,
+      "name": "start",
+      "kind": "float",
+      "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
+    },
+    {
+      "id": 274,
+      "name": "end",
+      "kind": "float",
+      "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
+    },
+    {
+      "id": 275,
+      "name": "textReservation",
+      "kind": "str",
+      "measure": true,
+      "_comment": "@ref LLP 1126 D6: an epoch millisecond instant, its presentation, or the host-formatted width candidates for live text."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

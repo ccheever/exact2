@@ -493,6 +493,11 @@ pub struct SymbolRequest<'a> {
 
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
+    /// The platform formats an instant on the runner clock (LLP 1126 D6).
+    fn format_time(&mut self, request: &crate::time::TimeRequest<'_>) -> Option<String> {
+        crate::time::english(request)
+    }
+
     /// Revision of host measuring traits (scale, content size, legibility,
     /// appearance). A change invalidates native button offers even if fonts
     /// and the tree stay the same. Hosts without changing traits return zero.

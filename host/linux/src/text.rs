@@ -1079,6 +1079,18 @@ fn premultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
 pub struct Measurer(pub Shared);
 
 impl TextMeasurer for Measurer {
+    fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
+        #[cfg(target_os = "android")]
+        if let Some(text) = crate::canvas::time::format(r) {
+            return Some(text);
+        }
+        let mut request = *r;
+        if r.format.starts_with("date-") || r.format.starts_with("time-") {
+            request.utc_offset = crate::zone::offset_minutes_at(r.time_zone, r.datetime);
+        }
+        exact_kernel::time::english(&request)
+    }
+
     fn button_measure(
         &mut self,
         request: &exact_kernel::ButtonMeasureRequest,
@@ -1256,3 +1268,7 @@ mod text_box_tests;
 #[cfg(test)]
 #[path = "text/balance_tests.rs"]
 mod balance_tests;
+
+#[cfg(test)]
+#[path = "text/live_time_tests.rs"]
+mod live_time_tests;

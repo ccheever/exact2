@@ -88,6 +88,8 @@ pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
 mod sockets;
 pub use sockets::{SocketReader, SocketState};
+mod apply;
+mod live_time;
 pub mod midi;
 mod split;
 mod surface_record;
@@ -521,6 +523,7 @@ pub struct Runner<D: DataSource> {
     page: crate::page::Page,
     // @ref LLP 1027.000.000 — the date, once the host says it.
     time: crate::time::WallTime,
+    live_times: live_time::LiveTimes,
     place: crate::time::Place,
     surface_records: exact_kernel::SortedMap<String, String>,
     surface_refusals: exact_kernel::SortedMap<String, String>,
@@ -914,6 +917,7 @@ impl<D: DataSource> Runner<D> {
             viewport,
             page: Default::default(),
             time: crate::time::launch_time(),
+            live_times: Default::default(),
             place: launched_place.clone().unwrap_or_default(),
             surface_records: Default::default(),
             surface_refusals: Default::default(),
@@ -1408,64 +1412,6 @@ impl<D: DataSource> Runner<D> {
     /// [`RunnerError::Poisoned`]).
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
-    }
-    fn apply(&mut self, mut ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
-        let _roles = self.bind_roles(); // Its own (LLP 1121 stage 5).
-                                        // The queued patches' colours stay kept until this commit marks them.
-        let (mut prefix, _queued) = self.take_reorder_ops();
-        if !prefix.is_empty() {
-            prefix.append(&mut ops);
-            ops = prefix;
-        }
-        let change = self.router_change()?;
-        self.batch += 1;
-        let (language, direction) = self.document_facts();
-        let shown = std::mem::take(&mut self.shown);
-        let mut receipt =
-            match self
-                .kernel
-                .apply_document(0, self.batch, &ops, Some((&language, direction)))
-            {
-                Ok(receipt) => receipt,
-                Err(e) => {
-                    self.notes.clear();
-                    return Err(e.into());
-                }
-            };
-        let renewed = self.settle_shown(shown, &mut receipt);
-        self.tally(&ops, &receipt.touched);
-        for note in std::mem::take(&mut self.notes) {
-            self.log(note);
-        }
-        let arena = self.kernel.arena();
-        receipt.renewed = renewed
-            .into_iter()
-            .filter_map(|view| arena.key_of(view))
-            .collect();
-        // Forget destroyed views once they outnumber the live ones (a
-        // detached kernel holds none, and its runner asks for none).
-        if !self.kernel.is_detached() && self.ids.remembered() > 2 * self.kernel.live_count() + 256
-        {
-            let kernel = &self.kernel;
-            self.ids.retain(|view| kernel.node(view).is_some());
-        }
-        let cleanup = self.reconcile_reorder()?;
-        if !cleanup.is_empty() {
-            self.batch += 1;
-            let tail = self.kernel.apply(0, self.batch, &cleanup)?;
-            self.tally(&cleanup, &tail.touched);
-            receipt.batch = tail.batch;
-            receipt.epoch = tail.epoch;
-            for key in tail.touched {
-                if !receipt.created.contains(&key) && !receipt.touched.contains(&key) {
-                    receipt.touched.push(key);
-                }
-            }
-            receipt.layout_invalidated |= tail.layout_invalidated;
-        }
-        self.commit_router(change);
-        self.retire_holds();
-        Ok(receipt)
     }
     fn env<'a>(&'a self, params: &'a [Value], frames: &'a [Frame]) -> Env<'a> {
         Env {

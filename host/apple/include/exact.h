@@ -302,6 +302,15 @@ typedef ExactButtonMeasure (*ExactButtonMeasureFn)(void *ctx, const ExactButtonM
 void exact_set_button_measure(ExactRuntime rt, ExactButtonMeasureFn measure);
 uint32_t exact_control_text_changed(ExactRuntime rt);
 
+typedef struct {
+    double datetime, now, utc_offset;
+    const uint8_t *format; size_t format_len;
+    const uint8_t *locale; size_t locale_len;
+    const uint8_t *time_zone; size_t time_zone_len;
+} ExactTimeRequest;
+/* Return the UTF-8 byte count, writing at most cap bytes. Zero: fallback children. */
+typedef size_t (*ExactTimeFormatFn)(void *, const ExactTimeRequest *, uint8_t *, size_t);
+void exact_set_time_format(ExactRuntime rt, ExactTimeFormatFn format);
 void exact_set_measure(ExactRuntime rt, ExactMeasureFn measure, void *ctx);   /* NULL: a monospace reference measurer */
 /* LLP 1056 D8: one Canvas 2D run measured with Core Text where the draw
  * runs, with the context exact_set_measure was given. The strings live for
