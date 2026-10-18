@@ -13,52 +13,31 @@
 import AppKit
 import CExact
 
-/// The containing block a native container gives one subtree, in points.
-struct HostBlock: Equatable {
-    /// One axis: the block is this long, or at most this long and as long
-    /// as its content.
-    enum Axis: Equatable {
-        case size(CGFloat), atMost(CGFloat)
-        fileprivate var wire: (length: CGFloat, most: CGFloat) {
-            switch self {
-            case .size(let length): (length, 0)
-            case .atMost(let length): (length, 1)
-            }
-        }
-    }
-    var width: Axis, height: Axis
-    /// A pane's: the block is its size.
-    static func size(_ size: CGSize) -> HostBlock { HostBlock(width: .size(size.width), height: .size(size.height)) }
-    /// A sheet's: as large as its content, at most this.
-    static func atMost(_ size: CGSize) -> HostBlock { HostBlock(width: .atMost(size.width), height: .atMost(size.height)) }
-}
-
-extension Runtime {
-    /// Subtrees' containing blocks (nil takes one back) under one layout,
-    /// through the door the covers use (`exact_host_covers`, kinds 4 and 5).
-    func blocks(_ blocks: [(UInt32, HostBlock?)]) -> Batch {
-        return on {
-            var bytes = Data(capacity: blocks.count * 24)
-            for (view, block) in blocks {
-                let width = block?.width.wire, height = block?.height.wire
-                let lengths = [width?.length ?? 0, height?.length ?? 0, width?.most ?? 0, height?.most ?? 0].map { Float($0).bitPattern }
-                for word in [view, block == nil ? 5 : 4] + lengths {
-                    withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
-                }
-            }
-            return read(exact_host_covers(rt, write(bytes)))
-        }
-    }
-}
-
 /// The view a native container shows a subtree in: flipped, as node views
 /// are, clipping what overflows the block, and saying when the container
 /// (a divider, a window) gave it another size.
 final class BlockView: NSView {
     var sizeChanged: ((CGSize) -> Void)?
+    /// The moves of a free pointer over a window of the session's own (a
+    /// popover's, a sheet's), as the page's viewport reports its window's
+    /// (PageScrollView.swift): an authored ancestor out in the page hears
+    /// them, though no tracking area of its own is in this window.
+    var pointerTracking: ((NSEvent) -> Void)? { didSet { updateTrackingAreas() } }
+    private var pointerArea: NSTrackingArea?
     override var isFlipped: Bool { true }
     override init(frame: NSRect) { super.init(frame: frame); clipsToBounds = true }
     required init?(coder: NSCoder) { nil }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        guard pointerTracking != nil, pointerArea == nil else { return }
+        // In the active app, not only the key window: a popover need not be
+        // key, and it stands in front of the page that is.
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area); pointerArea = area
+    }
+    override func mouseEntered(with event: NSEvent) { pointerTracking?(event) }
+    override func mouseMoved(with event: NSEvent) { pointerTracking?(event) }
+    override func mouseExited(with event: NSEvent) { pointerTracking?(event) }
     override func setFrameSize(_ newSize: NSSize) {
         let old = frame.size
         super.setFrameSize(newSize)
@@ -121,6 +100,9 @@ final class BlockHost {
     /// hears its used size, now and whenever layout gives it another.
     func show(_ node: NodeView, in container: NSView, block: HostBlock, used: ((CGSize) -> Void)? = nil) {
         guard let presenter, presenter.views[node.id] === node else { return }
+        // Outside the root (a sheet, a popover, a split's pane), still this
+        // presenter's theme (LLP 1121 stage 5).
+        ThemeRoles.adopt(container, from: presenter.root)
         // A node of another runner may have had this id (a restart): its entry is not this node's.
         if entries[node.id]?.node !== node {
             let home = node.superview, siblings = home?.subviews ?? []

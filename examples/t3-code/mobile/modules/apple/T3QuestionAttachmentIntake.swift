@@ -1,6 +1,6 @@
 #if os(iOS)
 // Actual question picker and native conversions; no ordinary editor or JS bridge owns these bytes.
-// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import UIKit
 import PhotosUI
 import UniformTypeIdentifiers

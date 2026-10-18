@@ -1,5 +1,5 @@
 // Pinned365aa87982 NewTaskDraftScreen: route-owned import, retry and cancellation.
-// @ref llp/1109.005-composer-and-transcript.decision.md#incoming-share-inbox
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#incoming-share-inbox
 import type { T3Client } from './shared/client';
 import { bridgeReply, ClientError, type Files, type Native } from './shared/protocol';
 import { mobileIncomingShareImports } from './incoming-share-imports';

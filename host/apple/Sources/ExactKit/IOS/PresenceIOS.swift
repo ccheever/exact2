@@ -16,14 +16,26 @@ struct Leaving {
 extension Presenter {
     func beginExit(_ id: UInt32) {
         guard let view = views[id] else { return }
-        landFlights(inside: view) // a flying view leaves with its subtree (LLP 1013.000)
-        var members: [NodeView] = []
-        var stack: [UIView] = [view]
+        // The routes under it that a native container holds outside its view
+        // leave with it: a tab's, which its tab container holds, and a
+        // presented route and those pushed over it, which their sheet mounts
+        // (LLP 1123 D2), shown or kept by their stack
+        let held = navigation.controllers.values.map(\.node).filter { (node: NodeView) in
+            views[node.id] === node && !node.isDescendant(of: view) && logicallyWithin(node, view)
+        }
+        // A flying view leaves with its subtree (LLP 1013.000): landed, it is
+        // back in its route, where the walk below finds it
+        for leaving in [view] + held { landFlights(inside: leaving) }
+        var members: [NodeView] = [], seen = Set<UInt32>()
+        var stack: [UIView] = [view] + held
         while let next = stack.popLast() {
-            if let node = next as? NodeView, views[node.id] === node { members.append(node) }
+            if let node = next as? NodeView, views[node.id] === node {
+                guard seen.insert(node.id).inserted else { continue }
+                members.append(node)
+            }
             stack.append(contentsOf: next.subviews)
         }
-        _ = view.endEditing(true)
+        for leaving in [view] + held { _ = leaving.endEditing(true) }
         for member in members { release(member.id) { _ in } }
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true

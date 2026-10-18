@@ -9,6 +9,8 @@ build = "build.rs"
 [lib]
 name = "calendar_web"
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
 
 [dependencies]
 exact-data-host = { path = "../../../data/host" }

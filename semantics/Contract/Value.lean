@@ -99,6 +99,22 @@ def strictEq : Value → Value → Bool
   | .bool a, .bool b => a == b
   | _, _ => false
 
+/-- IEEE addition left to right from +0, one recursive step per item.
+A non-number refuses the call, as runner/src/lists.rs does. -/
+def sum (xs : List Value) (total : F64 := 0) : Option F64 :=
+  match xs with
+  | [] => .some total
+  | .num x :: rest => sum rest (total + x)
+  | _ => .none
+
+/-- JavaScript's `Array.prototype.flat()` at depth 1: the lists' items in
+order. An item that is not a list refuses the call, as
+runner/src/lists.rs does. -/
+def flat : List Value → Option (List Value)
+  | [] => .some []
+  | .list ys :: rest => (flat rest).map (ys ++ ·)
+  | _ => .none
+
 end Value
 
 namespace Str

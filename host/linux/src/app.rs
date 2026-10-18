@@ -333,10 +333,10 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         place: Some(place.clone()),
     };
     let dev_url = config.dev_url.clone();
-    let dev_identity = config.dev_identity.clone();
     let hatches = config.hatches;
     let delivered = |mut booted: (Presenter<D>, Option<String>),
-                     updates: Option<Box<dyn Store>>| {
+                     updates: Option<Box<dyn Store>>,
+                     dev_identity: Option<String>| {
         // The accepted runner already has the complete facts. Attaching the
         // adapter must never reintroduce intermediate embedded answers.
         booted.0.set_updates(updates);
@@ -351,10 +351,12 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         }
         // @ref LLP 1069.000 D2, D6 — this host has no share sheet and no
         // document picker; under the agent the drive's substitute answers
-        // both, as on every host.
+        // each, files and pictures in a share too, as on every host.
         if std::env::var("EXACT_AGENT").as_deref() == Ok("1") {
             let page = exact_runner::Page {
                 can_share: true,
+                can_share_files: true,
+                can_share_pictures: true,
                 can_open_files: true,
                 ..Default::default()
             };
@@ -362,9 +364,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
                 eprintln!("exact: {e}");
             }
         }
-        booted
-            .0
-            .set_development(dev_url.clone(), dev_identity.clone());
+        booted.0.set_development(dev_url.clone(), dev_identity);
         booted
     };
     // The selected bytes passed verification. Record the attempt before
@@ -411,7 +411,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     match booted {
         Ok(mut value) => {
             value.0.set_module(module.unwrap_or(None));
-            Ok(delivered(value, updates))
+            Ok(delivered(value, updates, config.dev_identity.clone()))
         }
         Err(fetched_error) => {
             let Some(baked) = config.fallback_plan.as_deref() else {
@@ -446,7 +446,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
                     painter,
                 )
             })
-            .map(|v| delivered(v, updates))
+            .map(|v| delivered(v, updates, None))
             .map_err(|baked_error| {
                 format!("fetched plan refused: {fetched_error}; baked plan refused: {baked_error}")
             })

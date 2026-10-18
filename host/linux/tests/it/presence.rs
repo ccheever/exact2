@@ -3,25 +3,13 @@
 //! the removed node leaves at once and the journal says why.
 use exact_kernel::MonospaceMeasurer;
 use exact_linux::Host;
-use exact_runner::{DataError, DataSource, Event};
+use exact_runner::Event;
 
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
-
-fn boot(source: &str) -> Host<NoData> {
+fn boot(source: &str) -> Host<()> {
     let plan = contract::compile(source).unwrap().encode();
     Host::boot(
         &plan,
-        NoData,
+        (),
         Box::new(MonospaceMeasurer::default()),
         400.,
         600.,
@@ -30,7 +18,7 @@ fn boot(source: &str) -> Host<NoData> {
     .0
 }
 
-fn view(h: &Host<NoData>, name: &str) -> u32 {
+fn view(h: &Host<()>, name: &str) -> u32 {
     let k = h.kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
@@ -45,7 +33,7 @@ fn a_sibling_slides_into_a_removed_nodes_place_which_leaves_at_once() {
     let plan = contract::compile(&src).unwrap().encode();
     let mut h = Host::boot(
         &plan,
-        NoData,
+        (),
         Box::new(MonospaceMeasurer::default()),
         400.,
         600.,
@@ -138,14 +126,14 @@ fn a_growing_box_reveals_its_content_at_its_final_size_and_never_scales_it() {
         let plan = contract::compile(&source).unwrap().encode();
         let (mut p, _) = Presenter::boot_with(
             &plan,
-            NoData,
+            (),
             (400., 600.),
             1.,
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
             PainterChoice::Cpu,
         )
         .unwrap();
-        let id = |p: &Presenter<NoData>, name: &str| {
+        let id = |p: &Presenter<()>, name: &str| {
             let k = p.host().kernel();
             k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
         };

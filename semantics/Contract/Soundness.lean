@@ -12,6 +12,7 @@ theorem, by induction on the interpreter's fuel.
 -/
 import Contract.Types
 import Contract.Big
+import Contract.SortFacts
 
 namespace Contract
 
@@ -158,6 +159,12 @@ theorem stdlib_unsupported {env : Env} {p : Program} {name : String} {vs : List 
     subst h
     rcases hn with rfl | rfl <;> simp only [stdlib] <;> exact formatting_good
   rw [ite_neg hn] at h
+  by_cases hn : name = "formatDay"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h
+    subst h
+    simp only [stdlib]; exact formatting_good
+  rw [ite_neg hn] at h
   by_cases hn : name = "t"
   · subst hn; rw [ite_pos rfl] at h
     split at h <;> simp at h
@@ -167,8 +174,8 @@ theorem stdlib_unsupported {env : Env} {p : Program} {name : String} {vs : List 
   by_cases hn : name = "frame" ∨ name = "measure"
   · rcases hn with rfl | rfl <;> simp [stdlib, GoodR, Legit]
   rw [ite_neg hn] at h
-  by_cases hn : name = "toLowerCase"
-  · subst hn; simp [stdlib, GoodR, Legit]
+  by_cases hn : name = "toLowerCase" ∨ name = "toUpperCase"
+  · rcases hn with rfl | rfl <;> simp [stdlib, GoodR, Legit]
   rw [ite_neg hn] at h
   by_cases hn : name = "elementFromPoint"
   · subst hn; simp [stdlib, GoodR, Legit]
@@ -456,12 +463,32 @@ theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} 
     obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
     obtain ⟨_, rfl⟩ := hw.num_inv; simp [stdlib, GoodR, ValTy]
   rw [ite_neg hn] at h
-  by_cases hn : name = "ceil" ∨ name = "round"
+  by_cases hn : name = "ceil" ∨ name = "round" ∨ name = "sin" ∨ name = "cos"
   · rw [ite_pos hn] at h
     split at h <;> simp at h; subst h
     obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
     obtain ⟨_, rfl⟩ := hw.num_inv
-    rcases hn with rfl | rfl <;> simp [stdlib, GoodR, ValTy]
+    rcases hn with rfl | rfl | rfl | rfl <;> simp [stdlib, GoodR, ValTy]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "sum"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h <;> subst h
+    all_goals
+      obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
+      obtain ⟨xs, rfl, hxs⟩ := hw.list_inv
+      have hx : ValTys p xs .number := ValTys.of_mem fun x hx => (hxs.mem x hx).mono rfl
+      obtain ⟨n, hn⟩ := sum_ok hx 0
+      simp [stdlib, hn, GoodR, ValTy]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "range"
+  · subst hn; rw [ite_pos rfl] at h; split at h <;> simp at h; subst h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]; obtain ⟨n, rfl⟩ := hw.num_inv
+    simp only [stdlib]; split <;> (try split) <;> simp [GoodR, Legit, ValTy, range_vals]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "flat"
+  · subst hn; rw [ite_pos rfl] at h; split at h <;> simp at h <;> subst h
+    all_goals obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]; obtain ⟨xss, rfl, hxss⟩ := hw.list_inv
+    all_goals first | (obtain ⟨ys, hys, hyt⟩ := flat_ok hxss; simp [stdlib, hys, GoodR, ValTy, hyt]) | simp [stdlib, flat_unknown hxss, GoodR, ValTy, ValTys]
   rw [ite_neg hn] at h
   by_cases hn : name = "parseNumber"
   · subst hn; rw [ite_pos rfl] at h
@@ -950,12 +977,26 @@ theorem formatting_notPending (f : String) (args : List Value) : NotPending (for
 theorem text_notPending (tables : Format.Tables) (args : List Value) : NotPending (text tables args) :=
   fun _ h => by rcases text_err h with ⟨w, rfl⟩ | ⟨w, rfl⟩ <;> simp
 
+theorem sortByKeys_notPending (xs ks : List Value) (d : Bool) : NotPending (sortByKeys xs ks d) := by
+  unfold sortByKeys; split <;> (try split) <;> first | exact NotPending.ok _ | exact NotPending.err (by simp)
+
+/-- Keys of a `sortBy` key type, one for each item: the sort answers a
+permutation of the items, so of their type. -/
+theorem sortByKeys_good {p : Program} {E : Err → Prop} {xs ks : List Value} {a k : Ty} {d : Bool}
+    (hl : xs.length = ks.length) (hxs : ValTys p xs a) (hks : ValTys p ks k) (hk : k.sortKey = true) :
+    GoodW E (ValTy p · (.list a)) (sortByKeys xs ks d) := by
+  obtain ⟨ys, hys⟩ := sortByKeys_ok (d := d) hl (oneKind_of_valTys hks hk)
+  rw [hys]
+  simp only [GoodW, ValTy]
+  exact ValTys.of_mem fun y hy => hxs.mem y ((sortByKeys_perm hys).mem_iff.mp hy)
+
 theorem stdlib_notPending (env : Env) (f : String) (args : List Value) : NotPending (stdlib env f args) := by
   unfold stdlib
   split
   all_goals try dsimp only
   all_goals first
     | exact formatting_notPending _ _
+    | exact sortByKeys_notPending _ _ _
     | exact text_notPending _ _
     | exact NotPending.ok _
     | exact NotPending.err (by simp)
@@ -972,7 +1013,7 @@ theorem stdlib_notPending (env : Env) (f : String) (args : List Value) : NotPend
     | (unfold includesOf; split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
     | (unfold sliceOf; split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
     | (unfold indexOfOf; split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
-    | (split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
+    | (split <;> (try split) <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
     | (split
        · exact NotPending.ok _
        · refine NotPending.bind (NotPending.mapM (fun v => ?_) _) fun _ => NotPending.ok _
@@ -1063,6 +1104,19 @@ theorem ty_sound_aux {p : Program} (hfn : ProgOK p) {E : Err → Prop}
         exact GoodW.bind (P := fun ys => ys = xs) rfl fun _ h => by
           subst h
           exact GoodW.bind (ihF hc hbody hb hxs) fun ys hys => by simpa [GoodW, ValTy] using hys
+      | sortBy hfd _ hlist hbody hk hdir =>
+        simp only [eval, hp, hfd]
+        refine GoodW.bind (ihE hc hlist) fun v hv => ?_
+        obtain ⟨xs, rfl, hxs⟩ := hv.list_inv
+        refine GoodW.bind (P := fun ys => ys = xs) rfl fun ys h => ?_
+        rw [h]
+        have hm := ihM (i := 0) hc hbody hxs
+        cases hr : evalMap n env inFn ls _ _ xs 0 with
+        | error e => rw [hr] at hm; exact hm
+        | ok ks =>
+          rw [hr] at hm
+          simp only [bind, Except.bind, hdir]
+          exact sortByKeys_good (evalMap_length hr) hxs hm hk
       | pending hfd _ _ hin' =>
         simp only [eval, hp, hfd]
         split
@@ -1093,6 +1147,7 @@ theorem ty_sound_aux {p : Program} (hfn : ProgOK p) {E : Err → Prop}
       | roster hfd hargs hr =>
         simp only [eval, hp, hfd]
         split
+        · cases hargs with | cons _ h2 => cases h2 with | cons h3 _ => cases h3
         · cases hargs with | cons _ h2 => cases h2 with | cons h3 _ => cases h3
         · cases hargs with | cons _ h2 => cases h2 with | cons h3 _ => cases h3
         · cases hargs with | cons _ h2 => cases h2 with | nil =>

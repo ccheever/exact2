@@ -60,7 +60,7 @@ pub(crate) fn styled(attrs: &[Attr]) -> bool {
 /// The names an expression reads from outside it: not a callback's
 /// parameters, a `match` arm's binding or a `let`'s name in its own scope
 /// (`bound`); a call reads its arguments, not its name.
-fn free_reads(e: &Expr, bound: &mut Vec<String>, out: &mut Vec<String>) {
+pub(crate) fn free_reads(e: &Expr, bound: &mut Vec<String>, out: &mut Vec<String>) {
     fn under(names: &[&str], body: &Expr, bound: &mut Vec<String>, out: &mut Vec<String>) {
         let depth = bound.len();
         bound.extend(names.iter().map(|n| n.to_string()));

@@ -4,7 +4,7 @@ import { mobileExternalContextCapture, mobileExternalContextInsert, mobileExtern
 import { mobileEditorDocumentMembership } from './composer-editor-persistence';
 import { contextLink } from './shared/composer-editor-menu';
 // T3 Code365aa87982 ReviewSheet/useReviewSections/useReviewDiffData.
-// @ref llp/1109.006-review-and-files.decision.md#ownership
+// @ref examples/t3-code/mobile/docs/1130.006-review-and-files.decision.md#ownership
 import { mobileClient, mobileNative } from './client';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';

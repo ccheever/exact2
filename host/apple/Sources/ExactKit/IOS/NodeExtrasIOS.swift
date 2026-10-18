@@ -17,6 +17,14 @@ struct AimedGradient {
     let gradient: Gradient, stops: ([CGFloat], [CGColor])
 }
 
+/// A paragraph's specs, apart from its view: three `Spec`s inline made every
+/// `NodeView` about 1 KB larger, text or not (2112 bytes, a 2.5 KB block).
+final class TextSpecs {
+    var rasterKey: TextRasterKey?
+    var rasterSpec: Spec?
+    var cached: Spec?
+}
+
 final class NodeExtras {
     var pressContact: PressContact?
     var inlinePressed: UInt32?
@@ -66,6 +74,7 @@ final class NodeExtras {
     #endif
     var textArea: UITextView?
     var field: UITextField?
+    var fieldWaits = false
     weak var headerField: UITextField?
     #if os(iOS)
     /// A number input's stepper (`NumberStepperIOS.swift`).
@@ -181,6 +190,10 @@ extension NodeView {
     #endif
     package var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
     package var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
+    /// An `input` whose field waits for its closed box (`makeWaitingField`).
+    var fieldWaits: Bool { get { extras?.fieldWaits ?? false } set { if newValue || extras != nil { more.fieldWaits = newValue } } }
+    /// UIKit's field standing in for this one while it shows: the bar's
+    /// search field (`HeaderSearch`), a prompt's (`PromptField`).
     var headerField: UITextField? { get { extras?.headerField } set { if newValue != nil || extras != nil { more.headerField = newValue } } }
     var selectionField: UITextField? { headerField ?? field }
     /// The editor's text as the app was last told it; nil once the app has set the value since (`FieldComposition.swift`).
@@ -260,12 +273,14 @@ extension NodeView {
 }
 extension UIColor {
     /// LLP 1115 D2: what an unset background is, the platform's —
-    /// `systemBackground` (tvOS has none; white stands in).
-    package static var platformBackground: UIColor {
+    /// `systemBackground` (tvOS has none; white stands in) — or the theme's
+    /// where it replaces the page's ground (LLP 1095 D4).
+    /// `view`'s presenter's theme (LLP 1121 stage 5).
+    package static func platformBackground(in view: UIView?) -> UIColor {
         #if os(tvOS)
-        return .white
+        return ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .white)
         #else
-        return .systemBackground
+        return ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
         #endif
     }
 }

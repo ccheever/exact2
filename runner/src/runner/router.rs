@@ -24,6 +24,8 @@ pub struct RouterChange {
     pub url: String,
     /// Removed ids, in the old value's tab/stack order.
     pub removed: Vec<u64>,
+    /// Every retained visit's canonical location, in tab/stack order.
+    pub visits: Vec<(u64, String)>,
 }
 
 /// The router seam (LLP 1047 D4): what the runner and its VM ask of a plan's
@@ -515,6 +517,12 @@ impl Routing for RouterContext {
             top: top.id,
             url: top.url.clone(),
             removed,
+            visits: r
+                .tabs
+                .iter()
+                .flat_map(|t| &t.stack)
+                .map(|e| (e.id, e.url.clone()))
+                .collect(),
         }))
     }
 

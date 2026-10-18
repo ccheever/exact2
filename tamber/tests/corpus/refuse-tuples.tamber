@@ -1,0 +1,13 @@
+tamber tuples
+
+axes
+  a0 = x | y
+  a1 = x | y
+  a2 = x | y
+  a3 = x | y
+  a4 = x | y
+  a5 = x | y
+  a6 = x | y
+
+theme
+  t = #000

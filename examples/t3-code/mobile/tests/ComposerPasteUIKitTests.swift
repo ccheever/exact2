@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 // Isolated actual UIKit/file owner fixture. Uses production bodies and private fixture roots only.
 import UIKit
 

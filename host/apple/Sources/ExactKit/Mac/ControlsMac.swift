@@ -22,6 +22,12 @@ class AriaButtonCellMac: NSButtonCell {
         if attribute == .enabled, (controlView as? NSControl)?.ariaUnavailableFromNode == true { return false }
         return super.accessibilityAttributeValue(attribute)
     }
+    // An assistive app's press clicks once AppKit's request has returned (`NativeButtonCellMac`).
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        DispatchQueue.main.async { _ = super.accessibilityPerformPress() }
+        return true
+    }
 }
 
 final class CheckboxMac: NSButton {
@@ -35,6 +41,12 @@ final class CheckboxMac: NSButton {
 
 final class SwitchMac: NSSwitch {
     override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
+    // An assistive app's press flips it once AppKit's request has returned (`NativeButtonCellMac`).
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        DispatchQueue.main.async { _ = super.accessibilityPerformPress() }
+        return true
+    }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         if attribute == .enabled, ariaUnavailableFromNode { return false }
         return super.accessibilityAttributeValue(attribute)
@@ -203,8 +215,13 @@ final class ControlHost: NSObject {
 
     @objc private func changed(_ sender: NSControl) {
         let id = UInt32(sender.tag)
-        guard presenter.views[id] != nil else { return }
-        presenter.checked(id, isOn(sender))
+        guard let node = presenter.views[id] else { return }
+        // Read first: the press's batch syncs a bound control back to `checked`.
+        let on = isOn(sender)
+        // A click on a checkbox is heard before its `input` and `change` (HTML
+        // dispatches `click`, then fires those as its activation behaviour).
+        if node.handlers.contains("press") { presenter.press(id) }
+        presenter.checked(id, on)
         // The committed state is authoritative: an action that refused the
         // toggle snaps the control back (D4).
         if let committed = presenter.views[id]?.props["checked"].map({ $0 == "true" }) { setOn(sender, committed) }

@@ -40,9 +40,11 @@ pub const MAX_MODULE: usize = 32 << 20;
 
 trait Executor {
     fn call(&mut self, bytes: &[u8]) -> Result<Vec<u8>, String>;
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        not(any(target_os = "ios", target_os = "tvos"))
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "android"
     ))]
     fn stateless(&self) -> bool {
         false
@@ -69,7 +71,13 @@ pub struct Swappable<D> {
     /// The embedded crate's Canvas 2D roster (LLP 1056 D1), kept across a
     /// replacement: the roster is part of the binary.
     canvas_surfaces: Vec<(String, usize)>,
+    /// The source the binary compiled natively, and how to make that source
+    /// again: a Rust candidate built from the same source runs it instead.
+    native: Option<Native<D>>,
 }
+
+/// The source digest a binary compiled its data crate from, and its constructor.
+type Native<D> = (&'static str, fn() -> D);
 
 impl<D: DataSource> Swappable<D> {
     fn configured(embedded: D, mode: &'static str, loader: Option<Loader>) -> Self {
@@ -85,7 +93,16 @@ impl<D: DataSource> Swappable<D> {
             revision: None,
             plan: None,
             executor: None,
+            native: None,
         }
+    }
+    /// Name the source digest (`scripts/app.mjs` `nativeSource`) the binary
+    /// compiled `make`'s data crate from. A Rust candidate whose receipt names
+    /// the same source is that code already: replacement makes it natively,
+    /// so a module costs interpretation only while it differs from the binary.
+    pub fn with_native(mut self, source: &'static str, make: fn() -> D) -> Self {
+        self.native = Some((source, make));
+        self
     }
     /// Runtime policy selection. Generated entries should prefer concrete constructors.
     pub fn new(embedded: D, policy: &str) -> Self {
@@ -112,7 +129,7 @@ impl<D: DataSource> Swappable<D> {
             Self::browser(embedded)
         }
     }
-    /// Load the native target's data-only shared library (unavailable on iOS).
+    /// Load a data-only shared library on macOS, Linux, Windows or Android.
     pub fn native(embedded: D) -> Self {
         #[cfg(any(
             target_os = "macos",
@@ -394,6 +411,7 @@ impl<D: DataSource> DataSource for Swappable<D> {
                     .map_err(|e| format!("{e:?}"))?;
                 let mut source = Self::configured(embedded, self.mode, self.loader);
                 source.preloader = self.preloader;
+                source.native = self.native;
                 return Ok(source);
             }
             if self.loader.is_none() {
@@ -447,6 +465,14 @@ impl<D: DataSource> DataSource for Swappable<D> {
             if decoded.app_id != self.app_id {
                 return Err("Rust candidate plan names another app".into());
             }
+            if let Some((source, make)) = self.native {
+                if meta["source"].as_str() == Some(source) {
+                    let mut native = Self::configured(make(), self.mode, self.loader);
+                    native.preloader = self.preloader;
+                    native.native = self.native;
+                    return Ok(native);
+                }
+            }
             if self.mode == "wasm" && !module.starts_with(b"\0asm\x01\0\0\0") {
                 return Err("candidate is not a version 1 wasm module".into());
             }
@@ -462,6 +488,7 @@ impl<D: DataSource> DataSource for Swappable<D> {
                 plan: Some(plan.to_vec()),
                 executor: None,
                 canvas_surfaces: self.canvas_surfaces.clone(),
+                native: self.native,
             })
         };
         build().map_err(DataError::Unavailable)

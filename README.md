@@ -717,7 +717,7 @@ also read [`AGENTS.md`](AGENTS.md). In short:
 
   ```sh
   cargo build --all-targets --keep-going
-  cargo test --lib --bins --tests --no-fail-fast
+  cargo test --tests --no-fail-fast
   cargo clippy --all-targets --keep-going -- -D warnings && cargo fmt --all -- --check
   bun scripts/caps.mjs     # budgets: 1,500 lines per source file, document caps
   bun scripts/boot.mjs     # counts the module graph before first pixel
@@ -744,3 +744,7 @@ install page, and the stress harnesses. They're in
 [`issues/`](issues) ([how that works](docs/issues.md)).
 
 The workspace is MIT-licensed (`Cargo.toml`).
+
+Exact’s Snapback4 adapter uses published **0.4.29** with the matching immutable
+Rust source revision `59fb4ead1ba18569369523bba55b56713cc275e9`.
+See [the adapter guide](snapback4/README.md) for wiring and device rebuilds.

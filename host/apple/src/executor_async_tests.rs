@@ -3,6 +3,7 @@
 //! ordered slot at the terminal transition, the later-of release, a parked
 //! upload. The rest of the executor's suite runs on this core too
 //! (`the_suite_passes_on_the_asynchronous_core`).
+use super::tests::one_at_a_time;
 use super::*;
 use ibex2::stdlib::fetch::Headers;
 use ibex2::stdlib::fetch_async::{Exchange, Head, HopMetrics, HopRequest, Sink};
@@ -32,7 +33,7 @@ impl Script {
         let started = self.started.lock().unwrap();
         let (started, _) = self
             .changed
-            .wait_timeout_while(started, Duration::from_secs(5), |s| s.len() < n)
+            .wait_timeout_while(started, HANG, |s| s.len() < n)
             .unwrap();
         started.len()
     }
@@ -157,8 +158,13 @@ fn job(ticket: u64, request: Request) -> RequestOut {
     }
 }
 
+/// How long a wait may take before the test calls it a hang. Every wait
+/// returns once its condition holds; 5 s was outlasted under the blocking
+/// checks' load (`a_panicking_transport_releases_its_physical_hold_and_the_lane_survives`).
+const HANG: Duration = Duration::from_secs(30);
+
 fn collect(core: &Core, woke: &Receiver<()>, count: usize) -> Vec<(u64, Outcome)> {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + HANG;
     let mut outcomes = vec![];
     while outcomes.len() < count {
         core.begin_pump();
@@ -175,11 +181,11 @@ fn bytes(core: &Core) -> [usize; 2] {
     core.shared.state.lock().unwrap().bytes
 }
 
-/// `until` within five seconds.
+/// `until` within the hang bound.
 fn eventually(mut until: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + HANG;
     while !until() {
-        assert!(Instant::now() < deadline, "not within five seconds");
+        assert!(Instant::now() < deadline, "not within the hang bound");
         std::thread::sleep(Duration::from_millis(5));
     }
 }
@@ -403,6 +409,7 @@ fn upload(url: &str, path: &str, ceiling: u32) -> Request {
 /// later, and starts once the bytes it waits for drain.
 #[test]
 fn a_parked_upload_starts_when_its_bytes_drain_and_is_not_crowded_out() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/big.bin"), vec![7u8; 20 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -460,6 +467,7 @@ fn a_parked_upload_starts_when_its_bytes_drain_and_is_not_crowded_out() {
 /// beside it, so it is refused at its park rather than left waiting.
 #[test]
 fn an_upload_that_cannot_fit_beside_the_requests_behind_it_is_refused() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/big.bin"), vec![7u8; 60 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -649,6 +657,7 @@ fn a_refused_scope_never_runs_its_closure() {
 /// times out there returns its file's charge: no buffer was ever lent.
 #[test]
 fn an_upload_that_times_out_before_its_exchange_starts_returns_its_charge() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/small.bin"), vec![7u8; 1 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -706,6 +715,7 @@ fn transport_admission_refusal_releases_the_lane_and_its_accounting() {
 
 #[test]
 fn portable_upload_reserves_the_blocking_workers_additional_copy() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/large.bin"), vec![7u8; 40 << 20]).unwrap();
     let grants = "net.fetch https://*.example.test\nfs.read app:/tmp";
@@ -779,6 +789,7 @@ fn a_panicking_transport_releases_its_physical_hold_and_the_lane_survives() {
 #[test]
 fn reader_spawn_failure_and_panics_settle_and_release_the_lane() {
     use asynch::ReaderPhase;
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/file"), b"upload").unwrap();
     for phase in [ReaderPhase::Spawn, ReaderPhase::Size, ReaderPhase::Read] {
@@ -830,6 +841,7 @@ fn reader_spawn_failure_and_panics_settle_and_release_the_lane() {
 #[test]
 fn retirement_cancels_a_reader_after_its_file_job_was_disposed() {
     use asynch::ReaderPhase;
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/file"), vec![5; 2 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -847,11 +859,7 @@ fn retirement_cancels_a_reader_after_its_file_job_was_disposed() {
         match phase {
             ReaderPhase::Read => {
                 at_read.send(()).unwrap();
-                released
-                    .lock()
-                    .unwrap()
-                    .recv_timeout(Duration::from_secs(5))
-                    .unwrap();
+                released.lock().unwrap().recv_timeout(HANG).unwrap();
             }
             ReaderPhase::Finished(cancelled) => observed.send(cancelled).unwrap(),
             _ => {}
@@ -863,7 +871,7 @@ fn retirement_cancels_a_reader_after_its_file_job_was_disposed() {
         None,
     )
     .unwrap();
-    reading.recv_timeout(Duration::from_secs(5)).unwrap();
+    reading.recv_timeout(HANG).unwrap();
     // Force the bad historical order: cleanup has removed FileJob and its
     // retirement registration before Core fires the shared abort.
     core.shared.state.lock().unwrap().retired = true;
@@ -871,7 +879,7 @@ fn retirement_cancels_a_reader_after_its_file_job_was_disposed() {
     eventually(|| machine.queued_uploads().0 == 0);
     drop(core);
     release.send(()).unwrap();
-    assert!(result.recv_timeout(Duration::from_secs(5)).unwrap());
+    assert!(result.recv_timeout(HANG).unwrap());
     assert!(script.started.lock().unwrap().is_empty());
 }
 
@@ -888,6 +896,7 @@ impl Drop for BlockingDrop {
 
 #[test]
 fn an_unstarted_upload_stays_charged_while_its_disposer_is_blocked() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/file"), vec![5; 1 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -924,7 +933,7 @@ fn an_unstarted_upload_stays_charged_while_its_disposer_is_blocked() {
             failed(FailureKind::Aborted, "unused")
         })));
     core.shared.ready.notify_all();
-    disposing.recv_timeout(Duration::from_secs(5)).unwrap();
+    disposing.recv_timeout(HANG).unwrap();
     let mut request = upload("https://upload.example.test/", "app:/tmp/file", 1024);
     request.timeout_ms = Some(1_000);
     core.run(job(100, request), None).unwrap();
@@ -956,6 +965,7 @@ fn an_unstarted_upload_stays_charged_while_its_disposer_is_blocked() {
 
 #[test]
 fn releasing_an_upload_buffer_does_not_refund_its_sending_hop() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/file"), vec![5; 1 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -1005,6 +1015,7 @@ fn releasing_an_upload_buffer_does_not_refund_its_sending_hop() {
 
 #[test]
 fn a_parked_upload_behind_an_origin_blocked_head_reserves_its_future_bytes() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/big.bin"), vec![7u8; 20 << 20]).unwrap();
     let script = Arc::new(Script::default());

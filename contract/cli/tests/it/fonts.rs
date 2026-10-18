@@ -109,10 +109,7 @@ fn refusal(source: &str, id: &str) {
 
 #[test]
 fn family_identity_and_sources_fail_closed() {
-    refusal(
-        "component App\n  view\n    text \"x\" font-family=\"\"\n",
-        "lower-font-family-list",
-    );
+    // An empty family declares nothing (borders.rs); an empty member is refused.
     refusal(
         "component App\n  view\n    text \"x\" font-family=\"serif,, sans-serif\"\n",
         "lower-font-family-list",
@@ -388,19 +385,17 @@ fn a_data_source_family_is_interned_even_when_its_name_is_absent_from_source() {
 
 #[test]
 fn a_family_choice_validates_its_literal_arms() {
-    for (value, id) in [
-        ("(on ? \"\" : \"serif\")", "lower-font-family-list"),
-        (
-            "(on ? \"serif,, monospace\" : \"serif\")",
-            "lower-font-family-list",
-        ),
+    refusal(
+        "component App\n  state on = false\n  state family = \"serif\"\n  view\n    text \"x\" font-family=(on ? \"serif,, monospace\" : \"serif\")\n",
+        "lower-font-family-list",
+    );
+    // An empty arm declares nothing, as an empty colour does.
+    for value in [
+        "family",
+        "(on ? family : \"serif\")",
+        "`${family}`",
+        "(on ? \"\" : \"serif\")",
     ] {
-        refusal(
-            &format!("component App\n  state on = false\n  state family = \"serif\"\n  view\n    text \"x\" font-family={value}\n"),
-            id,
-        );
-    }
-    for value in ["family", "(on ? family : \"serif\")", "`${family}`"] {
         contract::compile(&format!(
             "component App\n  state on = false\n  state family = \"serif\"\n  view\n    text \"x\" font-family={value}\n"
         ))

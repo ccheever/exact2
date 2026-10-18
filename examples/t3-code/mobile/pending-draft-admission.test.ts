@@ -1,5 +1,5 @@
 import { mobileSend } from './composer-behavior';
-// @ref llp/1109.005-composer-and-transcript.decision.md#pending-task-editor-save-and-restart-recovery
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#pending-task-editor-save-and-restart-recovery
 import { expect, test } from 'bun:test';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { mobileNewTaskDraftCreate, mobileNewTaskDraftBind, mobileNewTaskDraftBoundKey,

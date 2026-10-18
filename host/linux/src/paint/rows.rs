@@ -22,11 +22,14 @@ pub struct Dirty {
     moved: Vec<NodeKey>,
     /// Nodes a commit bound to another item (LLP 1078).
     renewed: Vec<NodeKey>,
+    /// When the latest commit landed, ms (where a numeric roll starts).
+    committed: Option<f64>,
 }
 
 impl Dirty {
-    /// A commit's nodes.
-    pub fn commit(&mut self, r: &exact_kernel::CommitReceipt) {
+    /// A commit's nodes, and when it landed (ms).
+    pub fn commit(&mut self, r: &exact_kernel::CommitReceipt, at: f64) {
+        self.committed = Some(at);
         self.hard.extend(&r.touched);
         self.hard.extend(&r.created);
         self.hard.extend(&r.destroyed);
@@ -161,6 +164,7 @@ fn within(a: Option<Rect4>, outer: Option<Rect4>) -> Option<Rect4> {
 impl Painter {
     /// Before a frame: drop the rows the host's changes reach.
     pub(crate) fn rows_dirty(&mut self, kernel: &Kernel, dirty: Dirty) {
+        self.numerals.committed = dirty.committed;
         if self.rows.kept.is_empty() {
             return;
         }
@@ -402,6 +406,8 @@ impl Painter {
         let Some(img) = walk.scene.images.get(&node.id) else {
             return;
         };
+        // A kept row's slot is painted again outside the node's walk.
+        let _accent = super::accent_scope(node);
         if let Some(dst) = object_fit(img.natural(), node.style.object_fit, content) {
             let shown = (walk.scene.presented)(node.id);
             let tint = image_tint(node, &shown, self.dark);

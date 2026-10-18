@@ -25,6 +25,25 @@ pub(super) fn utf16_len(text: &str) -> u32 {
     text.encode_utf16().count().try_into().unwrap_or(u32::MAX)
 }
 
+/// `text` cut to the room `maxlength` leaves for it in `value` with
+/// `selection` replaced, as a browser cuts an insertion: the limit less the
+/// code units kept outside the selection, so none in a value already over it.
+pub(super) fn fit<'a>(
+    text: &'a str,
+    value: &str,
+    selection: FieldSelection,
+    limit: Option<usize>,
+) -> &'a str {
+    let Some(limit) = limit else { return text };
+    // What `replace` removes: offsets inside a surrogate pair fall back to its start.
+    let removed = utf16_len(&value[byte_at(value, selection.start)..byte_at(value, selection.end)]);
+    let kept = utf16_len(value) - removed;
+    let room = u32::try_from(limit)
+        .unwrap_or(u32::MAX)
+        .saturating_sub(kept);
+    &text[..byte_at(text, room)]
+}
+
 /// The byte index of UTF-16 offset `at` in `text`: clamped to its end, and
 /// inside a surrogate pair the character's start.
 pub(super) fn byte_at(text: &str, at: u32) -> usize {
@@ -149,10 +168,57 @@ impl<D: DataSource> Presenter<D> {
         self.field_text(id)
     }
 
-    /// A text field's selection: the one kept for the text it shows, else a
-    /// caret at its end (where a field the person has not moved in types).
-    /// A value rewritten since (an action that writes another) puts the
-    /// caret at the new text's end, as HTML's `value` setter does.
+    /// Compare runtime writes against the selection before the commit. Only
+    /// plain fields start at 0-0: Markdown owns its selection on the web.
+    pub(super) fn sync_field_values(&mut self) {
+        let changed = self.host.values.take_fields();
+        let kernel = self.host.kernel();
+        self.fields.retain(|id, _| kernel.node(*id).is_some());
+        for key in changed {
+            let Some(node) = self.host.kernel().node_by_key(key) else {
+                continue;
+            };
+            let id = node.id;
+            let markdown = node.props.str(PropId::Markup) == Some("markdown");
+            let value = self.field_value(id);
+            let after = FieldSelection::at_end(&value);
+            let before = match self.fields.get(&id) {
+                Some(mark) if mark.value == value => continue,
+                Some(mark) => mark.selection,
+                None if value.is_empty() => continue,
+                None if markdown => after,
+                None => FieldSelection::caret(0),
+            };
+            self.mark_field_from(id, &value, before, after, false);
+        }
+    }
+
+    fn has_selection_api(&self, id: ViewId) -> bool {
+        self.host.kernel().node(id).is_some_and(|node| {
+            node.props.str(PropId::SemanticTag) == Some("textarea")
+                || matches!(
+                    node.props.str(PropId::Type).unwrap_or("text"),
+                    "text" | "search" | "url" | "tel" | "password"
+                )
+        })
+    }
+
+    pub(super) fn reported_selection(
+        &self,
+        id: ViewId,
+        value: &str,
+        selection: FieldSelection,
+    ) -> FieldSelection {
+        if self.has_selection_api(id) {
+            selection
+        } else {
+            // navigation.js uses the value's end when the DOM reports null.
+            FieldSelection::at_end(value)
+        }
+    }
+
+    /// The caret used to edit also exists in email and number inputs,
+    /// whose DOM selection API cannot read or write it.
     pub(crate) fn field_selection(&self, id: ViewId) -> FieldSelection {
         let value = self.field_value(id);
         match self.fields.get(&id) {
@@ -161,8 +227,8 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// Keep `selection` for `id` while its value is `value`; marks of nodes
-    /// gone are dropped.
+    /// Keep a selection against the value it indexes. Call before replacing
+    /// the displayed value so the comparison sees the previous selection.
     pub(crate) fn mark_field(
         &mut self,
         id: ViewId,
@@ -170,11 +236,21 @@ impl<D: DataSource> Presenter<D> {
         selection: FieldSelection,
         by_command: bool,
     ) {
-        if self.field_selection(id) != selection {
+        let before = self.field_selection(id);
+        self.mark_field_from(id, value, before, selection, by_command);
+    }
+
+    fn mark_field_from(
+        &mut self,
+        id: ViewId,
+        value: &str,
+        before: FieldSelection,
+        selection: FieldSelection,
+        by_command: bool,
+    ) {
+        if before != selection {
             self.field_change_tasks.insert(id);
         }
-        let kernel = self.host.kernel();
-        self.fields.retain(|id, _| kernel.node(*id).is_some());
         self.fields.insert(
             id,
             FieldMark {
@@ -213,7 +289,6 @@ impl<D: DataSource> Presenter<D> {
         {
             let value = self.field_value(id);
             self.mark_field(id, &value, FieldSelection::at_end(&value), false);
-            self.drain_field_select_tasks();
         }
     }
 
@@ -233,7 +308,10 @@ impl<D: DataSource> Presenter<D> {
         {
             return;
         }
-        let event = Event::FieldSelect(value.to_owned(), selection);
+        let event = Event::FieldSelect(
+            value.to_owned(),
+            self.reported_selection(id, value, selection),
+        );
         if let Some(e) = self.host.dispatch_at(id, event, now_ms) {
             eprintln!("exact: {e}");
         }
@@ -295,6 +373,12 @@ impl<D: DataSource> Presenter<D> {
                 return;
             }
         };
+        if !self.has_selection_api(id) {
+            self.host.log(format!(
+                "setSelectionRange \"{name}\" refused: input has no text selection"
+            ));
+            return;
+        }
         let at = |i: usize| {
             args.get(i)
                 .and_then(exact_plan::Value::as_number)
@@ -409,9 +493,9 @@ impl<D: DataSource> Presenter<D> {
             }
         };
         let bound = self.bound_text(id);
+        self.mark_field(id, &next, selection, true);
         self.host.values.watch(id, Some(bound.clone()));
         self.chosen.insert(id, (next.clone(), bound.clone()));
-        self.mark_field(id, &next, selection, true);
         if self
             .host
             .runner()
@@ -451,8 +535,9 @@ impl<D: DataSource> Presenter<D> {
                 .handlers_of(id)
                 .contains(&EventKind::Selectionchange)
             {
-                let event =
-                    Event::FieldSelectionChange(self.field_value(id), self.field_selection(id));
+                let value = self.field_value(id);
+                let selection = self.reported_selection(id, &value, self.field_selection(id));
+                let event = Event::FieldSelectionChange(value, selection);
                 if let Some(e) = self
                     .host
                     .dispatch_at(id, event, self.host.now())
@@ -511,49 +596,67 @@ impl<D: DataSource> Presenter<D> {
         bound: String,
         now_ms: f64,
     ) {
-        self.apply_field_edit(id, next, after, bound, now_ms, InputDetails::default());
+        if let Some(e) =
+            self.apply_field_edit(id, next, after, bound, now_ms, InputDetails::default())
+        {
+            eprintln!("exact: {e}");
+        }
     }
 
-    fn edit_field(
+    pub(super) fn edit_field(
         &mut self,
         id: ViewId,
         next: String,
         after: FieldSelection,
         now: f64,
         mut edit: InputDetails,
-    ) {
-        let value = self.field_text(id);
+    ) -> Option<String> {
         let bound = self.bound_text(id);
-        if self
+        match self.before_input(id, &edit, now) {
+            Err(e) => Some(e),
+            Ok(false) => None,
+            Ok(true) => {
+                edit.cancelable = false;
+                self.apply_field_edit(id, next, after, bound, now, edit)
+            }
+        }
+    }
+
+    /// The field's `beforeinput` for `edit`: whether the edit goes ahead
+    /// (not prevented, and the field still there with the value it had).
+    pub(super) fn before_input(
+        &mut self,
+        id: ViewId,
+        edit: &InputDetails,
+        now: f64,
+    ) -> Result<bool, String> {
+        if !self
             .host
             .runner()
             .handlers_of(id)
             .contains(&EventKind::Beforeinput)
         {
-            let event = Event::BeforeInput(value.clone(), self.field_selection(id), edit.clone());
-            if let Some(e) = self
-                .host
-                .dispatch_at(id, event, now)
-                .or(self.after_commit())
-            {
-                eprintln!("exact: {e}");
-                return;
-            }
-            let queued = self.commands.len();
-            self.commands.retain(|c| c.name != "preventDefault");
-            if (edit.cancelable && queued != self.commands.len())
-                || self.host.kernel().node(id).is_none()
-                || self.field_text(id) != value
-            {
-                return;
-            }
+            return Ok(true);
         }
-        edit.cancelable = false;
-        self.apply_field_edit(id, next, after, bound, now, edit);
+        let value = self.field_text(id);
+        let selection = self.reported_selection(id, &value, self.field_selection(id));
+        let event = Event::BeforeInput(value.clone(), selection, edit.clone());
+        if let Some(e) = self
+            .host
+            .dispatch_at(id, event, now)
+            .or(self.after_commit())
+        {
+            return Err(e);
+        }
+        let queued = self.commands.len();
+        self.commands.retain(|c| c.name != "preventDefault");
+        Ok(!((edit.cancelable && queued != self.commands.len())
+            || self.host.kernel().node(id).is_none()
+            || self.field_text(id) != value))
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn apply_field_edit(
+    pub(super) fn apply_field_edit(
         &mut self,
         id: ViewId,
         next: String,
@@ -561,26 +664,28 @@ impl<D: DataSource> Presenter<D> {
         bound: String,
         now_ms: f64,
         edit: InputDetails,
-    ) {
+    ) -> Option<String> {
         self.edited = Some(id);
         self.mark_field(id, &next, after, false);
         self.host.values.watch(id, Some(bound.clone()));
-        if self
+        // The input handler sees the edited field. An unchanged binding
+        // must not reset its selection while that handler commits.
+        self.chosen.insert(id, (next.clone(), bound.clone()));
+        let error = if self
             .host
             .runner()
             .handlers_of(id)
             .contains(&EventKind::Input)
         {
-            let event = Event::Input(ControlValue::Edit(next.clone(), after, edit));
-            if let Some(e) = self.host.dispatch_at(id, event, now_ms) {
-                eprintln!("exact: {e}");
-            }
-            if let Some(e) = self.after_commit() {
-                eprintln!("exact: {e}");
-            }
-        }
+            let reported = self.reported_selection(id, &next, after);
+            let event = Event::Input(ControlValue::Edit(next.clone(), reported, edit));
+            self.host.dispatch_at(id, event, now_ms)
+        } else {
+            None
+        };
+        let error = error.or(self.after_commit());
         self.keep_typed(id, next, bound);
-        self.drain_field_select_tasks();
+        error
     }
 
     /// A key's default action in the focused text field: Enter submits an
@@ -628,7 +733,6 @@ impl<D: DataSource> Presenter<D> {
                 if extend && to.start != to.end && to != selection {
                     self.field_select(id, &value, to, now_ms);
                 }
-                self.drain_field_select_tasks();
                 return;
             }
             "Enter" => replace(&value, selection, "\n"),
@@ -652,7 +756,7 @@ impl<D: DataSource> Presenter<D> {
             "Enter" => ("insertLineBreak", None),
             _ => ("insertText", Some(name.to_owned())),
         };
-        self.edit_field(
+        if let Some(e) = self.edit_field(
             id,
             next,
             after,
@@ -663,7 +767,9 @@ impl<D: DataSource> Presenter<D> {
                 cancelable: true,
                 is_composing: false,
             },
-        );
+        ) {
+            eprintln!("exact: {e}");
+        }
     }
 
     /// A paste's default action at an editable text field: the text in at
@@ -685,14 +791,9 @@ impl<D: DataSource> Presenter<D> {
         self.forget_replaced_choices();
         let value = self.field_text(id);
         let selection = self.field_selection(id);
-        let mut text = text.to_owned();
-        if let Some(limit) = limit {
-            let room = (limit as u32)
-                .saturating_sub(utf16_len(&value) - (selection.end - selection.start));
-            text.truncate(byte_at(&text, room));
-        }
+        let text = fit(text, &value, selection, limit).to_owned();
         let (next, after) = replace(&value, selection, &text);
-        self.edit_field(
+        if let Some(e) = self.edit_field(
             id,
             next,
             after,
@@ -703,6 +804,8 @@ impl<D: DataSource> Presenter<D> {
                 cancelable: true,
                 is_composing: false,
             },
-        );
+        ) {
+            eprintln!("exact: {e}");
+        }
     }
 }

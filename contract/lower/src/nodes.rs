@@ -11,7 +11,12 @@ pub(super) struct ElementStep<'n> {
     pub(super) button_context: Option<&'static str>,
     pub(super) popover_child: bool,
     pub(super) bounded: bool,
+    pub(super) horizontal_flex: Option<bool>,
     pub(super) nav_place: routes::NavPlace,
+    /// How many element levels below this one a list's rows are (LLP 1121
+    /// D8's `lower-state-target`): 1 a cell list's, 3 a grouped list's
+    /// (its sections' group's); 0 none.
+    pub(super) rows: u8,
 }
 
 impl Lowerer<'_> {
@@ -50,6 +55,9 @@ impl Lowerer<'_> {
         let button_context = grouped::button_context(attrs);
         let (mut sheet, unmarked) = grouped::split(attrs);
         let attrs = unmarked.as_ref().unwrap_or(attrs);
+        // A `delete=` no list row expanded does nothing (`lower-delete-row`).
+        let kept = swipe_rows::stray(attrs);
+        let attrs = kept.as_ref().unwrap_or(attrs);
         let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
         let button = self.button_appearance(
             tag,
@@ -75,9 +83,24 @@ impl Lowerer<'_> {
             }
             None => attrs.as_slice(),
         };
+        let inked = tags::symbol_ink(tag, positional, &expanded[sheet.len()..]);
+        let expanded = match inked {
+            Some(row) => {
+                let mut rows = expanded.to_vec();
+                rows.push(row);
+                std::borrow::Cow::Owned(rows)
+            }
+            None => std::borrow::Cow::Borrowed(expanded),
+        };
+        let expanded = &*expanded;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
+        // @ref LLP 1121 D3 — a motion token an expansion carried in (a
+        // component's prop, a sheet) is written in before the longhands
+        // compose with their shorthand.
+        let timed = crate::motion::attrs(expanded, &crate::theme::motion_tokens());
+        let expanded = timed.as_deref().unwrap_or(expanded);
         let composed = self.compose_animation(expanded)?;
         let expanded = composed.as_deref().unwrap_or(expanded);
         let lengths =
@@ -87,7 +110,7 @@ impl Lowerer<'_> {
         shorthands::check_text_box(tag, parent_tag, expanded)?;
         // @ref LLP 1034 §8 — an inline run paints in its paragraph's
         // scheme: no host gives a run an appearance of its own.
-        if tag == "text" && parent_tag == Some("text") {
+        if matches!(tag.as_str(), "text" | "time") && matches!(parent_tag, Some("text" | "time")) {
             if let Some(a) = expanded.iter().find(|a| a.name == "color-scheme") {
                 return Err(LowerError {
                             id: "lower-attr-tag",
@@ -123,6 +146,7 @@ impl Lowerer<'_> {
         let children: &[Node] = face.as_deref().unwrap_or(authored_children.as_slice());
         controls::check_nesting(tag, parent_tag, *span)?;
         controls::check_progress(tag, expanded, children)?;
+        crate::live_time::check(tag, expanded, *span)?;
         let alert = self.check_menu_shapes(tag, expanded, children, *span)?;
         let closedby = menus::implied_closedby(tag, expanded, *span, alert);
         let expanded = closedby.as_deref().unwrap_or(expanded);
@@ -148,6 +172,10 @@ impl Lowerer<'_> {
         self.check_collection(tag, expanded, children, *span, scope)?;
         // @ref LLP 1115.000 D16 — whether this list's rows are cells.
         let cells = cells::rows(tag, expanded, children, grouped.is_some());
+        let grouped_list = grouped.is_some();
+        // A cell's row is no state part's target (LLP 1121 D8).
+        // @ref LLP 1116.020 D1 — a cell's `delete=`, its swipe.
+        let swiped = cells.then(|| swipe_rows::cells(children)).flatten();
         // A row list is a flex item of its column like any carousel;
         // CSS's own fix keeps its spacers' extent from widening that
         // column: `min-width: 0`, unless the author set one (LLP 1070
@@ -187,8 +215,6 @@ impl Lowerer<'_> {
         let first = parent_tag.is_none() && arm.is_none() && order == 0;
         let back = self.nav_place.unnamed(first, expanded, *span);
         let expanded = back.as_deref().unwrap_or(expanded);
-        let unsplit = self.unsplit(expanded, children, *span);
-        let expanded = unsplit.as_deref().unwrap_or(expanded);
         values::check_glass_group(&t, expanded)?;
         let has = |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
         let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
@@ -233,6 +259,66 @@ impl Lowerer<'_> {
                 *span,
             );
         }
+        // @ref LLP 1121 D8 — the state parts, folded or recorded.
+        let target = if control.is_some() || t.node_type == NodeType::Control {
+            Some("a native control")
+        } else if self.row_depth == 1 {
+            Some("a list's row, whose press is the cell's highlight")
+        } else {
+            None
+        };
+        // What the node takes unwritten, a state's base where its author
+        // writes none: its tag's fixed rows (an `hr`'s separator colour),
+        // then a link's colour, which is pushed after them.
+        let mut implied: Vec<(&str, Expr)> = t
+            .fixed_styles
+            .iter()
+            .filter_map(|(id, v)| {
+                Some((
+                    crate::states::row_name(*id)?,
+                    Expr::Str(v.to_string(), *span),
+                ))
+            })
+            .collect();
+        implied.extend(
+            self.link_colour(tag, parent_tag, expanded, children)
+                .map(|e| ("color", e)),
+        );
+        // A run inside a paragraph has no box of its own on every host: its
+        // hover, focus and press are its paragraph's (theme2's 08:13 ruling;
+        // D7's press rows paint no run on Apple or Linux either).
+        // (A run is a text node under a text node, as the kernel has it: under
+        // `text`, `time` or `option` alike.)
+        if parent_tag
+            .and_then(tags::tag)
+            .is_some_and(|p| p.node_type == NodeType::Text)
+            && t.node_type == NodeType::Text
+        {
+            let host = |a: &&Attr| {
+                contract_syntax::state::state_of(&a.name)
+                    .is_some_and(|(s, _)| matches!(s, "active" | "hover" | "focus-visible"))
+            };
+            if let Some(a) = expanded.iter().find(host) {
+                return err(
+                    "lower-state-target",
+                    "a state part on a run inside a paragraph: a run's press, hover and focus are its paragraph's; put the part on the paragraph or make the run a box (LLP 1121 D8)",
+                    a.span,
+                );
+            }
+        }
+        // The press's absolute opacity is lowering's, from `:active`.
+        if let Some(a) = expanded
+            .iter()
+            .find(|a| a.name == crate::states::PRESS_OPACITY_TO)
+        {
+            return err(
+                "lower-unknown-attr",
+                format!("unknown attribute `{}`: the press's opacity is `opacity` in an `:active` part (LLP 1121 D8), or `-exact-press-opacity`, a share of the node's own (LLP 1061 D7)", a.name),
+                a.span,
+            );
+        }
+        let states = self.fold_states(expanded, target, &implied, class_len, scope, locals)?;
+        let expanded = states.as_ref().map_or(expanded, |s| s.attrs.as_slice());
         let mut bindings: Vec<BindingsRow> = Vec::new();
         let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
         let mut surface: Option<exact_plan::SurfacesId> = None;
@@ -247,7 +333,10 @@ impl Lowerer<'_> {
             bindings.push(prop_row(exact_kernel::PropId::ListRows, rows, IMPLIED));
         }
         // @ref LLP 1115.000 D6 — the author's own disabled look: no default dim.
-        if disabled_look::styled(expanded) {
+        let styled = states
+            .as_ref()
+            .map_or_else(|| disabled_look::styled(expanded), |s| s.disabled_look);
+        if styled {
             let styled = self.b.constant(&Value::Bool(true));
             bindings.push(prop_row(
                 exact_kernel::PropId::DisabledStyled,
@@ -265,13 +354,20 @@ impl Lowerer<'_> {
             &mut bindings,
         );
         self.heading_style(tag, expanded, scope, locals, &mut bindings)?;
+        if tag == "time" && expanded.iter().any(|a| a.name == "format" && matches!(&a.value, Expr::Str(v, _) if matches!(v.as_str(), "relative" | "timer" | "countdown"))) {
+            bindings.push(style_row(exact_kernel::StyleId::FontVariantNumeric, self.fixed(true, "tabular-nums"), IMPLIED));
+        }
+
         // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
         // `progress` (no `value`, LLP 1116 D8) is busy, as ARIA's
         // `aria-busy`: a bool, which a fixed prop (text) cannot be.
         // @ref LLP 1115.000 D10.2 — a determinate one is full width, as a
         // range is; the indicator keeps its 20 by 20.
         if tag == "progress" {
-            if expanded.iter().any(|a| a.name == "value") {
+            if expanded
+                .iter()
+                .any(|a| matches!(a.name.as_str(), "value" | "start"))
+            {
                 for (style, value) in controls::FULL_WIDTH {
                     bindings.push(style_row(*style, self.fixed(true, value), IMPLIED));
                 }
@@ -356,6 +452,7 @@ impl Lowerer<'_> {
             self.errors.extend(native::refused(tag, a));
         }
         let flex = tags::flex_container(tag, expanded);
+        self.element_children = !children.is_empty();
         for (index, a) in expanded.iter().enumerate() {
             if let Some(e) = flex.and_then(|f| tags::multicol_on_flex(f, a).err()) {
                 self.errors.push(e);
@@ -378,15 +475,38 @@ impl Lowerer<'_> {
                 &mut surface,
                 &font,
             ) {
-                self.errors.push(e);
+                self.errors.push(native::name_the_fix(n, e));
             }
             if let Some(origins) = &mut origins {
-                let origin = if index < sheet.len() {
-                    Origin::Tag
-                } else if index < class_len {
+                // A folded state part's (LLP 1121 D8): its class's where
+                // the class wrote every state row in it.
+                let (class_len, folded) = match &states {
+                    Some(s) => (
+                        s.class_len,
+                        (index >= s.base_len).then(|| s.by_class[index - s.base_len]),
+                    ),
+                    None => (class_len, None),
+                };
+                let class = class_label.is_some();
+                let pressed = states.as_ref().is_some_and(|s| index >= s.pressed);
+                let origin = if class
+                    && (folded == Some(true)
+                        || folded.is_none() && index >= sheet.len() && index < class_len)
+                {
                     Origin::Class(class_label.clone().expect("class attribute"))
+                } else if folded.is_none() && index < sheet.len() {
+                    Origin::Tag
                 } else {
                     Origin::Own
+                };
+                // `:active`'s, lowered to the press paint: where it is written.
+                let origin = match pressed {
+                    true => Origin::State {
+                        of: Box::new(origin),
+                        state: "active",
+                        span: a.span,
+                    },
+                    false => origin,
                 };
                 origins.resize(bindings.len(), origin);
             }
@@ -410,8 +530,9 @@ impl Lowerer<'_> {
                 origins.resize(bindings.len(), Origin::Tag);
             }
         }
+        let mut native_font = button.as_ref().map(|b| b.native);
         if t.node_type == NodeType::TextInput {
-            self.field_appearance(tag, expanded, *span, &mut bindings)?;
+            native_font = Some(self.field_appearance(tag, expanded, *span, &mut bindings)?);
             if let Some(origins) = &mut origins {
                 origins.resize(bindings.len(), Origin::Tag);
             }
@@ -513,7 +634,7 @@ impl Lowerer<'_> {
             // paragraph's each/when still produces only text runs.
             fn run(c: &Node) -> bool {
                 match c {
-                    Node::Element { tag, .. } => tag == "text",
+                    Node::Element { tag, .. } => matches!(tag.as_str(), "text" | "time"),
                     Node::Each { body, .. } => body.iter().all(run),
                     Node::When {
                         then, otherwise, ..
@@ -524,10 +645,81 @@ impl Lowerer<'_> {
             if let Some(bad) = children.iter().find(|c| !run(c)) {
                 return err(
                     "lower-leaf-children",
-                    "`text` may hold only `text` runs",
+                    "a text paragraph holds `text` or `time` runs",
                     bad.span(),
                 );
             }
+        }
+        if let Some(styles) = &mut self.text_styles {
+            let mut style = warnings::TextStyle {
+                native: native_font,
+                parent_horizontal_flex: self.parent_horizontal_flex,
+                font: expanded
+                    .iter()
+                    .rev()
+                    .find(|a| matches!(a.name.as_str(), "font" | "font-size"))
+                    .cloned(),
+                layout: expanded
+                    .iter()
+                    .filter(|a| {
+                        matches!(
+                            a.name.as_str(),
+                            "width"
+                                | "min-width"
+                                | "max-width"
+                                | "display"
+                                | "position"
+                                | "flex"
+                                | "flex-direction"
+                                | "flex-basis"
+                                | "flex-grow"
+                                | "popover"
+                        )
+                    })
+                    .cloned()
+                    .collect(),
+            };
+            styles
+                .entry((*span, *instance, tag.clone()))
+                .and_modify(|known| {
+                    // A shared slot can have different parents but the same own style.
+                    if let Some(previous) = known.as_mut() {
+                        if previous.parent_horizontal_flex != style.parent_horizontal_flex {
+                            previous.parent_horizontal_flex = None;
+                            style.parent_horizontal_flex = None;
+                        }
+                    }
+                    if known.as_ref() != Some(&style) {
+                        *known = None;
+                    }
+                })
+                .or_insert(Some(style));
+        }
+        // @ref LLP 1121 D8 — its host-known states' looks, each row lowered
+        // as the node's own literal rows are (before the node is made: a
+        // refusal leaves no node behind).
+        let mut look_rows = Vec::new();
+        for (state, attrs) in states.as_ref().map_or(&[][..], |s| s.looks.as_slice()) {
+            let mut bindings = Vec::new();
+            for a in attrs {
+                let (mut handlers, mut surface) = (Vec::new(), None);
+                self.attr(
+                    tag,
+                    None,
+                    a,
+                    scope,
+                    locals,
+                    &mut bindings,
+                    &mut handlers,
+                    &mut surface,
+                    &font,
+                )?;
+            }
+            let state = match state.as_str() {
+                "hover" => 1,
+                _ => 2,
+            };
+            look_rows.push((state, bindings));
         }
         let id = self.b.node(
             t.node_type as u8,
@@ -538,6 +730,9 @@ impl Lowerer<'_> {
             &handler_refs,
             surface,
         );
+        if !look_rows.is_empty() {
+            self.b.set_looks(id, &look_rows);
+        }
         if let Some(sites) = &mut self.sites {
             debug_assert_eq!(sites.nodes.len(), id.0 as usize);
             sites.nodes.push(sites::node_site(
@@ -550,6 +745,8 @@ impl Lowerer<'_> {
         }
         let children = if let Some(sections) = sections {
             std::borrow::Cow::Owned(sections)
+        } else if let Some(rows) = swiped {
+            std::borrow::Cow::Owned(rows)
         } else if let Some(face) = face {
             std::borrow::Cow::Owned(face)
         } else {
@@ -572,7 +769,26 @@ impl Lowerer<'_> {
             button_context: controls::button_context(tag, control, self.popover_child),
             popover_child: expanded.iter().any(|a| a.name == "popover"),
             bounded: values::bounded_column(tag, expanded, self.parent_bounded_column),
+            horizontal_flex: if attrs
+                .iter()
+                .any(|a| a.name == "class" && !matches!(a.value, Expr::Ident(..)))
+            {
+                None
+            } else {
+                warnings::horizontal_flex(t.fixed_styles, expanded)
+            },
             nav_place,
+            // A row that says `delete=` is its swipe's `scroll` (swipe_rows.rs):
+            // the author's row is the scroll's content, a row still.
+            rows: if grouped_list {
+                3
+            } else if cells
+                || self.row_depth == 1 && expanded.iter().any(|a| a.name == "swipeTrailing")
+            {
+                1
+            } else {
+                0
+            },
         })
     }
 }

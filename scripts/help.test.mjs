@@ -11,7 +11,7 @@ import { createApp } from '../game/new.mjs';
 import { HELP, helpText, indexText, knownFlags } from './help.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'hatch', 'pattern', 'feedback'];
+const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'feedback'];
 const timed = (args, options) => {
   const t = performance.now(), r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, ...options });
   return { ...r, ms: performance.now() - t };
@@ -26,7 +26,7 @@ test('each verb of a new app\'s exact.mjs, and no verb, answers help from exact2
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { seed: ['bun', 'seed.mjs'] } }, null, 2));
     // A fake exact2 whose every script, run, leaves a mark: a help that built or served anything would.
     mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
-    for (const file of ['scripts/help.mjs', 'scripts/app-cli.mjs']) copyFileSync(resolve(ROOT, file), resolve(sdk, file));
+    for (const file of ['scripts/help.mjs', 'scripts/app-cli.mjs', 'scripts/bun.mjs']) copyFileSync(resolve(ROOT, file), resolve(sdk, file));
     for (const file of ['host/web/dev.mjs', 'host/web/build.mjs', 'host/apple/build.mjs', 'scripts/agent.mjs', 'scripts/verify.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/exact.mjs', 'scripts/feedback.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), `require('node:fs').appendFileSync(${JSON.stringify(started)}, ${JSON.stringify(file)} + '\\n');`);
@@ -117,7 +117,7 @@ test('each verb\'s help names exactly the flags its script parses, in a short te
     ['linux', parsed(read('scripts/build-linux.mjs'))], ['android', parsed(read('scripts/agent-android.mjs'))],
     ['feedback', parsed(read('scripts/feedback.mjs'))],
     ['hatch', parsed(between('export function hatch(', '\nexport function pattern('))],
-    ['pattern', parsed(between('export function pattern(', '\nfunction main('))],
+    ['pattern', parsed(between('export function pattern(', '\nasync function main('))],
     ['new', parsed(between("if (verb === 'new')", '\n  }'))],
   ]) assert.deepEqual([...knownFlags(verb).keys()].sort(), flags, `${verb}: the help's flags (documented and internal) against its script's`);
   for (const verb of Object.keys(HELP)) {
@@ -144,8 +144,8 @@ test('a first build\'s helps are short, and --help all has every flag', () => {
   assert.doesNotMatch(helpText('web', { all: true }), /web\.log| &\s|background|\$!/);
   // LLP 1116.007 D2: a builder parses `agent` output, so the short text says --json is one object per line.
   assert.match(helpText('agent'), /^ {2}--json +one compact JSON object per op reply, one per line/m);
-  // LLP 1116.007 D3.9: `state <name>` is a view's, else a state or resource read down a dotted path.
-  assert.match(helpText('agent'), /^ {2}state \[<name>\] +a view's testId, else a state or resource, dotted: groceries\.0\.done/m);
+  // LLP 1116.007 D3.9: `state <name>` is a state or resource read down a dotted path; a big one prints its sizes.
+  assert.match(helpText('agent'), /^ {2}state \[<name>\] \[--full\] +a state, resource or field, dotted: groceries\.0\.done; >8 KB: sizes/m);
 });
 
 // LLP 1116.009 D6: builders read `help` and then four or five verbs' `--help`, each a step carried to the end of the build.

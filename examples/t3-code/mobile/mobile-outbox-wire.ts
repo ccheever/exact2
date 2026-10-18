@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 // Pure protocol 2 mapping from pinned 365aa87982 projectThreadStartTurn and commands.ts.
 import { arr, obj, str, type Obj } from './shared/domain';
 import { launchPayload, sendPayload } from './shared/protocol';

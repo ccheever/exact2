@@ -19,7 +19,6 @@
 #![deny(missing_docs)]
 
 mod inline;
-pub mod theme;
 pub mod value;
 
 pub use inline::Run;

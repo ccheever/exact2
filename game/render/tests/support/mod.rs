@@ -51,6 +51,7 @@ pub(super) fn material(color: [f32; 3], emissive: f32) -> [f32; 12] {
 
 pub(super) fn frame() -> FrameInput<'static> {
     FrameInput {
+        viewport_css_height: None,
         glows: &[],
         seconds: 0.,
         view: view::look_at_mat4(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y),
@@ -62,6 +63,7 @@ pub(super) fn frame() -> FrameInput<'static> {
         lights: &[],
         lights_dropped: 0,
         environment: Environment {
+            tone_mapping: exact_game::ToneMapping::Aces,
             background: None,
             zenith: [0.0; 3],
             ground: [0.0; 3],

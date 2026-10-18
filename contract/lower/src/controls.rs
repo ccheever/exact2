@@ -415,7 +415,9 @@ pub(crate) fn check_progress(
     if tag != "progress" {
         return Ok(());
     }
-    let valued = attrs.iter().any(|a| a.name == "value");
+    let valued = attrs
+        .iter()
+        .any(|a| matches!(a.name.as_str(), "value" | "start"));
     if let Some(a) = attrs.iter().find(|a| match a.name.as_str() {
         "type" | "aria-valuenow" | "aria-valuemin" | "aria-valuemax" => true,
         "max" => !valued,
@@ -952,7 +954,13 @@ fn face_counts(
                         _ => false,
                     };
                     if !allowed {
-                        return err("lower-button-style-attr", format!("a native button's `{tag}` takes no `{}`; write a custom `button` for other face rows", a.name), a.span);
+                        // LLP 1116.018: each edit keeps what the attribute was for.
+                        let message = match (tag.as_str(), a.name.as_str()) {
+                            ("image", "width" | "height") => format!("write `font-size=…` for the symbol's size in a native button, not `{}`: there a symbol's `font-size` is its point size and `width` would size a box (LLP 1069.011.001 D4); a box of that size is a custom `button`", a.name),
+                            (_, name) if name == "role" || name.starts_with("aria-") => format!("put the `{name}` on a node beside the button: a button's content is presentational (WAI-ARIA 1.2, a button's children are presentational), so it is not announced inside it; name the button with `aria-label` if its words differ"),
+                            _ => format!("a native button's `{tag}` takes no `{}`; write a custom `button` for other face rows", a.name),
+                        };
+                        return err("lower-button-style-attr", message, a.span);
                     }
                 }
                 if !children.is_empty() {
@@ -986,10 +994,15 @@ fn face_counts(
                         // A role from the table or an SF Symbol's name
                         // (LLP 1035.004.000), a choice between them, or a
                         // source computed at runtime that starts `symbol:`.
+                        // An icon token too, by name or its form (LLP 1121 D10).
                         let symbol = |s: &str| {
                             s.strip_prefix("symbol:").is_some_and(|r| {
                                 r.strip_prefix("sf/").map_or_else(
-                                    || exact_kernel::generated::symbol_role(r).is_some(),
+                                    || {
+                                        exact_kernel::generated::symbol_role(r).is_some()
+                                            || r.starts_with("icon|")
+                                            || crate::icons::named(r).is_some()
+                                    },
                                     |name| !name.is_empty(),
                                 )
                             })
@@ -1007,7 +1020,7 @@ fn face_counts(
                         if !ok {
                             return err(
                                 "lower-button-content",
-                                "a native button's image is a symbol, `image \"symbol:…\"` (a role or `sf/` and an SF Symbol's name, a choice between them, or a template that starts `symbol:`)",
+                                "a native button's image is a symbol, `image \"symbol:…\"` (a role, an icon token, or `sf/` and an SF Symbol's name, a choice between them, or a template that starts `symbol:`)",
                                 *span,
                             );
                         }

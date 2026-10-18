@@ -105,7 +105,7 @@ final class PopoverMacTests: XCTestCase {
         p.views[1]?.handlers = ["press"]; behind.handlers = ["press"]
         p.press(2)
         // A plain child, neither a control nor selectable text, forwards
-        // through the popover. The page's responder chain must not hear it.
+        // through the popover to its authored ancestor, never the page's focus.
         p.apply(wireBatch([
             ["op": "create", "id": 7, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
             ["op": "children", "id": 3, "ids": [4, 5, 7]],
@@ -123,8 +123,44 @@ final class PopoverMacTests: XCTestCase {
             window.sendEvent(event)
         }
         XCTAssertEqual(pointers, [7, 7])
-        XCTAssertEqual(presses, [], "no page ancestor or focused page control is activated")
+        XCTAssertEqual(presses, [1], "the authored parent presses; the focused page control never does")
         XCTAssertTrue(p.menus.isOpen(pop))
+    }
+
+    func testAPressInThePopoverUsesItsContentBoxAndNearestAuthoredAncestor() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), popover = try XCTUnwrap(p.views[3])
+        defer { p.menus.reset() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 7]],
+            ["op": "frame", "id": 7, "x": 120, "y": 80, "w": 100, "h": 30],
+            ["op": "create", "id": 8, "kind": "view", "handlers": ["press"]],
+            ["op": "children", "id": 8, "ids": [1]], ["op": "roots", "ids": [8]],
+            ["op": "frame", "id": 8, "x": 0, "y": 0, "w": 500, "h": 400],
+        ]))
+        try XCTUnwrap(p.viewport.window).makeKeyAndOrderFront(nil)
+        try assertPresentationPresses(p, content: XCTUnwrap(p.views[7]), ancestor: root, presentation: popover,
+            open: { p.press(2) }, close: { p.menus.close(popover) }, isOpen: { p.menus.isOpen(popover) })
+    }
+
+    /// A right click in an open painted popover reaches its authored
+    /// parent's `contextmenu` once, though its view is in the top layer.
+    func testRightClickInAPaintedPopoverReachesItsAuthoredParentOnce() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
+        let window = try XCTUnwrap(p.viewport.window)
+        defer { p.menus.reset() }
+        root.handlers = ["contextmenu"]
+        var heard: [UInt32] = []
+        p.onClipboard = { id, kind, _ in XCTAssertEqual(kind, 10); heard.append(id) }
+        p.press(2)
+        XCTAssertTrue(p.menus.isOpen(try XCTUnwrap(p.views[3])))
+        XCTAssertFalse(button.isDescendant(of: root))
+        let event = mouse(p, .rightMouseDown, button)
+        let hit = try XCTUnwrap(window.contentView?.hitTest(event.locationInWindow))
+        XCTAssertTrue(hit === button || hit.isDescendant(of: button))
+        hit.rightMouseDown(with: event)
+        hit.rightMouseUp(with: mouse(p, .rightMouseUp, button))
+        XCTAssertEqual(heard, [1])
     }
     func testAuthoredFlipOrderPlacesTheOpenPopoverAndTracksItsInvoker() throws {
         let p = fixture(), source = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[3])
@@ -236,6 +272,41 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertTrue(field.currentEditor() === window.firstResponder)
         p.menus.reset()
     }
+    /// A painted menu's focused row chooses on Return as on Space, and the
+    /// menu closes as its row says (LLP 1115.000 D7.3, as an `NSMenu`'s
+    /// highlighted item takes Return); a focused button that is no row
+    /// still does nothing with Return.
+    func testReturnChoosesAFocusedMenuRowAndClosesTheMenuAsSpaceDoes() throws {
+        let p = fixture(), pop = try XCTUnwrap(p.views[3]), window = try XCTUnwrap(p.viewport.window)
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "button", "handlers": ["press"],
+             "props": ["accessibilityRole": "menuitem", "popovertarget": "form", "popovertargetaction": "hide"]],
+            ["op": "create", "id": 21, "kind": "button", "handlers": ["press"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 20, 21]],
+            ["op": "frame", "id": 20, "x": 10, "y": 90, "w": 200, "h": 24],
+            ["op": "frame", "id": 21, "x": 10, "y": 116, "w": 200, "h": 24],
+        ]))
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        func send(_ chars: String, _ code: UInt16) {
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                         context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)!
+            if !p.routeKey(event, focused: true, in: window) { window.sendEvent(event) }
+        }
+        for (key, code) in [("\r", UInt16(36)), (" ", 49)] {
+            p.press(2)
+            XCTAssertTrue(p.menus.isOpen(pop))
+            pressed.removeAll()
+            XCTAssertTrue(window.makeFirstResponder(p.views[21]))
+            send("\r", 36)
+            XCTAssertEqual(pressed, [], "a focused button that is no row does nothing with Return")
+            XCTAssertTrue(window.makeFirstResponder(p.views[20]))
+            send(key, code)
+            XCTAssertEqual(pressed, [20], "the row chose once on \(code)")
+            XCTAssertFalse(p.menus.isOpen(pop), "and the menu closed on \(code)")
+        }
+        p.menus.reset()
+    }
     func testToggleShowHideAndAppActionRefreshAreOrdered() {
         let p = fixture(), pop = p.views[3]!
         p.views[2]!.handlers = ["press"]
@@ -309,12 +380,266 @@ final class PopoverMacTests: XCTestCase {
         row.mouseUp(with: mouse(p, .leftMouseUp, row))
         XCTAssertEqual(log, ["down 1", "up 1"])
         XCTAssertFalse(p.menus.isOpen(pop), "the row's own press still ran")
-        pop.handlers = ["pointermove"]
+        // A popover hearing a pointer event holds the moves; the down and up
+        // bubble past it to its authored ancestors (Charlie, 2026-10-15).
+        pop.handlers = ["pointermove", "pointerdown"]
         p.press(2)
         row.mouseDown(with: mouse(p, .leftMouseDown, row))
-        XCTAssertEqual(p.pointerHeld, 3, "the popover hears the pointer and keeps the press")
+        XCTAssertEqual(p.pointerHeld, 3, "the popover hears the pointer and holds the moves")
         row.mouseUp(with: mouse(p, .leftMouseUp, row))
-        XCTAssertEqual(log, ["down 1", "up 1"])
+        XCTAssertEqual(log, ["down 1", "up 1", "down 3", "down 1", "up 1"])
+    }
+    func testPendingFieldChangeRechecksTheBubbledPath() throws {
+        let p = fixture(), ancestor = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[3])
+        defer { p.menus.reset() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "frame", "id": 9, "x": 110, "y": 80, "w": 120, "h": 30],
+            ["op": "create", "id": 10, "kind": "control", "props": ["type": "button"]],
+            ["op": "frame", "id": 10, "x": 110, "y": 115, "w": 120, "h": 30],
+            ["op": "children", "id": 3, "ids": [4, 5, 9, 10]],
+        ]))
+        let content = try XCTUnwrap(p.views[9]), field = try XCTUnwrap(p.views[4]?.field)
+        ancestor.handlers = ["press"]
+        p.views[4]?.handlers = ["change"]
+        p.press(2)
+        var presses: [UInt32] = [], changes: [String] = []
+        p.onPress = { presses.append($0) }
+        p.onChange = { id, value in
+            changes.append("\(id) \(value)")
+            p.menus.close(pop)
+        }
+        field.stringValue = "edited"
+        p.typed(4, "edited", input: true)
+        content.mouseDown(with: mouse(p, .leftMouseDown, content))
+        XCTAssertTrue(ancestor.pressed)
+        XCTAssertEqual(p.edited, 4, "the edit is still pending at mouse down")
+        content.mouseUp(with: mouse(p, .leftMouseUp, content))
+        XCTAssertEqual(changes, ["4 edited"])
+        XCTAssertNil(p.edited)
+        XCTAssertFalse(p.menus.isOpen(pop))
+        XCTAssertEqual(presses, [], "committing the field closed the presentation before the press")
+        XCTAssertFalse(ancestor.pressed)
+        p.apply(wireBatch([
+            ["op": "create", "id": 11, "kind": "view"],
+            ["op": "frame", "id": 11, "x": 0, "y": 0, "w": 240, "h": 150],
+            ["op": "children", "id": 3, "ids": [4, 5, 10, 11]],
+            ["op": "children", "id": 11, "ids": [9]],
+        ]))
+        let inside = try XCTUnwrap(p.views[11])
+        for node in [content, inside] {
+            for property in ["disabled", "inert"] {
+                if !p.menus.isOpen(pop) { p.press(2) }
+                presses = []; changes = []
+                p.onChange = { id, value in
+                    changes.append("\(id) \(value)")
+                    node.props[property] = "true"
+                }
+                field.stringValue = "edited"
+                p.typed(4, "edited", input: true)
+                content.mouseDown(with: mouse(p, .leftMouseDown, content))
+                XCTAssertTrue(ancestor.pressed)
+                XCTAssertEqual(p.edited, 4, "the edit is still pending at mouse down")
+                content.mouseUp(with: mouse(p, .leftMouseUp, content))
+                XCTAssertEqual(changes, ["4 edited"])
+                XCTAssertNil(p.edited)
+                XCTAssertEqual(node.props[property], "true")
+                XCTAssertTrue(p.menus.isOpen(pop))
+                XCTAssertEqual(presses, [], "change made path node \(node.id) \(property)")
+                XCTAssertFalse(ancestor.pressed)
+                node.props.removeValue(forKey: property)
+            }
+        }
+        p.menus.close(pop)
+        let button = try XCTUnwrap(p.controls.controls[10] as? NSButton)
+        for closes in [true, false] {
+            p.press(2)
+            presses = []; changes = []
+            p.onChange = { id, value in
+                changes.append("\(id) \(value)")
+                if closes { p.menus.close(pop) }
+            }
+            field.stringValue = "native edited"
+            p.typed(4, "native edited", input: true)
+            button.performClick(nil)
+            XCTAssertEqual(changes, ["4 native edited"])
+            XCTAssertNil(p.edited)
+            XCTAssertEqual(p.menus.isOpen(pop), !closes)
+            XCTAssertEqual(presses, closes ? [] : [1], "a native action rechecks the presentation after committing the field")
+        }
+    }
+
+    func testMovingAnIntermediateWrapperCancelsTheBubbledClick() throws {
+        let p = fixture(), ancestor = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[3])
+        defer { p.menus.reset() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "frame", "id": 9, "x": 110, "y": 80, "w": 120, "h": 30],
+            ["op": "create", "id": 10, "kind": "view"],
+            ["op": "frame", "id": 10, "x": 0, "y": 0, "w": 500, "h": 400],
+            ["op": "children", "id": 1, "ids": [2, 6, 10]],
+            ["op": "children", "id": 10, "ids": [3]],
+            ["op": "children", "id": 3, "ids": [4, 5, 9]],
+        ]))
+        let source = try XCTUnwrap(p.views[9]), wrapper = try XCTUnwrap(p.views[10])
+        ancestor.handlers = ["press"]
+        p.press(2)
+        let mount = pop.superview
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        source.mouseDown(with: mouse(p, .leftMouseDown, source))
+        XCTAssertTrue(ancestor.pressed)
+        p.apply(wireBatch([
+            ["op": "children", "id": 1, "ids": [2, 6]],
+            ["op": "children", "id": 6, "ids": [10]],
+            ["op": "children", "id": 6, "ids": []],
+            ["op": "children", "id": 1, "ids": [2, 6, 10]],
+        ]))
+        XCTAssertTrue(wrapper.superview === ancestor)
+        XCTAssertTrue(pop.superview === mount)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertFalse(ancestor.pressed, "moving a captured path node cancels feedback immediately")
+        source.mouseUp(with: mouse(p, .leftMouseUp, source))
+        XCTAssertEqual(presses, [], "reattaching the wrapper cannot revive the click")
+        XCTAssertFalse(ancestor.pressed)
+    }
+
+    /// No NodeView between the target and the container changes superview.
+    func testDetachingTheTargetsPlainContainerCancelsTheBubbledClick() throws {
+        let p = fixture(), ancestor = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[3])
+        defer { p.menus.reset() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "frame", "id": 9, "x": 110, "y": 80, "w": 120, "h": 30],
+            ["op": "children", "id": 3, "ids": [4, 5, 9]],
+        ]))
+        let source = try XCTUnwrap(p.views[9]), parent = try XCTUnwrap(ancestor.superview)
+        let container = NSView(frame: parent.bounds)
+        parent.addSubview(container, positioned: .below, relativeTo: nil)
+        container.addSubview(ancestor)
+        ancestor.handlers = ["press"]
+        p.press(2)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertFalse(pop.isDescendant(of: container), "the popover is lifted out of the container")
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        source.mouseDown(with: mouse(p, .leftMouseDown, source))
+        XCTAssertTrue(ancestor.pressed)
+        container.removeFromSuperview()
+        parent.addSubview(container, positioned: .below, relativeTo: nil)
+        XCTAssertTrue(ancestor.superview === container)
+        XCTAssertNotNil(ancestor.window)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertFalse(ancestor.pressed, "leaving the window cancels feedback immediately")
+        source.mouseUp(with: mouse(p, .leftMouseUp, source))
+        XCTAssertEqual(presses, [], "reattaching the container cannot revive the click")
+    }
+
+    func testNativeBubbledPressRechecksItsSourceAndOpeningAfterChange() throws {
+        for mutation in ["reopen", "remove", "detach", "reattach-button", "reattach-wrapper", "disabled", "inert"] {
+            let p = fixture(), ancestor = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[3])
+            defer { p.menus.reset() }
+            p.apply(wireBatch([
+                ["op": "create", "id": 10, "kind": "control", "props": ["type": "button"]],
+                ["op": "frame", "id": 10, "x": 110, "y": 115, "w": 120, "h": 30],
+                ["op": "create", "id": 11, "kind": "view"],
+                ["op": "frame", "id": 11, "x": 0, "y": 0, "w": 240, "h": 150],
+                ["op": "children", "id": 11, "ids": [10]],
+                ["op": "children", "id": 3, "ids": [4, 5, 11]],
+            ]))
+            let source = try XCTUnwrap(p.views[10]), field = try XCTUnwrap(p.views[4]?.field)
+            ancestor.handlers = ["press"]
+            p.views[4]?.handlers = ["change"]
+            p.press(2)
+            let opening = try XCTUnwrap(p.menus.entries.first)
+            var presses: [UInt32] = [], changes: [String] = []
+            p.onPress = { presses.append($0) }
+            p.onChange = { id, value in
+                changes.append("\(id) \(value)")
+                switch mutation {
+                case "reopen": p.menus.close(pop); p.menus.show(pop, from: p.views[2])
+                case "remove": p.apply(wireBatch([["op": "destroy", "id": 10]]))
+                case "detach": source.removeFromSuperview()
+                case "reattach-button", "reattach-wrapper":
+                    let moved = mutation == "reattach-button" ? source : p.views[11]!
+                    let parent = moved.superview!
+                    moved.removeFromSuperview()
+                    parent.addSubview(moved)
+                    XCTAssertTrue(moved.superview === parent)
+                    XCTAssertNotNil(source.window)
+                default: source.props[mutation] = "true"
+                }
+            }
+            field.stringValue = "edited"
+            p.typed(4, "edited", input: true)
+            try XCTUnwrap(p.controls.controls[10] as? NSButton).performClick(nil)
+            XCTAssertEqual(changes, ["4 edited"], mutation)
+            XCTAssertNil(p.edited, mutation)
+            XCTAssertTrue(p.menus.isOpen(pop), mutation)
+            XCTAssertTrue(p.views[1] === ancestor, mutation)
+            if mutation == "reopen" { XCTAssertFalse(p.menus.entries.contains { $0 === opening }) }
+            if mutation == "remove" { XCTAssertNil(p.views[10]); XCTAssertNil(source.window) }
+            XCTAssertEqual(presses, [], "\(mutation) invalidated the captured native activation")
+        }
+    }
+
+    func testSpaceInAPopoverPagesDespiteAPressableAuthoredAncestor() throws {
+        let p = fixture(), ancestor = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "frame", "id": 9, "x": 10, "y": 50, "w": 220, "h": 30],
+            ["op": "children", "id": 3, "ids": [4, 5, 9]],
+            ["op": "style", "id": 3, "style": ["overflow_y": "auto", "overflow_x": "hidden"]],
+            ["op": "content", "id": 3, "w": 240.0, "h": 1000.0],
+        ]))
+        let content = try XCTUnwrap(p.views[9]), scroll = try XCTUnwrap(pop.scroll), window = try XCTUnwrap(p.viewport.window)
+        ancestor.handlers = ["press"]
+        p.press(2)
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        let appliesAtOnce = ChainingScrollView.appliesAtOnce
+        ChainingScrollView.appliesAtOnce = true
+        defer { ChainingScrollView.appliesAtOnce = appliesAtOnce }
+        XCTAssertFalse(content.isDescendant(of: ancestor))
+        XCTAssertFalse(content.selectsText, "the mouse still reaches the authored ancestor's press")
+        XCTAssertTrue(window.makeFirstResponder(content))
+        let before = scroll.contentView.bounds.minY
+        let space = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49))
+        content.keyDown(with: space)
+        XCTAssertGreaterThan(scroll.contentView.bounds.minY, before, "Space pages the popover's scroller")
+        XCTAssertEqual(presses, [])
+    }
+
+    /// A double click and a free move in an open popover reach its authored
+    /// ancestors' `dblclick` and `pointermove`, as on the web, and never a
+    /// page node only under it (#281).
+    func testADoubleClickAndAFreeMoveInAPopoverReachItsAuthoredAncestors() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[3]), under = try XCTUnwrap(p.views[6])
+        p.press(2)
+        // The page's button 6 under the popover's empty corner.
+        let corner = NSRect(x: pop.bounds.maxX - 20, y: pop.bounds.maxY - 20, width: 10, height: 10)
+        let below = pop.convert(corner, to: root)
+        p.apply(wireBatch([["op": "frame", "id": 6, "x": below.minX, "y": below.minY, "w": below.width, "h": below.height]]))
+        for node in [root, under] { node.handlers = ["dblclick", "pointermove"] }
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .move ? "move" : "press") \(id)") }
+        p.onDblclick = { log.append("dblclick \($0)") }
+        let window = try XCTUnwrap(p.viewport.window), point = pop.convert(NSPoint(x: corner.midX, y: corner.midY), to: nil)
+        func event(_ type: NSEvent.EventType, clicks: Int) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: clicks == 0 ? 0 : 1)!
+        }
+        XCTAssertTrue(window.contentView?.hitTest(window.contentView?.superview?.convert(point, from: nil) ?? point) === pop)
+        for clicks in [1, 2] {
+            pop.mouseDown(with: event(.leftMouseDown, clicks: clicks))
+            pop.mouseUp(with: event(.leftMouseUp, clicks: clicks))
+        }
+        XCTAssertEqual(log, ["dblclick 1"])
+        log = []
+        p.trackPointer(event(.mouseMoved, clicks: 0))
+        p.flushHoverMove()
+        XCTAssertEqual(log, ["move 1"])
     }
     func testManualPopoverKeepsItsLayerAfterAnOutsideClick() throws {
         let p = fixture(), pop = try XCTUnwrap(p.views[3])
@@ -673,6 +998,92 @@ final class PopoverMacTests: XCTestCase {
             XCTAssertEqual(menu.items.map(\.isEnabled), [true, false], "\(change)")
         }
     }
+    func testBubbledInvokerBehindAModalTracksAndPicksItsMenuInsideTheModal() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "this regression exercises NSMenu")
+        for chooser in [false, true] {
+            let (p, _) = menuFixture()
+            defer { p.menus.reset(); p.dialogs.reset() }
+            p.apply(wireBatch([
+                ["op": "create", "id": 20, "kind": "view", "props": ["semanticTag": "dialog", "id": "modal"]],
+                ["op": "create", "id": 21, "kind": "view"],
+                ["op": "children", "id": 1, "ids": [2, 6]], ["op": "children", "id": 2, "ids": [20]],
+                ["op": "children", "id": 20, "ids": [21, 3]],
+                ["op": "frame", "id": 20, "x": 0, "y": 0, "w": 240, "h": 150],
+                ["op": "frame", "id": 21, "x": 20, "y": 20, "w": 120, "h": 60],
+            ]))
+            let source = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[3])
+            let dialog = try XCTUnwrap(p.views[20]), content = try XCTUnwrap(p.views[21])
+            if chooser { pop.props["accessibilityRole"] = "alertdialog" }
+            try XCTUnwrap(windows.last).orderFrontRegardless()
+            p.dialogs.show(dialog)
+            XCTAssertTrue(source.inert)
+            XCTAssertFalse(source.authoredInert)
+            XCTAssertFalse(pop.inert)
+            var pressed: [UInt32] = [], tracked = false, tracking = false, trackingAtPress: Bool?
+            p.onPress = { pressed.append($0); trackingAtPress = tracking }
+            var seen: NSMenu?
+            let center = NotificationCenter.default
+            let begin = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                guard let menu = note.object as? NSMenu, menu.items.contains(where: { $0.title == "Share" }) else { return }
+                seen = menu; tracked = true; tracking = true
+                RunLoop.current.perform(inModes: [.eventTracking, .default]) {
+                    menu.performActionForItem(at: 1)
+                    XCTAssertEqual(pressed, [], "the pick waits for tracking to end")
+                    menu.cancelTracking()
+                }
+            }
+            let end = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { note in
+                if note.object as? NSMenu === seen { tracking = false }
+            }
+            defer { center.removeObserver(begin); center.removeObserver(end) }
+            content.mouseDown(with: mouse(p, .leftMouseDown, content))
+            content.mouseUp(with: mouse(p, .leftMouseUp, content))
+            XCTAssertTrue(p.menus.isOpen(pop))
+            XCTAssertEqual(p.menus.entries.last?.confirmation != nil, chooser)
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while pressed.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            turn()
+            XCTAssertTrue(tracked, chooser ? "chooser tracks" : "button menu tracks")
+            XCTAssertEqual(pressed, [11], "the bubbled invoker's Share pick runs once")
+            XCTAssertEqual(trackingAtPress, false)
+            XCTAssertFalse(p.menus.isOpen(pop))
+            XCTAssertTrue(p.dialogs.active === dialog)
+        }
+    }
+
+    func testBubbledMenuAndChooserPicksRecheckAuthoredInertnessAndTheModalTarget() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "this regression exercises NSMenu picks")
+        for chooser in [false, true] {
+            for invalidate in ["neither", "source", "target"] {
+                let (p, _) = menuFixture()
+                defer { p.menus.reset(); p.dialogs.reset() }
+                p.apply(wireBatch([
+                    ["op": "create", "id": 20, "kind": "view", "props": ["semanticTag": "dialog", "id": "modal"]],
+                    ["op": "children", "id": 1, "ids": [2, 6, 20]], ["op": "children", "id": 20, "ids": [3]],
+                    ["op": "frame", "id": 20, "x": 0, "y": 0, "w": 240, "h": 150],
+                ]))
+                let source = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[3]), dialog = try XCTUnwrap(p.views[20])
+                if chooser { pop.props["accessibilityRole"] = "alertdialog" }
+                p.dialogs.show(dialog)
+                XCTAssertTrue(source.inert)
+                XCTAssertFalse(source.authoredInert)
+                XCTAssertFalse(pop.inert)
+                p.menus.show(pop, from: source, bubbled: true)
+                let entry = try XCTUnwrap(p.menus.entries.last), menu = try XCTUnwrap(entry.menu)
+                XCTAssertEqual(entry.confirmation != nil, chooser)
+                if let owner = entry.confirmation { XCTAssertTrue(p.menus.valid(owner)) }
+                var pressed: [UInt32] = []
+                p.onPress = { pressed.append($0) }
+                menu.performActionForItem(at: 1)
+                p.menus.close(pop, cancelling: false)
+                if invalidate == "source" { source.props["inert"] = "true" }
+                if invalidate == "target" { pop.props["inert"] = "true" }
+                turn()
+                XCTAssertEqual(pressed, invalidate == "neither" ? [11] : [], "chooser=\(chooser), invalidated=\(invalidate)")
+            }
+        }
+    }
+
     /// The real popUp: a row picked inside AppKit's tracking whose press's
     /// batch unmounts the invoker the menu was popped up in. It presses
     /// once, after the tracking has ended.

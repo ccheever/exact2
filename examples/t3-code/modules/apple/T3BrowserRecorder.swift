@@ -4,7 +4,7 @@ import AVFoundation
 import CoreText
 import WebKit
 
-/// A Browser tab's recording (browser-surface part 3, capture; X1 path B). MIT reference, see LICENSE-T3, T3 Code
+/// A Browser tab's recording (#100: the clone's own WKWebView). MIT reference, see LICENSE-T3, T3 Code
 /// 1e2ecbd975: apps/desktop/src/preview/RecordingCursor.ts and RecordingInput.ts (the in-page cursor and inputs,
 /// here assets/browser-recording.js), apps/web/src/browser/recordingCompositor.ts (`RecordingDecorations`,
 /// `createRecordingCompositor`), apps/web/src/browser/browserRecording.ts (`preferredMimeTypes`,

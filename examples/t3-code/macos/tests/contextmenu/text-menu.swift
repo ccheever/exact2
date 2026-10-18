@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// realinput-1010d RD-4: a right-click on selected read-only text shows the desktop shell's menu (DesktopWindow.ts
+// A right-click on selected read-only text shows the desktop shell's menu (DesktopWindow.ts
 // installContextMenu: Cut disabled, Copy, Paste disabled, Select All), not ExactKit's NSTextView menu (since main `6a7f16c6f`
 // AppKit's own for a read-only text view holding the selection: Look Up, Translate, Search With, Copy, Share, Writing Tools,
 // Speech, Services, its items aimed at that view). `HostParagraph` stands in for an ExactKit text node: its `menu(for:)` is
@@ -133,12 +133,12 @@ final class TextContextMenuTests: XCTestCase {
         NSApp.sendEvent(rightClick(at: NSPoint(x: 60, y: 40)))
         XCTAssertEqual(menu.lastShown, ["Cut (disabled)", "Copy", "Paste (disabled)", "Select All"], "the items go to the log")
         XCTAssertEqual(popped, 0, "nothing tracks in the agent's never-key window")
-        XCTAssertEqual(paragraph.hostMenus, 0, "nor does ExactKit's menu (the after drive's 120 s hang)")
+        XCTAssertEqual(paragraph.hostMenus, 0, "nor does ExactKit's menu")
         NSApp.sendEvent(rightClick(at: NSPoint(x: 280, y: 40)))
         XCTAssertEqual(other.ownMenus, 1)
     }
 
-    /// R11-SEL: Electron's drawn menu adds Services to the shell's editing template over selected page text.
+    /// Electron's drawn menu adds Services to the shell's editing template over selected page text.
     /// Inspect the actual menu during tracking: AppKit inserts Services without adding an item to `menu.items`.
     func testSelectedPageTextOffersServicesAndWritesOnlyTheSelection() throws {
         let requestor = ServicesRequestor(frame: NSRect(x: 20, y: 120, width: 200, height: 40))
@@ -153,7 +153,7 @@ final class TextContextMenuTests: XCTestCase {
             return try XCTUnwrap(reader.drawn, "the native menu opened and was read during tracking")
         }
         let selected = try present()
-        print("t3.r11sel: selected page text, drawn menu: \(selected)")
+        print("t3.selection-menu: selected page text, drawn menu: \(selected)")
         XCTAssertEqual(selected, ["Cut", "Copy", "Paste", "Select All", "Services"])
         XCTAssertGreaterThan(requestor.servicesAsks, 0, "the selected text's services requestor is consulted")
         let provider = try XCTUnwrap(requestor.validRequestor(forSendType: .string, returnType: nil) as? NSServicesMenuRequestor)
@@ -164,7 +164,7 @@ final class TextContextMenuTests: XCTestCase {
         XCTAssertNil(requestor.validRequestor(forSendType: .string, returnType: .string), "Services cannot replace read-only text")
         requestor.selection = ""
         let unselected = try present()
-        print("t3.r11sel: unselected page text, drawn menu: \(unselected)")
+        print("t3.selection-menu: unselected page text, drawn menu: \(unselected)")
         XCTAssertEqual(unselected, ["Cut", "Copy", "Paste", "Select All"], "no selection supplies no Services")
     }
 }

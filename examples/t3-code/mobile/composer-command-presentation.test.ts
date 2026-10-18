@@ -1,5 +1,5 @@
 // Source365aa87982 parent visibility and AppSymbol mappings, including iOS Tabler aliases.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import {expect,test} from 'bun:test';
 import {mobileComposerCommandPresentation as present} from './composer-command-presentation';
 import {mobileCommandColors} from './design';

@@ -1,0 +1,658 @@
+use kmTriggerKey, kmTriggerTarget from "../shared/menu-keys.contract"
+use FieldOpenSelect from "../shared/dialog-trap.contract"
+// SidebarThreadRow (Sidebar.tsx; MIT, see LICENSE-T3): live threads are 78pt
+// cards, snoozed and settled threads 36pt slim rows. The card's top right
+// shows the status pill (Working, Waiting, Approval, Input, Limited, Failed,
+// Woke, Done) or the age; hover swaps it for the row's real actions. Right
+// click opens the thread action menu, double click renames in place.
+use Thread from "./sidebar-shapes.contract"
+use SnoozePreset from "./sidebar-shapes.contract"
+use SidebarDraft from "./sidebar-shapes.contract"
+use SidebarMenuRow from "./sidebar-shapes.contract"
+use Icon from "../shared/icons.contract"
+use SidebarProviderMark from "../shared/icons-kit.contract"
+use SidebarIcon from "./sidebar-icons.contract"
+use SidebarProjectGlyph from "./sidebar-icons-kit.contract"
+use CnMachineIcon from "../settings/settings-b-kit.contract"
+use SidebarPrBadge from "./sidebar-pr-badge.contract"
+use prdTone from "../pull-requests/pages-pr-detail.contract"
+
+use Tip from "../shell/shell-tip.contract"
+use KmItem from "../shared/menu-keys.contract"
+use KeyMenu from "../shared/menu-keys.contract"
+
+// ThreadStatusIndicators.tsx: Lucide Terminal, teal, with the shared two-second status pulse.
+keyframes terminalStatusPulse
+  from opacity=1
+  40% opacity=1
+  50% opacity=0.5
+  90% opacity=0.5
+  to opacity=1
+
+component TerminalProcessIndicator
+  props
+    label: string
+    tooltip: string
+    size: number
+    reduced: bool
+    id: string
+  view
+    Tip(label=tooltip, side="top", align="center", offset=4)
+      TerminalGlyph(label=label, size=size, reduced=reduced, id=id)
+
+// ThreadTerminalStatusButton (ThreadStatusIndicators.tsx): a row's running-terminal glyph is a button that shows
+// the thread's first running terminal where it lives and opens the thread (sidebar `terminal-reveal`).
+fn terminalButtonLabel(count: number): string = count == 1 ? "1 terminal process running. Open terminal" : `${count} terminal processes running. Open terminal`
+component TerminalStatusButton
+  props
+    id: string
+    count: number
+    size: number
+    reduced: bool
+    run: action
+  state over = false
+  action setOver(value: bool)
+    over = value
+  view
+    Tip(label=terminalButtonLabel(count), side="top", align="center", offset=4)
+      button cursor="pointer" press=run("terminal-reveal", id, "") hover=setOver aria-label=terminalButtonLabel(count) testId=`sidebar-terminal-status-${id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" opacity=(over ? 0.8 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+        TerminalPulse(size=size, reduced=reduced)
+
+// The indicator's glyph alone, for a row that wraps it in its own tooltip (legacy-sidebar.contract's LegacyRowTip).
+component TerminalGlyph
+  props
+    label: string
+    size: number
+    reduced: bool
+    id: string
+  view
+    box display="flex" flex-shrink=0 role="img" aria-label=label testId=id
+      TerminalPulse(size=size, reduced=reduced)
+
+component TerminalPulse
+  props
+    size: number
+    reduced: bool
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" fill="none" stroke="light-dark(#009689, #96f7e4e6)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true animation=(reduced ? "none" : "terminalStatusPulse 2s steps(6) infinite")
+      path d="m4 17 6-5-6-5M12 19h8"
+
+component ThreadRow
+  props
+    t: Thread
+    reduced: bool
+    now: number
+    presets: SnoozePreset[]
+    busy: bool
+    local: action
+    run: action
+    // The right-clicked thread for the sidebar's one `thread-menu` context popover (ThreadMenu), and what the press
+    // focuses: the row, or the focusable control it landed on, whose own `contextmenu` names it.
+    menu: action
+    open: action
+    hoverCard: action
+    pressDown: action
+    hoverId: string
+    drag: action
+    dragEnd: action
+    dragId: string
+    dragVerb: string
+    dragOffset: number
+    page: string
+    // Upstream 1826fb55cc: the section's sweep (sidebar.contract ThreadSection): its move action, the armed rows (`|id|…|`) and their action.
+    sweep: action
+    sweepKeys: string
+    sweepVerb: string
+  // One hover handler per row (the host hovers one node at a time): the
+  // window's hovered row drives the surface, the actions and the hover card.
+  // The row's hover key carries its shelf, so a row that moves to another
+  // shelf under a still pointer is not left hovered; a control's tooltip
+  // hovers `${key}#control`, which keeps the row hovered beneath it.
+  derive hovering = hoverId == t.hoverKey or hoverId.startsWith(`${t.hoverKey}#`)
+  // A utility page is not a thread route: no row is open there.
+  derive isOpen = t.selected and page == ""
+  derive recede = page == "" ? t.recede : t.idleRecede
+  derive ink = page == "" ? t.titleColor : t.idleTitleColor
+  derive weight = page == "" ? t.titleWeight : t.idleTitleWeight
+  derive surface = isOpen ? "light-dark(#ffffff, #f1f3f71c)" : t.multi or (sweepKeys != "" and sweepKeys.includes(`|${t.id}|`)) ? "light-dark(#ffffff, #f1f3f712)" : t.draft ? (hovering ? "#fe9a0014" : "#fe9a000a") : hovering ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000"
+  derive tool = "light-dark(#71717b, #a3a3a3)"
+  derive lifted = dragId == t.id
+  // An armed row takes the selected surface and shows the action's badge in place of its status (dropVerbBadge; Wake for unsnooze).
+  derive swept = sweepKeys != "" and sweepKeys.includes(`|${t.id}|`)
+  derive sweptBadge = sweepVerb == "unsnooze" ? "wake" : sweepVerb
+  // Pin the trigger for the popup's complete logical lifetime, across row focus changes.
+  state snoozeOpen = false
+  // has-[:focus-visible] (Sidebar.tsx): an action holding the focus keeps the actions shown, so Escape
+  // from the snooze menu returns to a trigger that stays focusable after the toggle unpins it.
+  // exact2: focus is a local state from focusin/focusout (any focus, not only focus-visible).
+  state actionsFocused = false
+  derive shown = hovering or snoozeOpen or actionsFocused
+  derive actionIds = [`discard-trigger-${t.id}`, `snooze-trigger-${t.id}`, `sweep-${t.id}`]
+  action actionsIn
+    actionsFocused = true
+  action actionsOut(e: FocusEvent)
+    match e.relatedTarget
+      case some(id)
+        if not actionIds.includes(id)
+          actionsFocused = false
+      case none
+        actionsFocused = false
+  derive snoozeItems = presets.map((preset) => KmItem(id=`snooze-${t.id}-${preset.id}`, label=preset.label)).concat([KmItem(id=`snooze-${t.id}-custom`, label="Custom…")])
+  // ⌘-click toggles the row in the multi-selection and ⇧-click extends it, read
+  // from the press's own MouseEvent (a keyboard or assistive press has no modifiers), not from a native click monitor.
+  action openPress(e: MouseEvent)
+    open(t.id, e.metaKey ? "click:meta" : (e.shiftKey ? "click:shift" : "click"))
+  // A Mac click moves no focus, so Escape in a menu a pointer opened handed the focus back to what held it before
+  // the click (often nothing). Base UI's Menu gives it to the trigger: the press focuses the trigger before the
+  // popover opens, which makes it the focus the popover restores, and the popup takes the focus once it shows, as
+  // Base UI's does after a pointer opening (a focused trigger keeps the popup's own `autofocus` from it).
+  state pressOpening = false
+  action snoozePress
+    hoverCard("", false)
+    pressOpening = true
+    focus(`snooze-trigger-${t.id}`)
+  action snoozeChanged(e: ToggleEvent)
+    snoozeOpen = e.newState == "open"
+    if pressOpening and e.newState == "open"
+      focus(`snooze-${t.id}-keys`)
+    pressOpening = false
+  action snoozeKey(k: string, e: KeyboardEvent)
+    if kmTriggerKey(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        hoverCard("", false)
+        showPopover(`snooze-${t.id}`, source=`snooze-trigger-${t.id}`)
+        let openingTarget = kmTriggerTarget(snoozeItems, k)
+        if openingTarget != ""
+          focus(openingTarget)
+  view
+    column id=`row-${t.id}` width="100%" position="relative" opacity=(lifted ? 0 : recede and t.status == "Working" and not hovering ? 0.7 : 1)
+      column id=`row-${t.hoverKey}` hover=hoverCard(t.hoverKey) contextmenu=menu(t.id, `thread-${t.id}`) contextPopover="thread-menu" dblclick=local("rename-start", t.id, "") width="100%" position="relative" padding-top=(t.card ? "0.125rem" : "0px") padding-bottom=(t.card ? "0.125rem" : "0px") box-sizing="border-box" testId=`row-${t.id}`
+        // Tooltip anchors at the row's top: a control's hover keeps the hover card where the row put it.
+        SidebarTipAnchors(t=t)
+        if t.card
+          if t.renaming
+            column width="100%" height="4.875rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" border-radius="0.5rem" background-color=surface
+              row width="100%" height="1.25rem" gap="0.375rem" align-items="center"
+                SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
+                text t.projectName font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)" flex=1 min-width=0 line-clamp=1
+                SidebarStatusSlot(t=t, now=now)
+              row width="100%" height="1.25rem" margin-top="0.25rem"
+                SidebarRenameField(t=t, local=local, run=run)
+              row width="100%" height="0.875rem" margin-top="0.125rem" align-items="center" justify-content="flex-end"
+                SidebarProviderMark(driver=t.providerDriver, badge=t.providerBadge, accent=t.providerBadgeColor)
+          else
+            button cursor="pointer" id=`thread-${t.id}` press=openPress pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label width="100%" height="4.875rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.5rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") display="flex" flex-direction="column" align-items="stretch" gap=0
+              row width="100%" height="1.25rem" gap="0.375rem" align-items="center"
+                if t.draft
+                  SidebarTip(tip=`${t.hoverKey}#draft`, hoverCard=hoverCard)
+                    SidebarIcon(name="square-pen", size=12, color="light-dark(#bb4d00, #ffb900)")
+                SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
+                text t.projectName font-size="0.75rem" line-height="1rem" font-weight=weight color="light-dark(#71717b, #818181)" flex=1 min-width=0 line-clamp=1 text-align="left"
+                if t.pinned
+                  SidebarPinButton(t=t, busy=busy, run=run, menu=menu, hoverCard=hoverCard, hoverId=hoverId)
+                if lifted and dragVerb != ""
+                  SidebarDropVerb(verb=dragVerb, ink="light-dark(#1b4ed8, #346bf1)")
+                else
+                  // The hover actions stay mounted (collapsed, faded out, inert) beside
+                  // the age, as the reference's opacity-0 slot does: the snooze menu's
+                  // anchor survives the pointer moving into the menu.
+                  // A sweep collapses the slot rather than unmounting it: the pressed button keeps its gesture until the release.
+                  row height="1.25rem" min-width=(swept ? "0px" : "2rem") max-width=(swept ? "0px" : "30rem") overflow=(swept ? "hidden" : "visible") opacity=(swept ? 0 : 1) flex-shrink=0 justify-content="flex-end" align-items="stretch"
+                    if t.woke
+                      SidebarWokeButton(t=t, size=16, run=run, menu=menu, hoverCard=hoverCard, hoverId=hoverId)
+                      if shown or swept
+                        SidebarCardActions(t=t, busy=busy, run=run, menu=menu, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, sweep=sweep, release=dragEnd, sweepKeys=sweepKeys, snoozeKey=snoozeKey, snoozePress=snoozePress, focusIn=actionsIn, focusOut=actionsOut)
+                    else
+                      row align-items="center" flex-shrink=0 max-width=(shown ? "0px" : "15rem") overflow="hidden" opacity=(shown ? 0 : 1)
+                        SidebarStatusSlot(t=t, now=now)
+                      row align-items="stretch" flex-shrink=0 max-width=(shown ? "15rem" : "0px") overflow=(shown ? "visible" : "hidden") opacity=(shown ? 1 : 0) pointer-events=(shown ? "auto" : "none") aria-hidden=(not shown)
+                        SidebarCardActions(t=t, busy=busy, run=run, menu=menu, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, sweep=sweep, release=dragEnd, sweepKeys=sweepKeys, snoozeKey=snoozeKey, snoozePress=snoozePress, focusIn=actionsIn, focusOut=actionsOut)
+                  if swept
+                    SidebarDropVerb(verb=sweptBadge, ink="light-dark(#1b4ed8, #346bf1)")
+              text t.title width="100%" font-size="0.875rem" line-height="1.25rem" margin-top="0.25rem" font-weight=weight color=ink opacity=(t.regenerating ? 0.55 : 1) line-clamp=1 text-align="left"
+              row width="100%" height="0.875rem" margin-top="0.125rem" align-items="center" gap="0.375rem"
+                if t.branch != ""
+                  if t.worktree
+                    SidebarIcon(name="folder-git-2", size=12, color="light-dark(#71717b66, #81818166)")
+                  text t.branch font-size="0.75rem" line-height="1rem" color="light-dark(#71717b66, #81818166)" flex=1 min-width=0 line-clamp=1 text-align="left"
+                else if t.scratchMachine != ""
+                  CnMachineIcon(kind=t.scratchMachine, size=12, color="light-dark(#71717b66, #81818166)")
+                  text t.scratchLabel font-size="0.75rem" line-height="1rem" color="light-dark(#71717b66, #81818166)" flex=1 min-width=0 line-clamp=1 text-align="left"
+                else
+                  box flex=1
+                if t.badge != ""
+                  SidebarPrBadge(t=t, recede=false)
+                if t.terminalCount > 0
+                  TerminalStatusButton(id=t.id, count=t.terminalCount, size=14, reduced=reduced, run=run)
+                // A thread on another environment carries its machine glyph (size-3.5, muted/70) before the provider stack.
+                if t.remoteMachine != ""
+                  box flex-shrink=0 margin-right="-0.125rem" display="flex" aria-hidden=true testId=`remote-${t.id}`
+                    CnMachineIcon(kind=t.remoteMachine, size=14, color="light-dark(#71717bb3, #818181b3)")
+                SidebarProviderMark(driver=t.providerDriver, badge=t.providerBadge, accent=t.providerBadgeColor)
+          if t.canSnooze
+            // Sidebar.tsx: MenuPopup side="bottom" align="end", its right edge under the clock's, flipping near an edge.
+            column id=`snooze-${t.id}` popover="auto" toggle=snoozeChanged position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" role="menu" aria-label="Snooze thread" position="absolute" margin-top="0.25rem" min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c"
+              // MenuPopup sizes to its content from one minimum (min-w-[min(10rem,…)]): "Next week" and its "Mon 9:00 AM" fit
+              // (a fixed 10.8rem cut the time at the menu's edge). The glass's blur does not reach the
+              // popover layer: a denser tint stands in for it.
+              KeyMenu(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=0, gap="0px", modal=true)
+                for preset in presets key=preset.id
+                  SnoozeMenuItem(keysId=`snooze-${t.id}-keys`, itemId=`snooze-${t.id}-${preset.id}`, label=preset.label, detail=preset.wakeLabel, popId=`snooze-${t.id}`, press=run(`snooze:${preset.id}`, t.id, ""))
+                box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+                SnoozeMenuItem(keysId=`snooze-${t.id}-keys`, itemId=`snooze-${t.id}-custom`, label="Custom…", detail="", popId=`snooze-${t.id}`, press=run("snooze:custom", t.id, ""))
+        else
+          if t.renaming
+            row width="100%" height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" gap="0.625rem" align-items="center" border-radius="0.5rem" background-color=surface
+              SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
+              SidebarRenameField(t=t, local=local, run=run)
+          else
+            button cursor="pointer" id=`thread-${t.id}` press=openPress pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label width="100%" height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" gap="0.625rem"
+              // Receding favicon (opacity-40 grayscale), restored on hover.
+              if (not isOpen or t.section == "settled") and not hovering
+                box opacity=0.4 flex-shrink=0 display="flex" align-items="center"
+                  SidebarProjectGlyph(g=t.glyph, size=16, dim=true)
+              else
+                SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
+              if t.draft
+                SidebarTip(tip=`${t.hoverKey}#draft`, hoverCard=hoverCard)
+                  SidebarIcon(name="square-pen", size=12, color="light-dark(#bb4d00, #ffb900)")
+              text t.title font-size="0.875rem" line-height="1.25rem" font-weight=weight color=(hovering ? "light-dark(#27272a, #f3f3f3)" : ink) opacity=(t.regenerating ? 0.55 : 1) line-clamp=1 flex=1 min-width=0 text-align="left"
+              if t.pinned
+                SidebarPinButton(t=t, busy=busy, run=run, menu=menu, hoverCard=hoverCard, hoverId=hoverId)
+              if t.badge != ""
+                SidebarPrBadge(t=t, recede=(t.section == "settled" and not hovering))
+              if t.terminalCount > 0
+                TerminalStatusButton(id=t.id, count=t.terminalCount, size=14, reduced=reduced, run=run)
+              if lifted and dragVerb != ""
+                SidebarDropVerb(verb=dragVerb, ink="light-dark(#1b4ed8, #346bf1)")
+              else
+                row min-width=(swept ? "0px" : "2rem") max-width=(swept ? "0px" : "30rem") overflow=(swept ? "hidden" : "visible") opacity=(swept ? 0 : 1) height="1.5rem" flex-shrink=0 justify-content="flex-end" align-items="stretch"
+                  if t.woke
+                    SidebarWokeButton(t=t, size=12, run=run, menu=menu, hoverCard=hoverCard, hoverId=hoverId)
+                  // Wake and Un-settle stay mounted (collapsed, faded, inert) as the reference's
+                  // opacity-0 buttons do: the control under the pointer survives the row's
+                  // hover handing over to it, so its tooltip can open.
+                  if t.canWake
+                    row align-items="stretch" flex-shrink=0 margin-right=(hovering ? "-0.25rem" : "0px") max-width=(hovering ? "3.75rem" : "0px") overflow="hidden" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering)
+                      SidebarTip(tip=`${t.hoverKey}#wake`, hoverCard=hoverCard)
+                        button cursor="pointer" id=`sweep-${t.id}` press=run("unsnooze", t.id, "") contextmenu=menu(t.id, `sweep-${t.id}`) contextPopover="thread-menu" focus=hoverCard("", false) pointerdown=pressDown pan=sweep(t.id, "unsnooze") panrelease=dragEnd(`sweep|unsnooze|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Wake thread now" testId=`wake-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
+                          SidebarIcon(name="alarm-clock-off", size=12, color=(hoverId == `${t.hoverKey}#wake` ? "light-dark(#27272a, #f1f3f7)" : tool))
+                  if t.canUnsettle
+                    row align-items="stretch" flex-shrink=0 margin-right=(hovering ? "-0.25rem" : "0px") max-width=(hovering ? "3.75rem" : "0px") overflow="hidden" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering)
+                      SidebarTip(tip=`${t.hoverKey}#unsettle`, hoverCard=hoverCard)
+                        button cursor="pointer" id=`sweep-${t.id}` press=run("unsettle", t.id, "") contextmenu=menu(t.id, `sweep-${t.id}`) contextPopover="thread-menu" focus=hoverCard("", false) pointerdown=pressDown pan=sweep(t.id, "unsettle") panrelease=dragEnd(`sweep|unsettle|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Un-settle thread" testId=`unsettle-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
+                          SidebarIcon(name="undo-2", size=14, color=(hoverId == `${t.hoverKey}#unsettle` ? "light-dark(#27272a, #f1f3f7)" : tool))
+                  if not t.woke and not (hovering and (t.canWake or t.canUnsettle))
+                    row align-items="center"
+                      if t.wakeLabel != ""
+                        text t.wakeLabel font-size="0.75rem" line-height="1rem" color="light-dark(#1447e6, #51a2ff)" font-variant-numeric="tabular-nums"
+                      else
+                        text t.age font-size="0.75rem" line-height="1rem" color=(t.section == "settled" and not hovering ? "light-dark(#71717bb3, #818181b3)" : "light-dark(#71717b, #818181)") font-variant-numeric="tabular-nums"
+                if swept
+                  // variantAction "unsettle": [&:not(:hover):not(:focus-within)_*]:text-secondary-label/70 recedes the badge ink too.
+                  SidebarDropVerb(verb=sweptBadge, ink=(t.section == "settled" ? "light-dark(#71717bb3, #818181b3)" : "light-dark(#1b4ed8, #346bf1)"))
+        if t.jump != ""
+          box position="absolute" right="0.375rem" top=(t.card ? "1.9375rem" : "0.5rem") height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff0c)" background-color="light-dark(#fcfcfcf2, #0a0a0af2)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" pointer-events="none" aria-hidden=true
+            text t.jump font-family="ui-monospace" font-size="0.625rem" line-height="0.75rem" font-weight=500 letter-spacing=-0.25 color="light-dark(#27272a, #f3f3f3)"
+
+// Zero-size boxes at the row's top for each control that carries a tooltip
+// (app.contract's sidebarHover reads `row-${key}`'s frame for the hover card).
+component SidebarTipAnchors
+  props
+    t: Thread
+  view
+    if t.draft
+      box id=`row-${t.hoverKey}#draft` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true
+      if t.card
+        box id=`row-${t.hoverKey}#discard` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true
+    if t.pinned
+      box id=`row-${t.hoverKey}#unpin` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true
+    if t.woke
+      box id=`row-${t.hoverKey}#woke` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true
+    if t.canSnooze
+      box id=`row-${t.hoverKey}#snooze` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true
+    if t.canSettle
+      box id=`row-${t.hoverKey}#settle` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true
+    if t.canUnsettle
+      box id=`row-${t.hoverKey}#unsettle` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true
+    if t.canWake
+      box id=`row-${t.hoverKey}#wake` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true
+
+// A row control with a reference tooltip. The control hovers the row's key
+// plus its own name, so the row stays hovered beneath it; the window overlay
+// (sidebar-overlays.contract) draws that control's bubble outside the list's
+// scroll view, where the top row's bubble is not clipped.
+component SidebarTip
+  props
+    tip: string
+    hoverCard: action
+  slot
+  view
+    box hover=hoverCard(tip) flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0 testId=`tip-${tip}`
+      children
+
+// The card's hover actions: Discard draft, Snooze (its menu) and Settle,
+// each with its reference tooltip. A press on Snooze or Settle (and the slim rows'
+// Wake and Un-settle) closes its tooltip at once, as Base UI's tooltips close on press:
+// the window's `sidebarPressDown` moves
+// the card and tips away. The row keeps its hover and the press its gesture.
+component SidebarCardActions
+  props
+    t: Thread
+    busy: bool
+    run: action
+    // The row's context popover, named by a right press on a control (ThreadRow's `menu`).
+    menu: action
+    hoverCard: action
+    pressDown: action
+    hoverId: string
+    // Upstream 1826fb55cc: Settle sweeps the section (ThreadSection's move action; the release is the window's drag end).
+    sweep: action
+    release: action
+    sweepKeys: string
+    // The row owns popup lifetime and keyboard opening; this is the real invoker.
+    snoozeKey: action
+    snoozePress: action
+    // The row's focus-within over these actions (ThreadRow.actionsIn/actionsOut).
+    focusIn: action
+    focusOut: action
+  // text-muted-foreground hover:text-foreground: the control under the pointer inks up.
+  derive tool = "light-dark(#71717b, #a3a3a3)"
+  derive lit = "light-dark(#27272a, #f1f3f7)"
+  view
+    row align-items="stretch" focusin=focusIn focusout=focusOut
+      if t.draft
+        SidebarTip(tip=`${t.hoverKey}#discard`, hoverCard=hoverCard)
+          button cursor="pointer" id=`discard-trigger-${t.id}` press=run("discard-draft", t.id, "") contextmenu=menu(t.id, `discard-trigger-${t.id}`) contextPopover="thread-menu" aria-label="Discard draft" testId=`discard-draft-${t.id}` height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
+            SidebarIcon(name="x", size=14, color=(hoverId == `${t.hoverKey}#discard` ? lit : tool))
+      if t.canSnooze
+        SidebarTip(tip=`${t.hoverKey}#snooze`, hoverCard=hoverCard)
+          box position="relative" display="flex"
+            button cursor="pointer" id=`snooze-trigger-${t.id}` press=snoozePress key=snoozeKey popovertarget=`snooze-${t.id}` pointerdown=pressDown contextmenu=menu(t.id, `snooze-trigger-${t.id}`) contextPopover="thread-menu" disabled=busy aria-label="Snooze thread" testId=`snooze-${t.id}` width="1.5rem" height="1.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              SidebarIcon(name="clock", size=12, color=(hoverId == `${t.hoverKey}#snooze` ? lit : tool))
+      if t.canSettle
+        SidebarTip(tip=`${t.hoverKey}#settle`, hoverCard=hoverCard)
+          button cursor="pointer" id=`sweep-${t.id}` press=run("settle", t.id, "") contextmenu=menu(t.id, `sweep-${t.id}`) contextPopover="thread-menu" focus=hoverCard("", false) pointerdown=pressDown pan=sweep(t.id, "settle") panrelease=release(`sweep|settle|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Settle thread" testId=`settle-${t.id}` height="1.25rem" margin-right="-0.25rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.25rem"
+            SidebarIcon(name="check", size=14, color=(hoverId == `${t.hoverKey}#settle` ? lit : tool))
+            text "Settle" font-size="0.75rem" line-height="1rem" color=(hoverId == `${t.hoverKey}#settle` ? lit : tool)
+
+// A snooze menu row (MenuItem: 28pt, 4/8 inset, radius 6), highlighted while the pointer is on it or it
+// has the keyboard's focus (data-highlighted:bg-accent). Popup toggle owns the parent pin.
+component SnoozeMenuItem
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    itemId: string
+    label: string
+    detail: string
+    popId: string
+    press: action
+  state lit = false
+  action hover(value: bool)
+    if value
+      focus(itemId)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=itemId cursor="pointer" press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=itemId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap="0.5rem"
+      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0
+      if detail != ""
+        text detail margin-left="auto" font-size="0.75rem" line-height="1rem" font-weight=500 letter-spacing="0.075rem" color="light-dark(#71717b, #818181)" white-space="nowrap"
+
+// The pin glyph by the title: an Unpin button once pinning is confirmed.
+component SidebarPinButton
+  props
+    t: Thread
+    busy: bool
+    run: action
+    // The row's context popover (ThreadRow's `menu`).
+    menu: action
+    hoverCard: action
+    hoverId: string
+  // 1e2ecbd975 (6e0abd5a10, Sidebar.tsx pinIndicator): pin at rest, pin-off on hover and on
+  // keyboard focus, so the icon reads as the action. The disabled "Pinned" case keeps the pin.
+  // exact2: focus is a local state from focus=/blur= (any focus, not only focus-visible).
+  state focused = false
+  action focusPin(on: bool)
+    focused = on
+  derive hovered = hoverId == `${t.hoverKey}#unpin`
+  view
+    SidebarTip(tip=`${t.hoverKey}#unpin`, hoverCard=hoverCard)
+      button cursor="pointer" id=`unpin-${t.id}` press=run("unpin", t.id, "") contextmenu=menu(t.id, `unpin-${t.id}`) contextPopover="thread-menu" focus=focusPin(true) blur=focusPin(false) disabled=(busy or not t.canPin) aria-label=(t.canPin ? "Unpin thread" : "Pinned") testId=`unpin-${t.id}` width="0.75rem" height="0.75rem" padding=0 flex-shrink=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        SidebarIcon(name=(t.canPin and (hovered or focused) ? "pin-off" : "pin"), size=12, color=(t.canPin and hovered ? "light-dark(#27272a, #f1f3f7)" : "light-dark(#71717ba6, #a3a3a3a6)"))
+
+// "Woke" stays visible and pressable while the hover actions appear beside it.
+component SidebarWokeButton
+  props
+    t: Thread
+    size: number
+    run: action
+    // The row's context popover (ThreadRow's `menu`).
+    menu: action
+    hoverCard: action
+    hoverId: string
+  derive tint = t.section == "settled" and not (hoverId == t.hoverKey or hoverId.startsWith(`${t.hoverKey}#`)) ? "light-dark(#71717bb3, #818181b3)" : size == 16 ? "#fe9a00" : "light-dark(#bb4d00, #ffb900)"
+  view
+    SidebarTip(tip=`${t.hoverKey}#woke`, hoverCard=hoverCard)
+      button cursor="pointer" id=`woke-${t.id}` press=run("wake-dismiss", t.id, "") contextmenu=menu(t.id, `woke-${t.id}`) contextPopover="thread-menu" aria-label="Dismiss Woke notification" testId=`woke-${t.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.25rem"
+        SidebarIcon(name="alarm-clock", size=size, color=tint)
+        text "Woke" role="status" font-size="0.75rem" line-height="1rem" font-weight=500 color=tint text-decoration-line=(hoverId == `${t.hoverKey}#woke` ? "underline" : "none")
+
+// The card's top-right status: the pill with its icon (and the working
+// duration), or the age.
+// formatWorkingDurationLabel: "12s", "4m", "1h 5m".
+fn workingLabel(ms: number): string = ms < 60000 ? `${floor(max(0, ms) / 1000)}s` : ms < 3600000 ? `${floor(ms / 60000)}m` : `${floor(ms / 3600000)}h ${floor(ms % 3600000 / 60000)}m`
+
+component SidebarStatusSlot
+  props
+    t: Thread
+    now: number
+  view
+    row height="1.25rem" align-items="center" justify-content="flex-end"
+      if t.status != ""
+        row gap="0.25rem" align-items="center"
+          if t.statusIcon != ""
+            SidebarIcon(name=t.statusIcon, size=16, color=t.statusColor)
+          text t.status role="status" font-size="0.75rem" line-height="1rem" font-weight=500 color=t.statusColor
+          if t.duration != ""
+            // WorkingDuration ticks each second from the root clock (the snapshot's own label until it runs).
+            text (t.workingSince > 0 and now > t.workingSince ? workingLabel(now - t.workingSince) : t.duration) font-size="0.75rem" line-height="1rem" font-weight=500 color=t.statusColor font-variant-numeric="tabular-nums" aria-hidden=true
+      else
+        text t.age font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" font-variant-numeric="tabular-nums"
+
+// In-place rename (Sidebar.tsx row title input, aria-label "Thread title"):
+// focused and selected on open; Enter commits, Escape cancels, blur commits.
+// React's `autoFocus` focuses the input as it mounts whatever holds the focus (a double-click from the prompt), and
+// its onFocus selects the title; `autofocus` yields to a focus held elsewhere, so FieldOpenSelect does both.
+component SidebarRenameField
+  props
+    t: Thread
+    local: action
+    run: action
+  state title = t.title
+  action edit(value: string)
+    title = value
+  view
+    FieldOpenSelect(target=`sidebar-rename-${t.id}`, length=t.title.length)
+    input id=`sidebar-rename-${t.id}` value=title input=edit submit=run("rename", t.id, title) blur=run("rename", t.id, title) key=local("rename-key", t.id) autofocus=true aria-label="Thread title" testId=`rename-${t.id}` flex=1 min-width=0 height="1.375rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#27272a, #f3f3f3)" background-color="light-dark(#ffffff, #000000)" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f3f3f3)" autocorrect="off"
+
+// A thread search result: title row with a faded age, and for a message match
+// the speaker label plus the excerpt with every hit in semibold ink. The
+// highlighted result (arrow keys) carries the row surface; Enter opens it.
+component SearchResult
+  props
+    t: Thread
+    open: action
+    hoverCard: action
+    hoverId: string
+  // The highlighted result and the open thread carry the active surface and
+  // full ink; the rest recede until hovered (the row also opens its card).
+  derive lit = t.searchFirst or t.selected
+  derive hovering = hoverId == t.hoverKey
+  // A settled result keeps the settled row's look: its favicon faded and gray, its title regular in secondary ink,
+  // until it is highlighted, open or hovered. Every other title is medium in full ink.
+  derive settled = t.section == "settled"
+  derive prInk = t.searchPrState == "" or (settled and not hovering) ? "light-dark(#71717b, #818181)" : prdTone(t.searchPrState)
+  view
+    button cursor="pointer" id=`row-${t.hoverKey}` hover=hoverCard(t.hoverKey) press=open(t.id, "search") testId=`thread-${t.id}` role="option" aria-selected=t.searchFirst aria-label=`${t.title}, ${t.projectName}` width="100%" min-height="2.25rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(lit ? "light-dark(#ffffff, #f1f3f71c)" : hovering ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap="0.625rem"
+      if settled and not lit and not hovering
+        box opacity=0.4 flex-shrink=0 display="flex" align-items="center"
+          SidebarProjectGlyph(g=t.glyph, size=16, dim=true)
+      else
+        SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
+      column flex=1 min-width=0
+        row width="100%" gap="0.625rem" align-items="center"
+          text t.title flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=(settled ? 400 : 500) color=(settled and not lit and not hovering ? "light-dark(#71717bb3, #818181b3)" : "light-dark(#27272a, #f1f3f7)") opacity=(t.regenerating ? 0.55 : 1) line-clamp=1 text-align="left"
+          if t.searchPr != ""
+            text `#${t.searchPr}` flex-shrink=0 font-size="0.75rem" line-height="1rem" color=prInk font-variant-numeric="tabular-nums" aria-label=t.searchPrLabel testId=`search-pr-${t.id}`
+          text t.age width="2rem" flex-shrink=0 text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b8c, #a3a3a38c)" font-variant-numeric="tabular-nums"
+        if t.matchLabel != ""
+          text width="100%" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bd9, #a3a3a3d9)" line-clamp=1 text-align="left"
+            text `${t.matchLabel} ` color=(t.matchUser ? "light-dark(#1447e6, #50a2ff)" : "light-dark(#007a55, #00d492)")
+            for part in t.matchParts key=part.id
+              text part.text font-weight=(part.hit ? 600 : 400) color=(part.hit ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#71717bd9, #a3a3a3d9)")
+
+// SidebarDraftRow: an unsent new-thread draft above the pinned block (pen,
+// project, first line of the prompt or its attachment count); X discards it.
+// Right click opens the draft's action menu (upstream 95edeb753b).
+// It hovers through the window's hover id (`draft:<project>`), so its Discard
+// control keeps it hovered and the overlay draws that control's tooltip.
+component DraftCard
+  props
+    d: SidebarDraft
+    run: action
+    // The right-clicked draft for the sidebar's one `draft-menu` context popover (DraftMenu), and what the press
+    // focuses: the row, or its Discard draft.
+    menu: action
+    hoverCard: action
+    hoverId: string
+  derive hovering = hoverId == `draft:${d.id}` or hoverId.startsWith(`draft:${d.id}#`)
+  // SidebarDraftRow handleKeyDown (Sidebar.tsx:843-846): ContextMenu or Shift+F10 opens the menu at the row's
+  // bottom left, { x: rect.left, y: rect.bottom }. The row's own key handler hears both, with its modifiers (main's
+  // KeyboardEvent, 8a0afbeab), prevents both, so the host's ContextMenu default (exact2 #314) opens no second menu at
+  // its centre, and shows the draft menu from the row: a popover with no `position-area` sits below its source, its
+  // left edges aligned (LLP 1021 D2), where macOS pops the NSMenu up.
+  action rowKey(k: string, e: KeyboardEvent)
+    if (e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10") or k == "ContextMenu"
+      preventDefault()
+      menu(d.id, `draft-${d.id}`)
+      showPopover("draft-menu", source=`draft-${d.id}`)
+  view
+    column id=`row-draft:${d.id}` hover=hoverCard(`draft:${d.id}`) contextmenu=menu(d.id, `draft-${d.id}`) contextPopover="draft-menu" width="100%" position="relative" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"
+      box id=`row-draft:${d.id}#discard` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true
+      button cursor="pointer" id=`draft-${d.id}` press=run("open-draft", d.id, "") key=rowKey aria-label=`${d.preview}, Unsent draft, ${d.projectName}` testId=`draft-${d.id}` width="100%" height="4.875rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" border-radius="0.5rem" border-width=0 background-color=(hovering ? "#fe9a0014" : "#fe9a000a") display="flex" flex-direction="column" align-items="stretch"
+        row width="100%" height="1.25rem" gap="0.375rem" align-items="center"
+          SidebarIcon(name="square-pen", size=12, color="light-dark(#bb4d00, #ffb900)")
+          SidebarProjectGlyph(g=d.glyph, size=16, dim=false)
+          text d.projectName font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)" flex=1 min-width=0 line-clamp=1 text-align="left"
+          // The reference's opacity-0 Discard: always laid out, so the control under
+          // the pointer survives the card's hover handing over to it.
+          row height="1.25rem" min-width="1.25rem" justify-content="flex-end" align-items="center" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering)
+            SidebarTip(tip=`draft:${d.id}#discard`, hoverCard=hoverCard)
+              button cursor="pointer" id=`discard-draft-${d.id}` press=run("discard-project-draft", d.id, "") contextmenu=menu(d.id, `discard-draft-${d.id}`) contextPopover="draft-menu" aria-label="Discard draft" testId=`discard-draft-${d.id}` height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
+                SidebarIcon(name="x", size=12, color=(hoverId == `draft:${d.id}#discard` ? "light-dark(#27272a, #f1f3f7)" : "light-dark(#71717b, #a3a3a3)"))
+        text d.preview width="100%" margin-top="0.125rem" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272ae6, #f3f3f3e6)" line-clamp=1 text-align="left"
+
+// The lifted row's destination (dropVerbBadge): Pin, Unpin, Settle, Un-settle or Wake.
+component SidebarDropVerb
+  props
+    verb: string
+    // A swept settled row's badge recedes with the row.
+    ink: string
+  view
+    row role="status" height="1.25rem" margin-left="auto" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" flex-shrink=0 align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed866, #346bf166)" background-color="light-dark(#1b4ed81a, #346bf11a)" testId="sidebar-drop-verb"
+      SidebarIcon(name=(verb == "pin" ? "pin" : verb == "unpin" ? "pin-off" : verb == "settle" ? "circle-check" : verb == "unsettle" ? "undo-2" : "alarm-clock-off"), size=12, color=ink)
+      text (verb == "pin" ? "Pin" : verb == "unpin" ? "Unpin" : verb == "settle" ? "Settle" : verb == "unsettle" ? "Un-settle" : "Wake") font-size="0.6875rem" line-height="1rem" font-weight=500 color=ink
+
+style SidebarMenuCard
+  min-width="12rem" max-width="24rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1
+  border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040"
+style SidebarMenuItem
+  width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box"
+  gap="0.5rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+
+// handleThreadContextMenu as the rows' one context popover (LLP 1021 §5.1–5.2, exact2 #223):
+// macOS presents it as an NSMenu with its submenus (Snooze, Auto-settle behavior, Copy), check
+// marks and the 12pt trash glyph, as ElectronMenu.ts shows the reference's; the web and the agent
+// paint it at the row, its submenus beside their rows. The row's `contextmenu` names the thread
+// first, so one popover serves every row. A selected row's is the bulk menu. A right click opens
+// it at the pointer; ContextMenu at the focused row is the host's default (exact2 #314): it runs
+// the row's `contextmenu` and opens this popover at the row's centre, as Chromium's keyboard
+// contextmenu does. Shift+F10 opens nothing on a thread row (Chromium on macOS). A draft row
+// (DraftCard) and a legacy row prevent that default and open their own menus.
+// Placement: the menu keeps `position-try-fallbacks="none"`, as it opens at the pointer with no invoker and the
+// reference's is the system's context menu; a painted submenu sits beside its row and flips to the row's start side.
+component ThreadMenu
+  props
+    threads: Thread[]
+    owner: string
+    run: action
+  view
+    // One root: the menu and, beside it, each submenu (a closed submenu inside the menu took
+    // the painted menu's height under the agent), out of the sidebar's flow.
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id="thread-menu" popover="auto" position-try-fallbacks="none" role="menu" class=SidebarMenuCard testId="thread-menu"
+        for t in threads key=t.id
+          if t.id == owner
+            for e in t.menu.filter((e) => e.parent == "") key=e.id
+              if e.separated
+                hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"
+              if e.sub
+                button popovertarget=`thread-menu-sub-${e.id}` aria-haspopup="menu" role="menuitem" disabled=e.disabled testId=`thread-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+                  text "›" aria-hidden=true font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+              else
+                button press=run("menu-choice", owner, e.id) popovertarget="thread-menu" popovertargetaction="hide" role=(e.check ? "menuitemradio" : "menuitem") aria-checked=e.checked disabled=e.disabled testId=`thread-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+                  if e.destructive
+                    image "symbol:sf/trash" width=12 height=12 object-fit="contain"
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+      for t in threads key=t.id
+        if t.id == owner
+          for p in t.menu.filter((e) => e.sub) key=p.id
+            column id=`thread-menu-sub-${p.id}` popover="auto" position-try-fallbacks="flip-inline" role="menu" position-area="right span-bottom" class=SidebarMenuCard testId=`thread-menu-sub-${p.id}`
+              for e in t.menu.filter((c) => c.parent == p.id) key=e.id
+                if e.separated
+                  hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"
+                button press=run("menu-choice", owner, e.id) popovertarget="thread-menu" popovertargetaction="hide" role=(e.check ? "menuitemradio" : "menuitem") aria-checked=e.checked disabled=e.disabled testId=`thread-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+
+
+// handleDraftContextMenu (upstream 95edeb753b) as the draft rows' one context popover:
+// Copy ▸ Path / Branch, Project settings, Discard draft (see ThreadMenu).
+component DraftMenu
+  props
+    drafts: SidebarDraft[]
+    owner: string
+    run: action
+  view
+    // One root: the menu and, beside it, each submenu (a closed submenu inside the menu took
+    // the painted menu's height under the agent), out of the sidebar's flow.
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id="draft-menu" popover="auto" position-try-fallbacks="none" role="menu" class=SidebarMenuCard testId="draft-menu"
+        for d in drafts key=d.id
+          if d.id == owner
+            for e in d.menu.filter((e) => e.parent == "") key=e.id
+              if e.separated
+                hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"
+              if e.sub
+                button popovertarget=`draft-menu-sub-${e.id}` aria-haspopup="menu" role="menuitem" disabled=e.disabled testId=`draft-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+                  text "›" aria-hidden=true font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+              else
+                button press=run("draft-choice", owner, e.id) popovertarget="draft-menu" popovertargetaction="hide" role=(e.check ? "menuitemradio" : "menuitem") aria-checked=e.checked disabled=e.disabled testId=`draft-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+                  if e.destructive
+                    image "symbol:sf/trash" width=12 height=12 object-fit="contain"
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+      for d in drafts key=d.id
+        if d.id == owner
+          for p in d.menu.filter((e) => e.sub) key=p.id
+            column id=`draft-menu-sub-${p.id}` popover="auto" position-try-fallbacks="flip-inline" role="menu" position-area="right span-bottom" class=SidebarMenuCard testId=`draft-menu-sub-${p.id}`
+              for e in d.menu.filter((c) => c.parent == p.id) key=e.id
+                if e.separated
+                  hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"
+                button press=run("draft-choice", owner, e.id) popovertarget="draft-menu" popovertargetaction="hide" role=(e.check ? "menuitemradio" : "menuitem") aria-checked=e.checked disabled=e.disabled testId=`draft-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")

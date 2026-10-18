@@ -21,6 +21,10 @@ package final class SwipeActionsHost {
     unowned let presenter: Presenter
     private var rows: [UInt32: Row] = [:]
     private var refusals: [UInt32: String] = [:]
+    #if os(iOS)
+    /// Rows whose actions keep their paint (PaintedSwipesIOS.swift).
+    private(set) lazy var painted = PaintedSwipes(presenter)
+    #endif
     private var observers: [NSObjectProtocol] = []
     init(_ presenter: Presenter) {
         self.presenter = presenter
@@ -50,14 +54,28 @@ package final class SwipeActionsHost {
     func reset() {
         for row in rows.values { row.discard() }
         rows.removeAll(); refusals.removeAll()
+        #if os(iOS)
+        painted.reset()
+        #endif
     }
+    #if os(iOS)
+    /// A painted row began a drag (PaintedSwipesIOS.swift): every native
+    /// row closes, one row of either kind open at a time.
+    func closeNative() {
+        for row in rows.values { row.table?.setEditing(false, animated: true) }
+    }
+    #endif
     #if os(iOS)
     /// A grouped list row's actions on one side, as its list cell offers
     /// them (LLP 1116.001 D1); nil for a row that names none there, or that
     /// is no grouped list's swipe row.
     package func configuration(row id: UInt32, leading: Bool) -> UISwipeActionsConfiguration? {
         guard let row = rows[id], row.grouped else { return nil }
-        return row.configuration(leading ? row.leading : row.trailing)
+        let offered = row.configuration(leading ? row.leading : row.trailing)
+        // The list asks as its row's swipe begins: a painted row that is
+        // open closes, one row of either kind open at a time.
+        if offered != nil { painted.closeAll() }
+        return offered
     }
     #endif
 
@@ -83,9 +101,8 @@ package final class SwipeActionsHost {
     /// with a row, outside it and none of whose names changed carriers,
     /// keeps its row as it was; nil revisits every owner.
     func sync(changed: Set<UInt32>? = nil) {
-        let named = presenter.chrome.named
         let renamed = presenter.takeChangedNames()
-        var wanted = Set<UInt32>()
+        var wanted = Set<UInt32>(), paintedOwners = Set<UInt32>()
         var claimed = Set<UInt32>()
         for owner in presenter.carrying("swipeContent") {
             guard let content = owner.props["swipeContent"] else { continue }
@@ -103,9 +120,18 @@ package final class SwipeActionsHost {
             let leadingNames = (owner.props["swipeLeading"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
             let trailingNames = (owner.props["swipeTrailing"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
             let names = leadingNames + trailingNames
+            // A name resolves within its row, as an `id` repeated by a `for`
+            // (and `delete=`'s expansion) names one element in each row.
             func resolve(_ name: String) -> NodeView? {
-                guard let matches = named[name], matches.count == 1, let node = presenter.views[matches.first!] else { return nil }
-                return node !== owner && node.isDescendant(of: owner) ? node : nil
+                var found: [NodeView] = []
+                func visit(_ view: UIView) {
+                    for child in view.subviews {
+                        if let node = child as? NodeView, node.props["id"] == name { found.append(node) }
+                        visit(child)
+                    }
+                }
+                visit(owner)
+                return found.count == 1 ? found[0] : nil
             }
             let controls = names.compactMap(resolve)
             let body = resolve(content)
@@ -116,7 +142,7 @@ package final class SwipeActionsHost {
             // left its content half a point short, and the refusal said only
             // what a row needs).
             let broken: String? = {
-                let size = { (v: NodeView) in String(format: "%gx%g", v.bounds.width, v.bounds.height) }
+                let size = { (v: NodeView) in String(format: "%gx%g", v.layoutBounds.width, v.layoutBounds.height) }
                 if owner.scroll == nil && !owner.scrollDormant { return "it is not a scroll container (overflow-x)" }
                 guard let body else { return "swipeContent \"\(content)\" names no one descendant of it" }
                 if names.isEmpty { return "it names no swipeLeading or swipeTrailing control" }
@@ -127,7 +153,7 @@ package final class SwipeActionsHost {
                     if control === body || control.isDescendant(of: body) { return "\"\(name)\" is inside swipeContent \"\(content)\"" }
                     if label(control).isEmpty { return "\"\(name)\" has no accessible name (aria-label or text)" }
                 }
-                if !grouped, abs(body.bounds.width - owner.bounds.width) >= 0.5 || abs(body.bounds.height - owner.bounds.height) >= 0.5 {
+                if !grouped, abs(body.layoutBounds.width - owner.layoutBounds.width) >= 0.5 || abs(body.layoutBounds.height - owner.layoutBounds.height) >= 0.5 {
                     return "swipeContent \"\(content)\" is \(size(body)), not the row's \(size(owner)) border box (a border or padding on the row shrinks it)"
                 }
                 if claimed.contains(body.id) { return "swipeContent \"\(content)\" is another row's too" }
@@ -141,6 +167,19 @@ package final class SwipeActionsHost {
                 continue
             }
             refusals.removeValue(forKey: owner.id)
+            #if os(iOS)
+            // Actions that say `appearance="none"` keep their paint: the row
+            // swipes by its scroll, with UIKit's swipe's behaviours. In a
+            // grouped list too: its cell then offers no swipe actions
+            // (`configuration` finds no row) and carries the scroll.
+            if PaintedSwipes.keepsPaint(controls) {
+                rows.removeValue(forKey: owner.id)?.discard()
+                painted.adopt(owner, body: body, leading: Array(controls.prefix(leadingNames.count)),
+                              trailing: Array(controls.dropFirst(leadingNames.count)), label: label)
+                paintedOwners.insert(owner.id)
+                continue
+            }
+            #endif
             if let old = rows[owner.id], old.body !== body || old.grouped != grouped { old.discard(); rows.removeValue(forKey: owner.id) }
             let row = rows[owner.id] ?? Row(owner: owner, body: body, host: self, grouped: grouped)
             rows[owner.id] = row
@@ -151,6 +190,9 @@ package final class SwipeActionsHost {
             wanted.insert(owner.id)
         }
         for id in Array(rows.keys) where !wanted.contains(id) { rows.removeValue(forKey: id)?.discard() }
+        #if os(iOS)
+        painted.retain(paintedOwners)
+        #endif
         refusals = refusals.filter { presenter.views[$0.key] != nil }
     }
 
@@ -171,6 +213,16 @@ package final class SwipeActionsHost {
         }
         return nil
     }
+    #if EXACT_INSPECT
+    /// The action a button UIKit draws for a row stands for: inspect mode
+    /// selects it (InspectIOS.swift).
+    func action(for button: UIButton) -> UInt32? {
+        for row in rows.values {
+            for action in row.leading + row.trailing where row.actionView(action.id) === button { return action.id }
+        }
+        return nil
+    }
+    #endif
     /// The agent's tap on an action no swipe has revealed (an authored
     /// test's `tap delete-…`, splitter rough 12): the action UIKit would
     /// offer, performed as VoiceOver performs a cell's swipe action, with
@@ -308,7 +360,7 @@ package final class SwipeActionsHost {
         private var logicalFrame = CGRect.zero
         private var priorSize = CGSize.zero
         /// The projection, only while a swipe can start or is shown.
-        private var table: UITableView?
+        private(set) var table: UITableView?
         private var cell: Cell?
         private var touching = false
         /// UIKit is presenting this row's actions (between its begin and end editing).
@@ -367,7 +419,10 @@ package final class SwipeActionsHost {
             return (table, cell)
         }
         func restore() {
-            if let parent = logicalParent, let carrier { parent.addSubview(carrier); carrier.frame = logicalFrame }
+            if let parent = logicalParent, let carrier {
+                parent.addSubview(carrier); carrier.frame = logicalFrame
+                if let node = carrier as? NodeView { owner.presenter?.regrid(node) } // placed from the cell while projected
+            }
             for (control, hidden) in hiddenControls { control.isHidden = hidden }
             hiddenControls.removeAll()
             if stilled { owner.scroll?.isScrollEnabled = true; stilled = false }
@@ -505,6 +560,7 @@ package final class SwipeActionsHost {
         func tableView(_ tableView: UITableView, willBeginEditingRowAt indexPath: IndexPath) {
             open = true
             for other in host.rows.values where other !== self { other.table?.setEditing(false, animated: true) }
+            host.painted.closeAll()
             DispatchQueue.main.async { [weak self] in self?.nameActions() }
         }
         func tableView(_ tableView: UITableView, didEndEditingRowAt indexPath: IndexPath?) {
@@ -575,6 +631,15 @@ package final class SwipeActionsHost {
                     image.accessibilityLabel = host.label(target)
                     images[target.id] = image; action.image = image
                     action.title = shownTitle(target)
+                    return action
+                }
+                // A word its author left unstyled (no font or colour written
+                // on it or its button), as `delete=`'s Delete (LLP 1116.020
+                // D1): UIKit's title, in UIKit's font, not a picture of the word.
+                let faces = target.container.subviews.compactMap { $0 as? NodeView }
+                if let word = faces.first, faces.count == 1, word.isParagraph, let title = target.face?.title, !title.isEmpty,
+                   ![word, target].contains(where: { node in ["font_size", "font_weight", "font_family", "text_color"].contains(where: node.wrote) }) {
+                    action.title = title
                     return action
                 }
                 if let glyph = target.container.subviews.first as? NodeView, !glyph.bounds.isEmpty {

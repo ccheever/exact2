@@ -1,5 +1,5 @@
 // Pinned365aa87982 ComposerCommandPopover. Root owns admission, queries and picks.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 use ComposerCommandIcon from "./composer-command-icons.contract"
 shape ComposerCommandRow
   id: string

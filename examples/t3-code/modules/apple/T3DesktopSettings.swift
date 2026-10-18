@@ -1,4 +1,4 @@
-// The desktop settings file, `<T3 home>/userdata/desktop-settings.json` (decision U7, 2026-10-08: as the
+// The desktop settings file, `<T3 home>/userdata/desktop-settings.json` (as the
 // original app), after T3 Code (MIT, see LICENSE-T3; reference 1e2ecbd975):
 // apps/desktop/src/settings/DesktopAppSettings.ts (the document schema, `normalizeDesktopSettingsDocument`,
 // `toDesktopSettingsDocument`, `readSettings`, `writeSettings`), packages/shared/src/schemaJson.ts
@@ -41,9 +41,9 @@ struct T3DesktopSettings: Equatable {
 
     /// The desktop app this client mirrors (version-skew.ts `CLIENT_VERSION`): its version picks the
     /// default update channel (`resolveDefaultDesktopSettings`).
-    static let appVersion = "0.0.46-nightly.20261004.1"
+    static let appVersion = "0.1.1-nightly.20261018.3302"
     static let fileName = "desktop-settings.json"
-    /// The keys the clone kept in `t3-code.json` before U7 was decided.
+    /// The keys the clone kept in `t3-code.json` before it used the desktop settings file.
     static let legacyKeys = ["localEnvironmentEnabled", "serverExposureMode", "tailscaleServeEnabled", "tailscaleServePort"]
 
     /// `desktopSettingsPath`: `<T3 home>/userdata/desktop-settings.json`.

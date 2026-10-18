@@ -8,7 +8,35 @@ use contract_syntax::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+mod midi;
 mod sounds;
+
+/// Whether a roster parameter admits `t`. The roster table spells three
+/// parameters `any`; each is held to the values its runner entry reads, so a
+/// call that would fail at runtime (`isEmpty(5)`) is refused here instead.
+/// (`length` is `lists::infer_length`'s.)
+pub(super) fn roster_accepts(f: exact_plan::Stdlib, spec: &str, t: &Ty) -> bool {
+    use exact_plan::Stdlib;
+    match (f, spec) {
+        (Stdlib::IsEmpty, "any") => matches!(t, Ty::String | Ty::Enum(_) | Ty::List(_)),
+        (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool),
+        (Stdlib::First | Stdlib::At, "any") => matches!(t, Ty::List(_)),
+        _ => t.matches_roster(spec),
+    }
+}
+
+/// A roster parameter as a refusal spells it.
+pub(super) fn roster_spelling(f: exact_plan::Stdlib, spec: &str) -> &str {
+    use exact_plan::Stdlib;
+    match (f, spec) {
+        (Stdlib::Length | Stdlib::IsEmpty, "any") => "string | list",
+        (Stdlib::ToString, "any") => "number | string | bool",
+        (Stdlib::First | Stdlib::At, "any") => "list",
+        // The ISO 4217 codes `"currency"` takes (LLP 1116 D8), too many to spell here.
+        (Stdlib::FormatNumber, code) if code.starts_with("\"USD\"") => "\"USD\" | \"EUR\" | …",
+        _ => spec,
+    }
+}
 
 /// Reject recursive functions without revisiting completed subgraphs.
 pub(super) fn check_function_cycles(file: &File) -> Result<(), TypeError> {
@@ -125,9 +153,13 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
     }
 }
 
+pub(super) use super::enums::accepts_expr;
+
 /// Check compatibility without constructing a discarded merged type.
 pub(super) fn can_unify(a: &Ty, b: &Ty) -> bool {
     match (a, b) {
+        (Ty::String, Ty::Enum(_)) => true,
+        (Ty::Enum(a), Ty::Enum(b)) => b.iter().all(|value| a.contains(value)),
         (Ty::Unknown, _) | (_, Ty::Unknown) => true,
         (Ty::Option(a), Ty::Option(b)) | (Ty::List(a), Ty::List(b)) => can_unify(a, b),
         (Ty::Action(a), Ty::Action(b)) => {
@@ -610,12 +642,14 @@ fn save_file_args(
     Ok(())
 }
 
-/// `share(title=, text=, url=)` (LLP 1069.003 D1): the Web Share API's
-/// member names, named only, each a string, at least one of `text` and
-/// `url`. Whether `url` is absolute is the host's to refuse: a value is not
-/// known here.
+/// `share(title=, text=, url=, files=)` (LLP 1069.003 D1; LLP 1125 D12):
+/// the Web Share API's member names, named only, at least one of `text`,
+/// `url` and `files`; each a string but `files`, a list of strings. A
+/// literal file is an `app:/` path or an element's `"#id"`. Whether `url`
+/// is absolute and whether the grants cover a path are the host's to
+/// refuse: a value is not known here.
 fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Result<(), TypeError> {
-    const NAMES: [&str; 3] = ["title", "text", "url"];
+    const NAMES: [&str; 4] = ["title", "text", "url", "files"];
     let mut seen = BTreeSet::new();
     for arg in args {
         let Expr::NamedArg(name, value, at) = arg else {
@@ -628,7 +662,9 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
         if !NAMES.contains(&name.as_str()) {
             return err(
                 "type-share-argument",
-                format!("`share` has no argument `{name}`; it takes title=, text= and url="),
+                format!(
+                    "`share` has no argument `{name}`; it takes title=, text=, url= and files="
+                ),
                 *at,
             );
         }
@@ -640,6 +676,10 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
             );
         }
         let t = infer(value, scope, shapes)?;
+        if name == "files" {
+            share_files(value, &t)?;
+            continue;
+        }
         if Ty::String.unify(&t).is_none() {
             return err(
                 "type-share-argument",
@@ -648,12 +688,44 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
             );
         }
     }
-    if !seen.contains("text") && !seen.contains("url") {
+    if !seen.contains("text") && !seen.contains("url") && !seen.contains("files") {
         return err(
             "type-share-argument",
-            "`share` needs `text=` or `url=`",
+            "`share` needs `text=`, `url=` or `files=`",
             span,
         );
+    }
+    Ok(())
+}
+
+/// `files=`: a list of strings; a literal list shares something, and each
+/// literal entry is an `app:/` path or an `"#id"` (LLP 1125 D12).
+fn share_files(value: &Expr, t: &Ty) -> Result<(), TypeError> {
+    if Ty::List(Box::new(Ty::String)).unify(t).is_none() {
+        return err(
+            "type-share-argument",
+            format!(
+                "`files=` is a list of strings, `app:/` paths and `\"#id\"` entries, not `{t}`"
+            ),
+            value.span(),
+        );
+    }
+    let Expr::List(items, at) = value else {
+        return Ok(());
+    };
+    if items.is_empty() {
+        return err("type-share-argument", "`files=[]` shares nothing", *at);
+    }
+    for item in items {
+        let Expr::Str(s, at) = item else { continue };
+        let id = s.strip_prefix('#');
+        if id.is_some_and(str::is_empty) || (id.is_none() && !s.starts_with("app:/")) {
+            return err(
+                "type-share-argument",
+                format!("`files=` takes `app:/` paths and an element's `\"#id\"`, not \"{s}\""),
+                *at,
+            );
+        }
     }
     Ok(())
 }
@@ -765,7 +837,7 @@ fn into_view_args(
     };
     let Some(key) = key else {
         // Any string names the element, as `focus` takes one.
-        if infer(list, scope, shapes)? != Ty::String {
+        if !infer(list, scope, shapes)?.is_string() {
             return err(
                 "type-scroll-into-view",
                 format!("the element is named by its `id`, a string: {USAGE}"),
@@ -900,7 +972,7 @@ pub(super) fn check_command(
     if name == "stopPropagation" && !args.is_empty() {
         return err(
             "type-stop-propagation",
-            "`stopPropagation()` takes no arguments: it stops the key event that ran this action at this handler, so no ancestor's `key` handler hears it",
+            "`stopPropagation()` takes no arguments: it stops the event that ran this action (a key, focus, the pointer's down or up, a wheel) at this handler, so no ancestor's handler hears it",
             span,
         );
     }
@@ -925,7 +997,7 @@ pub(super) fn check_command(
         const USAGE: &str = "`scrollBy(\"element-id\", x, y)`, pixels to move by";
         let ok = match args {
             [id, x, y] => {
-                infer(id, scope, shapes)? == Ty::String
+                infer(id, scope, shapes)?.is_string()
                     && infer(x, scope, shapes)? == Ty::Number
                     && infer(y, scope, shapes)? == Ty::Number
             }
@@ -959,8 +1031,28 @@ pub(super) fn check_command(
     if name == "setRootFontSize" {
         return root_font_size_args(args, scope, shapes, span);
     }
+    // @ref LLP 1121 D5 — an axis and its value; lowering checks literal
+    // ones against the design's axes.
+    if name == "setMode" {
+        let [axis, value] = args else {
+            return err("type-set-mode", "`setMode(axis, value)` takes an axis of the app's design and one of its values: `setMode(\"dark-style\", \"dim\")`", span);
+        };
+        for a in [axis, value] {
+            if !matches!(infer(a, scope, shapes)?, Ty::String) {
+                return err(
+                    "type-set-mode",
+                    "`setMode(axis, value)` takes two strings: `setMode(\"dark-style\", \"dim\")`",
+                    a.span(),
+                );
+            }
+        }
+        return Ok(());
+    }
     if matches!(name, "playSound" | "playSounds" | "stopSounds") {
         return sounds::args(name, args, scope, shapes, span);
+    }
+    if matches!(name, "requestMIDIAccess" | "sendMIDI") {
+        return midi::args(name, args, scope, shapes, span);
     }
     if name == "postMessage" {
         // The web's argument order, `postMessage(message, target)`: the target
@@ -973,7 +1065,7 @@ pub(super) fn check_command(
                 span,
             );
         };
-        if !matches!(infer(text, scope, shapes)?, Ty::String) {
+        if !infer(text, scope, shapes)?.is_string() {
             return err(
                 "type-post-message",
                 format!("the message is a string: {USAGE}"),
@@ -1113,7 +1205,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item);
                 match infer(key, &inner, shapes) {
-                    Ok(Ty::String | Ty::Number | Ty::Bool) => {}
+                    Ok(Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool) => {}
                     Ok(kt) => sink.push(TypeError {
                         id: "type-each-key",
                         message: format!("a key must be a string, number, or bool, not `{kt}`"),
@@ -1245,7 +1337,7 @@ fn glass_group_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, Typ
         Expr::Ternary(..) | Expr::Match { .. } => {
             let (ta, tb) = arms(e, scope, shapes, glass_group_value)?;
             let either = |a: &Ty, b: &Ty| {
-                matches!((a, b), (Ty::Number, Ty::String) | (Ty::String, Ty::Number))
+                (a == &Ty::Number && b.is_string()) || (a.is_string() && b == &Ty::Number)
             };
             match ta.unify(&tb) {
                 Some(t) => Ok(t),
@@ -1297,7 +1389,7 @@ fn style_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError
         return infer(e, scope, shapes);
     }
     let (ta, tb) = arms(e, scope, shapes, style_value)?;
-    let dimension = |t: &Ty| matches!(t, Ty::Number | Ty::String);
+    let dimension = |t: &Ty| t == &Ty::Number || t.is_string();
     match ta.unify(&tb) {
         Some(t) => Ok(t),
         None if dimension(&ta) && dimension(&tb) => Ok(Ty::Unknown),

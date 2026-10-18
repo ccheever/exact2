@@ -1,4 +1,4 @@
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // T3 365aa87982 thread-provider-instance, threadListV2 and providerInstanceDisplay.
 import { arr, obj, str, type Obj } from './shared/domain';
 import { driverMeta } from './shared/providers-meta';

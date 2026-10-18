@@ -4,6 +4,7 @@
   "short_name": "T3 Code (Exact)",
   "id": "com.exact.t3code.macos",
   "start_url": "/",
+  "protocol_handlers": [{ "protocol": "t3code", "url": "/open?u=%s", "distribution_only": true }],
   "display": "standalone",
   "theme_color": "#fafafa",
   "background_color": "#fafafa",
@@ -19,7 +20,6 @@
     "name": "T3 Code (Exact)"
   },
   "modules": [
-    "t3-key-recorder",
     "t3-ssh-password",
     "t3-terminal",
     "t3-browser"
@@ -27,26 +27,21 @@
   "commands": {
     "terminal": ["bun", "terminal-host/build.mjs"],
     "verify-terminal": ["bun", "terminal-host/verify-vendor.mjs"],
-    "runtime": ["bun", "stage-runtime.mjs"]
+    "runtime": ["bun", "tools/stage-runtime/stage-runtime.mjs"]
   },
   "hatches": [
     "t3-composer",
     "t3-prompt-preview",
     "t3-send",
     "t3-anchor",
-    "t3-transcript",
     "t3-snapshot-tile",
     "t3-composer-key",
     "t3-terminal-key",
     "t3-frame",
-    "t3-turn",
-    "t3-video",
     "t3-file-editor",
     "t3-media",
     "t3-launcher",
-    "t3-measure",
     "t3-tool-icon",
-    "t3-timeline-tip",
     "t3-row-drop"
   ],
   "rust": {
@@ -76,13 +71,10 @@
     }
   },
   "data": [
-    "timeline-owner",
-    "timeline-rest",
     "snapshot-id",
     "anchor",
     "snapshot-owner",
     "frame",
-    "turn",
     "media-url",
     "media-kind",
     "media-name",
@@ -97,6 +89,9 @@
     "thread-key",
     "thread-open",
     "paint",
-    "pick"
+    "pick",
+    "dialog-focus",
+    "focus-stop",
+    "dialog-return"
   ]
 }

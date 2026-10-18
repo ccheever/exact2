@@ -1,6 +1,6 @@
 import { mobileOutboxDraftRecoveryBlocked } from './mobile-outbox-draft-handoff';
 // Pinned365aa87982 NewTaskDraftScreen.handleStart: local enqueue precedes navigation.
-// @ref llp/1109.005-composer-and-transcript.decision.md#durable-draft-capture-transfer
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#durable-draft-capture-transfer
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import { mobileNewTaskCaptureFacts } from './new-task-capture-facts';
 import { mobileNewTaskTransferSubmit, mobileNewTaskTransferResume, type MobileNewTaskTransferResult } from './new-task-transfer';

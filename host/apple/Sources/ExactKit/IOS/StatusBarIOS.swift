@@ -17,10 +17,11 @@ extension Presenter {
     /// UIKit may ask answer it in this turn (D5, D6). While a navigation or
     /// a presentation is moving, the last committed style stays; its end
     /// resolves again.
-    /// `settled`: a navigation's own end, whose coordinator is still winding
-    /// down; a push it starts next still holds the style.
+    /// `settled`: a transition's own end, whose coordinator may still be
+    /// installed (a sheet's); only a push or pop that navigation starts next
+    /// holds the style.
     func resolveStatusBar(settled: Bool = false) {
-        guard !(settled ? navigation.started : navigation.transitioning), !modals.inTransition else { return }
+        guard !(settled ? navigation.changing : navigation.transitioning), !modals.inTransition else { return }
         let choice = statusBarChoice()
         guard choice != statusBar else { return }
         statusBar = choice
@@ -108,7 +109,8 @@ extension Presenter {
         var up: UIView? = node
         while let v = up {
             if v.overrideUserInterfaceStyle != .unspecified { return v.overrideUserInterfaceStyle == .dark ? .lightContent : .darkContent }
-            up = v.superview
+            // Through a presented route's logical parents (LLP 1123 D2)
+            up = (v as? NodeView)?.presenter?.eventParent(of: v) ?? v.superview
         }
         return .default
     }

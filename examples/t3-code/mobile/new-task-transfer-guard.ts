@@ -1,5 +1,5 @@
 // Captured enqueue ownership outlives a foreground route or confirmation dialog.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import type { T3Client } from './shared/client';
 import { ClientError, type Native } from './shared/protocol';
 import { mobileOutboxRead, mobileOutboxSnapshot, mobileOutboxTransferLookup } from './mobile-outbox';

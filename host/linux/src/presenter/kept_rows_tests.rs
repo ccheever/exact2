@@ -5,19 +5,10 @@ use super::*;
 use crate::image::Bitmap;
 use crate::paint::Shape;
 use crate::text::{Paragraph, RunPaint};
-use exact_runner::{DataError, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::Transform;
-
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 /// What the backend heard: each row begun, with the row it was said to
 /// have been, and each row freed.
@@ -89,7 +80,7 @@ fn a_renewed_row_is_not_the_row_it_was() {
         ))
         .unwrap()
         .encode(),
-        Nothing,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -106,17 +97,20 @@ fn a_renewed_row_is_not_the_row_it_was() {
     let first = std::mem::take(&mut *heard.borrow_mut());
     assert_eq!(first.begun.len(), 6, "each cell a kept row");
     assert!(first.begun.iter().all(|(_, previous)| previous.is_none()));
-    // Nothing changed: nothing is recorded again.
+    // () changed: nothing is recorded again.
     let _ = p.frame();
     assert!(heard.borrow().begun.is_empty());
     // One row changed, one was bound to another item.
     let key = |name: &str| p.host.kernel().find_by_test_id(name)[0];
     let (changed, renewed) = (key("c1"), key("c4"));
-    p.host.row_dirty.commit(&exact_kernel::CommitReceipt {
-        touched: vec![changed, renewed],
-        renewed: vec![renewed],
-        ..Default::default()
-    });
+    p.host.row_dirty.commit(
+        &exact_kernel::CommitReceipt {
+            touched: vec![changed, renewed],
+            renewed: vec![renewed],
+            ..Default::default()
+        },
+        0.0,
+    );
     let _ = p.frame();
     let heard = heard.borrow();
     let (was_changed, was_renewed) = (first.begun[1].0, first.begun[4].0);
@@ -144,7 +138,7 @@ fn a_new_reader_is_sent_every_row_again() {
         ))
         .unwrap()
         .encode(),
-        Nothing,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -199,7 +193,7 @@ fn a_row_whose_padding_alone_changed_is_recorded_again() {
             )
             .unwrap()
             .encode(),
-            Nothing,
+            (),
             (400., 500.),
             1.,
             PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),

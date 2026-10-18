@@ -1,0 +1,4 @@
+component HeadlessMarkdown
+  view
+    column
+      text "**expanded**" markup="markdown" testId="markdown-body"

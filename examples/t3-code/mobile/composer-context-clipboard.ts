@@ -1,5 +1,5 @@
 // Adapted from T3 Code365aa87982 shared/mobile composerContextClipboard (MIT, LICENSE-T3).
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import { decodeMobileComposerClipboardValue, type MobileComposerClipboardFragment } from './composer-context-schema';
 import { formatComposerContextReference, replaceComposerContextReferences } from './composer-editor-document';
 import { mobileReferencedComposerContext, type MobileMessageContext } from './mobile-new-task-context';

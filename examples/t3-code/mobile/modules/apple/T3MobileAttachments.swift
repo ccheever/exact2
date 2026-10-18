@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 // Native counterpart of pinned mobile composerImages.ts; files feed the existing shared upload contract.
 import UIKit
 import PhotosUI

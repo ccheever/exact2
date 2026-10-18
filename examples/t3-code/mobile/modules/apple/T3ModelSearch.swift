@@ -1,6 +1,6 @@
 #if os(iOS)
 // Pinned365aa87982 ThreadSettingsSheet + RNS mail-search toolbar patch.
-// @ref llp/1109.005-composer-and-transcript.decision.md#settings-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#settings-ownership
 import UIKit
 
 /// The port is a zero-size configuration anchor. Only its own 48pt toolbar

@@ -52,7 +52,7 @@ enum T3SettingsWindow {
 /// reading always), every 0.5 s while Settings is frontmost and every 1 s otherwise.
 /// The reference polls in its own process (one `osascript`), so a drag from the helper
 /// or a menu's tracking loop never pauses it; the timer runs in the common modes for the
-/// same reason (realinput-1010e-followups RE-2), not only in the default one.
+/// same reason, not only in the default one.
 final class T3SettingsWindowWatcher {
     private let read: () -> T3SettingsReading
     private let changed: (T3SettingsReading) -> Void
@@ -79,7 +79,7 @@ final class T3SettingsWindowWatcher {
 /// reaches the page: see T3PermissionHelperAppRow.acceptsFirstMouse), and a reveal asked by the active app brings
 /// Finder's window to the front (the helper then hides, System Settings being covered). The panel activates too (T3PermissionPanel), so a click reaches here with
 /// T3 Code active, and T3 Code yields activation to Finder, asks for the reveal and asks Finder to activate. A request
-/// to activate itself from an inactive app is refused under real input (realinput-1010c RC-1: two clicks left Finder
+/// to activate itself from an inactive app is refused under real input (two clicks left Finder
 /// behind System Settings with T3 Code inactive), so it is only a fallback for a press that is no click (VoiceOver's
 /// press). Nothing waits for Finder's window: the reveal reaches Finder as a request, and the activation request
 /// follows it at once.
@@ -99,11 +99,11 @@ struct T3FinderReveal {
     }
 }
 
-/// realinput-1010e-followups RE-2: with R9_INPUT_LOG set (the real-input sessions' log, R9Input.swift), each System
+/// With T3_COMPOSER_INPUT_LOG set (the real-input sessions' log, T3ComposerInput.swift), each System
 /// Settings reading and each show, hide and close of the helper, and why: a session can tell a hidden helper (it comes
 /// back with the next reading) from a closed one, which no screenshot can.
 enum T3PermissionHelperLog {
-    static let path = ProcessInfo.processInfo.environment["R9_INPUT_LOG"].flatMap { $0.isEmpty ? nil : $0 }
+    static let path = ProcessInfo.processInfo.environment["T3_COMPOSER_INPUT_LOG"].flatMap { $0.isEmpty ? nil : $0 }
     static func note(_ line: @autoclosure () -> String) {
         guard let path, let data = "\(Date().timeIntervalSince1970) helper \(line())\n".data(using: .utf8) else { return }
         if let handle = FileHandle(forWritingAtPath: path) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() }
@@ -346,8 +346,8 @@ final class T3PermissionHelperAppRow: NSView, NSDraggingSource {
         icon.draw(in: NSRect(x: 12, y: (bounds.height - 32) / 2, width: 32, height: 32), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
     }
     override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
-    // The click that activates T3 Code also reaches the row (a click reveals, a press drags), as in the reference
-    // (realinput-1010e-followups RE-1): its window leaves Electron's acceptFirstMouse at false, but it is always on top,
+    // The click that activates T3 Code also reaches the row (a click reveals, a press drags), as in the reference:
+    // its window leaves Electron's acceptFirstMouse at false, but it is always on top,
     // and Chromium's page view accepts every press in a window above the normal level (render_widget_host_view_cocoa.mm
     // acceptsMouseEventsOption, kAlways), so AppKit gives it the first click. Asked inside the reference's Electron
     // 44.4.2, the view under its "T3 Code" row answers acceptsFirstMouse: true, and false at the normal level. The close

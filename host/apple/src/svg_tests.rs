@@ -173,3 +173,148 @@ fn a_fixed_svg_reemits_window_geometry_after_resize() {
     let unscreened = scene(&host.set_screen(None));
     assert_eq!(unscreened["els"][0]["vp"][3], 250);
 }
+
+/// LLP 1115.003 D4: a path whose `d` moves between two paths of the same
+/// commands, flat and as a gradient fill.
+const MORPH: &str = "component A\n  state up = false\n  action flip\n    up = not up\n  view\n    column\n      button testId=\"go\" press=flip\n        text \"go\"\n      svg width=100 height=100 viewBox=\"0 0 100 100\"\n        path testId=\"flat\" d=(up ? \"M0 0 Q50 100 100 0 Z\" : \"M0 50 Q50 0 100 50 Z\") fill=\"#16a34a\" transition=\"d 500ms cubic-bezier(0.77, 0, 0.175, 1) 900ms\"\n      svg width=100 height=100 viewBox=\"0 0 100 100\"\n        defs\n          linearGradient id=\"g\"\n            stop offset=0 stop-color=\"#000\"\n            stop offset=1 stop-color=\"#fff\"\n        path testId=\"served\" d=(up ? \"M0 0 L100 0\" : \"M0 50 L100 50\") stroke=\"url(#g)\" transition=\"d 400ms ease-in-out\"\n        path testId=\"solid\" d=(up ? \"M0 10 L100 10\" : \"M0 60 L100 60\") stroke=\"#000\" transition=\"d 400ms ease-in-out\"\n";
+
+/// Every `svg` op's scene in a batch, in order.
+fn scenes(batch: &str) -> Vec<serde_json::Value> {
+    let v: serde_json::Value = serde_json::from_str(batch).unwrap();
+    v["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|op| op["op"] == "svg")
+        .map(|op| op["scene"].clone())
+        .collect()
+}
+
+fn morph_host() -> Host<NoData> {
+    let plan = contract::compile(MORPH).unwrap().encode();
+    let (host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host
+}
+
+/// A path's numbers, to the hundredth.
+fn close(path: &serde_json::Value, want: &[f64]) {
+    let got: Vec<f64> = path
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n.as_f64().unwrap())
+        .collect();
+    assert!(
+        got.len() == want.len() && got.iter().zip(want).all(|(a, b)| (a - b).abs() < 0.01),
+        "{got:?}"
+    );
+}
+
+fn element(scene: &serde_json::Value, index: usize) -> &serde_json::Value {
+    &scene["els"][index]
+}
+
+#[test]
+fn a_morph_between_paths_of_one_shape_plays_in_core_animation() {
+    let mut host = morph_host();
+    let go = {
+        let k = host.runner.kernel();
+        k.node_by_key(k.find_by_test_id("go")[0]).unwrap().id
+    };
+    let batch = host.dispatch_at(go, exact_runner::Event::Press, 100.0);
+    let all = scenes(&batch);
+    assert_eq!(all.len(), 1, "the sampled scene has not moved yet");
+    let flat = element(&all[0], 0);
+    // The model is the target; Core Animation moves from the start to it,
+    // after the delay, on the transition's own cubic, holding the start
+    // through the delay.
+    close(
+        &flat["p"],
+        &[0., 0., 0., 2., 33.33, 66.67, 66.67, 66.67, 100., 0., 3.],
+    );
+    let spec = flat["a"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["k"] == "path")
+        .unwrap_or_else(|| panic!("a path spec: {flat}"));
+    assert_eq!(spec["t"], serde_json::json!([0, 1]));
+    assert_eq!(spec["c"], serde_json::json!([[0.77, 0, 0.175, 1]]));
+    assert_eq!(spec["d"], 0.5);
+    assert_eq!(spec["fill"], 3);
+    assert_eq!(spec["v"][1], flat["p"]);
+    close(
+        &spec["v"][0],
+        &[0., 0., 50., 2., 33.33, 16.67, 66.67, 16.67, 100., 50., 3.],
+    );
+    // A path painted by a gradient keeps its sampled morph (Core Graphics
+    // draws its parts), and its scene's other morphs stay with it.
+    for test_id in ["served", "solid"] {
+        let k = host.runner.kernel();
+        let key = exact_kernel::motion::motion_node(k.find_by_test_id(test_id)[0]);
+        assert!(
+            host.engine.played_path(key).is_none(),
+            "{test_id} is sampled"
+        );
+    }
+    let v: serde_json::Value = serde_json::from_str(&batch).unwrap();
+    assert_eq!(v["motion"], true, "the sampled morphs keep frames");
+}
+
+#[test]
+fn a_lowered_morph_keeps_no_frames_busy() {
+    let plan = contract::compile(&MORPH.replace("stroke=\"url(#g)\"", "stroke=\"#000\""))
+        .unwrap()
+        .encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let go = {
+        let k = host.runner.kernel();
+        k.node_by_key(k.find_by_test_id("go")[0]).unwrap().id
+    };
+    let batch = host.dispatch_at(go, exact_runner::Event::Press, 100.0);
+    let v: serde_json::Value = serde_json::from_str(&batch).unwrap();
+    assert_eq!(
+        v["motion"], false,
+        "both morphs are Core Animation's: {batch}"
+    );
+}
+
+#[test]
+fn a_morph_retargeted_midway_starts_from_the_path_it_shows() {
+    let mut host = morph_host();
+    let go = {
+        let k = host.runner.kernel();
+        k.node_by_key(k.find_by_test_id("go")[0]).unwrap().id
+    };
+    let _ = host.dispatch_at(go, exact_runner::Event::Press, 100.0);
+    // Half way through the 500 ms after its 900 ms delay, back again.
+    let batch = host.dispatch_at(go, exact_runner::Event::Press, 1250.0);
+    let spec = scenes(&batch)
+        .iter()
+        .flat_map(|s| s["els"].as_array().unwrap().clone())
+        .flat_map(|e| e["a"].as_array().cloned().unwrap_or_default())
+        .find(|a| a["k"] == "path")
+        .expect("a path spec for the reversal");
+    // The cubic's midpoint, not either end: the control point's y is at
+    // neither 66.67 nor 16.67.
+    let y = spec["v"][0][4].as_f64().unwrap();
+    assert!(y > 20.0 && y < 63.0, "{spec}");
+    close(
+        &spec["v"][1],
+        &[0., 0., 50., 2., 33.33, 16.67, 66.67, 16.67, 100., 50., 3.],
+    );
+}

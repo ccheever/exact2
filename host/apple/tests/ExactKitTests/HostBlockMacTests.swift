@@ -75,6 +75,54 @@ final class HostBlockMacTests: XCTestCase {
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name))
     }
 
+    func testABlockDoesNotBubblePressesToItsAuthoredHome() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        windows.append(window)
+        let content = NSView(frame: window.contentLayoutRect)
+        window.contentView = content
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 300, height: 300)
+        content.addSubview(p.viewport)
+        let pane = BlockView(frame: NSRect(x: 300, y: 0, width: 300, height: 300))
+        content.addSubview(pane)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
+            ["op": "create", "id": 2, "kind": "view"],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Selectable detail"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 2, "ids": [3, 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 300],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 300, "h": 300],
+            ["op": "frame", "id": 3, "x": 10, "y": 10, "w": 100, "h": 40],
+            ["op": "frame", "id": 4, "x": 10, "y": 60, "w": 200, "h": 30],
+        ]))
+        let home = try XCTUnwrap(p.views[1]), detail = try XCTUnwrap(p.views[2])
+        let plain = try XCTUnwrap(p.views[3]), paragraph = try XCTUnwrap(p.views[4])
+        p.blocks.show(detail, in: pane, block: .size(pane.bounds.size))
+        XCTAssertTrue(p.eventParent(of: detail) === home, "non-press events keep their authored path")
+        XCTAssertTrue(detail.superview === pane)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        for node in [plain, paragraph] {
+            let point = node.convert(NSPoint(x: 5, y: 5), to: nil)
+            func event(_ type: NSEvent.EventType) throws -> NSEvent {
+                try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            }
+            node.mouseDown(with: try event(.leftMouseDown))
+            XCTAssertNil(p.mouseChain.bubbledPress, "a block is no presentation crossing")
+            node.mouseUp(with: try event(.leftMouseUp))
+            XCTAssertEqual(pressed, [], "a detail click reaches no handler in the list")
+        }
+        XCTAssertFalse(paragraph.hasPressableAncestor)
+        XCTAssertTrue(paragraph.selectsText)
+    }
+
     func testTwoPanesAndASheetEachHoldASubtreeOfOnePage() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "host-block")

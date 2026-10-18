@@ -1,4 +1,5 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
+import "./prompt-glue.js"; // a prompt's Return
 /** An element whose `press` the keyboard reaches only through its tabindex:
  * not one the browser activates itself (the wasm host's handler list, or the
  * JS target's `data-exact-on`). */
@@ -85,6 +86,14 @@ function roveArrow(root, event) {
   return true;
 }
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, editMenu, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null }) {
+  // @ref LLP 1005 §Events — a pointer's down goes along the event's own path,
+  // innermost first, to each node's `exactPointerDown` (`pointer` below), from
+  // this one listener at the root's capture, before any element's: a
+  // recognizer that stops the event (a pan taking its contact) takes nothing
+  // from the pointer events, as on the native hosts.
+  // Every holder is fixed before any down runs, as the native hosts fix the
+  // path: a node a handler further in disables or removes still hears the up.
+  root.addEventListener("pointerdown", e => { const path = e.composedPath(); for (const n of path) n.exactPointerDown?.(e, true); for (const n of path) n.exactPointerDown?.(e, false); }, true);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -112,6 +121,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (event.key === "Tab") { radioStops(root); tabStops(root); } // a radio group's one stop, and a tablist's, before the focus moves
     if (event.isComposing || !ready() || event.defaultPrevented) return;
     if (event.key === "Enter" || event.key === " ") note(event, true); // a key's press begins (`arrive`, below)
+    // A commit may restore the authored runs: refresh their Tab stops and press origin above.
+    // Shortcuts already heard the source event.
+    if (event.exactFlowCapture) return;
     const editing = event.composedPath().some(el => el?.isContentEditable || el?.matches?.("input, textarea, [role=textbox], [role=searchbox], [role=combobox]"));
     const physical = physicalKey(event);
     const matches = (chord) => {
@@ -158,10 +170,11 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (radioArrow(root, event) || roveArrow(root, event) || event.repeat) return;
     // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
     // when the browser clicks it. A press it declares shows meanwhile, as under
-    // a pointer: a native button's highlight, a `-exact-press-scale`. (The
+    // a pointer: a native button's highlight, a `-exact-press-scale`, a pressed paint. (The
     // unsaid dim needs nothing here: it is the browser's own `:active`.)
-    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || el.style.getPropertyValue("--exact-press"))) return keyed(el);
+    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || declaresPress(el))) return keyed(el);
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
+    if (el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a disabled box takes no press by key either (LLP 1121 D8)
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
     event.preventDefault();
     el.click();
@@ -179,16 +192,21 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return el.toggleAttribute("data-exact-surface", r.width >= page.clientWidth && r.height >= page.clientHeight * .9);
   };
   // Space held on a pressable this piece presses by key shows its press (its
-  // `-exact-press-scale`, else the shell's dim) until the key comes up or the
+  // `-exact-press-scale` and pressed paint, else the shell's dim) until the key comes up or the
   // focus leaves, as the browser holds a `<button>` `:active` under Space; so
   // does a `<button>` whose press is declared.
+  // The press a key holds, which leaving the window or the page ends too.
+  let keyHold = null;
   const keyed = el => {
-    const up = e => {
-      if (e.type === "keyup" && e.key !== " ") return;
-      showPress(el, false);
+    const up = (e, now = false) => {
+      if (e?.type === "keyup" && e.key !== " ") return;
+      showPress(el, false, now);
       removeEventListener("keyup", up, true); el.removeEventListener("blur", up);
+      if (keyHold === up) keyHold = null;
     };
+    keyHold?.(null, true);
     showPress(el, true);
+    keyHold = up;
     addEventListener("keyup", up, true); el.addEventListener("blur", up);
   };
   // @ref LLP 1061 D3 — press feedback by UIKit's rule, not `:active`'s: the
@@ -201,9 +219,83 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // native button is pressed by the same rule with or without a row or a
   // handler of its own, as a UIButton highlights (the shell dims its face).
   const feedback = new WeakMap();
-  const showPress = (el, down) => {
+  // @ref LLP 1061 D7 — the author's pressed paint, shown by the same rule
+  // and on the same ease as the scale. The shell's important rules
+  // (index.html) paint it from the node's own properties, read live, `--exact-
+  // press-paint` of the way (which this piece eases) over the node's look
+  // beneath, which this piece reads again whenever the node's style or class
+  // changes, the scheme flips, or the press turns. Its `color` reaches the
+  // subtree as CSS's does.
+  // `:active`'s opacity is the press's absolute target (`--exact-press-opacity-to`,
+  // LLP 1121 D8), eased from what shows at the press, a hover look's included.
+  const PAINT = ["--exact-press-opacity", "--exact-press-opacity-to", "--exact-press-background-color", "--exact-press-color"];
+  const declaresPress = el => !!el.style.getPropertyValue("--exact-press") || PAINT.some(p => el.style.getPropertyValue(p));
+  const paints = new Map();
+  const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
+  // Start the ease toward `state.to` from where it shows, over `duration`,
+  // on the node's look read now with the paint off: at the press, as it
+  // shows; later (the release, a change of the node's style or class, the
+  // scheme), a style change like any other, so a transition the node has on
+  // a painted property times the paint's move to a look that changed.
+  const paint = (el, state, duration) => {
+    const from = Number(getComputedStyle(el).getPropertyValue("--exact-press-paint")) || 0;
+    el.removeAttribute("data-exact-painting");
+    const beneath = getComputedStyle(el);
+    const base = { "--exact-press-base-opacity": beneath.opacity, "--exact-press-base-background": beneath.backgroundColor, "--exact-press-base-color": beneath.color };
+    state.animation?.cancel();
+    const animation = state.animation = el.animate([{ ...base, "--exact-press-paint": from }, { ...base, "--exact-press-paint": state.to }], { ...EASE, duration: agentMode ? 0 : duration });
+    el.setAttribute("data-exact-painting", "");
+    // A finish already queued when a re-press replaced the ease ends nothing.
+    if (state.to === 0) animation.onfinish = () => { if (state.animation === animation) endPaint(el, state); };
+    if (agentMode) animation.finish();
+  };
+  const endPaint = (el, state) => {
+    if (paints.get(el) !== state) return;
+    paints.delete(el);
+    if (!paints.size) sheets.disconnect();
+    state.observer.disconnect();
+    state.animation.cancel();
+    el.removeAttribute("data-exact-painting");
+  };
+  // The look beneath changed: the ease goes on from where it is, over the rest of its time.
+  const repaint = el => {
+    const state = paints.get(el);
+    if (!state) return;
+    const t = state.animation.effect.getComputedTiming();
+    paint(el, state, Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)));
+  };
+  globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el); });
+  // So does a live edit that reaches it through a sheet (a state look's rule, the theme's) or the root's
+  // modes and tokens (the JS target's), which change no style of the node's own (LLP 1121 D8).
+  const sheets = new MutationObserver(() => { for (const el of paints.keys()) repaint(el); });
+  // The JS target writes its tokens and tuples through the CSSOM, which no observer sees: it calls this (modes.js).
+  (globalThis.exact ??= {}).repaintPress = () => { for (const el of paints.keys()) repaint(el); };
+  // `now`: the press ends at once (the window or the page went), as it does
+  // for a node no longer in the page.
+  const showPaint = (el, down, now = false) => {
+    let state = paints.get(el);
+    if ((state?.to ?? 0) === (down ? 1 : 0)) return;
+    if (!state && !PAINT.some(p => el.style.getPropertyValue(p))) return;
+    if (!state) {
+      state = { observer: new MutationObserver(() => repaint(el)) };
+      state.observer.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
+      if (!paints.size) {
+        sheets.observe(document.head, { childList: true, subtree: true, characterData: true });
+        sheets.observe(document.documentElement, { attributes: true });
+      }
+      paints.set(el, state);
+    }
+    state.to = down ? 1 : 0;
+    paint(el, state, EASE.duration);
+    if (!down && (now || !el.isConnected)) endPaint(el, state);
+  };
+  const showPress = (el, down, now = false) => {
     el.toggleAttribute("data-pressed", down);
-    const to = down ? Number(el.style.getPropertyValue("--exact-press") || 1) : 1;
+    showPaint(el, down, now);
+    // A design token's scale is its property's `var()`: the computed value
+    // is the token's (LLP 1121 D7).
+    const press = el.style.getPropertyValue("--exact-press");
+    const to = down ? Number((press.includes("var(") ? getComputedStyle(el).getPropertyValue("--exact-press") : press) || 1) : 1;
     const old = feedback.get(el);
     if (old?.to === to || !old && to === 1) return;
     const progress = old?.animation.effect.getComputedTiming().progress ?? 0;
@@ -217,7 +309,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     animation.onfinish = () => {
       if (to === 1 && feedback.get(el) === state) { animation.cancel(); feedback.delete(el); }
     };
-    if (agentMode) animation.finish();
+    if (agentMode || now) animation.finish();
   };
   // A re-press may catch the release easing out. Neutralize only our effect
   // for this synchronous measurement, then restore it before a frame. The
@@ -232,29 +324,43 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return box;
   };
   let press = null;
-  const release = () => { if (press) showPress(press.el, false); press = null; };
+  const release = (now = false) => { if (press) showPress(press.el, false, now); press = null; };
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
     surface(e.target);
-    const el = e.target.closest?.("[data-exact-on~=press],button[data-button-style]");
-    if (!el || !root.contains(el) || el.closest(":disabled,[disabled='true']")) return;
+    // A finger holds the unsaid dim too (index.html): a touch's `:active` is the engine's choice, which Safari makes
+    // only for an element with a touch listener ("Safari Web Content Guide", Handling Events) and Chrome only after a
+    // tap gesture a synthesized touch never makes.
+    const touch = e.pointerType === "touch";
+    const el = e.target.closest?.(touch ? "[data-exact-on~=press],button,a[data-view][href]" : "[data-exact-on~=press],button[data-button-style]");
+    if (!el || !root.contains(el) || el.closest(":disabled,[disabled]:not([disabled='false'])")) return; // a box says `disabled` (LLP 1121 D8)
     // @ref LLP 1077 D14 — `-exact-press-haptic` plays at the press, as Apple's does:
     // `navigator.vibrate` where the browser has it (not desktop, not iOS
     // Safari), with `haptic()`'s two lengths (workout F4).
     const haptic = el.style.getPropertyValue("--exact-press-haptic").trim();
     if (haptic && haptic !== "none") navigator.vibrate?.(haptic === "selection" ? 5 : 12);
-    if (!(el.style.getPropertyValue("--exact-press") || el.matches("button[data-button-style]"))) return;
+    if (!(declaresPress(el) || el.matches("button[data-button-style]") || touch)) return;
     const r = unpressedBox(el);
     press = { el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom] };
     showPress(el, true);
   }, true);
   document.addEventListener("pointermove", e => {
     if (e.pointerId !== press?.id) return;
+    // The button came up where this document did not hear it (outside the window).
+    if (e.buttons === 0) return release();
     const [l, t, r, b] = press.box;
     showPress(press.el, e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
   }, true);
   for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
+  // Leaving the page, the window or the tab may take the release with it, as the pointer dispatch below assumes: the
+  // press, a key's too, ends at once. A gesture that claims the contact (motion-glue's swipe) ends the press as it
+  // claims it, as a pan cancels a touch.
+  const leave = () => { release(true); keyHold?.(null, true); };
+  addEventListener("blur", e => { if (e.target === window) leave(); });
+  addEventListener("pagehide", leave);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) leave(); });
+  (globalThis.exact ??= {}).pressClaimed = id => { if (id === press?.id) release(); };
   // @ref LLP 1115.000 D4.2 — a route is a page, so the focus follows it, as a careful web app moves it when it
   // navigates. On a push (or a replace) it goes to the new route's header's heading, else to the route itself; on
   // Back, to the control whose press pushed the route that left (the row, the link, the button that opened a sheet),
@@ -273,7 +379,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const note = (e, key) => { if (root.contains(e.target)) pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
   document.addEventListener("pointerdown", e => note(e, false), true);
   document.addEventListener("click", e => { if (!pressed?.el?.contains?.(e.target) || performance.now() - pressed.at > 2000) note(e, e.detail === 0); }, true);
-  const lands = el => !!el?.isConnected && !el.closest("[inert]") && el.getClientRects().length > 0 && !el.matches(":disabled");
+  const lands = el => !!el?.isConnected && !inertAncestor(el) && el.getClientRects().length > 0 && !el.matches(":disabled");
   const titleOf = route => [...route.children].find(c => c.localName === "header")?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]");
   // @ref LLP 1115.000 D4.5 — a modal route (a sheet) is a dialog to assistive technology: `role="dialog"` and
   // `aria-modal`, named by its header's heading, and the focus moves into it and returns on close as it does for any
@@ -309,7 +415,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`
     // @ref LLP 1005 §3 — `pointerdown`/`pointerup`, DOM's own: the primary
     // button or a touch going down on the node, then up or cancelled (a
-    // cancel is an up). The up is heard on the document, so it arrives
+    // cancel is an up), bubbling to every enabled ancestor that hears either
+    // (Charlie, 2026-10-15). The up is heard on the document, so it arrives
     // wherever the pointer lifts; a pointer capture would also retarget the
     // click there, a press the platforms do not make. LLP 1056 §3 stage 3 —
     // `pointermove`: a free pointer over the node (no button down), or the
@@ -318,7 +425,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // pointerId,` the modifiers held, from the content box): `fire(29, r)` is down, 30 up, 31 a
     // move. The JS target's pointer.js is the same rule.
     pointer(el, on, fire) {
-      let held = null, last = null, move = null, frame = 0;
+      let held = null, owner = false, last = null, move = null, frame = 0, downOf = null;
       const wants = kind => el.exactHandlers?.includes(kind);
       const record = (e, lifted = false) => pointerLine(el, e, lifted);
       const flush = () => {
@@ -327,18 +434,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (m && wants("pointermove") && ready()) fire(31, record(m));
       };
       const moved = e => { last = e; move = e; if (!frame) frame = requestAnimationFrame(flush); };
-      const heldMove = e => { if (e.pointerId === held) moved(e); };
+      // While held: the owner's moves, and every holder's latest point,
+      // which a blur's up reports.
+      const heldMove = e => { if (e.pointerId !== held) return; last = e; if (owner) moved(e); };
       // The end: an up or cancel anywhere in the document, or the pointer
       // leaving it (out of the window, into a frame) or the window losing
       // focus, which this document never hears the up from.
       const ends = [["pointerup", document], ["pointercancel", document], ["pointerout", document], ["blur", window]];
       const up = e => {
         if (e.type === "blur" ? e.target !== window : e.pointerId !== held || (e.type === "pointerout" && e.relatedTarget && e.relatedTarget.localName !== "iframe")) return;
-        held = null;
+        held = null; downOf = null;
         for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
         document.removeEventListener("pointermove", heldMove, true);
         flush();
-        if (wants("pointerup") && ready()) fire(30, record(e.type === "blur" ? last : e, true));
+        // Never for a removed node, nor past a handler further in that
+        // stopped this up (`exactStopped`, glue.js).
+        if (wants("pointerup") && ready() && el.isConnected && !e.exactStopped) fire(30, record(e.type === "blur" ? last : e, true), e);
       };
       const disabled = () => el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el);
       // A free pointer over it: the innermost node hearing moves takes them;
@@ -349,17 +460,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         e.exactPointerMover = el;
         if (held === null && e.buttons === 0 && !disabled()) moved(e);
       });
-      return e => {
-        // The innermost enabled pointer node takes it (the event bubbles
-        // here first from inner ones, which mark it).
+      // `hold`: the walk's first pass, which fixes the holders; then the down.
+      return (e, hold) => {
+        // Its down, unless a handler further in removed or disabled it, or
+        // stopped this down (`exactStopped`, glue.js): it still holds the up and the moves.
+        if (!hold) { if (downOf === e && el.isConnected && !disabled() && wants("pointerdown") && ready() && !e.exactStopped) fire(29, record(e), e); return; }
         // Any button, as the DOM's (studio diary R22); `buttons` says which.
-        if (e.exactPointerOwner || !e.isPrimary || held !== null || disabled()) return;
+        if (!e.isPrimary || held !== null || !el.isConnected || disabled()) return;
+        // The innermost enabled pointer node holds its moves (the walk
+        // reaches it first and marks the event); an ancestor holds only its up.
+        owner = !e.exactPointerOwner;
+        if (!owner && !wants("pointerdown") && !wants("pointerup")) return;
         e.exactPointerOwner = el;
-        held = e.pointerId; last = e;
+        held = e.pointerId; last = e; downOf = e;
         for (const [type, target] of ends) target.addEventListener(type, up, target === document);
         document.addEventListener("pointermove", heldMove, true);
         flush();
-        if (wants("pointerdown") && ready()) fire(29, record(e));
       };
     },
     // Studio diary R22, R3, R19, R17: a `contextmenu` with its point (10),
@@ -371,7 +487,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       if (!ready()) return;
       if (kind === "beforeunload") return el.isConnected && fire(36, "");
       if (el.matches(":disabled") || inertAncestor(el)) return;
-      if (kind === "wheel") return fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
+      if (kind === "wheel") return e.exactStopped || fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
       if (kind === "dragover") { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } return; }
       if (kind === "drop") {
         const dt = e.dataTransfer;
@@ -477,4 +593,179 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   };
 }
 
-if (globalThis.exact) globalThis.exact.createInputHandlers = createInputHandlers;
+// A same-origin guest joins `tree` as a compact, bounded outline. Access to
+// a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
+export function guestOutline(frame) {
+  let doc;
+  try { doc = frame.contentDocument; } catch { return null; }
+  if (!doc) return null;
+  const outline = [];
+  const visit = (el, depth) => {
+    if (depth > 4 || outline.length >= 32) return;
+    const id = el.id || undefined;
+    const testId = el.getAttribute("data-testid") ?? el.getAttribute("testId") ?? undefined;
+    const text = [...el.childNodes]
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.textContent.trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .slice(0, 160) || undefined;
+    if (id || testId || text) {
+      outline.push({ guest: true, depth, tag: el.localName, ...(id ? { id } : {}), ...(testId ? { testId } : {}), ...(text ? { text } : {}) });
+    }
+    for (const child of el.children) visit(child, depth + 1);
+  };
+  for (const child of doc.body?.children ?? []) visit(child, 0);
+  return outline;
+}
+function guestDocument(frame) {
+  try {
+    const document = frame.contentDocument;
+    return document ? { document } : { error: "guest is cross-origin" };
+  } catch {
+    return { error: "guest is cross-origin" };
+  }
+}
+export function guestTap(frame, request) {
+  const access = guestDocument(frame);
+  if (access.error) return { guest: true, error: access.error };
+  const { document } = access;
+  const guest = document.defaultView;
+  const x = Number.isFinite(request.x) ? request.x : guest.innerWidth / 2;
+  const y = Number.isFinite(request.y) ? request.y : guest.innerHeight / 2;
+  let target;
+  try { target = request.selector ? document.querySelector(request.selector) : null; }
+  catch { return { guest: true, malformed: true, error: "guest tap has an invalid selector" }; }
+  target ||= document.elementFromPoint(x, y) || document.body;
+  if (!target) return { guest: true, error: "guest tap found no target" };
+  // Script input is intentionally untrusted (@ref LLP 1020 D4;
+  // exact1 20260806-webview-frame-guest-click-delivery).
+  target.dispatchEvent(new guest.PointerEvent("pointerdown", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 1 }));
+  target.dispatchEvent(new guest.PointerEvent("pointerup", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 0 }));
+  target.dispatchEvent(new guest.MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0 }));
+  return { tapped: request.id, guest: true };
+}
+export function guestType(frame, request) {
+  const access = guestDocument(frame);
+  if (access.error) return { guest: true, error: access.error };
+  const { document } = access;
+  const guest = document.defaultView;
+  const active = document.activeElement;
+  const editable = active?.matches?.("input,textarea,[contenteditable]") ? active : null;
+  let target;
+  try { target = request.selector ? document.querySelector(request.selector) : null; }
+  catch { return { guest: true, malformed: true, error: "guest type has an invalid selector" }; }
+  target ||= editable || document.querySelector("input,textarea,[contenteditable]");
+  if (!target) return { guest: true, error: "guest type found no target" };
+  // These are the Apple guest script's event shapes, including focus and
+  // isTrusted:false (@ref LLP 1020 D4).
+  target.focus();
+  if (request.key != null) {
+    const key = String(request.key);
+    target.dispatchEvent(new guest.KeyboardEvent("keydown", { key, bubbles: true, composed: true }));
+    target.dispatchEvent(new guest.KeyboardEvent("keyup", { key, bubbles: true, composed: true }));
+    return { typed: request.id, guest: true, key, value: guestValue(target) };
+  }
+  const text = String(request.text ?? "");
+  if ("value" in target) target.value = text; else target.textContent = text;
+  target.dispatchEvent(new guest.InputEvent("input", { data: text, inputType: "insertText", bubbles: true, composed: true }));
+  target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
+  return { typed: request.id, guest: true, value: guestValue(target) };
+}
+// What a guest field holds, as the reply shows it: a password's is a fixed mark, whatever its length (#134).
+const guestValue = (target) => "value" in target ? (target.type === "password" && target.value ? "•••" : target.value) : target.textContent;
+
+// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+// target whose middle is out of view is scrolled to the middle of its
+// nearest scroll containers, then of the page (across, only as far as it
+// takes) — Playwright's actionability scroll, the web's own `scrollIntoView`. A scroll event reaches the app as a
+// person's scroll would. `scrolled` is where the middle moved from and to;
+// a middle already in view moves nothing.
+// Both agents supply their modal-aware inert check; standalone callers default to DOM ancestry.
+export function reveal(el, id, inert = el => el.closest("[inert]")) {
+  if (!el?.isConnected) return { error: `no view ${id}` };
+  const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
+  const [x, y] = middle();
+  let seen = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+  for (let a = el.parentElement; seen && a && a.id !== "exact-root"; a = a.parentElement) {
+    const cs = getComputedStyle(a), b = a.getBoundingClientRect();
+    if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
+  }
+  if (seen || inert(el) || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
+  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
+}
+
+// A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts
+// touch. A paragraph's inline runs are not `data-exact-text`; only the paragraph is.
+const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
+
+// A view's box as the agent reports it. A folded text has no block box of its own: its box is the anonymous block its
+// text is, as a style-less block child's was — its line boxes along the main axis, and its box's content box across
+// when the box stretches its items (a block, or a flex or grid box that stretches).
+export function viewBox(el) {
+  if (!folded(el)) return el.getBoundingClientRect();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const t = range.getBoundingClientRect(), p = el.parentElement;
+  if (!p) return t;
+  const cs = getComputedStyle(p), b = p.getBoundingClientRect(), n = s => parseFloat(cs[s]) || 0;
+  const left = b.left + n("borderLeftWidth") + n("paddingLeft"), right = b.right - n("borderRightWidth") - n("paddingRight");
+  const top = b.top + n("borderTopWidth") + n("paddingTop"), bottom = b.bottom - n("borderBottomWidth") - n("paddingBottom");
+  const flex = /flex|grid/.test(cs.display), row = flex && cs.display.includes("flex") && !cs.flexDirection.startsWith("column");
+  const stretch = !flex || /normal|stretch/.test(cs.alignItems);
+  if (row) return stretch ? new DOMRect(t.x, top, t.width, bottom - top) : t;
+  return stretch ? new DOMRect(left, t.y, right - left, t.height) : t;
+}
+
+// The agent reports attached views in viewport coordinates, including folded text.
+export function layoutBoxes(views, gpu) {
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const nodes = [];
+  for (const [id, el] of [...views].sort((a, b) => a[0] - b[0])) {
+    if (!el.isConnected) continue;
+    const r = gpu?.placementHidden(el) ? new DOMRect() : viewBox(el);
+    const n = { id, x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) };
+    if (el instanceof HTMLIFrameElement) {
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      n.hit = hit === el;
+    }
+    if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); }
+    nodes.push(n);
+  }
+  return nodes;
+}
+// The agent's select-all before it types, as a person's ⌘A. HTML's "set the selection range" queues `select` only
+// when the selection changes (and Firefox fires none at a disabled control); the promise is that event's, so the
+// driver's next input cannot overtake it and leave its handler reading the selection after the input. Its 2 s bound
+// only stops a hang where no `select` comes (a control disabled before it is dispatched).
+export function selectAll(el) {
+  // Email and number fields keep a selection that `select()` sets and their getters do not show (HTML: `select()`
+  // applies to them, `selectionStart` does not); Chrome's document selection shows a focused field's. Elsewhere
+  // (Firefox's document selection does not) the two reads agree and nothing is awaited.
+  const at = () => {
+    try { if (el.selectionStart != null) return `${el.selectionStart},${el.selectionEnd},${el.selectionDirection}`; } catch {}
+    if (document.activeElement !== el) return null;
+    const s = getSelection();
+    return `${s.type}:${s.direction}:${s}`;
+  }, was = at();
+  let heard, timer;
+  const event = new Promise(resolve => {
+    heard = () => { clearTimeout(timer); el.removeEventListener("select", heard); resolve(); };
+    el.addEventListener("select", heard);
+  });
+  el.select?.();
+  const now = at();
+  if (el.matches(":disabled") || (was !== null && now === was)) {
+    el.removeEventListener("select", heard);
+    return null;
+  }
+  timer = setTimeout(heard, 2000);
+  // An email or number field not focused before or after says nothing either way: a changed selection's `select`
+  // is dispatched by the next frame (Chromium queues it for one), so it is awaited for two.
+  if (was === null || now === null) requestAnimationFrame(() => requestAnimationFrame(heard));
+  return event;
+}
+export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, selectAll };
+if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

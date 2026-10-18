@@ -1,5 +1,5 @@
 // Pinned365aa87982 use-vcs-action-state / GitActionProgressOverlay (MIT).
-// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref examples/t3-code/mobile/docs/1130.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Presentation around the shared fold, never a second Git event reducer.
 import type { T3Client } from './shared/client';
 import { arr, num, obj, str } from './shared/domain';

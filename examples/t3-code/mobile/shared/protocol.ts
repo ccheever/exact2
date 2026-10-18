@@ -1,7 +1,7 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
 // Adapted body from examples/t3-code/protocol.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
 // Mobile: release the fully assembled native value and fragment references before JSON decoding.
-// @ref llp/1109.003-pairing-and-transport.decision.md#complete-transfer-decoding-2026-10-10
+// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#complete-transfer-decoding-2026-10-10
 // T3 protocol 2, inspected at 4f7760e6. The backend remains the wire authority.
 import { obj, str, num, arr, type Obj } from './domain';
 

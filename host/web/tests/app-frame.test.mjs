@@ -111,6 +111,42 @@ test('an unchanged app source retains the guest document across record updates',
   expect(await page.evaluate(async url => fetch(url).then(() => false, () => true), before)).toBe(true);
 }), 90000);
 
+test('bound sandbox changes preserve app frames after switching from data documents', () => browserTest(async (page, server) => {
+  await page.goto(server.url.href);
+  await page.evaluate(async () => {
+    globalThis.rt = await import('/rt.js'); globalThis.exact = {};
+    rt.data.appId = 'sandbox-source-switch';
+    const { createFileStore } = await import('/storage-fs.js');
+    await createFileStore(rt.data.appId).writeFile('app:/data/document.html', new TextEncoder().encode('<script>parent.postMessage("app loaded", "*")</script>'));
+    globalThis.messages = [];
+    addEventListener('message', e => { if (e.source === frame.contentWindow) messages.push([e.data, e.origin]); });
+    globalThis.source = rt.sig('data:text/html,<script>parent.postMessage("data loaded", "*")</script>');
+    globalThis.sandbox = rt.sig('allow-scripts');
+    globalThis.scope = rt.scope(() => {
+      globalThis.frame = rt.h(document.querySelector('main'), 'iframe', 0, {}, 0);
+      rt.P(frame, 'sandbox', sandbox);
+      rt.P(frame, 'src', source);
+    });
+  });
+  await page.waitForFunction(() => messages.some(([text]) => text === 'data loaded'));
+  expect(await page.evaluate(() => messages)).toContainEqual(['data loaded', 'null']);
+  await page.evaluate(() => rt.commit(() => rt.W(source, 'app:/data/document.html')));
+  await page.waitForFunction(() => messages.some(([text]) => text === 'app loaded'));
+  const appURL = await page.evaluate(() => frame.src);
+  expect(appURL).toStartWith('blob:');
+  for (const value of ['allow-scripts allow-same-origin', null, 'allow-scripts']) {
+    await page.evaluate(value => rt.commit(() => rt.W(sandbox, value)), value);
+    expect(await page.evaluate(() => frame.src)).toBe(appURL);
+  }
+  await page.evaluate(() => rt.commit(() => { rt.W(sandbox, 'allow-scripts allow-same-origin'); rt.W(source, 'data:text/html,<script>parent.postMessage("data again", "*")</script>'); }));
+  expect(await page.evaluate(() => frame.getAttribute('src'))).toBe('about:blank');
+  expect(await page.evaluate(async url => fetch(url).then(() => false, () => true), appURL)).toBe(true);
+  await page.evaluate(() => rt.commit(() => rt.W(sandbox, 'allow-scripts')));
+  await page.waitForFunction(() => messages.some(([text]) => text === 'data again'));
+  expect(await page.evaluate(() => messages)).toContainEqual(['data again', 'null']);
+  await page.evaluate(() => { rt.end(scope); frame.remove(); });
+}), 90000);
+
 test('wasm iframe events before activation settle and dispatch once after activation', () => browserTest(async (page, server) => {
   const glue = await Bun.file('host/web/glue.js').text();
   const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
@@ -142,6 +178,60 @@ test('wasm iframe events before activation settle and dispatch once after activa
   expect(result.events).toEqual([[0, 8, 0, 0], [1, 19, 'error\nmissing app file', 0]]);
 }), 90000);
 
+test('wasm holds boot-frame posts until activation and discards retired or unauthorized guests', () => browserTest(async (page, server) => {
+  const glue = await Bun.file('host/web/glue.js').text();
+  const listener = glue.slice(glue.indexOf('function ensureMessageListener('), glue.indexOf('visualViewport?.addEventListener', glue.indexOf('function ensureMessageListener(')));
+  const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
+  await page.goto(server.url.href);
+  const result = await page.evaluate(async ({listener, attach}) => {
+    const {commitGuestOrigin, guestMessageAuthorized} = await import('/navigation.js');
+    const fixture = new Function('guestMessageAuthorized', `
+      const views = new Map(), retiredViews = new WeakSet(), iframeLoading = new WeakMap(), page = null;
+      const messageFrames = new Set(), messageViews = new Set();
+      let inputReady = false, messageListening = false, ready;
+      const moduleReady = new Promise(r => ready = r), events = [];
+      const wasm = {exact_dispatch: (...args) => args}, send = e => events.push(e), writeIn = s => s, now = () => 0;
+      ${listener}
+      ${attach}
+      return {views, retiredViews, events, attach, activate() {inputReady = true; ready();}};
+    `)(guestMessageAuthorized);
+    const frames = [];
+    const arrived = [];
+    for (let id = 0; id < 4; id++) {
+      const el = document.createElement('iframe');
+      el.sandbox = 'allow-scripts';
+      el.src = `data:text/html,<script>parent.postMessage('first','*');parent.postMessage({second:2},'*')</script>`;
+      commitGuestOrigin(el);
+      fixture.views.set(id, el); fixture.attach(el, id, ['load', 'message']);
+      arrived.push(new Promise(resolve => el.addEventListener('load', resolve, {once: true})));
+      arrived.push(new Promise(resolve => {
+        const heard = event => {
+          if (event.source === el.contentWindow && event.data?.second === 2) {
+            window.removeEventListener('message', heard); resolve();
+          }
+        };
+        window.addEventListener('message', heard);
+      }));
+      document.querySelector('main').append(el); frames.push(el);
+    }
+    await Promise.all(arrived);
+    const early = [...fixture.events];
+    // Readiness must not revive a removed view or authorize a guest under a new origin.
+    fixture.views.delete(1); fixture.retiredViews.add(frames[2]);
+    frames[3].sandbox = 'allow-scripts allow-same-origin'; frames[3].removeAttribute('src');
+    commitGuestOrigin(frames[3]);
+    window.dispatchEvent(new MessageEvent('message', {source: frames[0].contentWindow, origin: location.origin, data: 'refused'}));
+    fixture.activate(); await Promise.resolve();
+    const delivered = [...fixture.events];
+    window.dispatchEvent(new MessageEvent('message', {source: frames[0].contentWindow, origin: 'null', data: 'after'}));
+    return {early, delivered, after: fixture.events.at(-1)};
+  }, {listener, attach});
+  expect(result.early).toEqual([]);
+  expect(result.delivered.filter(e => e[1] === 9)).toEqual([[0, 9, 'first', 0], [0, 9, '{"second":2}', 0]]);
+  expect(result.delivered.filter(e => e[1] === 8).sort((a, b) => a[0] - b[0])).toEqual([[0, 8, 0, 0], [3, 8, 0, 0]]);
+  expect(result.after).toEqual([0, 9, 'after', 0]);
+}), 90000);
+
 test('opaque sandbox loads app text like Chrome, while sandboxed PDFs report error', () => browserTest(async (page, server) => {
   await page.goto(server.url.href);
   const literal = '<b>literal</b><script>window.executed = true</script>';
@@ -158,7 +248,13 @@ test('opaque sandbox loads app text like Chrome, while sandboxed PDFs report err
     for (const [name, text] of [['notes.txt', literal], ['notes.html', literal], ['doc.pdf', pdf]])
       await files.writeFile(`app:/data/${name}`, new TextEncoder().encode(text));
   }, {literal, pdf});
-  // The browser owns opaque origins: inspect through Playwright, never by granting same-origin.
+  // The browser owns opaque origins: inspect through Playwright, never by granting same-origin. A frame's text is read
+  // from its tree, without its scripts and styles: `innerText` would depend on whether the frame had been laid out yet
+  const read = frame => frame.evaluate(() => {
+    const body = document.body.cloneNode(true);
+    for (const hidden of body.querySelectorAll('script, style')) hidden.remove();
+    return {type: document.contentType, text: body.textContent, executed: window.executed === true, url: location.href};
+  });
   for (const [name, type, text] of [['notes.txt', 'text/plain', literal], ['notes.html', 'text/html', literal], ['doc.pdf', 'application/pdf', pdf]]) {
     for (const sandbox of ['allow-scripts', 'allow-same-origin']) {
       await page.evaluate(async ({type, text, sandbox}) => {
@@ -167,7 +263,7 @@ test('opaque sandbox loads app text like Chrome, while sandboxed PDFs report err
         await new Promise(resolve => { oracle.onload = resolve; document.querySelector('main').append(oracle); });
       }, {type, text, sandbox});
       const oracle = await (await page.$('#oracle')).contentFrame();
-      const observed = await oracle.evaluate(() => ({type: document.contentType, text: document.body.innerText, executed: window.executed === true, url: location.href}));
+      const observed = await read(oracle);
       if (type === 'application/pdf') expect(observed.url).toBe('chrome-error://chromewebdata/');
       else {
         expect(observed.type).toBe(type);
@@ -190,8 +286,8 @@ test('opaque sandbox loads app text like Chrome, while sandboxed PDFs report err
       } else {
         expect(await page.evaluate(() => events)).toEqual(['load']);
         const guest = await (await page.$('#app-frame')).contentFrame();
-        expect(await guest.evaluate(() => ({type: document.contentType, text: document.body.innerText, executed: window.executed === true})))
-          .toEqual({type: observed.type, text: observed.text, executed: observed.executed});
+        const seen = await read(guest);
+        expect({type: seen.type, text: seen.text, executed: seen.executed}).toEqual({type: observed.type, text: observed.text, executed: observed.executed});
       }
       await page.evaluate(() => { rt.end(scope); frame.remove(); const oracle = document.querySelector('#oracle'); URL.revokeObjectURL(oracle.src); oracle.remove(); });
     }

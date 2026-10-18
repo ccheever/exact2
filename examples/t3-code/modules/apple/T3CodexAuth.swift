@@ -6,7 +6,7 @@
 // arrived). Credentials and PKCE stay on the environment: this only binds the redirect's
 // 127.0.0.1 port before the browser opens, answers the one GET on the callback path with the
 // right `state` and exactly one `code` or `error`, and hands that URL back.
-// Changes: the desktop's one long IPC call is split (X14): `codexAuthStart` answers after the
+// Changes: the desktop's one long IPC call is split (#109): `codexAuthStart` answers after the
 // bind and the browser open, the callback is announced on the `t3.codexAuth` topic and read once
 // with `codexAuthTake`; `codexAuthCancel` is cancelCodexAuthCallback. The 303 redirect for hosted
 // web (the `destination` argument) is not ported: this app is the only receiver. An agent run

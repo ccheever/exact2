@@ -210,6 +210,7 @@ final class RouteSheetMacTests: XCTestCase {
         let f = try make(), p = f.presenter
         let home = try f.node("home"), pageFrames = try ["home", "page-field", "status"].map { try f.node($0).frame }
         XCTAssertNil(f.window.attachedSheet)
+        XCTAssertNil(p.openTopLayer.modal)
 
         try f.press("open-add")
         let route = try f.node("add"), header = try f.node("add-header")
@@ -217,6 +218,9 @@ final class RouteSheetMacTests: XCTestCase {
         XCTAssertTrue(window is SheetWindow && f.window.attachedSheet === window)
         XCTAssertTrue(route.window === window, "the route's own subtree is in the sheet")
         XCTAssertTrue(p.dialogs.active === route && p.dialogs.routeActive)
+        let open = p.openTopLayer
+        XCTAssertEqual(open.modal, open.frames.firstIndex { $0.0 == route.id }, "the runner's modal boundary begins at the route")
+        XCTAssertNotNil(open.modal)
         XCTAssertNil(p.dialogs.observation, "it is no dialog to the app")
         XCTAssertEqual(p.dialogs.routeObservation?["presentation"] as? String, "sheet")
         XCTAssertFalse(route.isHidden)
@@ -269,6 +273,7 @@ final class RouteSheetMacTests: XCTestCase {
         XCTAssertTrue(f.status.contains("saved 1 cancelled 0"), f.status)
         XCTAssertNil(f.window.attachedSheet)
         XCTAssertNil(p.dialogs.active)
+        XCTAssertNil(p.openTopLayer.modal)
         XCTAssertNil(p.views[route.id], "the app took the route away")
         XCTAssertTrue(chrome.subviews.contains { $0 is NSImageView }, "the leaving sheet kept its picture")
         XCTAssertEqual(p.covers.delivered, [:])
@@ -283,8 +288,8 @@ final class RouteSheetMacTests: XCTestCase {
 
     /// With no authored size the route fits its content under a maximum,
     /// the window's content area less the sheet's own rows; an authored
-    /// width and height are used as written, whatever the content, and
-    /// stop at that maximum too.
+    /// width and height are used as written, whatever the content or the
+    /// parent window's size.
     func testItFitsItsContentUnderAMaximumAndAnAuthoredSizeWins() throws {
         let f = try make(CGSize(width: 640, height: 420)), p = f.presenter
         try f.press("open-add")
@@ -307,11 +312,79 @@ final class RouteSheetMacTests: XCTestCase {
         XCTAssertEqual(chrome.frame.size, CGSize(width: 480, height: 300 + rows))
         XCTAssertEqual(window.frame.midX, f.window.frame.midX, accuracy: 0.5)
         XCTAssertEqual(try f.node("sized-body").frame.height, 300, "its content fills the size it was given")
-        // A window narrower than it: the route stops at the window's content area.
-        f.window.setContentSize(NSSize(width: 440, height: 420))
+        // AppKit places an authored-size sheet even when it overhangs its parent.
+        f.window.setContentSize(NSSize(width: 440, height: 260))
         f.window.layoutIfNeeded(); f.settle()
-        XCTAssertEqual(p.blocks.used[sized.id]?.width, f.window.contentLayoutRect.width)
-        XCTAssertEqual(chrome.frame.width, f.window.contentLayoutRect.width)
+        XCTAssertEqual(f.window.contentLayoutRect.size, CGSize(width: 440, height: 260))
+        XCTAssertEqual(p.blocks.used[sized.id], CGSize(width: 480, height: 300))
+        XCTAssertEqual(sized.frame, NSRect(x: 0, y: 0, width: 480, height: 300))
+        XCTAssertEqual(chrome.frame.size, CGSize(width: 480, height: 300 + rows))
+        XCTAssertEqual(window.frame.midX, f.window.frame.midX, accuracy: 0.5)
+        XCTAssertEqual(try f.node("sized-body").frame.height, 300)
+        XCTAssertTrue(p.views[sized.id] === sized, "parent resize retains the route")
+    }
+
+    func testRetainedSheetSizesFollowTheirBasisAndReturnToContentFitting() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          state screen = "home"
+          state mode = 0
+          action open
+            screen = "sized"
+          action cancel
+            screen = "home"
+          action size(n: number)
+            mode = n
+          view
+            column navigationKey=screen navigationBack="back" width="100%" height="100%" position="relative"
+              column navigationKey="home" testId="home" position="absolute" inset=0
+                button testId="open" press=open
+                  text "Open"
+              if screen == "sized"
+                column navigationKey="sized" navigationPresentation="modal" testId="sized" position="absolute" inset=0 width=(mode == 3 or mode == 5 ? none : mode == 1 ? "125%" : mode == 2 ? "calc(100% + 80px)" : "480px") height=(mode == 3 or mode == 4 ? none : mode == 1 ? "150%" : mode == 2 ? "calc(100% + 100px)" : "300px")
+                  header
+                    button id="back" press=cancel
+                      text "Cancel"
+                    text "Size" role="heading"
+                  column width=200 height=120
+                    button testId="fixed" press=size(0) height=20 min-height=0
+                      text "Fixed"
+                    button testId="percent" press=size(1) height=20 min-height=0
+                      text "Percentage"
+                    button testId="calc" press=size(2) height=20 min-height=0
+                      text "Calculated"
+                    button testId="clear" press=size(3) height=20 min-height=0
+                      text "Automatic"
+                    button testId="width" press=size(4) height=20 min-height=0
+                      text "Width only"
+                    button testId="height" press=size(5) height=20 min-height=0
+                      text "Height only"
+        """, size: CGSize(width: 400, height: 200 + rows))
+        fixture = f
+        try f.press("open")
+        let route = try f.node("sized"), (window, chrome) = try sheet(f)
+        func check(_ width: CGFloat, _ height: CGFloat, file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertEqual(f.presenter.blocks.used[route.id], CGSize(width: width, height: height), file: file, line: line)
+            XCTAssertEqual(route.frame.size, CGSize(width: width, height: height), file: file, line: line)
+            XCTAssertEqual(chrome.frame.size, CGSize(width: width, height: height + rows), file: file, line: line)
+            XCTAssertTrue(f.window.attachedSheet === window && route.window === window, file: file, line: line)
+            XCTAssertTrue(f.presenter.views[route.id] === route, file: file, line: line)
+        }
+        check(480, 300)
+        try f.press("percent"); check(500, 300)
+        f.window.setContentSize(CGSize(width: 440, height: 260 + rows))
+        f.window.layoutIfNeeded(); f.settle()
+        check(550, 390)
+        try f.press("calc"); check(520, 360)
+        let pageFrame = try f.node("home").frame
+        try f.press("clear"); check(200, 120)
+        try f.press("width"); check(480, 120)
+        try f.press("height"); check(200, 300)
+        try f.press("fixed"); check(480, 300)
+        XCTAssertEqual(try f.node("home").frame, pageFrame, "sheet dimensions do not resize the page")
+        chrome.cancel.performClick(nil); f.settle()
+        XCTAssertNil(f.window.attachedSheet)
+        XCTAssertNil(f.presenter.blocks.used[route.id])
     }
 
     /// What the sheet's rows do not stand for stays in the header, where

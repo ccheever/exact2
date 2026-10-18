@@ -1,5 +1,5 @@
 // Source365aa87982 ThreadComposer.handleSend / use-thread-composer-state.onSendMessage.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { OrdinaryInventoryAttachment } from './composer-attachment-publication';
 import type { MobileOutboxRecord, MobileOutboxModelSelection, MobileOutboxRuntimeMode } from './mobile-outbox-model';
 import { mobileOutboxCanonicalOrigin } from './mobile-outbox-model';

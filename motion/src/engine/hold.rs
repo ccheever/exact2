@@ -149,6 +149,7 @@ impl Engine {
             slot.set_presented(values[i]);
             slot.set_running(None);
             self.running.remove(&key);
+            self.played.remove(&key);
             slot.set_owner(Some(Owner::Held(serial + i as u64)));
             self.dirty.insert(key);
             HoldStart {
@@ -241,8 +242,15 @@ impl Engine {
         self.validate_time(now_s)?;
         let serial = allocate_serial(&NEXT_SERIAL)?;
         self.advance(now_s)?;
+        // A played transition presents its target; its host shows its curve
+        let at = self.sample_time();
+        let played = self.played.remove(&key);
         let slot = self.slots.get_mut(&key).expect("adopted property");
-        let value = presented.unwrap_or(slot.presented());
+        let shown = match slot.running() {
+            Some(running) if played => running.sample(at).value,
+            _ => slot.presented(),
+        };
+        let value = presented.unwrap_or(shown);
         slot.set_presented(value);
         slot.set_running(None);
         self.running.remove(&key);
@@ -359,7 +367,7 @@ impl Engine {
             let slots = &self.slots;
             self.held.retain(|serial, _| {
                 slots
-                    .values()
+                    .entries()
                     .any(|slot| slot.owner() == Some(Owner::Held(*serial)))
             });
         }

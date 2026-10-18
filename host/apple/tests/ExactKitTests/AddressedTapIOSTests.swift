@@ -110,6 +110,136 @@ final class AddressedTapIOSTests: XCTestCase {
         XCTAssertEqual(presses(), [])
     }
 
+    /// A field and a checkbox take a touch themselves (UIKit's controls), so
+    /// the agent's walks press no ancestor from them, as a real touch does
+    /// not; text beside them still presses it, and a native button's action
+    /// still presses the nearest handler.
+    func testAFieldOrAControlTakesTheTapAndPressesNoAncestor() throws {
+        let (session, agent, presses) = rows(), p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "input", "props": ["value": "draft"]],
+            ["op": "create", "id": 22, "kind": "control", "props": ["type": "checkbox"]],
+            ["op": "create", "id": 23, "kind": "control", "props": ["type": "button"]],
+            ["op": "create", "id": 24, "kind": "textarea", "props": ["value": "notes"]],
+            ["op": "create", "id": 25, "kind": "text", "props": ["text": "Beside the controls"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [21, 22, 23, 24, 25]],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 400, "h": 500],
+        ] + (21...25).map { ["op": "frame", "id": $0, "x": 20, "y": ($0 - 21) * 60 + 20, "w": 240, "h": 40] }))
+        let ancestor = try XCTUnwrap(p.views[2]), win = try XCTUnwrap(window)
+        func point(_ node: NodeView) -> CGPoint { node.convert(CGPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil) }
+        for id: UInt32 in [21, 22, 24] {
+            let node = try XCTUnwrap(p.views[id])
+            XCTAssertNil(node.activationTarget(at: point(node)), "\(id)")
+            XCTAssertNil(node.activate(at: point(node)), "\(id)")
+            XCTAssertNil(agent.fingerReach(node, at: point(node)).action, "\(id)")
+            if case .control(let owner)? = agent.pressReach(node, at: point(node), in: win) {
+                XCTAssertTrue(owner === node, "\(id)")
+            } else { XCTFail("the addressed walk stops at \(id)") }
+        }
+        XCTAssertEqual(presses(), [], "no ancestor press from a field or a control")
+        let plain = try XCTUnwrap(p.views[25]), button = try XCTUnwrap(p.views[23])
+        XCTAssertTrue(plain.activate(at: point(plain)) === ancestor)
+        XCTAssertTrue(button.activationTarget(at: point(button)) === ancestor, "a native button's action presses the nearest handler")
+        XCTAssertEqual(presses(), [2])
+    }
+
+    func testACheckboxPaddingPressesItsAncestorAsARealTouchDoes() throws {
+        let (session, agent, presses) = rows(), p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "control", "props": ["type": "checkbox"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [21]],
+            ["op": "frame", "id": 21, "x": 20, "y": 20, "w": 240, "h": 40],
+        ]))
+        p.viewport.layoutIfNeeded()
+        let node = try XCTUnwrap(p.views[21]), ancestor = try XCTUnwrap(p.views[2]), win = try XCTUnwrap(window)
+        let padding = CGPoint(x: 10, y: node.bounds.midY), point = node.convert(padding, to: nil)
+        XCTAssertTrue(win.hitTest(point, with: nil) === node, "the padding lands on the node, outside the centred checkbox's hit area")
+        XCTAssertTrue(node.activationTarget(at: point) === ancestor)
+        XCTAssertTrue(node.activate(at: point) === ancestor)
+        XCTAssertEqual(presses(), [2])
+        let reach = agent.fingerReach(node, at: point)
+        XCTAssertTrue(reach.action?.node === ancestor)
+        XCTAssertTrue(agent.stillPresses(reach) === ancestor)
+        if case .node(let target)? = agent.pressReach(node, at: point, in: win) {
+            XCTAssertTrue(target === ancestor)
+        } else { XCTFail("the addressed tap on padding must reach the ancestor") }
+        XCTAssertEqual(agent.lift(reach, at: point, held: "")["pressed"] as? Int, 2)
+        XCTAssertEqual(presses(), [2])
+        let touch = PaddingTouch(node, at: padding)
+        node.touchesBegan([touch], with: nil)
+        XCTAssertTrue(ancestor.pressed)
+        node.touchesEnded([touch], with: nil)
+        XCTAssertFalse(ancestor.pressed)
+        XCTAssertEqual(presses(), [2], "the real touch and the agent press the same ancestor")
+
+        let centre = node.convert(CGPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil)
+        let control = try XCTUnwrap(p.controls.controls[21])
+        XCTAssertTrue(win.hitTest(centre, with: nil) === control)
+        XCTAssertNil(node.activationTarget(at: centre))
+        XCTAssertNil(node.activate(at: centre))
+        let centreReach = agent.fingerReach(control, at: centre)
+        XCTAssertNil(centreReach.action)
+        if case .control(let owner)? = agent.pressReach(node, at: centre, in: win) {
+            XCTAssertTrue(owner === node)
+        } else { XCTFail("the centre belongs to the native checkbox") }
+        XCTAssertTrue(agent.lift(centreReach, at: centre, held: "")["pressed"] is NSNull)
+        XCTAssertEqual(presses(), [])
+
+        let paddingReply = agent.tap(["id": 21, "at": [10.0, 20.0]])
+        XCTAssertNil(paddingReply["error"], "\(paddingReply)")
+        XCTAssertEqual(paddingReply["pressed"] as? Int, 2)
+        XCTAssertEqual(presses(), [2])
+        XCTAssertNil(paddingReply["native"], "a tap on padding is no host activation of the checkbox")
+        let viewportPoint = p.client(point)
+        let viewportReply = agent.tap(["id": 21, "x": Double(viewportPoint.x), "y": Double(viewportPoint.y)])
+        XCTAssertNil(viewportReply["error"], "\(viewportReply)")
+        XCTAssertEqual(viewportReply["pressed"] as? Int, 2)
+        XCTAssertEqual(presses(), [2])
+        XCTAssertNil(viewportReply["native"], "viewport coordinates on padding must use the same point as native hit testing")
+        for request: [String: Any] in [["id": 21, "at": [120.0, 20.0]], ["id": 21]] {
+            let reply = agent.tap(request)
+            XCTAssertNil(reply["error"], "\(reply)")
+            XCTAssertEqual(reply["native"] as? String, "control", "an explicit centre and a tap without a point are the checkbox's own")
+            XCTAssertEqual(presses(), [])
+        }
+    }
+
+    private final class PaddingTouch: UITouch {
+        let target: UIView, point: CGPoint
+        init(_ target: UIView, at point: CGPoint) { self.target = target; self.point = point; super.init() }
+        override var view: UIView? { target }
+        override func location(in view: UIView?) -> CGPoint { target.convert(point, to: view) }
+    }
+
+    func testAControlWithItsOwnPressTakesItBeforeConsumingTheTap() throws {
+        let (session, agent, presses) = rows(), p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "input", "props": ["value": "draft"], "handlers": ["press"]],
+            ["op": "create", "id": 22, "kind": "control", "props": ["type": "checkbox"], "handlers": ["press"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [21, 22]],
+            ["op": "frame", "id": 21, "x": 20, "y": 20, "w": 240, "h": 40],
+            ["op": "frame", "id": 22, "x": 20, "y": 80, "w": 240, "h": 40],
+        ]))
+        let win = try XCTUnwrap(window)
+        for id: UInt32 in [21, 22] {
+            let node = try XCTUnwrap(p.views[id])
+            let point = node.convert(CGPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil)
+            XCTAssertTrue(node.activationTarget(at: point) === node, "\(id)")
+            XCTAssertTrue(node.activate(at: point) === node, "\(id)")
+            XCTAssertEqual(presses(), [id])
+            XCTAssertTrue(agent.stillPresses(FingerReach(reached: HeldNode(node), action: HeldNode(node))) === node)
+            if case .node(let target)? = agent.pressReach(node, at: point, in: win) {
+                XCTAssertTrue(target === node)
+            } else { XCTFail("the control's own handler takes the tap: \(id)") }
+            // The agent toggles a checkbox through its own action (host activation), as before.
+            guard id == 21 else { continue }
+            let reply = agent.tap(["id": Int(id)])
+            XCTAssertNil(reply["error"], "\(reply)")
+            XCTAssertEqual(reply["pressed"] as? Int, Int(id))
+            XCTAssertEqual(presses(), [id], "the ancestor never presses")
+        }
+    }
+
     /// What a press there would deliver counts, a text editor's focus too;
     /// a 2-point strip around a child that covers the rest is found (Astra,
     /// round 1); a point on an inline run presses the run.
@@ -167,6 +297,122 @@ final class AddressedTapIOSTests: XCTestCase {
         XCTAssertEqual((agent.aim(["id": 4, "aim": ["press": true]])["pressing"]) as? Int, 5, "refused, naming Like")
         XCTAssertEqual((agent.aim(["id": 2, "aim": ["at": [200.0, 80.0]]])["aim"] as? [String: Any])?["hit"] as? Int, 3, "a point: the card")
         XCTAssertEqual((agent.aim(["id": 2, "aim": true])["aim"] as? [String: Any])?["hit"] as? Int, 3, "a drag's aim is the middle still")
+    }
+
+    /// A tap on a native module's own control reaches no control of its
+    /// (UIKit has no public touch synthesis): refused, naming `--touch
+    /// platform`, unless Contract hears it, a pointer listener around the
+    /// native view, which gets its pointer events, the reply saying what
+    /// went unreached.
+    func testATapOnAModulesControlIsRefusedUnlessContractHearsIt() throws {
+        let session = ExactApp.shared.makeSession(label: "module-tap")
+        self.session = session
+        let p = session.presenter
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        self.window = window
+        p.viewport.frame = window.bounds
+        window.rootViewController?.view.addSubview(p.viewport)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "native", "props": ["testId": "transport"]],
+            ["op": "create", "id": 3, "kind": "view", "handlers": ["pointerdown"], "props": ["testId": "listening"]],
+            ["op": "create", "id": 4, "kind": "native", "props": ["testId": "heard"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 100.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 200.0, "w": 400.0, "h": 100.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 400.0, "h": 100.0],
+        ]))
+        p.viewport.layoutIfNeeded()
+        // What a module's view holds: a control of its own.
+        for id in [UInt32(2), 4] {
+            let control = UIButton(type: .system)
+            control.frame = CGRect(x: 0, y: 0, width: 400, height: 100)
+            try XCTUnwrap(p.views[id]).addSubview(control)
+        }
+        let agent = Agent(session: session)
+        let refused = agent.tap(["id": 2, "at": [200.0, 50.0]])
+        XCTAssertTrue((refused["error"] as? String)?.contains("unsupported") == true, "\(refused)")
+        XCTAssertTrue((refused["error"] as? String)?.contains("--touch platform") == true, "\(refused)")
+        let heard = agent.tap(["id": 4, "at": [200.0, 50.0]])
+        XCTAssertNil(heard["error"], "\(heard)")
+        XCTAssertNotNil(heard["unreached"], "says the module's control heard nothing: \(heard)")
+    }
+
+    /// Under `--touch platform` a menu's row is UIKit's, found by its
+    /// popover and place (LLP 1080.000 §13): UIKit puts no identifier on the
+    /// element it shows, so the row's popover must be the menu UIKit was last
+    /// given to present, and its rows must read as one run of the shown
+    /// rows. A duplicate title or a label that is another's prefix picks
+    /// nothing else; another popover's row, however alike its rows read, a
+    /// menu shown twice and a menu that scrolls past the screen are refused.
+    func testAMenuRowIsItsPlaceInThePresentedMenu() throws {
+        let (session, agent, _) = rows()
+        let window = try XCTUnwrap(self.window)
+        let p = session.presenter
+        let node = { (id: UInt32) in p.views[id]! }
+        let present = { (ids: [UInt32]) in p.menus.presentedMenu = Dictionary(uniqueKeysWithValues: ids.map { ($0, node($0).incarnation) }) }
+        p.menus.given[2] = [GivenRow(node(3), title: "Rename", subtitle: nil), GivenRow(node(5), title: "Delete", subtitle: nil), GivenRow(node(7), title: "Delete", subtitle: nil)]
+        p.menus.given[4] = [GivenRow(node(9), title: "Copy", subtitle: nil), GivenRow(node(6), title: "Copy", subtitle: "link")]
+        // Popover 8 gives the same rows as popover 2.
+        p.menus.given[8] = [GivenRow(node(1), title: "Rename", subtitle: nil), GivenRow(node(4), title: "Delete", subtitle: nil), GivenRow(node(2), title: "Delete", subtitle: nil)]
+        func menu(_ labels: [String], at origin: CGPoint, scrolls: Bool = false) -> UIScrollView {
+            let list = UIScrollView(frame: CGRect(origin: origin, size: CGSize(width: 200, height: CGFloat(labels.count) * 40)))
+            // Added last row first: a list's subviews are not in reading order.
+            for (i, label) in labels.enumerated().reversed() {
+                let cell = UIView(frame: CGRect(x: 0, y: CGFloat(i) * 40, width: 200, height: 40))
+                cell.isAccessibilityElement = true
+                cell.accessibilityLabel = label
+                list.addSubview(cell)
+            }
+            list.contentSize = CGSize(width: 200, height: CGFloat(labels.count + (scrolls ? 4 : 0)) * 40)
+            window.addSubview(list)
+            return list
+        }
+        let why = { (r: Result<CGRect, AimRefusal>) -> String in if case .failure(let f) = r { return f.why }; return "" }
+        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("not the menu UIKit shows"), "no menu presented")
+        present([2])
+        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("does not show its rows"), "presented, not yet shown")
+        XCTAssertFalse(agent.menuShown(in: window))
+        let a = menu(["Rename", "Delete", "Delete"], at: CGPoint(x: 20, y: 100))
+        XCTAssertTrue(agent.menuShown(in: window))
+        XCTAssertEqual(try agent.shownRow(node(7), of: node(2), in: window).get(), CGRect(x: 20, y: 180, width: 200, height: 40), "the second Delete, by its place")
+        XCTAssertEqual(try agent.shownRow(node(5), of: node(2), in: window).get(), CGRect(x: 20, y: 140, width: 200, height: 40))
+        // Popover 2's menu was dismissed and popover 8's, reading the same, is up: 2's row is not in it.
+        present([8])
+        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("not the menu UIKit shows"), "a dismissed menu's row")
+        XCTAssertEqual(try agent.shownRow(node(2), of: node(8), in: window).get(), CGRect(x: 20, y: 180, width: 200, height: 40))
+        // Two popovers of the presented menu (a menu and its submenu) that read the same.
+        present([2, 8])
+        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("read the same"))
+        present([4])
+        let b = menu(["Copy", "Copy, link"], at: CGPoint(x: 20, y: 400))
+        XCTAssertEqual(try agent.shownRow(node(9), of: node(4), in: window).get(), CGRect(x: 20, y: 400, width: 200, height: 40), "Copy, not Copy, link")
+        XCTAssertEqual(try agent.shownRow(node(6), of: node(4), in: window).get(), CGRect(x: 20, y: 440, width: 200, height: 40))
+        present([2])
+        let twin = menu(["Rename", "Delete", "Delete"], at: CGPoint(x: 220, y: 100))
+        XCTAssertTrue(why(agent.shownRow(node(3), of: node(2), in: window)).contains("2 places"), "the menu shown twice")
+        for v in [a, b, twin] { v.removeFromSuperview() }
+        XCTAssertFalse(agent.menuShown(in: window))
+        // A menu that scrolls shows a slice of its rows: one shown is picked;
+        // one scrolled out is refused, naming the way that works.
+        let long = menu(["Rename", "Delete"], at: CGPoint(x: 20, y: 100), scrolls: true)
+        XCTAssertTrue(agent.menuShown(in: window))
+        XCTAssertEqual(try agent.shownRow(node(5), of: node(2), in: window).get(), CGRect(x: 20, y: 140, width: 200, height: 40))
+        XCTAssertTrue(why(agent.shownRow(node(7), of: node(2), in: window)).contains("scrolled out"))
+        long.removeFromSuperview()
+        let tail = menu(["Delete"], at: CGPoint(x: 20, y: 100), scrolls: true)
+        XCTAssertTrue(why(agent.shownRow(node(7), of: node(2), in: window)).contains("2 places"), "one Delete shown, two it could be")
+        tail.removeFromSuperview()
+        // A row the node no longer is (a reused view): not in the presented menu.
+        p.menus.given[2] = [GivenRow(node(3), title: "Rename", subtitle: nil)]
+        XCTAssertTrue(why(agent.shownRow(node(5), of: node(2), in: window)).contains("not the menu UIKit shows"))
     }
 }
 #endif

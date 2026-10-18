@@ -1,5 +1,5 @@
 // Source365aa87982 defers attachment cleanup after local enqueue; Exact preserves newer edits.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import type { T3Client } from './shared/client';
 import type { MobileOutboxTransferClaim } from './mobile-outbox-transfer-model';
 import { obj, type Obj } from './shared/domain';

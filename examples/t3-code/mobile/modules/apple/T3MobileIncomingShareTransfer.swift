@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#incoming-share-inbox
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#incoming-share-inbox
 // Called exclusively under T3MobileQueuedEdit's preference/attachment mutex.
 import Foundation
 import CoreFoundation

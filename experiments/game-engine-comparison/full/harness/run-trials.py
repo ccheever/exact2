@@ -30,7 +30,7 @@ for task,rep in [('a',1),('b',1),('b',2),('a',2)]:
  env=os.environ.copy()
  if engine=='godot':
   env['LD_LIBRARY_PATH']=str(base/'runtime-libs/root/usr/lib/x86_64-linux-gnu')
-  env['CHROMIUM']='/home/ccheever/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell'
+  env['CHROMIUM']=os.path.expanduser('~/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell')
   env['GODOT']='/tmp/exact-engine-comparison-20260917/native/Godot_v4.7.2-stable_linux.x86_64'
  (evidence/'prompt.txt').write_text(prompt)
  record={'engine':engine,'task':task,'replicate':rep,'model':'gpt-5.6-sol','effort':'high','dispatch':time.time()}

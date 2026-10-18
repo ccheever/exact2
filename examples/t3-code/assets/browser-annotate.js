@@ -1,4 +1,4 @@
-// browser-surface part 3 (capture): the Browser tab's annotation overlay, a classic script the module runs in
+// The Browser tab's annotation overlay, a classic script the module runs in
 // its own content world (`.defaultClient`, T3BrowserAnnotate.swift): it sees the page's DOM, not its JS, and its
 // message handler cannot be called by the page. MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/desktop/src/preview/PickPreload.ts (startAnnotation and its helpers), AnnotationKeyboard.ts
@@ -570,6 +570,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     let finished = false;
     const host = document.createElement("div");
     host.setAttribute(OVERLAY_ATTRIBUTE, "");
+    host.setAttribute("dir", "ltr");
     host.style.cssText = `position:fixed;inset:0;z-index:${Z_INDEX_OVERLAY};pointer-events:none`;
     applyAnnotationTheme(host, annotationTheme);
     const shadowRoot = host.attachShadow({ mode: "closed" });
@@ -579,6 +580,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
     const root = document.createElement("div");
     root.setAttribute(OVERLAY_ATTRIBUTE, "");
+    root.setAttribute("dir", "ltr");
     root.className = "fixed inset-0 font-sans text-foreground";
     root.style.cssText = "pointer-events:none";
     const cursorStyle = document.createElement("style");
@@ -627,6 +629,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
     const comment = document.createElement("textarea");
     comment.placeholder = "Describe the change…";
+    comment.setAttribute("dir", "auto");
     comment.rows = 1;
     comment.className =
       "min-h-8 max-h-24 min-w-0 flex-1 resize-none overflow-y-hidden border-0 border-b border-b-transparent bg-transparent px-0 py-1.5 font-sans text-sm leading-5 text-foreground outline-none ring-0 placeholder:text-muted-foreground focus:border-b-primary focus:outline-none focus:ring-0";
@@ -1425,6 +1428,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
         submitText: submit.textContent,
         submitTitle: submit.title,
         commentFocused: shadowRoot.activeElement === comment,
+        direction: getComputedStyle(root).direction,
+        commentDirection: getComputedStyle(comment).direction,
         placeholder: comment.placeholder,
       }),
       setComment: (text) => {

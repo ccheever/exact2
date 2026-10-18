@@ -41,7 +41,7 @@
     {
       "label": "check: test",
       "type": "shell",
-      "command": "cargo test --lib --bins --tests --no-fail-fast",
+      "command": "cargo test --tests --no-fail-fast",
       "group": { "kind": "test", "isDefault": true },
       "problemMatcher": "$rustc"
     },

@@ -1,4 +1,4 @@
-// @ref llp/1109.008-mobile-voice.decision.md#presentation
+// @ref examples/t3-code/mobile/docs/1130.008-mobile-voice.decision.md#presentation
 shape VoiceColors
   foreground: string
   muted: string

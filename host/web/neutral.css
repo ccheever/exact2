@@ -1,7 +1,6 @@
   /* The neutral look (LLP 1115.000 D4 part B): what the web draws where the author says nothing, the same in every
-     browser and on every operating system, and no platform's. A web build takes this sheet after the shell's own
-     (host/web/look.mjs: `EXACT_WEB_LOOK=neutral`), so each rule here replaces the rule of LLP 1116 D1's look that
-     imitates iOS, and what is already the browser's stays: the system font, the reader's text size, the focus ring.
+     browser and on every operating system. A web build takes this sheet after the shell's browser resets
+     (host/web/look.mjs). The browser keeps its system font, the reader's text size and the focus ring.
      Like the shell's, every rule is `:where()` or sits under one #exact-root, so the author's rows win.
 
      The rules the look follows:
@@ -24,9 +23,9 @@
      D17). host/web/tests/neutral-look.test.mjs holds this sheet to the table, so a number changes there and here
      together.
 
-     The page's mark, the roles this sheet and the shell's name (the neutral column's pairs, which the same test holds
+     The roles this sheet and the shell's name (the neutral column's pairs, which the same test holds
      to the table), and the look's own few values. */
-  :root { --exact-look: neutral; --exact-label: light-dark(#000000ff, #ffffffff); --exact-secondary-label: light-dark(#474747ff, #bdbdbdff); --exact-placeholder: light-dark(#5c5c5cff, #a3a3a3ff); --exact-separator: light-dark(#0000001f, #ffffff29); --exact-background: light-dark(#ffffffff, #121212ff); --exact-secondary-background: light-dark(#f5f5f5ff, #1e1e1eff); --exact-grouped-background: light-dark(#f5f5f5ff, #121212ff); --exact-secondary-grouped-background: light-dark(#ffffffff, #1e1e1eff); --exact-fill: light-dark(#00000024, #ffffff29); --exact-secondary-fill: light-dark(#0000001a, #ffffff1f); --exact-tertiary-fill: light-dark(#00000012, #ffffff17); --exact-quaternary-fill: light-dark(#0000000a, #ffffff0f); --exact-system-red: light-dark(#c90f1aff, #fe7367ff);
+  :root { --exact-label: light-dark(#000000ff, #ffffffff); --exact-secondary-label: light-dark(#474747ff, #bdbdbdff); --exact-placeholder: light-dark(#5c5c5cff, #a3a3a3ff); --exact-separator: light-dark(#0000001f, #ffffff29); --exact-background: light-dark(#ffffffff, #121212ff); --exact-secondary-background: light-dark(#f5f5f5ff, #1e1e1eff); --exact-grouped-background: light-dark(#f5f5f5ff, #121212ff); --exact-secondary-grouped-background: light-dark(#ffffffff, #1e1e1eff); --exact-fill: light-dark(#00000024, #ffffff29); --exact-secondary-fill: light-dark(#0000001a, #ffffff1f); --exact-tertiary-fill: light-dark(#00000012, #ffffff17); --exact-quaternary-fill: light-dark(#0000000a, #ffffff0f); --exact-system-red: light-dark(#c90f1aff, #fe7367ff);
     --exact-gray-text: light-dark(#707070ff, #929292ff); --exact-line: color-mix(in srgb, var(--exact-label) 45%, transparent); --exact-raised: 0 0 0 1px var(--exact-separator), 0 4px 12px rgb(0 0 0 / .12); --exact-modal: 0 0 0 1px var(--exact-separator), 0 16px 48px rgb(0 0 0 / .24); --exact-scrim: rgb(0 0 0 / .4); }
   /* The accent: the browser's own (`AccentColor`), kept to a lightness at which it reads at 4.5:1 as text on the page
      in each scheme (0.53 in light, 0.72 in dark, the neutral column's own two). An author's `accent-color` is the
@@ -41,7 +40,7 @@
      the accent under the ink that reads on it; `tinted` and `plain` the accent as ink. `destructive` is the red as the
      button's accent, so an outline or a grey button takes red ink. */
   #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; }
-  #exact-root button[data-button-style]:has(> img:only-child) { padding-inline: .5em; }
+  #exact-root button[data-button-style]:has(> img:only-child):not([navigationPresentation="modal"] > header button[aria-label]) { padding-inline: .5em; }
   @media (pointer: coarse) { #exact-root button[data-button-style] { min-height: 44px; min-width: 44px; } }
   /* The floor and the padding are the look's, and a size the author wrote is the author's (LLP 1115: what is written
      wins). In CSS a minimum outranks a size, and a border box is never narrower than its padding, so the host names a
@@ -84,6 +83,8 @@
      is text (they underline, below). */
   @media (hover: hover) {
     #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
+    /* A button its author filled (LLP 1129 D1): the filled button's hover, a wash of its own ink, which shows over any fill. */
+    #exact-root :is(button, a[data-view][href], [data-exact-on~="press"])[data-exact-said~="background-color"]:hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
     /* A grouped list's row starts at its text: the wash reaches the card's edge before it. */
     #exact-root [data-liststyle] > section > div > :is(button, a[href], [data-exact-on~="press"]):hover:not(:disabled, [data-native], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { box-shadow: -64px 0 0 var(--exact-quaternary-fill); }
   }
@@ -105,7 +106,7 @@
   @media (hover: hover) {
     #exact-root :where([data-listrows], [data-listrows] > [data-listitemkey]) > a[data-view][href]:hover:not([data-button-style], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
   }
-  #exact-root [data-listrows] :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [style*="--exact-press:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"], [data-exact-surface], [data-exact-text] a, :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):is(:active, [data-pressed]))) { background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
+  #exact-root [data-listrows] :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"], [data-exact-surface], [data-exact-text] a, :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):is(:active, [data-pressed]))) { background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
   #exact-root [data-listrows] :is(button:not([data-native]), a[data-view][href], [data-exact-on~="press"]):focus-visible { outline-offset: -2px; }
 
   /* Fields and `select`: 36 px in every engine (a said line height again), the control's line, the field's own ground
@@ -216,6 +217,10 @@
      the shell's heading reset (`margin: 0`) and wins by coming after it. */
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"])) > :is(h1, h2, h3, h4, h5, h6),
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"]) > [role="heading"]) { margin-inline: auto; text-align: center; }
+  /* LLP 1116.020 D2: a sheet's button whose face is only a symbol says its name instead, padded as a word is (above):
+     iOS draws a Cancel's xmark and a Save's checkmark, and a web dialog's buttons are words. */
+  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))) > img { display: none; }
+  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source]))))::after { content: attr(aria-label); }
 
   /* A dialog is a modal surface. An alert reads as a page does, its title and message at the start. Its actions share
      the row equally in the order written, a title too long for its share taking a row of its own, and a destructive
@@ -256,9 +261,7 @@
      platform's, as the sidebar's and the split's are; a colour the author wrote still wins. The card says it is
      above its siblings (`z-index`): WebKit paints a sidebar that scrolls over the scrim otherwise. */
   :where(#exact-root [navigationPresentation="modal"]) { color: var(--exact-label); }
-  /* The shell gives an unsaid sheet the engine's `Canvas` (#425), and each engine's dark `Canvas` is its own: Firefox's
-     and WebKit's are not this look's ground. So the look's ground outranks the shell's rule here, and a ground the
-     author wrote, which is on the node itself, still outranks both. */
+  /* Every browser uses the same sheet ground; an authored ground still wins. */
   #exact-root [navigationPresentation="modal"] { background-color: var(--exact-background); }
   @media (min-width: 900px) {
     #exact-root [navigationPresentation="modal"] { position: fixed !important; inset: 0 !important; margin: auto !important; box-sizing: border-box !important; width: min(35rem, calc(100vw - 64px)) !important; height: fit-content !important; max-height: min(45rem, calc(100vh - 64px)) !important; z-index: 1; border-radius: 12px; overflow: clip; box-shadow: var(--exact-modal), 0 0 0 100vmax var(--exact-scrim); }

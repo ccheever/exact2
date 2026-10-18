@@ -1,5 +1,5 @@
 // App-local pure reuse for ancestor bake GAP001. Original usage-limits.ts SHA256 c92ff3eaada8e0637bc7b6a2aac9cb2531889ee946ac3e9b257003cd784bfff3.
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 // Selection and pace maths for the provider limits, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // packages/shared/src/usageLimits.ts (providersWithLimits, accountKey, limitsNotice,
 // remainingPercent, elapsedShare, paceOf, formatDuration, formatResetsIn, USAGE_LIMITS_COMMAND,

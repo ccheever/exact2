@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 // T3 Code 365aa87982, MIT (LICENSE-T3): AddProjectScreen.logic.ts,
 // operations/projects.ts, state/{projects,filesystem}.ts and shared/path.ts.
 import { isWindowsDrivePath, isUncPath, isWindowsAbsolutePath } from './shared/media-reference';

@@ -9,14 +9,12 @@ import { test, expect } from 'bun:test';
 import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { standIns } from './stand-ins.mjs';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-press-'));
-for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js']) copyFileSync(resolve(new URL(`../../web-js/${f}`, import.meta.url).pathname), resolve(dir, f));
-for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'contextAt', 'animationClocks', 'launchLocation'], 'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'shape.js': ['conforms', 'eq', 'equal', 'failureCode'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
-  'paint.js': ['paintList', 'paintFacts', 'paintFlush', 'paintOwn'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
-  'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds', 'x_querySelectorAll'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
-  writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n'));
-writeFileSync(resolve(dir, 'media.js'), ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'].map(n => `export const ${n} = () => {};`).join('\n') + '\nexport const MEDIA_EVENTS = new Set();');
+const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js'];
+for (const f of REAL) copyFileSync(resolve(new URL(`../../web-js/${f}`, import.meta.url).pathname), resolve(dir, f));
+for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
 
 class Link {
   constructor(attrs) { this.localName = 'a'; this.attrs = new Map(Object.entries(attrs)); this.listeners = []; }

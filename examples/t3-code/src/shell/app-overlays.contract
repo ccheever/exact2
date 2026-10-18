@@ -1,0 +1,253 @@
+use Icon from "../shared/icons.contract"
+use Settings from "../shared/shapes.contract"
+use Snapshot from "../shared/shapes.contract"
+use PickerCatalog, PickerTarget from "../composer/composer-shapes.contract"
+use ModelPicker from "../composer/model-picker.contract"
+use Viewport from "../shared/shapes.contract"
+use Ink from "../shared/shapes.contract"
+use Muted from "../shared/shapes.contract"
+use Surface from "../shared/shapes.contract"
+use Control from "../shared/shapes.contract"
+use Overlay from "../shared/shapes.contract"
+use WelcomeWizard from "../pages/pages-welcome.contract"
+use WelcomeView from "../pages/pages-welcome.contract"
+use RevertDialog from "../timeline/timeline.contract"
+use ImagePreviewHost from "../timeline/timeline-attachments.contract"
+use DiagramPreviewDialog from "../timeline/timeline-mermaid.contract"
+use TimelineAttachmentUrls from "../timeline/timeline-attachments.contract"
+use PlanSaveDialog from "../timeline/timeline-plan.contract"
+use ShellView from "./shell-shapes.contract"
+use ToastStack from "./shell-toast.contract"
+use TitleMenu from "./shell-panels.contract"
+use AppConfirm from "./shell-panels.contract"
+use DeviceSurfaceSetup from "../panel/panel.contract"
+use ThreadDetailsPanel from "../details/shell-details.contract"
+use ShellDetails from "./shell-shapes.contract"
+use GitLayers from "../details/git.contract"
+use PrRowLayers from "../details/pr-row.contract"
+use PublishDialog from "../details/git-publish.contract"
+use CommandPalette from "../palette/palette.contract"
+use PaletteView from "../palette/palette.contract"
+use VideoPreviewDialog from "../composer/composer-video.contract"
+use ComposerImageDialog from "../composer/composer-chip-image.contract"
+use ComposerFileDialog from "../composer/composer-chip-file.contract"
+use ChatDocument from "../timeline/markdown.contract"
+use ResetCreditDialog from "../usage/usage-bars.contract"
+use TableCopyMenu from "../timeline/table-menu.contract"
+use CheckoutDialog from "../composer/pr-checkout.contract"
+use PrDetailView from "../pull-requests/pages-pr-detail.contract"
+use PrActionLayers from "../pull-requests/pages-pr-actions.contract"
+use FocusGuard from "../shared/dialog-trap.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
+use DialogFinalFocus from "../shared/dialog-trap.contract"
+
+// The T3Code window's overlays, moved out of app.contract, which keeps the state, resources and
+// actions: each component takes the root names it reads as props of the same names.
+
+// The Projects dialog (Choose project).
+component ProjectPicker
+  inject
+    dialogEntered: action
+    dialogFallback: action
+    rem: number
+  props
+    projectsOpen: bool
+    viewport: Viewport
+    paletteShow: action
+    data: Snapshot
+    closeModal: action
+    manageProject: action
+    commandPending: bool
+    selectProject: action
+  derive dialogTargets = [(data.connected ? "project-dialog-add" : "project-dialog-close"), (data.projects.length > 0 and not commandPending ? `project-dialog-pick-${data.projects.length - 1}` : "project-dialog-close")]
+  view
+    DialogFinalFocus(open=projectsOpen, owner="project-dialog")
+    if projectsOpen
+      column class=Overlay
+        column width="100%" max-width="27.5rem" max-height=(viewport.height - 6 * rem) padding="1.125rem" gap="0.75rem" border-radius="1rem" class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" role="dialog" aria-label="Choose project" testId="project-dialog" id="project-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("project-dialog") key=dialogFallback("project-dialog", dialogTargets)
+          // The focus trap (dialog-trap.contract), as the clone's other dialogs keep theirs: Add project, Close, then each project's two buttons.
+          FocusGuard(guardId="project-dialog-guard-start", targets=dialogTargets, popup="project-dialog")
+          DialogOpenFocus(target=(data.connected ? "project-dialog-add" : "project-dialog-close"))
+          row align-items="center" gap="0.75rem"
+            text "Projects" font-size="1.0625rem" font-weight=600 class=Ink flex=1
+            button id="project-dialog-add" press=paletteShow("command", "add-project") class=Control disabled=(not data.connected) testId="project-dialog-add" data-focus-stop=((not data.connected) ? "" : "enabled")
+              text "+ Add project" font-size="0.75rem" class=Muted
+            button id="project-dialog-close" press=closeModal class=Control aria-label="Close project picker" aria-keyshortcuts="Escape" data-focus-stop="enabled"
+              text "×" font-size="1.1875rem" class=Muted
+          scroll min-height="6.25rem" max-height=(viewport.height - 13.125 * rem)
+            column gap="0.3125rem"
+              for project, i in data.projects key=project.id
+                row gap="0.25rem" align-items="center"
+                  button press=manageProject(project.id, project.name, project.path) disabled=commandPending testId=`manage-project-${project.id}` class=Control aria-label=`Settings for ${project.name}` title=""
+                    Icon(name="settings", size=16, color="light-dark(#71717a, #858585)")
+                  button id=`project-dialog-pick-${i}` press=selectProject(project.id) disabled=commandPending testId=`project-${project.id}` padding="0.75rem" border-radius="0.5625rem" border-width=0 display="flex" flex-direction="column" align-items="flex-start" gap="0.25rem" width="100%" box-sizing="border-box" background-color=(project.selected ? "light-dark(#f0f2f8, #242424)" : "#00000000") data-focus-stop=(commandPending ? "" : "enabled")
+                    text project.name font-size="0.875rem" font-weight=500 class=Ink
+                    text project.path font-size="0.6875rem" class=Muted line-clamp=2
+              if data.projects.length == 0
+                text "Add a workspace folder to start your first thread." font-size="0.8125rem" line-height=1.5 class=Muted padding="0.75rem"
+          FocusGuard(guardId="project-dialog-guard-end", targets=dialogTargets, popup="project-dialog")
+
+// The first-run "Set up T3 Code" wizard (pages-welcome.contract).
+component WelcomeLayer
+  props
+    welcome: WelcomeView
+    viewport: Viewport
+    scheme: string
+    welcomeStep: string
+    commandPending: bool
+    modalError: string
+    welcomeLink: string
+    welcomePairOpen: bool
+    welcomeGo: action
+    welcomeImport: action
+    welcomeEditLink: action
+    welcomePair: action
+    welcomeTogglePair: action
+    prCopy: action
+    welcomeSetup: action
+    providerUi: action
+    welcomeFinish: action
+    // The Codex rows' setup commands (providerOp's setup: queue) and that queue's pending.
+    providerOp: action
+    setupBusy: bool
+  // The wizard's help disclosure (moved from app.contract: only this layer reads or writes it).
+  state welcomeHelpOpen = false
+  action welcomeToggleHelp
+    welcomeHelpOpen = not welcomeHelpOpen
+  view
+    DialogFinalFocus(open=welcome.show, owner="welcome-dialog")
+    if welcome.show
+      WelcomeWizard(view=welcome, scheme=scheme, viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGo, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePair, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish, setupOp=providerOp, setupBusy=setupBusy, ui=providerUi)
+
+// Window overlays above everything: model picker, palette, thread details, title menu, dialogs, toasts.
+component WindowOverlays
+  inject
+    rem: number
+  props
+    modelsOpen: bool
+    data: Snapshot
+    popoverSession: number
+    catalog: PickerCatalog
+    viewport: Viewport
+    scheme: string
+    modelQuery: string
+    modelTarget: PickerTarget
+    composerLeft: number
+    resting: bool
+    commandPending: bool
+    lineageStopping: string
+    closeModels: action
+    selectModel: action
+    searchModels: action
+    selectProvider: action
+    openProviderSettings: action
+    command: action
+    paletteOpen: bool
+    palette: PaletteView
+    paletteQuery: string
+    paletteHighlight: number
+    paletteScroll: number
+    paletteBusy: bool
+    paletteEdit: action
+    paletteKey: action
+    paletteRun: action
+    paletteHover: action
+    paletteClose: action
+    paletteFlag: action
+    details: ShellDetails
+    // The header's thread details popover over a right panel sheet (a narrow window), above the sheet; elsewhere the
+    // chat column draws it, under the floating player (app-main.contract ChatColumn).
+    detailsSheet: bool
+    detailsDensity: string
+    detailsAct: action
+    titleMenuOpen: bool
+    shell: ShellView
+    titleMenuX: number
+    titleMenuY: number
+    titleMenuSerial: number
+    titleMenuPick: action
+    titleUi: action
+    answerRevert: action
+    attachmentUrls: TimelineAttachmentUrls
+    chatLocal: action
+    confirmOp: string
+    confirmTitle: string
+    confirmBody: string
+    confirmDestructive: bool
+    confirmUi: action
+    toastHover: bool
+    toastHovering: action
+    toastAct: action
+    prDetail: PrDetailView
+    prAct: action
+    // app.contract's filesMarkdown: a composer file chip's rendered Markdown.
+    filesDocuments: ChatDocument[]
+  view
+    if modelsOpen
+      ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings, anchor=modelTarget)
+    if paletteOpen
+      CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=scheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
+    if detailsSheet
+      ThreadDetailsPanel(details=details, density=detailsDensity, right=13, below=0, maxHeight=(viewport.height - 104), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending, stopping=lineageStopping)
+    GitLayers(details=details, windowHeight=viewport.height, act=detailsAct, local=chatLocal)
+    PrRowLayers(details=details, scheme=scheme, act=detailsAct, local=chatLocal) // the Merge AlertDialog
+    PrActionLayers(actions=prDetail.actions, ref=prDetail.ref, dark=(scheme == "dark"), act=prAct, local=chatLocal) // the panel's confirmations
+    // The git card's dialogs (Publish, Commit, and the default-branch confirm a commit can lead to) give the focus back
+    // to the quick action or the options menu's trigger, whichever opened the first (dialog-trap.contract DialogFinalFocus).
+    DialogFinalFocus(open=(details.ready and details.git.dialog == "commit"), owner="git-commit-dialog")
+    DialogFinalFocus(open=(details.ready and details.git.dialog == "confirm"), owner="git-confirm-dialog")
+    DialogFinalFocus(open=(details.ready and details.git.dialog == "publish"), owner="git-publish-dialog")
+    if details.ready and details.git.dialog == "publish"
+      PublishDialog(git=details.git, cwd=details.cwd, act=detailsAct, local=chatLocal)
+    // The branch pickers' PullRequestThreadDialog (pr-checkout.contract).
+    DialogFinalFocus(open=shell.prCheckout.open, owner="pr-checkout-dialog")
+    if shell.prCheckout.open
+      CheckoutDialog(checkout=shell.prCheckout, viewportWidth=viewport.width, viewportHeight=viewport.height, dark=(scheme == "dark"), local=chatLocal, command=command)
+    if titleMenuOpen
+      TitleMenu(items=shell.titleMenu, children=shell.titleSubmenu, x=titleMenuX, y=titleMenuY, serial=titleMenuSerial, pick=titleMenuPick, ui=titleUi)
+    DialogFinalFocus(open=(data.revertPending != ""), owner="revert-dialog")
+    if data.revertPending != ""
+      RevertDialog(busy=commandPending, answer=answerRevert)
+    DialogFinalFocus(open=(data.imagePreviewId != ""), owner="image-preview")
+    if data.imagePreviewId != ""
+      ImagePreviewHost(id=data.imagePreviewId, urls=attachmentUrls.items, name=data.imagePreviewName, position=data.imagePreviewPosition, previous=data.imagePreviewPrevious, next=data.imagePreviewNext, video=data.imagePreviewVideo, source=data.imagePreviewSource, tip=data.imagePreviewTip, returnFocus=data.imagePreviewReturn, windowWidth=viewport.width, windowHeight=viewport.height, local=chatLocal)
+    DialogFinalFocus(open=(data.diagramPreview.length > 0), owner="diagram-preview")
+    for diagram in data.diagramPreview key=diagram.id
+      DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=scheme, local=chatLocal)
+    // A shelf video's expanded preview (composer-video.contract).
+    DialogFinalFocus(open=(data.composerVideoPreview.length > 0), owner="video-preview")
+    for video in data.composerVideoPreview key=video.id
+      VideoPreviewDialog(preview=video, windowWidth=viewport.width, windowHeight=viewport.height, command=command)
+    // A composer image chip's expanded preview (composer-chip-image.contract).
+    DialogFinalFocus(open=(data.composerImagePreview.length > 0), owner="chip-image-preview")
+    for image in data.composerImagePreview key=image.id
+      ComposerImageDialog(preview=image, windowWidth=viewport.width, windowHeight=viewport.height, command=command)
+    // A composer file chip's preview (composer-chip-file.contract).
+    DialogFinalFocus(open=shell.composerFile.open, owner="chip-file-preview")
+    if shell.composerFile.open
+      for file in [shell.composerFile.file.id] key=file
+        ComposerFileDialog(preview=shell.composerFile, documents=filesDocuments, scheme=scheme, windowHeight=viewport.height, command=command, chatLocal=chatLocal)
+    DialogFinalFocus(open=data.planSaveOpen, owner="plan-save-dialog")
+    if data.planSaveOpen
+      PlanSaveDialog(path=data.planSavePath, root=data.planSaveRoot, saving=data.planSaving, local=chatLocal)
+    DialogFinalFocus(open=shell.panel.deviceSetup, owner="device-setup")
+    if shell.panel.deviceSetup
+      DeviceSurfaceSetup(device=shell.panel.device, scheme=scheme, viewportHeight=viewport.height, local=chatLocal, command=command)
+    // requestConfirmDialog before a desktop-managed server's app updates (server-update-notices.ts).
+    DialogFinalFocus(open=(data.serverUpdate.confirmTitle != ""), owner="server-update-confirm")
+    if data.serverUpdate.confirmTitle != ""
+      AppConfirm(confirmLabel="Confirm", title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, confirmId="server-update-confirm", cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
+    DialogFinalFocus(open=data.updateEverything.confirm, owner="update-everything-confirm")
+    if data.updateEverything.confirm
+      AppConfirm(confirmLabel="Update", title=data.updateEverything.title, body=data.updateEverything.body, destructive=false, busy=commandPending, confirmId="update-everything-confirm", cancel=command("ue:cancel", "", "", 0), confirm=command("ue:confirm", "", "", 0))
+    // The /usage-limits banner's reset credit confirm (ResetCreditDialog, outside the banner).
+    DialogFinalFocus(open=(data.composer.resetConfirm != ""), owner="reset-credit-dialog")
+    if data.composer.resetConfirm != ""
+      ResetCreditDialog(prefix="cclocal:usage", target=data.composer.resetConfirm, busy=commandPending, command=command)
+    DialogFinalFocus(open=(confirmOp != ""), owner="app-confirm")
+    if confirmOp != ""
+      AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, confirmId="app-confirm", confirmLabel=(confirmOp == "cc:branch-restore-confirmed" ? "Switch branch" : "Confirm"), cancel=confirmUi(false), confirm=confirmUi(true))
+    ToastStack(toasts=shell.toasts, width=min(22.5 * rem, viewport.width - (viewport.width >= 640 ? 4 : 2) * rem), top=(52 + (viewport.width >= 640 ? 2 : 1) * rem), right=((viewport.width >= 640 ? 2 : 1) * rem), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
+    // A Markdown table's Copy menu over every layer (table-menu.contract).
+    for menu in data.tableMenu key=menu.id
+      TableCopyMenu(menu=menu, dark=(scheme == "dark"), local=chatLocal)

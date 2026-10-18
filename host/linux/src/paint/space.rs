@@ -249,6 +249,7 @@ impl Painter {
             replay: None,
             ranks: Rc::clone(&walk.ranks),
             reveal: walk.reveal,
+            dialog: walk.dialog,
         };
         let f = node.frame;
         painter.node(

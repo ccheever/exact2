@@ -1,5 +1,5 @@
 // Pinned365aa87982 flush-before-remove recovery, over existing preference/journal owners.
-// @ref llp/1109.005-composer-and-transcript.decision.md#terminal-draft-attachment-handoff
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#terminal-draft-attachment-handoff
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import { obj, str, type Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Native, type Files } from './shared/protocol';

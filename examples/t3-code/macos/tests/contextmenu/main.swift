@@ -31,7 +31,7 @@ final class ContextMenuTests: XCTestCase {
     }
 
     func testUnderTheAgentTheMenuAnswersDismissedWithoutTracking() {
-        // right-panel-tab-menu repro: popping the menu in the agent's never-key window tracked
+        // Popping the menu in the agent's never-key window tracked
         // until real input, leaving the request pending past `clock settle`'s 20 s bound.
         _ = NSApplication.shared
         var reply: [String: Any]?

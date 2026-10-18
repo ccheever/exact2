@@ -1,19 +1,22 @@
-#[path = "src/markdown.rs"]
-mod markdown;
+//! Bake T3 Code for macOS. The generated sources the bake reads are made by `t3-code-data`'s
+//! build script, which Cargo runs before this one compiles.
 
 fn main() {
-    // Mixed-source ownership is part of the bake, not only the linked app.
-    println!("cargo:rerun-if-changed=src/markdown.rs");
     exact_js_bake::build_mixed_with(
         std::path::Path::new(".."),
         "macos",
-        &markdown::Markdown,
+        &t3_code_data::Markdown,
         &[
             "renderMarkdown",
             "renderPullRequestMarkdown",
             "renderFileMarkdown",
         ],
-        |javascript| Box::new(markdown::mixed(javascript, exact_runner::Placement::Main)),
+        |javascript| {
+            Box::new(t3_code_data::mixed(
+                javascript,
+                exact_runner::Placement::Main,
+            ))
+        },
     )
     .expect("bake T3 Code for macOS");
 }

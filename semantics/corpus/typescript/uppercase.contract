@@ -1,0 +1,40 @@
+// LLP 1088 D2 (admitted 2026-10-17). `toUpperCase`: each expected value is what the same TypeScript evaluates to under Bun (Unicode default case conversion, full mappings).
+component App
+  derive u0 = "abc".toUpperCase()
+  derive u1 = "Straße".toUpperCase()
+  derive u2 = "ﬃ".toUpperCase()
+  derive u3 = "ΐ".toUpperCase()
+  derive u4 = "ǆ".toUpperCase()
+  derive u5 = "ŉ".toUpperCase()
+  derive u6 = "ᾳ".toUpperCase()
+  derive u7 = "ὀδυσσεύς".toUpperCase()
+  derive u8 = "i̇".toUpperCase()
+  view
+    text "audit"
+
+test "'abc'.toUpperCase()"
+  expect state u0 == "ABC"
+
+test "'Straße'.toUpperCase()"
+  expect state u1 == "STRASSE"
+
+test "'ﬃ'.toUpperCase()"
+  expect state u2 == "FFI"
+
+test "'ΐ'.toUpperCase()"
+  expect state u3 == "Ϊ́"
+
+test "'ǆ'.toUpperCase()"
+  expect state u4 == "Ǆ"
+
+test "'ŉ'.toUpperCase()"
+  expect state u5 == "ʼN"
+
+test "'ᾳ'.toUpperCase()"
+  expect state u6 == "ΑΙ"
+
+test "'ὀδυσσεύς'.toUpperCase()"
+  expect state u7 == "ὈΔΥΣΣΕΎΣ"
+
+test "'i̇'.toUpperCase()"
+  expect state u8 == "İ"

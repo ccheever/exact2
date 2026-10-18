@@ -47,12 +47,14 @@ pub mod commands;
 pub mod compare;
 mod conform;
 pub mod delivery;
+pub mod design;
 pub mod device;
 pub mod failure;
 pub mod file_pickers;
 mod format;
 pub mod geometry;
 pub mod grants;
+pub mod hardened;
 pub mod head;
 pub mod held;
 pub mod instance;
@@ -67,6 +69,7 @@ pub mod save_file;
 /// `accept` matching, the HEIC rule, a `type @t` answer's paths.
 pub use runner::picker as picker_support;
 pub mod machine;
+pub mod midi;
 pub mod share;
 pub mod sound;
 pub mod stdlib;
@@ -74,9 +77,11 @@ pub mod store;
 pub mod strings;
 pub mod surface_record;
 pub mod time;
+pub mod transport;
 pub mod uses;
 pub mod viewport;
 pub mod vm;
+pub mod wakelock;
 
 pub use delivery::Delivery;
 pub use exact_canvas;
@@ -94,21 +99,32 @@ pub use instance::{DocNode, DocTree, DocTreeError, ListLinks, SurfaceUpdate, LIS
 pub use page::Page;
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Message, Outcome, Placement,
-    Redirect, Reply, Request, RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work,
-    MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH, MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
+    Redirect, Reply, Request, RequestOut, Response, SocketOp, SocketOrigin, SocketSend,
+    SurfaceOutcome, SurfaceRequest, Work, MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH,
+    MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
 };
 pub use runner::{
-    canvas_engine, routing, virtual_frame, Advanced, Announce, AuthLinks, BackgroundState,
-    CanvasEngine, CanvasLink, CanvasList, Carried, Checkpoint, Command, ControlValue, DataError,
-    DataSource, DeviceLinks, DrawReply, DrawRequest, Drawn, DropEvent, Event, FieldSelection,
-    FormatLink, Geometry, GeometryLink, Hold, HoldAnswer, InFlight, InputDetails, Interrupt,
-    Intersection, KeyModifiers, KeyboardEvent, Limits, ListTextPolicy, ListTextPosition, Native,
-    NativeCall, NativeHandler, Overlaid, Picked, PickerLinks, PickerRequest, PointerEvent,
-    PreloadWake, ResizeRect, RouterChange, RouterLink, Routing, Runner, RunnerError, RunnerLinks,
-    ScrollEvent, SelectionDirection, StackSplit, StreamCount, SurfaceAnswer, Target, Timed,
-    WheelEvent, Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND,
-    RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    canvas_engine, press_writes_router, routing, virtual_frame, Advanced, Announce, AuthLinks,
+    BackgroundState, BlockPlacement, CanvasEngine, CanvasLink, CanvasList, Carried, Checkpoint,
+    Command, ControlValue, DataError, DataSource, DeviceLinks, DrawReply, DrawRequest, Drawn,
+    DropEvent, Event, FieldSelection, FormatLink, Geometry, GeometryLink, Hold, HoldAnswer,
+    InFlight, InputDetails, Interrupt, Intersection, KeyModifiers, KeyboardEvent, Limits,
+    ListTextPolicy, ListTextPosition, Native, NativeCall, NativeHandler, Overlaid, Picked,
+    PickerLinks, PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange, RouterLink,
+    Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection, SocketReader,
+    SocketState, StackSplit, StreamCount, SurfaceAnswer, Target, Timed, WheelEvent, Write,
+    BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
+    TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
+pub use runner::{LiveApplied, LiveRefusal, Place, Tamber};
+/// The binding core's names (LLP 1121 D12): what `contract tamber gen rust`
+/// writes (`pub const SURFACE_CARD: Token<Color>`) and resolves.
+pub mod tamber {
+    pub use crate::runner::{
+        ColorKind as Color, Font, Kind, LengthKind as Length, NumberKind as Number, Place, Tamber,
+        Token, TypeKind as Type,
+    };
+}
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
 pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};

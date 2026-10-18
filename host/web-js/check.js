@@ -6,6 +6,7 @@
 // the viewport's sides. Read from the page, never a second model; the
 // background a text stands on is the nearest fill painted under it (LLP
 // 1116.006 D5), else the driver's, from the pixels.
+import { inertAncestor } from './navigation.js';
 const CONTROL = 'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [role="menuitem"], [data-exact-on~="press"]';
 // A user agent's own control at its own size (WCAG 2.5.8's exception), unless the author sized it.
 const AGENT_SIZED = 'input[type="checkbox"], input[type="radio"], input[type="range"], input[type="color"], input[type="date"], input[type="time"], input[type="datetime-local"], select, progress';
@@ -34,7 +35,7 @@ export function observe(views, inactive = () => false) {
   const modal = document.querySelector('dialog:modal');
   const shown = (el, b) => b.width > 0 && b.height > 0
     && (!el.checkVisibility || el.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
-    && !el.closest('[inert], [data-exiting]') && (!modal || modal.contains(el)) && !inactive(el);
+    && !inertAncestor(el) && !el.closest('[data-exiting]') && (!modal || modal.contains(el)) && !inactive(el);
   const opacity = (el) => { let o = 1; for (let e = el; e && e !== document.documentElement; e = e.parentElement) o *= Number(getComputedStyle(e).opacity); return o; };
   // What paints that a computed colour does not say: a picture, a native widget, a gradient.
   const opaque = (e, s) => /^(img|svg|canvas|video|iframe|picture|object|embed)$/.test(e.localName) || s.backgroundImage !== 'none'
@@ -51,7 +52,7 @@ export function observe(views, inactive = () => false) {
     const alpha = []; // each box's opacity times its ancestors'
     for (let i = chain.length - 1, o = 1; i >= 0; i--) alpha[i] = o *= Number(getComputedStyle(chain[i]).opacity);
     const layers = [];
-    let by, top = null;
+    let by, accent = false, top = null;
     for (let i = 0; i < chain.length; i++) {
       const e = chain[i], s = getComputedStyle(e), canvas = e === document.documentElement || e === document.body;
       if (!canvas) { const r = e.getBoundingClientRect(); if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) continue; }
@@ -59,7 +60,11 @@ export function observe(views, inactive = () => false) {
       const c = s.backgroundClip === 'text' ? null : rgba(s.backgroundColor);
       if (!c) continue;
       c[3] *= alpha[i];
-      if (!layers.length) by = canvas ? null : viewOf(e);
+      if (!layers.length) {
+        by = canvas ? null : viewOf(e);
+        // The accent (`AccentColor`, which Contract writes as the accent's variable over it).
+        accent = !canvas && /^var\(--exact-accent\b|^AccentColor$/.test(authored(e, 'background-color'));
+      }
       layers.push(c);
       if (c[3] >= 0.999) { top = e; break; }
     }
@@ -81,7 +86,7 @@ export function observe(views, inactive = () => false) {
     }
     let bg = layers.pop().slice(0, 3);
     while (layers.length) bg = mix(layers.pop(), bg);
-    return { bg: bg.map((v) => Math.round(v)), by };
+    return { bg: bg.map((v) => Math.round(v)), by, accent };
   };
   const mix = (fg, bg) => [0, 1, 2].map((i) => fg[i] * fg[3] + bg[i] * (1 - fg[3]));
   // The part of box `b` (el's) that is presented: each ancestor that clips or scrolls its overflow cuts it at its padding
@@ -99,8 +104,21 @@ export function observe(views, inactive = () => false) {
     }
     return { x: r2(l), y: r2(t), w: r2(Math.max(0, r - l)), h: r2(Math.max(0, btm - t)) };
   };
+  // Whether a box holds what a person reads or uses: a control, or a text whose words show. A bare text is
+  // `display: contents`, with no box of its own: its words' box is its.
+  const holds = (el) => [...el.querySelectorAll(`[data-exact-text], ${CONTROL}`)].some((e) => {
+    if (getComputedStyle(e).display !== 'contents') return shown(e, e.getBoundingClientRect());
+    const words = document.createRange(); words.selectNodeContents(e);
+    return getComputedStyle(e).visibility === 'visible' && shown(e.parentElement, words.getBoundingClientRect());
+  });
   const fixed = (el, upTo) => { for (let e = el; e && e !== upTo; e = e.parentElement) if (/^(fixed|sticky)$/.test(getComputedStyle(e).position)) return true; return false; };
   const scrolls = (e) => /^(auto|scroll)$/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1;
+  // What keeps a box's sideways overflow its own: a box that clips on x, or one that scrolls sideways on purpose (an authored
+  // `overflow-x`, or the shorthand's first value). A vertical scroller's x is `auto` only because CSS computes `visible`
+  // beside `auto` so (CSS Overflow 3 §3.1), and a native host neither scrolls nor clips there as a person would scroll to it:
+  // UIKit's vertical scroll view cuts it at the screen's edge (LLP 1116.020 D4; round 18's focus-timer and trivia-quiz).
+  const holdsX = (e, s = getComputedStyle(e)) => /^(hidden|clip)$/.test(s.overflowX)
+    || (/^(auto|scroll)$/.test(s.overflowX) && (/^(auto|scroll)$/.test(authored(e, 'overflow-x').trim()) || /^(auto|scroll)(\s|$)/.test(authored(e, 'overflow').trim())));
   // A box whose written percentage width fits its parent, and whose own padding and border (content-box sizing) push it past
   // the parent's content edge (LLP 1116.009 D5; focus-timer and recipe-finder, round 11: `width="100%"` with padding clipped
   // the phone's right side while `check` said nothing, the scroller around it holding the overflow). The cause is judged, not
@@ -161,25 +179,25 @@ export function observe(views, inactive = () => false) {
       continue;
     }
     const o = opacity(el);
-    // Past the viewport's sides, nothing scrolling it back nor clipping it: the outermost such view only.
-    let held = false;
+    // Past the viewport's sides, nothing scrolling it back sideways nor clipping it: the outermost such view only. Where it
+    // stands with a vertical scroller back at its sideways start, as a native host never moves it (a reveal moves it in Chrome).
+    let held = false, sx = 0;
     for (let e = el.parentElement; e && e.id !== 'exact-root'; e = e.parentElement) {
-      if (out.has(e)) { held = true; break; }
-      const s = getComputedStyle(e);
-      if (s.overflowX !== 'visible') { held = true; break; }
+      if (out.has(e) || holdsX(e)) { held = true; break; }
+      sx += e.scrollLeft;
     }
-    const past = Math.max(b.right - W, -b.left);
+    const past = Math.max(b.right + sx - W, -(b.left + sx));
     if (!held && past > 1 && !fixed(el)) { item.outX = r2(past); out.add(el); }
     // A flex or grid item past its container's sides, within the viewport (LLP 1116.007 D3: tip-splitter's fifth radio at 320 px,
     // an option wider than its row, poking out of its card): the container neither scrolling nor clipping it, nor any ancestor
     // it lies beyond, nor transformed or placed out of flow. Past the viewport it is the finding above.
     const parent = el.parentElement, ps = parent && parent.id !== 'exact-root' ? getComputedStyle(parent) : null;
-    if (!item.outX && ps && /^(inline-)?(flex|grid)$/.test(ps.display) && ps.overflowX === 'visible' && !/^(absolute|fixed)$/.test(cs.position) && cs.transform === 'none') {
+    if (!item.outX && ps && /^(inline-)?(flex|grid)$/.test(ps.display) && !holdsX(parent, ps) && !/^(absolute|fixed)$/.test(cs.position) && cs.transform === 'none') {
       const pb = parent.getBoundingClientRect(), left = pb.left + parent.clientLeft, spill = Math.max(b.right - (left + parent.clientWidth), left - b.left);
       let beyond = false;
       for (let e = parent.parentElement; e && e.id !== 'exact-root' && !beyond; e = e.parentElement) {
         if (out.has(e)) beyond = true;
-        else if (getComputedStyle(e).overflowX !== 'visible') { const a = e.getBoundingClientRect(), l = a.left + e.clientLeft; beyond = b.right > l + e.clientWidth + 0.5 || b.left < l - 0.5; }
+        else if (holdsX(e)) { const a = e.getBoundingClientRect(), l = a.left + e.clientLeft; beyond = b.right > l + e.clientWidth + 0.5 || b.left < l - 0.5; }
       }
       if (spill > 1.5 && !beyond && !fixed(el)) { item.spill = { by: viewOf(parent), dx: r2(spill) }; out.add(el); }
     }
@@ -219,7 +237,7 @@ export function observe(views, inactive = () => false) {
         }
       }
       const under = backing(el, ink);
-      if (under) { item.bg = under.bg; item.on = under.by === item.id ? 'own' : under.by ?? 'page'; }
+      if (under) { item.bg = under.bg; item.on = under.by === item.id ? 'own' : under.by ?? 'page'; if (under.accent) item.onAccentFill = true; }
       // An ancestor that clips (never one that scrolls: a person scrolls to it) cutting part of the text away.
       // One that hides it all is a collapsed disclosure, on purpose.
       for (let e = el.parentElement; e && e.id !== 'exact-root'; e = e.parentElement) {
@@ -251,15 +269,20 @@ export function observe(views, inactive = () => false) {
       }
       if (text && !item.cut && b.bottom - H >= 2 && b.top < H && !reach(el, null, false)) item.cut = { edge: 'bottom', dx: 0, dy: r2(b.bottom - H) };
     }
-    // A filled box that is not text or a control: a card, unless it is the page itself. A symbol's fill is its
-    // ink through a mask, and a picture is not a fill.
+    // A card: a filled box, not itself text or a control, that holds a text or a control, its fill what sets that group
+    // apart from the page. None is a box with square corners that reaches a side of the viewport (the page itself, or a
+    // band across it); a list, whose ground is the page under its rows (a grouped list's grey, its sections the cards);
+    // or a shape that holds no text or control (an illustration's, a map's), whether it shows or not
+    // (AgentCheckIOS.swift's is iOS's). A symbol's fill is its ink through a mask, and a picture is not a fill.
+    // `faded`: an ancestor's opacity composites it with what lies behind that ancestor, which the capture cannot separate.
     const picture = /^(img|svg|canvas|video|iframe)$/.test(el.localName) || el.hasAttribute('data-symbol-source') || cs.backgroundImage !== 'none' || (cs.maskImage ?? cs.webkitMaskImage ?? 'none') !== 'none' || (cs.webkitMaskImage ?? 'none') !== 'none';
-    const fill = !text && !item.control && !picture ? rgba(cs.backgroundColor) : null;
+    const fill = !text && !item.control && !picture && !el.hasAttribute('data-exact-list') ? rgba(cs.backgroundColor) : null;
     if (fill && b.width >= 16 && b.height >= 16) {
       const radius = parseFloat(cs.borderTopLeftRadius) || 0, inset = b.left >= 2 && b.right <= W - 2;
-      if (radius > 0 || inset) {
+      if ((radius > 0 || inset) && holds(el)) {
         fill[3] = r2(fill[3] * o);
         item.fill = fill; item.radius = radius;
+        if (o < Number(cs.opacity) * 0.999) item.faded = true;
         const fillRole = role(el, 'background-color');
         if (fillRole) item.fillRole = fillRole;
         const border = ['Top', 'Right', 'Bottom', 'Left'].some((side) => parseFloat(cs[`border${side}Width`]) > 0 && rgba(cs[`border${side}Color`]));
@@ -289,9 +312,6 @@ export function observe(views, inactive = () => false) {
   const root = document.getElementById('exact-root'), probe = document.createElement('span');
   probe.style.color = 'light-dark(rgb(0, 0, 1), rgb(0, 0, 2))'; root.append(probe);
   const used = getComputedStyle(probe).color.includes('2)') ? 'dark' : 'light'; probe.remove();
-  // The look the page draws, where its stylesheet says one (LLP 1115.000 D4 part B: the neutral sheet's mark on the root,
-  // which the wasm glue reads too): the judge reads a role's drawn colours in that look's column of the table.
-  const look = getComputedStyle(document.documentElement).getPropertyValue('--exact-look').trim();
   const coarse = matchMedia('(pointer: coarse)').matches, overlap = Math.max(0, H - (globalThis.visualViewport?.height ?? H));
-  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, ...(look ? { look } : {}), target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
+  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, look: 'neutral', target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
 }

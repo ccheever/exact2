@@ -59,40 +59,28 @@ final class FieldChromeCache: @unchecked Sendable {
                    size: font.pointSize, weight: request.weight, italic: request.italic != 0,
                    traits: Traits(traits))
     }
-    func prefill(family: UInt16, font: UIFont, weight: UInt16, italic: Bool) {
-        precondition(Thread.isMainThread)
-        // A field, secure field, search field and textarea; then the three
-        // that sit in a grouped list's cell (`Self.cell`), never a search.
-        for kind in [UInt8(0), 1, 2, 3, 0 | Self.cell, 1 | Self.cell, 3 | Self.cell] {
-            let request = ExactFieldChromeRequest(kind: kind, family_id: family, size: Float(font.pointSize), weight: weight, italic: italic ? 1 : 0)
-            let k = key(request, font: font)
-            lock.lock(); let known = entries[k] != nil; lock.unlock()
-            if !known { store(measure(k, font: font), for: k) }
-        }
-    }
     private func store(_ chrome: ExactFieldChrome, for key: Key) {
         lock.lock(); entries[key] = chrome; lock.unlock()
     }
+    /// Nothing is measured before a field asks, so a launch whose first
+    /// screen has none measures none. A miss is measured on main before it
+    /// is answered: the first layout with a field of a new kind, font or
+    /// traits is already exact. Only when the traits change between the key
+    /// and the measurement is the answer provisional, and the host lays out
+    /// again under the new key.
     func answer(_ request: ExactFieldChromeRequest, font: UIFont) -> ExactFieldChrome {
         let k = key(request, font: font)
         lock.lock()
         if let exact = entries[k] { lock.unlock(); return exact }
-        // Kind and current traits take priority; font size then chooses the
-        // nearest entry. This answer is never emitted as a presented frame.
-        let nearest = entries.min { a, b in
-            func distance(_ other: Key) -> CGFloat {
-                (other.kind == k.kind ? 0 : 10000) + (other.traits == k.traits ? 0 : 1000)
-                    + (other.family == k.family ? 0 : 100) + abs(other.size - k.size)
-            }
-            return distance(a.key) < distance(b.key)
-        }?.value ?? ExactFieldChrome()
         misses += 1
         lock.unlock()
-        let measured = Owner.shared.callMain { self.measure(k, font: font) }
-        store(measured, for: k)
-        var provisional = nearest
-        provisional.provisional = 1
-        return provisional
+        return Owner.shared.callMain {
+            let now = key(request, font: font)
+            var chrome = measure(now, font: font)
+            store(chrome, for: now)
+            chrome.provisional = now == k ? 0 : 1
+            return chrome
+        }
     }
     func measure(_ key: Key, font: UIFont) -> ExactFieldChrome {
         precondition(Thread.isMainThread)
@@ -189,10 +177,7 @@ extension TextEngine {
         }
         let id = kind == 0 ? engine.registerControlFont(font) : engine.platformControlID ?? engine.registerControlFont(font)
         let weight = UInt16(controlWeight(font)), italic = font.fontDescriptor.symbolicTraits.contains(.traitItalic)
-        if kind == 0 { Owner.shared.callMain {
-            if let painter = engine.painter { _ = painter.registerControlFont(font) }
-            cache.prefill(family: id, font: font, weight: weight, italic: italic)
-        } }
+        if kind == 0 { Owner.shared.callMain { if let painter = engine.painter { _ = painter.registerControlFont(font) } } }
         return ExactControlFont(family: engine.platformControlName.bytes.assumingMemoryBound(to: UInt8.self), family_len: engine.platformControlName.length,
                                 family_id: id, size: Float(font.pointSize), weight: weight, italic: italic ? 1 : 0)
     }

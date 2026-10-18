@@ -187,6 +187,16 @@ impl Asm {
         self.op(Opcode::PendingMutation, &[Arg::Idx(m.0)])
     }
 
+    /// Whether the mutation's most recent send failed.
+    pub fn failed_mutation(&mut self, m: MutationsId) -> &mut Self {
+        self.op(Opcode::FailedMutation, &[Arg::Idx(m.0)])
+    }
+
+    /// The mutation's most recent failure, or none.
+    pub fn failure_mutation(&mut self, m: MutationsId) -> &mut Self {
+        self.op(Opcode::FailureMutation, &[Arg::Idx(m.0)])
+    }
+
     /// Push whether a resource's latest request for its current arguments failed.
     pub fn failed_resource(&mut self, r: ResourcesId) -> &mut Self {
         self.op(Opcode::FailedResource, &[Arg::Idx(r.0)])

@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 import CryptoKit
 
-// The first-launch unpack (T3LocalRuntime.swift), the development-build policy (item 8 of
-// 20261005-embedded-server-runtime), port selection, the crash reaper, and a real child: the
+// The first-launch unpack (T3LocalRuntime.swift), the development-build policy (a development
+// build starts a server only with T3_LOCAL_HOME and T3_LOCAL_PORT), port selection, the crash reaper, and a real child: the
 // production spawner starting a fake `t3` script that records its envelope.
 
 private func scratch(_ name: String) -> URL {
@@ -195,16 +195,33 @@ final class LocalPolicyTests: XCTestCase {
     }
 
     func testThePackagedBuildDefaultsToTheSharedHomeAndTheScanFrom3773() {
-        let resources = scratch("resources"), bare = scratch("bare"), home = scratch("home").path
-        try! #"{"flavor":"packaged"}"#.write(to: resources.appendingPathComponent("distribution.json"), atomically: true, encoding: .utf8)
-        XCTAssertTrue(T3LocalPolicy.packaged(resources: resources))
-        XCTAssertFalse(T3LocalPolicy.packaged(resources: bare))
-        XCTAssertEqual(T3LocalPolicy.resolve(env: [:], packaged: T3LocalPolicy.packaged(resources: resources), home: home, accountHome: home),
+        let home = scratch("home").path
+        let info: [String: Any] = ["ExactProtocolHandlers": [["protocol": "t3code", "url": "/open?u=%s"]],
+                                   "CFBundleURLTypes": [["CFBundleURLSchemes": ["t3code"]]]]
+        XCTAssertTrue(T3LocalPolicy.packaged(info: info))
+        XCTAssertFalse(T3LocalPolicy.packaged(info: [:]))
+        XCTAssertEqual(T3LocalPolicy.resolve(env: [:], packaged: T3LocalPolicy.packaged(info: info), home: home, accountHome: home),
                        .allowed(home: URL(fileURLWithPath: home).appendingPathComponent(".t3", isDirectory: true), configuredPort: nil, scanStart: 3773, runtimeDir: nil))
-        XCTAssertEqual(T3LocalPolicy.resolve(env: [:], packaged: T3LocalPolicy.packaged(resources: bare), home: home, accountHome: home),
-                       .refused(T3LocalPolicy.developmentMissing))
-        XCTAssertEqual(T3LocalPolicy.resolve(env: ["T3CODE_PORT": "4888", "T3CODE_HOME": "/srv/t3"], packaged: true, home: home, accountHome: home),
-                       .allowed(home: URL(fileURLWithPath: "/srv/t3", isDirectory: true), configuredPort: 4888, scanStart: 3773, runtimeDir: nil))
+        let custom = scratch("custom-home")
+        XCTAssertEqual(T3LocalPolicy.resolve(env: ["T3CODE_PORT": "16497", "T3CODE_HOME": custom.path], packaged: T3LocalPolicy.packaged(info: info), home: home, accountHome: home),
+                       .allowed(home: custom, configuredPort: 16497, scanStart: 3773, runtimeDir: nil))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: URL(fileURLWithPath: home).appendingPathComponent(".t3").path), "resolving policy creates nothing")
+    }
+
+    func testIncompleteOrWrongMetadataKeepsTheDevelopmentHomeAndPortGuard() {
+        let home = scratch("home").path
+        let handler: [[String: Any]] = [["protocol": "t3code", "url": "/open?u=%s"]]
+        let schemes: [[String: Any]] = [["CFBundleURLSchemes": ["t3code"]]]
+        let invalid: [[String: Any]] = [[:], ["ExactProtocolHandlers": handler], ["CFBundleURLTypes": schemes],
+            ["ExactProtocolHandlers": [["protocol": "other", "url": "/open?u=%s"]], "CFBundleURLTypes": schemes],
+            ["ExactProtocolHandlers": [["protocol": "t3code", "url": "/wrong"]], "CFBundleURLTypes": schemes],
+            ["ExactProtocolHandlers": handler, "CFBundleURLTypes": [["CFBundleURLSchemes": ["other"]]]],
+            ["ExactProtocolHandlers": "t3code", "CFBundleURLTypes": schemes]]
+        for info in invalid {
+            XCTAssertFalse(T3LocalPolicy.packaged(info: info))
+            XCTAssertEqual(T3LocalPolicy.resolve(env: [:], packaged: T3LocalPolicy.packaged(info: info), home: home, accountHome: home), .refused(T3LocalPolicy.developmentMissing))
+            XCTAssertEqual(T3LocalPolicy.resolve(env: ["T3_LOCAL_HOME": home + "/.t3", "T3_LOCAL_PORT": "3773"], packaged: T3LocalPolicy.packaged(info: info), home: home, accountHome: home), .refused(T3LocalPolicy.developmentRefused))
+        }
     }
 
     func testPortSelectionScansFromTheStartAcrossAllThreeHosts() {
@@ -274,9 +291,12 @@ final class LocalProcessTests: XCTestCase {
         try! """
         #!/bin/sh
         IFS= read -r line
-        printf '%s' "$line" > "$FAKE_T3_OUT/envelope.json"
-        printf '%s\\n' "$@" > "$FAKE_T3_OUT/argv.txt"
-        env > "$FAKE_T3_OUT/env.txt"
+        printf '%s' "$line" > "$FAKE_T3_OUT/envelope.$$.json"
+        mv "$FAKE_T3_OUT/envelope.$$.json" "$FAKE_T3_OUT/envelope.json"
+        printf '%s\\n' "$@" > "$FAKE_T3_OUT/argv.$$.txt"
+        mv "$FAKE_T3_OUT/argv.$$.txt" "$FAKE_T3_OUT/argv.txt"
+        env > "$FAKE_T3_OUT/env.$$.txt"
+        mv "$FAKE_T3_OUT/env.$$.txt" "$FAKE_T3_OUT/env.txt"
         echo "fake server out"
         echo "fake server err" >&2
         exit 3

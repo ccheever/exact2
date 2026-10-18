@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 // Every entry point runs under T3MobileQueuedEdit's existing preference/removal mutex.
 import Foundation
 import CryptoKit

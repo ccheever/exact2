@@ -1,6 +1,6 @@
 #if os(iOS)
 // App-native adapter over the pinned T3 rich editor; no Exact textarea delegate replacement.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-focus-restoration
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-focus-restoration
 import UIKit
 
 protocol T3MobileComposerEndpoint: AnyObject {

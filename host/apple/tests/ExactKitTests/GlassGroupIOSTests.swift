@@ -237,5 +237,49 @@ final class GlassGroupIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["glassGroup"]]]))
         XCTAssertTrue(leafLayer(in: group), "and back")
     }
+
+    /// A view leaving the window has its touches cancelled by UIKit. euxy's
+    /// capsule turned its glass off while the dice inside it were held, and
+    /// the swap ended the hold: a material, a glass group, a clip box or a scroll that
+    /// comes or goes moves the children with no moment out of the window.
+    func testChildrenStayInTheWindowWhileTheirContainerChanges() throws {
+        let p = presenter(box(1, ["backgroundMaterial": "glass"], w: 200) + box(2)
+            + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let box1 = try XCTUnwrap(p.views[1]), child = try XCTUnwrap(p.views[2])
+        let probe = WindowProbe()
+        child.addSubview(probe)
+        func check(_ step: String) {
+            XCTAssertEqual(probe.departures, 0, step)
+            XCTAssertTrue(child.superview === box1.container, step)
+        }
+        check("glass")
+        for set in [["backgroundMaterial": "none"], ["backgroundMaterial": "glass-clear"], ["backgroundMaterial": "glass"]] {
+            p.apply(wireBatch([["op": "props", "id": 1, "set": set, "clear": []]]))
+            check("\(set)")
+        }
+        p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["backgroundMaterial"]]]))
+        check("no material")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["glassGroup": "8"], "clear": []]]))
+        check("a glass group")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["glassGroup"]]]))
+        check("no glass group")
+        let plain: [String: Any] = ["border_radius": 20.0, "text_color": [0, 0, 0, 255]]
+        let clipped = plain.merging(["overflow_x": "hidden", "overflow_y": "hidden",
+                                     "box_shadow": [["o": [0.0, 2.0], "b": 4.0, "s": 0, "c": [0, 0, 0, 128]]]]) { $1 }
+        for (style, step) in [(clipped, "a clip box"), (plain, "no clip box"), (plain.merging(["overflow_y": "scroll"]) { $1 }, "a scroll"), (plain, "no scroll")] {
+            p.apply(wireBatch([["op": "style", "id": 1, "style": style]]))
+            check(step)
+        }
+        XCTAssertNotNil(probe.window)
+    }
+}
+
+/// Counts the times it leaves the window.
+private final class WindowProbe: UIView {
+    var departures = 0
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil { departures += 1 }
+    }
 }
 #endif

@@ -21,6 +21,13 @@ final class InnerDelegate: NSObject, NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) { selections += 1 }
 }
 
+/// VO-Space on `element`: its AXPress, then the run loop turn the chip's press waits for (it runs after the request).
+func axPress(_ element: NSAccessibilityElement) -> Bool {
+    let pressed = element.accessibilityPerformPress()
+    RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
+    return pressed
+}
+
 final class EditorFixture {
     let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
     let hooks: ExactHatches
@@ -91,12 +98,27 @@ final class EditorFixture {
 }
 
 final class ComposerEditorTests: XCTestCase {
+    func testPrefilledProviderAnswerStaysLiteralAndRestoresNormalDraftParsing() {
+        let fixture = EditorFixture()
+        _ = fixture.composer.perform(["op": "editorSync", "literal": true])
+        let text = "  **Keep** $imagegen [README.md](README.md)\n- [ ] literal task\n"
+        fixture.type(text)
+        let styler = fixture.composer.editor.styler
+        XCTAssertEqual(fixture.editor.string, text)
+        XCTAssertTrue(styler.chips.isEmpty)
+        XCTAssertTrue(styler.marks.isEmpty)
+        XCTAssertTrue(styler.tasks.isEmpty)
+        _ = fixture.composer.perform(["op": "editorSync", "literal": false])
+        XCTAssertFalse(styler.chips.isEmpty)
+        XCTAssertFalse(styler.marks.isEmpty)
+        XCTAssertEqual(fixture.editor.string, text)
+    }
     func testContextInsertionRetainsCaretAndSelectionAfterComposerBlur() {
         for blurred in [false, true] {
-            for replacing in [false, true] {
+            for selecting in [false, true] {
                 let fixture = EditorFixture()
                 fixture.type("LEFT RIGHT")
-                let range = NSRange(location: 5, length: replacing ? 5 : 0)
+                let range = NSRange(location: 5, length: selecting ? 5 : 0)
                 fixture.editor.setSelectedRange(range)
                 if blurred {
                     let terminal = NSTextView(frame: NSRect(x: 0, y: 140, width: 100, height: 30))
@@ -106,19 +128,25 @@ final class ComposerEditorTests: XCTestCase {
                 }
                 let result = fixture.composer.editor.insert(["text": "[Terminal 1](t3-context://v1/terminal/probe)"])
                 XCTAssertEqual(result["applied"] as? Bool, true)
-                XCTAssertEqual(fixture.editor.string, "LEFT [Terminal 1](t3-context://v1/terminal/probe) " + (replacing ? "" : "RIGHT"),
-                               "insertion must preserve the retained selection even after a terminal menu takes focus")
+                XCTAssertEqual(fixture.editor.string, "LEFT [Terminal 1](t3-context://v1/terminal/probe) RIGHT",
+                               "insertion goes in at the retained selection's start, deleting nothing, even after a terminal menu takes focus")
                 XCTAssertTrue(fixture.window.firstResponder === fixture.editor)
                 XCTAssertEqual(fixture.editor.selectedRange().length, 0)
             }
         }
-        // legacy-sidebar-full LS-3: a caller naming its composer (a sidebar row's dropped files) never types into another's.
+        // A caller naming its composer (a sidebar row's dropped files) never types into another's.
         let fixture = EditorFixture()
         fixture.type("KEEP")
         let refused = fixture.composer.editor.insert(["text": "[a.txt](t3-context://v1/file/x)", "owner": "owner-b"])
         XCTAssertEqual(refused["applied"] as? Bool, false)
         XCTAssertEqual(fixture.editor.string, "KEEP", "another thread's chips stay out of this editor")
         XCTAssertEqual(fixture.composer.editor.insert(["text": "[a.txt](t3-context://v1/file/x)", "owner": "owner-a"])["applied"] as? Bool, true)
+        // A text that brings its own trailing space (a review comment's chip) gets no second one.
+        let spaced = EditorFixture()
+        spaced.type("A B")
+        spaced.editor.setSelectedRange(NSRange(location: 2, length: 0))
+        _ = spaced.composer.editor.insert(["text": "[x L1](t3-context://v1/review-comment/r) "])
+        XCTAssertEqual(spaced.editor.string, "A [x L1](t3-context://v1/review-comment/r) B")
     }
 
     // MARK: Pure rules
@@ -573,9 +601,15 @@ final class ComposerEditorTests: XCTestCase {
         fixture.window.makeFirstResponder(nil)
         let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: fixture.window.windowNumber,
             context: nil, characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7)!
-        XCTAssertNil(fixture.composer.handle(event))
-        XCTAssertEqual(fixture.editor.string, "hix")
+        // The composer takes the focus with the caret at the end, and the key goes on to it (the window delivers it
+        // there), so an input method composes it as it would any key typed in the prompt.
+        fixture.editor.setSelectedRange(NSRange(location: 0, length: 0))
+        XCTAssertTrue(fixture.composer.handle(event) === event)
         XCTAssertTrue(fixture.window.firstResponder === fixture.editor)
+        XCTAssertEqual(fixture.editor.selectedRange(), NSRange(location: 2, length: 0))
+        XCTAssertEqual(fixture.editor.string, "hi", "not inserted as text by the monitor")
+        fixture.editor.keyDown(with: event)
+        XCTAssertEqual(fixture.editor.string, "hix")
         let field = NSTextField(frame: NSRect(x: 0, y: 150, width: 100, height: 20))
         fixture.window.contentView?.addSubview(field)
         fixture.window.makeFirstResponder(field)

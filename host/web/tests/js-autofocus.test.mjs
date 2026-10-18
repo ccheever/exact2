@@ -1,12 +1,14 @@
 // The JS target's `autofocus` at mount (host/web-js/focus.js; LLP 1035.000 D9, LLP 1102 §3.19):
 // the wasm host's focusController rule. A field mounted by a later commit takes the focus from the
 // body or from the control just pressed, once; never from another focused field. The DOM is a stand-in.
-import { test, expect, afterAll } from 'bun:test';
+import { test, expect, afterAll, mock } from 'bun:test';
+
+mock.module('../../web-js/navigation.js', () => import('../navigation.js'));
 
 const field = (name, { shown = true, disabled = false, inert = false } = {}) => ({
   name, shown, disabled, inert, focused: 0,
   getClientRects() { return this.shown ? [{}] : []; },
-  closest(sel) { return sel === '[inert]' && this.inert ? this : null; },
+  hasAttribute(name) { return name === 'inert' && this.inert; },
   matches(sel) { return sel === ':disabled' && this.disabled; },
   focus() { this.focused++; globalThis.document.activeElement = this; },
   contains(el) { return el === this; },
@@ -146,15 +148,20 @@ test('a mounted field never takes the focus from another field', () => {
 
 test('a hidden, disabled or inert field waits, and takes the focus once it is shown', () => {
   document.activeElement = body;
-  const hidden = field('hidden', { shown: false }), off = field('off', { disabled: true }), shown = field('shown');
-  mounted = [hidden, off, shown];
+  const hidden = field('hidden', { shown: false }), off = field('off', { disabled: true }), inert = field('inert', { inert: true }), shown = field('shown');
+  mounted = [hidden, off, inert, shown];
   autofocus(root);
   expect(shown.focused).toBe(1);
-  expect(hidden.focused + off.focused).toBe(0);
+  expect(hidden.focused + off.focused + inert.focused).toBe(0);
   document.activeElement = body;
   hidden.shown = true;
   autofocus(root);
   expect(hidden.focused).toBe(1);
+  document.activeElement = body;
+  inert.inert = false;
+  autofocus(root);
+  expect(inert.focused).toBe(1);
+  expect(off.focused).toBe(0);
 });
 
 test('a carried restart offers every rebuilt field: none takes the focus later', () => {

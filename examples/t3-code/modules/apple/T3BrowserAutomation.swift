@@ -2,7 +2,7 @@
 import AppKit
 import WebKit
 
-/// The previewAutomation host's executor (browser-surface part 5; X1 path B; MIT reference, see LICENSE-T3, T3 Code
+/// The previewAutomation host's executor (#100: the clone's own WKWebView; MIT reference, see LICENSE-T3, T3 Code
 /// 1e2ecbd975: apps/web/src/components/preview/PreviewAutomationHosts.tsx `handleRequest`, previewNavigationReadiness.ts,
 /// previewAutomationErrors.ts; apps/desktop/src/preview/Manager.ts `automationStatus` … `automationWaitFor`).
 ///
@@ -16,7 +16,7 @@ import WebKit
 /// WebKit in place of CDP: scripts run with `callAsyncJavaScript` in the host's content world, `preview_evaluate`
 /// in the page's world; a page in a window gets native `NSEvent` clicks and keys (trusted), a page in no window
 /// gets DOM events (untrusted); the screenshot is `takeSnapshot`; locators and the ARIA snapshot come from
-/// Playwright's injected script (assets/vendor/playwright). A fixed viewport is part 2's. Recording is part 3's lifecycle in
+/// Playwright's injected script (assets/vendor/playwright). A fixed viewport is T3BrowserViewport's. Recording's lifecycle is in
 /// the data module (browser-recording.ts): this host waits for the tab, hands the request over and answers with the outcome
 /// the data module sends back (T3BrowserAutomationRecording.swift).
 final class T3BrowserAutomation: NSObject {
@@ -109,7 +109,7 @@ final class T3BrowserAutomation: NSObject {
     /// The module's status (`presentation.browserAutomation`): each page's audio, appearance, controller and the
     /// agent's last pointer; the tabs this host opened.
     var status: [String: Any] {
-        // The appearance is the page's own: part 2's Appearance menu sets it too (T3BrowserSession+Navigation.swift).
+        // The appearance is the page's own: the Appearance menu sets it too (T3BrowserSession+Navigation.swift).
         ["browserAutomation": ["tabs": Dictionary(uniqueKeysWithValues: tabs.map { id, tab -> (String, [String: Any]) in
             (id, ["audible": tab.audible, "muted": tab.muted, "colorScheme": sessions?.sessions[id]?.colorScheme ?? "system", "controller": tab.controller, "pointer": tab.pointer ?? NSNull()])
         }), "opened": opened, "answered": Array(answered.suffix(8)), "recordings": handedOver]]
@@ -167,7 +167,7 @@ final class T3BrowserAutomation: NSObject {
             case "setColorScheme":
                 let session = try await requireReady(context)
                 let scheme = context.input["colorScheme"] as? String ?? "system"
-                session.setColorScheme(scheme) // part 2's mechanism (the page view's appearance), one for the menu and the agent
+                session.setColorScheme(scheme) // the page view's appearance, one mechanism for the menu and the agent
                 changed()
                 return .success(["tabId": context.tabId ?? "", "colorScheme": scheme])
             case "snapshot": return .success(try await controlled(context, "snapshot") { try await self.snapshot(context, $0) })
@@ -196,7 +196,7 @@ final class T3BrowserAutomation: NSObject {
             return !session.closed
         }
         guard ready, let session = sessions?.sessions[runtimeId] else { throw HostError.overlayTimeout(budget) }
-        T3BrowserViewport.hold(context.plan["viewportSetting"] as? [String: Any], session) // part 2: the tab's fixed size
+        T3BrowserViewport.hold(context.plan["viewportSetting"] as? [String: Any], session) // the tab's fixed size
         return session
     }
 
@@ -363,7 +363,7 @@ final class T3BrowserAutomation: NSObject {
         }
     }
 
-    // MARK: Resize (the "resize" case; a fixed viewport is part 2's device toolbar)
+    // MARK: Resize (the "resize" case; a fixed viewport is the device toolbar's)
 
     @MainActor private func resize(_ context: Context) async throws -> [String: Any] {
         let session = try await requireReady(context)
@@ -712,11 +712,21 @@ final class T3BrowserAutomationMessages: NSObject, WKScriptMessageHandler {
     }
 }
 
-/// A fixed viewport (freeform or a device preset, its size resolved by the data module) is browser-surface part 2's:
+/// A fixed viewport (freeform or a device preset, its size resolved by the data module):
 /// a page the panel shows is sized by its stage (BrowserStage in browser-stage.contract, T3BrowserView.Host) from the
 /// tab's snapshot; a page no stage holds (another thread shown, the panel hidden, not shown yet) is sized here, at
-/// `width × zoom` by `height × zoom` points as the stage sizes it, so the page measures the viewport either way.
+/// the same `points(width:height:zoom:)` the stage's box gives it, so the page measures the viewport either way.
 enum T3BrowserViewport {
+    /// The web view size at which a page at `zoom` reports `innerWidth × innerHeight` = `width × height` CSS px
+    /// WebKit drops a frame's fractional points, then floors points over the page zoom
+    /// (measured on macOS 26: 487.5 points at 125% is 389 px, 488 is 390), so each side is `width × zoom` rounded up to
+    /// a whole point: exact at every zoom of 100% and above. Under 100% a point holds more than a pixel and some sizes
+    /// have no exact point size (391 px at 50%: 195 points is 390, 196 is 392), a WebKit limit the page then shows.
+    static func points(width: Double, height: Double, zoom: Double) -> NSSize {
+        let z = zoom > 0 && zoom.isFinite ? zoom : 1
+        func side(_ css: Double) -> CGFloat { CGFloat(max(1, (css * z - 1e-6).rounded(.up))) }
+        return NSSize(width: side(width), height: side(height))
+    }
     static func size(_ setting: [String: Any]) -> (width: Int, height: Int)? {
         guard setting["_tag"] as? String != "fill", let width = (setting["width"] as? NSNumber)?.intValue, let height = (setting["height"] as? NSNumber)?.intValue,
               width > 0, height > 0 else { return nil }
@@ -730,8 +740,7 @@ enum T3BrowserViewport {
     }
     static func hold(_ setting: [String: Any]?, _ session: T3BrowserSession) {
         guard let setting, let size = size(setting), !(session.web.superview is T3BrowserView.Host) else { return }
-        let zoom = CGFloat(session.zoomFactor)
-        let target = NSSize(width: CGFloat(size.width) * zoom, height: CGFloat(size.height) * zoom)
+        let target = points(width: Double(size.width), height: Double(size.height), zoom: session.zoomFactor)
         if session.web.frame.size != target { session.web.setFrameSize(target) }
     }
     /// isPreviewViewportReady: Fill is whatever the panel gives; a fixed size matches within a pixel.

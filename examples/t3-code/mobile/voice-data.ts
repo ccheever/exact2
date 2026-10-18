@@ -1,4 +1,4 @@
-// @ref llp/1109.008-mobile-voice.decision.md#answer-lifetime
+// @ref examples/t3-code/mobile/docs/1130.008-mobile-voice.decision.md#answer-lifetime
 import { mobileClient } from './client';
 import { mobileVoiceDocumentCapture, mobileVoiceDocumentCurrent, mobileVoiceDocumentCommit, type VoiceDocumentCapture } from './voice-document';
 import type { T3Client } from './shared/client';

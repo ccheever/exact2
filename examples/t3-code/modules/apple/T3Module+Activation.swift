@@ -1,4 +1,4 @@
-// T3Module's `t3 app <dir>` ops (T3Module.swift routes them; 20261005-app-activation): the window's
+// T3Module's `t3 app <dir>` ops (T3Module.swift routes them): the window's
 // half of the reference's IPC (apps/desktop/src/ipc/methods/appActivation.ts and the request
 // channel). The socket and the broker are one per app (T3AppControl.swift); each session's module
 // is a window that attaches at init and detaches at destroy.

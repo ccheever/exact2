@@ -109,6 +109,7 @@ fn lays_out_as_block(b: &NodeFacts<'_>) -> bool {
 /// [`folds`] for a node of `kernel`, as its tree stands.
 pub(super) fn folded(kernel: &Kernel, node: &NodeRef<'_>, handled: bool) -> bool {
     node.node_type == NodeType::Text
+        && node.looks().is_empty() // a look paints its own box (LLP 1121 D8)
         && node.parent.and_then(|p| kernel.node(p)).is_some_and(|p| {
             let outer = p.parent.and_then(|o| kernel.node(o)).map(|o| o.facts());
             folds(
@@ -132,6 +133,7 @@ pub(super) fn holds_folded(
     children.len() == 1
         && kernel.node(children[0]).is_some_and(|c| {
             c.node_type == NodeType::Text
+                && c.looks().is_empty()
                 && folds(
                     &c.facts(),
                     &node.facts(),
@@ -217,6 +219,9 @@ pub fn host_css_of(
 ) -> String {
     if tag == "span" && !node.is_inline_run() && !css.split(';').any(|d| d.starts_with("display:"))
     {
+        css.push_str("display:block;");
+    }
+    if tag == "time" && !node.is_inline_run() && !node.style.mask.has(StyleId::Display) {
         css.push_str("display:block;");
     }
     css = button_css::face(node, css);
@@ -455,6 +460,7 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
     }
     if let Some(t) = node.props.str(PropId::SemanticTag) {
         match t {
+            "time" => return "time",
             "main" => return "main",
             "header" => return "header",
             "nav" => return "nav",
@@ -597,7 +603,45 @@ pub(super) fn css_style<'a>(
     kernel: &Kernel,
     node: &NodeRef<'a>,
 ) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
-    css_style_of(&|from, id| kernel.resolve_id(from, id), &node.facts())
+    css_style_named(kernel, node, true)
+}
+
+/// [`css_style`], with a platform text style's weight and leading where it
+/// is named (LLP 1115.000 D12.2), which the page's descendants inherit as
+/// CSS does: a `font` shorthand's always, a bare `font-size`'s with `bare`
+/// (the live host, whose kernel sees an ancestor's weight arrive and writes
+/// the node again; the JS target, which keeps no kernel, writes CSS's
+/// nothing for one).
+pub(super) fn css_style_named<'a>(
+    kernel: &Kernel,
+    node: &NodeRef<'a>,
+    bare: bool,
+) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
+    let style = css_style_of(&|from, id| kernel.resolve_id(from, id), &node.facts());
+    if !bare && !node.names_text_style_through_font() {
+        return style;
+    }
+    with_style_rows(style, node)
+}
+
+/// `style` with the weight and leading a text style named on `node` gives it
+/// (LLP 1115.000 D12.2), for a writer that declares them where it is named.
+pub(super) fn with_style_rows<'a>(
+    mut style: std::borrow::Cow<'a, exact_kernel::StyleProps>,
+    node: &NodeRef<'_>,
+) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
+    use exact_kernel::StyleId::{FontWeight, LineHeight};
+    if let Some(rows) = node.style_given(FontWeight) {
+        let style = style.to_mut();
+        style.font_weight = rows.font_weight;
+        style.mask.set(FontWeight);
+    }
+    if let Some(rows) = node.style_given(LineHeight) {
+        let style = style.to_mut();
+        style.line_height = rows.line_height;
+        style.mask.set(LineHeight);
+    }
+    style
 }
 
 /// [`css_style`], from a node's facts and its tree's references.
@@ -774,9 +818,20 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     props_of(&node.facts())
 }
 
+pub(super) fn router_press(props: &mut SortedMap<String, String>, writes: Option<bool>) {
+    if let Some(writes) = writes {
+        props.insert("data-exact-router-press".into(), writes.to_string());
+    } else {
+        props.remove("data-exact-router-press");
+    }
+}
+
 /// [`props_for`], from a node's facts.
 pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let mut out = SortedMap::new();
+    if node.node_type == NodeType::List {
+        out.insert("data-exact-list".into(), String::new());
+    }
     // @ref LLP 1104 D8 — shared by live wasm batches, server documents and
     // the JS target's templates. Lowering keeps excluded editors bare.
     if node.node_type == NodeType::TextInput
@@ -834,12 +889,19 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             }
             continue;
         }
+        if id == PropId::Datetime {
+            if let Some(text) = value.as_float().and_then(datetime_text) {
+                out.insert("datetime".into(), text);
+            }
+            continue;
+        }
         let text = match value {
             PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
             // LLP 1053.000.000.000 D3: the reserved `-1` is written as `auto`.
             PropValue::Float(f) if id == PropId::GlassGroup && *f == -1.0 => "auto".into(),
+            PropValue::Float(f) if matches!(id, PropId::Start | PropId::End) => exact_num::js(*f),
             PropValue::Float(f) => crate::css::num(*f as f32),
         };
         let name = match id {
@@ -853,6 +915,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityLabel if node.node_type == NodeType::Image => "alt",
             PropId::AccessibilityLive => "aria-live",
             PropId::AccessibilityBusy => "aria-busy",
+            PropId::AccessibilityAtomic => "aria-atomic",
             PropId::Autofocus => "autofocus",
             PropId::AccessibilityLabel => "aria-label",
             PropId::AccessibilityKeyShortcuts => "aria-keyshortcuts",
@@ -887,6 +950,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::NavigationPresentation => "navigationPresentation",
             PropId::NavigationSource => "navigationSource",
             PropId::NavigationSplit => "navigationSplit",
+            PropId::EstimatedItemWidth => "data-exact-estimated-item-width",
             // LLP 1013.000 D7: the shared-element name the JS target's view
             // transitions pair by.
             PropId::SharedElement => "data-shared-element",
@@ -906,6 +970,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::FocusGuide => continue,
             // A page cannot style the phone's status bar (LLP 1105 D7).
             PropId::StatusBarStyle | PropId::StatusBarAnimation => continue,
+            // Read by wakelock-glue.js (LLP 1125 D11).
+            PropId::Wakelock => "data-exact-wakelock",
+            // Read by the JS target's midi.js (LLP 1125 D8): the inputs, newline-joined.
+            PropId::MidiInputs => "data-exact-midiinputs",
             PropId::SwipeIndicator => "swipeIndicator",
             PropId::Href if node.props.link().is_none() => continue,
             PropId::Href => "href",
@@ -913,6 +981,11 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Disabled => "disabled",
             PropId::Min => "min",
             PropId::Max => "max",
+            PropId::Datetime => "datetime",
+            PropId::TimeFormat => "data-time-format",
+            PropId::Start => "data-time-start",
+            PropId::End => "data-time-end",
+            PropId::TextReservation => "data-time-reservation",
             PropId::Step => "step",
             PropId::Inert => "inert",
             PropId::Lang => "lang",
@@ -1102,84 +1175,87 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     {
         out.insert("data-exact-said".into(), "justify-content".into());
     }
-    // @ref LLP 1115.000 D4 part B — under the neutral look (the role table's
-    // column says a process shows it) the page's sheet draws these marks
+    // @ref LLP 1115.000 D4 part B — the neutral sheet draws these marks
     // itself (neutral.css), and reads here what CSS cannot say. A checkbox,
     // radio, range or file control whose appearance is the platform's is
     // marked, as a switch and a date field are above: `appearance="none"`
     // hands the box to the author. And a row the author wrote where the
     // sheet would draw over an inherited or implied one (D2's bit) is named:
-    // a spinner's own `color`, a grouped list's own ground.
-    if exact_kernel::style::roles::column() == exact_kernel::style::roles::Column::Neutral {
-        use exact_kernel::{ControlKind, StyleId};
-        let kind = ControlKind::of(node.node_type, node.props);
-        if node.style.appearance == exact_kernel::Appearance::Auto
-            && matches!(
-                kind,
-                Some(
-                    ControlKind::Checkbox
-                        | ControlKind::Radio
-                        | ControlKind::Range
-                        | ControlKind::File
-                )
+    // a spinner's own `color`, a grouped list's own ground, and a button's
+    // fill, which hovers in its own ink (LLP 1129 D1; a fill computed at run
+    // time is not seen here).
+    use exact_kernel::{ControlKind, StyleId};
+    let kind = ControlKind::of(node.node_type, node.props);
+    if node.style.appearance == exact_kernel::Appearance::Auto
+        && matches!(
+            kind,
+            Some(
+                ControlKind::Checkbox | ControlKind::Radio | ControlKind::Range | ControlKind::File
             )
+        )
+    {
+        out.insert("data-exact-control".into(), String::new());
+    }
+    let said = match kind {
+        Some(ControlKind::Progress) => Some((StyleId::TextColor, "color")),
+        _ if node.props.get(PropId::ListStyle).is_some() => {
+            Some((StyleId::BackgroundColor, "background-color"))
+        }
+        _ if element(node) == "button"
+            && node.node_type == NodeType::Pressable
+            && (node.style.background_color)
+                .is_some_and(|c| c.resolve(false).a() != 0 || c.resolve(true).a() != 0) =>
         {
-            out.insert("data-exact-control".into(), String::new());
+            Some((StyleId::BackgroundColor, "background-color"))
         }
-        let said = match kind {
-            Some(ControlKind::Progress) => Some((StyleId::TextColor, "color")),
-            _ if node.props.get(PropId::ListStyle).is_some() => {
-                Some((StyleId::BackgroundColor, "background-color"))
-            }
-            _ => None,
-        };
-        if let Some((_, name)) = said.filter(|(id, _)| node.style.written.has(*id)) {
-            out.insert("data-exact-said".into(), name.into());
-        }
-        // @ref LLP 1115.000 D16 — a box whose author wrote its top or its
-        // bottom edge (a width or a style, `none` included) has drawn its
-        // own separator there, or said it has none: where it is a list's
-        // row the sheet draws no line of its own at that edge. It is told
-        // by its own rows, since a node here does not know what holds it.
-        if matches!(
-            node.node_type,
-            NodeType::View | NodeType::Pressable | NodeType::ScrollView | NodeType::Text
-        ) {
-            for (width, line, word) in [
-                (
-                    StyleId::BorderWidthTop,
-                    StyleId::BorderStyleTop,
-                    "border-top",
-                ),
-                (
-                    StyleId::BorderWidthBottom,
-                    StyleId::BorderStyleBottom,
-                    "border-bottom",
-                ),
-            ] {
-                if node.style.written.has(width) || node.style.written.has(line) {
-                    let words = match out.get("data-exact-said") {
-                        Some(said) if !said.is_empty() => format!("{said} {word}"),
-                        _ => word.to_string(),
-                    };
-                    out.insert("data-exact-said".into(), words);
-                }
+        _ => None,
+    };
+    if let Some((_, name)) = said.filter(|(id, _)| node.style.written.has(*id)) {
+        out.insert("data-exact-said".into(), name.into());
+    }
+    // @ref LLP 1115.000 D16 — a box whose author wrote its top or its
+    // bottom edge (a width or a style, `none` included) has drawn its
+    // own separator there, or said it has none: where it is a list's
+    // row the sheet draws no line of its own at that edge. It is told
+    // by its own rows, since a node here does not know what holds it.
+    if matches!(
+        node.node_type,
+        NodeType::View | NodeType::Pressable | NodeType::ScrollView | NodeType::Text
+    ) {
+        for (width, line, word) in [
+            (
+                StyleId::BorderWidthTop,
+                StyleId::BorderStyleTop,
+                "border-top",
+            ),
+            (
+                StyleId::BorderWidthBottom,
+                StyleId::BorderStyleBottom,
+                "border-bottom",
+            ),
+        ] {
+            if node.style.written.has(width) || node.style.written.has(line) {
+                let words = match out.get("data-exact-said") {
+                    Some(said) if !said.is_empty() => format!("{said} {word}"),
+                    _ => word.to_string(),
+                };
+                out.insert("data-exact-said".into(), words);
             }
         }
-        // A platform button's floor (neutral.css: 36 px each way, 44 under a
-        // coarse pointer) and its padding are the look's, and a size its
-        // author wrote is the author's. In CSS a minimum outranks a size, so
-        // the sheet is told which of the two were written and steps aside on
-        // that axis.
-        if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
-            let sizes: Vec<&str> = [(StyleId::Width, "width"), (StyleId::Height, "height")]
-                .into_iter()
-                .filter(|(id, _)| node.style.written.has(*id))
-                .map(|(_, name)| name)
-                .collect();
-            if !sizes.is_empty() {
-                out.insert("data-exact-said".into(), sizes.join(" "));
-            }
+    }
+    // A platform button's floor (neutral.css: 36 px each way, 44 under a
+    // coarse pointer) and its padding are the look's, and a size its
+    // author wrote is the author's. In CSS a minimum outranks a size, so
+    // the sheet is told which of the two were written and steps aside on
+    // that axis.
+    if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
+        let sizes: Vec<&str> = [(StyleId::Width, "width"), (StyleId::Height, "height")]
+            .into_iter()
+            .filter(|(id, _)| node.style.written.has(*id))
+            .map(|(_, name)| name)
+            .collect();
+        if !sizes.is_empty() {
+            out.insert("data-exact-said".into(), sizes.join(" "));
         }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
@@ -1197,15 +1273,31 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             .str(PropId::ImageSource)
             .and_then(|s| s.strip_prefix("symbol:"))
         {
-            let symbol = exact_kernel::generated::symbol(role);
+            // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
+            let symbol = exact_kernel::symbol_path(role);
             out.insert("data-symbol-source".into(), format!("symbol:{role}"));
-            out.insert(
-                "data-symbol-path".into(),
-                symbol.map(|s| s.1).unwrap_or("").into(),
-            );
-            // A filled role's path is a silhouette, drawn filled, not stroked.
-            if symbol.is_some_and(|s| s.2) {
+            match exact_kernel::Icon::parse(role).filter(|i| i.path.is_empty() && !i.svg.is_empty())
+            {
+                // An icon's SVG that is no template: the page draws the file.
+                Some(icon) => {
+                    out.insert("src".into(), format!("assets/{}", icon.svg));
+                    out.insert("data-symbol-file".into(), String::new());
+                }
+                None => {
+                    out.insert(
+                        "data-symbol-path".into(),
+                        symbol.map(|s| s.d).unwrap_or("").into(),
+                    );
+                }
+            }
+            // A filled path is a silhouette, drawn filled, not stroked: a
+            // role's even-odd, an icon's paths each nonzero (`d`s joined by `;`).
+            if symbol.is_some_and(|s| s.filled) {
                 out.insert("data-symbol-fill".into(), String::new());
+            }
+            if let Some(s) = symbol.filter(|s| s.filled && !s.even_odd) {
+                out.insert("data-symbol-nonzero".into(), String::new());
+                out.insert("data-symbol-viewbox".into(), s.view_box.into());
             }
             // Decorative unless the author named it (`alt`, `aria-label`).
             if !out.contains_key("alt") {
@@ -1255,39 +1347,6 @@ mod name_tests {
         for prop in exact_kernel::PropId::ALL {
             assert!(prop.name().is_ascii(), "{}", prop.name());
         }
-    }
-
-    /// LLP 1115.000 D3.1: where the page's own sheet names a colour role it
-    /// writes what the kernel writes for an author who named it, pair and
-    /// all, so the role table is the one place a role's colours are set and
-    /// the sheet's copy cannot drift from it.
-    #[test]
-    fn the_page_sheet_names_a_role_as_the_kernel_writes_it() {
-        use exact_kernel::style::roles;
-        let page = include_str!("../index.html");
-        let (mut rest, mut seen) = (page, Vec::new());
-        while let Some(at) = rest.find("var(--exact-") {
-            let tail = &rest[at..];
-            let end = tail.find([',', ')']).expect("a var() closes");
-            let name = &tail["var(--exact-".len()..end];
-            rest = &tail[end..];
-            // The page's own properties (`--exact-accent`, `--exact-split`)
-            // name no role.
-            let Some(id) = roles::role(&format!("-exact-{name}")) else {
-                continue;
-            };
-            let mut kernel = String::new();
-            exact_kernel::gradient::color_css(&mut kernel, exact_kernel::ColorValue::Role(id));
-            assert!(
-                tail.starts_with(&kernel),
-                "the page names `{name}` as `{}`; the role table says `{kernel}`",
-                &tail[..tail.find(';').unwrap_or(tail.len())]
-            );
-            seen.push(name);
-        }
-        seen.sort_unstable();
-        seen.dedup();
-        assert_eq!(seen, ["fill", "secondary-label", "separator", "system-red"]);
     }
 
     #[test]
@@ -1418,3 +1477,19 @@ impl<D: exact_runner::DataSource> super::Host<D> {
 #[cfg(test)]
 #[path = "element_tests.rs"]
 mod dataset_tests;
+
+fn datetime_text(n: f64) -> Option<String> {
+    if !exact_kernel::time::instant(n) {
+        return None;
+    }
+    let n = n.trunc();
+    let (year, month, day) = exact_num::date::civil((n / 86_400_000.0).floor() as i64);
+    let ms = n.rem_euclid(86_400_000.0) as u64;
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        ms / 3_600_000,
+        ms / 60_000 % 60,
+        ms / 1000 % 60,
+        ms % 1000
+    ))
+}

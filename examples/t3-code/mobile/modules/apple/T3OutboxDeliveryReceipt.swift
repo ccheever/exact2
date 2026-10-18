@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 // Immutable command receipt and attempt state. Inline-asset persistence remains a separate stage.
 import Foundation
 import CoreFoundation

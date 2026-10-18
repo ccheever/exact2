@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-material
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-material
 // Pinned365aa87982 ComposerSurface/GlassSurface and installed Expo glass/blur lifecycle.
 // This passive leaf owns only its effect and tint views; Contract owns the editor and card.
 import UIKit

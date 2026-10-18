@@ -505,3 +505,195 @@ fn a_negative_calculation_on_a_size_reaches_the_browser_clamped() {
     let (css, _) = css_text(&s, &[]);
     assert!(css.contains("width:0vw;"), "{css}");
 }
+
+#[test]
+fn explicit_clears_emit_css_unset_instead_of_removing_the_declaration() {
+    let plan = contract::compile(
+        r##"style Colored
+  color="#abcdef"
+style Empty
+  opacity=1
+component App
+  state clear = true
+  action toggle
+    clear = not clear
+  view
+    main navigationKey="/" color="#123456"
+      button "Toggle" testId="toggle" press=toggle
+      header color="inherit" testId="static"
+        text "Heading"
+      header color=(clear ? "unset" : "#abcdef") testId="bound"
+        text "Heading"
+      header class=(clear ? Empty : Colored) testId="class"
+        text "Heading"
+      input placeholder="Hint" testId="placeholder"
+        ::placeholder
+          color=(clear ? "unset" : "#abcdef")
+"##,
+    )
+    .unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&first).unwrap();
+    let id = |name| {
+        parsed["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["props"]["data-testid"] == name)
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap() as u32
+    };
+    let css = |batch: &str, node| {
+        let batch: serde_json::Value = serde_json::from_str(batch).unwrap();
+        batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["id"] == node && op.get("css").is_some())
+            .unwrap()["css"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    assert!(css(&first, id("static")).contains("color:unset;"));
+    assert!(css(&first, id("bound")).contains("color:unset;"));
+    assert!(!css(&first, id("class")).contains("color:"));
+    assert!(css(&first, id("placeholder")).contains("--exact-placeholder-color:initial;"));
+    let set = host.dispatch(id("toggle"), Event::Press);
+    assert!(
+        css(&set, id("bound")).contains("color:rgba(171,205,239,1);"),
+        "{set}"
+    );
+    assert!(
+        css(&set, id("placeholder")).contains("--exact-placeholder-color:rgba(171,205,239,1);"),
+        "{set}"
+    );
+    let cleared = host.dispatch(id("toggle"), Event::Press);
+    assert!(css(&cleared, id("bound")).contains("color:unset;"));
+    assert!(!css(&cleared, id("class")).contains("color:"));
+    assert!(css(&cleared, id("placeholder")).contains("--exact-placeholder-color:initial;"));
+}
+
+#[test]
+fn explicit_clears_preserve_special_host_row_contracts() {
+    use exact_kernel::{StyleId::*, StyleMask, StyleProps, StyleValue};
+    for (id, expected, skipped) in [
+        (TextColor, "color:unset;", false),
+        (TextBoxEdge, "text-box-edge:unset;", false),
+        (
+            PlaceholderColor,
+            "--exact-placeholder-color:initial;",
+            false,
+        ),
+        (
+            TintColor,
+            "--exact-tint:var(--exact-symbol, var(--exact-accent, AccentColor));",
+            false,
+        ),
+        (
+            AccentColor,
+            "accent-color:unset;--exact-accent:unset;",
+            false,
+        ),
+        (ControlSize, "--exact-control-font-size:medium;", false),
+        (ExitAnimation, "", false),
+        (RotateAxis, "", false),
+        (SymbolRendering, "", true),
+    ] {
+        let style = StyleProps {
+            written: StyleMask::of(id),
+            ..Default::default()
+        };
+        let (css, warnings) = css_text(&style, &[]);
+        assert_eq!(css, expected, "{id:?}");
+        assert_eq!(warnings.iter().any(|w| w.row == id), skipped, "{id:?}");
+    }
+    let mut style = StyleProps::default();
+    style.set_dynamic(Scale, &StyleValue::Number(2.0)).unwrap();
+    style.written.set(PressScale);
+    assert_eq!(css_text(&style, &[]).0, "scale:2;");
+    style.clear(StyleMask::of(Scale));
+    style
+        .set_dynamic(PressScale, &StyleValue::Number(0.95))
+        .unwrap();
+    style.written.set(Scale);
+    let css = css_text(&style, &[]).0;
+    assert!(css.contains("--exact-scale:1;"), "{css}");
+    assert!(css.contains("scale:calc("), "{css}");
+    assert!(!css.contains("--exact-press:unset"), "{css}");
+}
+
+/// A node's rows as the host writes them.
+fn declared(rows: &[(exact_kernel::StyleId, exact_kernel::StyleValue)]) -> String {
+    let mut style = exact_kernel::StyleProps::default();
+    for (id, value) in rows {
+        style.set_dynamic(*id, value).unwrap();
+    }
+    css_text(&style, &[]).0
+}
+
+fn text(s: &str) -> exact_kernel::StyleValue<'_> {
+    exact_kernel::StyleValue::Text(s.into())
+}
+
+/// `-exact-press-haptic` is the custom property input-glue.js plays at the
+/// press (LLP 1077 D14, workout F4); `rotate`'s axis part is written
+/// with the angle and skips nothing (kanban F30).
+#[test]
+fn press_haptic_is_the_glues_property_and_a_rotation_skips_nothing() {
+    use exact_kernel::{StyleId, StyleProps};
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(StyleId::PressHaptic, &text("impact-medium"))
+        .unwrap();
+    for row in [StyleId::Rotate, StyleId::RotateAxis] {
+        style.set_dynamic(row, &text("3deg")).unwrap();
+    }
+    let (css, skipped) = css_text(&style, &[]);
+    assert_eq!(css, "rotate:3deg;--exact-press-haptic:impact-medium;");
+    assert!(skipped.is_empty(), "{skipped:?}");
+    assert_eq!(declared(&[(StyleId::PressHaptic, text("none"))]), "");
+}
+
+/// The pressed paint is three custom properties input-glue.js reads from
+/// the pressed element's own style (LLP 1061 D7); a written 1 is still
+/// the author's, and a clear writes nothing.
+#[test]
+fn the_pressed_paint_is_the_glues_properties() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    assert_eq!(
+        declared(&[
+            (StyleId::PressOpacity, StyleValue::Number(0.5)),
+            (StyleId::PressBackgroundColor, text("light-dark(#eeeeee, #333333)")),
+            (StyleId::PressColor, text("#ff0000")),
+        ]),
+        "--exact-press-opacity:0.5;--exact-press-background-color:light-dark(rgba(238,238,238,1), rgba(51,51,51,1));--exact-press-color:rgba(255,0,0,1);"
+    );
+    assert_eq!(
+        declared(&[(StyleId::PressOpacity, StyleValue::Number(1.0))]),
+        "--exact-press-opacity:1;"
+    );
+    let mut cleared = StyleProps::default();
+    cleared.written.set(StyleId::PressColor);
+    assert_eq!(css_text(&cleared, &[]).0, "");
+}
+
+/// `-exact-fit` is the custom property navigation.js `fitText` reads
+/// (LLP 1116.001 D1.4); its initial value writes nothing.
+#[test]
+fn fit_is_navigations_property() {
+    use exact_kernel::StyleId;
+    assert_eq!(
+        declared(&[(StyleId::Fit, text("shrink"))]),
+        "--exact-fit:shrink;"
+    );
+    assert_eq!(declared(&[(StyleId::Fit, text("none"))]), "");
+}

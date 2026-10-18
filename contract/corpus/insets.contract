@@ -6,7 +6,8 @@
 // viewport by the keyboard and reveals the field, as a browser's visual
 // viewport does (LLP 1008 §9); `dismiss` takes the focus, and the keyboard
 // with it. `under`, a strip at the page's bottom, is under the keyboard while
-// it is up: a finger cannot reach it there, so neither can the driver.
+// it is up: a finger landing there lands on the keyboard, so the driver
+// refuses a tap at a point in it.
 component Insets
   state note = ""
   state focused = false
@@ -26,17 +27,17 @@ component Insets
   action focusOut
     focused = false
   view
-    main testId="root" viewport-fit="cover" interactive-widget="resizes-visual" width="100%" height="100%" box-sizing="border-box" background-color="#12081f" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
+    main testId="root" viewport-fit="cover" interactive-widget="resizes-visual" width="100%" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
       column testId="content" width="100%" height="100%" justify-content="flex-end" gap=12 padding=16 box-sizing="border-box"
-        text "Insets" testId="title" font-size=20 font-weight=700 color="#ffffff"
+        text "Insets" testId="title" font-size=20 font-weight=700
         column key=menuKey testId="key-parent"
-          button press=retain retainFocus=true testId="retain" padding=10 background-color="#7c4dff"
-            text "Keep editing" font-size=14 color="#ffffff"
-        button press=focusOut focus=focusOut testId="dismiss" padding=10 border-radius=8 background-color="#7c4dff"
-          text "Dismiss the keyboard" font-size=14 color="#ffffff"
+          button press=retain retainFocus=true testId="retain" padding=10 background-color="-exact-tertiary-fill"
+            text "Keep editing" font-size=14 color="AccentColor"
+        button press=focusOut focus=focusOut testId="dismiss" padding=10 border-radius=8 background-color="-exact-tertiary-fill"
+          text "Dismiss the keyboard" font-size=14 color="AccentColor"
         if focused
-          text "editing" testId="editing" font-size=13 color="#b8a1d9"
+          text "editing" testId="editing" font-size=13 color="-exact-secondary-label"
         else
-          text "idle" testId="idle" font-size=13 color="#b8a1d9"
-        input appearance="none" value=note input=setNote focus=focusIn blur=focusOut placeholder="A note" testId="note" padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#5b4a7a" background-color="#ffffff"
-      button press=pressUnder testId="under" position="absolute" left=0 right=0 bottom=0 height=8 background-color="#ffd60a"
+          text "idle" testId="idle" font-size=13 color="-exact-secondary-label"
+        input appearance="none" value=note input=setNote focus=focusIn blur=focusOut placeholder="A note" testId="note" padding=12 border-radius=8 border-style="solid" border-width=1 border-color="-exact-separator"
+      button press=pressUnder testId="under" position="absolute" left=0 right=0 bottom=0 height=8 background-color="AccentColor"

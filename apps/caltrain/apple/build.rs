@@ -10,6 +10,9 @@ fn main() {
         Ok(p) => p,
         Err(e) => panic!("app.contract:{e}"),
     };
+    let entries = contract::snapshot::entries(std::path::Path::new("..")).unwrap();
+    contract::snapshot::check_refreshes(&entries, &mut caltrain_data::Caltrain)
+        .unwrap_or_else(|e| panic!("widget refresh: {e}"));
     let baked =
         contract::bake(plan, caltrain_data::Caltrain).unwrap_or_else(|e| panic!("bake: {e:?}"));
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
@@ -23,14 +26,22 @@ fn main() {
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let target = std::env::var("TARGET").unwrap_or_default();
     let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        // tvOS bakes as iOS: it reuses the manifest's iOS section.
-        Ok("ios" | "tvos") => "ios",
+        // tvOS and watchOS reuse the manifest's iOS policy, including interpreted Rust updates.
+        Ok("ios" | "tvos" | "watchos") => "ios",
         _ => "macos",
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));
     let grants = caltrain_data::Caltrain.grants();
-    let compat = exact_bake::compatibility_id(&app_dir, platform, &target, &manifest, Some(grants))
-        .unwrap_or_else(|e| panic!("compatibility id: {e}"));
+    let compat = exact_bake::compatibility_id_sources_with_entries(
+        &app_dir,
+        platform,
+        &target,
+        &manifest,
+        Some(grants),
+        None,
+        Some(&entries),
+    )
+    .unwrap_or_else(|e| panic!("compatibility id: {e}"));
     let host = if compat.inputs["store"]["L"] == "0" {
         "exact_apple"
     } else {

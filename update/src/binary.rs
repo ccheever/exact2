@@ -17,6 +17,10 @@ pub enum Activate {
     /// Nothing until the app calls `deliveryActivate` — a launch keeps
     /// booting what it booted last time.
     AppDecides,
+    /// Applied as soon as a check stages it, and checked whenever the app
+    /// comes to the foreground and on an interval while it is there: the
+    /// dogfood policy, for a build whose owner wants each publish at once.
+    Immediate,
 }
 
 /// The binary's delivery facts as the bake wrote them: entry zero's
@@ -116,6 +120,7 @@ impl Baked {
             .and_then(|v| v.as_str())
         {
             Some("app-decides") => Activate::AppDecides,
+            Some("immediate") => Activate::Immediate,
             _ => Activate::NextLaunch,
         };
         let metadata = value.get("embedded");
@@ -236,6 +241,15 @@ mod tests {
         r#""origin":"https://caltrain.example"}}"#,
         "\n"
     );
+
+    #[test]
+    fn immediate_is_its_own_policy() {
+        let compat = COMPAT.replace("app-decides", "immediate");
+        let mut compat: serde_json::Value = serde_json::from_str(&compat).unwrap();
+        compat["embedded"] = serde_json::json!({"seq":0,"genesis":true,"entryDigest":null,"assets":[],"plan":{"sha256":sha256_hex(b"plan"),"bytes":4}});
+        let b = Baked::from_compat(&compat.to_string(), b"plan").unwrap();
+        assert_eq!(b.activate, Activate::Immediate);
+    }
 
     #[test]
     fn the_baked_facts_read_back() {

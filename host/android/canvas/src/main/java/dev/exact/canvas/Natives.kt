@@ -7,6 +7,8 @@ import android.graphics.Matrix
 import android.graphics.RenderNode
 import android.net.Uri
 import android.view.Choreographer
+import android.view.SurfaceView
+import android.view.SurfaceHolder
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
@@ -78,6 +80,12 @@ class Natives(
         @Volatile var window = 0L
         /** Rows (and 0, the unrowed stream) that draw it. */
         val rows = HashSet<Int>()
+        var fullWindow = false
+        val presentation = CanvasPresentation()
+        var copying = false
+        var snapshotReady = false
+        var last: android.graphics.Bitmap? = null
+        val redraws = ArrayList<Runnable>()
         /** A GPU canvas drawn from its own buffers ([buffered]): the size they were asked at, the frame last drawn
          * ([Native.canvasFrame]) and each buffer of the ring wrapped once, by generation and slot. */
         var buffers = false
@@ -91,9 +99,10 @@ class Natives(
         var placed = false
     }
 
-    /** gpubuf=0: a GPU canvas presents to a TextureView's window, to compare. Otherwise it renders into hardware
-     * buffers and this reader draws the newest finished one as a bitmap in its own pass, each display frame: no
-     * swapchain present, no SurfaceTexture update, no second composition of the canvas. */
+    /** Opaque full-window canvases present beneath the UI through SurfaceView.
+     * gpubuf=1 forces buffers; gpubuf=0 compares the TextureView window path. */
+    private val presentation = (context as? android.app.Activity)?.intent?.getStringExtra("gpubuf")
+    private val windowCanvas = presentation == null || presentation == "auto" || presentation == "surface"
     private val buffered = (context as? android.app.Activity)?.intent?.getStringExtra("gpubuf") != "0"
     /** Buffers were refused (an older host library, or a device without them): canvases get windows. */
     private var refused = false
@@ -112,6 +121,20 @@ class Natives(
             var any = false
             var live = false
             for (e in elements.values.toList()) {
+                if (e.view is SurfaceView) {
+                    if (e.copying) { live = true; continue }
+                    if (!e.presentation.ready) {
+                        live = true
+                        val ready = e.presentation.observe(Native.canvasReady(e.id), android.os.SystemClock.uptimeMillis())
+                        if (ready < 0) {
+                            replacePresentation(e, false)
+                        } else if (ready > 0) {
+                            e.dirty = true
+                            record(e); finishRedraws(e); any = true
+                        }
+                    }
+                    continue
+                }
                 if (!e.buffers) continue
                 live = true
                 val f = try { Native.canvasFrame(e.id) } catch (x: UnsatisfiedLinkError) { -2L }
@@ -129,12 +152,15 @@ class Natives(
                     made
                 } ?: continue
                 e.drawn = f
+                e.presentation.bufferFrame()
+                e.last = bmp
                 if (e.w <= 0 || e.h <= 0) continue
                 e.node.setPosition(0, 0, e.w, e.h)
                 val c = e.node.beginRecording(e.w, e.h)
                 src.set(0, 0, bmp.width, bmp.height); dst.set(0, 0, e.w, e.h)
                 c.drawBitmap(bmp, src, dst, bitmapPaint)
                 e.node.endRecording()
+                if (e.fullWindow && windowCanvas && !e.presentation.failed) presentation(e, true)
                 any = true
             }
             if (any) frame()
@@ -176,7 +202,11 @@ class Natives(
             override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) = window(e, st, w, h)
             override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) = window(e, st, w, h)
             override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean { unwindow(e); return true }
-            override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
+            override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {
+                if (e.view !== view) return
+                e.presentation.firstFrame()
+                onDescendantInvalidated(view, view)
+            }
         }
     }
 
@@ -200,9 +230,12 @@ class Natives(
         setWillNotDraw(true)
     }
 
-    override fun dispatchDraw(canvas: Canvas) {}
+    override fun dispatchDraw(canvas: Canvas) {
+        for (e in elements.values) if (e.view is SurfaceView) drawChild(canvas, e.view, drawingTime)
+    }
 
     override fun onDescendantInvalidated(child: View, target: View) {
+        if (child is SurfaceView) super.onDescendantInvalidated(child, target)
         val e = byView[child] ?: return
         e.dirty = true
         if (!scheduled) {
@@ -226,19 +259,44 @@ class Natives(
         if (e.w <= 0 || e.h <= 0) return
         e.node.setPosition(0, 0, e.w, e.h)
         val c = e.node.beginRecording(e.w, e.h)
-        if (!e.stale) e.view.draw(c)
+        if (e.kind == 3 && !e.presentation.ready && e.last != null) {
+            if (e.view is TextureView) {
+                // TextureView latches its first image during draw; its update callback can run here.
+                val save = c.saveLayerAlpha(0f, 0f, e.w.toFloat(), e.h.toFloat(), 0)
+                e.view.draw(c)
+                c.restoreToCount(save)
+            }
+            val bmp = e.last!!
+            src.set(0, 0, bmp.width, bmp.height); dst.set(0, 0, e.w, e.h)
+            c.drawBitmap(bmp, src, dst, bitmapPaint)
+        } else if (e.view is SurfaceView && e.presentation.ready) c.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+        else if (!e.stale) e.view.draw(c)
         e.node.endRecording()
+    }
+
+    /** The node id of the element whose view is [view] or holds it ([ExactTamber]'s place), or null (main thread). */
+    fun place(view: View): Int? {
+        var v: View? = view
+        while (v != null && v !== this) {
+            byView[v]?.let { return it.id }
+            v = v.parent as? View
+        }
+        return null
     }
 
     /** The node op 28 draws for [id] (main thread). */
     fun node(id: Int): RenderNode? = elements[id]?.node
+
+    /** A view the app's Kotlin hatches host at a node (kind 5, LLP 1115.001.000 D4), made for this layer's
+     * activity: each element its own. */
+    var hatched: ((Int, Context) -> View?)? = null
 
     /** Every element's node, for a row recorded on another thread: one map shared until an element comes or goes. */
     private var nodes: Map<Int, RenderNode>? = null
     fun snapshot(): Map<Int, RenderNode> = nodes ?: elements.mapValues { it.value.node }.also { nodes = it }
 
     /** Op 28 seen while ingesting a stream: make or update the element; [row] draws it (0: not in a row). */
-    fun ensure(id: Int, kind: Int, w: Int, h: Int, props: String, row: Int) {
+    fun ensure(id: Int, kind: Int, w: Int, h: Int, props: String, row: Int, fullWindow: Boolean = false) {
         var e = elements[id]
         if (e == null || e.kind != kind) {
             e?.let { release(it) }
@@ -250,6 +308,11 @@ class Natives(
             elements[id] = e
             nodes = null
             if (!e.parked) byView[e.view] = e
+        }
+        e.fullWindow = fullWindow && row == 0
+        if (!e.fullWindow) e.presentation.failed = false
+        if (kind == 3) {
+            presentation(e, e.fullWindow && windowCanvas)
         }
         e.rows.add(row)
         e.wanted = props
@@ -384,7 +447,7 @@ class Natives(
     }
 
     private fun unpark(e: Element) {
-        val view = obtain(e.kind, JSONObject(e.wanted)) ?: return
+        val view = obtain(e.kind, JSONObject(e.wanted), e.id) ?: return
         if (view.parent == null) addView(view, LayoutParams(1, 1))
         e.view = view
         e.parked = false; waiting--
@@ -407,7 +470,8 @@ class Natives(
         for (e in gone) { e.rows.remove(0); if (e.rows.isEmpty()) release(e) }
     }
 
-    private fun obtain(kind: Int, json: JSONObject): View? = when (kind) {
+    private fun obtain(kind: Int, json: JSONObject, id: Int = 0): View? = when (kind) {
+        5 -> hatched?.invoke(id, context)?.also { (it.parent as? android.view.ViewGroup)?.removeView(it) }
         3 -> if (buffered && !refused) View(context) else TextureView(context).apply { isOpaque = false }
         0 -> videoPool.removeLastOrNull() ?: TextureView(context).apply { isOpaque = false }
         1 -> webPool.removeLastOrNull()?.apply { onResume() } ?: WebView(context).apply {
@@ -427,13 +491,107 @@ class Natives(
 
     private fun create(id: Int, kind: Int, props: String): Element? {
         val json = JSONObject(props)
-        val view = obtain(kind, json) ?: return null
+        val view = obtain(kind, json, id) ?: return null
         if (view.parent == null) addView(view, LayoutParams(1, 1))
         val e = Element(id, kind, view, RenderNode("exact native"))
         if (kind == 2) e.module = json.optString("module")
         if (pooled(kind)) held++
         if (kind == 3) { if (view is TextureView) listen(e, view) else e.buffers = true }
         return e
+    }
+
+    private fun finishRedraws(e: Element) {
+        val done = e.redraws.toList(); e.redraws.clear()
+        done.forEach { it.run() }
+    }
+
+    private fun presentation(e: Element, surface: Boolean) {
+        if ((e.view is SurfaceView) == surface || e.copying) return
+        if (surface) {
+            // Start on buffers, retaining one image until the window's first present.
+            if (!e.presentation.canAttach(e.last != null)) return
+            replacePresentation(e, true)
+            return
+        }
+        if (e.view !is SurfaceView || !e.snapshotReady) return
+        replacePresentation(e, false)
+    }
+
+    /** Keep the current composition until its visible surface has been copied.
+     * The caller then ingests the new composition and saved image together. */
+    internal fun prepare(stream: java.nio.IntBuffer, structure: Structure, resume: () -> Unit): Boolean {
+        if (stream.limit() == 0 || stream.get(0) == 22 || elements.values.none { it.view is SurfaceView }) return true
+        val direct = HashSet<Int>()
+        var i = 0
+        while (i < stream.limit()) {
+            if (stream.get(i) == 28 && stream.get(i + 2) and 256 != 0) direct.add(stream.get(i + 1))
+            i = structure.end(stream, i)
+        }
+        val e = elements.values.firstOrNull {
+            it.view is SurfaceView && !direct.contains(it.id) && !it.snapshotReady
+        } ?: return true
+        if (!e.copying) copy(e) { resume() }
+        return false
+    }
+
+    private fun copy(e: Element, done: () -> Unit) {
+        val view = e.view as? SurfaceView ?: return
+        val bitmap = android.graphics.Bitmap.createBitmap(e.w.coerceAtLeast(1), e.h.coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888)
+        e.copying = true
+        val copied: (Int) -> Unit = { result ->
+            e.copying = false
+            if (elements[e.id] === e && e.view === view) {
+                if (result == android.view.PixelCopy.SUCCESS) e.last = bitmap else {
+                    bitmap.recycle()
+                    e.last = null
+                    android.util.Log.w("exact", "canvas ${e.id} snapshot failed: $result; waiting for a fresh buffer")
+                }
+                e.snapshotReady = true
+            } else bitmap.recycle()
+            done()
+        }
+        try { android.view.PixelCopy.request(view, bitmap, copied, handler) }
+        catch (_: IllegalArgumentException) { copied(android.view.PixelCopy.ERROR_SOURCE_INVALID) }
+    }
+
+    private fun replacePresentation(e: Element, surface: Boolean) {
+        if (e.buffers) { if (e.asked != 0L) Exact.detachBuffers(e.id) } else unwindow(e)
+        finishRedraws(e)
+        e.presentation.clear()
+        e.snapshotReady = false
+        e.wrapped.clear(); e.asked = 0L; e.drawn = -1L
+        byView.remove(e.view); removeView(e.view)
+        val view = if (surface) SurfaceView(context) else obtain(3, JSONObject())!!
+        e.view = view; e.buffers = !surface && view !is TextureView
+        byView[view] = e
+        if (view is SurfaceView) view.holder.addCallback(object : SurfaceHolder.Callback2 {
+            override fun surfaceCreated(holder: SurfaceHolder) {}
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
+                if (e.view !== view) return
+                unwindow(e)
+                e.presentation.attach()
+                e.surface = holder.surface
+                Exact.attachSurface(e.id, holder.surface, w, h) { e.window = it }
+                e.dirty = true
+                if (refresh()) frame()
+                poll()
+            }
+            override fun surfaceRedrawNeeded(holder: SurfaceHolder) { poll() }
+            override fun surfaceRedrawNeededAsync(holder: SurfaceHolder, drawingFinished: Runnable) {
+                if (e.view !== view || e.presentation.ready) drawingFinished.run()
+                else { e.redraws.add(drawingFinished); poll() }
+            }
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                if (e.view === view) {
+                    unwindow(e); e.presentation.clear()
+                    e.dirty = true; finishRedraws(e)
+                    if (refresh()) frame()
+                }
+            }
+        }) else if (view is TextureView) listen(e, view)
+        addView(view, LayoutParams(1, 1))
+        if (e.w > 0 && e.h > 0) { place(e); askBuffers(e); record(e) }
+        invalidate(); poll()
     }
 
     private fun moduleProps(json: JSONObject): JSONObject =
@@ -477,6 +635,15 @@ class Natives(
                     if (src.startsWith("http:") || src.startsWith("https:")) web.loadUrl(src) else web.loadUrl(Uri.fromFile(file(src)).toString())
                 }
             }
+            // A hatch gave the node another view.
+            5 -> if (old != null && old.optInt("gen") != json.optInt("gen")) {
+                val view = obtain(5, json, e.id) ?: return
+                byView.remove(e.view); removeView(e.view)
+                e.view = view
+                if (view.parent == null) addView(view, LayoutParams(1, 1))
+                byView[view] = e
+                if (e.w > 0 && e.h > 0) place(e)
+            }
             else -> modules[e.module]?.update(e.view, moduleProps(json))
         }
         e.dirty = true
@@ -487,6 +654,7 @@ class Natives(
         unwindow(e)
         st.setDefaultBufferSize(w, h)
         val surface = android.view.Surface(st)
+        e.presentation.attach()
         e.surface = surface
         // Not waited for: exact2's thread may be busy (the GPU module's first frame, right after the first content),
         // and the main thread would wait out that work in its first draw.
@@ -496,7 +664,7 @@ class Natives(
     private fun unwindow(e: Element) {
         // Waited for: after the attach posted before it, and before the surface goes.
         if (e.surface != null) Exact.detachSurface(e.id) { e.window.also { e.window = 0L } }
-        e.surface?.release()
+        if (e.view !is SurfaceView) e.surface?.release()
         e.surface = null
     }
 

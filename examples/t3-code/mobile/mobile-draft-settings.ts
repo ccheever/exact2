@@ -1,5 +1,5 @@
 // Source365aa87982 new-task-flow-provider stores only explicitly changed draft settings.
-// @ref llp/1109.005-composer-and-transcript.decision.md#settings-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#settings-ownership
 import type { T3Client } from './shared/client';
 import { arr, obj, type Obj } from './shared/domain';
 import { ClientError, type Files, type Native } from './shared/protocol';

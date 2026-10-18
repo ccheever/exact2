@@ -1,4 +1,4 @@
-// @ref llp/1109.011-responsive-workspace.decision.md#composition-decision
+// @ref examples/t3-code/mobile/docs/1130.011-responsive-workspace.decision.md#composition-decision
 // T3 Code 365aa87982: AdaptiveWorkspaceLayout, sidebar-navigation-shell,
 // workspace-pane-animation. Owns only public tab-container child placement.
 #if os(iOS)

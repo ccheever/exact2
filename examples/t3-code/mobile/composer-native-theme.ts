@@ -1,6 +1,6 @@
 // T3 Code (MIT), pinned365aa87982 mobileTheme.ts and nativeComposerTheme.ts helper bodies.
 // See LICENSE-T3. Native chip drawing requires opaque colors over its actual surface.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 function rgbChannels(color: string): readonly [number, number, number] | null {
   const match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})(?:[\da-f]{2})?$/i.exec(color);
   if (!match) return null;

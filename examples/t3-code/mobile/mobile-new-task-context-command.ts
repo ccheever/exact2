@@ -1,5 +1,5 @@
 // Source365aa87982 use-composer-command-menu; existing commands, one per-draft owner.
-// @ref llp/1109.005-composer-and-transcript.decision.md#foreground-capture-facts
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#foreground-capture-facts
 import type { T3Client } from './shared/client';
 import { obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native, type Files } from './shared/protocol';

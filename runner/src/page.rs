@@ -1,13 +1,15 @@
 //! The page's facts that are not media features: whether any of it can be
 //! seen (the Page Visibility API), whether the device believes it is online
 //! (`navigator.onLine`), whether a share sheet exists
-//! (`navigator.share`), and whether the document pickers do
+//! (`navigator.share`), whether it takes files and an element's picture
+//! (LLP 1125 D12), and whether the document pickers do
 //! (`showOpenFilePicker`: studio diary R31, where a picker that closes with
 //! nothing cannot say whether the person cancelled or the browser has
-//! none), and whether the page's window has the system's focus
-//! (`document.hasFocus()`, #114). The host observes them; the app reads them
+//! none), whether the page's window has the system's focus
+//! (`document.hasFocus()`, #114), and how the browser loaded the page
+//! (Navigation Timing's `type`). The host observes them; the app reads them
 //! by field name from one reserved source.
-//! @ref LLP 1069.000 D2; LLP 1069.003 D5; LLP 1069.010 D2
+//! @ref LLP 1069.000 D2; LLP 1069.003 D5; LLP 1069.010 D2; LLP 1125 D12
 
 use exact_plan::Value;
 
@@ -18,9 +20,17 @@ pub const FIELDS: &[&str] = &[
     "visibilityState",
     "onLine",
     "canShare",
+    "canShareFiles",
+    "canSharePictures",
     "canOpenFiles",
     "hasFocus",
+    "navigationType",
 ];
+
+/// `navigationType`'s words, by their wire code (bits 5–6): the web's
+/// `PerformanceNavigationTiming.type`, or none where the app is no page a
+/// browser loaded (a native app's launch).
+pub const NAVIGATION_TYPES: [&str; 4] = ["", "navigate", "reload", "back_forward"];
 
 /// What the host last said. The default is the bake's answer: a visible,
 /// online page with focus and no share sheet.
@@ -34,6 +44,12 @@ pub struct Page {
     pub on_line: bool,
     /// `typeof navigator.share === "function"` (LLP 1069.003 D5).
     pub can_share: bool,
+    /// `share(files=[…])` takes `app:/` files: Apple's sheets, and a
+    /// browser whose `navigator.canShare({files})` is true (LLP 1125 D12).
+    pub can_share_files: bool,
+    /// `share(files=["#id"])` takes an element's picture: iOS and macOS,
+    /// never the web (LLP 1125 D12).
+    pub can_share_pictures: bool,
     /// `typeof showOpenFilePicker === "function"`: `showOpenFilePicker` and
     /// `showDirectoryPicker` open a document in place, where without them
     /// they refuse with `cancel` (LLP 1069.010 D2; a Mac and an iPhone
@@ -44,6 +60,13 @@ pub struct Page {
     /// keyboard focus is in (window `focus` and `blur` move it). A visible
     /// window behind another's has no focus; a hidden page never has it.
     pub has_focus: bool,
+    /// How the browser loaded the page, for its whole life, as an index
+    /// into [`NAVIGATION_TYPES`] (0 where no browser loaded it).
+    pub navigation: u8,
+    /// The host is about to suspend the app (iOS and tvOS in the
+    /// background, unless a `playback` session keeps it running): a
+    /// sequence stops (LLP 1125 D4). No `exactPage` field reads it.
+    pub suspended: bool,
 }
 
 impl Default for Page {
@@ -52,16 +75,22 @@ impl Default for Page {
             hidden: false,
             on_line: true,
             can_share: false,
+            can_share_files: false,
+            can_share_pictures: false,
             can_open_files: false,
             has_focus: true,
+            navigation: 0,
+            suspended: false,
         }
     }
 }
 
 impl Page {
     /// The hosts' wire form: bit 0 hidden, bit 1 offline, bit 2 can share,
-    /// bit 3 can open files, bit 4 without focus; other bits are ignored.
-    /// Zero is visible, online, focused, no share sheet, no pickers.
+    /// bit 3 can open files, bit 4 without focus, bits 5–6 the navigation
+    /// type, bit 7 about to be suspended, bit 8 shares files, bit 9 shares
+    /// an element's picture; other bits are ignored. Zero is visible,
+    /// online, focused, no share sheet, no pickers, no navigation.
     pub fn from_bits(bits: u32) -> Self {
         Self {
             hidden: bits & 1 != 0,
@@ -69,6 +98,10 @@ impl Page {
             can_share: bits & 4 != 0,
             can_open_files: bits & 8 != 0,
             has_focus: bits & 16 == 0,
+            navigation: ((bits >> 5) & 3) as u8,
+            suspended: bits & 128 != 0,
+            can_share_files: bits & 256 != 0,
+            can_share_pictures: bits & 512 != 0,
         }
     }
 
@@ -79,6 +112,16 @@ impl Page {
             | (u32::from(self.can_share) << 2)
             | (u32::from(self.can_open_files) << 3)
             | (u32::from(!self.has_focus) << 4)
+            | (u32::from(self.navigation & 3) << 5)
+            | (u32::from(self.suspended) << 7)
+            | (u32::from(self.can_share_files) << 8)
+            | (u32::from(self.can_share_pictures) << 9)
+    }
+
+    /// How the browser loaded the page, the web's word, or `""` in a
+    /// native app.
+    pub fn navigation_type(&self) -> &'static str {
+        NAVIGATION_TYPES[usize::from(self.navigation & 3)]
     }
 
     /// `"visible"` or `"hidden"`, the web's words.
@@ -96,8 +139,11 @@ impl Page {
             "visibilityState" => Some(Value::str(self.visibility_state())),
             "onLine" => Some(Value::Bool(self.on_line)),
             "canShare" => Some(Value::Bool(self.can_share)),
+            "canShareFiles" => Some(Value::Bool(self.can_share_files)),
+            "canSharePictures" => Some(Value::Bool(self.can_share_pictures)),
             "canOpenFiles" => Some(Value::Bool(self.can_open_files)),
             "hasFocus" => Some(Value::Bool(self.has_focus)),
+            "navigationType" => Some(Value::str(self.navigation_type())),
             _ => None,
         }
     }
@@ -110,12 +156,23 @@ mod tests {
     #[test]
     fn bits_round_trip_and_zero_is_the_default() {
         assert_eq!(Page::from_bits(0), Page::default());
-        for bits in 0..32 {
+        for bits in 0..1024 {
             assert_eq!(Page::from_bits(bits).bits(), bits);
         }
         let page = Page::from_bits(0b1111);
         assert!(page.hidden && !page.on_line && page.can_share && page.can_open_files);
         assert!(!Page::from_bits(0b111).can_open_files);
+        let files = Page::from_bits(256);
+        assert!(files.can_share_files && !files.can_share_pictures && !files.can_share);
+        assert!(Page::from_bits(512).can_share_pictures);
+        assert_eq!(
+            Page::from_bits(2 << 5).field("navigationType"),
+            Some(exact_plan::Value::str("reload"))
+        );
+        assert_eq!(
+            Page::default().field("navigationType"),
+            Some(exact_plan::Value::str(""))
+        );
         assert_eq!(page.visibility_state(), "hidden");
         // Bit 4 says the page has no focus, so zero (the bake's) has it.
         assert!(page.has_focus && Page::default().has_focus);

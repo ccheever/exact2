@@ -3,8 +3,8 @@ use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
 use ComposerCommandPopover from "./composer-command-popover.contract"
 use ThreadSubmission from "./thread-send-root.contract"
 // ThreadComposer compact/expanded geometry and ComposerActionButton, upstream365aa87982.
-// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
-// @ref llp/1109.008-mobile-voice.decision.md#presentation
+// @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref examples/t3-code/mobile/docs/1130.008-mobile-voice.decision.md#presentation
 use ThreadComposerState, ThreadColors from "./thread-shapes.contract"
 use ProviderIcon from "./provider-icon.contract"
 use MobileQueueTrigger from "./queue-trigger.contract"
@@ -194,7 +194,7 @@ component ThreadSendButton
           t3-symbol symbol-name=(showStop ? "stop.fill" : sendSymbol) symbol-weight="semibold"
             symbol-tint=(showStop ? colors.dangerForeground : colors.primaryForeground) width=14 height=14
 
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-focus-restoration
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-focus-restoration
 shape ComposerFocusReturn
   editorId: string
   owner: string

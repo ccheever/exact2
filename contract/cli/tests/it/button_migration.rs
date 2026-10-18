@@ -4,15 +4,23 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-fn sources(path: &Path, out: &mut Vec<PathBuf>) {
+/// The T3 Code clone: its one root, app.contract, takes minutes to compile with
+/// its imports in a debug build (some 120,000 nodes), so it is the async lane's
+/// (the test at the end).
+const T3_CODE: &str = "examples/t3-code";
+
+fn sources(path: &Path, skip: &[PathBuf], out: &mut Vec<PathBuf>) {
     let mut entries: Vec<_> = std::fs::read_dir(path)
         .unwrap()
         .map(|e| e.unwrap().path())
         .collect();
     entries.sort();
     for path in entries {
+        if skip.contains(&path) {
+            continue;
+        }
         if path.is_dir() {
-            sources(&path, out);
+            sources(&path, skip, out);
         } else if path.extension().is_some_and(|e| e == "contract")
             && !path.to_string_lossy().ends_with(".test.contract")
         {
@@ -112,15 +120,17 @@ fn source_sweep_revisits_partial_import_graphs() {
     assert_eq!(read, vec![app, broken, branch]);
 }
 
-#[test]
-fn every_app_corpus_and_example_compiles_and_the_button_migration_is_complete() {
+/// Compiles every root under `dirs` (a file no other file there imports) and
+/// returns how many compiled and every failure, the button migration's included.
+fn sweep(dirs: &[&str], skip: &[&str]) -> (usize, Vec<String>) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
         .unwrap();
+    let skip: Vec<_> = skip.iter().map(|dir| root.join(dir)).collect();
     let mut paths = Vec::new();
-    for dir in ["apps", "contract/corpus", "examples"] {
-        sources(&root.join(dir), &mut paths);
+    for dir in dirs {
+        sources(&root.join(dir), &skip, &mut paths);
     }
     let imported = imported_sources(&paths, contract::source_graph);
     let mut failures = Vec::new();
@@ -147,10 +157,38 @@ fn every_app_corpus_and_example_compiles_and_the_button_migration_is_complete() 
         }
     }
     eprintln!(
-        "source sweep: {compiled} roots, {} imported source files, {} failures",
+        "source sweep of {}: {compiled} roots, {} imported source files, {} failures",
+        dirs.join(", "),
         imported.len(),
         failures.len()
     );
+    (compiled, failures)
+}
+
+#[test]
+fn every_app_corpus_and_example_compiles_and_the_button_migration_is_complete() {
+    let (compiled, failures) = sweep(&["apps", "contract/corpus", "examples"], &[T3_CODE]);
     assert!(compiled > 80, "no roots found");
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+#[ignore = "async lane: compiles the T3 Code clone's app.contract and its imports, minutes in a debug build; bun scripts/async.mjs runs it"]
+fn the_t3_code_example_compiles_and_its_button_migration_is_complete() {
+    // Some of the files app.contract imports are generated, and generated sources
+    // are built, not committed (rules/RULES.md): make them first.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let generated =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .arg(root.join(T3_CODE).join("tools/generate/generate.mjs"))
+            .current_dir(&root)
+            .status()
+            .expect("Bun runs the T3 Code clone's generator (name it with BUN)");
+    assert!(
+        generated.success(),
+        "{T3_CODE}/tools/generate/generate.mjs failed"
+    );
+    let (compiled, failures) = sweep(&[T3_CODE], &[]);
+    assert!(compiled > 0, "no roots found");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

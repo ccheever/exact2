@@ -109,6 +109,33 @@ fn same_role(written: &str, name: &str) -> bool {
         })
 }
 
+/// The index of `column` among a text style's columns (the metric table's).
+pub fn column_index(column: crate::style::metrics::Column) -> usize {
+    use crate::style::metrics::Column;
+    match column {
+        Column::Web => 0,
+        Column::Ios => 1,
+        Column::Mac => 2,
+        Column::Neutral => 3,
+    }
+}
+
+/// Text style `id`'s weight in `column`, CSS's number (LLP 1115.000 D12.2).
+pub fn text_style_weight(id: u8, column: crate::style::metrics::Column) -> u16 {
+    crate::TEXT_STYLES
+        .get(usize::from(id))
+        .map_or(400, |s| s.weights[column_index(column)])
+}
+
+/// Text style `id`'s leading in `column`: a line height over its size, or
+/// `normal`, the face's own (LLP 1115.000 D12.2).
+pub fn text_style_leading(id: u8, column: crate::style::metrics::Column) -> crate::LineHeight {
+    crate::TEXT_STYLES
+        .get(usize::from(id))
+        .and_then(|s| s.leadings[column_index(column)])
+        .map_or(crate::LineHeight::Normal, crate::LineHeight::Number)
+}
+
 /// The size of text style `id` where the root font size is `root`: the
 /// schema's ramp read at `root` (LLP 1115 D3). Between two of its body
 /// sizes it interpolates; below the first or above the last, the nearest
@@ -327,6 +354,22 @@ pub(crate) fn pixels_text(
     Ok(Some(StyleValue::Number(n as f64)))
 }
 
+/// CSS's unitless zero, a length (CSS Values 4 §6.1), on a pixel row: the
+/// number 0, which the row's codec reads. A computed shorthand's side is
+/// one (`border-width=`${w}px 0``). Not `line-height`, whose bare number
+/// is a multiplier.
+fn unitless_zero(id: StyleId, value: &StyleValue) -> Option<StyleValue<'static>> {
+    let StyleValue::Text(text) = value else {
+        return None;
+    };
+    let stroke = matches!(id, StyleId::StrokeWidth | StyleId::StrokeDashoffset);
+    if id.codec() == StyleCodec::LineHeight || !(admits_relative(id) || stroke) {
+        return None;
+    }
+    let n = exact_num::parse_f64(text.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])).ok()?;
+    (n == 0.0).then_some(StyleValue::Number(0.0))
+}
+
 type PreparedLength = (Option<(Unit, f32)>, Option<StyleValue<'static>>);
 
 /// Convert the one length spelling `value` can contain. The accepted
@@ -359,6 +402,7 @@ pub(crate) fn prepare(id: StyleId, value: &StyleValue) -> Result<PreparedLength,
         }
         Some(b'h' | b'H') => Ok((None, super::cells::of(id, value)?)),
         Some(b'x' | b'X') => Ok((None, pixels_text(id, value)?)),
+        Some(b'0'..=b'9' | b'.') => Ok((None, unitless_zero(id, value))),
         _ => Ok((None, None)),
     }
 }
@@ -407,7 +451,8 @@ mod tests {
             let provisional = relative.map(|r| super::provisional(id, r));
             let pixels = pixels_text(id, value)?;
             let cells = super::super::cells::of(id, value)?;
-            Ok((relative, provisional.or(pixels).or(cells)))
+            let zero = unitless_zero(id, value);
+            Ok((relative, provisional.or(pixels).or(cells).or(zero)))
         }
         let texts = [
             "",
@@ -418,6 +463,8 @@ mod tests {
             "auto",
             "none",
             "1",
+            "0",
+            "-0.0",
             "1px",
             "-1PX",
             "1.5rem",

@@ -114,52 +114,70 @@ fn signature(p: &Presenter<Textflow>, scene: &str) -> Vec<Vec<u32>> {
 }
 #[test]
 fn all_scenes_cover_every_byte_once_avoid_all_shapes_and_tolerate_larger_fonts() {
+    // Each (size, scene) boots its own presenter, so the cases run on threads of their own;
+    // their failures are gathered in case order
+    let cases: Vec<_> = [(960., 900.), (390., 844.)]
+        .into_iter()
+        .flat_map(|size| SCENES.map(|scene| (size, scene)))
+        .collect();
+    let failures: Vec<String> = std::thread::scope(|threads| {
+        let runs: Vec<_> = cases
+            .iter()
+            .map(|&(size, scene)| threads.spawn(move || scene_failures(size, scene)))
+            .collect();
+        runs.into_iter()
+            .flat_map(|run| run.join().unwrap())
+            .collect()
+    });
+    assert!(failures.is_empty(), "all failing cases: {failures:?}");
+}
+fn scene_failures(size: (f32, f32), scene: &str) -> Vec<String> {
     let mut failures = Vec::new();
-    for size in [(960., 900.), (390., 844.)] {
-        for scene in SCENES {
-            let mut p = boot_size(true, size);
+    let mut p = boot_size(true, size);
+    select(&mut p, scene);
+    for large in [false, true] {
+        if large {
+            p.tap(id(&p, "type-size")).unwrap();
+        }
+        for ms in [0., 800., 2400., 15_000.] {
+            // Continue forwards, selecting resets only app time, not host time.
             select(&mut p, scene);
-            for large in [false, true] {
-                if large {
-                    p.tap(id(&p, "type-size")).unwrap();
-                }
-                for ms in [0., 800., 2400., 15_000.] {
-                    // Continue forwards, selecting resets only app time, not host time.
-                    select(&mut p, scene);
-                    let now = p.host().now();
-                    assert!(p.clock(now + ms).1.is_none());
-                    p.frame();
-                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        check(&p, scene, !large)
-                    }))
-                    .is_err()
-                    {
-                        failures.push(format!("{scene} {size:?} large={large} ms={ms}"));
-                    }
-                }
+            let now = p.host().now();
+            assert!(p.clock(now + ms).1.is_none());
+            p.frame();
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check(&p, scene, !large)))
+                .is_err()
+            {
+                failures.push(format!("{scene} {size:?} large={large} ms={ms}"));
             }
         }
     }
-    assert!(failures.is_empty(), "all failing cases: {failures:?}");
+    failures
 }
 #[test]
 fn fresh_boots_at_the_same_clock_have_bit_identical_fragments() {
-    for scene in SCENES {
-        let mut a = boot_size(true, (960., 900.));
-        select(&mut a, scene);
-        let mut b = boot_size(true, (960., 900.));
-        select(&mut b, scene);
-        for time in [16., 800., 2400.] {
-            assert!(a.clock(time).1.is_none());
-            assert!(b.clock(time).1.is_none());
-            a.frame();
-            b.frame();
-            assert_eq!(
-                signature(&a, scene),
-                signature(&b, scene),
-                "{scene} at {time}"
-            );
+    // Each scene's two boots on a thread of their own
+    std::thread::scope(|threads| {
+        for scene in SCENES {
+            threads.spawn(move || identical_boots(scene));
         }
+    });
+}
+fn identical_boots(scene: &str) {
+    let mut a = boot_size(true, (960., 900.));
+    select(&mut a, scene);
+    let mut b = boot_size(true, (960., 900.));
+    select(&mut b, scene);
+    for time in [16., 800., 2400.] {
+        assert!(a.clock(time).1.is_none());
+        assert!(b.clock(time).1.is_none());
+        a.frame();
+        b.frame();
+        assert_eq!(
+            signature(&a, scene),
+            signature(&b, scene),
+            "{scene} at {time}"
+        );
     }
 }
 #[test]

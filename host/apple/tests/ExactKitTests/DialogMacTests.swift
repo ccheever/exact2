@@ -18,9 +18,9 @@ class DialogMacTests: XCTestCase {
     /// These cases walk a dialog's Tab through its buttons: Keyboard Navigation on (LLP 1115.000 D7.2).
     override func setUp() { super.setUp(); keyboardNavigation(true) }
 
-    private func fixture() -> Presenter {
+    private func fixture(session: ExactSession? = nil) -> Presenter {
         _ = NSApplication.shared
-        let p = Presenter()
+        let p = session?.presenter ?? Presenter()
         presenter = p
         p.dialogs.painted = painted
         p.menus.painted = painted
@@ -45,20 +45,20 @@ class DialogMacTests: XCTestCase {
         ]))
         return p
     }
-    private func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], character: String = "") -> NSEvent {
-        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+    private func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], character: String = "", up: Bool = false) -> NSEvent {
+        NSEvent.keyEvent(with: up ? .keyUp : .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
             windowNumber: front.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
     }
-    private func click(_ node: NodeView) {
+    private func click(_ node: NodeView, clicks: Int = 1) {
         let point = node.convert(NSPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil)
         // Hit testing is AppKit's, in the node's own window (the page's, or its
         // dialog's sheet): no target-id activation can bypass the backdrop.
         let window: NSWindow = node.window ?? self.window
         let hit = window.contentView?.hitTest(point)
         let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: 1)!
         let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0)!
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: 0)!
         hit?.mouseDown(with: down)
         hit?.mouseUp(with: up)
     }
@@ -69,6 +69,7 @@ class DialogMacTests: XCTestCase {
         front.makeFirstResponder(opener)
         click(opener)
         XCTAssertTrue(p.dialogs.active === dialog)
+        XCTAssertEqual(p.openTopLayer.modal, p.openTopLayer.frames.firstIndex { $0.0 == dialog.id })
         XCTAssertFalse(dialog.isHidden)
         XCTAssertTrue(field.currentEditor() === front.firstResponder)
         XCTAssertTrue(opener.inert)
@@ -197,6 +198,155 @@ class DialogMacTests: XCTestCase {
         XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
         XCTAssertEqual(heard, ["4 Tab", "4 Tab", "3 Tab"])
     }
+
+    /// A key in the open dialog reaches its ancestors' `keycapture`, `key`
+    /// and `keyup`, though the modal makes them inert: as in DOM, that keeps
+    /// them from being targets, not from hearing what bubbles. An `inert`
+    /// attribute or a route behind a presentation still silences them.
+    func testKeysInTheDialogReachItsAuthoredAncestors() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), node = try XCTUnwrap(p.views[4])
+        root.handlers = ["keycapture", "key", "keyup"]
+        node.handlers.formUnion(["key", "keyup"])
+        var heard: [String] = []
+        p.onKey = { id, press in heard.append("\(id) \(press.capture ? "capture" : press.up ? "up" : "down") \(press)") }
+        p.press(2)
+        XCTAssertTrue(try XCTUnwrap(node.field).currentEditor() === front.firstResponder)
+        XCTAssertTrue(root.inert)
+        XCTAssertFalse(root.authoredInert)
+        XCTAssertFalse(p.routeKey(key(0, character: "a"), focused: true))
+        XCTAssertFalse(p.routeKey(key(0, character: "a", up: true), focused: true))
+        XCTAssertEqual(heard, ["1 capture a", "4 down a", "1 down a", "4 up a", "1 up a"])
+        for routed in [false, true] {
+            heard = []
+            root.props["inert"] = routed ? nil : "true"
+            root.routeInert = routed
+            XCTAssertFalse(p.routeKey(key(0, character: "a"), focused: true))
+            XCTAssertFalse(p.routeKey(key(0, character: "a", up: true), focused: true))
+            XCTAssertEqual(heard, ["4 down a", "4 up a"])
+        }
+    }
+
+    private func assertContextPoint(_ line: String, from source: NodeView, on target: NodeView,
+                                    file: StaticString = #filePath, lineNumber: UInt = #line) throws {
+        let sourceWindow = try XCTUnwrap(source.window), targetWindow = try XCTUnwrap(target.window)
+        let middle = source.convert(NSPoint(x: source.bounds.midX, y: source.bounds.midY), to: nil)
+        let point = targetWindow.convertPoint(fromScreen: sourceWindow.convertPoint(toScreen: middle))
+        let local = target.convert(point, from: nil)
+        let clip = try XCTUnwrap(target.presenter?.viewport.contentView), client = clip.convert(point, from: nil)
+        let sample = line.components(separatedBy: ",")
+        XCTAssertEqual(sample.prefix(2).compactMap(Double.init), [Double(local.x), Double(local.y)], file: file, line: lineNumber)
+        XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init),
+                       [Double(client.x - clip.bounds.minX), Double(client.y - clip.bounds.minY)], file: file, line: lineNumber)
+    }
+
+    /// A right click and a Control-click in the dialog bubble out of the
+    /// top layer to its authored ancestor's `contextmenu`, once, at the
+    /// point in the ancestor's window.
+    func testSecondaryClicksInTheDialogReachItsAuthoredAncestorsOnce() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
+        root.handlers = ["contextmenu", "pointerdown", "pointerup"]
+        var heard: [String] = [], samples: [String] = []
+        p.onPointer = { id, kind, _ in heard.append("\(kind == .down ? "down" : "up") \(id)") }
+        p.onClipboard = { id, kind, line in XCTAssertEqual(kind, 10); heard.append("context \(id)"); samples.append(line) }
+        p.press(2)
+        XCTAssertEqual(button.window === window, painted)
+        let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(front.contentView?.hitTest(point))
+        XCTAssertTrue(hit === button || hit.isDescendant(of: button))
+        for control in [false, true] {
+            heard = []; samples = []
+            let down = try XCTUnwrap(NSEvent.mouseEvent(with: control ? .leftMouseDown : .rightMouseDown,
+                location: point, modifierFlags: control ? .control : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: front.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            let up = try XCTUnwrap(NSEvent.mouseEvent(with: control ? .leftMouseUp : .rightMouseUp,
+                location: point, modifierFlags: control ? .control : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: front.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+            if control { hit.mouseDown(with: down); hit.mouseUp(with: up) }
+            else { hit.rightMouseDown(with: down); hit.rightMouseUp(with: up) }
+            XCTAssertEqual(heard, ["down 1", "context 1", "up 1"])
+            try assertContextPoint(try XCTUnwrap(samples.first), from: button, on: root)
+            XCTAssertTrue(p.dialogs.active === p.views[3], "Control-click must not press Close")
+        }
+    }
+
+    /// The ContextMenu key and VoiceOver's show menu at a focus in the
+    /// dialog reach its ancestor's `contextmenu`, in the dialog's sheet
+    /// window too; `inert` refuses, while `disabled` on the container does not.
+    func testContextMenuKeyAndShowMenuInTheDialogReachItsAuthoredAncestors() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
+        root.handlers = ["contextmenu"]
+        var heard: [UInt32] = [], samples: [String] = []
+        p.onClipboard = { id, kind, line in XCTAssertEqual(kind, 10); heard.append(id); samples.append(line) }
+        p.press(2)
+        XCTAssertEqual(button.window === window, painted)
+        XCTAssertTrue(front.makeFirstResponder(button))
+        XCTAssertTrue(p.routeKey(key(110), focused: true))
+        XCTAssertEqual(heard, [1])
+        try assertContextPoint(try XCTUnwrap(samples.first), from: button, on: root)
+        heard = []; samples = []
+        let showMenu = #selector(NodeView.accessibilityPerformShowMenu)
+        XCTAssertTrue(button.isAccessibilitySelectorAllowed(showMenu))
+        XCTAssertTrue(button.accessibilityPerformShowMenu())
+        XCTAssertEqual(heard, [1])
+        try assertContextPoint(try XCTUnwrap(samples.first), from: button, on: root)
+        heard = []
+        XCTAssertFalse(p.contextMenu(root, at: .zero), "the inert ancestor cannot itself be the target")
+        XCTAssertFalse(root.accessibilityPerformShowMenu())
+        for gate in ["inert", "route", "disabled"] {
+            root.props["inert"] = gate == "inert" ? "true" : nil
+            root.routeInert = gate == "route"
+            root.props["disabled"] = gate == "disabled" ? "true" : nil
+            let eligible = gate == "disabled"
+            XCTAssertEqual(button.isAccessibilitySelectorAllowed(showMenu), eligible, gate)
+            XCTAssertEqual(button.accessibilityPerformShowMenu(), eligible, gate)
+            XCTAssertEqual(p.routeKey(key(110), focused: true), eligible, gate)
+        }
+        XCTAssertEqual(heard, [1, 1], "disabled on the ancestor container does not block either request")
+        root.props.removeValue(forKey: "disabled")
+        button.props["inert"] = "true"
+        XCTAssertFalse(button.isAccessibilitySelectorAllowed(showMenu))
+        XCTAssertFalse(button.accessibilityPerformShowMenu())
+        XCTAssertFalse(p.contextMenuKey(key(110)))
+        if !painted {
+            XCTAssertTrue(front.makeFirstResponder(nil))
+            XCTAssertFalse(p.contextMenuKey(key(110)), "a sheet with no focus node keeps the key")
+        }
+    }
+
+    /// An ancestor behind the modal hears the request but opens no
+    /// `contextPopover`: in the browser that popover would be inert.
+    func testContextPopoverOnAnAncestorBehindTheModalOpensNoMenu() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
+        p.apply(wireBatch([
+            ["op": "props", "id": 1, "set": ["contextPopover": "menu"]],
+            ["op": "create", "id": 6, "kind": "view", "props": ["popover": "auto", "id": "menu"]],
+            ["op": "create", "id": 7, "kind": "button", "handlers": ["press"]],
+            ["op": "children", "id": 6, "ids": [7]],
+            ["op": "children", "id": 1, "ids": [2, 3, 6]],
+            ["op": "frame", "id": 6, "x": 0, "y": 0, "w": 120, "h": 40],
+            ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 120, "h": 40],
+        ]))
+        var tracked = false
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            tracked = true
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        defer { NotificationCenter.default.removeObserver(observer); p.menus.reset() }
+        p.press(2)
+        XCTAssertTrue(root.inert)
+        XCTAssertFalse(root.handlers.contains("contextmenu"))
+        XCTAssertTrue(front.makeFirstResponder(button))
+        XCTAssertTrue(p.routeKey(key(110), focused: true))
+        XCTAssertTrue(button.accessibilityPerformShowMenu())
+        // Closing before the menu's turn must not revive a request made behind the modal.
+        p.dialogs.close(try XCTUnwrap(p.views[3]))
+        let drained = expectation(description: "context menu requests drained")
+        RunLoop.main.perform(inModes: [.common]) { drained.fulfill() }
+        wait(for: [drained], timeout: 5)
+        XCTAssertFalse(tracked)
+        XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[6])))
+    }
     func testDismissalPoliciesAndBackgroundPointerBlocking() {
         let p = fixture()
         let modal = p.views[3]!
@@ -219,6 +369,438 @@ class DialogMacTests: XCTestCase {
         XCTAssertNotNil(p.dialogs.active)
         XCTAssertNil(p.views[2]!.hitTest(.zero))
     }
+    /// A press, a double click, a free move and a wheel in the open dialog
+    /// reach its authored ancestors' `pointerdown`, `pointerup`, `dblclick`,
+    /// `pointermove` and `wheel`, as DOM's events bubble out of the top
+    /// layer, though the dialog's view is over its backdrop or in its sheet
+    /// and its ancestors are inert behind it.
+    func testPointerEventsInTheDialogReachItsAuthoredAncestors() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view"],
+            ["op": "children", "id": 3, "ids": [4, 5, 6]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 80, "h": 30],
+        ]))
+        root.handlers = ["pointerdown", "pointerup", "dblclick", "pointermove"]
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        p.onDblclick = { log.append("dblclick \($0)") }
+        p.press(2)
+        let box = try XCTUnwrap(p.views[6]), window = try XCTUnwrap(box.window)
+        XCTAssertTrue(p.dialogs.active === p.views[3])
+        XCTAssertFalse(box.isDescendant(of: root), "the dialog's view is in the top layer")
+        click(box)
+        click(box, clicks: 2)
+        XCTAssertEqual(log, ["down 1", "up 1", "down 1", "up 1", "dblclick 1"])
+        log = []
+        let point = box.convert(NSPoint(x: box.bounds.midX, y: box.bounds.midY), to: nil)
+        p.trackPointer(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!)
+        p.flushHoverMove()
+        XCTAssertEqual(log, ["move 1"])
+        log = []
+        root.handlers.insert("wheel")
+        p.onClipboard = { id, kind, _ in if kind == 37 { log.append("wheel \(id)") } }
+        let wheel = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 14, wheel3: 0))
+        _ = box.wheel(try XCTUnwrap(NSEvent(cgEvent: wheel)))
+        XCTAssertEqual(log, ["wheel 1"])
+        // A stop in the dialog keeps the down from its ancestors there too.
+        log = []
+        box.handlers = ["pointerdown"]
+        p.onPointer = { [unowned p] id, kind, _ in
+            log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)")
+            if id == 6 { p.propagationStopped = true }
+        }
+        click(box)
+        XCTAssertEqual(log, ["down 6", "up 1"])
+    }
+    func testAPressInTheDialogUsesItsContentBoxAndNearestAuthoredAncestor() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 6]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 100, "h": 30],
+            ["op": "create", "id": 8, "kind": "view", "handlers": ["press"]],
+            ["op": "children", "id": 8, "ids": [1]], ["op": "roots", "ids": [8]],
+            ["op": "frame", "id": 8, "x": 0, "y": 0, "w": 500, "h": 400],
+        ]))
+        window.makeKeyAndOrderFront(nil)
+        let dialog = try XCTUnwrap(p.views[3])
+        try assertPresentationPresses(p, content: XCTUnwrap(p.views[6]), ancestor: root, presentation: dialog,
+            open: { p.press(2) }, close: { p.dialogs.close(dialog) }, isOpen: { p.dialogs.active === dialog })
+    }
+
+    func testDoubleClickSurvivesPointerUpDisablingTheBubbledPressTarget() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view"],
+            ["op": "children", "id": 3, "ids": [4, 5, 6]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 100, "h": 30],
+            ["op": "create", "id": 8, "kind": "view", "handlers": ["dblclick"]],
+            ["op": "children", "id": 8, "ids": [1]], ["op": "roots", "ids": [8]],
+            ["op": "frame", "id": 8, "x": 0, "y": 0, "w": 500, "h": 400],
+        ]))
+        root.handlers = ["press", "pointerup", "dblclick"]
+        p.press(2)
+        var presses: [UInt32] = [], events: [String] = []
+        p.onPress = { presses.append($0) }
+        p.onPointer = { id, phase, _ in
+            if phase == .up {
+                events.append("up \(id)")
+                p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"], "clear": []]]))
+            }
+        }
+        p.onDblclick = { events.append("double \($0)") }
+        click(try XCTUnwrap(p.views[6]), clicks: 2)
+        XCTAssertTrue(root.disabled)
+        XCTAssertEqual(presses, [])
+        XCTAssertEqual(events, ["up 1", "double 8"])
+    }
+
+    func testClosingInPointerDownCannotRearmTheCancelledPress() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), dialog = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 6]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 100, "h": 30],
+        ]))
+        root.handlers = ["press", "pointerdown"]
+        var presses: [UInt32] = [], downs: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onPointer = { [unowned p] id, phase, _ in
+            if phase == .down { downs.append(id); p.dialogs.close(dialog) }
+        }
+        window.makeKeyAndOrderFront(nil)
+        p.press(2)
+        let content = try XCTUnwrap(p.views[6]), window = try XCTUnwrap(content.window)
+        let point = content.convert(NSPoint(x: content.bounds.midX, y: content.bounds.midY), to: nil)
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
+        }
+        clicksArriveAsInTheKeyWindow()
+        let down = try event(.leftMouseDown)
+        window.sendEvent(down)
+        XCTAssertEqual(downs, [root.id])
+        XCTAssertNil(p.dialogs.active)
+        XCTAssertFalse(root.pressed, "closing in pointerdown cancels before an ancestor can arm")
+        // A responder already on the stack may still receive this same down.
+        root.mouseDown(with: down)
+        XCTAssertFalse(root.pressed, "the cancelled event cannot begin a second contact")
+        window.sendEvent(try event(.leftMouseDragged))
+        window.sendEvent(try event(.leftMouseUp))
+        XCTAssertEqual(presses, [])
+        XCTAssertFalse(p.views.values.contains { $0.pressed })
+        XCTAssertTrue(p.mouseChain.bubbledPress?.cancelled ?? true, "what is left of the click stays cancelled until the next down")
+
+        root.handlers = ["press"]
+        click(root)
+        XCTAssertEqual(presses, [root.id], "a different down begins a new contact")
+        XCTAssertFalse(root.pressed)
+    }
+
+    func testRemovingTheHeldSourceDuringPointerDownCannotPressTheAncestor() throws {
+        let p = fixture(), ancestor = try XCTUnwrap(p.views[1]), dialog = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view"],
+            ["op": "children", "id": 3, "ids": [4, 5, 6]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 100, "h": 30],
+        ]))
+        let source = try XCTUnwrap(p.views[6]), canvas = PressCanvasProbe()
+        ancestor.props["tabIndex"] = "0"
+        ancestor.handlers = ["press", "pointerdown", "pointermove", "pointerup"]
+        ancestor.canvasInput = canvas
+        var presses: [UInt32] = [], pointers: [PointerKind] = []
+        p.onPress = { presses.append($0) }
+        p.onPointer = { _, phase, _ in
+            pointers.append(phase)
+            if phase == .down { source.removeFromSuperview() }
+        }
+        window.makeKeyAndOrderFront(nil)
+        p.dialogs.show(dialog)
+        let front = try XCTUnwrap(source.window), focus = window.firstResponder
+        let point = source.convert(NSPoint(x: 20, y: 15), to: nil)
+        func send(_ type: NSEvent.EventType) throws {
+            front.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: front.windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)))
+        }
+        clicksArriveAsInTheKeyWindow()
+        for surface in [false, true] {
+            pointers = []
+            ancestor.props["action"] = surface ? "primary" : nil
+            XCTAssertEqual(ancestor.isSurfaceControl, surface)
+            try send(.leftMouseDown)
+            XCTAssertTrue(source.window === front, "the pointer hold keeps receiving AppKit events")
+            XCTAssertEqual(source.alphaValue, 0)
+            XCTAssertTrue(p.pointerHolds)
+            XCTAssertTrue(p.mouseChain.bubbledPress?.cancelled == true)
+            XCTAssertFalse(p.views.values.contains { $0.pressed })
+            try send(.leftMouseDragged)
+            XCTAssertFalse(p.views.values.contains { $0.pressed })
+            try send(.leftMouseUp)
+            XCTAssertEqual(pointers, [.down, .move, .up])
+            XCTAssertFalse(p.pointerHolds)
+            XCTAssertNil(p.mouseChain.bubbledPress)
+            XCTAssertFalse(p.views.values.contains { $0.pressed })
+            XCTAssertFalse(ancestor.pressTinted)
+            XCTAssertTrue(window.firstResponder === focus, "the ancestor takes no click focus")
+            XCTAssertEqual(presses, [])
+            XCTAssertEqual(canvas.phases, [], "neither canvas nor surface-control input receives the cancelled click")
+        }
+    }
+
+    func testPointerUpMakingAForwardedWrapperUnavailableCancelsThePress() throws {
+        let p = fixture(), wrapper = try XCTUnwrap(p.views[1]), dialog = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view", "handlers": ["pointerup"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 6]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 100, "h": 30],
+            ["op": "create", "id": 8, "kind": "view", "handlers": ["press"]],
+            ["op": "children", "id": 8, "ids": [1]], ["op": "roots", "ids": [8]],
+            ["op": "frame", "id": 8, "x": 0, "y": 0, "w": 500, "h": 400],
+        ]))
+        let source = try XCTUnwrap(p.views[6]), ancestor = try XCTUnwrap(p.views[8])
+        window.makeKeyAndOrderFront(nil)
+        p.dialogs.show(dialog)
+        for property in ["disabled", "inert"] {
+            var presses: [UInt32] = [], ups: [UInt32] = []
+            p.onPress = { presses.append($0) }
+            p.onPointer = { id, phase, _ in
+                if phase == .up {
+                    ups.append(id)
+                    XCTAssertTrue(ancestor.pressed, "the down reached the ancestor through the wrapper")
+                    wrapper.props[property] = "true"
+                }
+            }
+            click(source)
+            XCTAssertEqual(ups, [6], property)
+            XCTAssertEqual(presses, [], property)
+            XCTAssertFalse(ancestor.pressed, property)
+            XCTAssertTrue(p.dialogs.active === dialog)
+            wrapper.props.removeValue(forKey: property)
+        }
+    }
+
+    func testBubbledPressCancellationIsFinalUntilANewDown() throws {
+        let p = fixture(), ancestor = try XCTUnwrap(p.views[1]), dialog = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view"],
+            ["op": "children", "id": 3, "ids": [4, 5, 6]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 100, "h": 30],
+        ]))
+        let source = try XCTUnwrap(p.views[6])
+        ancestor.handlers = ["press"]
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.dialogs.show(dialog)
+        ancestor.frame.size = NSSize(width: 60, height: 40)
+        let front = try XCTUnwrap(source.window)
+        let point = source.convert(NSPoint(x: 20, y: 15), to: nil)
+        func event(_ type: NSEvent.EventType, dx: CGFloat = 0) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: NSPoint(x: point.x + dx, y: point.y), modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: front.windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
+        }
+        for prop in ["disabled", "inert"] {
+            let down = try event(.leftMouseDown)
+            source.mouseDown(with: down)
+            let contact = try XCTUnwrap(p.mouseChain.bubbledPress)
+            XCTAssertTrue(contact.source === source)
+            XCTAssertTrue(contact.target === ancestor)
+            XCTAssertTrue(contact.box === source)
+            XCTAssertTrue(ancestor.pressed)
+            XCTAssertTrue(ancestor.pressTinted)
+            ancestor.props[prop] = "true"
+            XCTAssertTrue(contact.cancelled)
+            XCTAssertFalse(ancestor.pressed)
+            XCTAssertFalse(ancestor.pressTinted)
+            XCTAssertNil(contact.box)
+            ancestor.props.removeValue(forKey: prop)
+            ancestor.mouseDown(with: down)
+            source.mouseDragged(with: try event(.leftMouseDragged))
+            source.mouseUp(with: try event(.leftMouseUp))
+            XCTAssertEqual(presses, [])
+            XCTAssertFalse(ancestor.pressed)
+            XCTAssertNil(p.mouseChain.bubbledPress)
+        }
+        source.handlers = ["pan"]
+        var pans: [Double] = []
+        p.onPan = { _, dx, _ in pans.append(dx) }
+        let down = try event(.leftMouseDown)
+        source.mouseDown(with: down)
+        XCTAssertTrue(ancestor.pressed)
+        source.mouseDragged(with: try event(.leftMouseDragged, dx: 10))
+        XCTAssertTrue(p.mouseChain.bubbledPress?.cancelled == true)
+        XCTAssertFalse(ancestor.pressed)
+        XCTAssertFalse(ancestor.pressTinted)
+        ancestor.mouseDown(with: down)
+        source.mouseDragged(with: try event(.leftMouseDragged, dx: 20))
+        source.mouseUp(with: try event(.leftMouseUp, dx: 20))
+        XCTAssertEqual(pans, [10, 10], "cancelling the press leaves the engaged gesture running")
+        XCTAssertEqual(presses, [])
+        XCTAssertNil(p.mouseChain.bubbledPress)
+        source.handlers = []
+
+        source.mouseDown(with: try event(.leftMouseDown))
+        let parent = try XCTUnwrap(ancestor.superview)
+        ancestor.removeFromSuperview()
+        XCTAssertTrue(p.mouseChain.bubbledPress?.cancelled == true)
+        XCTAssertFalse(ancestor.pressed)
+        XCTAssertFalse(ancestor.pressTinted)
+        parent.addSubview(ancestor)
+        source.mouseUp(with: try event(.leftMouseUp))
+        XCTAssertEqual(presses, [])
+        source.mouseDown(with: try event(.leftMouseDown))
+        XCTAssertTrue(ancestor.pressed)
+        p.reset()
+        XCTAssertFalse(ancestor.pressed)
+        XCTAssertFalse(ancestor.pressTinted)
+        XCTAssertTrue(p.mouseChain.bubbledPress?.cancelled == true)
+        XCTAssertNil(p.mouseChain.bubbledPress?.box)
+        XCTAssertEqual(presses, [])
+    }
+
+    func testModalPressActivatesAncestorLinkAndInvocations() throws {
+        final class Links: ExactSessionDelegate {
+            var urls: [String] = []
+            func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
+                if name == "openURL", let url = args.first as? String { urls.append(url) }
+            }
+        }
+        let links = Links(), url = "https://example.test/bubbled"
+        let session = ExactApp.shared.makeSession(delegate: links, label: "modal-activation")
+        defer { session.destroy() }
+        let p = fixture(session: session)
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view"],
+            ["op": "create", "id": 9, "kind": "button", "props": ["href": url]],
+            ["op": "create", "id": 10, "kind": "view", "props": ["id": "pop", "popover": "manual"]],
+            ["op": "children", "id": 1, "ids": [2, 9]],
+            ["op": "children", "id": 9, "ids": [3]],
+            ["op": "children", "id": 3, "ids": [4, 5, 6, 10]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 100, "h": 30],
+            ["op": "frame", "id": 9, "x": 0, "y": 0, "w": 10, "h": 10],
+            ["op": "frame", "id": 10, "x": 0, "y": 0, "w": 60, "h": 40],
+        ]))
+        let ancestor = try XCTUnwrap(p.views[9]), content = try XCTUnwrap(p.views[6])
+        let dialog = try XCTUnwrap(p.views[3]), pop = try XCTUnwrap(p.views[10])
+        p.dialogs.show(dialog)
+        XCTAssertTrue(ancestor.inert)
+        p.press(ancestor.id)
+        XCTAssertEqual(links.urls, [], "a direct press stays inert behind the modal")
+        click(content)
+        XCTAssertEqual(links.urls, [url], "the bubbled link requests navigation")
+        ancestor.props["inert"] = "true"
+        click(content)
+        XCTAssertEqual(links.urls, [url], "authored inertness still blocks the link")
+        ancestor.props = ["commandfor": "form", "command": "close"]
+        p.press(ancestor.id)
+        XCTAssertTrue(p.dialogs.active === dialog, "a direct command stays inert")
+        ancestor.handlers = ["press"]
+        p.onPress = { _ in ancestor.props["inert"] = "true" }
+        click(content)
+        XCTAssertTrue(p.dialogs.active === dialog, "the command rechecks authored inertness after the handler")
+        ancestor.props.removeValue(forKey: "inert")
+        ancestor.handlers = []
+        p.onPress = nil
+        click(content)
+        XCTAssertNil(p.dialogs.active, "the bubbled command closes the modal")
+
+        p.dialogs.show(dialog)
+        ancestor.props = ["popovertarget": "pop", "popovertargetaction": "show"]
+        p.press(ancestor.id)
+        XCTAssertFalse(p.menus.isOpen(pop), "a direct popover invocation stays inert")
+        click(content)
+        XCTAssertTrue(p.menus.isOpen(pop), "the bubbled invoker opens its popover")
+        ancestor.props["popovertargetaction"] = "hide"
+        ancestor.handlers = ["press"]
+        p.onPress = { _ in ancestor.props["inert"] = "true" }
+        click(content)
+        XCTAssertTrue(p.menus.isOpen(pop), "the popover command rechecks authored inertness after the handler")
+        ancestor.props.removeValue(forKey: "inert")
+        ancestor.handlers = []
+        p.onPress = nil
+        click(content)
+        XCTAssertFalse(p.menus.isOpen(pop), "the bubbled invoker hides its popover")
+        XCTAssertTrue(p.dialogs.active === dialog)
+    }
+
+    func testModalPressDoesNotInvokeTargetsOutsideTheDialog() throws {
+        let p = fixture(), dialog = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "create", "id": 9, "kind": "button", "handlers": ["press"]],
+            ["op": "create", "id": 10, "kind": "view", "props": ["id": "outside", "popover": "manual"]],
+            ["op": "create", "id": 11, "kind": "view", "props": ["id": "other", "semanticTag": "dialog"]],
+            ["op": "children", "id": 1, "ids": [2, 9, 10, 11]],
+            ["op": "children", "id": 9, "ids": [3]],
+            ["op": "children", "id": 3, "ids": [4, 5, 6]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 100, "h": 30],
+            ["op": "frame", "id": 9, "x": 0, "y": 0, "w": 10, "h": 10],
+            ["op": "frame", "id": 10, "x": 0, "y": 0, "w": 60, "h": 40],
+            ["op": "frame", "id": 11, "x": 0, "y": 0, "w": 100, "h": 80],
+        ]))
+        let ancestor = try XCTUnwrap(p.views[9]), content = try XCTUnwrap(p.views[6])
+        let pop = try XCTUnwrap(p.views[10]), other = try XCTUnwrap(p.views[11])
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.dialogs.show(dialog)
+        XCTAssertTrue(ancestor.inert)
+        XCTAssertTrue(pop.inert)
+        XCTAssertTrue(other.inert)
+        for props in [["popovertarget": "outside", "popovertargetaction": "show"],
+                      ["commandfor": "outside", "command": "show-popover"],
+                      ["commandfor": "other", "command": "show-modal"]] {
+            ancestor.props = props
+            click(content)
+            XCTAssertEqual(presses, [ancestor.id], "the ancestor's own handler still runs")
+            XCTAssertFalse(p.menus.isOpen(pop), "the modal makes the target popover inert")
+            XCTAssertTrue(p.dialogs.active === dialog, "the inert dialog target cannot replace the modal")
+            XCTAssertFalse(p.dialogs.owns(other))
+            presses = []
+        }
+        p.menus.show(pop, from: ancestor, bubbled: true)
+        XCTAssertFalse(p.menus.isOpen(pop), "the direct show path checks the target too")
+    }
+
+    func testPopoverPressInsideModalUsesDirectInvocationRules() throws {
+        let p = fixture(), dialog = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "create", "id": 9, "kind": "button", "props": ["commandfor": "other", "command": "show-modal"], "handlers": ["press"]],
+            ["op": "create", "id": 10, "kind": "view", "props": ["id": "inside", "popover": "manual"]],
+            ["op": "create", "id": 11, "kind": "view", "props": ["id": "other", "semanticTag": "dialog"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 11]],
+            ["op": "children", "id": 3, "ids": [4, 5, 9]],
+            ["op": "children", "id": 9, "ids": [10]],
+            ["op": "children", "id": 10, "ids": [6]],
+            ["op": "frame", "id": 6, "x": 10, "y": 10, "w": 100, "h": 30],
+            ["op": "frame", "id": 9, "x": 120, "y": 80, "w": 100, "h": 30],
+            ["op": "frame", "id": 10, "x": 0, "y": 0, "w": 120, "h": 60],
+            ["op": "frame", "id": 11, "x": 0, "y": 0, "w": 100, "h": 80],
+        ]))
+        let invoker = try XCTUnwrap(p.views[9]), content = try XCTUnwrap(p.views[6])
+        let pop = try XCTUnwrap(p.views[10]), other = try XCTUnwrap(p.views[11])
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.dialogs.show(dialog)
+        for bubbled in [false, true] {
+            p.menus.show(pop, from: invoker)
+            XCTAssertTrue(p.menus.isOpen(pop))
+            XCTAssertTrue(p.menus.authoredParent(of: pop) === invoker)
+            XCTAssertTrue(p.menus.contains(dialog, invoker))
+            XCTAssertTrue(other.inert, "the target starts outside the open modal")
+            click(bubbled ? content : invoker)
+            XCTAssertEqual(presses, [invoker.id], "\(bubbled ? "bubbled" : "direct") press runs the invoker once")
+            XCTAssertTrue(p.dialogs.active === other, "a crossing inside the modal keeps direct invocation behavior")
+            XCTAssertTrue(p.dialogs.owns(dialog))
+            p.dialogs.close(other)
+            presses = []
+        }
+    }
+
     func testBatchesKeepEditorAndRemovalAndResetRetireOwnership() throws {
         let p = fixture()
         p.press(2)
@@ -717,5 +1299,164 @@ private final class MarkedInputClient: NSView, NSTextInputClient {
     func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect { .zero }
     func characterIndex(for point: NSPoint) -> Int { 0 }
+}
+extension XCTestCase {
+    /// The same contact contract for a painted dialog, its sheet window,
+    /// a painted popover and an NSPopover. Input enters through its window.
+    func assertPresentationPresses(_ p: Presenter, content: NodeView, ancestor: NodeView, presentation: NodeView,
+                                   open: () throws -> Void, close: () -> Void, isOpen: () -> Bool,
+                                   file: StaticString = #filePath, line: UInt = #line) throws {
+        ancestor.props["tabIndex"] = "0"
+        XCTAssertTrue(ancestor.takesClickFocus, "the ancestor could take focus before presentation", file: file, line: line)
+        try open()
+        if p.dialogs.active != nil {
+            XCTAssertTrue(ancestor.inert, file: file, line: line)
+            XCTAssertFalse(ancestor.authoredInert, file: file, line: line)
+        } else { XCTAssertTrue(ancestor.takesClickFocus, file: file, line: line) }
+        let window = try XCTUnwrap(content.window, file: file, line: line)
+        let pageWindow = try XCTUnwrap(ancestor.window, file: file, line: line)
+        let focus = window.firstResponder, pageFocus = pageWindow.firstResponder
+        ancestor.handlers.formUnion(["press", "pointerdown", "pointerup", "dblclick"])
+        ancestor.frame.size = CGSize(width: 8, height: 8)
+        let inside = content.convert(NSPoint(x: content.bounds.midX, y: content.bounds.midY), to: nil)
+        let outside = content.convert(NSPoint(x: content.bounds.maxX + 100, y: content.bounds.maxY + 100), to: nil)
+        XCTAssertTrue(window.contentView?.hitTest(inside) === content, file: file, line: line)
+        var presses: [UInt32] = [], pointers: [String] = [], doubles: [UInt32] = []
+        let press = p.onPress, pointer = p.onPointer, double = p.onDblclick
+        defer { p.onPress = press; p.onPointer = pointer; p.onDblclick = double; ancestor.props.removeValue(forKey: "inert") }
+        p.onPress = { presses.append($0) }
+        p.onPointer = { id, kind, _ in pointers.append("\(id) \(kind == .down ? "down" : "up")") }
+        p.onDblclick = { doubles.append($0) }
+        let canvas = PressCanvasProbe(), previousCanvas = ancestor.canvasInput
+        ancestor.canvasInput = canvas
+        defer { ancestor.canvasInput = previousCanvas }
+        clicksArriveAsInTheKeyWindow()
+        func send(_ type: NSEvent.EventType, _ at: NSPoint, clicks: Int = 1) throws {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 1, clickCount: clicks, pressure: type == .leftMouseUp ? 0 : 1), file: file, line: line)
+            window.sendEvent(event)
+        }
+        try send(.leftMouseDown, inside, clicks: 2)
+        XCTAssertTrue(ancestor.pressed, file: file, line: line)
+        let nearby = NSPoint(x: inside.x + 2, y: inside.y)
+        try send(.leftMouseDragged, nearby, clicks: 2)
+        XCTAssertTrue(ancestor.pressed, file: file, line: line)
+        try send(.leftMouseUp, nearby, clicks: 2)
+        XCTAssertEqual(presses, [ancestor.id], "only the nearest authored ancestor presses", file: file, line: line)
+        XCTAssertEqual(pointers, ["\(ancestor.id) down", "\(ancestor.id) up"], file: file, line: line)
+        XCTAssertFalse(ancestor.pressed, file: file, line: line)
+        XCTAssertEqual(p.interacting, 0, file: file, line: line)
+        XCTAssertTrue(window.firstResponder === focus, file: file, line: line)
+        XCTAssertTrue(pageWindow.firstResponder === pageFocus, "a bubbled press never takes the page's focus", file: file, line: line)
+        XCTAssertTrue(isOpen(), file: file, line: line)
+
+        let probe = PressResponderProbe(), next = ancestor.nextResponder
+        ancestor.nextResponder = probe
+        defer { ancestor.nextResponder = next }
+        content.handlers.insert("press")
+        try send(.leftMouseDown, inside)
+        XCTAssertTrue(content.pressed, file: file, line: line)
+        XCTAssertFalse(ancestor.pressed, file: file, line: line)
+        try send(.leftMouseDragged, nearby)
+        XCTAssertEqual(probe.drags, 0, "a down taken inside the presentation licenses no drag outside it", file: file, line: line)
+        try send(.leftMouseUp, inside)
+        XCTAssertEqual(presses, [ancestor.id, content.id], file: file, line: line)
+        XCTAssertEqual(doubles, [ancestor.id], "forwarding counts the double click once", file: file, line: line)
+        XCTAssertEqual(pointers, ["\(ancestor.id) down", "\(ancestor.id) up", "\(ancestor.id) down", "\(ancestor.id) up"], file: file, line: line)
+        content.handlers.remove("press")
+        ancestor.nextResponder = next
+        XCTAssertEqual(canvas.phases, [], "bubbled input never belongs to the ancestor's canvas", file: file, line: line)
+        ancestor.canvasInput = previousCanvas
+
+        try send(.leftMouseDown, inside)
+        XCTAssertTrue(ancestor.pressed, file: file, line: line)
+        try send(.leftMouseDragged, outside)
+        XCTAssertTrue(ancestor.pressed, file: file, line: line)
+        try send(.leftMouseUp, outside)
+        XCTAssertEqual(presses, [ancestor.id, content.id], "a drag off the content cancels", file: file, line: line)
+        XCTAssertEqual(p.interacting, 0, file: file, line: line)
+        XCTAssertTrue(isOpen(), file: file, line: line)
+
+        // AppKit retains the hit for the up even when an authored inert
+        // makes the content untargetable after the down.
+        try send(.leftMouseDown, inside)
+        ancestor.props["inert"] = "true"
+        try send(.leftMouseUp, inside)
+        XCTAssertFalse(ancestor.pressed, file: file, line: line)
+        XCTAssertEqual(presses, [ancestor.id, content.id], "authored inertness silences the ancestor", file: file, line: line)
+        XCTAssertEqual(p.interacting, 0, "the cancelled bubbled contact ends on up", file: file, line: line)
+        if p.dialogs.active != nil {
+            // A modal escapes its authored parent's inertness for hit
+            // testing, but that parent's own listener must still refuse it.
+            try send(.leftMouseDown, inside)
+            XCTAssertFalse(ancestor.pressed, file: file, line: line)
+            try send(.leftMouseUp, inside)
+            XCTAssertEqual(presses, [ancestor.id, content.id], file: file, line: line)
+        }
+
+        ancestor.props.removeValue(forKey: "inert")
+        ancestor.handlers = ["press"]
+        content.handlers = ["press"]
+        ancestor.nextResponder = probe
+        try send(.leftMouseDown, inside)
+        content.pressed = false
+        try send(.leftMouseUp, inside)
+        XCTAssertEqual(probe.ups, 0, "a cancelled local press licenses no up outside the presentation", file: file, line: line)
+        ancestor.nextResponder = next
+        content.handlers = []
+
+        ancestor.canvasInput = canvas
+        ancestor.props["action"] = "primary"
+        XCTAssertTrue(ancestor.isSurfaceControl, file: file, line: line)
+        try send(.leftMouseDown, inside)
+        XCTAssertTrue(ancestor.pressed, file: file, line: line)
+        try send(.leftMouseDragged, nearby)
+        try send(.leftMouseUp, inside)
+        XCTAssertEqual(presses, [ancestor.id, content.id, ancestor.id], "a bubbled press bypasses surface control input", file: file, line: line)
+        XCTAssertEqual(canvas.phases, [], file: file, line: line)
+        ancestor.props.removeValue(forKey: "action")
+        ancestor.canvasInput = previousCanvas
+        let completed = presses
+        func held() throws {
+            try send(.leftMouseDown, inside)
+            XCTAssertFalse(p.pointerHolds, "no pointer listeners may keep this source attached", file: file, line: line)
+            XCTAssertTrue(ancestor.pressed, file: file, line: line)
+            XCTAssertNotNil(p.mouseChain.bubbledPress?.box, file: file, line: line)
+        }
+        func cancelled() {
+            XCTAssertFalse(ancestor.pressed, file: file, line: line)
+            XCTAssertNil(p.mouseChain.bubbledPress?.box, file: file, line: line)
+            XCTAssertTrue(p.mouseChain.bubbledPress?.cancelled == true, file: file, line: line)
+            XCTAssertEqual(presses, completed, "cancellation dispatches no press", file: file, line: line)
+        }
+        let parent = try XCTUnwrap(content.superview, file: file, line: line)
+        try held()
+        content.removeFromSuperview()
+        cancelled()
+        parent.addSubview(content)
+        try held()
+        XCTAssertTrue(p.release(content.id, forget: true) === content, file: file, line: line)
+        cancelled()
+        content.removeFromSuperview()
+        XCTAssertTrue(window.contentView?.hitTest(inside) === presentation, file: file, line: line)
+        try held()
+        close()
+        cancelled()
+        XCTAssertFalse(isOpen(), file: file, line: line)
+    }
+}
+private final class PressResponderProbe: NSResponder {
+    var drags = 0, ups = 0
+    override func mouseDragged(with event: NSEvent) { drags += 1 }
+    override func mouseUp(with event: NSEvent) { ups += 1 }
+}
+final class PressCanvasProbe: CanvasInput {
+    var phases: [String] = []
+    func pointer(_ event: NSEvent, phase: String) -> Bool { phases.append(phase); return false }
+    func blur() {}
+    func key(_ event: NSEvent, down: Bool, source: NodeView) -> Bool { false }
+    func flags(_ event: NSEvent) -> Bool { false }
+    func wheel(_ event: NSEvent) -> Bool { false }
 }
 #endif

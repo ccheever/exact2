@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 import XCTest
 
-// shell-context-menu: the desktop shell's menu (DesktopWindow.ts installContextMenu) wherever the page shows none, per
+// The desktop shell's menu (DesktopWindow.ts installContextMenu) wherever the page shows none, per
 // case as the reference reports it (measured over CDP with the main process's menu read back, 2026-10-10). Clicks go
 // through `install()` and `NSApp.sendEvent`, as the window server and the agent (AgentMouseMac.otherClick) deliver them.
 // `ExactView` stands in for ExactKit's root view (its Start Speaking is enabled exactly while page text is selected) and
@@ -169,7 +169,7 @@ final class ShellPageMenuTests: ShellMenuCase {
     }
 
     func testSelectedTextKeepsRD4sMenuThroughTheSameTemplate() {
-        // RD-4's case (text-menu.swift) through the page template: Copy enabled, no Look Up, the click ends in the monitor.
+        // Selected page text's menu (text-menu.swift) through the page template: Copy enabled, no Look Up, the click ends in the monitor.
         XCTAssertEqual(T3ShellMenu.describe(T3TextContextMenu.pageMenu(page, rightClickEvent(NSPoint(x: 400, y: 200)), selected: true)),
                        ["Cut (disabled)", "Copy", "Paste (disabled)", "Select All"])
     }

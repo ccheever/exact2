@@ -1,5 +1,5 @@
 // Root preparation and menu projection for the pinned mobile browser/device routes.
-// @ref llp/1109-t3-code-ios.rfc.md#architecture
+// @ref examples/t3-code/mobile/docs/1130-t3-code-ios.rfc.md#architecture
 import { mobileClient, mobileNative } from './client';
 import { mobileStreamOwner, assertMobileStreamOwner } from './browser-mobile-owner';
 import { mobileBrowserRead, mobileBrowserSnapshot, mobileBrowserStatus, mobileBrowserAction, mobileBrowserRelease, type MobilePreviewMenu, type MobileBrowserSnapshot } from './browser-mobile-data';

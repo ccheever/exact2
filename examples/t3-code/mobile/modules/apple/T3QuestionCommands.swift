@@ -1,5 +1,5 @@
 // Question receipt transitions entered only under T3MobileQueuedEdit's preference mutex.
-// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import Foundation
 import CoreFoundation
 

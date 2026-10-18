@@ -16,3 +16,10 @@ struct QuadOut {
     let world = center.xyz + right.xyz*(p.x-0.5) + up.xyz*(p.y-0.5);
     return QuadOut(frame.view_proj*vec4(world,1.),uv.xy+vec2(p.x,1.-p.y)*uv.zw,color,p,right.w,center.w,world);
 }
+// Tonemapped in place for a direct frame, as forward.wgsl's DIRECT; alpha passes
+// through to the blend.
+override DIRECT: bool = false;
+fn quad_out(c: vec4<f32>) -> vec4<f32> {
+    if DIRECT { return vec4(tonemap(c.rgb).rgb, c.a); }
+    return c;
+}

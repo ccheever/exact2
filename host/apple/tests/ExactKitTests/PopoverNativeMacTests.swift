@@ -50,21 +50,25 @@ final class PopoverNativeMacTests: XCTestCase {
     func testDynamicFallbacksChangePresentationWithoutClosingOrLosingFocus() throws {
         let f = try SheetFixture(page: """
         component Proof
-          state flips = "unset"
+          state flips = none
           action enable
-            flips = "flip-block, flip-inline, flip-block flip-inline"
+            flips = some("flip-block, flip-inline, flip-block flip-inline")
           action reset
-            flips = "unset"
+            flips = none
+          action clear
+            flips = some("unset")
           view
             column width="100%" height="100%" box-sizing="border-box" padding=8 justify-content="flex-end" align-items="flex-end"
               button testId="open" popovertarget="pop" width=80 height=32 appearance="none"
                 text "Open"
-              column id="pop" testId="pop" popover="auto" position="absolute" position-area="bottom span-right" position-try-fallbacks=flips width=322 height=122 box-sizing="border-box" margin=0 padding=0
+              column id="pop" testId="pop" popover="auto" position="absolute" position-area="bottom span-right" position-try-fallbacks=(match flips { case some(value) => value, case none => none }) width=322 height=122 box-sizing="border-box" margin=0 padding=0
                 input testId="field" value="draft text" width=200 height=24
                 button testId="enable" press=enable
                   text "Use flips"
                 button testId="reset" press=reset
                   text "Use platform"
+                button testId="clear" press=clear
+                  text "Explicit unset"
         """, size: CGSize(width: 420, height: 600))
         fixture = f
         f.window.setFrameOrigin(NSPoint(x: 200, y: 120))
@@ -75,6 +79,7 @@ final class PopoverNativeMacTests: XCTestCase {
         let entry = try XCTUnwrap(p.menus.entries.first)
         let native = try XCTUnwrap(entry.native)
         XCTAssertNil(pop.style["position_try_fallbacks"])
+        XCTAssertFalse(pop.wrote("position_try_fallbacks"))
         let field = try XCTUnwrap(try f.node("field").field)
         XCTAssertTrue(try XCTUnwrap(native.window).makeFirstResponder(field))
         let selection = NSRange(location: 2, length: 4)
@@ -94,8 +99,21 @@ final class PopoverNativeMacTests: XCTestCase {
         XCTAssertEqual(field.stringValue, "draft text")
         XCTAssertNil(p.blocks.used[pop.id])
 
+        try f.press("clear")
+        XCTAssertEqual(pop.style["position_try_fallbacks"]?.string, "none")
+        XCTAssertTrue(pop.wrote("position_try_fallbacks"), "explicit unset keeps the authored declaration")
+        XCTAssertNil(entry.native, "an explicitly cleared fallback row still chooses painted presentation")
+        XCTAssertTrue(p.menus.isOpen(pop) && p.menus.entries.first === entry)
+        XCTAssertTrue(pop.window === f.window && pop.superview === entry.layer && !pop.isHidden)
+        XCTAssertEqual(try XCTUnwrap(field.currentEditor() as? NSTextView).selectedRange(), selection)
+        XCTAssertTrue((f.window.firstResponder as? NSTextView)?.delegate === field)
+        XCTAssertEqual(field.stringValue, "draft text")
+        XCTAssertNil(p.blocks.used[pop.id])
+
         try f.press("reset")
         let restored = try XCTUnwrap(entry.native, "removing the row restores platform presentation while open")
+        XCTAssertNil(pop.style["position_try_fallbacks"])
+        XCTAssertFalse(pop.wrote("position_try_fallbacks"))
         XCTAssertTrue(restored !== native && restored.popover.isShown)
         XCTAssertTrue(pop.superview === restored.content && p.menus.isOpen(pop))
         XCTAssertEqual(try XCTUnwrap(field.currentEditor() as? NSTextView).selectedRange(), selection)
@@ -107,6 +125,98 @@ final class PopoverNativeMacTests: XCTestCase {
         gone(restored)
         XCTAssertTrue(pop.isHidden && pop.superview === home)
         XCTAssertTrue(p.menus.windowed.isEmpty && p.menus.leaving.isEmpty)
+    }
+
+    /// A press in the popover's own window bubbles to its authored ancestors
+    /// (LLP 1005 §Events) with the point where the page has it: the page's
+    /// `clientX`/`clientY`, and offsets from the ancestor's content box.
+    func testAPressInThePopoverReachesThePageWithThePagesPoint() throws {
+        let f = try make(), p = f.presenter
+        let pop = try f.node("tags-pop"), page = try f.node("page")
+        page.handlers.insert("pointerdown")
+        var downs: [UInt32: PointerSample] = [:]
+        p.onPointer = { id, kind, sample in if kind == .down { downs[id] = sample } }
+        try f.press("tags")
+        let native = try XCTUnwrap(p.menus.windowed.first), window = try XCTUnwrap(native.window)
+        let at = pop.convert(NSPoint(x: pop.bounds.midX, y: 4), to: nil)
+        let event = { (type: NSEvent.EventType) in
+            NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                               context: nil, eventNumber: 7, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
+        }
+        pop.mouseDown(with: event(.leftMouseDown))
+        pop.mouseUp(with: event(.leftMouseUp))
+        let screen = window.convertPoint(toScreen: at), clip = onScreen(p.viewport.contentView), box = onScreen(page)
+        let sample = try XCTUnwrap(downs[page.id], "the page hears the press in the popover")
+        XCTAssertEqual(sample.clientX, Double(screen.x - clip.minX), accuracy: 0.5)
+        XCTAssertEqual(sample.clientY, Double(clip.maxY - screen.y), accuracy: 0.5)
+        // Its padding is 20.
+        XCTAssertEqual(sample.x, Double(screen.x - box.minX - 20), accuracy: 0.5)
+        XCTAssertEqual(sample.y, Double(box.maxY - screen.y - 20), accuracy: 0.5)
+        native.popover.animates = false
+        native.popover.close()
+        gone(native)
+    }
+
+    /// A double click and a free move in the popover's own window reach its
+    /// authored ancestors' `dblclick` and `pointermove` in the page, the
+    /// move through the popover's own tracking (`BlockView.pointerTracking`):
+    /// no tracking area of the page's is in that window.
+    func testADoubleClickAndAFreeMoveInThePopoverReachThePage() throws {
+        let f = try make(), p = f.presenter
+        let pop = try f.node("tags-pop"), page = try f.node("page")
+        page.handlers.formUnion(["dblclick", "pointermove"])
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in if kind == .move { log.append("move \(id)") } }
+        p.onDblclick = { log.append("dblclick \($0)") }
+        try f.press("tags")
+        let native = try XCTUnwrap(p.menus.windowed.first), window = try XCTUnwrap(native.window)
+        let at = pop.convert(NSPoint(x: pop.bounds.midX, y: 4), to: nil)
+        let event = { (type: NSEvent.EventType, clicks: Int) in
+            NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 7, clickCount: clicks, pressure: clicks == 0 ? 0 : 1)!
+        }
+        for clicks in [1, 2] {
+            pop.mouseDown(with: event(.leftMouseDown, clicks))
+            pop.mouseUp(with: event(.leftMouseUp, clicks))
+        }
+        XCTAssertEqual(log, ["dblclick \(page.id)"])
+        log = []
+        native.content.mouseMoved(with: event(.mouseMoved, 0))
+        p.flushHoverMove()
+        XCTAssertEqual(log, ["move \(page.id)"])
+        native.popover.animates = false
+        native.popover.close()
+        gone(native)
+    }
+
+    func testAPressInTheNativePopoverUsesItsContentBoxAndNearestAuthoredAncestor() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          view
+            column testId="outer" width="100%" height="100%"
+              column testId="ancestor" width=200 height=160
+                button testId="open" popovertarget="pop"
+                  text "Open"
+                column id="pop" testId="pop" popover="auto" padding=16 gap=8 width=240
+                  input testId="field" value="draft" width=200 height=24
+                  text "Plain content" testId="content" width=200 height=32
+        """)
+        fixture = f
+        f.window.setFrameOrigin(NSPoint(x: 200, y: 120))
+        f.window.makeKeyAndOrderFront(nil)
+        f.settle()
+        try f.node("outer").handlers.insert("press")
+        let p = f.presenter, popover = try f.node("pop"), ancestor = try f.node("ancestor")
+        var native: NativePopover?
+        try assertPresentationPresses(p, content: f.node("content"), ancestor: ancestor, presentation: popover, open: {
+            try f.press("open")
+            let shown = try XCTUnwrap(p.menus.windowed.first), window = try XCTUnwrap(shown.window)
+            native = shown
+            XCTAssertTrue(window !== f.window)
+            XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(try f.node("field").field)))
+            shown.popover.animates = false
+        }, close: { native?.popover.close() }, isOpen: { p.menus.isOpen(popover) && native?.popover.isShown == true })
+        gone(try XCTUnwrap(native))
     }
 
     /// The subtree in AppKit's popover, at the size layout returns, below

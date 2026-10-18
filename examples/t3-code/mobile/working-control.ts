@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#transcript-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#transcript-ownership
 // Pinned365aa87982 FloatingWorkingControl, floating-working-status and threadSubagents.
 import { mobileClient } from './client';
 import type { T3Client } from './shared/client';

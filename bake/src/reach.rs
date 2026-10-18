@@ -5,7 +5,8 @@
 //! @ref LLP 1069.008 D1 (a missing purpose key refuses the bake, every one
 //! in one run) / D4 (the derived `Info.plist` keys and entitlements) / D5
 //! (`grantPurposes` in the compatibility id) / D7 (the reach table, with an
-//! "enforced by" column)
+//! "enforced by" column) / D9 (runtime exceptions, each scoped to one helper
+//! executable)
 //!
 //! The result rides beside the id in `compat.json` as `reach`, never in it:
 //! `host/apple/build.mjs` writes the plists from it, `exact release` signs
@@ -15,6 +16,7 @@
 
 use crate::compat::{canonical, compatibility_digest, Compat};
 use exact_runner::device::{device_grants, Device};
+use exact_runner::hardened::runtime_grants;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -27,12 +29,18 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     let Some(ceiling) = compat.inputs["grantCeiling"].as_str().map(str::to_owned) else {
         return Ok(());
     };
-    let devices = device_grants(&ceiling).map_err(|all| {
-        all.iter()
-            .map(|e| format!("grant-device: {e}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let (devices, exceptions) = match (device_grants(&ceiling), runtime_grants(&ceiling)) {
+        (Ok(devices), Ok(exceptions)) => (devices, exceptions),
+        (devices, exceptions) => {
+            let device = devices.err().unwrap_or_default().into_iter();
+            let runtime = exceptions.err().unwrap_or_default().into_iter();
+            return Err(device
+                .map(|e| format!("grant-device: {e}"))
+                .chain(runtime.map(|e| format!("grant-runtime: {e}")))
+                .collect::<Vec<_>>()
+                .join("\n"));
+        }
+    };
     let strings = if devices.is_empty() {
         None
     } else {
@@ -111,9 +119,19 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
             let device = devices.iter().find(|g| {
                 line.split_whitespace().next() == Some(&format!("device.{}", g.device.name))
             });
-            let enforced = match device {
-                Some(g) => device_enforcement(g.device, declared(line)),
-                None => family_enforcement(line).to_string(),
+            let exception = exceptions.iter().find(|g| {
+                line.split_whitespace().collect::<Vec<_>>()
+                    == [&*format!("runtime.{}", g.exception.name), g.target]
+            });
+            let enforced = match (device, exception) {
+                (Some(g), _) => device_enforcement(g.device, declared(line)),
+                (_, Some(g)) => format!(
+                    "hardened runtime (a macOS release signs {} with {}); declared by {}",
+                    g.target,
+                    g.exception.entitlement,
+                    declared(line)
+                ),
+                _ => family_enforcement(line).to_string(),
             };
             json!({
                 "grant": line,
@@ -159,6 +177,18 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
                 .or_insert_with(|| json!(purposes[grant.purpose]));
         }
     }
+    // A runtime exception (D9) is macOS's alone, signed onto the one helper
+    // it names and never joining the app's own entitlements.
+    let mut helpers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for grant in exceptions.iter().filter(|_| platform == "macos") {
+        helpers
+            .entry(grant.target)
+            .or_default()
+            .push(grant.exception.entitlement);
+    }
+    for keys in helpers.values_mut() {
+        keys.sort_unstable();
+    }
     entitlements.sort_unstable();
     entitlements.dedup();
     // tvOS bakes the iOS plan; what a row not on TV derives there, the tvOS
@@ -196,6 +226,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         "rows": rows,
         "usage": usage,
         "entitlements": entitlements,
+        "helperEntitlements": helpers,
         "tvOmits": tv_omits,
         "auth": auth,
     });
@@ -499,6 +530,47 @@ mod tests {
             derive_for("device.speech-recognition write", "ios")["tvOmits"],
             json!([])
         );
+    }
+
+    #[test]
+    fn runtime_exceptions_sign_their_own_executable_on_macos_only() {
+        // LLP 1069.008 D9.
+        let grants = "runtime.allow-jit Helpers/node/bin/node\nruntime.disable-library-validation Helpers/node/bin/node\nruntime.allow-unsigned-executable-memory Helpers/tool/run\nnet.fetch https://x/";
+        let dir = tempdir::Dir::new();
+        let mut mac = compat(grants);
+        derive(&dir.0, "macos", &mut mac).unwrap();
+        assert_eq!(mac.id, "old", "no purpose, no id move");
+        assert_eq!(mac.reach["entitlements"], json!([]), "never the app's");
+        assert_eq!(
+            mac.reach["helperEntitlements"],
+            json!({
+                "Helpers/node/bin/node": [
+                    "com.apple.security.cs.allow-jit",
+                    "com.apple.security.cs.disable-library-validation"
+                ],
+                "Helpers/tool/run": ["com.apple.security.cs.allow-unsigned-executable-memory"]
+            })
+        );
+        assert!(mac.reach["rows"][0]["enforced"]
+            .as_str()
+            .unwrap()
+            .starts_with("hardened runtime (a macOS release signs Helpers/node/bin/node with com.apple.security.cs.allow-jit)"));
+        let mut ios = compat(grants);
+        derive(&dir.0, "ios", &mut ios).unwrap();
+        assert_eq!(ios.reach["entitlements"], json!([]));
+        assert_eq!(ios.reach["helperEntitlements"], json!({}));
+        let error = derive(
+            &dir.0,
+            "macos",
+            &mut compat("runtime.allow-jit MacOS/Exact\ndevice.lidar p\nruntime.allow-jit app"),
+        )
+        .unwrap_err();
+        assert_eq!(error.lines().count(), 3, "{error}");
+        assert!(error
+            .lines()
+            .skip(1)
+            .all(|l| l.starts_with("grant-runtime: ")));
+        assert!(error.contains("only helper executables are admitted"));
     }
 
     #[test]

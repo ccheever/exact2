@@ -1,4 +1,4 @@
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 import type { T3Client } from './shared/client';
 import { arr, initialShell, obj, str, type Obj, type Shell, type ThreadState } from './shared/domain';
 import type { Native } from './shared/protocol';

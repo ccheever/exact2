@@ -203,3 +203,35 @@ fn an_exit_must_end() {
     assert_eq!(a.validate_ending(), Ok(()));
     close(a.end_time(), 0.5);
 }
+
+/// Under `still` (a scrub's frame, LLP 1121 D13) a layout change jumps, and
+/// one moving stops at the new box; outside it the next moves again.
+#[test]
+fn a_still_layout_change_jumps_and_stops_one_moving() {
+    let mut engine = Engine::new();
+    engine
+        .set_layout_transition(NODE, &Transitions::parse("1s linear").unwrap())
+        .unwrap();
+    at(&mut engine, NODE, 0.0, 100.0);
+    at(&mut engine, NODE, 0.0, 0.0);
+    engine.advance(0.25).unwrap();
+    close(
+        engine.sampled_value(NODE, Property::Layout).unwrap().y,
+        75.0,
+    );
+    {
+        let _still = exact_motion::engine::still();
+        at(&mut engine, NODE, 0.0, 40.0);
+        close(
+            engine.sampled_value(NODE, Property::Layout).unwrap().y,
+            40.0,
+        );
+        assert!(engine.quiescent(), "stopped");
+    }
+    at(&mut engine, NODE, 0.0, 80.0);
+    engine.advance(0.5).unwrap();
+    close(
+        engine.sampled_value(NODE, Property::Layout).unwrap().y,
+        50.0,
+    );
+}

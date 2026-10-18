@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import {expect,test} from 'bun:test';
 import {T3Client} from './shared/client';
 import {mobileDraftAttachmentOrdersPersisted} from './draft-attachment-order';

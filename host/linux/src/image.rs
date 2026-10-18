@@ -38,6 +38,8 @@ pub use bitmap::Bitmap;
 mod hardware;
 #[cfg(target_os = "android")]
 pub use hardware::hardware_pictures;
+#[cfg(target_os = "android")]
+pub(crate) use jpeg_decode::platform_decoder;
 use workers::{Backend, Prepared, SourceOwner};
 
 struct View {
@@ -569,6 +571,7 @@ impl Images {
         self.sync(kernel, live);
         let start = Instant::now();
         loop {
+            let seen = self.revision();
             self.poll();
             if self.views.values().all(|v| {
                 v.source.is_empty()
@@ -585,6 +588,7 @@ impl Images {
                 return false;
             }
             self.pause_wait(
+                seen,
                 timeout
                     .saturating_sub(start.elapsed())
                     .min(Duration::from_millis(20)),
@@ -597,20 +601,35 @@ impl Images {
     /// Wait for available work until the deadline, without spinning on capacity.
     pub fn wait(&mut self, timeout: Duration) -> Vec<Report> {
         let start = Instant::now();
+        let mut seen = self.revision();
         let mut reports = self.poll();
         while self.pending() && start.elapsed() < timeout {
             self.pause_wait(
+                seen,
                 timeout
                     .saturating_sub(start.elapsed())
                     .min(Duration::from_millis(20)),
             );
+            seen = self.revision();
             reports.extend(self.poll());
         }
         reports
     }
-    fn pause_wait(&self, duration: Duration) {
+    /// The workers' revision: it moves at every result they publish.
+    fn revision(&self) -> u64 {
+        *self.backend.revision.lock().unwrap()
+    }
+    /// Wait until the workers publish past `seen` (read before the poll that found nothing
+    /// to do), or `duration` passes. A result published between that read and this wait
+    /// has already moved the revision, so it is not waited out.
+    fn pause_wait(&self, seen: u64, duration: Duration) {
         let lock = self.backend.revision.lock().unwrap();
-        drop(self.backend.changed.wait_timeout(lock, duration).unwrap());
+        drop(
+            self.backend
+                .changed
+                .wait_timeout_while(lock, duration, |revision| *revision == seen)
+                .unwrap(),
+        );
     }
     /// Retire this generation. Old worker/backing ownership remains charged.
     pub fn reset(&mut self) {

@@ -11,6 +11,13 @@ impl DataSource for Rows {
                 Value::Number(first + 1.),
             ]));
         }
+        if let [Value::Number(first), Value::Number(count)] = args {
+            return Ok(Value::list(
+                (0..*count as u32)
+                    .map(|n| Value::Number(first + f64::from(n)))
+                    .collect(),
+            ));
+        }
         Ok(Value::list(
             (0..25_000).map(|n| Value::Number(n as f64)).collect(),
         ))
@@ -32,7 +39,7 @@ fn boot(row: &str) -> Presenter<Rows> {
 }
 fn boot_source(source: &str) -> Presenter<Rows> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Rows,
         (400., 500.),
         1.,
@@ -821,8 +828,7 @@ fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing(
     settle(&mut p);
     assert!(!p.dirty());
     let old = p.height_begin(10_000.).unwrap().unwrap();
-    p.reload(&contract::compile(source).unwrap().encode(), Rows)
-        .unwrap();
+    p.reload(&crate::test_plan(source), Rows).unwrap();
     assert!(p.host.height_owner().is_none());
     assert!(!p.height_update(old.token, f64::NAN, f64::NAN).unwrap());
     assert!(!p.height_end(old.token, HoldEnd::Cancel, f64::NAN).unwrap());
@@ -945,7 +951,8 @@ fn horizontal_first_measurements_correct_x_and_scroll_left_builds_before_it_move
 #[test]
 fn horizontal_card_boxes_match_the_eager_strip_at_the_same_scroll_left() {
     let boxes = |attrs: &str, left: f32| {
-        let mut p = boot_source(&strip(attrs, "flex-shrink=0"));
+        // Mount 200 cards, not 25,000: the eager strip lays out every one
+        let mut p = boot_source(&strip(attrs, "flex-shrink=0").replace("rows()", "rows(0, 200)"));
         settle(&mut p);
         let view = named(&p, "strip");
         p.wheel(view, left, 0.).unwrap();

@@ -231,6 +231,7 @@ impl<D: DataSource> Presenter<D> {
         let row = shape::row(kernel, &node, false);
         // The colour its author wrote on it wins (LLP 1115: author >
         // platform); one it only inherits leaves Material's.
+        let _accent = crate::paint::accent_scope(&node);
         let tint = (node.style.written.has(exact_kernel::StyleId::TextColor))
             .then(|| crate::paint::rgba(node.text_color().resolve(dark)));
         Some(Button {
@@ -253,8 +254,11 @@ impl<D: DataSource> Presenter<D> {
         let top = (bars.routes.iter())
             .find(|r| Some(r.route) == route)
             .map(|r| {
+                // A readout (`role="status"`, LLP 1075.003 §9.15) is no
+                // button, and Material's top app bar has no item for it.
                 let buttons = |ids: &[ViewId]| -> Vec<Button> {
                     (ids.iter())
+                        .filter(|id| r.shape.items.contains(id))
                         .filter_map(|id| self.bar_button(*id, dark))
                         .collect()
                 };
@@ -294,6 +298,7 @@ impl<D: DataSource> Presenter<D> {
         if self.bars.painter.is_none() {
             return;
         }
+        let _roles = self.host.runner().bind_roles(); // The bars' look resolves them.
         let (window, safe, _) = self.bar_window();
         let (dark, font_scale) = (self.dark(), self.bar_font_scale());
         let epoch = self.host.kernel().epoch();
@@ -480,7 +485,9 @@ impl<D: DataSource> Presenter<D> {
                 // Read before the tab's press, scrolled after it.
                 let root = self.reselected_root(node);
                 if (self.host.runner().handlers_of(node)).contains(&EventKind::Press) {
-                    self.dispatch_press(node, now_ms, true);
+                    self.press_then_follow(node, now_ms, true);
+                } else if let Some(key) = self.host.kernel().node(node).map(|n| n.key) {
+                    self.follow_invocation(key, node, now_ms);
                 }
                 let scroller = root
                     .filter(|route| self.reselected_root(node) == Some(*route))

@@ -133,7 +133,7 @@ const CASES: &[Case] = &[
     Case {
         wrote: ("", "button press=go buttonStyle=\"filled\"\n  row\n    text \"a\"\n    text \"b\""),
         id: "lower-button-style",
-        leads: "for a native button, keep only `text` and a symbol `image` in its face, with no width or font on them; for a custom face, remove `buttonStyle` (or write `appearance=\"none\"` without it).",
+        leads: "a native button shows `text`s and a symbol `image`, not a `row`",
         fixed: &[
             ("", "button press=go buttonStyle=\"filled\"\n  text \"a\""),
             ("", "button press=go\n  row\n    text \"a\"\n    text \"b\""),
@@ -143,11 +143,58 @@ const CASES: &[Case] = &[
     Case {
         wrote: ("", "button press=go buttonStyle=\"filled\" aria-label=\"Add\"\n  image \"symbol:add\" width=24"),
         id: "lower-button-style",
-        leads: "for a native button, keep only `text` and a symbol `image` in its face, with no width or font on them; for a custom face, remove `buttonStyle` (or write `appearance=\"none\"` without it).",
+        leads: "write `font-size=…` for the symbol's size in a native button, not `width`",
         fixed: &[
+            ("", "button press=go buttonStyle=\"filled\" aria-label=\"Add\"\n  image \"symbol:add\" font-size=24"),
             ("", "button press=go buttonStyle=\"filled\" aria-label=\"Add\"\n  image \"symbol:add\""),
             ("", "button press=go aria-label=\"Add\"\n  image \"symbol:add\" width=24"),
         ],
+    },
+    // LLP 1116.018: the refusals whose repairs lost behaviour, each with the
+    // edit that keeps it.
+    Case {
+        wrote: ("", "image src=\"https://example.com/a.png\" aria-label=\"A\" width=48 height=48"),
+        id: "lower-attr-tag",
+        leads: "write the source as the image's first argument, `image url`",
+        fixed: &[("", "image \"https://example.com/a.png\" aria-label=\"A\" width=48 height=48")],
+    },
+    Case {
+        wrote: ("  timer ticker interval=1000 running=on tick=go\n", "text \"a\""),
+        id: "syntax-unknown-section",
+        leads: "a timer is a `task`: write `task goTimer when on` with `every(1000, go)`",
+        fixed: &[("  task goTimer when on\n    every(1000, go)\n", "text \"a\"")],
+    },
+    Case {
+        wrote: ("", "list appearance=\"auto\"\n  section\n    row\n      text \"x\"\n    footer\n      if on\n        text \"On\" testId=\"on\"\n      else\n        text \"Off\""),
+        id: "lower-grouped-list",
+        leads: "write this `footer`'s 2 texts as one `text` whose words the same conditions choose",
+        fixed: &[("", "list appearance=\"auto\"\n  section\n    row\n      text \"x\"\n    footer\n      text (on ? \"On\" : \"Off\")")],
+    },
+    Case {
+        wrote: ("  state bill = \"\"\n  derive amount = parseFloat(bill)\n", "text `${amount}`"),
+        id: "type-refused-idiom",
+        leads: "write `parseNumber(s)` for `parseFloat`",
+        fixed: &[("  state bill = \"\"\n  derive amount = match parseNumber(bill) { case some(n) => n, case none => 0 }\n", "text `${amount}`")],
+    },
+    Case {
+        wrote: ("  state icon = \"\"\n  action pick(x: string, on: bool)\n    if on\n      icon = x\n", "input type=\"radio\" name=\"icon\" value=\"a\" checked=(icon == \"a\") change=pick(\"a\") aria-label=\"A\""),
+        id: "type-handler-payload",
+        leads: "declare `on: string` in `pick` (it is the radio's `value`): a radio's `change` runs only when it becomes checked",
+        fixed: &[
+            ("  state icon = \"\"\n  action pick(x: string, on: string)\n    icon = x\n", "input type=\"radio\" name=\"icon\" value=\"a\" checked=(icon == \"a\") change=pick(\"a\") aria-label=\"A\""),
+        ],
+    },
+    Case {
+        wrote: ("  state bill = 0\n  action edit(v: number)\n    bill = v\n", "input type=\"number\" value=`${bill}` input=edit aria-label=\"Bill\""),
+        id: "type-handler-payload",
+        leads: "declare `v: string` in `edit`, and read the number with `match parseNumber(v)`",
+        fixed: &[("  state bill = 0\n  action edit(v: string)\n    bill = match parseNumber(v) { case some(n) => n, case none => 0 }\n", "input type=\"number\" value=`${bill}` input=edit aria-label=\"Bill\"")],
+    },
+    Case {
+        wrote: ("", "button press=go buttonStyle=\"bordered\"\n  text \"Front\" role=\"heading\" aria-level=2"),
+        id: "lower-button-style",
+        leads: "put the `role` on a node beside the button",
+        fixed: &[("", "text \"Card\" role=\"heading\" aria-level=2\nbutton press=go buttonStyle=\"bordered\" aria-label=\"Front\"\n  text \"Front\"")],
     },
 ];
 
@@ -192,10 +239,31 @@ fn a_value_nothing_names_an_edit_for_keeps_its_rule() {
         bleu.starts_with("`color=\"bleu\"` is not a valid `color`: a color is a CSS colour"),
         "{bleu}"
     );
-    // A quoted word is not a number to unquote.
+    // A quoted word is not a number to unquote; CSS's two weight keywords
+    // are named by their numbers.
+    let heavy = message("text \"a\" font-weight=\"heavy\"");
+    assert!(heavy.ends_with("expected integer"), "{heavy}");
     let bold = message("text \"a\" font-weight=\"bold\"");
-    assert!(bold.ends_with("expected integer"), "{bold}");
+    assert!(bold.starts_with("write `font-weight=700`"), "{bold}");
     // A value the row refuses even as a number is not told to be one.
     let negative = message("text \"a\" line-clamp=\"-1\"");
     assert!(negative.ends_with("expected integer"), "{negative}");
+}
+
+/// LLP 1116.018: two top-level nodes are refused with the wrapper that keeps
+/// both, named with what they are.
+#[test]
+fn a_view_of_two_nodes_is_told_to_wrap_both() {
+    let two = "component App\n  view\n    text \"Notes\" role=\"heading\" aria-level=1\n    text \"Nothing yet\"\n";
+    let error = contract::compile(two).unwrap_err();
+    assert_eq!(error.id, "lower-one-root");
+    assert!(
+        error
+            .message
+            .starts_with("wrap the view's 2 top-level nodes (`text`, `text`) in one `column`"),
+        "{}",
+        error.message
+    );
+    let wrapped = "component App\n  view\n    column\n      text \"Notes\" role=\"heading\" aria-level=1\n      text \"Nothing yet\"\n";
+    contract::compile(wrapped).unwrap();
 }

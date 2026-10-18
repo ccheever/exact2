@@ -24,6 +24,16 @@ final class NativeButtonCellMac: NSButtonCell {
         if attribute.rawValue == "AXEnabled", owner?.ariaUnavailable == true { return false }
         return super.accessibilityAttributeValue(attribute)
     }
+    /// An assistive app's press (VoiceOver's VO-Space, Switch Control)
+    /// clicks once AppKit's request has returned, as an inline run's press
+    /// runs (`InlineAccessibility.accessibilityPerformPress`): AppKit answers
+    /// the request with the first accessibility error recorded while it is
+    /// open, and the update the click makes records one.
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        DispatchQueue.main.async { _ = super.accessibilityPerformPress() }
+        return true
+    }
 }
 
 /// AppKit's button, as a native button's control.
@@ -45,6 +55,7 @@ final class NativeButtonMac: NSButton {
         var selected: Bool
         var expanded: String?
         var pressed: String?
+        var role: NSAccessibility.Role
         var appearance: String
         var interactive: Bool
         var toolTip: String?
@@ -63,13 +74,10 @@ final class NativeButtonMac: NSButton {
             && !isHiddenOrHasHiddenAncestor && !owner.cssVisibilityHidden
     }
     override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabStop == true }
-    /// A click gives the button the focus only where its author wrote a
-    /// `tabindex` (LLP 1115.000 D7.1: what the author writes wins, as on iOS,
-    /// where a touch focuses no other button), and not under `retainFocus`.
-    /// AppKit's window focuses a clicked view that accepts first responder
-    /// and needs its panel key, before the mouse-down; an `NSButton` answers
-    /// false, which is why a click on one moves no focus.
-    override var needsPanelToBecomeKey: Bool { owner.map { $0.explicitTabIndex != nil && !$0.retainsFocus } ?? false }
+    /// A click gives the button no focus, whatever its `tabindex` (LLP
+    /// 1115.000 D7.1). AppKit's window focuses a clicked view that accepts
+    /// first responder and needs its panel key, before the mouse-down.
+    override var needsPanelToBecomeKey: Bool { false }
     override func becomeFirstResponder() -> Bool {
         guard acceptsFirstResponder else { return false }
         let ok = super.becomeFirstResponder()
@@ -90,12 +98,15 @@ final class NativeButtonMac: NSButton {
         }
         // Space presses the focused control. Return is the default button's
         // (LLP 1115.000 D7.3): a dialog's took it before it came here
-        // (`DialogHost.key`), and a merely focused button does nothing with it.
-        if name == " " {
+        // (`DialogHost.key`), and a merely focused button does nothing with
+        // it. A menu's row chooses on it (`choosesOnReturn`).
+        if name == " " || name == "Enter" && owner.choosesOnReturn {
             performClick(nil)
             return
         }
         if name == "Enter" { return }
+        // An authored radio group's arrows (Radios.swift, `ariaRadioKey`).
+        if owner.presenter?.controls.radioKey(owner, name, held: KeyCodes.held(event.modifierFlags)) == true { return }
         super.keyDown(with: event)
     }
     /// Return's press of a dialog's default button: AppKit's own click, its
@@ -123,12 +134,20 @@ final class NativeButtonMac: NSButton {
         // A click leaves the first responder where it is (LLP 1115.000
         // D7.1): AppKit's tracking must not take the editor beside it. The
         // button accepts first responder for Tab, `focus()` and `autofocus`.
-        refusesFirstResponder = !needsPanelToBecomeKey
+        refusesFirstResponder = true
         defer { refusesFirstResponder = false }
+        clicked = false
         super.mouseDown(with: event)
         owner?.pointerReleased(nil)
+        // The loop ends a click with the action; the second of two is then
+        // a double click, heard from the node up after its press, the web's
+        // order (LLP 1057.001 §1 rule 5), as a node's own `mouseUp` sends it.
+        if clicked, let owner { owner.dispatchDblclick(owner.dblclickTarget(event)) }
     }
+    /// The tracking loop sent the action: the click landed.
+    private var clicked = false
     override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        clicked = true
         owner?.pointerReleased(nil)
         return super.sendAction(action, to: target)
     }
@@ -167,22 +186,33 @@ extension NodeView {
     func activateNative() {
         guard let presenter, !disabled, !inert else { return }
         let click = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
-        var target: NodeView?
+        var target: NodeView?, bubbled = false
+        var path = PressPath()
         var at: NSView? = self
         while let view = at {
             if let node = view as? NodeView {
-                if node.disabled || node.inert { break }
+                if node.disabled || (bubbled ? node.authoredInert : node.inert) { break }
+                path.nodes.append(PressNode(node, bubbled: bubbled))
                 // Its own command is a press as its handler is (a close row in a dialog).
                 if node.pressable {
-                    if node.bounds.contains(node.convert(click, from: nil)) { target = node }
+                    if bubbled || node.bounds.contains(node.convert(click, from: nil)) { target = node }
                     break
                 }
             }
-            at = view.superview
+            if let node = view as? NodeView, let parent = presenter.presentationParent(of: node) {
+                bubbled = true
+                path.crossings.append(PressCrossing(node, parent: parent, presenter: presenter))
+                at = parent
+            } else { at = view.superview }
         }
-        guard let target, presenter.views[target.id] === target else { return }
-        presenter.press(target.id)
-        target.finishPointerPress()
+        guard let target else { return }
+        if bubbled {
+            presenter.commitPendingEdit()
+            guard path.isLive else { return }
+        }
+        guard presenter.views[target.id] === target else { return }
+        presenter.press(target.id, bubbled: bubbled)
+        if !bubbled { target.finishPointerPress() }
     }
 }
 
@@ -224,7 +254,7 @@ extension ControlHost {
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
             selected: owner.props["accessibilitySelected"] == "true" || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
             expanded: owner.props["accessibilityExpanded"],
-            pressed: owner.pressedState, appearance: owner.effectiveAppearance.name.rawValue,
+            pressed: owner.pressedState, role: owner.isMenuItem ? .menuItem : .button, appearance: owner.effectiveAppearance.name.rawValue,
             interactive: owner.style["pointer_events"]?.string != "none",
             // HTML's `title`, else an icon-only button's label: AppKit's help
             // tag, as a toolbar item's label is (LLP 1115 wave 1).
@@ -241,7 +271,8 @@ extension ControlHost {
         if button.toolTip != written.toolTip { button.toolTip = written.toolTip }
         button.setAccessibilitySelected(written.selected)
         if let expanded = written.expanded { button.setAccessibilityExpanded(expanded == "true") }
-        button.setAccessibilityToggle(written.pressed, else: .button)
+        // A menu's row is AppKit's menu item, as a custom button's is (`NodeView.buttonRole`).
+        button.setAccessibilityToggle(written.pressed, else: written.role)
         // A `radio` is AXRadioButton, its value whether it is checked (a radio group's segment kept as authored).
         if let checked = owner.checkedRole, checked.role == "radio" { button.setAccessibilityChecked(checked.role, checked.checked) }
         button.drawn = look

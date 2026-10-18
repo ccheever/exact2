@@ -1,5 +1,5 @@
 // Pinned365aa87982 ComposerFeedback, ComposerUsageLimits and UsageLimitsSection.
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 import {elapsedShare,formatDuration,formatResetsIn,limitsNotice,paceOf,remainingPercent,
   type UsageLimitsReport,type ResetCreditInput} from './thread-local-usage-model';
 import type {ThreadLocalFeedbackNotice} from './thread-send-local-commands';

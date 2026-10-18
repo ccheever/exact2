@@ -305,7 +305,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `fail fetch`, `pass fetch`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`, `fail fetch`), found {}",
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `fail fetch`, `pass fetch`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `fresh`, `before data`, `fail fetch`), found {}",
                     describe(&other)
                 ),
                 )
@@ -313,6 +313,8 @@ impl Parser {
         };
         self.next();
         let step = match word.as_str() {
+            "tap" if self.at_ident("midi") => return self.tap_midi(span),
+            "prefer" => return self.prefer_midi(span),
             "tap" => {
                 let target = self.str_lit("a testId")?;
                 if self.at_ident("drag") {
@@ -656,6 +658,15 @@ impl Parser {
                 }
                 Step::Seed { seed, span }
             }
+            // @ref LLP 1086 D13 — `fresh ["seed.json"]`: the Snapback dev
+            // server emptied (and seeded) before the test opens.
+            "fresh" => {
+                let seed = match self.peek_kind().clone() {
+                    TokenKind::Str(_) => Some(self.launch_str("fresh", "a seed file's path ([{\"table\", \"row\"}, …])")?),
+                    _ => None,
+                };
+                Step::Fresh { seed, span }
+            }
             // `before data`: the first step does not wait for the app's data.
             "before" => {
                 if !self.at_ident("data") {
@@ -740,9 +751,28 @@ impl Parser {
                             self.next();
                             false
                         } else {
+                            // `lacks`, `contains`, `not has` (app farm waves 1 and 2): the rewrite, not only the forms.
+                            let found = match self.peek_kind() {
+                                TokenKind::Ident(w) => w.clone(),
+                                _ => String::new(),
+                            };
+                            let hint = match found.as_str() {
+                                "lacks" | "not" | "absent" | "excludes" | "hasnt" | "without" => {
+                                    "; for a node that is not there, write `expect tree missing \"<testId>\"`"
+                                }
+                                "contains" | "includes" | "shows" => {
+                                    "; it matches a testId only: for a node's text, write `expect text \"<testId>\" == \"the whole text\"`"
+                                }
+                                _ => "",
+                            };
+                            let not = if found.is_empty() {
+                                String::new()
+                            } else {
+                                format!(", not `{found}`")
+                            };
                             return self.err(
                                 "syntax-expected-step",
-                                "`expect tree` takes `has \"testId\"` or `missing \"testId\"`",
+                                format!("`expect tree` takes `has \"testId\"` or `missing \"testId\"`{not}{hint}"),
                             );
                         };
                         let target = self.str_lit("a testId")?;
@@ -763,6 +793,17 @@ impl Parser {
                     }
                     "text" => {
                         let target = self.str_lit("a testId")?;
+                        let other = match self.peek_kind() {
+                            TokenKind::Ident(w) if ["contains", "includes", "has", "matches", "startsWith"].contains(&w.as_str()) => Some(w.clone()),
+                            TokenKind::Punct(p) if *p != "==" => Some(p.to_string()),
+                            _ => None,
+                        };
+                        if let Some(other) = other {
+                            return self.err(
+                                "syntax-expected-step",
+                                format!("`expect text` compares the whole text with `==`, not `{other}`: the node's text, else its descendants' joined (a row's buttons' labels included). Give the part you mean its own node and testId, and write `expect text \"<that testId>\" == \"its whole text\"`"),
+                            );
+                        }
                         self.expect_punct("==")?;
                         let value = self.str_lit("the text")?;
                         Step::ExpectText {
@@ -772,6 +813,7 @@ impl Parser {
                         }
                     }
                     "sound" => self.expect_sound(span)?,
+                    "midi" => self.expect_midi(span)?,
                     "mediasession" => self.expect_media_session(span)?,
                     "state" => {
                         let (mut name, _) = self.ident()?;
@@ -839,7 +881,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found `{other}`"
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `fresh`, `before data`), found `{other}`"
                 ),
                     span,
                 })
@@ -880,12 +922,13 @@ fn during_read(op: &str) -> bool {
 
 /// The words of a test's launch lines, which a test file may also write at
 /// its top level for every test in it (habits F7, calendar F13).
-pub(super) const LAUNCH: [&str; 7] = [
+pub(super) const LAUNCH: [&str; 8] = [
     "size",
     "epoch",
     "time-zone",
     "locale",
     "seed",
+    "fresh",
     "before",
     "fail",
 ];
@@ -898,6 +941,7 @@ pub(super) fn launch_word(step: &Step) -> &'static str {
         Step::TimeZone { .. } => "time-zone",
         Step::Locale { .. } => "locale",
         Step::Seed { .. } => "seed",
+        Step::Fresh { .. } => "fresh",
         Step::BeforeData { .. } => "before data",
         Step::FailFetch { .. } => "fail fetch",
         _ => "",

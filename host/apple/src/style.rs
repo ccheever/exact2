@@ -12,7 +12,7 @@
 //! (`translate`, `scale`, `rotate`, `opacity`) are left out: a presenter
 //! applies their *presentation* values from `present` ops, never the style.
 //! Rows a presenter cannot use yet are named, not guessed. Beside the rows,
-//! `"written"` names those of them the author wrote on this node (LLP
+//! `"written"` names the declarations the author wrote on this node (LLP
 //! 1115.000 D2): a presenter reads it where the platform's answer stands for
 //! what the author left unsaid, and an inherited value is never in it.
 
@@ -24,6 +24,9 @@ use exact_kernel::{
 };
 use exact_motion::Property;
 use std::fmt::Write as _;
+
+mod kept;
+use kept::kept_geometry;
 
 /// A row this host does not lower (and why).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,7 +40,7 @@ pub struct Skipped {
 /// The style dictionary for a node's set rows, as a JSON object, plus what
 /// was skipped.
 pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
-    style_json_sized(style, env, false)
+    style_json_sized(style, env, StyleMask::EMPTY)
 }
 
 /// Layout rows no Apple presenter reads: the kernel sized and placed the
@@ -86,23 +89,24 @@ fn presenter_ignores(name: &str) -> bool {
     )
 }
 
-/// [`style_json`], with `width` and `height` kept when `keep_size`.
-pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (String, Vec<Skipped>) {
+/// [`style_json`], with the rows in `keep` sent though the presenter
+/// otherwise reads them from the frame (`width`, `height`, a gap).
+pub fn style_json_sized(style: &StyleProps, env: &Env, keep: StyleMask) -> (String, Vec<Skipped>) {
     // An undefined segment length is its row's initial value (LLP 1078 D3).
     let resolved = style.env_resolved(env);
-    style_json_rows(&resolved, Some(env), keep_size)
+    style_json_rows(&resolved, Some(env), keep)
 }
 
 /// Native button face geometry was resolved by the kernel against its live
 /// environment. Serialise the same points for fitting and presentation.
 pub(crate) fn style_json_resolved(style: &StyleProps) -> (String, Vec<Skipped>) {
-    style_json_rows(style, None, false)
+    style_json_rows(style, None, StyleMask::EMPTY)
 }
 
-fn style_json_rows(
+pub(crate) fn style_json_rows(
     style: &StyleProps,
     env: Option<&Env>,
-    keep_size: bool,
+    keep: StyleMask,
 ) -> (String, Vec<Skipped>) {
     // Written in place: a list row's mount builds one of these per node,
     // and a `String` per value (`format!`) was most of its cost.
@@ -112,18 +116,22 @@ fn style_json_rows(
     let mut first = true;
     // Colour rows that name a system colour (LLP 1077 D13), by row.
     let mut systems: Vec<(&str, &str)> = Vec::new();
-    // @ref LLP 1115.000 D2 — the rows sent that the author wrote here.
+    // @ref LLP 1115.000 D2 — the declarations the author wrote here.
     let mut written = String::new();
-    for id in style.mask.iter() {
+    for id in style.mask.union(style.written).iter() {
         let name = id.name();
         // LLP 1043.000 M3: the presenter will use resolved shapes.
         if matches!(id, StyleId::WrapFlow | StyleId::ShapeMargin) {
             continue;
         }
-        if matches!(name, "translate" | "scale" | "rotate" | "opacity") || presenter_ignores(name) {
+        if matches!(name, "translate" | "scale" | "rotate" | "opacity")
+            || !keep.has(id) && (presenter_ignores(name) || matches!(name, "width" | "height"))
+        {
             continue;
         }
-        if !keep_size && matches!(name, "width" | "height") {
+        if !style.mask.has(id) {
+            let comma = if written.is_empty() { "" } else { "," };
+            let _ = write!(written, "{comma}\"{name}\"");
             continue;
         }
         let mark = out.len();
@@ -458,10 +466,13 @@ fn style_json_rows(
             let _ = write!(out, "\"{row}\":\"{system}\"");
         }
         out.push('}');
+        first = false;
     }
-    // A written row was sent, so an entry precedes this one.
     if !written.is_empty() {
-        let _ = write!(out, ",\"written\":[{written}]");
+        if !first {
+            out.push(',');
+        }
+        let _ = write!(out, "\"written\":[{written}]");
     }
     out.push('}');
     (out, skipped)
@@ -498,6 +509,7 @@ fn push_dimension(out: &mut String, d: Dimension) {
             out.push('}');
         }
         Dimension::Env(..)
+        | Dimension::Region(..)
         | Dimension::Segment(..)
         | Dimension::Viewport(..)
         | Dimension::Compare(..) => {
@@ -515,6 +527,8 @@ fn push_dimension(out: &mut String, d: Dimension) {
 /// presenter resolves per view against its traits, and the fallback pair.
 /// A `-exact-platform-color()` with no name for this platform crosses as its fallback.
 pub(crate) fn push_color_value(out: &mut String, c: ColorValue) {
+    // @ref LLP 1095 D4 — a role the theme replaces crosses as what replaces it.
+    let c = c.themed();
     // LLP 1100 D3: no sRGB clip rides along; nothing here converts it.
     if let ColorValue::Profiled(id) = c {
         if let Some(p) = exact_kernel::style::profiled::profiled(id) {
@@ -695,8 +709,7 @@ pub fn push_num(out: &mut String, n: f32) {
 
 /// A node's effective overflow per axis — the kernel's own rule
 /// (`StyleProps::to_taffy`): a `ScrollView`/`List` scrolls on y unless its
-/// row says otherwise, and an unset x follows a non-visible y (CSS Overflow
-/// §3). The presenter scrolls and clips from these, never from the node
+/// row says otherwise; both axes compute through CSS Overflow §3. The presenter scrolls and clips from these, never from the node
 /// type.
 pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let s = node.style;
@@ -707,20 +720,12 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     } else {
         Overflow::Visible
     };
-    let mut x = if s.mask.has(StyleId::OverflowX) {
+    let x = if s.mask.has(StyleId::OverflowX) {
         s.overflow_x
     } else {
         Overflow::Visible
     };
-    let mut y = y;
-    // Symmetric, as the kernel computes: a `visible` axis beside a
-    // non-visible one computes to `auto` (CSS Overflow §3).
-    if x == Overflow::Visible && y != Overflow::Visible {
-        x = Overflow::Auto;
-    } else if y == Overflow::Visible && x != Overflow::Visible {
-        y = Overflow::Auto;
-    }
-    (x, y)
+    (x.computed(y), y.computed(x))
 }
 
 /// The style dictionary with CSS inheritance resolved and effective
@@ -925,7 +930,14 @@ pub fn style_json_presented(
             // it (LLP 1034 §8).
             .union(StyleMask::of(StyleId::ColorScheme))
     };
-    let mut computed = node.computed_style(rows);
+    let mut computed = node.computed_style(rows.union(node.style.written));
+    // PlaceholderColor's initial payload is an unread sentinel; absence
+    // selects the platform placeholder colour, including after a clear. So
+    // for the pressed paint: a cleared row is no pressed look (LLP 1061 D7).
+    computed.mask =
+        computed.mask.union(computed.written.minus(
+            StyleMask::of(StyleId::PlaceholderColor).union(crate::looks::press_paint_rows()),
+        ));
     computed.mask.set(StyleId::TextColor);
     paint_over(&mut computed, shown);
     // The presenter must inset editors/images and paint the same border area
@@ -966,7 +978,7 @@ pub fn style_json_presented(
     let current = computed.text_color;
     computed.background_color = Some(computed.background_color.unwrap_or(current));
     computed.tint_color = Some(computed.tint_color.unwrap_or(current));
-    let (mut json, skipped) = style_json_sized(&computed, env, node.node_type == NodeType::Video);
+    let (mut json, skipped) = style_json_sized(&computed, env, kept_geometry(node));
     // A modal's top layer is positioned in the viewport by AppKit, outside
     // its authored parent. Keep only the existing inset rows for dialogs.
     // A popover placed by `position-area` (LLP 1021, "Placement") is placed
@@ -1004,6 +1016,7 @@ pub fn style_json_presented(
     let name = |o: Overflow| match o {
         Overflow::Visible => "visible",
         Overflow::Hidden => "hidden",
+        Overflow::Clip => "clip",
         Overflow::Scroll => "scroll",
         Overflow::Auto => "auto",
     };
@@ -1019,6 +1032,7 @@ pub fn style_json_presented(
             head + "," + &json[1..]
         };
     }
+    json = crate::looks::with_looks(json, node, env, current);
     // @ref LLP 1053.000.000.000 D2 — an auto glass group's spacing rides the
     // string the host compares, so a gap, direction or display change sends it.
     if let Some(points) = glass_auto_spacing(node) {
@@ -1055,7 +1069,7 @@ pub fn glass_auto_spacing(node: &NodeRef<'_>) -> Option<f32> {
 
 /// [`glass_auto_spacing`] in a node's props: the points as `glassGroup` and
 /// `glassGroupAuto`, so a change to the prop sends them.
-pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut std::collections::BTreeMap<String, String>) {
+pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut exact_kernel::SortedMap<String, String>) {
     if let Some(points) = glass_auto_spacing(node) {
         out.insert(PropId::GlassGroup.name().to_string(), num(points));
         out.insert("glassGroupAuto".to_string(), "true".to_string());
@@ -1376,19 +1390,26 @@ mod flow_tests {
         }
     }
 
-    /// LLP 1061 D2: the press scale is the presenter's to show, so it crosses
-    /// as a number, where the engine's own `scale` never does.
+    /// LLP 1061 D2, D7: the press scale and paint are the presenter's to
+    /// show, so they cross (a number, colours as any colour row's), where
+    /// the engine's own `scale` never does.
     #[test]
-    fn press_scale_crosses_and_the_motion_scale_does_not() {
+    fn the_press_rows_cross_and_the_motion_scale_does_not() {
         let mut s = StyleProps::default();
-        s.set_dynamic(StyleId::PressScale, &StyleValue::Number(0.97))
-            .unwrap();
-        s.set_dynamic(StyleId::Scale, &StyleValue::Number(2.0))
-            .unwrap();
-        assert_eq!(
-            style_json(&s, &Env::default()),
-            (r#"{"press_scale":0.97}"#.into(), vec![])
-        );
+        for (row, value) in [
+            (StyleId::PressScale, StyleValue::Number(0.97)),
+            (StyleId::Scale, StyleValue::Number(2.0)),
+            (StyleId::PressOpacity, StyleValue::Number(0.5)),
+            (
+                StyleId::PressBackgroundColor,
+                StyleValue::Text("light-dark(#fff, #000)".into()),
+            ),
+            (StyleId::PressColor, StyleValue::Text("#ff0000".into())),
+        ] {
+            s.set_dynamic(row, &value).unwrap();
+        }
+        let json = r#"{"press_scale":0.97,"press_opacity":0.5,"press_background_color":[[255,255,255,255],[0,0,0,255]],"press_color":[255,0,0,255]}"#;
+        assert_eq!(style_json(&s, &Env::default()), (json.into(), vec![]));
     }
 
     /// LLP 1066: a gradient crosses as its shape and ready-to-mix stops; a

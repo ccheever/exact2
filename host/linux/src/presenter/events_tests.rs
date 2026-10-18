@@ -72,7 +72,7 @@ const APP: &str = r#"component App
 
 fn boot() -> Presenter<Keeps> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         Keeps,
         (400., 400.),
         1.,
@@ -97,7 +97,7 @@ fn log<D: DataSource>(p: &Presenter<D>) -> String {
 fn focus_bubbles_into_within_and_out_of_a_wrapper() {
     let source = include_str!("../../../../contract/corpus/focus-bubble.contract");
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Keeps,
         (400., 400.),
         1.,
@@ -154,7 +154,7 @@ fn a_pressed_button_that_removes_itself_sends_focusout_to_its_wrapper() {
       text log testId="log" height=20
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Keeps,
         (400., 400.),
         1.,
@@ -187,7 +187,7 @@ fn cursor_resolves_inheritance_hud_override_stationary_changes_and_unmount() {
           box testId="zone" width=200 height=70
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Keeps,
         (200., 200.),
         1.,
@@ -292,7 +292,7 @@ fn capture_precedes_target_and_bubble_and_controls_the_default() {
       text heard testId="log"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(SOURCE).unwrap().encode(),
+        &crate::test_plan(SOURCE),
         Keeps,
         (300., 200.),
         1.,
@@ -348,7 +348,7 @@ fn keys_skip_disabled_controls_without_cutting_off_ancestors() {
       text heard testId="log"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(SOURCE).unwrap().encode(),
+        &crate::test_plan(SOURCE),
         Keeps,
         (300., 200.),
         1.,
@@ -458,7 +458,7 @@ fn press_fixture() -> Presenter<Keeps> {
         "width=100 height=32 scale=1.5 -exact-press-scale=0.5 transform-origin=\"0 0\"\n      box opacity",
     );
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(&source).unwrap().encode(),
+        &crate::test_plan(&source),
         Keeps,
         (400., 400.),
         1.,
@@ -549,7 +549,7 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
       input value="x" pointerdown=down width=200 height=40
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(PAD).unwrap().encode(),
+        &crate::test_plan(PAD),
         Keeps,
         (400., 400.),
         1.,
@@ -588,6 +588,96 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
     assert!(log(&p).ends_with(" d20,10/1"), "{}", log(&p));
 }
 
+/// The agent's `tap` is what a press there delivers (LLP 1012 §1): the
+/// pointer's down and up, bubbled, then the press, in DOM's order, so a
+/// control that holds on `pointerdown` (a hold-to-repeat stepper) works
+/// under the agent too.
+#[test]
+fn the_agents_tap_delivers_the_pointer_events_before_the_press() {
+    const STEPPER: &str = r#"component App
+  state seen = ""
+  action down(e: PointerEvent)
+    seen = `${seen} down${e.offsetX},${e.offsetY}`
+  action up(e: PointerEvent)
+    seen = `${seen} up${e.buttons}`
+  action outer(e: PointerEvent)
+    seen = `${seen} outer`
+  action step
+    seen = `${seen} press`
+  view
+    column width=400 height=400 pointerdown=outer
+      box pointerdown=down pointerup=up press=step testId="plus" width=40 height=40
+      text seen testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(STEPPER),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let plus = id(&p, "plus");
+    p.tap(plus).unwrap();
+    assert_eq!(log(&p), " down20,20 outer up0 press");
+}
+
+/// The agent's tap keeps the target its pointer went down on: a `pointerup`
+/// that replaces it with another control presses neither. A press while a
+/// contact is held (another finger's; the driver refuses an agent's) sends
+/// no pointer events, and the hold keeps its own `pointerup`.
+#[test]
+fn the_agents_tap_keeps_its_target_and_leaves_a_held_contact_its_pointer() {
+    const SWAP: &str = r#"component App
+  state seen = ""
+  state gone = false
+  action up(e: PointerEvent)
+    gone = true
+    seen = `${seen} up`
+  action first
+    seen = `${seen} first`
+  action second
+    seen = `${seen} second`
+  action cdown(e: PointerEvent)
+    seen = `${seen} cdown`
+  action cup(e: PointerEvent)
+    seen = `${seen} cup`
+  view
+    column width=400 height=400
+      if gone
+        box press=second testId="b" width=40 height=40
+      else
+        box pointerup=up press=first testId="a" width=40 height=40
+      box pointerdown=cdown pointerup=cup testId="c" width=40 height=40
+      text seen testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(SWAP),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let a = id(&p, "a");
+    p.tap(a).unwrap();
+    p.boxes();
+    assert_eq!(
+        log(&p),
+        " up",
+        "b took a's place under the finger: nothing pressed"
+    );
+    let b = id(&p, "b");
+    p.pointer_down(20., 60., 10.).unwrap();
+    p.tap(b).unwrap();
+    p.pointer_up(20., 60., 11.).unwrap();
+    assert_eq!(log(&p), " up cdown second cup");
+}
+
 /// An `svg` paints its content where its hits land: inside the padding
 /// layout resolved, a percentage of the containing block's width (CSS Box
 /// Model 3 §4.1), so x 20 here and not 10.
@@ -600,7 +690,7 @@ fn an_svg_paints_its_content_where_it_is_hit() {
         rect x=0 y=0 width=20 height=20 fill="#ff0000"
 "##;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(ART).unwrap().encode(),
+        &crate::test_plan(ART),
         Keeps,
         (400., 200.),
         1.,
@@ -641,7 +731,7 @@ fn a_disabled_box_hears_the_wheel_and_a_disabled_button_does_not() {
       text seen testId="log" height=20
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(WHEELS).unwrap().encode(),
+        &crate::test_plan(WHEELS),
         Keeps,
         (400., 400.),
         1.,
@@ -679,7 +769,7 @@ fn frame_reads_a_box_with_the_scroll_above_it_applied() {
       text `${y}` testId="log" height=20
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(PANE).unwrap().encode(),
+        &crate::test_plan(PANE),
         Keeps,
         (400., 400.),
         1.,
@@ -730,7 +820,7 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
       box tabindex=0 display="none" testId="hidden" width=40 height=20
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(TABS).unwrap().encode(),
+        &crate::test_plan(TABS),
         Keeps,
         (400., 400.),
         1.,
@@ -801,7 +891,7 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
 fn aria_disabled_keeps_a_linux_button_in_tab_order_and_runs_press() {
     const APP: &str = "component App\n  state count = 0\n  action tick\n    count = count + 1\n  view\n    column width=200 height=100\n      button \"First\" testId=\"first\" height=20\n      button \"Update\" aria-disabled=true press=tick testId=\"update\" height=20\n      button \"Last\" testId=\"last\" height=20\n      text `${count}` testId=\"count\"\n";
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         Keeps,
         (200., 100.),
         1.,
@@ -1166,7 +1256,7 @@ fn re_asks_past_their_window_settle_on_the_wake_alone() {
     }
     src += "  view\n    column width=200 height=200\n      text \"waiting\"\n";
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(&src).unwrap().encode(),
+        &crate::test_plan(&src),
         source,
         (200., 200.),
         1.,

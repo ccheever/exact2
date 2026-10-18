@@ -1,7 +1,7 @@
 //! `contract build <file.contract> [-o <file.plan>] [--json] [--map]` — compile, print a
 //! one-line summary, write the bytes. Baking needs the app's data crate and
 //! happens in the app's own build (see `apps/caltrain`), not here.
-//! `contract types <file.contract> [-o <app.d.ts>]` — generate TypeScript's
+//! `contract types <file.contract> [-o <app.d.ts>] [--check]` — generate TypeScript's
 //! data-source signatures from the same plan tables the executor reads.
 //! `contract rust <file.contract> [-o <shapes.rs>]` — the same shapes as Rust
 //! structs with their `Value` conversions, for a data crate's `build.rs`.
@@ -10,8 +10,17 @@
 
 use std::process::ExitCode;
 
+mod ambient;
 mod build;
 mod diff;
+mod tamber;
+mod tamber_contract;
+mod tamber_export;
+mod tamber_gen;
+mod tamber_history;
+mod tamber_import;
+mod tamber_ops;
+mod tamber_serve;
 mod verify;
 mod vocab;
 
@@ -21,12 +30,13 @@ const USAGE: &str = "usage:
   contract sources <file.contract>
   contract fmt [--check | --stdout] <file.contract>
   contract fmt --uses <file.contract>
-  contract types <file.contract> [-o <app.d.ts>]
+  contract types <file.contract> [-o <app.d.ts>] [--check]
   contract rust <file.contract> [-o <shapes.rs>]
   contract test <file.test.contract>
   contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
   contract verify <file.contract> [--types] [--prove <Module>]
-  contract vocab [--json] [--all] [<name> …]";
+  contract vocab [--json] [--all] [<name> …]
+  contract tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check]  (<app>: a directory, app.contract or file.tamber; a flag before or after it)";
 
 #[cfg(windows)]
 fn main() -> ExitCode {
@@ -61,8 +71,14 @@ fn run() -> ExitCode {
         Some("lean") => lean(&args[1..]),
         Some("verify") => verify::run(&args[1..]),
         Some("vocab") => vocab::run(&args[1..]),
-        Some("types") => types(&args[1..], "types", "app.d.ts", contract::typescript),
-        Some("rust") => types(&args[1..], "rust", "shapes.rs", contract::rust),
+        Some("tamber") => tamber::run(&args[1..]),
+        // The union of tokens a binding may name follows the design's `exports` (LLP 1121 D7).
+        Some("types") => types(&args[1..], "types", "app.d.ts", |plan, path| {
+            contract::typescript_exporting(plan, contract::design_exports(path).as_deref())
+        }),
+        Some("rust") => types(&args[1..], "rust", "shapes.rs", |plan, _| {
+            contract::rust(plan)
+        }),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
@@ -180,9 +196,24 @@ fn types(
     args: &[String],
     command: &str,
     out: &str,
-    generate: fn(&exact_plan::Plan) -> Result<String, String>,
+    generate: fn(&exact_plan::Plan, &std::path::Path) -> Result<String, String>,
 ) -> ExitCode {
-    let usage = format!("usage: contract {command} <file.contract> [-o <{out}>]");
+    let usage = format!(
+        "usage: contract {command} <file.contract> [-o <{out}>]{}",
+        if command == "types" { " [--check]" } else { "" }
+    );
+    let checks = args.iter().filter(|a| a.as_str() == "--check").count();
+    if checks > 1 || (checks > 0 && command != "types") {
+        eprintln!("{usage}");
+        return ExitCode::from(2);
+    }
+    let check = checks == 1;
+    let args: Vec<_> = args
+        .iter()
+        .filter(|a| a.as_str() != "--check")
+        .cloned()
+        .collect();
+    let args = args.as_slice();
     if matches!(args, [flag] if flag == "--help" || flag == "-h") {
         println!("{usage}");
         return ExitCode::SUCCESS;
@@ -199,16 +230,36 @@ fn types(
     if let Ok(surfaces) = contract::surface_findings(path) {
         surface_warnings(&surfaces);
     }
+    if let Ok(warnings) = contract::resource_clock_warnings(path) {
+        for finding in warnings {
+            eprintln!("warning: {finding}");
+        }
+    }
     let result = contract::compile_path_all_unchecked(path, false)
         .map_err(|mut all| all.swap_remove(0).to_string())
-        .and_then(|(plan, _)| generate(&plan).map_err(|e| format!("{}: {e}", args[0])));
+        .and_then(|(plan, _)| generate(&plan, path).map_err(|e| format!("{}: {e}", args[0])));
     match result {
         Ok(declarations) => {
+            if check {
+                let default = format!("{}.d.ts", args[0]);
+                let output = args.get(2).unwrap_or(&default);
+                if std::fs::read(output).ok().as_deref() != Some(declarations.as_bytes()) {
+                    eprintln!(
+                        "types: {output} is missing or stale; run contract types {} -o {output}",
+                        args[0]
+                    );
+                    return ExitCode::from(1);
+                }
+                eprintln!("types: {output} is current");
+                return ExitCode::SUCCESS;
+            }
             if let Some(output) = args.get(2) {
                 if let Err(error) = std::fs::write(output, declarations) {
                     eprintln!("{output}: {error}");
                     return ExitCode::from(1);
                 }
+                // Silence read as "did it run?" (app farm wave 2: 100); stdout stays empty.
+                eprintln!("{command}: wrote {output}");
             } else {
                 print!("{declarations}");
             }

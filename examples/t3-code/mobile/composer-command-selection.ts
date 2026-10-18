@@ -1,5 +1,5 @@
 // Source365aa87982 use-composer-command-menu.ts selection, including its optional Limits callback.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import {mobileComposerCommandReplacement,replaceTextRange} from './composer-command-model';
 /** The source supplies its local callback only when Limits is offered and no attachments exist.
  * This decision prepares an edit; only an accepted native CAS may open the report. */

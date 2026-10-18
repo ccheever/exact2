@@ -31,19 +31,28 @@ enum ButtonConfigurationIOS {
         }
         return TextEngine.cssWeight(UIFont.systemFont(ofSize: targetSize, weight: platformWeight), weight: cssWeight, size: targetSize)
     }
+    /// Whether a colour row is the platform's accent itself (`AccentColor`),
+    /// which UIKit draws from the view's tint rather than as a colour of its
+    /// own; one derived from it (`Highlight`, `@tint/0.2`) keeps its alpha
+    /// as a colour of its own.
+    static func followsAccent(_ value: BatchValue?) -> Bool {
+        guard case .object(let o)? = value else { return false }
+        return o["sys"]?.string == "@tint"
+    }
     static func color(_ value: BatchValue?, traits: UITraitCollection, accent: UIColor?) -> UIColor? {
         value?.cgColor(dark: traits.userInterfaceStyle == .dark,
             contrast: traits.accessibilityContrast == .high, tint: accent).map { UIColor(cgColor: $0) }
     }
-    /// Whether white would read under 3:1 on `fill` in these traits: its relative luminance is above 0.3.
-    static func prefersDarkInk(on fill: UIColor, traits: UITraitCollection) -> Bool {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        guard fill.resolvedColor(with: traits).getRed(&r, green: &g, blue: &b, alpha: &a), a > 0.5 else { return false }
-        let linear = { (v: CGFloat) in v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
-        return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b) > 0.3
-    }
-    /// UIKit's public system-spacing constraint, evaluated on the running OS.
+    /// UIKit's public system-spacing constraint, evaluated on the running OS
+    /// once per font: solving it takes an Auto Layout pass. Main thread.
+    private static var spacings: [UIFont: CGFloat] = [:]
     static func systemSpacing(font: UIFont) -> CGFloat {
+        if let known = spacings[font] { return known }
+        let spacing = solveSystemSpacing(font: font)
+        spacings[font] = spacing
+        return spacing
+    }
+    private static func solveSystemSpacing(font: UIFont) -> CGFloat {
         let parent = UIView(), before = UIImageView(), after = UILabel()
         after.font = font
         for view in [before, after] { view.translatesAutoresizingMaskIntoConstraints = false; parent.addSubview(view) }
@@ -158,23 +167,21 @@ enum ButtonConfigurationIOS {
         if sides.contains(where: { $0 != nil }) { config.contentInsets = insets }
         let foreground = color(rows.title["text_color"], traits: traits, accent: accent)
         if let foreground { config.baseForegroundColor = foreground }
-        // LLP 1116.007 D3.10: the ink on an accent fill is chosen for contrast, as the web draws it (LLP 1116.003
-        // D3.1): black once white would fall under 3:1 on the accent as this scheme resolves it (relative luminance
-        // above 0.3). UIKit keeps white on a pale tint, which `check` finds at 1.4:1 on yellow and 2.1:1 on teal
-        // (three round-9 builds); the system blue, red and the rest keep UIKit's white. An authored colour wins.
+        // Unsaid on a fill of the accent, the ink is UIKit's white on every accent, teal and yellow too, as a
+        // hand-built filled button draws it (LLP 1116.019 D3). Increase Contrast darkens a system accent, which
+        // resolves with the contrast trait as UIKit's own system colours do.
         else if destructive, !filledStyles.contains(drawn) {
             // UIKit's `role` draws nothing; the gray and bordered styles keep the label colour under a red tint.
             config.baseForegroundColor = destructiveInk(for: drawn)
-        } else if (drawn == "filled" || drawn == "borderedProminent"), let accent, prefersDarkInk(on: accent, traits: traits) {
-            config.baseForegroundColor = .black
         }
         let titleFontAuthored = rows.title["font_size"] != nil || rows.title["font_weight"] != nil
-        // An authored colour survives UIKit's disabled-state foreground transform (D16).
+        // An authored colour survives UIKit's disabled-state foreground transform (D16). Enabled, it is the
+        // configuration's foreground, which UIKit greys with the tint behind a modal (`tintAdjustmentMode`).
         if titleFontAuthored || foreground != nil {
-            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { [weak button] incoming in
                 var outgoing = incoming
                 if titleFontAuthored, let f = incoming.uiKit.font { outgoing.uiKit.font = font(f, rows: rows.title) }
-                if let foreground { outgoing.uiKit.foregroundColor = foreground }
+                if let foreground, button?.isEnabled == false { outgoing.uiKit.foregroundColor = foreground }
                 return outgoing
             }
         }
@@ -206,10 +213,34 @@ enum ButtonConfigurationIOS {
         if rows.symbol["font_size"] != nil || rows.symbol["font_weight"] != nil {
             let symbolFont = font(titleFont, rows: rows.symbol)
             config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: symbolFont)
+        } else if face.title?.isEmpty ?? true {
+            // A symbol alone is sized as UIKit sizes one: from the body style
+            // at the button's text size and its `buttonSize`. Without a title the
+            // label's font is UIKit's fixed 17, which kept a − or + small at the
+            // accessibility sizes (LLP 1116.019 D1).
+            config.preferredSymbolConfigurationForImage = nil
         } else { config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: titleFont) }
         config.imagePadding = rows.imageGap ?? systemSpacing(font: titleFont)
-        if let tint = color(rows.symbol["tint_color"], traits: traits, accent: accent) {
-            config.image = config.image?.withTintColor(tint, renderingMode: .alwaysOriginal)
+        // A symbol's colour is the configuration's, which UIKit greys with the whole button behind a modal
+        // (`tintAdjustmentMode`), its own colour as much as the accent. A glass configuration draws a template
+        // image in its own ink and ignores that, so there the symbol carries its colour, drawn again as the
+        // tint changes (`NativeButtonIOS.tintColorDidChange`).
+        let follows = followsAccent(rows.symbol["tint_color"])
+        let resolved = color(rows.symbol["tint_color"], traits: traits, accent: accent), own = follows ? nil : resolved
+        let native = button as? NativeButtonIOS
+        native?.symbolInk = nil
+        if follows || own != nil, let template = config.image {
+            if !button.isEnabled {
+                // Disabled, an authored colour keeps its look through UIKit's disabled one (D16)
+                if let resolved { config.image = template.withTintColor(resolved, renderingMode: .alwaysOriginal) }
+            } else if drawn.lowercased().hasSuffix("glass"), let native {
+                let ink = NativeButtonIOS.Ink(template: template, color: own, alpha: (follows ? accent : own)?.cgColor.alpha)
+                native.noteTint()
+                native.symbolInk = ink
+                config.image = ink.drawn(in: native)
+            } else {
+                config.imageColorTransformer = UIConfigurationColorTransformer { [weak button] _ in own ?? button?.tintColor ?? .tintColor }
+            }
         }
         button.configuration = config
         // Only an authored clamp changes UIKit's line count. Configuration owns

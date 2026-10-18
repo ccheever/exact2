@@ -1,4 +1,4 @@
-// media-actions: the native half of MediaActions (T3 Code 1e2ecbd975, MIT; see LICENSE-T3:
+// The native half of MediaActions (T3 Code 1e2ecbd975, MIT; see LICENSE-T3:
 // apps/web/src/components/media/MediaActions.tsx and mediaContent.ts; the desktop shell's context
 // menu apps/desktop/src/electron/ElectronMenu.ts; Electron's default download handling).
 //
@@ -246,10 +246,10 @@ enum T3MediaActions {
     }
 }
 
-/// G4-05 (chat-markdown-media-and-code): a secondary click while the media menu is open only closes it, as the reference's
+/// A secondary click while the media menu is open only closes it, as the reference's
 /// does (MediaActions `menuOpen`: Electron's menu takes the click, and the next `contextmenu` finds the menu still open). AppKit
 /// hands the click that dismissed the menu to the window after `popUp` returns, where the media's `contextmenu` opened the menu
-/// again at the new point (`realinput-1011c` G4-05). For half a second after a menu closes with no pick, a secondary click made
+/// again at the new point. For half a second after a menu closes with no pick, a secondary click made
 /// before it closed (by its timestamp) goes no further; a click made after it is a new one.
 enum T3MenuDismissal {
     private static var monitor: Any?
@@ -271,10 +271,10 @@ enum T3MenuDismissal {
     }
 }
 
-/// G4-09 (chat-markdown-media-and-code): the media a press elsewhere leaves focused. A media node (MediaActions,
+/// The media a press elsewhere leaves focused. A media node (MediaActions,
 /// MediaPreviewActions: hook `t3-media` with `data-media-kind="actions"`) takes the focus from a click (tabindex 0), and AppKit
 /// leaves it there when the next press lands on something that takes none (a tab, a toolbar button, a text): the ContextMenu key
-/// or Shift+F10 then opened that media's menu with the timeline seemingly focused (`realinput-1011c` G4-09). A page's mousedown
+/// or Shift+F10 then opened that media's menu with the timeline seemingly focused. A page's mousedown
 /// moves the focus off an element it does not land on, so no reference path does that. Here, once such a press has gone through
 /// (what it pressed may take the focus itself), the media still holding the focus lets it go, and a key reaches no stale media.
 final class T3MediaFocus {

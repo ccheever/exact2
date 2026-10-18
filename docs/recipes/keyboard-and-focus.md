@@ -3,27 +3,23 @@
 Return, putting the keyboard away, moving the focus: said on the field and in actions.
 
 ```contract
+routes nav
+  home "/"
+
 shape Guest
   id: string
   name: string
 
 component Guests
-  state query = ""
   state draft = ""
-  state searching = false
+  state adding = false
   state guests = [Guest(id="1", name="Ada Lovelace"), Guest(id="2", name="Grace Hopper")]
-  derive shown = guests.filter(g => g.name.toLowerCase().includes(query.trim().toLowerCase()))
-  action search(v: string)
-    query = v
   action began
-    searching = true
+    adding = true
   action ended
-    searching = false
-  action searched
-    blur()
-  action cancel
-    query = ""
-    blur("search")
+    adding = false
+  action done
+    blur("draft")
   action edit(v: string)
     draft = v
   action add
@@ -34,48 +30,47 @@ component Guests
   action startAdding
     focus("draft")
   view
-    column height="100%"
-      row gap=8 padding="8px 16px" align-items="center"
-        input id="search" type="search" value=query input=search submit=searched focus=began blur=ended
-          placeholder="Search" aria-label="Search guests" enterkeyhint="search" testId="search" flex=1 min-width=0
-        text `${shown.length} found` testId="count"
-        if searching or query != ""
-          button press=cancel testId="cancel"
-            text "Cancel"
-        else
-          button press=startAdding aria-label="Add Guest" testId="start-adding"
-            image "symbol:add"
-      list appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-        section
-          row
-            input id="draft" value=draft input=edit submit=add placeholder="Add a guest"
-              aria-label="New guest" testId="draft" flex=1 min-width=0
-        section
-          for g in shown key=g.id
-            row
-              text g.name testId=`guest-${g.id}`
+    main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="guests" position="absolute" inset=0
+          header display="flex" align-items="center" padding="8px 16px"
+            text "Guests" role="heading" aria-level=1 flex=1
+            if adding
+              button press=done testId="done"
+                text "Done"
+            else
+              button press=startAdding aria-label="Add Guest" testId="start-adding"
+                image "symbol:add"
+          list id="guests" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+            section
+              row
+                input id="draft" value=draft input=edit submit=add focus=began blur=ended
+                  placeholder="Add a guest" aria-label="New guest" testId="draft" flex=1 min-width=0
+            section
+              for g in guests key=g.id
+                row
+                  text g.name testId=`guest-${g.id}`
 ```
 
 ```contract-test
-test "Return puts the keyboard away; Cancel clears the query"
-  type "search" "ada"
-  expect state searching == true
-  type "search" key "Enter"
-  expect state searching == false
-  expect text "count" == "1 found"
-  tap "cancel"
-  expect state query == ""
+test "Return adds and keeps typing; Done puts the keyboard away"
+  tap "start-adding"
+  expect state adding == true
+  type "draft" "Alan Turing"
+  type "draft" key "Enter"
+  expect text "guest-3" == "Alan Turing"
+  tap "done"
+  expect state adding == false
 ```
 
 - **Return** is the field's `submit`; `enterkeyhint` labels the key. On iOS it puts the keyboard
   away, and `next` moves to the next field. To keep typing, `focus("draft")` again in the
   action, as `add` does: the keyboard stays up.
-- **`blur()`** puts the keyboard away from an action, `blur("search")` from that field only;
+- **`blur()`** puts the keyboard away from an action, `blur("draft")` from that field only;
   **`focus("id")`** moves it to a field by its `id` (a sheet's first field: `autofocus=true`).
-- **`focus=` and `blur=`** say when a field is being edited. Keep Cancel while there is a query
-  too: on the web, pressing it blurs the field first.
-- **A live result** goes beside or above its field, as `count` does: the keyboard covers what is
-  below it, and nothing scrolls it into view.
+- **`focus=` and `blur=`** say when a field is being edited: here the bar shows Done meanwhile.
+- **Search** is the bar's field, filtering as you type, not a field in the content: `contract vocab search`.
+- **A live result** goes above its field: the keyboard covers what is below it.
 - **On scroll,** a drag on a `list` or `scroll` that reaches the keyboard pulls it down;
   `keyboardDismissMode="on-drag"` puts it away as the drag starts, `"none"` keeps it up.
   Composer: [chat-thread](chat-thread.md).

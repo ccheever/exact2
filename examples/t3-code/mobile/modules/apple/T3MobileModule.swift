@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#mobile-adaptations
 import UIKit
 
 /// The shared transport owns I/O and credentials; mobile supplies UIKit presentation and lifecycle.
@@ -592,7 +592,7 @@ final class T3MobileModule: ExactModule {
         }
     }
 
-    // @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+    // @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
     // Forget must retire durable cache even when Exact abandons the reply.
     private func forgetEnvironment(_ request: [String: Any], reply: ExactReply) {
         guard let environmentId = request["environmentId"] as? String,

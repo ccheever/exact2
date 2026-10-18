@@ -57,7 +57,8 @@ pub struct CFieldChrome {
     /// Nonzero if the answer requires another layout before presentation.
     pub provisional: u8,
 }
-/// Answer from the cache; a miss measures on main before returning a provisional answer.
+/// Answer from the cache; a miss is measured on main before it returns. A
+/// provisional answer is laid out again before the batch is presented.
 pub type FieldChromeFn = extern "C" fn(*mut c_void, *const CFieldChromeRequest) -> CFieldChrome;
 
 pub(crate) fn text_styles(f: ControlTextFn, ctx: *mut c_void) -> ControlTextStyles {

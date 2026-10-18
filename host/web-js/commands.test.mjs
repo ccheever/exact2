@@ -7,6 +7,7 @@ test('relaunch reloads the browser document and keeps committed storage', async 
     const path = new URL(request.url).pathname;
     if (path === '/commands.js') return new Response(Bun.file(new URL('./commands.js', import.meta.url)));
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
+    if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
     return new Response(`<button id="restart">Restart</button><output id="state"></output>
       <script type="module">
         import { commands } from '/commands.js';
@@ -28,6 +29,68 @@ test('relaunch reloads the browser document and keeps committed storage', async 
     await Promise.all([page.waitForEvent('load'), page.locator('#restart').click()]);
     await page.waitForFunction(() => document.querySelector('#state').textContent === '2:written before relaunch');
     expect(await page.locator('#state').textContent()).toBe('2:written before relaunch');
+  } finally {
+    await browser?.close();
+    server.stop(true);
+  }
+}, 30000);
+
+// A prompt's Return commits the field's `change` before it presses the first
+// action that is not destructive, so the action reads the new value and an
+// action the change enables counts; while that action is disabled Return
+// presses nothing, never the next one. A field with its own `submit` (the
+// runtime marks its Enter `$submit`) keeps Return, and nothing is pressed.
+test("a prompt's Return commits its field, then presses its action", async () => {
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === '/commands.js') return new Response(Bun.file(new URL('./commands.js', import.meta.url)));
+    if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
+    if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
+    return new Response(`<dialog role="alertdialog" open><input id="name">
+        <button id="delete" data-exact-on="press" data-destructive="true">Delete</button>
+        <button id="save" data-exact-on="press" disabled>Save</button>
+        <button id="suggest" data-exact-on="press">Use Suggestion</button></dialog><output id="log"></output>
+      <script type="module">
+        import '/commands.js';
+        let draft = '';
+        const save = document.querySelector('#save'), log = document.querySelector('#log');
+        document.querySelector('#name').addEventListener('change', e => { draft = e.target.value; save.disabled = draft === ''; });
+        document.querySelector('#delete').onclick = () => { log.textContent = 'deleted'; };
+        save.onclick = () => { log.textContent = 'saved ' + draft; };
+        document.querySelector('#suggest').onclick = () => { log.textContent = 'suggested'; };
+      </script>`, { headers: { 'content-type': 'text/html' } });
+  } });
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    const page = await browser.newPage();
+    await page.goto(server.url.href);
+    // Return queues the action on a zero-delay timer. Read after a timer
+    // queued behind it, including when checking that no action ran.
+    const log = () => page.evaluate(() => new Promise(resolve =>
+      setTimeout(() => resolve(document.querySelector('#log').textContent))));
+    await page.locator('#name').press('Enter');
+    expect(await log()).toBe('');
+    await page.locator('#name').fill('Kick');
+    await page.locator('#name').press('Enter');
+    expect(await log()).toBe('saved Kick');
+    await page.evaluate(() => {
+      const log = document.querySelector('#log');
+      log.textContent = '';
+      document.querySelector('#name').addEventListener('keydown', e => { if (e.key === 'Enter') { e.$submit = true; log.textContent = 'submitted'; } });
+    });
+    await page.locator('#name').press('Enter');
+    expect(await log()).toBe('submitted');
+    // A `change` that closes the prompt: its Save, still mounted, is not pressed.
+    await page.evaluate(() => {
+      const dialog = document.querySelector('dialog'), name = document.querySelector('#name');
+      name.replaceWith(name.cloneNode());
+      document.querySelector('#log').textContent = '';
+      document.querySelector('#name').addEventListener('change', () => dialog.close());
+    });
+    await page.locator('#name').fill('Snare');
+    await page.locator('#name').press('Enter');
+    expect(await log()).toBe('');
   } finally {
     await browser?.close();
     server.stop(true);

@@ -1,5 +1,5 @@
 // Pinned365aa87982 ThreadComposer.handleSend / use-thread-composer-state.onSendMessage.
-// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import type { MobileComposerTarget } from './composer-target';
 import { mobileComposerContextSendSnapshot } from './composer-command-context';

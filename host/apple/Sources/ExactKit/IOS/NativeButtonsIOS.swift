@@ -15,6 +15,10 @@ import UIKit
 /// (the node is the focus owner, D4).
 final class NativeButtonIOS: UIButton {
     weak var owner: NodeView?
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if ExactEnv.agentMode { TouchLog.reach(touches) }
+        super.touchesBegan(touches, with: event)
+    }
     /// What was last written, so a batch that changes nothing writes nothing.
     struct Written: Equatable {
         var face: ButtonFace
@@ -48,6 +52,35 @@ final class NativeButtonIOS: UIButton {
     }
     /// Whether it draws glass: a glass row on iOS 26 and later.
     var isGlass = false
+    /// A glass button's coloured symbol: its template, its own colour (nil when it is drawn in the tint),
+    /// and the alpha the face gives it (its own colour's, or an authored accent's; nil for an inherited tint)
+    struct Ink {
+        let template: UIImage
+        let color: UIColor?
+        let alpha: CGFloat?
+        /// Drawn in its colour, grey while the tint is dimmed behind a modal, as UIKit greys a button,
+        /// keeping its alpha: the face's, else an inherited tint's as last seen undimmed
+        func drawn(in button: NativeButtonIOS) -> UIImage {
+            let tint: UIColor = button.tintColor
+            let ink = button.tintAdjustmentMode == .dimmed ? tint.withAlphaComponent(alpha ?? button.tintAlpha) : color ?? tint
+            return template.withTintColor(ink, renderingMode: .alwaysOriginal)
+        }
+    }
+    var symbolInk: Ink?
+    /// An inherited tint's alpha while it is not dimmed: UIKit's dimmed tint is a grey that keeps none
+    /// of it, which a symbol drawn in the tint keeps behind a modal (one that changes while dimmed cannot
+    /// be read until the tint is restored)
+    private(set) var tintAlpha: CGFloat = 1
+    func noteTint() {
+        if tintAdjustmentMode != .dimmed { tintAlpha = tintColor.cgColor.alpha }
+    }
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        noteTint()
+        guard let symbolInk, var config = configuration else { return }
+        config.image = symbolInk.drawn(in: self)
+        configuration = config
+    }
     /// The configuration drawn, its name in the table's iOS column.
     var drawn = ButtonFace.unsaid
     override var canBecomeFocused: Bool {
@@ -63,6 +96,7 @@ final class NativeButtonIOS: UIButton {
         super.didUpdateFocus(in: context, with: coordinator)
         guard let owner, let presenter = owner.presenter else { return }
         if context.nextFocusedItem === self {
+            presenter.supersedePress() // the remote moved the focus (PressHandoffIOS)
             presenter.focusKey = owner.props["testId"]
             presenter.focusGuides.focused(owner)
             presenter.focus(owner.id)
@@ -98,9 +132,25 @@ extension NodeView {
     func activateNative() {
         guard let presenter, !disabled, !inert else { return }
         let target = activationTarget(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil))
-        focusForPress(target: target)
-        guard let target, presenter.views[target.id] === target else { return }
-        presenter.press(target.id)
+        let bubbled = target.map { presenter.pressBox(of: $0, from: self) !== $0 } ?? false
+        let path = target.map { PressPath(from: self, to: $0, presenter: presenter) }, heldTarget = target.map(HeldNode.init)
+        let lifetimes = bubbled ? [] : presenter.pressLifetimes(from: self, to: target)
+        // No press target: the nearest invoker still activates, as on the web.
+        let invocation = target == nil ? presenter.menus.invoker(from: self).map { PressPath(from: self, to: $0, presenter: presenter) } : nil
+        let handoff = focusForPress(target: target)
+        defer { handoff?.dispatched() }
+        #if os(tvOS)
+        presenter.supersedePress() // Select is a key's activation: it hands no focus on (PressHandoffIOS)
+        #endif
+        if target == nil {
+            if invocation?.isLive(in: presenter) == true { presenter.menus.activating(from: self, pressing: nil) {} }
+            return
+        }
+        guard !bubbled || path?.isLive(in: presenter) == true,
+              lifetimes.allSatisfy({ $0() }), let target = heldTarget?.live(in: presenter), target.takesPress(bubbled: bubbled) else { return }
+        presenter.menus.activating(from: self, pressing: target) {
+            presenter.press(target.id, bubbled: bubbled)
+        }
     }
 }
 
@@ -159,7 +209,7 @@ extension ControlHost {
         // leaves it red, as it leaves a swipe action's; an accent written on the button itself, and a colour
         // written on its title, win (LLP 1115: what the author writes wins).
         let destructive = owner.props["destructive"] == "true" && !owner.wrote("accent_color")
-        let accent = destructive ? UIColor.systemRed : accent
+        let accent = destructive ? UIColor.systemRed : Self.platformAccent(owner, accent, in: button.traitCollection)
         let written = NativeButtonIOS.Written(
             face: face, accent: accent, destructive: destructive, enabled: !owner.disabled,
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
@@ -191,6 +241,21 @@ extension ControlHost {
             button.isGlass = glass
             owner.syncGlassSlot()
         }
+    }
+
+    /// A system accent (`-exact-system-teal`) as UIKit's own dynamic colour,
+    /// where it resolves in the button's traits as the node draws it (a
+    /// subtree's forced scheme keeps the node's resolution): under Increase
+    /// Contrast a filled style draws UIKit's system colour at its
+    /// high-contrast value, and darkens a fixed colour once more, so the
+    /// resolved value read darker than a hand-built button (LLP 1116.019 D3).
+    static func platformAccent(_ owner: NodeView, _ resolved: UIColor?, in traits: UITraitCollection) -> UIColor? {
+        guard let resolved, let system = SystemColor.native(owner.style["accent_color"]) else { return resolved }
+        var a: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0), b = a
+        guard system.resolvedColor(with: traits).getRed(&a.0, green: &a.1, blue: &a.2, alpha: &a.3),
+              resolved.getRed(&b.0, green: &b.1, blue: &b.2, alpha: &b.3) else { return resolved }
+        let near = abs(a.0 - b.0) < 0.01 && abs(a.1 - b.1) < 0.01 && abs(a.2 - b.2) < 0.01 && abs(a.3 - b.3) < 0.01
+        return near ? system : resolved
     }
 
     /// What the agent's `layout` says of a native button (D10).

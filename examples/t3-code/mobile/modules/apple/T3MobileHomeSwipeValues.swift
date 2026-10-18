@@ -1,4 +1,4 @@
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // Wire values only; no native geometry or transport ownership.
 import Foundation
 

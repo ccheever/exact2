@@ -14,7 +14,9 @@ theorem ask_legit (o : Oracle) (src : String) (args : List Value) (r : String) :
   · trivial
   · split
     · trivial
-    · exact ⟨trivial, by simp⟩
+    · split
+      · exact ⟨trivial, by simp⟩
+      · exact ⟨trivial, by simp⟩
 
 /-- What settlement's evaluations need: the derives and resources are
 typed in a scope `G`, and an environment of the slots and any well-typed

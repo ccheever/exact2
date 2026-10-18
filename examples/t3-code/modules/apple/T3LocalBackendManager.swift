@@ -1,15 +1,17 @@
-// The embedded server's supervisor (20261005-embedded-server-runtime): a port of T3 Code's
-// desktop backend instance (MIT, see LICENSE-T3; reference 1e2ecbd975:
+// The embedded server's supervisor: a port of T3 Code's
+// desktop backend instance (MIT, see LICENSE-T3; reference 9c161462c9:
 // apps/desktop/src/backend/DesktopBackendManager.ts `makeBackendInstance`, `runBackendProcess`,
 // `calculateRestartDelay`; app/DesktopApp.ts `stopAllPoolInstances`).
 //
 // One instance owns one server process at a time: start, readiness rounds (a probe every 100 ms,
 // 1 s each, 60 s rounds repeated while the process lives), a restart after an unexpected exit
-// with min(500 ms × 2ⁿ, 10 s), n back to 0 once ready, and stop (SIGTERM, SIGKILL after 2 s).
+// with min(500 ms × 2ⁿ, 10 s), n back to 0 once ready, and stop (SIGTERM, SIGKILL after 5 s).
+// An exit with code 78 (`SERVER_EXIT_CODE_STATE_DIR_OWNED`: another server owns the T3 home) is
+// not restarted: the instance stops wanting to run and reports it once (`onStateDirOwned`).
 // Effect's fibers become callbacks on one serial executor; its clock becomes `T3LocalClock`, so
 // the ported tests (macos/tests/local-backend) drive time by hand. Every method runs on the
 // executor. The WSL preflight states, telemetry fds and runtime pruning are not ported (no WSL,
-// telemetry excluded: spec, issue X39).
+// telemetry excluded: spec).
 import Foundation
 
 protocol T3LocalExecutor: AnyObject { func run(_ block: @escaping () -> Void) }
@@ -53,6 +55,7 @@ struct T3LocalBootstrap: Codable, Equatable {
     var t3Home: String
     var host = "127.0.0.1"
     var desktopBootstrapToken: String
+    var desktopBootstrapSecret: String?
     var tailscaleServeEnabled = false
     var tailscaleServePort = 443
     var resourceMonitorPath: String?
@@ -91,7 +94,7 @@ struct T3LocalChildEvents {
 
 protocol T3LocalChild: AnyObject {
     var pid: Int32 { get }
-    /// The run scope's close: SIGTERM, SIGKILL after 2 s (`forceKillAfter`). The exit arrives through the events.
+    /// The run scope's close: SIGTERM, SIGKILL after 5 s (`forceKillAfter`, DEFAULT_BACKEND_TERMINATE_GRACE). The exit arrives through the events.
     func close()
 }
 
@@ -111,6 +114,7 @@ struct T3LocalBackendSpec {
     var onReady: (URL) -> Void = { _ in }
     var onShutdown: () -> Void = {}
     var onStarted: (Int32, T3LocalStartConfig) -> Void = { _, _ in }
+    var onStateDirOwned: () -> Void = {}
 }
 
 final class T3LocalBackendManager {
@@ -121,6 +125,8 @@ final class T3LocalBackendManager {
     static let readinessProbeTimeout = 1_000.0
     static let outputDrainTimeout = 5_000.0
     static let readinessPath = "/.well-known/t3/environment"
+    /// `SERVER_EXIT_CODE_STATE_DIR_OWNED` (packages/contracts/src/desktopBootstrap.ts): EX_CONFIG.
+    static let stateDirOwnedExitCode: Int32 = 78
 
     /// `calculateRestartDelay`.
     static func restartDelay(_ attempt: Int) -> Double { min(initialRestartDelay * pow(2, Double(attempt)), maxRestartDelay) }
@@ -172,6 +178,8 @@ final class T3LocalBackendManager {
     private var restartTimer: T3LocalCancellable?
     private(set) var restartDueAt: Double?
     private(set) var lastExit: String?
+    /// The last run exited because another server owns the T3 home; cleared by the next start.
+    private(set) var stateDirOwned = false
     private var nextRunId = 1
 
     init(executor: T3LocalExecutor, clock: T3LocalClock, spawner: T3LocalSpawner, prober: T3LocalProber, log: T3LocalOutputLog, spec: T3LocalBackendSpec) {
@@ -200,6 +208,7 @@ final class T3LocalBackendManager {
             spec.onShutdown()
             ready = false
         }
+        stateDirOwned = false
         let resolved: T3LocalStartConfig
         do { resolved = try spec.configResolve() } catch {
             logger("failed to generate desktop backend configuration: \(error)")
@@ -340,7 +349,17 @@ final class T3LocalBackendManager {
         }
         if run.exitObserved { lastExit = reason }
         if wasReady { spec.onShutdown() }
-        if desiredRunning { scheduleRestart(reason) }
+        if desiredRunning, run.exit?.code == Self.stateDirOwnedExitCode, !run.stopRequested {
+            desiredRunning = false
+            stateDirOwned = true
+            changed()
+            spec.onStateDirOwned()
+            return
+        }
+        if desiredRunning {
+            if run.stopRequested { start() }
+            else { scheduleRestart(reason) }
+        }
         changed()
     }
 
@@ -360,7 +379,7 @@ final class T3LocalBackendManager {
 
     // MARK: stop
 
-    /// `stop`: no restart, SIGTERM (SIGKILL after 2 s), and, when the close finished, a start that
+    /// `stop`: no restart, SIGTERM (SIGKILL after 5 s), and, when the close finished, a start that
     /// was asked for during the teardown. With `timeoutMs`, `completion` runs after at most that long
     /// and the run stays active until its process exits.
     func stop(timeoutMs: Double? = nil, completion: @escaping () -> Void = {}) {

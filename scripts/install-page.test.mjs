@@ -11,7 +11,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileS
 import { spawn, spawnSync } from 'node:child_process';
 import { closeFilesystemReader, filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createServer } from 'node:http';
 import { allowHostArgs, allowHostName, developmentGate, developmentInstallPage, installData, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
 import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
@@ -154,6 +154,10 @@ test('the install data is what the page renders, for a client that draws its own
   const bare = installData({...manifest,brand:{logo:'assets/logo.png',wordmark:{text:'I',font:'assets/f.woff2'}}});
   assert.equal(bare.reach,null);assert.equal(bare.build.dirty,null);assert.equal(bare.build.source,null);
   assert.deepEqual(bare.brand,{logo:'/assets/logo.png',wordmark:{text:'I',font:'/assets/f.woff2'}});
+  // An AppDrop link is the iOS default; authored iOS methods replace it.
+  const dropped = {...manifest,deploy:{appdrop:{url:'https://appdrop.app/d/k3m9x2p7qa'}}};
+  assert.deepEqual(installData(dropped).platforms.ios.methods.map(m=>[m.kind,m.url,m.label]),[['direct','https://appdrop.app/d/k3m9x2p7qa','Install with AppDrop']]);
+  assert.deepEqual(installData({...dropped,install:{ios:{methods:[]}}}).platforms.ios.methods,[]);
 });
 
 test('only a Mac development response adds local Simulator and signed-device actions', () => {
@@ -283,6 +287,46 @@ chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
     `;
     const child=spawnSync(process.execPath,['--eval',program],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH,RUSTC_WORKSPACE_WRAPPER:'/toolchain/clippy-driver',CLIPPY_ARGS:'-D warnings'}});
     assert.equal(child.status,0,child.stderr);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 200_000);
+
+test('a helper named by its checker is taken without a build, and only if it is this checkout\'s and intact', () => {
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-helper-named-')));
+  try {
+    mkdirSync(join(dir,'scripts'));mkdirSync(join(dir,'bin'));
+    writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+    // A stand-in Cargo that counts its builds and publishes whatever helper-source holds
+    writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+set -e
+printf x >> builds
+mkdir -p target/exact-filesystem-tool/debug
+cp helper-source target/exact-filesystem-tool/debug/exact-filesystem
+chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
+`,{mode:0o755});
+    const helper=value=>`#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({value})}'\n`;
+    writeFileSync(join(dir,'helper-source'),helper('checked'));
+    const env={...process.env,PATH:join(dir,'bin')+':'+process.env.PATH};
+    delete env.EXACT_FILESYSTEM_HELPER;
+    const named=spawnSync(process.execPath,['scripts/filesystem.mjs','--helper'],{cwd:dir,encoding:'utf8',env});
+    assert.equal(named.status,0,named.stderr);
+    writeFileSync(join(dir,'helper-source'),helper('rebuilt'));
+    const get=(helperPath)=>spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';console.log(filesystem({op:'get'}));"],
+      {cwd:dir,encoding:'utf8',env:{...env,EXACT_FILESYSTEM_HELPER:helperPath}});
+    let run=get(named.stdout);
+    assert.equal(run.status,0,run.stderr);
+    assert.equal(run.stdout.trim(),'checked');
+    assert.equal(readFileSync(join(dir,'builds'),'utf8'),'x','a named helper needs no build');
+    // A copy whose bytes no longer give the digest in its name is checked as usual
+    const tampered=join(dirname(named.stdout),`exact-filesystem-${'0'.repeat(64)}`);
+    writeFileSync(tampered,helper('tampered'),{mode:0o755});
+    run=get(tampered);
+    assert.equal(run.status,0,run.stderr);
+    assert.equal(run.stdout.trim(),'rebuilt');
+    assert.equal(readFileSync(join(dir,'builds'),'utf8'),'xx');
+    // As is one outside this checkout's helper directory
+    run=get(join(dir,'helper-source'));
+    assert.equal(run.stdout.trim(),'rebuilt');
+    assert.equal(readFileSync(join(dir,'builds'),'utf8'),'xxx');
   } finally {rmSync(dir,{recursive:true,force:true});}
 }, 200_000);
 

@@ -38,14 +38,10 @@ fn emit_grid_seam(w: &mut String, id: &str, seam: GridSeam) -> bool {
 
 fn emit_style_encoding(w: &mut String, schema: &Schema) {
     w.push_str(
-        "    /// Encode the rows in `mask` as a masked patch.\n\
-         pub fn encode_masked(&self, mask: StyleMask, w: &mut Writer) {\n\
-             self.encode_overlaid(mask, self, w);\n\
-         }\n\
-         /// Encode these rows, taking explicitly patched rows from `patch`.\n\
-         pub(crate) fn encode_overlaid(&self, mask: StyleMask, patch: &StyleProps, w: &mut Writer) {\n\
+        "    /// Encode value rows and the resulting declaration mask, taking patched values from `patch`.\n\
+         pub(crate) fn encode_overlaid(&self, mask: StyleMask, written: StyleMask, patch: &StyleProps, w: &mut Writer) {\n\
              w.style_mask(mask);\n\
-             w.style_mask(self.written.minus(patch.mask).union(patch.written.intersect(patch.mask)).intersect(mask));\n\
+             w.style_mask(written);\n\
              for id in mask.iter() {\n\
                  let source = if patch.mask.has(id) { patch } else { self };\n\
                  match id {\n",
@@ -548,8 +544,17 @@ pub fn write_color_roles(w: &mut String, colors: &[[String; 8]], rgba: impl Fn(&
     w.push_str("];\n");
 }
 /// A `textStyles` row: name, WebKit alias, UIFont's and NSFont's text
-/// style, weight, and the size at each of `textStyleBodies`.
-type TextStyleRow = (String, String, String, String, u16, Vec<f32>);
+/// style, the weight in each metric column, the size at each of
+/// `textStyleBodies`, and the leading in each column (`None`: `normal`).
+type TextStyleRow = (
+    String,
+    String,
+    String,
+    String,
+    [u16; 4],
+    Vec<f32>,
+    [Option<f32>; 4],
+);
 /// `textStyles` (LLP 1115 D3): the platform's type ramp.
 pub fn write_text_styles(w: &mut String, bodies: &[f32], styles: &[TextStyleRow]) {
     assert!(
@@ -566,18 +571,21 @@ pub fn write_text_styles(w: &mut String, bodies: &[f32], styles: &[TextStyleRow]
         "    /// WebKit's `-apple-system-*` name for it, or empty.\n    pub alias: &'static str,\n",
         "    /// `UIFont.TextStyle`'s.\n    pub ios: &'static str,\n",
         "    /// `NSFont.TextStyle`'s.\n    pub macos: &'static str,\n",
-        "    /// Its weight, CSS's number.\n    pub weight: u16,\n",
+        "    /// Its weight, CSS's number, in each column of the metric table: the\n",
+        "    /// web, iOS, the Mac, neutral (LLP 1115.000 D12.2).\n    pub weights: [u16; 4],\n",
         "    /// Its size at each of [`TEXT_STYLE_BODIES`].\n    pub sizes: &'static [f32],\n",
+        "    /// Its leading in each column, a line height over its size; `None` is\n",
+        "    /// `normal`, the face's own (LLP 1115.000 D12.2).\n    pub leadings: [Option<f32>; 4],\n",
         "}\n",
     ));
     w.push_str(&format!(
         "/// The body sizes (root font sizes) the ramp is given at.\npub const TEXT_STYLE_BODIES: &[f32] = &{bodies:?};\n"
     ));
     w.push_str("/// Every text style, by id.\npub const TEXT_STYLES: &[TextStyle] = &[\n");
-    for (name, alias, ios, macos, weight, sizes) in styles {
+    for (name, alias, ios, macos, weights, sizes, leadings) in styles {
         assert_eq!(sizes.len(), bodies.len(), "schema: text style {name} has a size per body");
         w.push_str(&format!(
-            "TextStyle {{ name: {name:?}, alias: {alias:?}, ios: {ios:?}, macos: {macos:?}, weight: {weight}, sizes: &{sizes:?} }},\n"
+            "TextStyle {{ name: {name:?}, alias: {alias:?}, ios: {ios:?}, macos: {macos:?}, weights: {weights:?}, sizes: &{sizes:?}, leadings: {leadings:?} }},\n"
         ));
     }
     w.push_str("];\n");
@@ -738,4 +746,48 @@ fn hex_rgba(hex: &str) -> [u8; 4] {
         byte(4),
         if h.len() == 8 { byte(6) } else { 255 },
     ]
+}
+
+fn write_controls(w: &mut String, rows: &[[String; 9]]) {
+    w.push_str(concat!(
+        "/// How a host honours a control's parameter (LLP 1121 D9).\n",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
+        "pub enum Fidelity {\n",
+        "    /// As written.\n    Exact,\n",
+        "    /// Honoured, but the platform alters it.\n    BestEffort,\n",
+        "    /// Not honoured: the platform's own stands.\n    None,\n",
+        "}\n",
+        "/// The hosts a control row has a column for, in its order.\n",
+        "pub const CONTROL_HOSTS: [&str; 7] = [\"ios\", \"macos\", \"web\", \"linux\", \"windows\", \"terminal\", \"android\"];\n",
+        "/// A control's parameter and each host's fidelity for it, with why.\n",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
+        "pub struct ControlRow {\n",
+        "    /// The control (`switch`, `field`, …).\n    pub control: &'static str,\n",
+        "    /// A state part's state where the row is that state's (`disabled`).\n    pub state: Option<&'static str>,\n",
+        "    /// `accent-color`, or the colour role it reads.\n    pub parameter: &'static str,\n",
+        "    /// Per host, in `CONTROL_HOSTS`' order.\n    pub hosts: [(Fidelity, &'static str); 7],\n",
+        "}\n",
+    ));
+    w.push_str("/// The control-role table (LLP 1121 D9).\npub const CONTROLS: &[ControlRow] = &[\n");
+    for [control, parameter, hosts @ ..] in rows {
+        let (name, state) = control.split_once(':').map_or((control.as_str(), None), |(n, s)| (n, Some(s)));
+        let cells: Vec<String> = hosts
+            .iter()
+            .map(|cell| {
+                let (f, why) = cell.split_once(": ").unwrap_or((cell.as_str(), ""));
+                let f = match f {
+                    "exact" => "Exact",
+                    "best-effort" => "BestEffort",
+                    _ => "None",
+                };
+                format!("(Fidelity::{f}, {why:?})")
+            })
+            .collect();
+        let _ = writeln!(
+            w,
+            "    ControlRow {{ control: {name:?}, state: {state:?}, parameter: {parameter:?}, hosts: [{}] }},",
+            cells.join(", ")
+        );
+    }
+    w.push_str("];\n");
 }

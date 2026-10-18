@@ -50,6 +50,12 @@ final class NavigationHost {
     }
     /// What is shown, read again with no batch: a sheet left, a window came.
     func resync() { sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil), concerned: true) }
+    /// A stack's routes as authored, a route in its sheet's window among
+    /// them. What else has left `node`'s views for a container of its own
+    /// (a `dialog` in its sheet) is no route.
+    func routes(in node: NodeView) -> [NodeView] {
+        presenter.blocks.authored(NavigationTabs.routes(in: node), in: node.container).filter { $0.props["navigationKey"] != nil }
+    }
     /// LLP 1080.001 D3: a modal route's ground is this host's view.
     func inspectionOwns(_ view: NSView) -> Bool { view is ModalGround }
     /// The page's ground changed colour: the grounds are painted again.
@@ -114,10 +120,8 @@ final class NavigationHost {
         for nav in roots {
             // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
             let tabs = NavigationTabs.of(nav, presenter)
-            // A stack's routes as authored: one in its sheet's window has left its parent's views.
-            let routes = { [presenter] (node: NodeView) in presenter.blocks.authored(NavigationTabs.routes(in: node), in: node.container) }
             let locate = { (key: String) -> (at: Int?, stacks: [[NodeView]]) in
-                let stacks = tabs.map { $0.panels.map(routes) } ?? [routes(nav)]
+                let stacks = tabs.map { $0.panels.map(self.routes(in:)) } ?? [self.routes(in: nav)]
                 return (stacks.firstIndex { $0.contains { $0.props["navigationKey"] == key } }, stacks)
             }
             var key = nav.props["navigationKey"] ?? ""
@@ -208,21 +212,32 @@ final class NavigationHost {
     }
 
     /// Top-layer ownership changes the same native input/AX gates as inert.
+    /// The focus leaves a node input no longer reaches (a hidden view, an
+    /// inert one: authored, a route's, behind a dialog) and a control that
+    /// became disabled (HTML's focus fixup rule), whose place Tab goes on
+    /// from (`Presenter.tabStart`). `aria-hidden` takes a node out of the
+    /// accessibility tree only, and the focus stays, as in Chrome.
     func refreshInputGates(_ nodes: [NodeView]) {
         for node in nodes {
             let inert = node.inert
-            let hidden = node.accessibilityInert || node.isHiddenOrHasHiddenAncestor || node.accessibilityHiddenByProp
+            let unreachable = inert || node.isHiddenOrHasHiddenAncestor
+            // Read before a field is disabled below, which can end its editing.
+            let window = node.window, responder = window?.firstResponder as? NSView
+            let focused = responder.map { $0 === node || $0.isDescendant(of: node) || node.field?.currentEditor() === $0 } ?? false
             // The AX getter can traverse the legacy unsupported-attribute path
             // for non-elements; writing this property is cheaper than querying it.
-            node.setAccessibilityHidden(hidden)
+            node.setAccessibilityHidden(node.accessibilityInert || node.isHiddenOrHasHiddenAncestor || node.accessibilityHiddenByProp)
             let enabled = !node.disabled && !inert
             if let field = node.field, field.isEnabled != enabled { field.isEnabled = enabled }
             let editable = enabled && node.props["editable"] != "false"
             if let area = node.textArea, area.isEditable != editable { area.isEditable = editable }
-            if hidden, let responder = node.window?.firstResponder as? NSView,
-               responder === node || responder.isDescendant(of: node) || node.field?.currentEditor() === responder {
-                node.window?.makeFirstResponder(nil)
+            guard focused, unreachable || node.formDisabled, let window else { continue }
+            if !unreachable {
+                presenter.tabStart = presenter.keyView(of: node)
+                presenter.keyViewLoopStale = true
             }
+            // A field that was disabled may have ended its editing already.
+            if window.firstResponder === responder { window.makeFirstResponder(nil) }
         }
     }
 }

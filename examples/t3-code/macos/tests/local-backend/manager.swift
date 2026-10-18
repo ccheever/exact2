@@ -1,13 +1,13 @@
 import Foundation
 import XCTest
 
-// Ported from T3 Code (MIT, see LICENSE-T3), reference 1e2ecbd975:
+// Ported from T3 Code (MIT, see LICENSE-T3), reference 9c161462c9:
 // apps/desktop/src/backend/DesktopBackendManager.test.ts and DesktopBackendConfiguration.test.ts.
 // Change from the reference: the tests were bun/vitest over Effect; the logic is native here
 // (T3LocalBackendManager.swift), so they are XCTest cases with the original names, and Effect's
 // Deferred/Queue/TestClock become the doubles in harness.swift. Assertions on the WSL runtime
 // pruning and the telemetry control source are dropped with those features (no WSL; telemetry
-// excluded, issue X39).
+// excluded).
 final class LocalBackendManagerTests: XCTestCase {
     func test_retries_HTTP_readiness_before_reporting_the_backend_ready() {
         let t = TestInstance()
@@ -50,6 +50,22 @@ final class LocalBackendManagerTests: XCTestCase {
         XCTAssertEqual(t.spawner.starts, 2)
         t.clock.adjust(1)
         XCTAssertEqual(t.spawner.starts, 3)
+    }
+
+    func test_reports_state_directory_ownership_once_without_scheduling_another_backend() {
+        let t = TestInstance()
+        var refused = 0
+        t.manager.spec.onStateDirOwned = { refused += 1 }
+        t.prober.fallback = nil
+        t.spawner.onSpawn = { $0.finish(T3LocalExit(code: T3LocalBackendManager.stateDirOwnedExitCode)) }
+        t.start()
+        XCTAssertEqual(refused, 1)
+        XCTAssertFalse(t.manager.snapshot.desiredRunning)
+        XCTAssertFalse(t.manager.snapshot.restartScheduled)
+        XCTAssertTrue(t.manager.stateDirOwned)
+        t.clock.adjust(60_000)
+        XCTAssertEqual(t.spawner.starts, 1)
+        XCTAssertEqual(refused, 1)
     }
 
     func test_starts_the_configured_backend_and_closes_the_scoped_process_on_stop() {
@@ -116,9 +132,18 @@ final class LocalBackendManagerTests: XCTestCase {
         XCTAssertEqual(t.spawner.starts, 1)
         XCTAssertEqual(t.snapshot.desiredRunning, true)
         XCTAssertEqual(t.snapshot.activePid, 123)
+        // The backend's pending start settles on readiness or an unexpected-exit restart. The old
+        // requested exit must not publish that failure between the bounded stop and the next run.
+        var readyWaiter: String?
+        t.manager.changed = {
+            guard readyWaiter == nil else { return }
+            if t.snapshot.restartScheduled { readyWaiter = "failed" }
+            else if t.snapshot.ready { readyWaiter = "ready" }
+        }
+        t.prober.fallback = 200
         t.run { t.spawner.children[0].finish(T3LocalExit(code: 0)) }
-        t.clock.adjust(500)
         XCTAssertEqual(t.spawner.starts, 2)
+        XCTAssertEqual(readyWaiter, "ready")
     }
 
     func test_does_not_restart_after_stop_cancels_a_scheduled_restart() {
@@ -187,8 +212,10 @@ final class LocalBackendManagerTests: XCTestCase {
     }
 
     func test_resolvePrimary_produces_a_stable_scoped_bootstrap_token() {
-        let first = T3LocalBackend.shared.currentBootstrapToken, second = T3LocalBackend.shared.currentBootstrapToken
-        XCTAssertNotNil(first.range(of: "^[0-9a-f]{48}$", options: .regularExpression))
+        let backend = T3LocalBackend()
+        backend.nowMs = { T3DesktopBootstrap.windowMs * 10 }
+        let first = backend.currentBootstrapToken, second = backend.currentBootstrapToken
+        XCTAssertNotNil(first.range(of: "^[0-9a-f]{64}$", options: .regularExpression))
         XCTAssertEqual(first, second)
         let base = ["PATH": "/usr/bin", "T3CODE_PORT": "4888", "T3CODE_MODE": "web", "T3CODE_DESKTOP_LAN_HOST": "10.0.0.2", "T3CODE_HOME": "/elsewhere", "LANG": "en_US.UTF-8"]
         let env = T3LocalShellEnvironment.serverEnvironment(base: base) { _, _, _ in "" }

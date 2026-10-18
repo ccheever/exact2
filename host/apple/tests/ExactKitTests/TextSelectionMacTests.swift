@@ -52,6 +52,36 @@ final class TextSelectionMacTests: XCTestCase {
         return p
     }
 
+    func testPopoverParagraphSelectsUnderButtonOnlyAndSurfaceOnlyAncestors() throws {
+        let p = fixture(measured: true), text = try XCTUnwrap(p.views[2])
+        p.menus.painted = true
+        p.apply(wireBatch([
+            ["op": "create", "id": 11, "kind": "view", "props": ["popover": "manual", "id": "words"]],
+            ["op": "children", "id": 11, "ids": [2]],
+            ["op": "children", "id": 1, "ids": [3, 5, 6, 7, 8, 10]],
+            ["op": "frame", "id": 11, "x": 0, "y": 0, "w": 340, "h": 50],
+        ]))
+        let pop = try XCTUnwrap(p.views[11]), button = try XCTUnwrap(p.views[3]), surface = try XCTUnwrap(p.views[7])
+        button.handlers = []; surface.handlers = []; surface.canvasInput = PressCanvasProbe(); surface.props["action"] = "primary"
+        XCTAssertTrue(button.isButton)
+        XCTAssertTrue(surface.isSurfaceControl)
+        for ancestor in [button, surface] {
+            XCTAssertFalse(ancestor.pressable)
+            p.apply(wireBatch([["op": "children", "id": ancestor.id, "ids": [11]]]))
+            p.menus.action("showPopover", ["words"])
+            XCTAssertTrue(p.menus.isOpen(pop))
+            XCTAssertFalse(text.isDescendant(of: ancestor))
+            XCTAssertTrue(text.selectsText)
+            let at = text.convert(NSPoint(x: 1, y: 1), to: nil)
+            text.mouseDown(with: mouse(.leftMouseDown, at))
+            text.mouseUp(with: mouse(.leftMouseUp, at))
+            XCTAssertNil(p.mouseChain.bubbledPress, "the paragraph's selection takes the click, which never crosses the boundary")
+            p.menus.close(pop)
+        }
+        p.apply(wireBatch([["op": "children", "id": surface.id, "ids": [2]]]))
+        XCTAssertFalse(text.selectsText, "before any crossing, a surface control still takes the drag")
+    }
+
     func testCommandsSelectTextAndClearEachParagraph() throws {
         let p = fixture(measured: true)
         let node = try XCTUnwrap(p.views[2]), other = try XCTUnwrap(p.views[5])

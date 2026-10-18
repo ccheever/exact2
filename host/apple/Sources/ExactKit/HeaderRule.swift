@@ -16,14 +16,18 @@ import UIKit
 #endif
 
 /// A route's header as the shared rule reads it: its heading and level, its
-/// buttons before and after the heading, all of them with the stack's Back
-/// control, its search field, its tablist and the pressable around the
-/// heading. Each platform's bar is made from it.
+/// items before and after the heading (buttons and readouts, `role="status"`),
+/// its buttons with the stack's Back control, its search field, its tablist
+/// and the pressable around the heading. Each platform's bar is made from it.
 struct HeaderRule {
     let header: NodeView, heading: NodeView
     let level: Int
     let leading: [NodeView], trailing: [NodeView], items: [NodeView]
     let search: NodeView?, segments: NodeView?, tap: NodeView?
+
+    /// The readouts among the leading and trailing items: nothing presses
+    /// them (LLP 1075.003 §9.15).
+    var readouts: [NodeView] { (leading + trailing).filter { node in !items.contains { $0 === node } } }
 
     /// The nodes handed to the shared rule, in all: what a projection walks,
     /// which the tests pin (a feed's rows are never among them).
@@ -45,8 +49,9 @@ struct HeaderRule {
         if node.isHeading { facts |= 1 | UInt32(node.headingLevel ?? 0) << 16 }
         if node.kind == "input", node.props["type"] == "search" { facts |= 2 }
         if node.props["accessibilityRole"] == "tablist" { facts |= 4 }
+        if node.props["accessibilityRole"] == "status" { facts |= 1024 }
         if node.handlers.contains("press") { facts |= 8 }
-        if node.isButton, node.props["popovertarget"] != nil, node.props["popovertargetaction"] != "hide" { facts |= 16 }
+        if node.presenter?.invocation(of: node)?.opensPopover == true { facts |= 16 }
         if back != nil, node.props["id"] == back { facts |= 32 }
         if node.props["semanticTag"] == "header" { facts |= 64 }
         if node.style["display"]?.string == "none" { facts |= 128 }

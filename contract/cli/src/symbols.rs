@@ -489,6 +489,7 @@ impl<'a> Resolver<'a> {
                     self.refer("shape", name, *span, None, None);
                 }
             }
+            TypeExpr::Enum(..) => {}
             TypeExpr::List(inner, _) | TypeExpr::Option(inner, _) => self.ty(inner),
         }
     }

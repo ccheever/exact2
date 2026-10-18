@@ -384,8 +384,9 @@ final class NavigationBarIOSTests: XCTestCase {
     }
 
     /// LLP 1075.003 §9.6: a button whose one child is a filled box is an
-    /// image item drawn from it; a popover's invoker is an item whose menu
-    /// holds the popover's rows, each pressing its authored button.
+    /// image item drawn from it; a popover's invoker is an item whose menu,
+    /// titled by the popover's `aria-label`, holds the popover's rows, each
+    /// pressing its authored button.
     func testABadgeButtonIsAnImageItemAndAPopoverInvokerAMenuItem() throws {
         let session = try fixture("bar-badge-menu", module: false)
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
@@ -401,11 +402,18 @@ final class NavigationBarIOSTests: XCTestCase {
         let more = try XCTUnwrap(left.first { $0.accessibilityLabel == "More" }, "the popover's invoker is an item")
         let menu = try XCTUnwrap(more.menu, "with the popover as its menu")
         XCTAssertNil(more.action, "UIKit opens the menu on a tap")
+        XCTAssertEqual(menu.title, "Actions", "the popover's `aria-label` titles the menu, as a hand-built bar item's `UIMenu(title:)`")
         XCTAssertTrue(menu.children.first is UIDeferredMenuElement, "rows read as it opens")
         let pop = try XCTUnwrap(session.presenter.carrying("popover").first { $0.props["id"] == "bar-menu" })
         let rows = session.presenter.menus.items(of: pop)
         let row = try XCTUnwrap(rows.first as? UIAction)
         XCTAssertEqual(row.title, "Bump from the bar")
+        // Where the agent shows UIKit's menus rather than painting its own
+        // (as here), its tap on that item says what it cannot do, by name:
+        // UIKit's pull-down opens from the bar under a real touch alone.
+        let invoker = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "menu-item" })
+        let refusal = session.presenter.navigation.activateChrome(invoker)?["error"] as? String
+        XCTAssertTrue(refusal?.hasPrefix("unsupported: bar item") == true, "\(refusal ?? "nil")")
     }
 
     /// LLP 1075.003 §9.6: a header's `input type="search"` is the item's
@@ -448,6 +456,9 @@ final class NavigationBarIOSTests: XCTestCase {
             session.presenter.navigation.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
         }
         func ink() -> UIColor? { field.attributedPlaceholder?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor }
+        // Unsaid, the search field's own ink, darker than a text field's
+        // `placeholderText` (LLP 1104 D3, amended 2026-10-16).
+        XCTAssertNotEqual(ink()?.resolvedColor(with: field.traitCollection), UIColor.placeholderText.resolvedColor(with: field.traitCollection))
         let red: [String: BatchValue] = ["placeholder_color": .array([.number(255), .number(0), .number(0), .number(255)])]
         source.applyStyle(red)
         let authored = try XCTUnwrap(source.placeholderColor)
@@ -715,13 +726,17 @@ final class NavigationBarIOSTests: XCTestCase {
         spin(0.2)
         XCTAssertTrue(app.animated, "the app's animator ran, through the forwarded delegate")
         XCTAssertEqual(backs(session), 0, "no Back")
+        let phase = { (navigation.observation()["transition"] as? [String: Any])?["phase"] as? String }
+        XCTAssertFalse(navigation.changing, "the cancelled pop is over")
+        XCTAssertEqual(phase(), "cancelled")
         // Completed: the same animator, finished.
         app.interactive = false
         nav.popViewController(animated: true)
         until("the completed pop lands") { nav.transitionCoordinator == nil && nav.viewControllers.count == 1 }
         spin(0.2)
-        XCTAssertGreaterThan(app.shown, 0, "didShow forwarded after Exact's own")
+        XCTAssertGreaterThan(app.shown, 0, "didShow forwarded to the app")
         XCTAssertEqual(backs(session), 1, "Back once")
+        XCTAssertEqual(phase(), "completed")
     }
 
     func testTheModulesHatchesRunAtTheirMomentsAndActThroughAuthoredControls() throws {
@@ -762,6 +777,39 @@ final class NavigationBarIOSTests: XCTestCase {
         nav.popViewController(animated: true)
         until("detail ended") { log().contains("hatch route \(key): ended") }
     }
+    func testExplicitGroupsSplitGlassWithoutChangingButtonOrderOrDefaultGrouping() throws {
+        let presenter = Presenter()
+        defer { presenter.reset() }
+        let header = NodeView(id: 100, kind: "view", presenter: presenter)
+        header.props["semanticTag"] = "header"
+        let route = RouteController(header)
+        var buttons: [NodeView] = []
+        for (groupID, names) in [(101, ["share"]), (102, ["favorite", "bookmark"]), (103, ["info"])] {
+            let group = NodeView(id: UInt32(groupID), kind: "view", presenter: presenter)
+            group.props["accessibilityRole"] = "group"
+            header.container.addSubview(group)
+            for name in names {
+                let button = NodeView(id: UInt32(200 + buttons.count), kind: "button", presenter: presenter)
+                button.props["testId"] = name
+                group.container.addSubview(button)
+                buttons.append(button)
+            }
+        }
+        let shape = buttons.map { HeaderShape.Item($0) }
+        XCTAssertEqual(shape.map(\.toolbarGroup), [101, 102, 102, 103])
+        let items = presenter.navigation.barItems(shape, route)
+        XCTAssertEqual(items.compactMap(\.accessibilityIdentifier), ["share", "favorite", "bookmark", "info"])
+        if #available(iOS 26.0, *) {
+            XCTAssertEqual(items.count, 6, "two system spaces split three groups")
+            XCTAssertEqual(items[1].width, 0)
+            XCTAssertEqual(items[4].width, 0)
+        } else { XCTAssertEqual(items.count, 4) }
+        for button in buttons { header.container.addSubview(button) }
+        let plain = buttons.map { HeaderShape.Item($0) }
+        XCTAssertNotEqual(shape[0].source, plain[0].source, "regrouping invalidates the projected bar")
+        XCTAssertEqual(presenter.navigation.barItems(plain, route).count, 4)
+    }
+
 }
 
 /// An app's delegate: a cross-fade, interactive when asked.
@@ -786,5 +834,7 @@ private final class Transitions: NSObject, UINavigationControllerDelegate, UIVie
             context.completeTransition(!context.transitionWasCancelled)
         }
     }
+
+
 }
 #endif

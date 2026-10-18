@@ -107,17 +107,23 @@ fn find(r: &Runner<Oracle>, test_id: &str) -> Option<ViewId> {
     })
 }
 
-/// Boot `plan` against `oracle`, on the device store the oracle holds.
+/// Boot `plan` against `oracle`, on the device store the oracle holds,
+/// building every tab panel then when the host would (a prerendered page).
 fn boot(plan: Plan, oracle: Oracle) -> Result<Runner<Oracle>, exact_runner::RunnerError> {
     let snapshot = oracle.snapshot();
-    Runner::boot_stored(
+    let every = oracle.prerendered;
+    let mut r = Runner::boot_stored(
         plan,
         oracle,
         Kernel::with_monospace(),
         snapshot,
         Default::default(),
         "/",
-    )
+    )?;
+    if every {
+        r.build_every_tab()?;
+    }
+    Ok(r)
 }
 
 /// The state, commands and view lines of one configuration.

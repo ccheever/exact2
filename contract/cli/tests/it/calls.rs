@@ -323,6 +323,28 @@ component Child
 }
 
 #[test]
+fn an_empty_list_or_none_argument_takes_the_parameters_type() {
+    let src = r#"shape Item
+  done: bool
+
+component App
+  state n = 0
+  action count(items: Item[], first: option<Item>)
+    n = items.filter(x => x.done).length + (match first { case some(i) => (i.done ? 1 : 0), case none => 10 })
+  action go
+    count([], none)
+  view
+    column
+      button press=go testId="go"
+        text "go"
+      text `${n}` testId="n"
+"#;
+    let mut r = boot(src);
+    press(&mut r, "go");
+    assert_eq!(text_of(&r, "n"), "10");
+}
+
+#[test]
 fn an_argument_must_be_a_name_the_child_has() {
     let src = r#"component App
   state secret = "root"

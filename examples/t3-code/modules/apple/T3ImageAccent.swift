@@ -2,7 +2,7 @@
 import AppKit
 
 /// An image chip's accent (contextChipParts.tsx ImageChipButton averageImageColor;
-/// T3 Code, MIT, see LICENSE-T3), lane r4-timeline: the image drawn at 16×16 and
+/// T3 Code, MIT, see LICENSE-T3): the image drawn at 16×16 and
 /// averaged with each pixel weighted by its alpha, so transparent pixels do not
 /// darken it. `{op: "imageAccent", url, key}` → `{accent: "r g b"}`, "" when the
 /// image cannot be read (the chip keeps the image kind's own tone).

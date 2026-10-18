@@ -264,7 +264,8 @@ test('device loss replaces contexts without creating, restoring or unloading sur
 
 
 test('failed recovery removes clones and backs off instead of retrying each frame', async () => {
-  const f=await fixture(); f.create(1);
+  // The glue's timers with a delay are held until the test runs them, so the backoff cannot expire early on a slow machine
+  const held=[], f=await fixture({setTimeout:(fn,ms)=>ms>0?held.push([fn,ms]):setTimeout(fn,ms)}); f.create(1);
   let attempts=0;
   f.gpu.gpu_render=()=>3;
   f.gpu.gpu_recover=async()=>{ attempts++; throw new Error('fail once'); };
@@ -275,8 +276,10 @@ test('failed recovery removes clones and backs off instead of retrying each fram
   for(let i=0;i<10;i++) { f.frame(); f.exact.gpu.deviceLost(); }
   await new Promise(r=>setTimeout(r,0));
   assert.equal(attempts,1,'retry is held until the backoff expires');
+  assert.deepEqual(held.map(([,ms])=>ms),[100]);
   f.gpu.gpu_recover=async()=>{attempts++;f.gpu.gpu_render=()=>0;return '{"status":"recovered"}';};
-  await new Promise(r=>setTimeout(r,150));
+  held.shift()[0]();
+  await new Promise(r=>setTimeout(r,0));
   assert.equal(attempts,2); assert.equal(f.exact.gpu.recovery.status,'recovered');
 });
 
@@ -504,8 +507,8 @@ test('second cutover failure preserves both live canvases and their input',async
 
 for(const refusal of ['disabled','hidden','inert','missing']) test(`control down refuses ${refusal}`,async()=>{
  const f=await fixture({input:true}),canvas=f.create(1),b=new f.Element('button');b.parent=canvas;
- b.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?b:s.includes('[inert]')&&refusal==='inert'?b:null;
- b.getAttribute=()=>refusal==='missing'?null:'jump';b.disabled=refusal==='disabled';b.hidden=refusal==='hidden';
+ b.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?b:null;
+ b.getAttribute=()=>refusal==='missing'?null:'jump';b.disabled=refusal==='disabled';b.hidden=refusal==='hidden';b.inert=refusal==='inert';
  canvas.listeners.pointerdown({target:b,pointerId:1,clientX:0,clientY:0,timeStamp:0,preventDefault(){}});
  assert.deepEqual(f.events,[]);
 });

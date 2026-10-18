@@ -288,8 +288,13 @@ impl AbsoluteBox {
         if given.width.is_none()
             && (self.ratio.is_none() || (given.height.is_none() && between_insets.height.is_none()))
             && between_insets.width.is_none() && !self.is_replaced {
+            // EXACT PATCH 40: a definite height sizes stretched flex items during
+            // the intrinsic width probe. Height bounds alone do not make it definite.
+            let height = given.height.or(between_insets.height).map(|height| {
+                height.maybe_clamp(self.min_size.height, self.max_size.height).max(self.padding_border_sum.height)
+            });
             given.width = Some(super::fit_content_width(
-                tree, node, Size::NONE, Size { width: true, height: true },
+                tree, node, Size { width: None, height }, Size { width: true, height: true },
                 parent_size, inset_space.width, sizing_mode,
             ));
         }

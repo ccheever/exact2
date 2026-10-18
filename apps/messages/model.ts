@@ -31,29 +31,21 @@ export function fixtures(): Thread[] {
   ].map(m => ({ ...m, at: 1770000000000, reaction: '', reply: '', status: m.from === 'me' ? 'Delivered' : '', fresh: false, edited: false }));
   return [demo, ...MODELS.map((m, i) => blank(m, `ai-${i + 1}`))];
 }
-export function time(at: number, offset = 0): string {
-  const d = new Date(at + offset * 60000), h = d.getUTCHours();
-  return `${h % 12 || 12}:${String(d.getUTCMinutes()).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
-}
 export function reveal(pulled: number): number { return pulled > 0 ? 66 * (1 - 1 / (1 + pulled / 66)) : 0; }
-export function presentation(thread: Thread, clock: number, offset = 0) {
-  let receipt = -1;
-  thread.messages.forEach((m, i) => { if (m.from === 'me' && (m.status || clock - m.at >= 1130)) receipt = i; });
+// What a message row shows that the clock does not decide. The date's part
+// (its time, the receipt, the arrival and receipt motion) is the view's, from
+// `exactTime()`, so this answer is the same at every date and the bake keeps it
+// for the first frame (LLP 1027.000.000 D2).
+export function presentation(thread: Thread) {
   return thread.messages.map((m, i, rows) => {
     const outgoing = m.from === 'me', previous = rows[i - 1], next = rows[i + 1];
-    const closes = next?.from !== m.from || i === receipt;
-    const elapsed = m.fresh ? clock - m.at : 100000;
-    const status = i !== receipt ? '' : m.status || (elapsed >= 4650 ? `Read ${time(m.at, offset)}` : 'Delivered');
     return {
-      ...m, outgoing, time: time(m.at, offset), tail: closes || !!next?.reaction,
-      gap: closes && !!next ? 8 : 2,
+      ...m, outgoing, ends: next?.from !== m.from, last: !next, nextReacted: !!next?.reaction,
       sender: !outgoing && !thread.model && previous?.from !== m.from ? m.from : '',
-      avatar: !outgoing && !thread.model && closes,
+      avatars: !outgoing && !thread.model,
       initials: m.from.split(' ').map(w => w[0]).join('').slice(0, 2),
-      stamp: !previous || m.at - previous.at > 900000 ? `Today ${time(m.at, offset)}` : '',
-      receipt: status, receiptNew: m.fresh && elapsed >= 1130 && elapsed < 2150,
+      stamped: !previous || m.at - previous.at > 900000,
       truncated: m.body.length > 6000, preview: m.body.length > 6000 ? m.body.slice(0, 240) + '…' : m.body,
-      arrival: m.fresh && elapsed < 900,
     };
   });
 }

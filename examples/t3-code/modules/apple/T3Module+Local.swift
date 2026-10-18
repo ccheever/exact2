@@ -1,5 +1,5 @@
-// T3Module's embedded-server ops (T3Module.swift routes them; 20261005-embedded-server-runtime,
-// 20261005-local-primary-environment): the local backend's status for TypeScript and the Local
+// T3Module's embedded-server ops (T3Module.swift routes them): the local backend's status for
+// TypeScript and the Local
 // environment switch. The backend itself is one per app (T3LocalBackend.swift): each session's
 // module attaches at init and detaches at destroy.
 import Foundation
@@ -11,10 +11,26 @@ extension T3Module {
     /// changes, written by `desktopSettingsSet`. `localBackendSetEnabled {enabled}`: the switch's stopgap (stop, or start
     /// and wait until ready); it answers the status, or the reason it could not. `localNetworkFacts`,
     /// `localBackendRestart {host, tailscaleServe*}` and `localAccess {method, path, body}`: Network access,
-    /// Tailscale HTTPS and the Authorized clients (20261005-this-machine-network-access).
+    /// Tailscale HTTPS and the Authorized clients of "This machine".
     func localOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
         let generation = request["generation"] as? Int ?? 0
         switch request["op"] as? String {
+        case "cliCommandState", "cliCommandInstall", "cliCommandUninstall":
+            let operation = request["op"] as? String ?? ""
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let command = T3LocalBackend.shared.cliCommand()
+                    let state = try operation == "cliCommandInstall" ? command.install() : operation == "cliCommandUninstall" ? command.uninstall() : command.state()
+                    reply.send(["ok": true, "generation": generation, "value": state])
+                } catch {
+                    let failure = error as? T3Failure ?? T3Failure(kind: "CliCommand", message: "\(error.localizedDescription)")
+                    reply.send(["ok": false, "generation": generation, "error": failure.json])
+                }
+            }
+
+        // The primary's bearer for the data module's connection to it (src/transport/transport-session.ts; memory only).
+        case "localBearer":
+            reply.send(["ok": true, "generation": generation, "value": ["token": T3LocalBackend.shared.bearerToken() ?? ""]])
         case "localBackendStatus":
             reply.send(["ok": true, "generation": generation, "value": T3LocalBackend.shared.statusValue()])
         case "localBackendSetEnabled":
@@ -25,14 +41,14 @@ extension T3Module {
                 if let failure { reply.send(["ok": false, "generation": generation, "error": T3Failure(kind: "LocalEnvironment", message: failure).json]) }
                 else { reply.send(["ok": true, "generation": generation, "value": T3LocalBackend.shared.statusValue()]) }
             }
-        // Decision U7: the desktop settings file (T3DesktopSettings.swift); a write failure is the reference's
+        // The desktop settings file (T3DesktopSettings.swift); a write failure is the reference's
         // DesktopSettingsWriteError message.
         case "desktopSettingsSet":
             do { reply.send(["ok": true, "generation": generation, "value": try T3LocalBackend.shared.setDesktopSettings(request)]) }
             catch let failure as T3Failure { reply.send(["ok": false, "generation": generation, "error": failure.json]) }
             catch let failure as T3DesktopSettingsWriteError { reply.send(["ok": false, "generation": generation, "error": T3Failure(kind: "DesktopSettings", message: failure.message).json]) }
             catch { reply.send(["ok": false, "generation": generation, "error": T3Failure(kind: "DesktopSettings", message: "\(error)").json]) }
-        // 20261005-this-machine-network-access (T3LocalNetwork.swift, T3LocalBackend.swift).
+        // Network access, Tailscale HTTPS and Authorized clients (T3LocalNetwork.swift, T3LocalBackend.swift).
         case "localNetworkFacts":
             let tailscale = request["tailscale"] as? Bool == true, probe = request["probe"] as? String ?? "", refresh = request["refresh"] as? Bool == true
             DispatchQueue.global(qos: .userInitiated).async {

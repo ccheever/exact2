@@ -1,9 +1,13 @@
 // `share` (LLP 1069.003): a link, text alone, a refused relative URL, and a
-// menu item, beside the `canShare` fact that decides whether to offer it.
+// menu item, beside the `canShare` fact that decides whether to offer it;
+// and `files=` (LLP 1125 D12): an app file, a picture of the card, and a
+// file no grant covers.
 shape Page
   visibilityState: string
   onLine: bool
   canShare: bool
+  canShareFiles: bool
+  canSharePictures: bool
 
 component App
   resource page = exactPage() as shape Page
@@ -13,15 +17,30 @@ component App
     share(text="hello from exact2")
   action shareRelative
     share(url="/post/1")
+  action shareFile
+    share(title="Notes", files=["app:/data/notes.txt"])
+  action shareCard
+    share(text="A card", files=["#card", "app:/data/notes.txt"])
+  action shareUngranted
+    share(files=["app:/cache/notes.txt"])
   view
     column padding=16 gap=8
       text (page.canShare ? "can share" : "cannot share") testId="can-share"
+      text `files ${page.canShareFiles} pictures ${page.canSharePictures}` testId="can-share-files"
+      column id="card" padding=8 testId="card"
+        text "A card to share"
       button press=shareLink testId="share-link"
         text "Share link"
       button press=shareText testId="share-text"
         text "Share text"
       button press=shareRelative testId="share-relative"
         text "Share a relative URL"
+      button press=shareFile testId="share-file"
+        text "Share a file"
+      button press=shareCard testId="share-card"
+        text "Share the card"
+      button press=shareUngranted testId="share-ungranted"
+        text "Share an ungranted file"
       button popovertarget="more" testId="more"
         text "More"
       column id="more" popover="auto" role="menu"

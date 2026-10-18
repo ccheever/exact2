@@ -284,7 +284,7 @@ final class KeyboardFocusIOSTests: XCTestCase {
         button.menu = UIMenu(children: [UIAction(title: "Alice") { _ in }, UIAction(title: "Bob") { _ in }])
         view.addSubview(button)
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        XCTAssertTrue(vote.takeTouchFocus(), "the press focuses its button")
+        XCTAssertTrue(vote.becomeFirstResponder(), "the press focuses its button")
         button.performPrimaryAction()
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         func containsOption(_ node: UIView) -> Bool { (node as? UILabel)?.text == "Bob" || node.subviews.contains(where: containsOption) }

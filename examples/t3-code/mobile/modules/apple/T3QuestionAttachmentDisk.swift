@@ -1,5 +1,5 @@
 // Question attachments have a private byte namespace, independent of ordinary composer collectors.
-// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import Foundation
 import CryptoKit
 import Darwin

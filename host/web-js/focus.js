@@ -5,6 +5,7 @@
 // A carried restart (checkpoint.js, which holds `focus` while it rebuilds) marks every field it
 // rebuilt offered (`offerAll`), so none takes the focus later; a fresh boot's hidden or disabled
 // field may still take it when it is shown.
+import { inertAncestor } from './navigation.js';
 const offered = new WeakSet();
 
 /** The press a pointer is dispatching (a click with `detail` > 0: a key's activation keeps the
@@ -55,7 +56,7 @@ export function autofocus(root = rootOf()) {
   const token = running ?? dispatching, by = token && !token.dead ? token.el : null;
   if (!root?.querySelectorAll) return;
   for (const el of root.querySelectorAll('[autofocus]')) {
-    if (offered.has(el) || !el.getClientRects().length || el.closest('[inert]') || el.matches(':disabled') || getComputedStyle(el).visibility !== 'visible') continue;
+    if (offered.has(el) || !el.getClientRects().length || inertAncestor(el) || el.matches(':disabled') || getComputedStyle(el).visibility !== 'visible') continue;
     offered.add(el);
     const active = document.activeElement;
     if (!active || active === document.body || active === by) el.focus({ preventScroll: true });

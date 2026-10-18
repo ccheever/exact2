@@ -1,3 +1,4 @@
+import CExact
 import Foundation
 import QuartzCore
 import XCTest
@@ -138,5 +139,54 @@ final class FrameSamplerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: next) }
         XCTAssertEqual(try Data(contentsOf: latest), try Data(contentsOf: next))
         XCTAssertNotEqual(try Data(contentsOf: latest), first)
+    }
+
+    /// A release build's sessions count their sites' work from the first ask
+    /// (LLP 1079 D1), and one made after it, a second window, counts from its
+    /// boot: making it does not undo the ask.
+    func testASessionMadeAfterTheFirstAskCountsItsWorkFromBoot() throws {
+        let first = ExactApp.shared.makeSession()
+        defer { first.runtime.measureWork(); first.destroy() }
+        XCTAssertNil(FrameSampler.fromBoot(first, atBoot: false), "a release build samples nothing at boot")
+        XCTAssertNil(first.boot(size: CGSize(width: 390, height: 844)).error)
+        first.runtime.measureWork()
+        let second = ExactApp.shared.makeSession()
+        defer { second.destroy() }
+        XCTAssertNil(FrameSampler.fromBoot(second, atBoot: false))
+        XCTAssertNil(second.boot(size: CGSize(width: 390, height: 844)).error)
+        XCTAssertTrue(second.agent(#"{"op":"perf"}"#).contains("\"sites\""), "the second session counts from boot")
+    }
+
+    /// A release build measures nothing until something asks (LLP 1079):
+    /// its first trace still has the journal and the sites' work, its frames
+    /// and hatch timings empty and saying so, and starts the measuring that
+    /// the next trace and the agent's `perf` read.
+    func testAReleaseBuildsFirstTraceStartsItsMeasuring() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { session.runtime.measureWork(); session.destroy(); HatchDiagnostics.measuring = true }
+        // As a release build boots: no site's work counted, no sampler, no hatch timing.
+        exact_measure_work_later()
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        XCTAssertTrue(session.agent(#"{"op":"perf"}"#).contains("not measured until first asked"), "no site's work is counted")
+        session.sampler?.stop()
+        session.sampler = nil
+        HatchDiagnostics.measuring = false
+        let probes = { (session.hatchPerf()["calls"] as? [[String: Any]] ?? []).filter { $0["hatch"] as? String == "probe" }.count }
+        session.natives.timedHatch("probe", "tick") {}
+        XCTAssertEqual(probes(), 0, "no call is timed")
+        session.log("before the trace")
+        let url = try session.saveTrace().get()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let trace = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let frames = try XCTUnwrap(trace["frames"] as? [String: Any])
+        XCTAssertEqual(frames["unmeasured"] as? String, FrameSampler.unmeasured)
+        XCTAssertEqual((frames["records"] as? [Any])?.count, 0)
+        XCTAssertEqual((trace["hatches"] as? [String: [String: Any]])?["perf"]?["measuring"] as? Bool, false)
+        XCTAssertTrue("\(trace["journal"] ?? "")".contains("before the trace"), "the journal is kept")
+        XCTAssertNotNil((trace["perf"] as? [String: Any])?["sites"], "the sites' work is kept")
+        XCTAssertNotNil(session.sampler, "the trace started the frames")
+        XCTAssertTrue(HatchDiagnostics.measuring, "and the hatch timing")
+        session.natives.timedHatch("probe", "tick") {}
+        XCTAssertEqual(probes(), 1)
     }
 }

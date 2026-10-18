@@ -1,5 +1,5 @@
 // Pinned365aa87982 QueueAttachmentThumbnails/useAssetUrl; shared signed-asset RPC.
-// @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { mobileClient, mobileNative } from './client';
 import type { T3Client } from './shared/client';
 import { ClientError, type Native } from './shared/protocol';

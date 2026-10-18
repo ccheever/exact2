@@ -3,9 +3,9 @@
 // a builder reading it learns where the verbs are (`bun exact.mjs --help`), not this code. An
 // exact.mjs written before this file held all of it, and still runs; `bun exact.mjs update` thins it.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { constants } from 'node:os';
-import { relative, resolve } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { constants, tmpdir } from 'node:os';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 
 /** exact2's verbs for the app `name` in `dir`: each the script it runs, from the checkout, and its
  * first arguments. `host` is a drive's (`test ios`); a game has its own and no `verify` or `pattern`. */
@@ -23,12 +23,16 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     android: ['scripts/agent-android.mjs', 'build', name],
     update: ['scripts/exact.mjs', 'new', dir, '--update'],
     contract: ['scripts/exact.mjs', 'contract'],
+    tamber: ['scripts/exact.mjs', 'tamber'],
     hatch: ['scripts/exact.mjs', 'hatch'],
+    snapback: ['scripts/exact.mjs', 'snapback', dir],
+    backend: ['scripts/exact.mjs', 'backend', dir],
     ...game ? {} : { pattern: ['scripts/exact.mjs', 'pattern'] },
     feedback: ['scripts/feedback.mjs'],
     // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
     ...game ? {
       'test-rust': ['game/app/shells.mjs', dir, '--test'],
+      shells: ['game/app/shells.mjs', dir],
       lock: ['game/app/shells.mjs', dir, '--lock'],
       windows: ['host/windows/build.mjs', name],
       prove: ['game/prove.mjs', dir],
@@ -91,10 +95,41 @@ export async function run({ dir, name, game = false, exact2, args }) {
     mkdirSync(resolve(dir, '.exact'), { recursive: true });
     appendFileSync(resolve(dir, '.exact/commands.jsonl'), JSON.stringify({ at: new Date(started).toISOString(), exact2: commit, verb: ['test', 'agent', 'verify'].includes(verb) ? `${verb} ${host}` : verb, exit, ms: Date.now() - started }) + '\n');
   } catch {} return exit; };
+// exact.mjs runs from any directory, and a file argument is found where you are, else in the app: `app.contract`
+// from the app's parent, `app/app.contract` from inside it (app farm wave 1: 13 builds ran one or the other). Each
+// file found in the app is said, with the app's directory; one found nowhere is named before the command runs.
+const here = process.cwd(), appDir = dir, source = (arg) => /\.(contract|ts|json)$/.test(arg) && !arg.startsWith('-');
+const inApp = (arg) => {
+  if (!source(arg) || isAbsolute(arg) || existsSync(resolve(arg))) return null;
+  const top = `${basename(appDir)}/`, found = [arg, ...(arg.startsWith(top) ? [arg.slice(top.length)] : [])].map((a) => resolve(appDir, a)).find((p) => existsSync(p));
+  // `build --json` says nothing on stderr: its diagnostics carry the path taken, or the file it could not read.
+  if (rest[0] === 'build' && rest.includes('--json')) return found ?? null;
+  if (found) console.error(`exact.mjs: ${arg} is ${found} (the app is ${appDir}; this shell is in ${here})`);
+  else console.error(`exact.mjs: no ${arg} in ${here} or in the app, ${appDir}`);
+  return found ?? null;
+};
+if (verb === 'contract') {
+  let moved = false;
+  for (const [i, arg] of rest.entries()) {
+    if (rest[i - 1] === '-o') continue;
+    const found = inApp(arg);
+    if (found) { rest[i] = found; moved = true; }
+  }
+  // What a moved source writes goes beside it, as it would have from the app (`types app.contract -o app.contract.d.ts`).
+  const o = rest.indexOf('-o'), out = rest[o + 1];
+  if (moved && o >= 0 && out && !isAbsolute(out)) rest[o + 1] = resolve(appDir, out.startsWith(`${basename(appDir)}/`) ? out.slice(basename(appDir).length + 1) : out);
+}
   // The web build is about a second when nothing changed, so a web drive builds
   // first rather than refusing a stale build. An ios or macos drive builds first
   // when its build is missing or older than its sources, saying so on one line
   // (scripts/agent-build.mjs, LLP 1116.002 D4); a phone's stays explicit.
+  const backendFlag = ['test', 'agent', 'verify'].includes(verb) && host === 'web' ? rest.indexOf('--backend') : -1;
+  if (backendFlag >= 0) {
+    const value = rest[backendFlag + 1];
+    if (!value || value.startsWith('--')) throw new Error('--backend <url>: name the backend origin');
+    process.env.EXACT_BACKEND_ORIGIN = value;
+    rest.splice(backendFlag, 2);
+  }
   const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some((a) => a === '--url' || a === '--web-dist');
   const drivesNative = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac'].includes(host) && !rest.includes('--device');
   // `test [host] [file|glob …]`: the test files named (each `.contract`, a glob or `--test <file>`, from the
@@ -103,7 +138,7 @@ export async function run({ dir, name, game = false, exact2, args }) {
   for (let i = verb === 'test' ? 0 : rest.length; i < rest.length;) {
     const named = rest[i] === '--test' ? rest.splice(i, 2)[1] : /\.contract$|\*/.test(rest[i]) ? rest.splice(i, 1)[0] : (i++, null);
     if (named == null) continue;
-    const found = named.includes('*') ? [...new Bun.Glob(named).scanSync({ absolute: true })].sort() : [resolve(named)];
+    const found = named.includes('*') ? [...new Bun.Glob(named).scanSync({ absolute: true })].sort() : [inApp(named) ?? resolve(named)];
     if (!found.length) { console.error(`no test file matches ${named}`); return log(2); }
     tests.push(...found);
   }
@@ -113,11 +148,26 @@ export async function run({ dir, name, game = false, exact2, args }) {
     // A server entry that does not read DB is refused before the build too, not after it (verify.mjs `withAppServer`, LLP 1116.008 D1).
     const refusal = verb === 'test' ? (await import(resolve(exact2, 'scripts/verify.mjs'))).appServer(dir)?.refusal : null;
     if (refusal) { console.error(`test: ${refusal}`); return log(1); }
-    const sim = rest.includes('--sim') ? ['--sim', rest[rest.indexOf('--sim') + 1]] : [];
-    const built = await script(drivesWeb ? verbs['web-build'] : ['scripts/agent-build.mjs', host, '--app', name, ...sim], [], [0, 2, 2]);
+    // An `agent` drive's check hashes the build's inputs, and the driver need not again (LLP 1012.001.000 D1: once a drive).
+    const checked = verb === 'agent' && drivesNative ? resolve(tmpdir(), `exact-build-check-${process.pid}`) : null;
+    if (checked) process.env.EXACT_BUILD_CHECK_OUT = checked;
+    const built = await script(drivesWeb ? verbs['web-build'] : ['scripts/agent-build.mjs', host, '--app', name], [], [0, 2, 2]);
+    if (checked) { delete process.env.EXACT_BUILD_CHECK_OUT; try { process.env.EXACT_BUILD_CHECKED = readFileSync(checked, 'utf8'); rmSync(checked); } catch {} }
     if (built) return log(built);
   }
+  if (verb === 'contract' && rest[0] === 'build' && existsSync(manifest) && existsSync(resolve(exact2, 'snapback4/web/device-build.mjs'))) {
+    const app = { dir, manifest: JSON.parse(readFileSync(manifest, 'utf8')) };
+    const { devicePreflight } = await import(resolve(exact2, 'snapback4/web/device-build.mjs'));
+    await devicePreflight(app);
+  }
   if (own[verb]) { const [command, ...args] = own[verb]; return log(await spawned(command === 'bun' ? process.execPath : command, [...args, ...rest], 'inherit', dir)); }
+  // A drive on iOS shows UIKit's bars, as the app and verify do (`--chrome agent` paints the authored header and
+  // tablist instead), and an Apple drive's screenshots are a pixel a point: a third of an iPhone's pixels each
+  // way, about a third of the tokens an agent reads a picture for (`--scale 3`: the device's). A phone's drive too,
+  // which drivesNative leaves out only because its build is explicit.
+  const drivesApple = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac'].includes(host);
+  if (drivesApple && !rest.includes('--chrome') && host === 'ios') rest.push('--chrome', 'platform');
+  if (drivesApple && verb === 'agent' && !rest.includes('--scale')) rest.push('--scale', '1');
   if (verb !== 'test') return log(await script(verbs[verb], rest));
   // An app with a server of its own (the rest pattern's) has it run for the tests, where app.ts calls it, on an empty
   // database kept through them: as verify runs it, by the same code (LLP 1116.007 D2).

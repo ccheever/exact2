@@ -189,6 +189,9 @@ pub(crate) enum NavPlace {
     Outside,
     /// A root's child: the tags from the root down.
     RootChild(Vec<String>),
+    /// A child of a root that holds tabs, whose routes are its tabpanels'
+    /// children only (LLP 1075.003 §3.7).
+    TabbedRootChild(Vec<String>),
     /// A tabpanel's child, the panel in a root.
     PanelChild(Vec<String>),
     /// Deeper inside a root, behind a wrapper, outside any route.
@@ -255,10 +258,10 @@ impl NavPlace {
         span: Span,
     ) -> Option<Vec<Attr>> {
         let has = |name: &str| attrs.iter().any(|a| a.name == name);
-        let route = matches!(self, NavPlace::RootChild(_) | NavPlace::PanelChild(_))
-            && has("navigationKey")
-            && !has("navigationBack");
-        if !route || has("background-color") || !scrolls_a_grouped_list(tag, attrs, children) {
+        if !self.is_route(attrs)
+            || has("background-color")
+            || !scrolls_a_grouped_list(tag, attrs, children)
+        {
             return None;
         }
         let role = Attr {
@@ -285,9 +288,7 @@ impl NavPlace {
     /// is not a sheet, or already says its ground.
     pub(crate) fn sheet_page(&self, attrs: &[Attr], span: Span) -> Option<Vec<Attr>> {
         let has = |name: &str| attrs.iter().any(|a| a.name == name);
-        let route = matches!(self, NavPlace::RootChild(_) | NavPlace::PanelChild(_))
-            && has("navigationKey")
-            && !has("navigationBack");
+        let route = self.is_route(attrs);
         let modal = attrs
             .iter()
             .rev()
@@ -305,6 +306,15 @@ impl NavPlace {
             written: crate::IMPLIED,
         };
         Some([&[role][..], attrs].concat())
+    }
+
+    /// Whether an element here with `attrs` is a route: a child of the
+    /// navigation root or of a `role="tabpanel"` in it, with a `navigationKey`.
+    fn is_route(&self, attrs: &[Attr]) -> bool {
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        matches!(self, NavPlace::RootChild(_) | NavPlace::PanelChild(_))
+            && has("navigationKey")
+            && !has("navigationBack")
     }
 
     /// The place of `tag`'s children, or the refusal of a route `tag` that
@@ -336,6 +346,52 @@ impl NavPlace {
                     .map_or(span, |a| a.span),
             );
         }
+        // A sheet opens at one of its own heights, which its route says; a
+        // list the compiler cannot read is given the benefit of the doubt
+        // (iOS journals a miss).
+        if let Some(a) = attrs
+            .iter()
+            .rev()
+            .find(|a| a.name == "navigationInitialDetent")
+        {
+            if !self.is_route(attrs) {
+                return err(
+                    "lower-attr-value",
+                    "`navigationInitialDetent` is read only on a route (an element with a `navigationKey`, a child of the navigation root or of a `role=\"tabpanel\"` in it), beside its `navigationDetent`: move both onto the sheet's route",
+                    a.span,
+                );
+            }
+            // Empty, as `navigationDetent=""` is, it is unsaid: the first.
+            if matches!(&a.value, Expr::Str(word, _) if !word.is_empty() && !crate::vocab::detent_word(word))
+            {
+                return err(
+                    "lower-attr-value",
+                    "`navigationInitialDetent` takes one word of the route's `navigationDetent`, the height its sheet opens at",
+                    a.span,
+                );
+            }
+            let detents = attrs.iter().rev().find(|a| a.name == "navigationDetent");
+            // The words, and whether the route wrote them.
+            let heights = match detents.map(|a| &a.value) {
+                Some(Expr::Str(s, _)) if !s.trim().is_empty() => Some((s.as_str(), true)),
+                Some(Expr::Str(..)) | None => Some(("large", false)),
+                Some(_) => None,
+            };
+            if let (Expr::Str(word, _), Some((heights, written))) = (&a.value, heights) {
+                if !word.is_empty() && !heights.split(' ').any(|w| w == word) {
+                    let said = if written {
+                        format!("`navigationDetent=\"{heights}\"`")
+                    } else {
+                        "`large` alone, as the route says no `navigationDetent`".into()
+                    };
+                    return err(
+                        "lower-attr-value",
+                        format!("`navigationInitialDetent=\"{word}\"` is not one of this sheet's heights, {said}; it names the one of them the sheet opens at"),
+                        a.span,
+                    );
+                }
+            }
+        }
         // @ref LLP 1116.006 D2 — the split's placeholder is a box in the root route; a route
         // marked so would never show.
         if let Some(a) = split_placeholder(attrs).filter(|_| has("navigationKey")) {
@@ -346,11 +402,32 @@ impl NavPlace {
             );
         }
         if has("navigationKey") && has("navigationBack") {
-            return Ok(NavPlace::RootChild(vec![tag.to_string()]));
+            let path = vec![tag.to_string()];
+            return Ok(if holds_tabs(children) {
+                NavPlace::TabbedRootChild(path)
+            } else {
+                NavPlace::RootChild(path)
+            });
         }
         if has("navigationKey") {
             let shown = match self {
                 NavPlace::InRoot(p) => p.join(" > "),
+                // @ref LLP 1116.020 D2 — round 18's contacts took its add sheet out of the tab's
+                // stack and drew it beside the tabs: no host presented it, and its header sat
+                // under the status bar with Save and Cancel dead.
+                NavPlace::TabbedRootChild(_) => {
+                    let modal = attrs.iter().rev().find(|a| a.name == "navigationPresentation");
+                    let sheet = if modal.is_some() {
+                        " (a `navigationPresentation=\"modal\"` here is no sheet: it is drawn over the page, its header under the status bar)"
+                    } else {
+                        ""
+                    };
+                    return err(
+                        "lower-route-place",
+                        format!("this `{tag}` has a `navigationKey` beside the root's tabpanels; with tabs every host finds routes only among a tabpanel's children, so this one is never a route{sheet}. Render it in the tab's stack, in the panel's `for e in t.stack` with the other routes and not filtered out of it: a modal route there is presented as a sheet over the tabs (docs/contract-for-agents.md, \"Tabs and stacks\")"),
+                        modal.map_or(span, |a| a.span),
+                    );
+                }
                 NavPlace::InRoute => {
                     return err(
                         "lower-route-place",
@@ -380,115 +457,57 @@ impl NavPlace {
                 _ => true,
             });
         Ok(match self {
-            NavPlace::RootChild(p) | NavPlace::InRoot(p) if panel => NavPlace::PanelChild(path(p)),
-            NavPlace::RootChild(p) | NavPlace::PanelChild(p) | NavPlace::InRoot(p) => {
-                NavPlace::InRoot(path(p))
+            NavPlace::RootChild(p) | NavPlace::TabbedRootChild(p) | NavPlace::InRoot(p)
+                if panel =>
+            {
+                NavPlace::PanelChild(path(p))
             }
+            NavPlace::RootChild(p)
+            | NavPlace::TabbedRootChild(p)
+            | NavPlace::PanelChild(p)
+            | NavPlace::InRoot(p) => NavPlace::InRoot(path(p)),
             other => other.clone(),
         })
     }
 }
 
-/// Whether a literal image source is the disclosure the web's split reads in a row (the
-/// host's `DISCLOSURE` selector): the `forward-chevron`, by any of its spellings, or the
-/// SF chevron's own names.
-fn disclosure(source: &str) -> bool {
-    source.strip_prefix("symbol:").is_some_and(|name| {
-        matches!(name, "sf/chevron.forward" | "sf/chevron.right")
-            || exact_kernel::generated::symbol_role(name) == Some("forward-chevron")
-    })
-}
-
-impl Lowerer<'_> {
-    /// @ref LLP 1116.007 D3.7, LLP 1116.004 D1.2 — a wide window splits a stack whose root route's
-    /// rows draw the disclosure and push. The chevron alone is no push: event-rsvp's invitations
-    /// are rows that select into a panel, and the split squeezed its home into 320 px. A route
-    /// whose every disclosure row (a pressable that holds the chevron) is no `link` and presses an
-    /// action that writes no router is written `navigationSplit="none"`, unless the author said
-    /// otherwise. What the compiler cannot see through, a computed press or an unexpanded use, is
-    /// the benefit of the doubt: the host's rule stands.
-    pub(crate) fn unsplit(
-        &self,
-        attrs: &[Attr],
-        children: &[Node],
-        span: Span,
-    ) -> Option<Vec<Attr>> {
-        let has = |name: &str| attrs.iter().any(|a| a.name == name);
-        if !matches!(
-            self.nav_place,
-            NavPlace::RootChild(_) | NavPlace::PanelChild(_)
-        ) || !has("navigationKey")
-            || has("navigationBack")
-            || has("navigationSplit")
-        {
-            return None;
-        }
-        // The slot `routes` declares is the root's first state.
-        let router = self
-            .root
-            .states
-            .first()
-            .filter(|_| {
-                self.types.components[0].slots.first() == Some(&Ty::Record("Router".into()))
-            })
-            .map(|s| s.name.as_str())?;
-        let pushes = |press: &Expr| match press {
-            Expr::Ident(name, _) | Expr::Call(name, _, _) => self
-                .root
-                .actions
-                .iter()
-                .find(|a| a.name == *name)
-                .is_none_or(|a| a.effects().iter().any(|e| !e.send && e.target == router)),
-            _ => true,
-        };
-        // Each disclosure's row: whether the pressables around it navigate (`None`: none is around).
-        let mut rows: Vec<bool> = Vec::new();
-        let mut doubt = false;
-        let mut stack: Vec<(&Node, Option<bool>)> = children.iter().map(|n| (n, None)).collect();
-        while let Some((node, around)) = stack.pop() {
-            match node {
-                Node::Element {
-                    tag,
-                    positional,
-                    attrs,
-                    children,
-                    ..
-                } => {
-                    let press = attrs.iter().rev().find(|a| a.name == "press");
-                    let here = (tag == "link" || tag == "button" || press.is_some())
-                        .then(|| tag == "link" || press.is_some_and(|a| pushes(&a.value)));
-                    let around = match (around, here) {
-                        (Some(a), Some(h)) => Some(a || h),
-                        (a, h) => a.or(h),
-                    };
-                    let drawn = tag == "image"
-                        && positional.first().is_some_and(|e| {
-                            crate::symbols::literals(e).into_iter().any(disclosure)
-                        });
-                    rows.extend(around.filter(|_| drawn));
-                    stack.extend(children.iter().map(|n| (n, around)));
+/// Whether a navigation root's own subtree, outside its routes, holds a
+/// literal `tablist` and `tabpanel`: its routes are then its tabpanels'
+/// children, never its own (`host/web/navigation.js` `stacksOf`, the iOS and
+/// Mac hosts' `NavigationTabs`, the runner's `tab_panels`). What the compiler
+/// cannot see (a computed role, a component's use) is not counted.
+fn holds_tabs(children: &[Node]) -> bool {
+    let (mut list, mut panel) = (false, false);
+    let mut stack: Vec<&Node> = children.iter().collect();
+    while let Some(node) = stack.pop() {
+        match node {
+            Node::Element {
+                attrs, children, ..
+            } => {
+                if attrs.iter().any(|a| a.name == "navigationKey") {
+                    continue;
                 }
-                Node::When {
-                    then, otherwise, ..
-                } => stack.extend(then.iter().chain(otherwise).map(|n| (n, around))),
-                Node::Each { body, .. } => stack.extend(body.iter().map(|n| (n, around))),
-                Node::Match { some, none, .. } => {
-                    stack.extend(some.1.iter().chain(none).map(|n| (n, around)))
+                match attrs
+                    .iter()
+                    .rev()
+                    .find(|a| a.name == "role")
+                    .map(|a| &a.value)
+                {
+                    Some(Expr::Str(r, _)) if r == "tablist" => list = true,
+                    Some(Expr::Str(r, _)) if r == "tabpanel" => panel = true,
+                    _ => {}
                 }
-                Node::Use { .. } | Node::Children { .. } => doubt = true,
+                stack.extend(children);
             }
+            Node::When {
+                then, otherwise, ..
+            } => stack.extend(then.iter().chain(otherwise)),
+            Node::Each { body, .. } => stack.extend(body),
+            Node::Match { some, none, .. } => stack.extend(some.1.iter().chain(none)),
+            Node::Use { .. } | Node::Children { .. } => {}
         }
-        (!doubt && !rows.is_empty() && rows.iter().all(|navigates| !navigates)).then(|| {
-            let mut attrs = attrs.to_vec();
-            attrs.push(Attr {
-                name: "navigationSplit".into(),
-                value: Expr::Str("none".into(), span),
-                span,
-                written: crate::IMPLIED,
-            });
-            attrs
-        })
     }
+    list && panel
 }
 
 /// A route's literal `navigationScroll` names its content scroller by HTML
@@ -577,34 +596,14 @@ fn still_on_y(tag: &str, attrs: &[Attr]) -> bool {
     if !scrolls && !PLAIN.contains(&tag) {
         return false;
     }
-    let (mut x, mut y) = ("visible", if scrolls { "scroll" } else { "visible" });
-    for a in attrs {
-        let name = a.name.as_str();
-        if matches!(name, "class" | "className" | "style") || name.starts_with("ua:") {
-            return false;
-        }
-        let (to_x, to_y) = match name {
-            "overflow" => (true, true),
-            "overflow-x" | "overflowX" => (true, false),
-            "overflow-y" | "overflowY" => (false, true),
-            _ => continue,
-        };
-        let Expr::Str(v, _) = &a.value else {
-            return false;
-        };
-        let v = match v.as_str() {
-            "visible" => "visible",
-            "hidden" | "clip" => "hidden",
-            _ => "scroll",
-        };
-        if to_x {
-            x = v;
-        }
-        if to_y {
-            y = v;
-        }
+    let doubt = |a: &Attr| {
+        matches!(a.name.as_str(), "class" | "className" | "style") || a.name.starts_with("ua:")
+    };
+    if attrs.iter().any(doubt) {
+        return false;
     }
-    y == "hidden" || (y == "visible" && x == "visible")
+    let y = if scrolls { "scroll" } else { "visible" };
+    crate::overflow::Overflow::of(attrs, y).scrolls_y() == Some(false)
 }
 
 /// Whether a route's content scroller is a grouped list (`list
@@ -705,18 +704,14 @@ fn scrolls_y(tag: &str, attrs: &[Attr]) -> Option<bool> {
     if !scroller && !PLAIN.contains(&tag) {
         return Some(false);
     }
-    let mut y = if scroller { "scroll" } else { "visible" };
     for a in attrs {
         match a.name.as_str() {
-            "class" | "style" | "overflow-x" | "overflowX" => return None,
+            "class" | "style" => return None,
             "flex-direction" if scroller => return None,
             name if name.starts_with("ua:") => return None,
-            "overflow" | "overflow-y" | "overflowY" => match &a.value {
-                Expr::Str(v, _) => y = v,
-                _ => return None,
-            },
             _ => {}
         }
     }
-    Some(!matches!(y, "visible" | "hidden" | "clip"))
+    let y = if scroller { "scroll" } else { "visible" };
+    crate::overflow::Overflow::of(attrs, y).scrolls_y()
 }

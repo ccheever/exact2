@@ -1,0 +1,41 @@
+{
+  "format": 1,
+  "digest": "c81004805a37a686",
+  "name": "measures",
+  "tuples": 2,
+  "axes": [
+    {"name": "density", "values": ["regular", "compact"], "under": null}
+  ],
+  "dials": [
+    {"name": "gap", "kind": "length", "value": "8px", "range": ["0px", "32px"], "meta": {}},
+    {"name": "dim", "kind": "number", "value": "0.6", "range": ["0", "1"], "meta": {}}
+  ],
+  "tokens": [
+    {"name": "space.row", "kind": "length", "role": null, "values": ["12px", "8px"], "entries": [0, 1], "dials": [], "fallback": ["12px", "12px"]},
+    {"name": "space.none", "kind": "length", "role": null, "values": ["0px"], "entries": null, "dials": [], "fallback": ["0px", "0px"]},
+    {"name": "zero", "kind": "number", "role": null, "values": ["0"], "entries": null, "dials": [], "fallback": ["0", "0"]},
+    {"name": "space.gutter", "kind": "length", "role": null, "values": ["16px"], "entries": null, "dials": ["gap"], "fallback": ["16px", "16px"]},
+    {"name": "space.inset", "kind": "length", "role": null, "values": ["16px", "12px"], "entries": [0, 1], "dials": [], "fallback": ["16px", "16px"]},
+    {"name": "space.capped", "kind": "length", "role": null, "values": ["24px"], "entries": null, "dials": [], "fallback": ["24px", "24px"]},
+    {"name": "space.clamped", "kind": "length", "role": null, "values": ["4px"], "entries": null, "dials": ["gap"], "fallback": ["4px", "4px"]},
+    {"name": "space.alias", "kind": "length", "role": null, "values": ["12px", "8px"], "entries": [0, 1], "dials": [], "fallback": ["12px", "12px"]},
+    {"name": "size.title", "kind": "length", "role": null, "values": ["-exact-title1"], "entries": null, "dials": [], "fallback": ["-exact-title1", "-exact-title1"]},
+    {"name": "size.title-hyphen", "kind": "length", "role": null, "values": ["-exact-title-1"], "entries": null, "dials": [], "fallback": ["-exact-title-1", "-exact-title-1"]},
+    {"name": "size.body", "kind": "length", "role": null, "values": ["-apple-system-body"], "entries": null, "dials": [], "fallback": ["-apple-system-body", "-apple-system-body"]},
+    {"name": "size.relative", "kind": "length", "role": null, "values": ["1.25rem"], "entries": null, "dials": [], "fallback": ["1.25rem", "1.25rem"]},
+    {"name": "size.em", "kind": "length", "role": null, "values": ["0.8em"], "entries": null, "dials": [], "fallback": ["0.8em", "0.8em"]},
+    {"name": "line.hair", "kind": "length", "role": null, "values": ["-exact-hairline"], "entries": null, "dials": [], "fallback": ["-exact-hairline", "-exact-hairline"]},
+    {"name": "weight.strong", "kind": "number", "role": null, "values": ["600"], "entries": null, "dials": [], "fallback": ["600", "600"]},
+    {"name": "opacity.faded", "kind": "number", "role": null, "values": ["0.6"], "entries": null, "dials": ["dim"], "fallback": ["0.6", "0.6"]},
+    {"name": "opacity.half", "kind": "number", "role": null, "values": ["0.5"], "entries": null, "dials": [], "fallback": ["0.5", "0.5"]},
+    {"name": "scale.pressed", "kind": "number", "role": null, "values": ["0.97", "0.95"], "entries": [0, 1], "dials": [], "fallback": ["0.97", "0.97"]},
+    {"name": "flex.grow", "kind": "number", "role": null, "values": ["2"], "entries": null, "dials": [], "fallback": ["2", "2"]},
+    {"name": "space.double", "kind": "length", "role": null, "values": ["24px", "16px"], "entries": [0, 1], "dials": [], "fallback": ["24px", "24px"]},
+    {"name": "space.grouped", "kind": "length", "role": null, "values": ["20px"], "entries": null, "dials": [], "fallback": ["20px", "20px"]},
+    {"name": "tiny", "kind": "number", "role": null, "values": ["0.0000004"], "entries": null, "dials": [], "fallback": ["0.0000004", "0.0000004"]},
+    {"name": "ink", "kind": "color", "role": null, "values": ["#000000ff"], "entries": null, "dials": [], "fallback": ["#000000ff", "#000000ff"]},
+    {"name": "ease", "kind": "length", "role": null, "values": ["12px"], "entries": null, "dials": [], "fallback": ["12px", "12px"]},
+    {"name": "space.alias.ease", "kind": "length", "role": null, "values": ["12px"], "entries": null, "dials": [], "fallback": ["12px", "12px"]}
+  ],
+  "exports": null
+}

@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#mobile-adaptations
 // T3 Code 365aa87982 Stack.tsx header presets and ConnectionsNewRouteScreen.
 // Exact owns stacks, presentation/detents, route views and scroll geometry.
 import UIKit
@@ -43,7 +43,7 @@ enum T3MobileNavigation {
             if #available(iOS 16.0, *) { item.preferredSearchBarPlacement = .automatic }
             if #available(iOS 26.0, *) { item.searchBarPlacementAllowsToolbarIntegration = true }
         }
-        // @ref llp/1109.010-mobile-browser-devices.decision.md#presentation-and-root-seam
+        // @ref examples/t3-code/mobile/docs/1130.010-mobile-browser-devices.decision.md#presentation-and-root-seam
         // The browser's nested source stack uses a 17-point semibold title.
         if route.element("browser-title") != nil, let bar = route.navigation?.controller.navigationBar {
             func browserAppearance(_ existing: UINavigationBarAppearance?) -> UINavigationBarAppearance {
@@ -101,7 +101,7 @@ enum T3MobileNavigation {
     }
 }
 
-// @ref llp/1109.005-composer-and-transcript.decision.md#settings-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#settings-ownership
 // GAP 009: no pre-presentation modal-wrapper hook; keep Exact's pageSheet style.
 // Pinned Stack.tsx: Model uses one full-height detent; compact New Task
 // and compact Settings use 92% of UIKit's maximum detent. Exact owns presentation style and pops.

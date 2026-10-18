@@ -45,6 +45,69 @@ impl Edge {
     }
 }
 
+/// A layout region a native host reports beside the safe area (LLP 1123
+/// D10): UIKit's and AppKit's `LayoutRegion`s, each an inset per edge from
+/// the layout viewport, which `env(-exact-<region>-inset-<edge>)` names.
+/// The `Corners` regions are the same region with the host's corner
+/// adaptation: left and right adapt on the horizontal axis, top and bottom
+/// on the vertical one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Region {
+    /// `-exact-safe-area-corners-inset-`: the safe area kept clear of the
+    /// display's or window's corners.
+    SafeAreaCorners = 0,
+    /// `-exact-layout-margins-inset-`: the platform's layout margins, at
+    /// least the safe area.
+    LayoutMargins = 1,
+    /// `-exact-layout-margins-corners-inset-`: the layout margins kept clear
+    /// of the corners.
+    LayoutMarginsCorners = 2,
+    /// `-exact-readable-content-inset-`: a width comfortable for reading,
+    /// inside the margins.
+    ReadableContent = 3,
+    /// `-exact-readable-content-corners-inset-`: the readable content kept
+    /// clear of the corners.
+    ReadableContentCorners = 4,
+}
+
+impl Region {
+    /// Every region, in wire order.
+    pub const ALL: [Region; 5] = [
+        Region::SafeAreaCorners,
+        Region::LayoutMargins,
+        Region::LayoutMarginsCorners,
+        Region::ReadableContent,
+        Region::ReadableContentCorners,
+    ];
+
+    /// The variable's name before its edge: `-exact-layout-margins-inset-`.
+    pub fn prefix(self) -> &'static str {
+        match self {
+            Region::SafeAreaCorners => "-exact-safe-area-corners-inset-",
+            Region::LayoutMargins => "-exact-layout-margins-inset-",
+            Region::LayoutMarginsCorners => "-exact-layout-margins-corners-inset-",
+            Region::ReadableContent => "-exact-readable-content-inset-",
+            Region::ReadableContentCorners => "-exact-readable-content-corners-inset-",
+        }
+    }
+
+    /// The region by wire index (0–4).
+    pub fn from_index(i: u8) -> Option<Region> {
+        Region::ALL.get(i as usize).copied()
+    }
+
+    /// The region and edge a variable's name names:
+    /// `-exact-layout-margins-inset-left`.
+    pub fn from_name(name: &str) -> Option<(Region, Edge)> {
+        Region::ALL.iter().find_map(|r| {
+            name.strip_prefix(r.prefix())
+                .and_then(Edge::from_name)
+                .map(|e| (*r, e))
+        })
+    }
+}
+
 /// A viewport segment variable (CSS-ENV-1 §2.3): which length of segment
 /// `(x, y)` an `env(viewport-segment-<var> x y)` names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -189,6 +252,10 @@ pub struct Env {
     /// viewport and never a dialog, so no length follows a sheet's size.
     /// `None`: the layout viewport.
     pub screen: Option<(f32, f32)>,
+    /// The layout regions' insets (LLP 1123 D10), indexed by [`Region`],
+    /// each top right bottom left, from the layout viewport. `None` on a
+    /// host that reports none: every region is then the safe area.
+    pub regions: Option<[[f32; 4]; 5]>,
 }
 
 impl Default for Env {
@@ -214,6 +281,7 @@ impl Env {
             control_text_styles: None,
             button_fonts: None,
             screen: None,
+            regions: None,
         }
     }
 
@@ -227,12 +295,22 @@ impl Env {
         }
     }
 
+    /// A layout region's inset at an edge: the host's, else the safe area's
+    /// (LLP 1123 D10).
+    pub fn region_inset(&self, region: Region, edge: Edge) -> f32 {
+        self.regions
+            .map_or_else(|| self.inset(edge), |r| r[region as usize][edge as usize])
+    }
+
     /// Whether every inset and every segment side is a finite number.
     pub fn is_finite(&self) -> bool {
         self.button_fonts
             .as_ref()
             .is_none_or(crate::ButtonFonts::is_valid)
             && Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
+            && self
+                .regions
+                .is_none_or(|r| r.iter().flatten().all(|v| v.is_finite()))
             && self.segments.iter().all(Rect::is_finite)
             && self
                 .screen
@@ -294,6 +372,15 @@ impl Env {
         }
     }
 
+    /// This environment with its layout regions' insets replaced (`None`:
+    /// every region is the safe area).
+    pub fn with_regions(&self, regions: Option<[[f32; 4]; 5]>) -> Env {
+        Env {
+            regions,
+            ..self.clone()
+        }
+    }
+
     /// This environment with its insets replaced, the grid kept.
     pub fn with_insets(&self, top: f32, right: f32, bottom: f32, left: f32) -> Env {
         Env {
@@ -330,7 +417,7 @@ impl EnvRefusal {
             EnvRefusal::IndexCount => "env(viewport-segment-*) takes exactly two indices, x then y: env(viewport-segment-width 0 0)",
             EnvRefusal::IndexForm => "a viewport segment index is a non-negative integer",
             EnvRefusal::IndexRange => "a viewport segment index is at most 15",
-            EnvRefusal::UnknownVariable => "env() names safe-area-inset-top/right/bottom/left or viewport-segment-width/height/top/left/bottom/right x y",
+            EnvRefusal::UnknownVariable => "env() names safe-area-inset-top/right/bottom/left, viewport-segment-width/height/top/left/bottom/right x y, or a layout region's inset, -exact-<region>-inset-top/right/bottom/left for safe-area-corners, layout-margins, layout-margins-corners, readable-content or readable-content-corners",
             EnvRefusal::Unlinked => "env(viewport-segment-*) is not linked into this artifact (LLP 1078 D3; linked by use, LLP 1047 D2)",
         }
     }
@@ -367,6 +454,17 @@ pub fn link() {
 /// Whether the segment grammar is linked.
 pub fn linked() -> bool {
     LINKED.get().is_some()
+}
+
+/// An inset length's points under `env`: a safe-area inset's, or a layout
+/// region's (the safe area's on a host that reports none), plus its own.
+pub(crate) fn resolve_inset(d: Dimension, env: &Env) -> Dimension {
+    let (base, plus) = match d {
+        Dimension::Env(edge, plus) => (env.inset(edge), plus),
+        Dimension::Region(region, edge, plus) => (env.region_inset(region, edge), plus),
+        other => return other,
+    };
+    Dimension::Points(super::calc::narrow(f64::from(base) + f64::from(plus)))
 }
 
 /// A segment length's points under `env`, or `Auto` when its segment is
@@ -433,6 +531,8 @@ fn segment_term(tail: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
         return Err(EnvRefusal::IndexCount);
     }
     let index = |s: &str| -> Result<u8, EnvRefusal> {
+        // CSS's integer: digits, a `+` before them allowed
+        let s = s.strip_prefix('+').unwrap_or(s);
         if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
             return Err(EnvRefusal::IndexForm);
         }
@@ -451,10 +551,19 @@ fn segment_term(tail: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
 }
 
 /// The `env()` variable families `term` reads, each with its kind (LLP 1081
-/// D8): both are CSS Environment Variables 1's.
-pub const ENV_NAMES: [(&str, &str); 2] = [
+/// D8): CSS Environment Variables 1's, and Exact's layout regions (LLP 1123
+/// D10), whose names begin `-exact-`.
+pub const ENV_NAMES: [(&str, &str); 7] = [
     ("safe-area-inset-", "css CSS Environment Variables 1"),
     ("viewport-segment-", "css CSS Environment Variables 1"),
+    ("-exact-safe-area-corners-inset-", "exact LLP 1123 D10"),
+    ("-exact-layout-margins-inset-", "exact LLP 1123 D10"),
+    ("-exact-layout-margins-corners-inset-", "exact LLP 1123 D10"),
+    ("-exact-readable-content-inset-", "exact LLP 1123 D10"),
+    (
+        "-exact-readable-content-corners-inset-",
+        "exact LLP 1123 D10",
+    ),
 ];
 
 pub(super) fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
@@ -466,24 +575,36 @@ pub(super) fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
         .trim();
     let mut words = body.split_whitespace();
     let name = words.next().ok_or(EnvRefusal::UnknownVariable)?;
+    named(name, &words.collect::<Vec<_>>())
+}
+
+/// A variable by its name, as CSS decodes it, and its indices' text.
+pub(super) fn named(name: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
     if let Some(edge) = name.strip_prefix(ENV_NAMES[0].0) {
         let edge = Edge::from_name(edge).ok_or(EnvRefusal::UnknownVariable)?;
-        return if words.next().is_some() {
-            Err(EnvRefusal::UnknownVariable)
-        } else {
+        return if indices.is_empty() {
             Ok(Dimension::Env(edge, 0.0))
+        } else {
+            Err(EnvRefusal::UnknownVariable)
+        };
+    }
+    if let Some((region, edge)) = Region::from_name(name) {
+        return if indices.is_empty() {
+            Ok(Dimension::Region(region, edge, 0.0))
+        } else {
+            Err(EnvRefusal::UnknownVariable)
         };
     }
     let tail = name
         .strip_prefix(ENV_NAMES[1].0)
         .ok_or(EnvRefusal::UnknownVariable)?;
     let hooks = LINKED.get().ok_or(EnvRefusal::Unlinked)?;
-    let indices: Vec<&str> = words.collect();
-    (hooks.term)(tail, &indices)
+    (hooks.term)(tail, indices)
 }
 
-/// A bare `env()` length by CSS's grammar: `env(safe-area-inset-<edge>)` or
-/// `env(viewport-segment-<var> <x> <y>)`. `Ok(None)` when the text is not
+/// A bare `env()` length by CSS's grammar: `env(safe-area-inset-<edge>)`,
+/// `env(viewport-segment-<var> <x> <y>)` or a layout region's
+/// `env(-exact-<region>-inset-<edge>)` (LLP 1123 D10). `Ok(None)` when the text is not
 /// one (a math function, or one with a fallback, is [`super::calc`]'s); `Err`
 /// when it names one of the
 /// kernel's variables wrongly (LLP 1078 D10).
@@ -495,6 +616,52 @@ pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
     Ok(None)
 }
 
+/// A calculation's CSS text for a browser, which has no layout regions (LLP
+/// 1123 D10): each region's name is the safe area's, which is what the
+/// region resolves to on a host that reports none. Names are matched as CSS
+/// identifiers, escapes decoded, and the rest of the text is kept as written.
+pub fn browser_css(c: super::Comparison, out: &mut String) {
+    let mut text = String::new();
+    c.css(&mut text);
+    if !text.contains("-exact-") && !text.contains('\\') {
+        out.push_str(&text);
+        return;
+    }
+    let mut input = cssparser::ParserInput::new(&text);
+    rename_regions(&mut cssparser::Parser::new(&mut input), out);
+}
+
+fn rename_regions(p: &mut cssparser::Parser<'_, '_>, out: &mut String) {
+    use cssparser::Token;
+    loop {
+        let start = p.position();
+        let Ok(token) = p.next_including_whitespace_and_comments().cloned() else {
+            return;
+        };
+        let close = match token {
+            Token::Ident(ref name) if Region::from_name(name).is_some() => {
+                let (_, edge) = Region::from_name(name).expect("matched");
+                out.push_str(ENV_NAMES[0].0);
+                out.push_str(edge.name());
+                continue;
+            }
+            Token::Function(_) | Token::ParenthesisBlock => ')',
+            Token::SquareBracketBlock => ']',
+            Token::CurlyBracketBlock => '}',
+            _ => {
+                out.push_str(p.slice_from(start));
+                continue;
+            }
+        };
+        out.push_str(p.slice_from(start));
+        let _ = p.parse_nested_block(|p| {
+            rename_regions(p, out);
+            Ok::<(), cssparser::ParseError<'_, ()>>(())
+        });
+        out.push(close);
+    }
+}
+
 /// Whether a style reads a viewport or environment length.
 pub fn uses_env(style: &crate::StyleProps) -> bool {
     style.mask.iter().any(|id| {
@@ -502,6 +669,7 @@ pub fn uses_env(style: &crate::StyleProps) -> bool {
             style.get(id),
             crate::RowValue::Dimension(
                 Dimension::Env(..)
+                    | Dimension::Region(..)
                     | Dimension::Segment(..)
                     | Dimension::Viewport(..)
                     | Dimension::Compare(..)

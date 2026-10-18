@@ -49,7 +49,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync } from 'node:fs';
-import { loadavg } from 'node:os';
+import { availableParallelism, loadavg } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { INPUTS, Inputs, Store, checkEnv, decide, outcomeOf } from './async-inputs.mjs';
 import { main as issue } from './issue.mjs';
@@ -90,9 +90,36 @@ export function tierTwoChecks() {
 }
 export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']];
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
+// The T3 Code clone's own workspace (examples/t3-code/Cargo.toml): its build script bakes the whole app on
+// one core for minutes, so the root's members and the six checks leave it out. Built, tested and
+// linted here, in the root's target (pruned with it), where the units the two workspaces share are built
+// once. Clippy's build of the build script is a unit of its own, so linting bakes once more. The root's
+// `cargo fmt --all` does not reach this workspace, so its step checks the formatting too, after the tests.
+const t3Code = ['--manifest-path', 'examples/t3-code/Cargo.toml', '--target-dir', 'target', '--workspace', '--locked'];
+export const t3CodeChecks = [
+  ['t3-code', 'sh', ['-c', [
+    'failed=0',
+    `cargo test ${t3Code.join(' ')} --lib --bins --tests --no-fail-fast || failed=1`,
+    'cargo fmt --manifest-path examples/t3-code/Cargo.toml --all -- --check || failed=1',
+    'exit $failed',
+  ].join('\n')]],
+  ['t3-code-clippy', 'cargo', ['clippy', ...t3Code, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
+];
+// Glue files that edit an app's checked-in sources while they run
+const EDITS_APPS = /\/dev-scheduler\.test\.mjs$/;
+/** The glue step's worker processes: half the cores the machine's load leaves idle, at least one. Each worker's file
+ * drives a browser or a build of its own, so two idle cores a worker keep them from contending (18 cores at load 3:
+ * seven workers; at load 15: one) */
+export function glueWorkers(cores = availableParallelism(), load = loadavg()[0]) {
+  return Math.max(1, Math.floor((cores - load) / 2));
+}
+// Glue files left out: `bundle-size` reads RealWorld's production app.js (`EXACT_REALWORLD_JS`), which no step prepares
+// before the glue; `document-agent` fails here (QUEUE.md, "The page's frames drop to one a second")
+const LEFT_OUT = /^host\/web-js\/(bundle-size|document-agent)\.test\.mjs$/;
 export function glueTests(root) {
-  const files = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: root, onlyFiles: true })].sort().map(file => `./${file}`);
-  return [...files, './scripts/app.test.mjs', './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
+  const files = ['host/web', 'host/web-js'].flatMap(dir => [...new Bun.Glob(`${dir}/**/*.test.{mjs,js}`).scanSync({ cwd: root, onlyFiles: true })])
+    .filter(file => !LEFT_OUT.test(file)).sort().map(file => `./${file}`);
+  return [...files, ...['app-workspace', 'app-bake', 'app-apple', 'app-manifest', 'agent', 'agent-launch', 'tamber-server', 'tamber-builds', 'tamber-scrub', 'tamber-dtcg', 'design-tool'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
 }
 export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();
@@ -105,16 +132,26 @@ export function checks(sha, since, selection = {}) {
     // capability linked (the document, placement, motion, focusout and no-GPU tests) and JS,
     // and Fieldnotes as the dev loop builds it (its Rust drive, in `test`).
     prepareCheck,
-    ['test', 'env', ['EXACT_REQUIRED=1', `EXACT_FIELDNOTES_DIST=${resolve(DISTS, 'fieldnotes')}`, 'cargo', 'test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
+    ['test', 'env', ['EXACT_REQUIRED=1', `EXACT_FIELDNOTES_DIST=${resolve(DISTS, 'fieldnotes')}`, 'cargo', 'test', ...workspace, '--tests', '--no-fail-fast']],
     gameCheck,
-    ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
+    ...t3CodeChecks,
+    ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
     ['caps', 'bun', ['scripts/caps.mjs']],
     ['boot', 'bun', ['scripts/boot.mjs']],
     // Every web host unit test (LLP 1012.001.000 D9; Charlie, 2026-09-30)
     // and the source capture fixtures, in the existing async glue step.
-    ['glue', 'env', ['EXACT_GLUE_FAST=1', ...required, ...distEnv, 'bun', 'test', ...glue]],
+    // Run the files in as many worker processes as the machine's idle cores allow when the step starts (`glueWorkers`)
+    // A file that edits an app's sources runs after them, alone, since a page another file opens meanwhile would refuse
+    // that app's build as stale
+    ['glue', 'env', ['EXACT_GLUE_FAST=1', ...required, ...distEnv, 'sh', '-c', [
+      'failed=0',
+      `workers=$(bun -e "import { glueWorkers } from './scripts/async.mjs'; console.log(glueWorkers())") || { echo 'error: glue: scripts/async.mjs failed to count the idle cores (above); fix it and rerun the step'; exit 1; }`,
+      `bun test --parallel="$workers" ${glue.filter(file => !EDITS_APPS.test(file)).join(' ')} || failed=1`,
+      ...glue.filter(file => EDITS_APPS.test(file)).map(file => `bun test ${file} || failed=1`),
+      'exit $failed',
+    ].join('\n')]],
     // This document proof builds Weatherlight's wasm target. Keep it out of
     // glue's seconds loop while retaining it in the asynchronous lane.
     ['web-build-test', 'env', [...required, 'bun', 'test', './host/web/tests/document.test.mjs', '--test-name-pattern', "a TypeScript app's served document"]],
@@ -127,8 +164,8 @@ export function checks(sha, since, selection = {}) {
     // The JS target in the other browser engines, with Chrome as its oracle.
     // These remain async-only; a missing Playwright browser is a named failure
     // whose log gives the exact outside-the-repo install command.
-    ['conform-firefox', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'firefox', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-firefox')]],
-    ['conform-webkit', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'webkit', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-webkit')]],
+    ['conform-firefox', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'firefox', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--js-from', resolve(STATE_DIR, 'conform'), '--out', resolve(STATE_DIR, 'conform-firefox')]],
+    ['conform-webkit', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'webkit', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--js-from', resolve(STATE_DIR, 'conform'), '--out', resolve(STATE_DIR, 'conform-webkit')]],
     ...(apple ? [['ios', 'bun', ['host/apple/build.mjs', '--test', '--ios']]] : []),
     // Real touches through the XCTest runner on a simulator (LLP 1080.000 §6):
     // a runner that does not start fails here, never skips.
@@ -162,7 +199,7 @@ const distEnv = [`EXACT_WEB_DIST=${resolve(DISTS, 'caltrain-wasm')}`, `EXACT_WEB
 
 /** Settings a check inherits from the lane's own environment that change what it tests. */
 export const ENV_DROPPED = ['EXACT_UPDATE_TRUST', 'CARGO_TARGET_DIR', 'EXACT_WEB_BROWSER', 'EXACT_JS_ENGINE', 'EXACT_JS_GPU_SURFACES',
-  'EXACT_WEB_LOOK', 'EXACT_WEB_LINK', 'EXACT_WEB_DIST', 'EXACT_WEB_JS_DIST', 'EXACT_NO_GPU_WASM_DIST', 'EXACT_NO_GPU_JS_DIST',
+  'EXACT_WEB_LINK', 'EXACT_WEB_DIST', 'EXACT_WEB_JS_DIST', 'EXACT_NO_GPU_WASM_DIST', 'EXACT_NO_GPU_JS_DIST',
   'EXACT_NO_GPU_CHROME', 'EXACT_MOTION_DIST', 'EXACT_GLUE_FAST', 'EXACT_REQUIRED'];
 export const laneEnv = base => {
   const env = { ...base, HERMES_LEAN_SYS_OFFLINE: '1' };

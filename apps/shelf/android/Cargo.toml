@@ -19,6 +19,8 @@ build = "build.rs"
 
 [lib]
 crate-type = ["cdylib"]
+test = false
+bench = false
 
 [target.'cfg(target_os = "android")'.dependencies]
 exact-logic = { path = "../../../logic" }
@@ -27,3 +29,5 @@ exact-js = { path = "../../../js" }
 
 [build-dependencies]
 exact-js-bake = { path = "../../../js/bake" }
+exact-plan = { path = "../../../plan" }
+contract = { path = "../../../contract/cli" }

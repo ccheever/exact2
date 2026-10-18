@@ -47,10 +47,9 @@ pub(super) fn selection_range_args(
         .iter()
         .map(|a| infer(a, scope, shapes))
         .collect::<Result<_, _>>()?;
-    if matches!(
-        types.as_slice(),
-        [Ty::String, Ty::Number, Ty::Number] | [Ty::String, Ty::Number, Ty::Number, Ty::String]
-    ) {
+    if matches!(types.as_slice(), [id, Ty::Number, Ty::Number] if id.is_string())
+        || matches!(types.as_slice(), [id, Ty::Number, Ty::Number, direction] if id.is_string() && direction.is_string())
+    {
         return Ok(());
     }
     err(
@@ -87,6 +86,9 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "resize" => Some("DOMRectReadOnly"),
         "intersect" => Some("IntersectionObserverEntry"),
         "reorderdrop" => Some("ReorderEvent"),
+        // @ref LLP 1125 D8 — Web MIDI's `MIDIMessageEvent`, with the input,
+        // runner time and the transport's beat.
+        "midimessage" => Some("MIDIMessageEvent"),
         // @ref LLP 1098 D2 — the Media Session's actions, as
         // `setActionHandler` hands them.
         "seekbackward" | "seekforward" | "seekto" | "previoustrack" | "nexttrack" | "stop" => {
@@ -97,6 +99,18 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
 }
 
 pub(super) fn declare(shapes: &mut Shapes) {
+    // `exact_runner::midi`'s order (LLP 1125 D8): the input's `id`, the
+    // message's bytes, when it arrived in runner time, and the transport's
+    // beat then (−1 while stopped).
+    shapes.map.insert(
+        "MIDIMessageEvent".into(),
+        vec![
+            ("input".into(), Ty::String),
+            ("data".into(), Ty::List(Box::new(Ty::Number))),
+            ("timeStamp".into(), Ty::Number),
+            ("beat".into(), Ty::Number),
+        ],
+    );
     shapes.map.insert(
         "IntersectionObserverEntry".into(),
         vec![

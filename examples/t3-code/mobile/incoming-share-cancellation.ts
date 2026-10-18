@@ -1,5 +1,5 @@
 // Pinned365aa87982 NewTaskDraftScreen: restore the pre-import draft before release.
-// @ref llp/1109.005-composer-and-transcript.decision.md#incoming-share-inbox
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#incoming-share-inbox
 import type { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Native, type Files } from './shared/protocol';

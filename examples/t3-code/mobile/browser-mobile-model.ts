@@ -1,4 +1,4 @@
-// @ref llp/1109.010-mobile-browser-devices.decision.md#connection-and-command-ownership
+// @ref examples/t3-code/mobile/docs/1130.010-mobile-browser-devices.decision.md#connection-and-command-ownership
 // Pinned365aa87982 mobile state/preview.ts and browserTabs.ts, projected through the existing RPC client.
 import { arr, obj, str, num, type Obj } from './shared/domain';
 

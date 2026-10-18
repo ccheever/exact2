@@ -485,7 +485,6 @@ fn display_mode_bits_preserve_fold_and_preferences_at_boot_and_without_a_resize(
             | ((folded as u32) << 8)
             | (cols << 9)
             | (rows << 17)
-            | (1 << 25)
             | (gamut << 26)
             | ((hdr as u32) << 28)
             | (code << 29);
@@ -520,4 +519,464 @@ fn display_mode_bits_preserve_fold_and_preferences_at_boot_and_without_a_resize(
         assert_eq!(state["device"]["prefersContrast"], "custom");
         assert_eq!(state["device"]["prefersColorScheme"], "dark");
     }
+}
+
+/// LLP 1121 stage 4, commit 3: a value-only edit of the app's design
+/// publishes no plan (its file is written, for a host that watches it); its
+/// batch says what changed. An edit that changes the plan's
+/// structure, or the Contract, still writes one. A write by rename, as the
+/// Tamber server makes it, is the same case as one in place, as an editor
+/// saves.
+#[test]
+fn a_value_only_design_edit_writes_no_plan_and_sends_a_batch() {
+    let dir = scratch("design");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    let design = dir.join("app.tamber");
+    let tamber = "tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n";
+    std::fs::write(&design, tamber).unwrap();
+    let view = "component App\n  view\n    column background-color=\"page\"\n      text \"one\" color=\"ink\"\n";
+    std::fs::write(&src, view).unwrap();
+    let mut s = Session::new(&src, &out);
+    let first = s.poll::<NoData>().expect("first look builds").unwrap();
+    assert!(first.live.is_none());
+    let on_disk = std::fs::read(&out).unwrap();
+    // A value, saved in place.
+    save(&design, &tamber.replace("#111111", "#222222"), 1);
+    let edit = s.poll::<NoData>().expect("a design edit").unwrap();
+    // Dated by the design's save, not the older root's.
+    let design_ms = std::fs::metadata(&design)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as f64;
+    assert!(
+        edit.saved_ms >= design_ms - 1.0,
+        "{} < {design_ms}",
+        edit.saved_ms
+    );
+    let live = edit.live.expect("value-only");
+    assert_eq!(std::fs::read(&out).unwrap(), edit.bytes, "the file follows");
+    assert_ne!(edit.bytes, on_disk);
+    let names: Vec<&str> = live.batch.tokens.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["ink"]);
+    assert_eq!(live.batch.tokens[0].value, "#222222ff");
+    assert_eq!(live.snapshot.tokens.len(), 2);
+    assert_eq!(live.batch.design, live.snapshot.design);
+    // Another, written by rename: its base is the last batch's design.
+    let tmp = dir.join(".app.tamber.tmp");
+    std::fs::write(&tmp, tamber.replace("#111111", "#333333")).unwrap();
+    std::fs::rename(&tmp, &design).unwrap();
+    let edit = s.poll::<NoData>().expect("a renamed design").unwrap();
+    let next = edit.live.expect("value-only");
+    assert_eq!(next.batch.base.as_deref(), Some(live.batch.design.as_str()));
+    // A token no view reads is in no plan: an empty batch, which the loop
+    // does not send. Naming it in the view is structure.
+    save(
+        &design,
+        &format!("{}  edge = #000000\n", tamber.replace("#111111", "#333333")),
+        3,
+    );
+    let quiet = s.poll::<NoData>().expect("rebuilt").unwrap();
+    assert!(quiet
+        .live
+        .as_ref()
+        .is_some_and(|l| l.batch.tokens.is_empty()));
+    save(
+        &src,
+        &view.replace("column ", "column border-color=\"edge\" "),
+        4,
+    );
+    let structural = s.poll::<NoData>().expect("a structure edit").unwrap();
+    assert!(structural.live.is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The wasm loop reloads for what the plan keeps (theme2's ruling, LLP
+/// 1121 stage 5, D7's retention): in an app that can name a token outside
+/// its views (a data crate beside it) every token is kept, so an added one
+/// publishes a plan; and a first `when` on a kept token that did not vary
+/// does too, wherever it is (the plan gains its slices). `propose` classes
+/// both `rebuild` by the same retention.
+#[test]
+fn a_kept_token_added_or_starting_to_vary_publishes_a_plan() {
+    let dir = scratch("retained");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    let design = dir.join("app.tamber");
+    let tamber = "tamber t\n\naxes\n  tone = warm | cool\n\ntheme\n  ink = #111111\n";
+    std::fs::write(&design, tamber).unwrap();
+    std::fs::write(
+        &src,
+        "component App\n  view\n    text \"one\" color=\"ink\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("data")).unwrap();
+    std::fs::write(
+        dir.join("data/Cargo.toml"),
+        "[package]\nname = \"t-data\"\n",
+    )
+    .unwrap();
+    let mut s = Session::new(&src, &out);
+    assert!(s
+        .poll::<NoData>()
+        .expect("first look builds")
+        .unwrap()
+        .live
+        .is_none());
+    save(&design, &format!("{tamber}  spare = #222222\n"), 1);
+    let added = s.poll::<NoData>().expect("an added token").unwrap();
+    assert!(added.live.is_none(), "kept, so the plan's structure moved");
+    save(
+        &design,
+        &format!("{tamber}  spare = #222222\n").replace(
+            "ink = #111111\n",
+            "ink = #111111\n    when tone=cool: #0a7aff\n",
+        ),
+        2,
+    );
+    let varies = s.poll::<NoData>().expect("a first when").unwrap();
+    assert!(varies.live.is_none(), "the plan gains the token's slices");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// LLP 1121 stage 4, commit 6: a scrub's preview compiles the design text
+/// in place of the file's and writes nothing; each value's batch is based
+/// on the last; restore goes back to the committed design; a structure
+/// change is refused; and a save while one previews batches from it.
+#[test]
+fn a_scrub_previews_without_writing_and_restores_the_committed_design() {
+    let dir = scratch("scrub");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    let design = dir.join("app.tamber");
+    let tamber = "tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n";
+    std::fs::write(&design, tamber).unwrap();
+    std::fs::write(
+        &src,
+        "component App\n  view\n    column background-color=\"page\"\n      text \"one\" color=\"ink\"\n",
+    )
+    .unwrap();
+    let mut s = Session::new(&src, &out);
+    s.poll::<NoData>().expect("first look builds").unwrap();
+    let plan = std::fs::read(&out).unwrap();
+    let (batch, snapshot) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#222222"))
+        .unwrap();
+    let batch = batch.expect("ink moved");
+    assert_eq!(batch.tokens.len(), 1);
+    assert_eq!(batch.tokens[0].value, "#222222ff");
+    assert_eq!(snapshot.design, batch.design);
+    assert_eq!(std::fs::read(&out).unwrap(), plan, "no plan written");
+    assert_eq!(
+        std::fs::read_to_string(&design).unwrap(),
+        tamber,
+        "no design written"
+    );
+    let (next, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#333333"))
+        .unwrap();
+    assert_eq!(next.unwrap().base.as_deref(), Some(batch.design.as_str()));
+    // An axis added is structure: refused, the preview kept.
+    assert!(s
+        .scrub::<NoData>(tamber.replace("theme\n", "axes\n  mode = a | b\n\ntheme\n"))
+        .is_err());
+    let (back, committed) = s.restore().expect("a scrub previewed");
+    let back = back.expect("back to #111111");
+    assert_eq!(back.tokens[0].value, "#111111ff");
+    assert_eq!(back.design, committed.design);
+    assert!(s.restore().is_none(), "restored once");
+    // A save while a scrub previews: the builds stay on the preview (an
+    // empty batch), and its end restores the saved design.
+    let (shown, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#444444"))
+        .unwrap();
+    save(&design, &tamber.replace("#111111", "#555555"), 1);
+    let saved = s.poll::<NoData>().expect("a design edit").unwrap();
+    let live = saved.live.expect("value-only");
+    assert!(live.batch.tokens.is_empty());
+    let (back, _) = s.restore().expect("still previewing");
+    let back = back.expect("to the saved design");
+    assert_eq!(back.base.as_deref(), Some(shown.unwrap().design.as_str()));
+    assert_eq!(back.tokens[0].value, "#555555ff");
+    // A released scrub: the build of what it wrote goes from it, and ends it.
+    let (shown, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#666666"))
+        .unwrap();
+    s.release();
+    save(&design, &tamber.replace("#111111", "#666666"), 2);
+    let written = s.poll::<NoData>().expect("the release's write").unwrap();
+    let live = written.live.expect("value-only");
+    assert_eq!(
+        live.batch.base.as_deref(),
+        Some(shown.unwrap().design.as_str())
+    );
+    assert!(live.batch.tokens.is_empty(), "the builds already show it");
+    assert!(s.restore().is_none(), "ended");
+    // A scrub that previews before a released one's write builds keeps its
+    // preview: that build changes only what its end restores.
+    s.scrub::<NoData>(tamber.replace("#111111", "#777777"))
+        .unwrap();
+    s.release();
+    let (next, _) = s
+        .scrub::<NoData>(tamber.replace("#111111", "#888888"))
+        .unwrap();
+    save(&design, &tamber.replace("#111111", "#777777"), 3);
+    let written = s.poll::<NoData>().expect("the first's write").unwrap();
+    assert!(written.live.expect("value-only").batch.tokens.is_empty());
+    let (back, _) = s.restore().expect("the second still previews");
+    let back = back.expect("to the written design");
+    assert_eq!(
+        back.base.as_deref(),
+        next.as_ref().map(|b| b.design.as_str())
+    );
+    assert_eq!(back.tokens[0].value, "#777777ff");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// LLP 1121 stage 4, commit 4: a running web build applies a batch in
+/// place (no reload: its state stays), and answers stale for one whose base
+/// it has passed.
+#[test]
+fn a_running_web_build_applies_a_batch_in_place() {
+    use exact_runner::design;
+    let dir = scratch("live-host");
+    let view = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column background-color=\"page\"\n      button press=bump testId=\"bump\"\n        text `${n}` color=\"ink\" testId=\"count\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n");
+    let b = plan("tamber t\n\ntheme\n  ink = #ff0000\n  page = #ffffff\n");
+    let structure = design::shape(&a);
+    let batch = design::batch(&structure, &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let (mut host, _) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    let bump = {
+        let k = host.runner().kernel();
+        k.node_by_key(k.find_by_test_id("bump")[0]).unwrap().id
+    };
+    host.dispatch(bump, exact_runner::Event::Press);
+    let out = host.apply_live(&batch.json());
+    assert!(out.starts_with("{\"live\":\"applied\""), "{out}");
+    assert!(
+        out.contains("rgba(255,0,0,1)"),
+        "the new colour reaches the page: {out}"
+    );
+    let count = {
+        let k = host.runner().kernel();
+        let n = k.node_by_key(k.find_by_test_id("count")[0]).unwrap();
+        n.props.str(exact_kernel::PropId::Text).map(str::to_string)
+    };
+    assert_eq!(count.as_deref(), Some("1"), "no reload: the state stays");
+    assert!(host
+        .apply_live(&batch.json())
+        .starts_with("{\"live\":\"stale\""));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A scrub's frames (LLP 1121 D13, *1.10*): a build applies one newer than
+/// the last of that scrub it applied, drops an older one or its snapshot
+/// (which carries no base), and takes another scrub's frames as they come.
+#[test]
+fn a_running_web_build_drops_a_scrub_frame_older_than_one_it_showed() {
+    use exact_runner::design;
+    let dir = scratch("live-scrub");
+    let view = "component App\n  view\n    column background-color=\"page\"\n      text \"a\" color=\"ink\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n");
+    let b = plan("tamber t\n\ntheme\n  ink = #ff0000\n  page = #ffffff\n");
+    let c = plan("tamber t\n\ntheme\n  ink = #00ff00\n  page = #ffffff\n");
+    let shape = design::shape(&a);
+    let (ta, tb, tc) = (design::tokens(&a), design::tokens(&b), design::tokens(&c));
+    let marked = |mut e: design::Edit, id: &str, rev, run: Option<&str>| {
+        e.scrub = Some(design::Scrub {
+            id: id.into(),
+            rev,
+            run: run.map(str::to_string),
+        });
+        e
+    };
+    let mark = |e, id, rev| marked(e, id, rev, None);
+    let (mut host, _) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    let applied =
+        |out: &str| out.starts_with("{\"live\":\"applied\"") && out.contains("\"design\"");
+    let out = host.apply_live(&mark(design::batch(&shape, &ta, &tb).unwrap(), "scrub-1", 2).json());
+    assert!(applied(&out) && out.contains("rgba(255,0,0,1)"), "{out}");
+    // The snapshot of an earlier frame, fetched late: dropped.
+    let out = host.apply_live(&mark(design::snapshot(&shape, &ta), "scrub-1", 1).json());
+    assert!(
+        !out.contains("rgba(17,17,17,1)"),
+        "an older frame is not shown: {out}"
+    );
+    assert_eq!(host.runner().design(), design::digest(&tb));
+    // A newer one is.
+    let out = host.apply_live(&mark(design::batch(&shape, &tb, &tc).unwrap(), "scrub-1", 3).json());
+    assert!(out.contains("rgba(0,255,0,1)"), "{out}");
+    // Another scrub's, whatever its revision.
+    let out = host.apply_live(&mark(design::batch(&shape, &tc, &ta).unwrap(), "scrub-2", 1).json());
+    assert!(out.contains("rgba(17,17,17,1)"), "{out}");
+    // With the server's run (*1.11*), revisions order frames across its
+    // scrubs: an earlier scrub's snapshot fetched after a later one's end
+    // is dropped; another run's frame is taken.
+    let out = host.apply_live(
+        &marked(
+            design::batch(&shape, &ta, &tb).unwrap(),
+            "scrub-3",
+            10,
+            Some("r1"),
+        )
+        .json(),
+    );
+    assert!(out.contains("rgba(255,0,0,1)"), "{out}");
+    let out =
+        host.apply_live(&marked(design::snapshot(&shape, &tc), "scrub-2", 9, Some("r1")).json());
+    assert!(
+        !out.contains("rgba(0,255,0,1)"),
+        "an earlier scrub's frame: {out}"
+    );
+    assert_eq!(host.runner().design(), design::digest(&tb));
+    let out =
+        host.apply_live(&marked(design::snapshot(&shape, &tc), "scrub-1", 1, Some("r2")).json());
+    assert!(
+        out.contains("rgba(0,255,0,1)"),
+        "a restarted server's: {out}"
+    );
+    // The run before it is retired: its late frame, whatever its rev.
+    let out =
+        host.apply_live(&marked(design::snapshot(&shape, &ta), "scrub-3", 11, Some("r1")).json());
+    assert!(
+        !out.contains("rgba(17,17,17,1)"),
+        "a retired run's frame: {out}"
+    );
+    assert_eq!(host.runner().design(), design::digest(&tc));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A scrub's frame patched (LLP 1121 D13): the committed design with the
+/// folded rows set, as the compile of the same text gives it; a row that
+/// would gain slices is not patched.
+#[test]
+fn a_patched_scrub_frame_is_the_compiled_one() {
+    let dir = scratch("patch");
+    let design = dir.join("app.tamber");
+    let tamber = "tamber t\n\naxes\n  dark-style = dim | black  under scheme=dark\n\ntheme\n  ink = #111111\n  page = light-dark(#ffffff, #151d28)\n    when dark-style=black: #000000\n";
+    std::fs::write(&design, tamber).unwrap();
+    std::fs::write(dir.join("app.contract"), "component App\n  view\n    column background-color=\"page\"\n      text \"a\" color=\"ink\"\n").unwrap();
+    let mut s = Session::new(dir.join("app.contract"), dir.join("out.plan"));
+    s.poll::<NoData>().expect("built").unwrap();
+    let digest = |text: &str| {
+        use sha2::Digest;
+        format!("{:x}", sha2::Sha256::digest(text))
+    };
+    let source = digest(tamber);
+    assert_eq!(s.design_source(), Some(source.as_str()));
+    let ink = [("ink".to_string(), vec!["#ff0000ff".to_string(); 2])];
+    // Folded over other bytes (or none named): compiled instead.
+    assert!(s
+        .patch(Some(&digest("tamber t\n")), &ink)
+        .unwrap()
+        .is_none());
+    assert!(s.patch(None, &ink).unwrap().is_none());
+    let (patched, _) = s
+        .patch(
+            Some(&source),
+            &[
+                ("ink".into(), vec!["#ff0000ff".into(); 2]),
+                (
+                    "page".into(),
+                    vec![
+                        "light-dark(#ffffffff, #222222ff)".into(),
+                        "light-dark(#ffffffff, #000000ff)".into(),
+                    ],
+                ),
+            ],
+        )
+        .unwrap()
+        .expect("patched");
+    let edited = tamber
+        .replace("#111111", "#ff0000")
+        .replace("#151d28", "#222222");
+    let (compiled, _) = s.scrub::<NoData>(edited.clone()).unwrap();
+    // The compile shows the same design as the patch: no batch between.
+    assert!(compiled.is_none(), "{compiled:?}");
+    assert!(patched.expect("a batch").tokens.len() == 2);
+    let compiled = s.verify_job(edited)().unwrap();
+    assert_eq!(s.verified(&compiled), None);
+    // `ink` is one value in every tuple: two would make it vary.
+    assert!(s
+        .patch(
+            Some(&source),
+            &[("ink".into(), vec!["#ff0000ff".into(), "#00ff00ff".into()])]
+        )
+        .unwrap()
+        .is_none());
+    // A hand edit's build, its batch empty under the preview: the design
+    // it committed is the edit's, and a frame folded before it is not
+    // patched on it.
+    let hand = tamber.replace("#111111", "#333333");
+    std::fs::write(&design, &hand).unwrap();
+    s.poll::<NoData>().expect("built").unwrap();
+    assert_eq!(s.design_source(), Some(digest(&hand).as_str()));
+    assert!(s.patch(Some(&source), &ink).unwrap().is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// LLP 1121 stage 5, commit 2: a role override's value edit reaches a
+/// running web build as a batch: its role sheet is written again in the
+/// batch (`theme`), which unsaid text and the accent read.
+#[test]
+fn a_running_web_build_takes_a_role_override_edit_in_place() {
+    use exact_runner::design;
+    let dir = scratch("live-role");
+    let view = "component App\n  view\n    column\n      text \"a\" testId=\"text\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  AccentColor = #0a7aff\n  CanvasText = #111111\n");
+    let b = plan("tamber t\n\ntheme\n  AccentColor = #ff0000\n  CanvasText = #222222\n");
+    let batch =
+        design::batch(&design::shape(&a), &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let (mut host, boot) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    assert!(boot.contains("--exact-accent:#0a7aff"), "{boot}");
+    let out = host.apply_live(&batch.json());
+    assert!(out.starts_with("{\"live\":\"applied\""), "{out}");
+    assert!(out.contains(r#"{"op":"theme","css":"#), "{out}");
+    assert!(out.contains("--exact-accent:#ff0000"), "{out}");
+    // Unsaid text reads the sheet's `color`, so the sheet is the edit.
+    assert!(out.contains("--exact-canvas-text:#222222ff"), "{out}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Two web sessions on one thread, each with its own role overrides (LLP
+/// 1121 stage 5): an event on one sends its rows under its own roles, with
+/// no role resolved unbound beside the other (a debug build would assert).
+#[test]
+fn an_event_beside_another_session_crosses_under_its_own_roles() {
+    let dir = scratch("two-sessions");
+    let view = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button press=bump testId=\"bump\"\n        text `${n}` color=\"#ff0000\" testId=\"count\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  CanvasText = #111111\n");
+    let b = plan("tamber t\n\ntheme\n  CanvasText = #222222\n");
+    let (mut first, _) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    let (_second, _) = Host::boot(&b.encode(), NoData, Default::default(), "/").unwrap();
+    let bump = {
+        let k = first.runner().kernel();
+        k.node_by_key(k.find_by_test_id("bump")[0]).unwrap().id
+    };
+    let out = first.dispatch(bump, exact_runner::Event::Press);
+    assert!(out.contains("\"1\""), "{out}");
+    let _ = std::fs::remove_dir_all(dir);
 }

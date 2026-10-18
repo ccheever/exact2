@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 import XCTest
 
-// browser-recording-and-downloads BR-1: the agent's recording tools on the previewAutomation host
+// The agent's recording tools on the previewAutomation host
 // (T3BrowserAutomationRecording.swift). The host waits for the tab (recordingStart) or not (recordingStop), lists the
 // request for the data module (`browserAutomation.recordings`), and answers `previewAutomation.respond` with the outcome
 // the data module sends back, or with an execution error at the host deadline; the stopped recording's upload mints a

@@ -1,0 +1,49 @@
+component App
+  state key = "b"
+  state marked = ""
+  state third = true
+  action mark
+    marked = "c"
+  action pick(name: string)
+    key = name
+  action drop
+    third = false
+  view
+    main navigationKey=key navigationBack="back"
+      button "mark C" press=mark testId="mark"
+      button "unknown route" press=pick("unknown") testId="unknown"
+      button "remove C" press=drop testId="drop"
+      row role="tablist"
+        button "A" role="tab" aria-controls="a" press=pick("a") testId="a"
+        button "B" role="tab" aria-controls="b" press=pick("b") testId="b"
+        if third
+          button "C" role="tab" aria-controls="c" aria-selected=(marked == "c") press=pick("c") testId="c"
+      column role="tabpanel" id="a"
+        column navigationKey="a"
+          text "A" testId="content-a"
+      column role="tabpanel" id="b"
+        column navigationKey="b"
+          text "B" testId="content-b"
+      column role="tabpanel" id="c"
+        column navigationKey="c"
+          text "C" testId="content-c"
+
+test "tab order finds the route and a held route beats aria-selected"
+  expect tree has "content-a"
+  expect tree has "content-b"
+  expect tree missing "content-c"
+  tap "mark"
+  expect tree missing "content-c"
+  tap "c"
+  expect tree has "content-c"
+
+test "an unknown root key opens every panel"
+  tap "unknown"
+  expect tree has "content-a"
+  expect tree has "content-b"
+  expect tree has "content-c"
+
+test "a panel opens when its tab leaves"
+  expect tree missing "content-c"
+  tap "drop"
+  expect tree has "content-c"

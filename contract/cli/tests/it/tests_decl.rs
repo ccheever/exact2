@@ -66,6 +66,41 @@ fn expect_value_says_text_reads_a_controls_value() {
 }
 
 #[test]
+fn an_assertion_word_from_elsewhere_names_its_rewrite() {
+    let refused = |src: &str| contract::tests(&format!("test \"t\"\n  {src}\n")).unwrap_err();
+    let e = refused("expect tree lacks \"banner\"");
+    assert_eq!(e.id, "syntax-expected-step", "{e}");
+    assert!(
+        e.message
+            .contains("not `lacks`; for a node that is not there, write `expect tree missing"),
+        "{e}"
+    );
+    let e = refused("expect tree contains \"banner\"");
+    assert!(
+        e.message
+            .contains("not `contains`; it matches a testId only"),
+        "{e}"
+    );
+    for src in [
+        "expect text \"row\" contains \"UPS\"",
+        "expect text \"row\" != \"UPS\"",
+    ] {
+        let e = refused(src);
+        assert_eq!(e.id, "syntax-expected-step", "{e}");
+        assert!(
+            e.message
+                .starts_with("`expect text` compares the whole text with `==`"),
+            "{e}"
+        );
+        assert!(e.message.contains("descendants' joined"), "{e}");
+    }
+    assert!(contract::tests(
+        "test \"t\"\n  expect tree missing \"banner\"\n  expect text \"row\" == \"UPS\"\n"
+    )
+    .is_ok());
+}
+
+#[test]
 fn the_apps_tests_parse() {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -318,6 +353,37 @@ fn a_test_waits_for_the_apps_data_unless_it_says_before_data() {
         ("test \"t\"\n  tap \"a\"\n  before data\n", 3),
         ("test \"t\"\n  before \"a\"\n", 2),
         ("before data\nbefore data\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
+fn fresh_resets_the_backend_before_each_test_it_leads() {
+    // The author's ruling of 2026-10-12 (sb4 app farm): a launch line, at the
+    // top for every test or leading one, with an optional seed file.
+    let src = "fresh\n\ntest \"a\"\n  tap \"x\"\n\ntest \"b\"\n  fresh \"fixtures/seed.json\"\n  tap \"y\"\n";
+    let tests = contract::tests(src).unwrap();
+    assert!(matches!(&tests[0].steps[0], Step::Fresh { seed: None, .. }));
+    assert!(
+        matches!(&tests[1].steps[0], Step::Fresh { seed: Some(s), .. } if s == "fixtures/seed.json")
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.starts_with(
+            "[{\"name\":\"a\",\"steps\":[{\"op\":\"fresh\",\"seed\":null,\"line\":1},"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"name\":\"b\",\"steps\":[{\"op\":\"fresh\",\"seed\":\"fixtures/seed.json\",\"line\":7},"),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  tap \"a\"\n  fresh\n", 3),
+        ("test \"t\"\n  fresh 7\n", 2),
+        ("fresh\nfresh \"s.json\"\n", 2),
     ] {
         let e = contract::tests(src).unwrap_err();
         assert_eq!(e.span.line, line, "{src}: {e}");
@@ -678,4 +744,18 @@ fn a_test_writes_through_the_apps_server_as_another_person() {
         let e = contract::tests(src).unwrap_err();
         assert_eq!(e.span.line, line, "{src}: {e}");
     }
+}
+
+#[test]
+fn the_forms_guide_key_syntax_parses_as_a_key_step() {
+    let file = contract_syntax::parse(
+        r#"test "enter in a field"
+  type "draft" key "Enter"
+"#,
+    )
+    .unwrap();
+    assert_eq!(file.tests.len(), 1);
+    assert!(
+        matches!(&file.tests[0].steps[0], contract_syntax::Step::Key { target, key, .. } if target == "draft" && key == "Enter")
+    );
 }

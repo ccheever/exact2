@@ -83,7 +83,7 @@ impl Resolver<'_, '_> {
             tf::IDENTITY
         };
         // The clipPath's own transform, then its units.
-        let style = clip.computed_style(StyleMask::INHERITED);
+        let style = clip.arena.computed_rows(clip.slot, StyleMask::INHERITED);
         let own = self
             .transform(&clip, &clip.style.clone(), vp)
             .map_or(tf::IDENTITY, |t| t.affine());

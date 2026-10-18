@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.008-mobile-voice.decision.md#draft-and-selection
+// @ref examples/t3-code/mobile/docs/1130.008-mobile-voice.decision.md#draft-and-selection
 import UIKit
 
 /// Reads the existing Exact editor; never takes its delegate, text or focus ownership.

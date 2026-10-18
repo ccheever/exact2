@@ -441,6 +441,7 @@ fn continuation_publishes_timeline_bindings_only_at_finish() {
     t.k.continue_document_commit(&[Op::ClearStyle {
         id: a,
         mask: exact_kernel::StyleMask::of(StyleId::DragTimeline),
+        written: false,
     }])
     .unwrap();
     assert_eq!(t.answer(), "a");

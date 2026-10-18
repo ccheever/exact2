@@ -1,5 +1,5 @@
 // Pinned365aa87982 attachmentUpload.ts and use-thread-outbox-drain.ts.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import type { MobileOutboxConnection } from './mobile-outbox-connection';
 import type { T3Client } from './shared/client';
 import { obj, str } from './shared/domain';

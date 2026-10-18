@@ -158,7 +158,7 @@ The table is a starting point. The build fills in each cell from a measured fixt
 - **tvOS:** a field is UIKit's `UITextField` with tvOS's own look; editing opens the system's keyboard screen. Rows apply where tvOS's UIKit honours them, and stand-ins are reported. A textarea stays as today, a read-only text view; editable multi-line text on tvOS is out of scope.
 - **Disabled:** the platform's own disabled look (`isEnabled = false`, the browser's `:disabled`). r4's opacity 0.5 row goes. An authored `color` is kept when disabled, as 1069.011.001 D16 and the browser do.
 - **Placeholder:** the platform's own:
-  - iOS uses `UIColor.placeholderText` on the field and the textarea. That fixes the field's 30%-of-ink rule, which disagreed with the textarea.
+  - iOS uses `UIColor.placeholderText` on the field and the textarea. That fixes the field's 30%-of-ink rule, which disagreed with the textarea. **Amended 2026-10-16:** a header's search field, which is the bar's `UISearchBar`, keeps the search field's own placeholder ink, which UIKit draws darker than `placeholderText` (the euxy port's Patterns search read lighter than a hand-built one); an authored `::placeholder` colour or `placeholder` role still wins.
   - macOS uses `placeholderAttributedString` with the system's colour.
   - The web uses the UA's (the `::placeholder` rule at `index.html:89` stops reaching native fields).
 

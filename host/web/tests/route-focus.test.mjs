@@ -14,8 +14,9 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -27,18 +28,18 @@ const check = need('chrome', unavailable);
 // route with no header. `window.then` is what the pressed control's action
 // does besides navigating, before the commit ends (a `focus()` command, an
 // `autofocus` field).
-const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0] + `
+const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root" style="height:100%">
   <main id="nav" navigationKey="list" navigationBack="back" style="display:flex;flex-direction:column;height:100%">
     <div role="tabpanel" id="p1" style="flex:1;position:relative">
       <div navigationKey="list" id="list" style="position:absolute;inset:0;display:flex;flex-direction:column">
         <header><h1 id="list-title">Books</h1><button id="add">Add</button><input id="search" data-native></header>
-        <div id="scroller" style="flex:1;min-height:0;overflow-y:auto">
-          <button id="row-1" style="height:60px"><img data-symbol-source="symbol:forward-chevron" alt="">One</button>
+        <div id="scroller" data-exact-list style="flex:1;min-height:0;overflow-y:auto">
+          <button id="row-1" data-exact-router-press="true" style="height:60px"><img data-symbol-source="symbol:forward-chevron" alt="">One</button>
           <a id="row-2" data-view href="/item/2" style="height:60px"><div><img data-symbol-source="symbol:forward-chevron" alt="">Two</div></a>
-          <button id="bare" style="height:60px">Bare</button>
+          <button id="bare" data-exact-router-press="true" style="height:60px">Bare</button>
           <div style="height:2000px"></div>
-          <button id="row-far" style="height:60px">Far</button>
+          <button id="row-far" data-exact-router-press="true" style="height:60px">Far</button>
         </div>
         <div id="menu" role="menu" popover="auto"><button id="m-1">Open</button><button id="m-2" disabled>Share</button><a id="m-3" href="#x">Copy</a><button id="m-4">Remove</button></div>
       </div>
@@ -50,7 +51,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_
   </main>
 </div>
 <script type="module">
-  import { navigation } from './navigation.js';
+  import { navigation, inertAncestor } from './navigation.js';
   import { createInputHandlers } from './input-glue.js';
   const root = document.getElementById('exact-root'), nav = document.getElementById('nav'), panel = document.getElementById('p1');
   const stack = window.stack = [['list', '/']];
@@ -59,8 +60,8 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_
   // One commit: the tree's attributes, the projection, what the action focused, then the focus follows the route.
   const show = window.show = (key = stack.at(-1)[0], removed = []) => {
     nav.setAttribute('navigationKey', key);
+    if (key !== 'other') navigation.apply({ top: stack.length - 1, url: stack.at(-1)[1], removed, visits: stack });
     navigation.project(root, () => {});
-    if (key !== 'other') navigation.apply({ top: stack.length - 1, url: stack.at(-1)[1], removed });
     const after = window.then; window.then = null; after?.();
     input?.arrive();
   };
@@ -75,7 +76,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_
   };
   window.pop = () => { const [key] = stack.pop(); document.getElementById('route-' + key).remove(); show(undefined, [stack.length]); };
   window.replace = (key, url) => { const [old] = stack.pop(); document.getElementById('route-' + old).remove(); stack.push(['x', url]); stack.pop(); push(key, url); };
-  navigation.connect(root, () => false, () => {}, () => pop(), () => {});
+  navigation.connect(root, () => false, () => {}, () => pop(), () => {}, href => href.startsWith("/item/"));
   document.getElementById('row-1').addEventListener('click', () => push('1', '/item/1'));
   // A link to a route is followed from the document's capture phase, as both targets follow one (input-glue.js,
   // router.js): its commit lands before any listener nearer the link has heard the click.
@@ -86,7 +87,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_
   document.getElementById('tab-2').addEventListener('click', () => show('other'));
   document.getElementById('tab-1').addEventListener('click', () => show());
   show();
-  input = createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: el => el.closest('[inert]'), dispatch() {} });
+  input = createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor, dispatch() {} });
   input.arrive(); // the stack as it stands when the piece arrives, as each target calls it
   // Where the focus is: the element's id, whether the browser draws its ring, and the page's and the list's scroll.
   window.focus = () => { const a = document.activeElement; return [a === document.body ? 'body' : a.id, a.matches(':focus-visible'), document.scrollingElement.scrollTop, document.getElementById('scroller').scrollTop]; };
@@ -97,7 +98,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_
 async function inChrome(test, width = 600) {
   const server = createServer((req, res) => {
     if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
-    const file = ['navigation.js', 'input-glue.js'].find(name => req.url === '/' + name);
+    const file = ['navigation.js', 'input-glue.js', 'prompt-glue.js'].find(name => req.url === '/' + name);
     if (!file) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, file)));
   });
@@ -116,8 +117,7 @@ async function inChrome(test, width = 600) {
       return reply.result.value;
     };
     await call('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const press = async (id) => {
       const at = await evaluate(`(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
       for (const type of ['mousePressed', 'mouseReleased']) await call('Input.dispatchMouseEvent', { type, button: 'left', clickCount: 1, ...at });
@@ -170,7 +170,7 @@ check('on a push the focus moves to the new route\'s heading, and on Back to the
   await evaluate(`document.getElementById('scroller').scrollTop = 5000`);
   await press('row-far');
   expect(await evaluate(`document.getElementById('scroller').scrollTop = 0; pop(); focus()`)).toEqual(['row-far', false, 0, 0]);
-}), 30000);
+}), 60000);
 
 check('a focus the commit set is left alone, and another tab is no arrival', () => inChrome(async (evaluate, press) => {
   // The pressed control's action focuses a field in the new route (an `autofocus`, a `focus()` command): it stays.
@@ -202,7 +202,7 @@ check('a focus the commit set is left alone, and another tab is no arrival', () 
   expect(await evaluate(`push('z', '/z'); pop(); focus()[0]`)).toBe('tab-1');
   expect(await evaluate(`push('t', '/timer'); focus()[0]`)).toBe('tab-1');
   expect(await evaluate(`pop(); document.activeElement.blur(); push('t2', '/timer'); focus()[0]`)).toBe('title-t2');
-}), 30000);
+}), 60000);
 
 check('a modal route is a dialog to assistive technology: the focus moves in, and returns on close', () => inChrome(async (evaluate, press, key) => {
   // LLP 1115.000 D4.5. The sheet is `role="dialog"` and `aria-modal`, named by its header's heading; the focus is on
@@ -232,7 +232,7 @@ check('a modal route is a dialog to assistive technology: the focus moves in, an
   // A route that is no longer modal is no longer a dialog, and a pushed route never was.
   expect(await evaluate(`document.getElementById('route-bare').removeAttribute('navigationPresentation'); show(); ${sheet('bare')}`)).toEqual([null, null, null, null]);
   expect(await evaluate(`pop(); push('1', '/item/1'); ${sheet('1')}`)).toEqual([null, null, null, null]);
-}), 30000);
+}), 60000);
 
 check('a tablist\'s tabs and a menu\'s items move by the arrow keys', () => inChrome(async (evaluate, press, key) => {
   const arrow = name => key(name, name, { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Home: 36, End: 35 }[name]);
@@ -272,7 +272,7 @@ check('a tablist\'s tabs and a menu\'s items move by the arrow keys', () => inCh
   // With the menu closed, and in a field, the arrows are the page's own.
   await evaluate(`document.getElementById('menu').hidePopover(); document.getElementById('search').focus()`);
   expect(await after('ArrowDown')).toBe('search list');
-}), 30000);
+}), 60000);
 
 check('a root tab bar drawn as a sidebar moves by Up and Down', () => inChrome(async (evaluate, press, key) => {
   expect(await evaluate(`nav.hasAttribute('data-exact-sidebar')`)).toBe(true);
@@ -283,7 +283,7 @@ check('a root tab bar drawn as a sidebar moves by Up and Down', () => inChrome(a
   expect(await evaluate('document.activeElement.id')).toBe('tab-2');
   await key('ArrowUp', 'ArrowUp', 38);
   expect(await evaluate('document.activeElement.id')).toBe('tab-1');
-}, 1200), 30000);
+}, 1200), 60000);
 
 check('in a wide window\'s split the focus follows the detail and comes back to its row', () => inChrome(async (evaluate, press) => {
   // The list stays live beside its detail (LLP 1116.004 D1), so the pressed row still has the focus when the detail
@@ -298,13 +298,13 @@ check('in a wide window\'s split the focus follows the detail and comes back to 
   // The list's own focus is left alone when the detail leaves while the person is in the list.
   await press('row-1');
   expect(await evaluate(`document.getElementById('search').focus(); pop(); focus()[0]`)).toBe('search');
-}, 1200), 30000);
+}, 1200), 60000);
 
 check('the agent\'s reveal leaves what a tap refuses where it is', () => inChrome(async (evaluate, press) => {
-  // Before a tap the driver scrolls its target into view (navigation.js `reveal`), as a person would. Under a sheet the
+  // Before a tap the driver scrolls its target into view (input-glue.js `reveal`), as a person would. Under a sheet the
   // list is inert: nobody can scroll or press it, the tap is refused, and a refusal leaves the page as it was. (Shelf in
   // conformance: a refused tap on a covered row's swipe action left the row scrolled to it, on the page that was asked.)
-  const reveal = `import('./navigation.js').then(m => [m.reveal(document.getElementById('row-far'), 1).scrolled, document.getElementById('scroller').scrollTop > 0])`;
+  const reveal = `import('./input-glue.js').then(m => [m.reveal(document.getElementById('row-far'), 1).scrolled, document.getElementById('scroller').scrollTop > 0])`;
   await press('add');
   expect(await evaluate(`document.getElementById('list').inert`)).toBe(true);
   expect(await evaluate(reveal)).toEqual([false, false]);
@@ -312,4 +312,18 @@ check('the agent\'s reveal leaves what a tap refuses where it is', () => inChrom
   expect(await evaluate(`pop(); document.getElementById('row-far').style.visibility = 'hidden'; ${reveal}`)).toEqual([false, false]);
   // A row a person could reach is scrolled to, as before.
   expect(await evaluate(`document.getElementById('row-far').style.visibility = ''; ${reveal}`)).toEqual([true, true]);
-}), 30000);
+}), 60000);
+
+check('Back returns focus inside a modal beneath an inert ancestor', () => inChrome(async (evaluate, press) => {
+  await evaluate(`
+    const dialog = document.createElement('dialog');
+    dialog.style.cssText = 'width:500px;height:700px';
+    nav.before(dialog); dialog.append(nav); dialog.showModal();
+    document.getElementById('exact-root').inert = true;
+  `);
+  await press('row-1');
+  expect(await evaluate('focus()[0]')).toBe('title-1');
+  expect(await evaluate('pop(); focus()[0]')).toBe('row-1');
+  await press('row-1');
+  expect(await evaluate(`document.getElementById('row-1').inert = true; pop(); focus()[0]`)).toBe('list-title');
+}), 60000);

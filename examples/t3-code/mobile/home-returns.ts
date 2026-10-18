@@ -1,4 +1,4 @@
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // Pinned threadInbox.ts createInboxReturnTracker; root supplies observation time.
 import { str, type Obj } from './shared/domain';
 import { isWorkingThread } from './shared/sidebar-model';

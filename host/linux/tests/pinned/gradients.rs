@@ -3,7 +3,7 @@
 //! declarations at 1×) are `gradients.web.png` as booted and `gradients.web-dark.png`
 //! after `dark`. Each case's box is compared within the border parity's band.
 
-use crate::borders::{boot, held_to_chrome, view, NoData};
+use crate::borders::{boot, held_to_chrome, view};
 use exact_linux::presenter::PainterChoice;
 
 const CASES: [&str; 18] = [
@@ -43,7 +43,7 @@ fn every_gradient_case_matches_chrome_light_then_dark() {
         // under the transparent ones.
         let id = view(&p, "dark");
         p.tap(id).unwrap();
-        p.run_commands(NoData::default);
+        p.run_commands(<()>::default);
         failures.extend(held_to_chrome(
             &mut p,
             "gradients.web-dark.png",

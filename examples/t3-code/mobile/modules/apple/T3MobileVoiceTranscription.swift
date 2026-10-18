@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.008-mobile-voice.decision.md#native-transcription
+// @ref examples/t3-code/mobile/docs/1130.008-mobile-voice.decision.md#native-transcription
 // Adapted from pinned @react-native-ai/apple0.12.0 plus T3 Code365aa87982 patch.
 // AppleTranscriptionImpl.swift by Mike Grabowski, 2025. MIT: ../../voice-APPLE-LICENSE.
 import Foundation

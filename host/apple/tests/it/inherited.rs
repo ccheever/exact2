@@ -897,3 +897,150 @@ fn an_href_that_turns_out_empty_is_no_href_to_swift() {
     assert!(!cleared.contains("\"href\""), "{cleared}");
     assert!(cleared.contains(page), "{cleared}");
 }
+
+#[test]
+fn explicit_clears_export_computed_values_and_own_declaration_intent() {
+    use exact_kernel::{Env, StyleId, StyleMask, StyleProps};
+    let clear = StyleProps {
+        written: StyleMask::of(StyleId::PlaceholderColor),
+        ..Default::default()
+    };
+    let only_intent = exact_apple::style::style_json(&clear, &Env::default()).0;
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&only_intent).unwrap(),
+        serde_json::json!({"written":["placeholder_color"]})
+    );
+    let check_placeholder = |batch: &str, id, colored| {
+        let batch: serde_json::Value = serde_json::from_str(batch).unwrap();
+        let style = &batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["id"] == id && op.get("style").is_some())
+            .unwrap()["style"];
+        assert!(
+            style["written"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("placeholder_color")),
+            "{style}"
+        );
+        if colored {
+            assert_eq!(
+                style["placeholder_color"],
+                serde_json::json!([171, 205, 239, 255])
+            );
+        } else {
+            assert!(style.get("placeholder_color").is_none(), "{style}");
+        }
+    };
+    let check_color = |batch: &str, id, color: exact_kernel::ColorValue| {
+        let batch: serde_json::Value = serde_json::from_str(batch).unwrap();
+        let style = &batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["id"] == id && op.get("style").is_some())
+            .unwrap()["style"];
+        let rgba = |dark| {
+            let c = color.resolve(dark);
+            serde_json::json!([c.r(), c.g(), c.b(), c.a()])
+        };
+        let light = rgba(false);
+        let expected = if matches!(color.fallback(), exact_kernel::ColorValue::Fixed(_)) {
+            light
+        } else {
+            serde_json::json!([light, rgba(true)])
+        };
+        let actual = &style["text_color"];
+        assert_eq!(actual.get("c").unwrap_or(actual), &expected, "{style}");
+    };
+    for ground in ["", " color=\"#123456\""] {
+        let plan = contract::compile(&format!(
+            r##"component App
+  state changed = false
+  action change
+    changed = not changed
+  view
+    column{ground}
+      button "Change" press=change testId="change"
+      input color="inherit" testId="field"
+      text "Words" color=(changed ? "#abcdef" : "unset") testId="words"
+      input placeholder="Hint" testId="placeholder"
+        ::placeholder
+          color=(changed ? "#abcdef" : "unset")
+"##
+        ))
+        .unwrap();
+        let (mut host, first) = Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            402.0,
+            874.0,
+        )
+        .unwrap();
+        for name in ["field", "words"] {
+            let id = view(&host, name);
+            let node = host.runner().kernel().node(id).unwrap();
+            assert!(!node.style.mask.has(StyleId::TextColor));
+            assert!(node.style.written.has(StyleId::TextColor));
+            check_color(&first, id, node.text_color());
+            let batch = op(&first, id);
+            assert!(batch.contains("\"written\":[\"text_color\"]"), "{batch}");
+        }
+        let placeholder = view(&host, "placeholder");
+        check_placeholder(&first, placeholder, false);
+        let colored = host.dispatch(view(&host, "change"), Event::Press);
+        check_placeholder(&colored, placeholder, true);
+        let restored = host.dispatch(view(&host, "change"), Event::Press);
+        check_placeholder(&restored, placeholder, false);
+        let id = view(&host, "words");
+        check_color(
+            &restored,
+            id,
+            host.runner().kernel().node(id).unwrap().text_color(),
+        );
+        let batch = op(&restored, id);
+        assert!(batch.contains("\"written\":[\"text_color\"]"), "{batch}");
+    }
+}
+
+/// LLP 1061 D7: a pressed paint cleared by its expression is no pressed
+/// look, so the presenter is sent no row (an initial transparent would
+/// erase the background while held and keep the platform's press away).
+#[test]
+fn a_cleared_pressed_paint_sends_no_row() {
+    let plan = contract::compile(
+        r##"component App
+  state on = true
+  action flip
+    on = not on
+  view
+    button press=flip background-color="#ffffff" -exact-press-background-color=(on ? "#abcdef" : "unset") -exact-press-opacity=(on ? 0.5 : "unset") testId="b"
+      text "b"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let b = view(&host, "b");
+    let made = op(&first, b);
+    assert!(
+        made.contains("\"press_background_color\":[171,205,239,255]"),
+        "{made}"
+    );
+    assert!(made.contains("\"press_opacity\":0.5"), "{made}");
+    let cleared = op(&host.dispatch(b, Event::Press), b);
+    assert!(
+        !cleared.contains("\"press_background_color\":"),
+        "{cleared}"
+    );
+    assert!(!cleared.contains("\"press_opacity\":"), "{cleared}");
+}

@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#durable-draft-capture-transfer
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#durable-draft-capture-transfer
 use ComposerColors from "./composer-shapes.contract"
 shape NewTaskRecoveryAction
   key: string

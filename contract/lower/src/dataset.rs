@@ -19,7 +19,7 @@ use exact_plan::BindingsRow;
 /// has no DOM name for, written as `data-<the prop's name, lowercased>`.
 /// `host/web`'s `every_data_name_the_host_writes_is_a_reserved_word` keeps
 /// the second half whole.
-const HOST_WORDS: [&str; 89] = [
+const HOST_WORDS: [&str; 96] = [
     "accept",
     "accessibilitybusy",
     "accessibilitydisabled",
@@ -52,9 +52,11 @@ const HOST_WORDS: [&str; 89] = [
     "flow-fragment",
     "flow-hold",
     "focusable",
+    "fontshorthand",
     "frame-callback-ms",
     "gpu-input",
     "gpu-ms",
+    "hatch",
     "headcanonical",
     "headdescription",
     "headedited",
@@ -64,7 +66,6 @@ const HOST_WORDS: [&str; 89] = [
     "headtitle",
     "heightdragfor",
     "hitslop",
-    "hatch",
     "hyphen",
     "initialitemcount",
     "intersectmargin",
@@ -81,6 +82,8 @@ const HOST_WORDS: [&str; 89] = [
     "nativeviewprops",
     "navigationbar",
     "navigationdetent",
+    "navigationgrabber",
+    "navigationinitialdetent",
     "navigationscroll",
     "num",
     "pressed",
@@ -103,6 +106,10 @@ const HOST_WORDS: [&str; 89] = [
     "symbol-path",
     "symboleffectvalue",
     "testid",
+    "time-end",
+    "time-format",
+    "time-reservation",
+    "time-start",
     "toolbarplacement",
     "transformdragfor",
     "view",
@@ -305,7 +312,12 @@ impl Lowerer<'_> {
         for (key, a) in &keyed {
             asm.str(self.b.str(key));
             let ty = crate::expr::compile(self, &mut asm, &a.value, scope, &mut depth)?;
-            let scalar = |t: &Ty| matches!(t, Ty::String | Ty::Number | Ty::Bool | Ty::Unknown);
+            let scalar = |t: &Ty| {
+                matches!(
+                    t,
+                    Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool | Ty::Unknown
+                )
+            };
             let admitted = match &ty {
                 Ty::Option(inner) => scalar(inner),
                 t => scalar(t),

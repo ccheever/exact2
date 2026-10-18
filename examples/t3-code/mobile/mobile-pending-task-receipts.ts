@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 // Editing never changes a command whose original native attempt owns the wire.
 import type { T3Client } from './shared/client';
 import { ClientError, type Native } from './shared/protocol';

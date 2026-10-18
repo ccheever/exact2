@@ -1,5 +1,5 @@
 // Source365aa87982 NewTaskDraftScreen.handleStart and buildPendingTaskMessage.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import type { mobileNewTaskDraftPresentation } from './mobile-new-task-drafts';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { contextId, contextLabel, contextReferences } from './shared/composer-editor-menu';

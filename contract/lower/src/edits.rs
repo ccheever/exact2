@@ -175,6 +175,17 @@ pub(crate) fn value_edit(
         StyleValueError::BadColor { .. } => role_hint(text, true).map(|e| e.lead(name, text)),
         StyleValueError::WrongKind { .. } => {
             let number = text.trim();
+            // CSS's two weight keywords, which React Native writes too.
+            let weight = match number {
+                "bold" => Some(700),
+                "normal" => Some(400),
+                _ => None,
+            };
+            if let Some(n) = weight.filter(|_| name == "font-weight") {
+                return Some(format!(
+                    "write `font-weight={n}`: a weight is its number here (`bold` is 700, `normal` 400)"
+                ));
+            }
             let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
             let unsigned = number.strip_prefix('-').unwrap_or(number);
             let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, "0"));
@@ -183,6 +194,11 @@ pub(crate) fn value_edit(
                 return None;
             }
             let n: f64 = number.parse().ok()?;
+            // Unquoted, a line-height this large is that many times the font size: the points
+            // it means take a unit (`lower-line-height-multiplier`).
+            if name == "line-height" && n >= crate::warnings::line_height::IMPLAUSIBLE {
+                return Some(format!("write `line-height=\"{number}px\"` for {number} points: a bare `line-height={number}` is {number} times the font size, as in CSS"));
+            }
             rows.iter()
                 .all(|row| {
                     StyleProps::default()
@@ -264,6 +280,28 @@ mod tests {
         assert!(role_hint("-exact-continuous", false).is_none());
         // A bare role is a hint wherever it stands.
         assert!(role_hint("secondary-label", false).is_some());
+    }
+
+    /// A quoted `line-height="28"` is not sent to the bare 28, which is 28
+    /// times the font size (the euxy port's 616-point header); a ratio is.
+    #[test]
+    fn a_quoted_line_height_in_points_is_sent_to_px() {
+        let edit = |text: &str| {
+            let error = StyleValueError::WrongKind {
+                style: StyleId::LineHeight,
+                expected: "a number or a length",
+            };
+            let value = Expr::Str(text.into(), contract_syntax::Span::default());
+            value_edit("line-height", &value, &[StyleId::LineHeight], &error)
+        };
+        assert_eq!(
+            edit("28").as_deref(),
+            Some("write `line-height=\"28px\"` for 28 points: a bare `line-height=28` is 28 times the font size, as in CSS")
+        );
+        assert_eq!(
+            edit("1.4").as_deref(),
+            Some("write `line-height=1.4`: a number is written without quotes")
+        );
     }
 
     #[test]

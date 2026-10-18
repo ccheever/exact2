@@ -582,3 +582,54 @@ fn an_authored_offset_is_not_rounded_to_the_environment_precision() {
     let d = Dimension::parse_env("calc(env(safe-area-inset-top) - 16777217px)").unwrap();
     assert_eq!(d.resolve(&env), Dimension::Points(-1.));
 }
+
+/// An escaped space ends no name: `safe-area-inset-left\20` (or `\a0`, a
+/// no-break space) is another variable, as CSS tokenizes it, so a
+/// declaration that names it fares as one naming any unknown variable does,
+/// never reading the inset; a fallback's own `env()` is held to the same.
+#[test]
+fn an_escaped_space_in_a_name_is_another_variable() {
+    exact_kernel::link_segments();
+    let accepted = |text: &str| {
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::PaddingLeft, &StyleValue::Text(text.into()))
+            .is_ok()
+    };
+    for space in [r"\20", r"\a0"] {
+        for (escaped, unknown) in [
+            (
+                "env(safe-area-inset-left{}, 30px)",
+                "env(safe-area-inset-lefts, 30px)",
+            ),
+            (
+                "max(1px, env(safe-area-inset-left{}, 30px))",
+                "max(1px, env(safe-area-inset-lefts, 30px))",
+            ),
+            (
+                "calc(env(-exact-layout-margins-inset-left{}) + 7px)",
+                "calc(env(-exact-layout-margins-inset-lefts) + 7px)",
+            ),
+            (
+                "env(viewport-segment-width{} 0 0, 30px)",
+                "env(viewport-segment-widths 0 0, 30px)",
+            ),
+            (
+                "env(viewport-segment-width 1 0, env(safe-area-inset-left{}, 30px))",
+                "env(viewport-segment-width 1 0, env(safe-area-inset-lefts, 30px))",
+            ),
+        ] {
+            let escaped = escaped.replace("{}", space);
+            assert!(!accepted(unknown), "{unknown}");
+            assert!(!accepted(&escaped), "{escaped}");
+        }
+    }
+    for known in [
+        "env(viewport-segment-width 1 0, env(safe-area-inset-left, 30px))",
+        "env(safe-area-inset-left, env(viewport-segment-width +0 0, 30px))",
+        "env(viewport-segment-width +1 +0)",
+        r"env(safe-\61rea-inset-left, 30px)",
+    ] {
+        assert!(accepted(known), "{known}");
+    }
+}

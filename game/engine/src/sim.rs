@@ -21,6 +21,14 @@ impl Now {
 }
 /// A stateless game; components and resources hold every bit of simulation state.
 pub trait Game: 'static {
+    /// Scene sampling, fixed for the GPU renderer's lifetime.
+    const SAMPLES: crate::SceneSamples = crate::SceneSamples::Four;
+    /// Camera depth before colour, for opaque overdraw. Requires one scene sample.
+    const DEPTH_PREPASS: bool = false;
+    /// Diffuse-only model lighting: Lambert sun/local lights and environment irradiance.
+    /// Keeps shadows, textures, emission, fog and rim; ignores metallic/specular response.
+    /// Fixed for the renderer's lifetime; primitive and custom materials are unaffected.
+    const MATTE_MODELS: bool = false;
     /// Surface name in Contract.
     const NAME: &'static str = "world";
     /// Stable save identity, independent of the shared surface name.
@@ -36,6 +44,11 @@ pub trait Game: 'static {
     const LEVEL: Option<crate::asset::Level> = None;
     /// Canvas argument declarations in positional order; also declares exact arity.
     type Args: Args;
+    /// Presented world raster relative to device pixels; does not change layout.
+    /// Finite (0, 1]; the compositor scales to the canvas box. Defaults to full size.
+    fn render_scale(_args: &Self::Args) -> f32 {
+        1.0
+    }
     /// Discoverable controls.
     fn actions() -> Actions {
         Actions::default()

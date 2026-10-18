@@ -1,5 +1,5 @@
 // Source365aa87982 append/remove behavioral fixtures; no native intake authority asserted.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import {expect,test} from 'bun:test';
 import {mobileComposerPickerAppend as append,mobileComposerPickerRemove as remove,type ComposerPickerDraft} from './composer-picker-plan';
 import type {OrdinaryInventoryAttachment as Attachment} from './composer-attachment-publication';

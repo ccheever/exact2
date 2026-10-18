@@ -118,6 +118,25 @@ pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
     })
 }
 
+/// A module tag's attribute refused for what the name means elsewhere (a
+/// renamed spelling such as `size`, another element's `rows` or `name`)
+/// says what to do about it, as `refused` does: a module prop with a name
+/// Contract knows never reaches the module.
+pub(crate) fn name_the_fix(n: &Node, mut e: LowerError) -> LowerError {
+    let Node::Element { tag, attrs, .. } = n else {
+        return e;
+    };
+    if is_module_tag(tag)
+        && matches!(e.id, "lower-unknown-attr" | "lower-attr-tag")
+        && attrs.iter().any(|a| a.span == e.span)
+    {
+        e.message.push_str(&format!(
+            "; on `{tag}` a name Contract knows binds to the box, not the module (LLP 1024 D1), so give the module prop another name"
+        ));
+    }
+    e
+}
+
 /// The props besides ARIA's that any leaf box takes, so a module's too.
 const BOX_PROPS: [&str; 6] = ["testId", "id", "role", "disabled", "inert", "tabindex"];
 
@@ -215,7 +234,12 @@ impl Lowerer<'_> {
         for (key, a) in &keyed {
             asm.str(self.b.str(key));
             let ty = crate::expr::compile(self, &mut asm, &a.value, scope, &mut depth)?;
-            let scalar = |t: &Ty| matches!(t, Ty::String | Ty::Number | Ty::Bool | Ty::Unknown);
+            let scalar = |t: &Ty| {
+                matches!(
+                    t,
+                    Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool | Ty::Unknown
+                )
+            };
             let admitted = match &ty {
                 Ty::Option(inner) => scalar(inner),
                 t => scalar(t),

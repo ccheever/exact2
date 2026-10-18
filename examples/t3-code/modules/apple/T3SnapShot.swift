@@ -61,12 +61,17 @@ final class T3SnapShot {
         weak var view: NSView?
         let image: NSView
         var loaded = false
-        init(view: NSView) {
+        init(view: NSView, contain: Bool) {
             self.view = view
-            image = NSView(frame: view.bounds); image.autoresizingMask = [.width, .height]; image.wantsLayer = true
-            image.layer?.contentsGravity = .resizeAspectFill; image.layer?.masksToBounds = true; image.layer?.cornerRadius = 9
+            image = PassiveImage(frame: view.bounds); image.autoresizingMask = [.width, .height]; image.wantsLayer = true
+            image.layer?.contentsGravity = contain ? .resizeAspect : .resizeAspectFill; image.layer?.masksToBounds = true; image.layer?.cornerRadius = contain ? 0 : 9
             view.addSubview(image, positioned: .below, relativeTo: nil)
         }
+    }
+    /// The tile's picture takes no clicks: they go to the node it paints, which a plain `NSView` (no first mouse)
+    /// would keep from the first click into a window that is not key.
+    private final class PassiveImage: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
     private var tiles: [String: Tile] = [:]
     private var deferredAcks = Set<String>()
@@ -78,22 +83,32 @@ final class T3SnapShot {
     func removeTile(view: NSView) {
         for (id, tile) in tiles where tile.view === view { tile.image.removeFromSuperview(); tiles.removeValue(forKey: id) }
     }
+    /// `contain:<id>` shows the draft image whole (object-contain, up to 2048 px), not the shelf's square thumbnail: a
+    /// preview annotation's screenshot (`w-full object-contain`). `preview:<id>` is the same for a composer image chip's
+    /// expanded preview, its own key since a tile is kept per key and a second view under one key takes the picture from
+    /// the first. `fit:<id>` is that preview's at most at its natural size (an image's CSS pixels are its pixels), for an
+    /// image whose size was not read (ExpandedImageDialog's `max-w`/`max-h`).
     func installTile(id: String, view: NSView) {
-        guard UUID(uuidString: id) != nil else { return }
+        let fit = id.hasPrefix("fit:"), contain = fit || id.hasPrefix("contain:") || id.hasPrefix("preview:")
+        let file = contain ? String(id[id.index(after: id.firstIndex(of: ":")!)...]) : id
+        guard UUID(uuidString: file) != nil else { return }
         if tiles[id]?.view === view { return }
         removeTile(view: view)
         tiles[id]?.image.removeFromSuperview()
-        let tile = Tile(view: view); tiles[id] = tile
-        tile.image.isHidden = feedback.flights[id] != nil
-        let path = directory.appendingPathComponent("drafts/\(id).png")
+        let tile = Tile(view: view, contain: contain); tiles[id] = tile
+        tile.image.isHidden = !contain && feedback.flights[id] != nil
+        let path = directory.appendingPathComponent("drafts/\(file).png")
         DispatchQueue.global(qos: .userInitiated).async { [weak self, weak tile] in
             guard let bytes = try? Data(contentsOf: path), bytes.count <= 10 * 1024 * 1024,
                   let source = CGImageSourceCreateWithData(bytes as CFData, nil),
                   let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 2048] as CFDictionary),
-                  let image = Self.composerThumbnail(decoded) else { return }
+                  let image = contain ? decoded : Self.composerThumbnail(decoded) else { return }
             DispatchQueue.main.async {
                 guard let self, let tile, self.tiles[id] === tile, tile.view?.window != nil else { return }
                 tile.image.layer?.contents = image; tile.loaded = true
+                if fit, let bounds = tile.view?.bounds, CGFloat(image.width) <= bounds.width, CGFloat(image.height) <= bounds.height {
+                    tile.image.layer?.contentsGravity = .center; tile.image.layer?.contentsScale = 1
+                }
             }
         }
     }
@@ -283,18 +298,36 @@ final class T3SnapShot {
             do {
                 let drafts = directory.appendingPathComponent("drafts", isDirectory: true)
                 try FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
-                try Data(contentsOf: capture.path).write(to: drafts.appendingPathComponent("\(id).png"), options: .atomic)
-                complete(["id": id])
+                // The draft holds what the send uploads: a capture over `imageMaxEdge` is scaled to it (T3ImageFit).
+                let data = try Data(contentsOf: capture.path)
+                let fitted = T3ImageFit.fit(data, maxEdge: request["imageMaxEdge"] as? Int ?? 0)
+                try (fitted?.data ?? data).write(to: drafts.appendingPathComponent("\(id).png"), options: .atomic)
+                complete(fitted.map { ["id": id, "sizeBytes": $0.data.count, "width": $0.width, "height": $0.height] } ?? ["id": id])
             } catch { fail("Could not save the captured image to its draft.") }
         case "snapshotDraftRead", "snapshotDraftRemove":
             guard let id = request["id"] as? String, UUID(uuidString: id) != nil else { fail("That draft image is unavailable."); return }
             let path = directory.appendingPathComponent("drafts", isDirectory: true).appendingPathComponent("\(id).png")
             do {
                 if request["op"] as? String == "snapshotDraftRemove" { if FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) }; complete(["removed": id]); return }
-                let data = try Data(contentsOf: path)
+                var data = try Data(contentsOf: path)
+                if let fitted = T3ImageFit.fit(data, maxEdge: request["imageMaxEdge"] as? Int ?? 0) {
+                    data = fitted.data
+                    try data.write(to: path, options: .atomic)
+                }
                 guard data.count <= 10 * 1024 * 1024, data.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) else { fail("The captured image is too large or invalid."); return }
-                complete(["id": id, "base64": data.base64EncodedString()])
+                complete(["id": id, "base64": data.base64EncodedString(), "sizeBytes": data.count])
             } catch { fail("Could not read the saved draft image.") }
+        case "snapshotDraftSize":
+            // The expanded preview's natural size: the pixels the tile shows (`installTile` decodes at most 2048 on the
+            // longer side), which it draws one to a point.
+            guard let id = request["id"] as? String, UUID(uuidString: id) != nil else { fail("That draft image is unavailable."); return }
+            let path = directory.appendingPathComponent("drafts", isDirectory: true).appendingPathComponent("\(id).png")
+            guard let source = CGImageSourceCreateWithURL(path as CFURL, nil),
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                  width > 0, height > 0 else { fail("Could not read the saved draft image."); return }
+            let scale = min(1, 2048 / Double(max(width, height)))
+            complete(["width": (Double(width) * scale).rounded(), "height": (Double(height) * scale).rounded()])
         case "snapshotRead":
             guard let id = request["id"] as? String, let capture = pending[id], capture.owner == (request["owner"] as? String ?? "") else { fail("This snapshot is no longer available."); return }
             do { complete(capture.metadata.merging(["id": id, "owner": capture.owner, "mimeType": "image/png", "base64": try Data(contentsOf: capture.path).base64EncodedString()]) { _, new in new }) }

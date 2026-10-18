@@ -1,5 +1,5 @@
 // Keep the existing direct Send path correct while durable queue integration remains separate.
-// @ref llp/1109.005-composer-and-transcript.decision.md#foreground-capture-facts
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#foreground-capture-facts
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError } from './shared/protocol';

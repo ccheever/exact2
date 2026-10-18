@@ -1,16 +1,14 @@
-//! The native T3 client: Contract views, TypeScript projections, and an app-local
-//! Swift transport. T3's separately running server owns all agent execution.
-
-mod markdown;
+//! The native T3 client: Contract views, TypeScript projections and server connections, and an
+//! app-local Swift module for the native views. T3's separately running server owns all agent execution.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
-type ExactEmbeddedData = markdown::Data<exact_js::Placed<exact_js::Module>>;
+type ExactEmbeddedData = t3_code_data::Data<exact_js::Placed<exact_js::Module>>;
 fn embedded_data() -> ExactEmbeddedData {
-    markdown::mixed(
+    t3_code_data::mixed(
         exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS).placed(TYPESCRIPT_PLACEMENT),
         RUST_PLACEMENT,
     )
@@ -23,3 +21,15 @@ mod title_snooze_tests;
 
 #[cfg(test)]
 mod composer_accessibility_tests;
+
+#[cfg(test)]
+mod legacy_sidebar_tests;
+
+#[cfg(test)]
+mod connections_settings_tests;
+
+#[cfg(test)]
+mod timeline_hooks_tests;
+
+#[cfg(test)]
+mod contract_keys_tests;

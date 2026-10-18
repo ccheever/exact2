@@ -424,15 +424,15 @@ extension NodeView {
     /// for it.
     func touchedText() { presenter?.textSelection.touched(self) }
     /// A row's menu wins a long press over selectable text; an authored
-    /// menu on the paragraph itself is the nearest menu. Disabled or inert
-    /// ancestry admits neither one.
+    /// menu on the paragraph itself is the nearest menu. Disabled controls
+    /// or inert ancestry admit neither one.
     var contextMenuSource: NodeView? {
-        guard let presenter, presenter.menus.eligible(self) else { return nil }
+        guard let presenter, presenter.menus.eligible(self, contextMenu: true) else { return nil }
         var next: UIView? = self
         while let view = next {
             if let node = view as? NodeView,
                node.handlers.contains("contextmenu") || node.props["contextPopover"]?.isEmpty == false { return node }
-            next = view.superview
+            next = presenter.listenerParent(of: view)
         }
         return nil
     }

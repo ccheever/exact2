@@ -1,4 +1,4 @@
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 import { mobileCacheClear, mobileCacheClearKind, mobileCacheList, mobileCacheRead, mobileCacheRemove,
   mobileCacheTicket, mobileCacheWrite, mobileCacheReadRevision, type MobileCacheKey } from './mobile-client-cache';
 import { decodeMobileFaviconEntry, mobileFaviconResourceKey, mobileFaviconDataUrl, type MobileFaviconIO } from './mobile-favicon-cache';

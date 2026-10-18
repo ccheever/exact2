@@ -92,13 +92,7 @@ mod tests {
             repeat: false,
         }
     }
-    struct NoData;
-    impl DataSource for NoData {
-        fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(name.into()))
-        }
-    }
-    fn fixture() -> Presenter<NoData> {
+    fn fixture() -> Presenter<()> {
         let plan = contract::compile(r#"component App
   state count = 0
   action reply
@@ -111,7 +105,7 @@ mod tests {
 "#).unwrap();
         Presenter::boot_with(
             &plan.encode(),
-            NoData,
+            (),
             (400., 500.),
             1.,
             PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -120,7 +114,7 @@ mod tests {
         .unwrap()
         .0
     }
-    fn count(p: &Presenter<NoData>) -> &str {
+    fn count(p: &Presenter<()>) -> &str {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id("count")[0])
             .unwrap()
@@ -154,7 +148,7 @@ component App
         .unwrap();
         let mut p = Presenter::boot_with(
             &plan.encode(),
-            NoData,
+            (),
             (400., 500.),
             1.,
             PathBuf::new(),
@@ -162,11 +156,11 @@ component App
         )
         .unwrap()
         .0;
-        let find = |p: &Presenter<NoData>, name: &str| {
+        let find = |p: &Presenter<()>, name: &str| {
             let k = p.host().kernel();
             (k.find_by_test_id(name).first()).and_then(|key| Some(k.node_by_key(*key)?.id))
         };
-        let on_detail = |p: &Presenter<NoData>| {
+        let on_detail = |p: &Presenter<()>| {
             find(p, "detail").is_some_and(|id| !p.host().route_visibility(id).0)
         };
         let key = |code, down| InputEvent::Key {
@@ -282,7 +276,7 @@ component App
             &contract::compile("component App\n  view\n    text \"new\"\n")
                 .unwrap()
                 .encode(),
-            NoData,
+            (),
         )
         .unwrap();
         assert!(dispatch(
@@ -380,7 +374,7 @@ component App
         for cancel in [None, Some(InputEvent::Cancel), Some(press(1))] {
             let mut p = Presenter::boot_with(
                 &plan.encode(),
-                NoData,
+                (),
                 (400., 500.),
                 1.,
                 PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),

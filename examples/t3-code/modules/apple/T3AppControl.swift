@@ -1,4 +1,4 @@
-// `t3 app <dir>` opens a project in the running app (20261005-app-activation): the control socket
+// `t3 app <dir>` opens a project in the running app: the control socket
 // and the broker, after T3 Code's desktop app (MIT, see LICENSE-T3; reference 1e2ecbd975:
 // apps/desktop/src/app/DesktopAppActivation.ts `startDesktopAppControlServer`,
 // DesktopAppActivationBroker.ts, packages/shared/src/desktopAppControl.ts
@@ -507,7 +507,7 @@ final class T3AppControl {
     var observeBackend: (AnyObject, URL, @escaping () -> Void) -> Void = { owner, dataRoot, changed in T3LocalBackend.shared.attach(owner, dataRoot: dataRoot, changed: { _ in changed() }) }
     var stopObservingBackend: (AnyObject) -> Void = { T3LocalBackend.shared.detach($0) }
     var activateWindow: () -> Void = { DispatchQueue.main.async { T3AppControl.activateMainWindow() } }
-    var packaged: () -> Bool = { T3LocalPolicy.packaged(resources: Bundle.main.resourceURL) }
+    var packaged: () -> Bool = { T3LocalPolicy.packaged() }
     var log: (String) -> Void = { FileHandle.standardError.write(Data("t3.activation: \($0)\n".utf8)) }
 
     /// DesktopWindow.activate: the app to the front, its window restored and focused. No toast.
@@ -522,7 +522,7 @@ final class T3AppControl {
     /// The window `activate` brings back (ElectronWindow's focusedMainOrFirst, restored when minimized): the main
     /// window, else the first document window on screen, else the first one in the Dock. Chosen by kind, not by
     /// `canBecomeMain`, which AppKit answers false for a window that is not visible: a minimized window was never a
-    /// candidate, stayed in the Dock, and its page never handled the request (fix-misc-batch, #298 bug 7).
+    /// candidate, stayed in the Dock, and its page never handled the request (#298 bug 7).
     static func activationTarget<Window: T3ActivationWindow>(main: Window?, windows: [Window]) -> Window? {
         if let main { return main }
         let documents = windows.filter(\.isActivationDocument)

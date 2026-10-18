@@ -230,6 +230,17 @@ nonmodal browser declaration and native confirmation projection.
 > alert's shape implies `closedby="closerequest"` (Escape and Back cancel it, a tap outside
 > does nothing), and `any` is implied only for a chooser's shape. `closedby="any"` written on
 > an alert's shape asks for the platform's dismissible form.
+>
+> **And on iOS and tvOS (2026-10-16): a closed `dialog` or popover is not laid out**, as a
+> browser lays out neither (`dialog:not([open])` and `[popover]:not(:popover-open)` are
+> `display: none`). The Apple host covers each whole from its creation
+> (`host/apple/src/closed.rs`), so nothing in it is measured, and an `input` in it gets its
+> UIKit field when the box first shows or a prompt takes its keyboard. The platform's alert
+> and `UIMenu` read the rows, never their frames. A box shown in Exact's own views (a
+> dialog's sheet, a content popover, a context menu's preview, every popover under the
+> agent) is laid out before it shows and covered again once it has closed
+> (`MenuHost.layOut`). The agent's `tree` is unchanged. macOS, Linux and the web lay a
+> closed box out as before, hidden by its view.
 
 Messages removes `confirmDelete` and its authored cancellation overlay. Four
 physical cases on the rebuilt iPhone app cover one/two selections in light/dark:
@@ -445,7 +456,13 @@ cancels, a row that is not text, an action or the cancel, an action that does
 not hide the popover) logs
 `confirmation <id> refused: <why>` and opens nothing; it is no longer silent.
 The popover's `aria-label` titles the `UIMenu`, and titles the sheet only
-when it is a chooser: more than one action and no explanatory text. A
+when it is a chooser: more than one action and no explanatory text.
+*Amended 2026-10-16:* a pull-down from a page button heads its rows as an
+inline section (`displayInline`), as a SwiftUI `Menu` in the page draws its
+title; one from a bar item is a hand-built bar item's `UIMenu(title:)`,
+with its taller header (the euxy port's Sort menu, measured against its
+original's header menu and the UIKit port's: the inline section set the
+title about 6 points and the rows about 9 points high). A
 confirmation keeps no title row, as the native prompts it matches have none.
 *Superseded by LLP 1115 D6 (2026-10-09):* a confirmation with text, one
 cancel and at most three buttons is `UIAlertController(.alert)`, its
@@ -493,11 +510,14 @@ confirmation's text rows are disabled lines at the top, wrapped at 260
 points, then a separator, and no heading. The cancel has no item: Escape
 and a click outside end a menu and dispatch nothing, as UIKit drops the
 cancel from a sheet shown as a popover. A chosen item is recorded, and its
-row is pressed by view id once, on the next main-queue turn after the menu
-ends, as iOS presses after the sheet is dismissed. AppKit sends an item's
-action inside `popUp`, while it still tracks the menu in the invoker, and a
-press whose batch unmounts that invoker (Messages' Discard Changes
-navigates back) must not run under it. The owner checks above run then,
+row is pressed by view id once, after the menu ends, as iOS presses after
+the sheet is dismissed: as `popUp` returns, in the turn the menu closed. AppKit
+sends an item's action inside `popUp`, while it still tracks the menu in the
+invoker, and a press whose batch unmounts that invoker (Messages' Discard
+Changes navigates back) must not run under it. A later turn is too late:
+VoiceOver, asking where the focus is as the menu closes, was answered before
+a press that opened a dialog, re-read the page's focused field and never
+named the dialog (realinput-1017k H-9). The owner checks above run then,
 and again as each batch lands, while the menu is open and after it has
 ended with a choice awaiting its turn: a batch that changes a row's title
 or enablement, hides it (its own or an ancestor's `display: none` or
@@ -508,7 +528,7 @@ the choice is cancelled for good: a later batch that undoes the change
 does not revive it. A choice belongs to its presentation: presenting the
 popover again cancels one still awaiting its turn, whose press would
 otherwise run under the new presentation (its hide closing it). A button
-menu's item is pressed the same way: on the next turn, once per menu, and
+menu's item is pressed the same way: as its menu closes, once per menu, and
 only if its row is still the node the menu showed (live, in its popover,
 enabled, shown, the same title; an id reused by another node is not it),
 its invoker still opens the popover as above, and the popover has not been
@@ -597,21 +617,21 @@ the Apple style encoder, which leaves margins out of every other box's
 dictionary (the kernel placed the box), carries the four on a popover
 with a `position-area` other than `none`, as it carries a dialog's insets.
 The iOS sheet ignores them: UIKit places it.
-The iOS sheet (`role="alertdialog"`, a `UIAlertController` popover) takes a
-side from it: a `top` area permits only a down arrow, which UIKit places
-above the source, `bottom` only an up arrow; a centred area anchors at the
-whole invoker rather than its label, which UIKit centres on where it fits.
-`center` anchors at the whole invoker too, with no arrow permitted and
-`canOverlapSourceViewRect`, `none`'s arrowless presentation: UIKit centres
-the sheet across the invoker (the probe above: anchored to the full row,
-Block centres at x=81) and picks its vertical position itself, as for
-`none`, shifted to stay on screen. It is not centred over the invoker in
-both axes as CSS's `center` is; no public API does that short of a custom
-`popoverBackgroundViewClass`.
+The iOS sheet (`role="alertdialog"`, a `UIAlertController` popover) is
+anchored at the whole invoker. `none` keeps UIKit's defaults for a sheet
+presented from a control: an arrow on the side UIKit picks, never over the
+invoker. A `top` area permits only a down arrow, which UIKit places above
+the source, `bottom` only an up arrow, and UIKit centres it on the invoker
+where it fits. `center` permits no arrow and allows
+`canOverlapSourceViewRect`: UIKit centres the sheet across the invoker
+(the probe above: anchored to the full row, Block centres at x=81) and
+picks its vertical position itself, shifted to stay on screen. It is not
+centred over the invoker in both axes as CSS's `center` is; no public API
+does that short of a custom `popoverBackgroundViewClass`.
 A permitted direction makes UIKit draw its arrow toward the invoker; no
 public API places a popover on a side without one short of a custom
 `popoverBackgroundViewClass`, which this does not take on.
-`none` keeps the arrowless placement measured above. `UIMenu` exposes no
+`UIMenu` exposes no
 public placement control: a menu-shaped popover presented as the system
 menu is placed by UIKit whatever its `position-area`. Linux has no popover
 presentation yet (`POPOVER_UNSUPPORTED`), so nothing there reads the row.
@@ -660,6 +680,10 @@ delivered (and still presses what it lands on); its hide-only button
 closes it after its own tap. `tree` reports `{open}` and `state.navigation.popover`
 names it, as on macOS; `screenshot` composes the layer. `smoke.mjs ios
 --app native-fixture` checks each step.
+
+*Under real touches on iOS (2026-10-16).* `--touch platform` presents
+D3's native menu instead (LLP 1080.000 D7, §13): a finger opens it and
+picks its row, as a person's does; context menus stay painted.
 
 **D5 — every host, from one table.** Web: the attributes land on the real
 elements and the browser does the rest (one glue rule for D2's anchoring).
@@ -905,7 +929,7 @@ menu's glass and the dismissal. In the delegate:
 did), then, on the next turn, pops up the popover's menu rows as an
 `NSMenu` at the click (`MenuHost.context`, `menu(of:)`), the preview row
 skipped. A Mac's context menu has no preview, and the HIG offers none. A
-picked item presses on the next turn, once, by the button menu's rules (no
+picked item presses as the menu closes, once, by the button menu's rules (no
 invoker to recheck). `isMenuShaped` ignores the preview row.
 
 **Web (both targets).** The node's `contextpopover` attribute is wired

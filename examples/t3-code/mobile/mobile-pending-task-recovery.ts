@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#retained-editor-preparation-for-terminal-recovery
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#retained-editor-preparation-for-terminal-recovery
 import { mobilePendingTaskDetach, mobilePendingTaskDetachedKey } from './mobile-pending-task-detach';
 import { mobilePendingTaskDraftFingerprint } from './mobile-pending-task-draft';
 import type { MobileDraftClient } from './mobile-draft-recovery';

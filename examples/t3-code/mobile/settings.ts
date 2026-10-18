@@ -1,4 +1,4 @@
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // Pinned 365aa87982 Stack.tsx, SettingsRouteScreen.tsx and settings-environment-filter.
 import { mobileHomeProjects, mobileHomeSources, type HomeSource } from './home';
 import { mobileClient } from './client';

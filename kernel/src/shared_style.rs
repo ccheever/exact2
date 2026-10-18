@@ -110,6 +110,15 @@ pub(crate) struct SharedStyles {
     default: Rc<StyleProps>,
     table: Interner<StyleProps, Box<[u8]>>,
     scratch: Writer,
+    /// Each held style's wide colour slots, by its allocation, visited once:
+    /// a style is never changed in place, and a dead one's entry no longer
+    /// upgrades (the wide table's sweep, LLP 1121 stage 4).
+    wide: HashMap<usize, (std::rc::Weak<StyleProps>, Box<[u16]>)>,
+    /// Every held style's wide colours, a superset: added to as styles come,
+    /// rebuilt when styles have gone (the table's own sweeps, amortized).
+    wide_all: crate::style::wide::WideMark,
+    /// Styles have gone since `wide_all` was built.
+    wide_stale: bool,
 }
 
 impl Default for SharedStyles {
@@ -118,6 +127,9 @@ impl Default for SharedStyles {
             default: Rc::new(StyleProps::default()),
             table: Interner::default(),
             scratch: Writer::new(),
+            wide: HashMap::new(),
+            wide_all: Default::default(),
+            wide_stale: false,
         }
     }
 }
@@ -130,7 +142,7 @@ impl SharedStyles {
 
     /// One allocation for every style whose set rows equal `style`'s.
     pub(crate) fn intern(&mut self, style: StyleProps) -> Rc<StyleProps> {
-        if style.mask.is_empty() {
+        if style.mask.is_empty() && style.written.is_empty() {
             debug_assert!(
                 style == *self.default,
                 "an unset row holds its initial value"
@@ -154,24 +166,29 @@ impl SharedStyles {
             debug_assert!(*found == style, "an unset row holds its initial value");
             return found;
         }
-        self.table.insert(hash, bytes.into(), style)
+        let held = self.table.len();
+        let style = self.table.insert(hash, bytes.into(), style);
+        self.noted(&style, held);
+        style
     }
 
     /// Look up a patch's result before cloning the full style. Repeated
     /// updates of equally styled nodes normally find the first node's result.
     pub(crate) fn patch(&mut self, base: &StyleProps, patch: &StyleProps) -> Rc<StyleProps> {
-        let mask = base.mask.union(patch.mask);
-        if mask.is_empty() {
+        let affected = patch.mask.union(patch.written);
+        let mask = base.mask.minus(affected).union(patch.mask);
+        let written = base.written.minus(affected).union(patch.written);
+        if mask.is_empty() && written.is_empty() {
             return self.default_style();
         }
         self.scratch.clear();
-        base.encode_overlaid(mask, patch, &mut self.scratch);
+        base.encode_overlaid(mask, written, patch, &mut self.scratch);
         let mut keyed;
         let bytes = if base.relative.is_empty() && patch.relative.is_empty() {
             self.scratch.as_slice()
         } else {
             let mut relative = base.relative.clone();
-            relative.copy(&patch.relative, patch.mask);
+            relative.copy(&patch.relative, affected);
             keyed = self.scratch.as_slice().to_vec();
             relative.encode(&mut keyed);
             &keyed[..]
@@ -182,17 +199,29 @@ impl SharedStyles {
         }
         let mut next = base.clone();
         next.apply_patch(patch);
-        self.table.insert(hash, bytes.into(), next)
+        let held = self.table.len();
+        let next = self.table.insert(hash, bytes.into(), next);
+        self.noted(&next, held);
+        next
     }
 
     /// Look up the remaining rows before materializing a cleared style.
-    pub(crate) fn clear(&mut self, base: &StyleProps, cleared: StyleMask) -> Rc<StyleProps> {
+    pub(crate) fn clear(
+        &mut self,
+        base: &StyleProps,
+        cleared: StyleMask,
+        authored: bool,
+    ) -> Rc<StyleProps> {
         let mask = base.mask.minus(cleared);
-        if mask.is_empty() {
+        let written =
+            base.written
+                .minus(cleared)
+                .union(if authored { cleared } else { StyleMask::EMPTY });
+        if mask.is_empty() && written.is_empty() {
             return self.default_style();
         }
         self.scratch.clear();
-        base.encode_masked(mask, &mut self.scratch);
+        base.encode_overlaid(mask, written, base, &mut self.scratch);
         let mut keyed;
         let bytes = if base.relative.is_empty() {
             self.scratch.as_slice()
@@ -209,17 +238,100 @@ impl SharedStyles {
         }
         let mut next = base.clone();
         next.clear(cleared);
-        self.table.insert(hash, bytes.into(), next)
+        next.written = written;
+        let held = self.table.len();
+        let next = self.table.insert(hash, bytes.into(), next);
+        self.noted(&next, held);
+        next
     }
 
     /// Sweep, then return spare capacity.
     pub(crate) fn trim(&mut self) {
+        self.wide_stale = true;
         self.table.trim();
+        self.wide.retain(|_, (weak, _)| weak.strong_count() > 0);
     }
 
     /// Distinct styles held beyond the initial one.
     pub(crate) fn len(&self) -> usize {
         self.table.len()
+    }
+}
+
+impl<T, K> Interner<T, K> {
+    /// Every value held, whoever else holds it.
+    pub(crate) fn rcs(&self) -> impl Iterator<Item = &Rc<T>> {
+        self.table.values().flatten().map(|(_, v)| v)
+    }
+}
+
+impl SharedStyles {
+    /// A style just held (the table held `before` until then): its wide
+    /// colours join `wide_all`; one the insert's own sweep let go makes it
+    /// stale.
+    fn noted(&mut self, style: &Rc<StyleProps>, before: usize) {
+        if self.table.len() <= before {
+            // The insert swept: forget the dead styles' cached slots too.
+            self.wide_stale = true;
+            self.wide.retain(|_, (weak, _)| weak.strong_count() > 0);
+        }
+        if crate::style::wide::Holder::needed() {
+            let slots = self.slots(style).to_vec();
+            for slot in slots {
+                self.wide_all.slot(slot);
+            }
+        }
+    }
+
+    /// One held style's wide colour slots, visited once.
+    fn slots(&mut self, v: &Rc<StyleProps>) -> &[u16] {
+        use crate::style::wide::Colors;
+        let key = Rc::as_ptr(v) as usize;
+        let fresh = self
+            .wide
+            .get(&key)
+            .is_some_and(|(weak, _)| weak.upgrade().is_some_and(|w| Rc::ptr_eq(&w, v)));
+        if !fresh {
+            let mut own = crate::style::wide::WideMark::default();
+            v.colors(&mut own);
+            self.wide
+                .insert(key, (Rc::downgrade(v), own.slots().into_boxed_slice()));
+        }
+        &self.wide[&key].1
+    }
+
+    /// Every style's colours, each visited (a clone's keep, once).
+    pub(crate) fn visit(&self, m: &mut crate::style::wide::WideMark) {
+        use crate::style::wide::Colors;
+        self.default.colors(m);
+        for v in self.table.rcs() {
+            v.colors(m);
+        }
+    }
+
+    /// Mark the colours the styles hold, the default's and every one in the
+    /// table, whoever else holds it (one handed out again later still holds
+    /// its ids). Every node's style is one of these: production writes go
+    /// through `intern`, `patch` and `clear`. A superset between rebuilds,
+    /// rebuilt once styles have gone.
+    pub(crate) fn wide_colors(&mut self, m: &mut crate::style::wide::WideMark) {
+        use crate::style::wide::Colors;
+        self.default.colors(m);
+        if self.wide_stale {
+            self.table.sweep();
+            self.wide.retain(|_, (weak, _)| weak.strong_count() > 0);
+            let all: Vec<Rc<StyleProps>> = self.table.rcs().cloned().collect();
+            let mut rebuilt = crate::style::wide::WideMark::default();
+            for v in &all {
+                for &slot in self.slots(v) {
+                    rebuilt.slot(slot);
+                }
+            }
+            drop(all);
+            self.wide_all = rebuilt;
+            self.wide_stale = false;
+        }
+        m.union(&self.wide_all);
     }
 }
 
@@ -249,9 +361,31 @@ mod tests {
         assert!(implied.written.has(StyleId::Height));
         patch.written = patch.mask;
         assert!(Rc::ptr_eq(&authored, &shared.patch(&implied, &patch)));
-        let cleared = shared.clear(&authored, StyleMask::of(StyleId::Width));
+        let cleared = shared.clear(&authored, StyleMask::of(StyleId::Width), false);
         assert!(!cleared.written.has(StyleId::Width));
         assert!(cleared.written.has(StyleId::Height));
+    }
+
+    #[test]
+    fn explicit_clear_intent_is_part_of_the_shared_style_identity() {
+        let color = StyleMask::of(StyleId::TextColor);
+        let mut shared = SharedStyles::default();
+        let empty = shared.default_style();
+        let mut clear = StyleProps::default();
+        clear.written = color;
+        let first = shared.intern(clear.clone());
+        assert!(!Rc::ptr_eq(&empty, &first));
+        assert!(Rc::ptr_eq(&first, &shared.intern(clear.clone())));
+        assert!(Rc::ptr_eq(&first, &shared.patch(&empty, &clear)));
+        let mut value = StyleProps::default();
+        value
+            .set_dynamic(StyleId::TextColor, &StyleValue::Text("#123456".into()))
+            .unwrap();
+        value.written = color;
+        let authored = shared.patch(&first, &value);
+        assert!(authored.mask.has(StyleId::TextColor));
+        assert!(Rc::ptr_eq(&first, &shared.patch(&authored, &clear)));
+        assert!(Rc::ptr_eq(&empty, &shared.clear(&first, color, false)));
     }
 
     #[test]
@@ -335,11 +469,11 @@ mod tests {
             let mut expected = base.clone();
             expected.clear(mask);
             let mut shared = SharedStyles::default();
-            let first = shared.clear(&base, mask);
+            let first = shared.clear(&base, mask, false);
             assert_eq!(*first, expected, "{mask:?}");
             let authored = shared.intern(expected);
             assert!(Rc::ptr_eq(&first, &authored), "{mask:?}");
-            let again = shared.clear(&base, mask);
+            let again = shared.clear(&base, mask, false);
             assert!(Rc::ptr_eq(&first, &again), "{mask:?}");
             assert_eq!(
                 encoded(&base),

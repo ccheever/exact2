@@ -1,5 +1,5 @@
 // Invocation-owned adapter for saved ordinary canonical file holds. No runtime activation.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { PickerIntakeProvenance } from './composer-picker-intake-io';
 import type { ComposerMountedIdentity } from './composer-editor-state';
 import type { DraftFile } from './shared/composer-editor-files';

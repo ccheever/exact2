@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
 import { expect, test } from 'bun:test';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { mobilePendingTaskDraftAdopt as adopt, mobilePendingTaskDraftBuildRecord as build,

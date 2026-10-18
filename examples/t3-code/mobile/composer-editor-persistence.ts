@@ -1,5 +1,5 @@
 // App-owned durable ordinary documents and Send receipts; rich editor activation remains separate.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { T3Client, Pending } from './shared/client';
 import type { MobileComposerTarget } from './composer-target';
 import { obj, str, type Obj, type Json } from './shared/domain';

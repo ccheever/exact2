@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 // Invocation-only bridge. The native journal owns attempts, outcomes and recovery.
 import type { MobileOutboxConnection } from './mobile-outbox-connection';
 import type { T3Client } from './shared/client';

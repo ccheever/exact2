@@ -236,7 +236,7 @@ final class ChooserMacTests: XCTestCase {
     func testTextWithNoCancelStaysAMenuThatShowsItsTextAndNoTitle() throws {
         let p = chooser(["Block"], label: "Block Contact", message: ["Blocked people can't call you."], cancels: 0)
         defer { p.menus.reset() }
-        XCTAssertNil(p.alerts.plan(of: try XCTUnwrap(p.views[2])))
+        XCTAssertNil(p.alerts.plan(of: try XCTUnwrap(p.views[2]), popover: true))
         let (owner, menu) = try owner(p)
         XCTAssertNil(owner.heading, "a confirmation keeps its text as its only heading")
         XCTAssertEqual(menu.items.map(\.title), ["Blocked people can't call you.", "", "Block"])

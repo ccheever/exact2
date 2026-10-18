@@ -1,5 +1,5 @@
 // Pinned365aa87982 NewTaskFile uses ThreadFileScreen with explicit draft cwd.
-// @ref llp/1109.006-review-and-files.decision.md#draft-file-ownership
+// @ref examples/t3-code/mobile/docs/1130.006-review-and-files.decision.md#draft-file-ownership
 import { mobileClient, mobileNative } from './client';
 import type { T3Client } from './shared/client';
 import { obj, str } from './shared/domain';

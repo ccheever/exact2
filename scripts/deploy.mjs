@@ -55,16 +55,15 @@ import { fileURLToPath } from 'node:url';
 import { buildRust, publishedSignature, rustBundle, rustPackage, tieredNative } from './rust.mjs';
 import { assertOwnTarget, cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, shaderWatchRoots } from './app.mjs';
 import { gameShells } from "../game/app/shells.mjs";
-import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
+import { appdropPlan, renderAppdrop, runAppdrop } from './deploy-appdrop.mjs';
+import { blobPath, channelOrigin, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { filesystemLock, removePrivateTree } from './filesystem.mjs';
-import { listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
-
+import { entryPlans, listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const PLATFORMS = ['web', 'ios', 'macos', 'linux'];
 /** The platforms that hold an update store and so a stream, when the manifest names none (`deploy.store`, `deploy.binaries`). The web is the origin row: a fresh load is current. */
 const STREAM_PLATFORMS = ['ios', 'macos', 'linux'];
 const USAGE = 'usage: bun scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>] [--only bundle|origin] [--platform <web|ios|macos|linux>]... [--snapshot <sha>] [--dirty] [--release <id>] [--keys <dir>] [--json] [--yes]\n       bun scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]';
-
 // ------------------------------------------------------------------ arguments
 
 function parseArgs(argv) {
@@ -758,6 +757,7 @@ export function streamHead({ app, bundle, stream, seq, release, sunset = null })
     stream: { app: app.id, channel: stream.channel, compatibilityId: stream.compatibilityId, seq },
     release,
   };
+  Object.assign(head, entryPlans(head.assets));
   if (sunset) head.sunset = sunset.store ? { message: sunset.message, store: sunset.store } : { message: sunset.message };
   return head;
 }
@@ -847,6 +847,7 @@ export function inspectHead(found, app, stream) {
       fileCard(asset, asset.name);
     }
     portableAssetNames((head.assets ?? []).map((asset) => asset.name));
+    if (head.plans !== undefined && canonicalJson(head.plans) !== canonicalJson(entryPlans(head.assets ?? []).plans ?? {})) throw new Error("the envelope's plans must index its authenticated plan assets");
     if (head.sunset !== undefined) {
       if (!head.sunset || typeof head.sunset !== 'object' || Array.isArray(head.sunset)) throw new Error('the sunset card is not an object');
       if (typeof head.sunset.message !== 'string') throw new Error('the sunset card has no message');
@@ -914,7 +915,11 @@ async function authenticatedReleaseFloor(origin, app, stream) {
  * clients already hold for another bundle. Repairing an unusable head uses
  * the history alone; if none exists, overwriting would guess at the clients'
  * rollback floor and is refused. */
-async function nextSeq(origin, app, stream, admission, at) {
+async function nextSeq(origin, app, stream, admission, at, above = 0) {
+  return Math.max(above + 1, await nextOriginSeq(origin, app, stream, admission, at));
+}
+
+async function nextOriginSeq(origin, app, stream, admission, at) {
   const history = await authenticatedReleaseFloor(origin, app, stream);
   let floor;
   if (admission?.usable) floor = Math.max(admission.seq, history.floor ?? 0);
@@ -1092,7 +1097,7 @@ export function renderTable(table) {
       : row.changes.map((c) => `${c.name} ${c.change}${c.note ? ` (${c.note})` : ''}`).join(', ');
     out.push(line('', detail, `bundle seq ${row.seq}`));
   }
-  const binaries = table.rows.filter((r) => r.action === 'binary');
+  const binaries = table.rows.filter((r) => r.action === 'binary' && !(r.kind === 'binary' && r.platform === 'ios' && table.appdrop));
   if (binaries.length) out.push(`binary needed: ${binaries.map((r) => `${r.platform ?? '?'} ${r.compatibilityId.slice(0, 8)}`).join(', ')} — a later verb (LLP 1030.000 §6); independently safe bundle rows still publish`);
   out.push(...renderReach(table.reach));
   return out.join('\n');
@@ -1126,8 +1131,9 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
     const changes = admission?.usable
       ? changesAgainst(bundle, admission.head)
       : current ? [{ name: 'exact.json', change: 'repair', note: admission.problem }] : changesAgainst(bundle, null);
-    if (admission?.usable && !changes.length) return { ...row, action: 'current', seq: admission.seq, note: 'the head is admissible and already names this bundle (published meanwhile)' };
-    const seq = await nextSeq(origin, app, stream, admission, `the locked head at ${origin.describe()}/${base}/exact.json`);
+    if (admission?.usable && !changes.length && admission.seq > (opts.seqAbove ?? 0)) return { ...row, action: 'current', seq: admission.seq, note: 'the head is admissible and already names this bundle (published meanwhile)' };
+    // `seqAbove`: a stream moving to a new origin starts above every seq its clients accepted from the old one.
+    const seq = await nextSeq(origin, app, stream, admission, `the locked head at ${origin.describe()}/${base}/exact.json`, opts.seqAbove ?? 0);
     let written = 0;
     for (const file of files) {
       if (await origin.put(blobPath(file.sha256), file.bytes, { immutable: true }) === 'written') written++;
@@ -1308,10 +1314,12 @@ async function deployCaptured(opts, capsule) {
   const release = capsule.release;
   const channel = opts.channel ?? channelOf(app.manifest);
   if (channel === 'blobs' || !/^[A-Za-z0-9._-]+$/.test(channel)) refuse(`the channel ${JSON.stringify(channel)} cannot name a directory under .exact/`);
-  const originSpec = opts.origin ?? app.manifest.deploy?.channels?.[channel] ?? app.origin;
+  const originSpec = opts.origin ?? channelOrigin(app.manifest, channel) ?? app.origin;
   if (!originSpec) refuse(`no origin for the channel ${channel}: pass --origin <dir|url> or name deploy.channels.${channel} in app.json`);
   const origin = openOrigin(originSpec);
-  const wantOrigin = opts.only !== 'bundle' && (!opts.platform.length || opts.platform.includes('web'));
+  // An origin that holds only update streams (AppDrop) publishes no web root.
+  if (origin.servesWeb === false && (opts.only === 'origin' || opts.platform.includes('web'))) refuse(`${origin.describe()} holds update streams, not a web app: publish the web root to another origin`);
+  const wantOrigin = origin.servesWeb !== false && opts.only !== 'bundle' && (!opts.platform.length || opts.platform.includes('web'));
   const platforms = opts.only === 'origin' ? [] : nativePlatforms(app.manifest).filter((p) => !opts.platform.length || opts.platform.includes(p));
   if (!wantOrigin && !platforms.length) refuse(`nothing to classify: ${opts.only ? `--only ${opts.only}` : ''} ${opts.platform.length ? `--platform ${opts.platform.join(',')}` : ''} leaves no row`);
   const log = (text) => process.stderr.write(`${text}\n`);
@@ -1320,6 +1328,7 @@ async function deployCaptured(opts, capsule) {
   if (opts.yes && !origin.writable) refuse(`${origin.describe()} is an https origin, read-only in v1: point --origin at the directory the host serves (an object-store adapter with a conditional put is owed)`);
   const signer = opts.yes && platforms.length ? loadSigner(app, opts.keys) : null;
   if (signer) log(`signing as ${signer.keyId} (${signer.path})`);
+  if (signer) origin.useSigner?.(signer);
 
   log(`snapshot ${snapshot.id}${snapshot.sources.length > 1 ? ` (${snapshot.sources.map((source) => `${source.roles.join('+')} ${source.commit.slice(0, 7)}`).join(', ')})` : ''}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; baking into ${run}`);
   const web = bake(app, run, exactRoot, sourceRoot);
@@ -1354,7 +1363,8 @@ async function deployCaptured(opts, capsule) {
   log(`compatibility ids: ${Object.entries(compat).map(([p, c]) => `${p} ${c.id}`).join(', ')}`);
 
   const table = await classify({ app, opts, origin, channel, snapshot, release, web: webRoot, bundle, compat, builds, platforms, wantOrigin });
-  if (!opts.json) console.log(renderTable(table));
+  table.appdrop = appdropPlan(app, table, builds);
+  if (!opts.json) console.log(renderTable(table) + (table.appdrop ? `\n${renderAppdrop(table.appdrop)}` : ''));
 
   if (!opts.yes) {
     if (opts.json) console.log(JSON.stringify(table));
@@ -1376,6 +1386,7 @@ async function deployCaptured(opts, capsule) {
     }
     const name = `${row.platform ?? '?'} ${row.kind} ${row.compatibilityId.slice(0, 8)}`;
     if (row.action === 'unavailable') { failed.push({ platform: row.platform, compatibilityId: row.compatibilityId, error: row.reason }); log(`  ${name}: unavailable — ${row.reason}`); continue; }
+    if (row.kind === 'binary' && row.platform === 'ios' && table.appdrop) continue; // its carrier is AppDrop, after the streams
     if (row.action === 'binary') { refused.push({ platform: row.platform, compatibilityId: row.compatibilityId, reason: row.reason }); log(`  ${name}: refused — ${row.reason}`); continue; }
     try {
       const result = await publishStream({ origin, row, bundle: bundle.platforms?.[row.platform] ?? bundle, compat: row.receipt?.compat ?? compat[row.platform], app, signer, release, snapshot: table.snapshot, opts, log, build:builds[row.platform] });
@@ -1386,11 +1397,12 @@ async function deployCaptured(opts, capsule) {
       log(`  ${name}: failed — ${e.message}; ${e.headOutcomeUnknown ? 'the head outcome is unknown and must be inspected' : "this release's head is not visible"}`);
     }
   }
+  if (table.appdrop) await runAppdrop({ table, published, failed, origin, app, channel, release, exactRoot, run, live: capsule.app.live, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target }), latestRecord, log });
   const outcome = { ...table, dryRun: false, published, refused, failed };
   if (opts.json) console.log(JSON.stringify(outcome));
   else {
     const heads = published.filter((p) => p.kind === 'stream' && p.action === 'published');
-    console.log(`published ${release}: ${heads.length} head${heads.length === 1 ? '' : 's'}${published.some((p) => p.kind === 'origin' && p.action === 'published') ? ', the web root' : ''}${refused.length ? `; ${refused.length} refused (binary)` : ''}${failed.length ? `; ${failed.length} FAILED` : ''}`);
+    console.log(`published ${release}: ${heads.length} head${heads.length === 1 ? '' : 's'}${published.some((p) => p.kind === 'origin' && p.action === 'published') ? ', the web root' : ''}${published.some((p) => p.kind === 'appdrop' && p.action === 'published') ? ', an AppDrop version' : ''}${refused.length ? `; ${refused.length} refused (binary)` : ''}${failed.length ? `; ${failed.length} FAILED` : ''}`);
   }
   return failed.length ? 1 : 0;
 }
@@ -1439,7 +1451,7 @@ function launch(locatedApp, opts, cache = {}) {
       version: 1, snapshot, release, run, sourceRoot: materialized.sourceRoot,
       exactRoot: materialized.exactRoot,
       app: {
-        name: locatedApp.name, dir: materialized.app.dir,
+        name: locatedApp.name, dir: materialized.app.dir, live: canonicalPath(locatedApp.dir),
         workspace: materialized.app.workspace, target: materialized.app.target,
         external: canonicalPath(locatedApp.workspace) !== canonicalPath(ROOT),
       },

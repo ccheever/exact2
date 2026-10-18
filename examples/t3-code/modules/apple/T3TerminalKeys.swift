@@ -39,10 +39,9 @@ enum T3TerminalKeys {
     enum Composing: Equatable {
         /// A ⌘ chord: the app's, as without a composition.
         case chord
-        /// A ⌃ chord: offer it to the input context, then commit only if it declines.
-        case commitFirst
-        /// ⌥Return (the Korean input method's Hanja list): the input context's, before WebKit's keyDown.
-        case inputContextFirst
+        /// A ⌃ chord or ⌥Return (the Korean input method's Hanja list): the input method's through
+        /// WebKit's keyDown, marked so the page never encodes it.
+        case compositionKey
         /// Any other key: the input method's, through WebKit's keyDown.
         case inputMethod
     }
@@ -50,8 +49,8 @@ enum T3TerminalKeys {
     static func composing(_ event: NSEvent) -> Composing {
         let flags = event.modifierFlags.intersection([.command, .control, .option])
         if flags.contains(.command) { return .chord }
-        if flags.contains(.control) { return .commitFirst }
-        if flags.contains(.option), event.keyCode == 36 || event.keyCode == 76 { return .inputContextFirst }
+        if flags.contains(.control) { return .compositionKey }
+        if flags.contains(.option), event.keyCode == 36 || event.keyCode == 76 { return .compositionKey }
         return .inputMethod
     }
 
@@ -166,7 +165,7 @@ enum T3TerminalCommandKey {
     }
 }
 
-/// Development harness bytes for a `t3-terminal` view's `fixture` prop (spike S2–S5): `render`
+/// Development harness bytes for a `t3-terminal` view's `fixture` prop: `render`
 /// draws colours, wide and emoji cells, Nerd glyphs, an alternate-screen round trip and 2,000
 /// scrollback lines; `loopback` echoes typed bytes back as a line discipline would (Return as
 /// CR LF, Backspace erases); `flood` writes 5 MB of numbered lines.

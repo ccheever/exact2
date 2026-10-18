@@ -15,9 +15,62 @@ use exact_kernel::{PropId, StyleCodec, StyleId};
 /// A prop's literal value grammar, shared by its refusal and `contract vocab`.
 pub fn accepts(prop: PropId) -> Option<&'static str> {
     match prop {
-        PropId::NavigationDetent => Some("space-separated large, medium, or finite positive point heights; fit-content alone or as fit-content large"),
+        PropId::NavigationDetent => Some("space-separated large, medium, finite positive point heights, or percentages of the sheet's maximum height above 0% and at most 100%; fit-content alone or as fit-content large; otherwise ascending, point heights and percentages (or medium) not mixed, large last"),
         _ => None,
     }
+}
+
+/// Whether `word` is one of a `navigationDetent`'s heights: `large`,
+/// `medium`, `fit-content`, a positive point height, or a percentage above
+/// 0% and at most 100%.
+pub fn detent_word(word: &str) -> bool {
+    matches!(word, "large" | "medium" | "fit-content")
+        || word.parse::<f64>().is_ok_and(|h| h.is_finite() && h > 0.0)
+        || word.strip_suffix('%').is_some_and(|p| {
+            p.parse::<f64>()
+                .is_ok_and(|p| p.is_finite() && p > 0.0 && p <= 100.0)
+        })
+}
+
+/// The first of a `navigationDetent`'s valid words that is not taller than
+/// the one before it on every screen (LLP 1075.003 §9.13): UIKit takes
+/// detents from shortest to tallest. A point height and a share of the
+/// sheet's maximum (`medium`, which is half, or a percentage) cross on some
+/// screen, so the words before `large` are of one kind and ascend; `large`,
+/// the maximum, goes last, and `100%` is `large` (the same height, so one
+/// of them only). `fit-content` has its own rule.
+pub fn detent_out_of_order<'a>(words: &[&'a str]) -> Option<&'a str> {
+    let mut last: Option<(bool, f64)> = None;
+    let mut large = false;
+    for word in words {
+        if large {
+            return Some(word);
+        }
+        let (share, height) = match *word {
+            "large" => {
+                large = true;
+                continue;
+            }
+            "fit-content" => continue,
+            "medium" => (true, 50.0),
+            w => match w.strip_suffix('%') {
+                Some(p) => {
+                    let p: f64 = p.parse().ok()?;
+                    if p >= 100.0 {
+                        large = true;
+                        continue;
+                    }
+                    (true, p)
+                }
+                None => (false, w.parse().ok()?),
+            },
+        };
+        if last.is_some_and(|(kind, before)| kind != share || height <= before) {
+            return Some(word);
+        }
+        last = Some((share, height));
+    }
+    None
 }
 
 include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
@@ -25,6 +78,10 @@ include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
 /// Attributes restricted by tag or collection shape; the `head` fields
 /// are [`tags::HEAD_FIELDS`].
 pub const CONTEXTUAL: &[(&str, &str)] = &[
+    ("datetime", "`time`"),
+    ("format", "`time`"),
+    ("start", "`progress` with `end`"),
+    ("end", "`progress` with `start`"),
     ("sandbox", "`iframe`"),
     ("src", "`iframe` or `video`"),
     ("load", "`iframe`, `image` or a native module"),
@@ -86,11 +143,13 @@ pub const BUTTON_DEFAULT_NOTE: &str = button_default!();
 /// What a tag means beyond its node, where the hosts make more of it than
 /// the web: `contract vocab <tag>` prints it under the tag.
 pub const TAG_NOTES: &[(&str, &str)] = &[
+    ("time", "HTML time: `datetime` is an instant in epoch milliseconds, as `date(...)` returns. `format` is a literal named presentation: relative, timer, countdown, date-short, date-medium (default), date-long, date-full, time-short or time-medium. The platform formats it in the viewer locale and time zone. Relative time advances on minute boundaries; timer and countdown advance each second on the runner clock, with no app task. Apple timers use SwiftUI’s unpadded first field (`0:05`, `1:00:00`). A timer counts away from either side of its instant; countdown stops at zero. On snapshots, timer uses `Text(date, style: .timer)`, countdown uses `Text(timerInterval: entryDate...instant, countsDown: true)` to stop at zero, and calendar formats draw the kernel’s formatted string without ticking. Children are fallback content when the host cannot format the instant. A standalone live time reserves its box at its font: two localized units for relative time, one extra hour digit for timer, and the first displayed shape for countdown. An inline time among other runs in a text reflows as on the web. Ticking formats use tabular digits by default."),
+    ("progress", "HTML progress: `value` and optional `max` (1 by default) make a determinate bar; with neither it is the platform activity indicator. `start` and `end` instead name epoch millisecond instants: the runner advances the bar from 0 to 1 over that interval, clamps before and after it, and executes no app task. Write both, with end after start; do not combine them with value or max. It remains a native control with no children; name it with aria-label."),
     (
         "header",
         // @ref LLP 1116.003 D2.2, LLP 1115.000 D5.2, D5.3 —
         // NavigationBarIOS.swift's `HeaderShape`, `NavigationRules.bar`.
-        "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`), whatever the stack's other routes have. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it; the first text after the heading is the subtitle; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar and is drawn in the page as written (warning `lower-header-no-bar`). A pushed route with no bar of its own (no header, or one that is no bar) still gets a bar holding the system Back button alone, with no title; a stack's first route with none has no bar. A route that draws its own chrome says `navigationBar=\"none\"`: no bar, and the edge swipe still goes back; without it, a `navigationBack` control drawn in a pushed route's page is a second Back under the bar's (warning `lower-back-twice`). On the Mac the same header is the window's title bar and toolbar (LLP 1115.002 D2): the heading is the window's title, with no large title; the buttons are toolbar items, one whose popover is a menu a menu item; a `role=\"tablist\"` of text tabs is the centred segments; the search input is the toolbar's search field. There a header holding anything a toolbar has no place for (a picture, a second text, a pressable title, a button drawn as a box) is drawn in the page as written, whole. docs/recipes/navigation-stack.md",
+        "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`), whatever the stack's other routes have. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it (on iOS 26 and later neighbours share one glass capsule; `buttonStyle=\"glass\"` gives an item its own); the first text after the heading is the subtitle; a readout (`role=\"status\"`, which nothing presses: a dot and a monospaced \"Clock\" beside the title) is an item placed as a button is, its custom view drawn as written (its fonts, colours and dot) and read by VoiceOver as static text; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar and is drawn in the page as written (warning `lower-header-no-bar`), and so is one a box down from the route, such as a screen component's root `column` holding it inside the route column that uses it: put `navigationKey` on that root (warning `lower-header-nested`). A pushed route with no bar of its own (no header, or one that is no bar) still gets a bar holding the system Back button alone, with no title; a stack's first route with none has no bar. A route that draws its own chrome says `navigationBar=\"none\"`: no bar, and the edge swipe still goes back; without it, a `navigationBack` control drawn in a pushed route's page is a second Back under the bar's (warning `lower-back-twice`). On the Mac the same header is the window's title bar and toolbar (LLP 1115.002 D2): the heading is the window's title, with no large title; the buttons are toolbar items, one whose popover is a menu a menu item; a `role=\"tablist\"` of text tabs is the centred segments; the search input is the toolbar's search field. There a header holding anything a toolbar has no place for (a picture, a second text, a readout, a pressable title, a button drawn as a box) is drawn in the page as written, whole. docs/recipes/navigation-stack.md",
     ),
     (
         "button",
@@ -135,11 +194,12 @@ pub fn tags() -> Vec<(&'static str, Tag)> {
 /// names, which are a table (`style_names::STYLE_NAMES`, LLP 1081 D8).
 pub fn attrs() -> Vec<(&'static str, AttrTarget)> {
     // A part's declaration (`::placeholder color`) is no attribute to write:
-    // `contract vocab ::placeholder` describes the block.
+    // `contract vocab ::placeholder` describes the block. Nor is lowering's
+    // own row for `:active`'s `opacity` (LLP 1121 D8).
     let styles: Vec<&'static str> = crate::style_names::STYLE_NAMES
         .iter()
         .map(|(n, ..)| *n)
-        .filter(|n| !n.starts_with("::"))
+        .filter(|n| !n.starts_with("::") && *n != crate::states::PRESS_OPACITY_TO)
         .collect();
     sorted(&[ATTR_CANDIDATES, &styles].concat())
         .into_iter()
@@ -203,6 +263,10 @@ pub fn default(row: StyleId) -> Option<&'static str> {
         .iter()
         .find(|(field, _)| *field == row.name())
         .map(|(_, default)| *default)?;
+    // An unset pressed colour paints nothing over the node's own (LLP 1061 D7).
+    if matches!(row, StyleId::PressBackgroundColor | StyleId::PressColor) {
+        return Some("none (the node's own)");
+    }
     let colour = matches!(row.codec(), StyleCodec::ColorValue | StyleCodec::Rgba8);
     Some(if colour && default == "0" {
         "transparent"
@@ -337,7 +401,7 @@ mod tests {
             assert!(listed.contains(&name), "attribute `{name}` missed");
         }
         assert!(RENAMED_CANDIDATES.contains(&"keyboardAvoiding"));
-        assert!(HTML_CANDIDATES.contains(&"h6"));
+        assert!(HTML_CANDIDATES.contains(&"label"));
         assert_eq!(default(StyleId::PaddingTop), Some("0"));
         assert_eq!(default(StyleId::FlexDirection), Some("row"));
     }

@@ -83,6 +83,9 @@ extension Presenter {
     /// `stopPropagation()` is the last. True when one called
     /// `preventDefault()`: the caller skips the default action.
     func keyDown(at target: NodeView?, _ name: String, held: String = "", code: String = "", repeats: Bool = false) -> Bool {
+        #if canImport(UIKit)
+        supersedePress()
+        #endif
         let prevented = keyEvent("key", at: target, KeyPress(held + name, code: code, repeats: repeats))
         #if canImport(UIKit)
         if !prevented, name == "Escape", !repeats, menus.dismissPopover() { return true }
@@ -95,6 +98,44 @@ extension Presenter {
     func keyUp(at target: NodeView?, _ name: String, held: String = "", code: String = "") -> Bool {
         keyEvent("keyup", at: target, KeyPress(held + name, code: code, up: true))
     }
+    /// One bubbling dispatch (the pointer's down or up, a wheel): a handler
+    /// it runs that calls `stopPropagation()` sets `propagationStopped` for
+    /// this dispatch alone, as the DOM's stop ends one event's propagation.
+    func propagating(_ walk: () -> Void) {
+        let enclosing = propagationStopped
+        defer { propagationStopped = enclosing }
+        propagationStopped = false
+        walk()
+    }
+    /// What an event (a key, a clipboard edit, a pointer's) bubbles to from
+    /// `view`: its authored parent. A subtree shown in a view of its own
+    /// bubbles to the node it is declared under, as DOM's events bubble out
+    /// of the top layer: on the Mac an open popover or a presented dialog,
+    /// painted over the page or in a window of its own, and a block's root
+    /// (BlockHostMac.swift); on iOS a route to its tab panel or the routes'
+    /// owner (LLP 1123 D2). Never the page under a popover or a dialog that
+    /// is not its ancestor.
+    func eventParent(of view: KeyPlatformView) -> KeyPlatformView? {
+        #if os(macOS)
+        if let node = view as? NodeView { return menus.authoredParent(of: node) ?? dialogs.authoredParent(of: node) ?? blocks.parent(of: node) }
+        #else
+        if let node = view as? NodeView, navigation.controllers[node.id]?.node === node,
+           let parent = navigation.logicalParent(of: node) ?? navigation.container {
+            return parent
+        }
+        #endif
+        return view.superview
+    }
+    /// Whether `view` is `ancestor` or under it through authored parents
+    /// (`eventParent`), a presented route's content under its route's logical
+    /// ancestors included.
+    func logicallyWithin(_ view: KeyPlatformView, _ ancestor: KeyPlatformView) -> Bool {
+        logicalAncestry(of: view).contains { $0 === ancestor }
+    }
+    /// `view` and its authored ancestors (`eventParent`).
+    func logicalAncestry(of view: KeyPlatformView) -> UnfoldFirstSequence<KeyPlatformView> {
+        sequence(first: view, next: { self.eventParent(of: $0) })
+    }
     private func keyEvent(_ handler: String, at target: NodeView?, _ press: KeyPress, inline: UInt32? = nil) -> Bool {
         var path: [(id: UInt32, handlers: Set<String>)] = []
         var run = inline.flatMap(inlineText)
@@ -104,14 +145,18 @@ extension Presenter {
         }
         var next: KeyPlatformView? = target
         while let view = next {
-            if let node = view as? NodeView, views[node.id] === node, !node.formDisabled, !node.inert {
+            // An event out of a presentation still reaches the document's
+            // ancestors, which only an authored `inert` silences.
+            let silenced = (view as? NodeView)?.authoredInert == true
+            if let node = view as? NodeView, views[node.id] === node, !node.formDisabled, !silenced {
                 path.append((node.id, node.handlers))
             }
-            #if os(macOS)
-            if let node = view as? NodeView { next = blocks.parent(of: node) }
-            else { next = view.superview }
+            #if os(iOS) || os(tvOS)
+            // Keys leave the sheet; eventParent's inertness walks stay inside it.
+            if let node = view as? NodeView, let parent = menus.sheets.authoredParent(of: node) { next = parent }
+            else { next = menus.logicalParent(of: view) ?? eventParent(of: view) }
             #else
-            next = view.superview
+            next = eventParent(of: view)
             #endif
         }
         var prevented = false
@@ -147,9 +192,10 @@ extension Presenter {
     /// A key event's route, for the session's local monitor and the agent
     /// alike, in the web's order: the shortcuts (input-glue's capture
     /// listener), the focus's `key` handlers, then the key's defaults here —
-    /// Escape closing a popover or dialog, a dialog's Tab — which a prevented
-    /// key never reaches. True when taken. `focused`: the window's focus is
-    /// in this session (the shortcuts and handlers are its).
+    /// Escape closing a popover or dialog, a dialog's Tab, Tab from a window
+    /// that is its own first responder — which a prevented key never
+    /// reaches. True when taken. `focused`: the window's focus is in this
+    /// session (the shortcuts and handlers are its).
     func routeKey(_ event: NSEvent, focused: Bool, in window: NSWindow? = nil) -> Bool {
         if focused {
             keyboardUsed(event, in: window)
@@ -157,9 +203,15 @@ extension Presenter {
             keyUp(event, in: window)
             if event.type == .keyDown && shortcuts.perform(event) { return true }
             if keyDown(event, in: window) { return true }
+            // The alert's field already heard this key through the monitor.
+            // Consume Return here before AppKit sends it to the default button.
+            let source = window ?? event.window
+            if event.type == .keyDown, NodeView.keyName(event) == "Enter", source === alerts.sheet,
+               (source?.firstResponder as? NSTextInputClient)?.hasMarkedText() != true,
+               let node = keyTarget(source?.firstResponder), alerts.fieldReturned(node, keyHeard: true) { return true }
             if contextMenuKey(event, in: window) { return true }
         }
-        return menus.key(event) || dialogs.key(event)
+        return menus.key(event) || dialogs.key(event) || tabFromStart(event, focused: focused, in: window)
     }
     /// A keydown at the window's first responder, before AppKit delivers
     /// it: true when a handler prevented its default, and the caller drops
@@ -333,6 +385,7 @@ extension NodeView {
     /// value the app wrote meanwhile lands); any other key is the
     /// composition's.
     func passesComposition(_ code: String, command: Bool, down: Bool) -> Bool {
+        let field = selectionField
         guard (field?.markedTextRange ?? textArea?.markedTextRange) != nil else { return true }
         if KeyCodes.modifier(code) { return true }
         guard command, down else { return false }

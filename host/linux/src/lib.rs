@@ -45,13 +45,15 @@ pub mod android;
 #[cfg(target_os = "android")]
 pub mod android_hint;
 pub mod app;
-#[cfg(target_os = "android")]
+mod build_channel;
+#[cfg(any(target_os = "android", test))]
 pub mod canvas;
 mod canvas2d;
 pub mod content_region;
 pub mod delivery;
 #[cfg(target_os = "linux")]
 pub mod display;
+mod doc_watch;
 pub mod executor;
 pub mod fetch;
 pub mod fields;
@@ -71,6 +73,7 @@ mod placement;
 pub mod presenter;
 pub mod raster;
 mod surfaces;
+mod tamber;
 pub mod teardown;
 pub mod text;
 #[cfg(any(target_os = "android", test))]
@@ -101,4 +104,24 @@ pub(crate) fn traced<T>(_name: &core::ffi::CStr, f: impl FnOnce() -> T) -> T {
     return android::trace(_name, f);
     #[cfg(not(target_os = "android"))]
     f()
+}
+
+/// A Contract source compiled and encoded once per test binary: the tests boot fresh presenters
+/// from a few constant sources many times, and a compile depends on nothing but its source.
+#[cfg(test)]
+pub(crate) fn test_plan(source: &str) -> Vec<u8> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static PLANS: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
+    let plans = PLANS.get_or_init(Default::default);
+    if let Some(plan) = plans.lock().unwrap_or_else(|e| e.into_inner()).get(source) {
+        return plan.clone();
+    }
+    // Compiled outside the lock, so one test's compile never waits on another's
+    let plan = contract::compile(source).unwrap().encode();
+    plans
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(source.to_owned(), plan.clone());
+    plan
 }

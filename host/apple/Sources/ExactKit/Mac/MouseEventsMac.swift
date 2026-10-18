@@ -3,9 +3,11 @@
 // (NodeViewMac's `rightMouseDown`).
 //
 // A wheel's turn or a trackpad's scroll over a node is heard by every
-// node from it up that declares `wheel` (a disabled box included, as a
-// `<div disabled>` in Chrome; not a disabled form control or an inert node), innermost first, as the
-// DOM's bubbles; one that calls `preventDefault()` keeps the scroll from
+// node from it up the authored tree (`eventParent`) that declares `wheel`
+// (a disabled box included, as a `<div disabled>` in Chrome; not a
+// disabled form control or a node an `inert` makes inert; a modal dialog's
+// ancestors, inert behind it, hear it), innermost first, as the DOM's
+// bubbles; one that calls `preventDefault()` keeps the scroll from
 // happening (a canvas zooming on ⌘-scroll). A trackpad's pinch is a wheel
 // with Control held and `deltaY` of -100 × the magnification, which is how
 // a browser on a Mac delivers one, so one handler zooms on both hosts.
@@ -24,7 +26,7 @@ extension Presenter {
     func contextMenuKey(_ event: NSEvent, in owner: NSWindow? = nil) -> Bool {
         guard event.type == .keyDown, NodeView.keyName(event) == "ContextMenu",
               event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty,
-              let window = owner ?? event.window, window === viewport.window,
+              let window = owner ?? event.window, hosts(window),
               (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
         if let run = window.firstResponder as? InlineKeyView, run.owner?.inlineContextMenu(run.id) == true { return true }
         let point: NSPoint
@@ -34,6 +36,7 @@ extension Presenter {
             point = middle
             start = focus
         } else {
+            guard window === viewport.window else { return false }
             // A handler removed the focus: Chrome hits the page at (1,1).
             // An embedded view/editor still owns its keys, even when its
             // responder is not one of our focusable nodes.
@@ -46,12 +49,12 @@ extension Presenter {
             start = viewport.hitTest(viewport.superview?.convert(point, from: nil) ?? point)
         }
         guard let node = contextTarget(start) else { return false }
-        return contextMenu(node, at: point)
+        return contextMenu(node, at: point, from: start)
     }
 
     /// The node a request from the keyboard at `view` reaches (the
-    /// ContextMenu key, VoiceOver's show menu): the first from it up,
-    /// through a popover's invoker, whose `contextmenu` or `contextPopover`
+    /// ContextMenu key, VoiceOver's show menu): the first from it up the
+    /// authored tree (`eventParent`), whose `contextmenu` or `contextPopover`
     /// answers, as Chrome's `contextmenu` at the element bubbles to its
     /// first handler; nil at a field, which keeps its own menu.
     func contextTarget(_ view: NSView?) -> NodeView? {
@@ -61,7 +64,7 @@ extension Presenter {
                 if node.field != nil || node.textArea != nil { return nil }
                 if views[node.id] === node, node.answersContextMenu { return node }
             }
-            next = menus.parent(of: view)
+            next = eventParent(of: view)
         }
         return nil
     }
@@ -71,7 +74,7 @@ extension Presenter {
     /// space (its box when nil) as drawn, clipped by what clips it, in the
     /// window; nil when it takes no request or none of it is drawn.
     func contextPoint(_ node: NodeView, rect: NSRect? = nil) -> NSPoint? {
-        guard !node.disabled, !node.inert, !node.isHiddenOrHasHiddenAncestor,
+        guard !node.formDisabled, !node.inert, !node.isHiddenOrHasHiddenAncestor,
               !dialogs.blocks(node), node.field == nil, node.textArea == nil else { return nil }
         // AppKit's visibleRect clips the untransformed frame. Clip the
         // drawn anchor instead, including a frame translated into view.
@@ -91,33 +94,167 @@ extension Presenter {
         return drawn.isEmpty ? nil : NSPoint(x: drawn.midX, y: drawn.midY)
     }
 
-    /// `node`'s `contextmenu` and `contextPopover` at window point `point`,
-    /// as a request from the keyboard sends them: no button held.
-    func contextMenu(_ node: NodeView, at point: NSPoint) -> Bool {
-        let local = node.local(point), box = node.contentBox(), client = self.client(point)
+    /// `node`'s `contextmenu` and `contextPopover` at `point` in the source's
+    /// window (the node's when omitted), with no button held.
+    func contextMenu(_ node: NodeView, at point: NSPoint, from source: NSView? = nil, click: NSEvent? = nil) -> Bool {
+        func converted(to window: NSWindow?) -> NSPoint {
+            guard let from = source?.window ?? node.window, let window, from !== window else { return point }
+            return window.convertPoint(fromScreen: from.convertPoint(toScreen: point))
+        }
+        let windowPoint = converted(to: node.window)
+        let local = node.local(windowPoint), box = node.contentBox(), client = self.client(converted(to: viewport.window))
         let sample = PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
                                    buttons: 0, pressure: 0, type: "mouse", id: 1,
                                    clientX: Double(client.x), clientY: Double(client.y))
-        return node.dispatchContextMenu(at: node.convert(point, from: nil), sample: sample)
+        return node.dispatchContextMenu(at: node.convert(windowPoint, from: nil), sample: sample,
+                                        bubbled: source.map { $0 !== node } ?? false, click: click)
     }
 }
 
 extension NodeView {
+    package override func mouseDown(with event: NSEvent) {
+        let chain = holdPresenter?.mouseChain
+        chain?.receivedDown(self, event: event)
+        if let contact = chain?.bubbledPress {
+            if contact.cancelled { return }
+            if contact.reaches(self) { contact.down(on: self); return }
+        }
+        guard !inert else { return }
+        if contextClick(event) { return rightMouseDown(with: event) }
+        pointerPressed(event)
+        if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
+        if canvasInput?.pointer(event, phase: "down") == true { return }
+        presenter?.leaves.pressed(self) // a held leaf's box was clicked: made now (LLP 1068 §5.1)
+        presenter?.collections.pointerDown(id, event: event)
+        presenter?.mouseChain.down(self, event: event)
+        guard !disabled else { pressed = false; return }
+        presenter?.interacting = id
+        if let target = presenter?.svg.target(id, at: local(event.locationInWindow)) { svgPressed = target; return }
+        if isParagraph, let run = inlineTarget(at: local(event.locationInWindow), handler: "press") {
+            inlinePressed = run.id
+            window?.makeFirstResponder(self)
+            presenter?.selection.begin(self, event: event)
+            return
+        }
+        if selectsText { presenter?.selection.press(self, event: event); return }
+        // A descendant that took focus keeps it (LLP 1088 D7.3). Forward
+        // through the responder chain: NSView's default retries covered siblings.
+        let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
+        if takesClickFocus, !inner { window?.makeFirstResponder(self) }
+        if pressable { pressed = true } else { (chain?.responder(from: self, event: event) ?? (chain == nil ? nextResponder : nil))?.mouseDown(with: event) }
+    }
+    /// A paragraph's drag selects its text unless a press takes it: its
+    /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.
+    var selectsText: Bool { isParagraph && !pressable && !hasPressableAncestor }
+    var hasPressableAncestor: Bool { hasPressableAncestor(crossingPresentations: true) }
+    func hasPressableAncestor(crossingPresentations: Bool) -> Bool {
+        var at: NSView = self, crossed = false
+        while let parent = (crossingPresentations ? presenter?.presentationParent(of: at) : nil) ?? at.superview {
+            crossed = crossed || parent !== at.superview
+            if let node = parent as? NodeView,
+               node.pressable || !crossed && (node.isSurfaceControl || node.isButton) { return true }
+            at = parent
+        }
+        return false
+    }
+    package override func mouseDragged(with event: NSEvent) {
+        if contextClicked { return rightMouseDragged(with: event) }
+        pointerDragged(event)
+        let chain = holdPresenter?.mouseChain
+        if let contact = chain?.bubbledPress {
+            contact.validate()
+            if contact.cancelled { _ = chain?.drag(event); return }
+            if contact.reaches(self) { contact.drag(on: self, event: event); return }
+        }
+        guard !inert else { return }
+        if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
+        if canvasInput?.pointer(event, phase: "move") == true { return }
+        inlinePressed = nil
+        // A gesture that engages ends the press (the chain clears `pressed`).
+        if presenter?.mouseChain.drag(event) == true { return }
+        pressFollows(inside: pressInside(event.locationInWindow))
+        if selectsText { presenter?.selection.drag(event) }
+        else { (chain?.responder(from: self, event: event) ?? (chain == nil ? nextResponder : nil))?.mouseDragged(with: event) }
+    }
+    package override func rightMouseUp(with event: NSEvent) {
+        pointerReleased(event)
+        if canvasInput?.pointer(event, phase: "up") != true { super.rightMouseUp(with: event) }
+    }
+    package override func mouseUp(with event: NSEvent) {
+        let chain = holdPresenter?.mouseChain, contact = chain?.bubbledPress
+        defer { chain?.completed(contact, at: self) }
+        if contextClicked { contextClicked = false; return rightMouseUp(with: event) }
+        pointerReleased(event)
+        contact?.validate()
+        if contact?.cancelled == true {
+            let taken = chain?.up(event) == true
+            chain?.presenter?.interacting = 0
+            if !taken, !inert { dispatchDblclick(dblclickTarget(event)) }
+            return
+        }
+        if let contact, contact.reaches(self) { contact.up(on: self, event: event); return }
+        guard !inert else { return }
+        if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); finishPointerPress(); return }
+        if canvasInput?.pointer(event, phase: "up") == true { return }
+        defer { holdPresenter?.interacting = 0 }
+        if presenter?.mouseChain.up(event) == true { return }
+        presenter?.collections.releaseInteractionLater()
+        let double = dblclickTarget(event)
+        defer { dispatchDblclick(double) }
+        if let target = svgPressed {
+            svgPressed = nil
+            // The element has no view of its own: the `svg`'s view stands for it.
+            if !inert, presenter?.svg.target(id, at: local(event.locationInWindow)) == target {
+                presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.onPress?(target); presenter?.pressHeld = ""
+            }
+            return
+        }
+        if let run = inlinePressed {
+            inlinePressed = nil
+            if inlineTarget(at: local(event.locationInWindow), handler: "press")?.id == run { _ = activateInline(run) }
+            return
+        }
+        if selectsText { presenter?.selection.end(self, event: event); return }
+        guard !disabled else { pressed = false; return }
+        guard pressed else { (chain?.responder(from: self, event: event) ?? (chain == nil ? nextResponder : nil))?.mouseUp(with: event); return }
+        pressed = false
+        if pressInside(event.locationInWindow) {
+            let canvas = inputCanvas, ownerWindow = window
+            presenter?.press(id, held: KeyCodes.held(event.modifierFlags))
+            finishPress(canvas: canvas, window: ownerWindow, pointer: true)
+        }
+    }
+
     /// Whether its own `contextmenu` or `contextPopover` answers a context request.
     var answersContextMenu: Bool { handlers.contains("contextmenu") || props["contextPopover"]?.isEmpty == false }
 
     /// The context action runs before the menu is read, for pointer and
     /// keyboard alike. A context action cannot leak its preventDefault to
     /// another input; keydown cancellation was handled before this default.
-    func dispatchContextMenu(at point: NSPoint, sample: PointerSample) -> Bool {
-        guard let presenter, presenter.views[id] === self, !disabled, !inert else { return false }
+    func dispatchContextMenu(at point: NSPoint, sample: PointerSample, bubbled: Bool = false, click: NSEvent? = nil) -> Bool {
+        guard let presenter, presenter.views[id] === self, !formDisabled, !(bubbled ? authoredInert : inert) else { return false }
         let action = handlers.contains("contextmenu"), menu = props["contextPopover"]?.isEmpty == false
         let outer = presenter.defaultPrevented
         presenter.defaultPrevented = false
         defer { presenter.defaultPrevented = outer }
         if action { presenter.mouseEvent(id, 10, sample.line) }
-        if menu { presenter.menus.context(self, at: point) }
+        // In the browser this ancestor's popover opens behind the modal, inert.
+        if menu, !inert { presenter.menus.context(self, at: point, click: click) }
         return action || menu
+    }
+
+    /// AppKit keeps the ordinary responder chain; only a lifted view's
+    /// step into the top layer goes through its authored ancestors instead.
+    func bubbleContextMenu(_ event: NSEvent) -> Bool {
+        guard let presenter, let parent = presenter.eventParent(of: self), parent !== superview else { return false }
+        var next: NSView? = parent
+        while let view = next {
+            if let node = view as? NodeView,
+               node.dispatchContextMenu(at: node.convert(Self.point(event, in: node.window), from: nil),
+                                        sample: node.pointerSample(event), bubbled: true, click: event) { return true }
+            next = presenter.eventParent(of: view)
+        }
+        return false
     }
 
     /// A Control-click is the Mac's secondary click (X85): Chrome sends it as
@@ -136,7 +273,7 @@ extension NodeView {
 
     /// Whether run `id`'s own `contextmenu` or `contextPopover` answers a context request.
     func inlineAnswersContextMenu(_ id: UInt32) -> Bool {
-        guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
+        guard let presenter, !presenter.inlineInert(id), let run = presenter.inlineText(id) else { return false }
         return run.handlers.contains("contextmenu") || run.props["contextPopover"]?.isEmpty == false
     }
 
@@ -172,7 +309,7 @@ extension NodeView {
         guard let run = inlineContextTarget(at: point), let line = inlineRects(run).first else { return false }
         var sample = pointerSample(event)
         sample.x = Double(point.x - line.minX); sample.y = Double(point.y - line.minY)
-        return dispatchInlineContextMenu(run, at: convert(event.locationInWindow, from: nil), sample: sample)
+        return dispatchInlineContextMenu(run, at: convert(event.locationInWindow, from: nil), sample: sample, click: event)
     }
 
     /// A request from the keyboard at run `id` (VoiceOver's show menu, X84;
@@ -182,10 +319,10 @@ extension NodeView {
     /// to the first node from this paragraph up that does, as Chrome's
     /// `contextmenu` at the run's element bubbles.
     func inlineContextMenu(_ id: UInt32) -> Bool {
-        guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id),
+        guard let presenter, !presenter.inlineInert(id), let run = presenter.inlineText(id),
               let line = inlineRects(run).first, let point = presenter.contextPoint(self, rect: line) else { return false }
         guard let target = inlineContextTarget(from: run), let first = inlineRects(target).first else {
-            return presenter.contextTarget(self).map { presenter.contextMenu($0, at: point) } ?? false
+            return presenter.contextTarget(self).map { presenter.contextMenu($0, at: point, from: self) } ?? false
         }
         let local = self.local(point), client = presenter.client(point)
         let sample = PointerSample(x: Double(local.x - first.minX), y: Double(local.y - first.minY),
@@ -197,21 +334,21 @@ extension NodeView {
     /// Whether a request from the keyboard at run `id` reaches a run or
     /// node from it up whose `contextmenu` or `contextPopover` runs.
     func inlineOffersContextMenu(_ id: UInt32) -> Bool {
-        guard let presenter, presenter.views[self.id] === self, !disabled, !inert,
-              presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
+        guard let presenter, presenter.views[self.id] === self, !formDisabled, !inert,
+              !presenter.inlineInert(id), let run = presenter.inlineText(id) else { return false }
         if inlineContextTarget(from: run) != nil { return true }
-        return presenter.contextTarget(self).map { !$0.disabled && !$0.inert } ?? false
+        return presenter.contextTarget(self).map { !$0.formDisabled && !$0.authoredInert } ?? false
     }
 
     /// `run`'s `contextmenu`, then its `contextPopover`'s menu at `point`
     /// (this view's space), as `dispatchContextMenu` sends a node's.
-    private func dispatchInlineContextMenu(_ run: InlineText, at point: NSPoint, sample: PointerSample) -> Bool {
+    private func dispatchInlineContextMenu(_ run: InlineText, at point: NSPoint, sample: PointerSample, click: NSEvent? = nil) -> Bool {
         guard let presenter, presenter.views[id] === self, inlineAnswersContextMenu(run.id) else { return false }
         let outer = presenter.defaultPrevented
         presenter.defaultPrevented = false
         defer { presenter.defaultPrevented = outer }
         if run.handlers.contains("contextmenu") { presenter.mouseEvent(run.id, 10, sample.line) }
-        if run.props["contextPopover"]?.isEmpty == false { presenter.menus.context(self, at: point, run: run.id) }
+        if run.props["contextPopover"]?.isEmpty == false { presenter.menus.context(self, at: point, run: run.id, click: click) }
         return true
     }
 
@@ -236,24 +373,28 @@ extension NodeView {
     }
 
     /// `wheel` at this node and its ancestors, once per event however many
-    /// of the views on the way pass it up; true when a handler prevented
-    /// its default, and the scroll stops here.
+    /// of the views on the way pass it up, until a handler stops its
+    /// propagation; true when a handler prevented its default, and the
+    /// scroll stops here (a stop alone does not stop the scroll).
     func wheel(_ event: NSEvent) -> Bool {
         guard let presenter else { return false }
         if let (seen, prevented) = presenter.lastWheel, seen === event { return prevented }
         var path: [NodeView] = []
         var next: NSView? = self
         while let view = next {
-            if let node = view as? NodeView, presenter.views[node.id] === node, node.handlers.contains("wheel"), !node.formDisabled, !node.inert {
+            if let node = view as? NodeView, presenter.views[node.id] === node, node.handlers.contains("wheel"), !node.formDisabled, !node.authoredInert {
                 path.append(node)
             }
-            next = view.superview
+            next = presenter.eventParent(of: view)
         }
         var prevented = false
-        for node in path where presenter.views[node.id] === node {
-            presenter.defaultPrevented = false
-            presenter.mouseEvent(node.id, 37, node.wheelLine(event))
-            prevented = prevented || presenter.defaultPrevented
+        presenter.propagating {
+            for node in path where presenter.views[node.id] === node {
+                presenter.defaultPrevented = false
+                presenter.mouseEvent(node.id, 37, node.wheelLine(event))
+                prevented = prevented || presenter.defaultPrevented
+                if presenter.propagationStopped { break }
+            }
         }
         presenter.defaultPrevented = false
         presenter.lastWheel = (event, prevented)
@@ -264,7 +405,8 @@ extension NodeView {
     /// CSS px with the web's sign (positive scrolls down and right), pixels
     /// as the mode, and the modifiers held.
     func wheelLine(_ event: NSEvent) -> String {
-        let point = local(event.locationInWindow), box = contentBox()
+        // In this node's window: a wheel in a popover's bubbles to the page.
+        let point = local(Self.point(event, in: window)), box = contentBox()
         var dx = 0.0, dy = 0.0
         var held = event.modifierFlags
         if event.type == .magnify {

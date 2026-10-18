@@ -1,7 +1,7 @@
 //! The runner's reserved sources the JS runtime answers itself (facts.js):
 //! each declared reader's fields, checked against the runner's names.
 
-use crate::emit::{type_json, value_js};
+use crate::emit::{surface_type_json, value_js};
 use exact_plan::{Plan, Value};
 use std::fmt::Write as _;
 
@@ -39,7 +39,7 @@ pub fn reserved(plan: &Plan, body: &mut String) -> Result<String, String> {
                 format!(
                     "{},{}",
                     serde_json::to_string(surface).unwrap(),
-                    type_json(plan, r.ty)
+                    surface_type_json(plan, r.ty)
                 )
             } else {
                 let mut names = Vec::new();

@@ -43,6 +43,7 @@ pub mod gradient;
 pub mod grouped;
 pub mod handoff;
 pub mod id;
+pub mod invocation;
 pub mod kernel;
 pub mod layout;
 pub mod motion;
@@ -60,11 +61,13 @@ pub mod sorted;
 pub mod style;
 pub mod svg;
 pub mod text;
+pub mod time;
 pub mod timeline;
 pub mod transform;
 pub mod txn;
 pub mod wire;
 
+pub use arena::text_style::bolder;
 pub use bars::{Bar, HeaderShape, RootTabs};
 pub use control::{Choice, ControlKind, PressFace, Progress, Range};
 pub use control_measurement::{
@@ -75,9 +78,12 @@ pub use error::{
     ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
 };
 pub use generated::*;
-pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection, TextFont, TextLook};
+pub use grouped::{
+    Accessory, GroupedList, GroupedMargins, GroupedRow, GroupedSection, TextFont, TextLook,
+};
 pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
+pub use invocation::Invocation;
 pub use kernel::{
     BlockAxis, HostBlock, HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint,
 };
@@ -85,23 +91,25 @@ pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use node::NodeFacts;
 pub use props::{PropList, PropValue};
-pub use replaced::apple_symbol_name;
+pub use replaced::{apple_symbol_name, symbol_path, Icon, SymbolPath};
 pub use sorted::{SortedMap, SortedSet};
 pub use style::{
     link_segments, uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, EnvRefusal,
     GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
-    GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks, LineHeight, Rect, RowValue,
+    GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks, LineHeight, Rect, Region, RowValue,
     SegmentVar, StyleValue, Transitions, Vec2, ViewportUnit,
 };
 pub use text::case::link as link_text_transform;
-pub use text::case::{linked_lowercase, lowercase_bounded, Lowercase};
+pub use text::case::{
+    linked_lowercase, linked_uppercase, lowercase_bounded, uppercase_bounded, CaseMapping,
+};
 pub use text::{
     Markup, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
     TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,
 };
 pub use transform::TransformDragBinding;
 pub use txn::{CommitReceipt, Exit, MAX_DEPTH};
-pub use wire::{FrameBuilder, Op};
+pub use wire::{look_rows, FrameBuilder, Op, LOOK_FOCUS_VISIBLE, LOOK_HOVER};
 
 pub use region::{
     ContentRegion, RegionArtifact, RegionFrame, RegionInputs, RegionLayoutReceipt,

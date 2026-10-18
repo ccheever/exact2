@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import {expect,test} from 'bun:test';
 import {mobileOutboxRead,mobileOutboxSnapshot,mobileOutboxEnqueue,mobileOutboxEnqueueTransfer,mobileOutboxTransferLookup,
  mobileOutboxTransferStatus,mobileOutboxCompleteTransfer,mobileOutboxEnqueueThreadTransfer as enqueue,

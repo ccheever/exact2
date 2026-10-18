@@ -1,6 +1,6 @@
 // Pinned365aa87982 ThreadRouteScreen / ThreadGitControls (MIT, LICENSE-T3).
 // Shared reducers own Git and terminal metadata; this adapter owns native menu admission.
-// @ref llp/1109.005-composer-and-transcript.decision.md
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md
 import { mobileClient, mobileNative } from './client';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, num, type Obj } from './shared/domain';

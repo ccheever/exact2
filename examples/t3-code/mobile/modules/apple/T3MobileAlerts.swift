@@ -1,6 +1,6 @@
 #if os(iOS)
 // upstream 365aa87982 use-remote-environment-registry.ts and ConnectionsNewRouteScreen.
-// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#mobile-adaptations
 import UIKit
 
 final class T3MobileAlerts {

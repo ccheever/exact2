@@ -1,6 +1,6 @@
 import { mobileOutboxDraftRecoveryBlocked } from './mobile-outbox-draft-handoff';
 // Source365aa87982 new-task-flow-provider and NewTaskDraftScreen capture inputs.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import { mobileNewTaskContextProject } from './mobile-new-task-context';
 import { mobileNewTaskDraftPresentation, mobileNewTaskDraftSelectedBranch } from './mobile-new-task-drafts';

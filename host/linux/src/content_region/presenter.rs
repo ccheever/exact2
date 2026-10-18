@@ -50,16 +50,22 @@ impl<D: DataSource> Presenter<D> {
     /// ([`crate::text::cache::deferring_eviction`]): a paint that misses walks
     /// the cache once, not once per paragraph.
     pub fn frame(&mut self) -> Arc<Pixmap> {
+        // Its session's roles, whatever else lives on the thread (LLP 1121 stage 5).
+        let _roles = self.host.runner().bind_roles();
         crate::text::cache::deferring_eviction(|| self.paint_frame())
     }
     fn paint_frame(&mut self) -> Arc<Pixmap> {
+        self.alert_sync();
         self.brush.placements = self.surfaces.placements(&self.host);
         self.host
             .sync_canvases(self.brush.scale as f64, true, &self.assets);
-        self.brush.canvases = self.host.canvas_snapshots();
-        self.brush
-            .canvases
-            .extend(self.surfaces.pixels(&mut self.host, self.brush.scale));
+        let previous = std::mem::replace(&mut self.brush.canvases, self.host.canvas_snapshots());
+        self.brush.canvases.extend(self.surfaces.pixels(
+            &mut self.host,
+            self.brush.scale,
+            previous,
+            self.brush.window_canvas,
+        ));
         // The hatches' overlays as published (LLP 1075.003.000.001 §2.2.1):
         // read here, at the start of the paint; the walk calls no hatch.
         self.brush.overlays = (self.hatches.overlays.iter())
@@ -74,7 +80,10 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = self.refine_collections() {
             self.host.log(error);
         }
+        self.refresh_looks(None); // the focus's ring (LLP 1121 D8)
         let dirty = self.host.take_row_dirty();
+        self.brush.numerals.now = self.host.now();
+        self.brush.numerals.still = self.host.runner().viewport().preferences.reduced_motion;
         self.brush.rows_dirty(self.host.kernel(), dirty);
         let roots = self.host.roots();
         let collection_limits = if self.host.content_region().is_some() {

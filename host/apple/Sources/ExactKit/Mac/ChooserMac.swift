@@ -25,6 +25,7 @@ extension MenuHost {
     final class Confirmation {
         weak var source: NodeView?
         let invoked: Bool
+        let bubbled: Bool
         weak var popover: NodeView?
         /// The popover's presentation this owner belongs to.
         let presentation: Int
@@ -39,12 +40,13 @@ extension MenuHost {
         let message: [String]
         /// Chosen, cancelled or ended: no item is taken after.
         var finished = false
-        /// The action chosen, pressed on the next turn unless cancelled first.
+        /// The action chosen, pressed once the menu has closed unless cancelled first.
         var chosen: Int?
         func cancel() { finished = true; chosen = nil }
-        init(source: NodeView, invoked: Bool, popover: NodeView, presentation: Int, actions: [Presented], heading: String?, message: [String]) {
+        init(source: NodeView, invoked: Bool, bubbled: Bool, popover: NodeView, presentation: Int, actions: [Presented], heading: String?, message: [String]) {
             self.source = source; self.popover = popover; self.presentation = presentation; self.actions = actions
             self.invoked = invoked
+            self.bubbled = bubbled
             self.heading = heading; self.message = message
         }
     }
@@ -58,9 +60,8 @@ extension MenuHost {
     func isConfirmation(_ pop: NodeView) -> Bool {
         pop.props["popover"] != nil && pop.props["accessibilityRole"] == "alertdialog"
     }
-    func closes(_ row: NodeView, _ pop: NodeView) -> Bool {
-        row.props["popovertarget"] == pop.props["id"] && row.props["popovertargetaction"] == "hide"
-    }
+    /// A chooser shows as a popover
+    func closes(_ row: NodeView, _ pop: NodeView) -> Bool { presenter?.invocation(of: row)?.closes(pop, modally: false) ?? false }
     /// Live, pressable, enabled, not inert, and not hidden by the page — its
     /// own or an ancestor's `display: none` or hiding — though the popover
     /// itself is hidden in place while its menu presents it (iOS's `eligible`).
@@ -70,7 +71,7 @@ extension MenuHost {
 
     /// The owner for `pop` opened from `source`, or nil — logged with why —
     /// for a shape the menu cannot present (iOS's refusals, word for word).
-    func confirmation(of pop: NodeView, from source: NodeView) -> Confirmation? {
+    func confirmation(of pop: NodeView, from source: NodeView, bubbled: Bool = false) -> Confirmation? {
         let children = pop.container.subviews.compactMap { $0 as? NodeView }
         let actions = children.filter { $0.isButton && $0.handlers.contains("press") }
         let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop) }
@@ -87,7 +88,7 @@ extension MenuHost {
         guard actions.contains(where: { choosable($0, in: pop) }) else { return refuse("every action is disabled") }
         let texts = children.filter { $0.kind == "text" }.map(title(of:)).filter { !$0.isEmpty }
         let label = pop.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }
-        return Confirmation(source: source, invoked: opens(source, pop), popover: pop, presentation: presentation(of: pop),
+        return Confirmation(source: source, invoked: opens(source, pop), bubbled: bubbled, popover: pop, presentation: presentation(of: pop),
                             actions: actions.map { .init($0, title: title(of: $0), enabled: choosable($0, in: pop)) },
                             heading: texts.isEmpty && actions.count > 1 ? label : nil, message: texts)
     }
@@ -98,7 +99,7 @@ extension MenuHost {
     /// and enablement as presented. A reused row given another provider
     /// ends the menu rather than dispatching under its old title.
     func valid(_ owner: Confirmation) -> Bool {
-        guard let source = owner.source, let pop = owner.popover, invokes(source, pop, requiringTarget: owner.invoked), isConfirmation(pop),
+        guard let source = owner.source, let pop = owner.popover, invokes(source, pop, requiringTarget: owner.invoked, bubbled: owner.bubbled), isConfirmation(pop),
               presentation(of: pop) == owner.presentation else { return false }
         return owner.actions.allSatisfy { presented(owner, $0) }
     }
@@ -149,7 +150,8 @@ extension MenuHost {
         return item
     }
 
-    /// An item chosen: recorded now, pressed on the next main-queue turn.
+    /// An item chosen: recorded now, pressed once `popUp` has returned and
+    /// the menu closed (`afterNativeTracking`).
     /// AppKit sends the action inside `popUp`, while it still tracks the
     /// menu in the invoker; a press whose batch unmounts the invoker (a
     /// confirmation that navigates back) must not run under that stack.

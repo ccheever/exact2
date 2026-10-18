@@ -199,6 +199,7 @@ name = "exact-color"
 version = "0.1.0"
 dependencies = [
  "exact-num",
+ "libm",
 ]
 
 [[package]]
@@ -269,6 +270,7 @@ dependencies = [
  "exact-num",
  "exact-plan",
  "exact-route",
+ "serde_json",
  "sha2",
 ]
 
@@ -292,6 +294,7 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "sha2",
+ "snapback4-core",
  "snapback4-device",
 ]
 
@@ -980,8 +983,8 @@ dependencies = [
 
 [[package]]
 name = "snapback4-core"
-version = "0.4.16"
-source = "git+https://github.com/expo/snapback.git?rev=468d3aa5be3eee914883e37f3ab0424030ac882d#468d3aa5be3eee914883e37f3ab0424030ac882d"
+version = "0.4.29"
+source = "git+https://github.com/expo/snapback.git?rev=59fb4ead1ba18569369523bba55b56713cc275e9#59fb4ead1ba18569369523bba55b56713cc275e9"
 dependencies = [
  "argon2",
  "getrandom 0.3.4",
@@ -998,8 +1001,8 @@ dependencies = [
 
 [[package]]
 name = "snapback4-device"
-version = "0.4.16"
-source = "git+https://github.com/expo/snapback.git?rev=468d3aa5be3eee914883e37f3ab0424030ac882d#468d3aa5be3eee914883e37f3ab0424030ac882d"
+version = "0.4.29"
+source = "git+https://github.com/expo/snapback.git?rev=59fb4ead1ba18569369523bba55b56713cc275e9#59fb4ead1ba18569369523bba55b56713cc275e9"
 dependencies = [
  "rusqlite",
  "serde",
@@ -1010,8 +1013,8 @@ dependencies = [
 
 [[package]]
 name = "snapback4-lang"
-version = "0.4.16"
-source = "git+https://github.com/expo/snapback.git?rev=468d3aa5be3eee914883e37f3ab0424030ac882d#468d3aa5be3eee914883e37f3ab0424030ac882d"
+version = "0.4.29"
+source = "git+https://github.com/expo/snapback.git?rev=59fb4ead1ba18569369523bba55b56713cc275e9#59fb4ead1ba18569369523bba55b56713cc275e9"
 dependencies = [
  "serde",
  "serde_json",
@@ -1567,15 +1570,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "fontique"
-version = "0.11.1"
-
-[[patch.unused]]
-name = "parley"
-version = "0.11.1"
-
-[[patch.unused]]
-name = "wgpu-hal"
-version = "30.0.1"

@@ -1,5 +1,5 @@
 // T3 Code365aa87982 use-composer-drafts.ts append/remove policy (MIT, LICENSE-T3).
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { OrdinaryInventoryAttachment } from './composer-attachment-publication';
 import { mobileComposerAfterSelection, mobileComposerInsertContext,
   type MobileComposerInsertion, type MobileComposerInsertionDraft } from './composer-context-insertion';

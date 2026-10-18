@@ -1,4 +1,4 @@
-// @ref llp/1109.011-responsive-workspace.decision.md#composition-decision
+// @ref examples/t3-code/mobile/docs/1130.011-responsive-workspace.decision.md#composition-decision
 // Pinned365aa87982 thread-file-navigator-pane, ReviewSheet and GitOverviewSheet.
 #if os(iOS)
 import UIKit

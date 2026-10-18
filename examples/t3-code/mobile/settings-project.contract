@@ -1,5 +1,5 @@
 use ProjectFavicon, ProjectFaviconTarget from "./project-favicon.contract"
-// @ref llp/1109.009-mobile-settings.decision.md#scoped-server-settings
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#scoped-server-settings
 // GAP005: workspace-path selection still requires a reusable native selectable text owner.
 use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
 shape SettingsProjectIcon

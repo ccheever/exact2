@@ -5,17 +5,19 @@ The Kotlin side of Android's Canvas host (LLP 1076 §3.3), in the repository by 
 An app on Android is its Rust, built for `aarch64-linux-android` (`host/linux`: the runner, the kernel, layout, text
 and the paint walk), and this. The Rust records what it paints as an op stream (`host/linux/src/canvas.rs`). The
 reader replays that stream onto Android's own Canvas: a `RenderNode` for each row, scroller and animated layer,
-hardware bitmaps for pictures, `drawGlyphs` for text the Rust has shaped. The two meet at `dev.exact.canvas.Native`,
+hardware bitmaps for pictures, `drawGlyphs` for text the Rust has shaped (below Android 12, the glyphs' outlines:
+"Android 10 and 11", below). The two meet at `dev.exact.canvas.Native`,
 whose methods `exact_linux::canvas_jni!(Data)` defines for an app (`host/linux/src/canvas/jni.rs`). Nothing versions
 the stream or those calls, so both sides are built from one commit.
 
 | | |
 |---|---|
-| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Fields` (the app's text fields, each an `EditText`), `Surfaces` (the top layer's windows: a `Dialog`, a `PopupWindow`), `Bars` (the top app bar and the navigation bar, each a view over the page), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says), `Requests` (what exact2 asks of it) |
+| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Fields` (the app's text fields, each an `EditText`), `Surfaces` (the top layer's windows: a `Dialog`, a `PopupWindow`), `Bars` (the top app bar and the navigation bar, each a view over the page), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says), `Requests` (what exact2 asks of it), `ExactTamber` (`Tamber.kt`: a native view's design tokens by name, LLP 1121 D12) |
 | `app/` | the shell: one activity over the reader, packaging the app that `-Papp=<name>` names |
 | `gradlew`, `gradle/` | the Gradle wrapper (9.8.0), committed. Its jar is Gradle's own (sha256 `238e777f…`, as services.gradle.org publishes it) and the distribution's sha256 is pinned in `gradle-wrapper.properties` |
 
-minSdk 31, targetSdk 36, compileSdk 37.2, AGP 9.4.1, Kotlin 2.4.10, `arm64-v8a` only. Views, with no Compose,
+minSdk the app's manifest's `host.android.minimumOS` gives: 31 (Android 12) without one, 29 at `"10"` ("Android 10
+and 11", below). targetSdk 36, compileSdk 37.2, AGP 9.4.1, Kotlin 2.4.10, `arm64-v8a` only. Views, with no Compose,
 AppCompat or Material library.
 
 ## Where it came from
@@ -39,20 +41,41 @@ It needs the Android SDK (`ANDROID_HOME`, else `~/Library/Android/sdk` or `~/And
 NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and the Rust target
 (`rustup target add aarch64-linux-android`). It:
 
-1. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev`. The crate is a cdylib whose source is
-   `exact_linux::canvas_jni!(<the data source>)`, with a build script that bakes the plan; `apps/caltrain/android` is
-   the one to copy for an app whose data is Rust and `apps/shelf/android` for one whose data is TypeScript (three
-   files each, and a line in the root `Cargo.toml`'s `members`);
-2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so` and the app's `assets/` to
-   `app/build/<app>/rust/assets/app/assets/`;
-3. runs `./gradlew :app:assembleRelease -Papp=<app> -PappDir=<the app's directory>` here,
+1. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev` (`--release`: at `release`, for
+   measuring). The crate is a cdylib whose source is `exact_linux::canvas_jni!(<the data source>, hatches =
+   crate::exact_hatches())`, with a build script that bakes the plan and calls `contract::native::android_entry`,
+   which writes the app's hatches' install (`hatches.rs`) and the plan's uses (`uses.txt`) beside it; `apps/caltrain/android` is the one to copy for an app whose data is Rust and
+   `apps/shelf/android` for one whose data is TypeScript (three files each, and a line in the root `Cargo.toml`'s
+   `members`). A game's is generated in its `.shells/` (`game/app/shells.mjs`). An app with a GPU module (LLP 1009;
+   every game) is built as a Linux bake is (`buildBake`): the module first, then the crate, whose bake records the
+   module's SHA-256;
+2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so`, the GPU module beside it under
+   its own name, the app's `assets/` to `app/build/<app>/rust/assets/app/assets/`, and a GPU module's shaders
+   (`gpu/shaders/*.wgsl`, as a Linux bake packs them) to `app/build/<app>/rust/assets/app/shaders/`, where the host
+   registers them from before a canvas is made;
+3. runs `./gradlew :app:assembleRelease -Papp=<app> -PappDir=<the app's directory>` here (a game's `.shells/`, whose
+   `app.json` is resolved), with `-PgpuModule=<file>` for a module: the APK then extracts its libraries and leaves
+   the module unstripped, since the host opens it by path and checks its digest; with `-Pcompose=1` when the plan's
+   uses name `dates` (a date or time control), which links Compose Material 3 for its pickers; and with the Kotlin
+   in the app's `modules/android`, its hatches, compiled in,
 
 and prints `app/build/<app>/outputs/apk/release/app-release.apk`. The package id and the label are the app's
-`app.json` (`app.id`, `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
+`app.json` (`app.id`, with `-` as `_`, which a package name cannot hold; `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
 (`<app id>.dev`). `./gradlew :canvas:assembleRelease` builds the reader alone.
 
 Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.MainActivity`, or drive it:
 `bun scripts/agent.mjs android --reader --app <app> …` (below, "Driving the reader").
+
+**In a dev loop** (LLP 1122 D4): give the launch the loop's page URL as `x_dev_plan` (exact2's `EXACT_DEV_PLAN`),
+through `adb reverse` since the loop serves this Mac's loopback only: `adb reverse tcp:<port> tcp:<port>`, then
+`adb shell am start -S -n <app id>/dev.exact.app.MainActivity --es x_dev_plan http://127.0.0.1:<port>/` (`-S`:
+the environment is read once per process, so a running reader is stopped first). The reader
+polls it as the Linux display does (`CanvasHost`'s turn and wakes): a plan the loop compiles replaces the running
+one with its state carried, and the build channel brings the design server's live batches, pins and `prefer`s, and
+registers the build, so the design tool sees it. A generation whose Rust pair changed is refused with the URL loop's
+message and the running app kept: the APK's Rust is baked in its library, so a Rust edit needs a new APK. A drive
+takes the same URL as `--url` (`agent.mjs android --reader --url http://127.0.0.1:<port>/ …`), which reverses the
+port itself. A production bake opens no build channel.
 
 It builds on a Mac as on the Linux build box (tried 2026-10-12 with an SDK under `~/android`: platform-tools, NDK
 27.1.12297006, a JDK, and `ANDROID_HOME`, `ANDROID_NDK_HOME` and `JAVA_HOME` naming them). Gradle fetches what the
@@ -132,7 +155,7 @@ or root: any app on the phone can reach an abstract socket). adb forwards it; th
 (`agent-android.mjs relay`) carries lines between `agent.mjs`'s stdio carrier and the socket. Each request is one
 call, `Native.agent(line)`, on exact2's thread, into `host/linux/src/canvas/agent.rs`, which hands it to the handler
 the headless carrier uses (`exact_linux::agent::handle`). The drive's `EXACT_AGENT` and `EXACT_AGENT_*` (its store,
-epoch, locale, seed and fetch faults) reach the app as `x_<name>` launch extras; a launch whose environment does
+epoch, locale, seed and fetch faults), and a `--url`'s `EXACT_DEV_PLAN`, reach the app as `x_<name>` launch extras; a launch whose environment does
 not say `EXACT_AGENT=1` answers no request, and a production bake drops that variable (LLP 1069.007 D2).
 
 **What the Canvas host adds to that handler**, which assumes a host with no display:
@@ -359,10 +382,13 @@ capability has a call of its own.
 | 5 | whether Back has somewhere to go in the app (D6) | one word: 1 or 0 | registers its `OnBackInvokedCallback` while it has, and unregisters it while it has not, so Back at the first screen is the system's own and leaves with its animation | none |
 | 6 | the software keyboard | two words: 0 hidden, 1 shown for an `input`, 3 for a `textarea`; then the hosted field it is for (D8), or 0 for a field exact2 paints | for a hosted field, that `EditText` takes the focus and shows its own keyboard (`Fields.focus`); else `Keys.show` | none |
 | 7 | the top layer's surface (D10, below) | its serial; what it is (0 it closed, 1 an alert, 2 a menu); flags (bit 0 Back and Escape dismiss it, bit 1 a tap outside does, bits 2 and 3 the corner a menu grows from: its right side, its bottom); where its window goes in the activity's window and its size (x, y, width, height, pixels; an alert's place is the platform's); its container's corner radius and elevation in pixels, as float bits; a count, then that many words: its picture, an op stream of its own | makes, repaints, moves or dismisses that surface's window (`Surfaces.told`) | none by id: what happens in the window is told by `Native.surface` |
+| 8 | whether a displayed element says `wakelock="screen"` (LLP 1125 D11) | one word: 1 or 0; a reader's view starts at 0, so a reader made again is told only a 1 | `View.setKeepScreenOn` on the reader's view, so the screen stays on while its window is shown | none |
+| 9 | a date or time control's picker (LLP 1115.001.000 D1) | the control's node; then five strings: its kind (`date`, `time`, `datetime-local`), what it shows now, its `min`, `max` and `step`, each as HTML writes it; then its `accent-color`, opaque ARGB, or 0 for none | asks the node's Kotlin hatch (D3), then shows the activity's `pickers`: Compose Material 3's where the app links it, else the framework's dialogs ("Pickers and hatches", below) | the value chosen in HTML's form, which exact2 sets as a person's choice (`input`, then `change`), or null when dismissed; exact2 journals `picker: dismissed for <node>` |
+| 10 | the moments the app's Kotlin hatches hear, and what their clock and input call back (LLP 1115.001.000 D4) | for each, led by its scope: 1 the app or 3 a node, then its moment (0 built, 1 changed, 2 ended), the node, its box (four floats as bits, the document's points), its word and `id` as strings, the count of its `data-*` words and each name and value; 5 a tick, its ticket, the clock (an `f64`'s bits, high word first) and the commit; 6 an `after`, its ticket; 7 input, its ticket, the node, then 1 and a pointer's phase, points and whether it was handled, or 2 and a key's `key`, `code`, down, repeat and handled (`hatches/reader.rs`) | calls the app's `exact.app.Hatches` (`HatchReader.told`) | none: what a hatch asks goes by `Native.hatchAct` |
 
-Kinds 5, 6 and 7 are statements of the app's state, told when it changes and anew to a reader made again; exact2
-reads them as the queue is taken (`Presenter::tell_shell`), Back only after a commit or when a surface opens or
-closes, and none of them during a scroll's own frames.
+Kinds 5, 6, 7 and 8 are statements of the app's state, told when it changes and anew to a reader made again; exact2
+reads them as the queue is taken (`Presenter::tell_shell`), Back and the wake lock only after a commit or (Back) when
+a surface opens or closes, and none of them during a scroll's own frames.
 
 **Haptics.** Android names occasions, not strengths. Under its constants are a texture tick, a tick, a click, a
 heavy click and a double click, and Exact's names choose by those: `selection` is `SEGMENT_TICK` (Android 14;
@@ -382,12 +408,51 @@ where it is asked (`Presenter::request`, which wakes the reader); with an answer
 row above. What layout needs while it runs (a field's metrics, D8) is not a request: a queue taken after the frame is
 too late for it.
 
-**Not on it yet:** notifications and the pickers (`showNotification`, `showPicker`, `saveFile`, the document
+**Not on it yet:** notifications and the file pickers (`showNotification`, `showPicker`, `saveFile`, the document
 pickers) are still refused, and the journal then says the channel does not carry them yet. Accessibility events
 (D13) will take it too.
 
 `x_log_requests=1` at launch (exact2's `EXACT_LOG_REQUESTS`) logs each request as exact2 queues it and as the reader
 acts on it, with what `performHapticFeedback` returned: a haptic and a clipboard write show nowhere else.
+
+## Pickers and hatches (LLP 1115.001.000)
+
+**A date or time control's picker** (D1, D2). A press on an `input type="date"`, `"time"` or `"datetime-local"` is
+request kind 9 (above). The reader asks the node's hatch first, then shows `ExactActivity.pickers`: the shell's
+`MainActivity` gives Compose Material 3's `DatePickerDialog` and `TimePickerDialog` (`app/src/compose`, on the
+device's dynamic colours, in a `ComposeView` added for as long as the dialog is up) when the APK links Compose, and
+the framework's `DatePickerDialog` and `TimePickerDialog` (`FrameworkPickers`) when it does not. `datetime-local` asks
+for the day, then the time. The APK links Compose only when the plan has such a control: `agent-android.mjs` reads
+the plan's uses and passes `-Pcompose=1`. The activity stays a plain `Activity`; the Compose picker brings the
+lifecycle and saved-state owners a `ComposeView` looks for. Both pickers offer Clear while the control holds a value
+(the string is the reader's, `res/values*/strings.xml`), and Material's is in the control's `accent-color` where it
+has one, its primary roles that colour's tones. Under the agent a press holds the picker instead (`type @date
+2026-10-23`, `tap @date clear`, `tap @date cancel`). `x_log_requests=1` logs each picker's first frame, from the
+request and from the touch (`Exact.touched`).
+
+**The field** (D6) is painted by exact2 as Material's filled text field, for a text field, a select and a date or
+time control alike. A date control shows its value as the device writes it: `Device.read` sends, with the other
+settings, the patterns `DateFormat.getBestDateTimePattern` picks for the locale and the person's clock, ICU's month
+and weekday names, eras and day periods, and the zero digit (`Device.dates`), and exact2 fills them in. A field's
+`placeholder` is its floating label, painted by exact2; a hosted `EditText` keeps it as its hint, in no colour, for
+TalkBack.
+
+**Hatches** (D4, D5). The app's Rust hatches (`modules/linux`, or Rust in `modules/android`) run on this host as on
+Linux: `canvas_jni!`'s `hatches` hands the host their install, they connect as the reader takes its first requests
+after a displayed frame, and an overlay is painted as a canvas is, as a picture. Beside them, Kotlin in the app's
+`modules/android` defines `class exact.app.Hatches : ExactHatches()` (`Hatches.kt`), which hears the same moments
+for the same words (`app.json`'s for `android`) as request kind 10: `app`, `element`, `elementEnded`, on the main
+thread. Its handle, `ExactElement`, has the node's word, `id`, box and `data-*` words; `click`, `focus`, `blur` and
+`input(text)`, which cross by the node's number (`Native.hatchAct`) and run between exact2's turns; and `view`, a
+text field's `EditText` where the reader hosts it; `host { context -> view }`, a view of the app's own in the node's
+box, made for each activity and shown by `Natives` as element kind 5 wherever the node is painted; and `diagnostics`. The module has exact2's clock and
+input: `frames`, `after` and `observe`, each a ticket that `stop()` ends, told back as scopes 5, 6 and 7 of kind 10.
+`picker(element, picker)` is asked as a hatched date or time
+control's picker opens: it may set the title, the text-entry mode, the mode toggle, the days allowed, the 24-hour
+clock, or show its own (`ExactPicker.show`). `apps/native-fixture/modules/android` is one: it logs every moment
+under `ExactHatch`, gives its `due` pickers titles, no weekends and a 24-hour clock, and hosts a dial at `spin` that
+turns on exact2's clock and stops at a tap. `bun scripts/exact.mjs hatch <word> <app>` writes the class for an app
+with an `android/` crate.
 
 ## Text fields (LLP 1115.001 D8)
 
@@ -948,6 +1013,52 @@ table (LLP 1115.000 D14.4).
 - The reader's `performAction` (click, long click, scroll, set progress) was reached on the phone only for
   accessibility focus; the presenter's side of each is tested (`presenter/access_tests.rs`).
 
+## Android 10 and 11
+
+An app runs on Android 10 or 11 when its manifest says so: `host.android.minimumOS` `"10"` or `"11"` (absent, `"12"`)
+is the shell's minSdk. The reader is built for Android 10 (its minSdk 29, the app's library at the NDK's API 29). A
+call of a later release is behind a `Build.VERSION.SDK_INT` check (lint's `NewApi` finds none unguarded), and a class
+that names a later release's types is a nested class an older release never loads (`ExactActivity.Back`, `Splash`).
+What Android 10 and 11 do in its place is in `Legacy.kt` and `LegacyGlyphs.kt`, and on the Rust side in
+`host/linux/src/canvas/legacy.rs`; a newer release never enters them. Only an app below Android 12 keeps the Kotlin of
+it (`app/proguard-legacy.pro`); for any other, R8 folds each `SDK_INT` check against the app's minSdk and leaves none.
+The Rust of it (12 KB) is in every app's library: the host's Rust is the same for every app.
+
+| | Android 12 and later | Android 10 and 11 |
+|---|---|---|
+| A glyph run | `Canvas.drawGlyphs` (API 31) | each glyph's outline, which the Rust reads with swash from the file the reader's `Font` maps (`LegacyGlyphs.glyph`, a JNI call once per face and glyph), kept as a `Path` in ems; a run's outlines are filled as one path with the run's paint. A colour glyph is its image: a bitmap strike's (Noto Color Emoji's) at its own size, a COLR version 0 glyph's at 128 pixels an em; the 128 most recently drawn are kept. A COLRv1 glyph is its plain outline |
+| JPEG, GIF and WebP | `AImageDecoder` (API 30), looked up at run time | `ImageDecoder` (API 28), the same decoder's Java face, asked for the same size and crop (`Legacy.decode`, from the Rust's decode threads) |
+| Edge to edge, the bars' icons | `setDecorFitsSystemWindows`, `WindowInsetsController` (API 30) | `systemUiVisibility` flags and the cutout's short edges |
+| Insets, the window's size | `WindowInsets.Type`, `currentWindowMetrics` (API 30) | the root's system window, stable, cutout and gesture insets; `Display.getRealSize` |
+| The keyboard, accessibility's nodes and events, a node's value | API 30's | `InputMethodManager`; `obtain()`; the value in its description |
+| Haptics `CONFIRM`, `REJECT` | API 30's | the nearest older constants, as AndroidX's compat falls back |
+| The device's colours | dynamic colour (API 31) | Material 3's baseline scheme |
+| A radial gradient with two circles | API 31's constructor | the end circle, the start circle's radius folded into the stops when they share a centre |
+| Back | `OnBackInvokedCallback` (API 33) | `onBackPressed` (also on Android 12) |
+
+Not there below Android 12: a backdrop's blur (`RenderEffect`; what is behind shows unfiltered, as a hand-built
+Android 10 app has no blur either), the overscroll stretch and its distance (`EdgeEffect`'s, API 31; Android 10's
+glow is not drawn, so an end shows nothing), Bold Text (the setting is Android 12's) and the starting window's quick
+exit. A glyph's outline is filled as a path, unhinted and at its exact position, where `drawGlyphs` draws it from
+HWUI's glyph atlas.
+
+Tried on 2026-10-17 on a Galaxy Note 9 (Android 10, Adreno 630) against a Pixel 5 (Android 14) showing the same
+screen with `drawGlyphs` and `AImageDecoder`: Noto Serif's fi, fl, ffi and ffl ligatures, Arabic's joined forms,
+Devanagari's conjuncts and reph, a synthesized oblique, and emoji with a skin tone, a flag and a family sequence draw
+the glyphs `drawGlyphs` draws, and a JPEG, a WebP and two animated GIFs decode, whole and cropped. With both
+fallbacks forced on the Pixel, the same screen's text differs from `drawGlyphs` only along glyph edges (0.5 to 3 %
+of a line's pixels), the outlines carrying 1 to 4 % more ink by coverage; its emoji are not drawn, since Android 13
+and later ship Noto Color Emoji as COLRv1 (Android 10 and 11 ship its CBDT build).
+
+What it costs, in Caltrain's release APK against the same tree without this work (10,555,651 bytes): at the default
+`minimumOS`, `classes.dex` +1,440 (`ExactActivity.Back` and `Splash`) and `libexactcanvas.so` +11,776 (5,070
+compressed; `canvas/legacy.rs` and the run-time lookup of `AImageDecoder`). At `"10"`, `classes.dex` is +17,604 (the
+checks, R8's outlines of the newer calls, `Legacy`, `LegacyGlyphs`) and `resources.arsc` +256 (+22,932 in all, 0.2 %),
+in the one APK every release installs; at run time a newer release pays the `SDK_INT` checks alone.
+
+Not tried: Android 11 (no device), and a TypeScript data module: the Android Hermes bundle is built at the NDK's API
+30 (LLP 1107 §4.1), and whether its archives link and load at API 29 is unknown.
+
 ## Still the benchmark's
 
 The cut was the smallest one. Left in the reader:
@@ -1007,8 +1118,8 @@ The cut was the smallest one. Left in the reader:
 - **The shell is a development build**: signed with the debug key, with no icon. Its one activity turns keys on for
   every app, and gives none a native module (LLP 1024) or a video player, which the benchmark's apps passed from an
   activity of their own.
-- **An app's GPU module** (LLP 1009) is not built or packaged, as the benchmark's `build.sh` did for its apps.
-  Caltrain's sky was not tried.
+- **A GPU canvas over children draws nothing**: Caltrain's sky (`glass`, which refracts the content inside it) is
+  blank with its module packaged, where a canvas without children (a game's world) draws (QUEUE.md).
 - **No update store** and no replaced Rust module: the Canvas host has neither, though an app's compatibility
   record is computed as its Linux crate's is, and Caltrain's names both (`store.L` is `A`, `rustMode` is `native`).
 - **No picture from a URL.** The Linux host's pictures are files under the asset root (`host/linux/src/image`), on
@@ -1016,3 +1127,15 @@ The cut was the smallest one. Left in the reader:
   a book's page. Nothing of this host's is missing for it; the loader has no door for a remote source.
 - `exact new` writes no `android/` crate.
 - **The benchmark still builds its own copy** of the reader, which no longer matches this repository's JNI names.
+
+## The Material reference
+
+`reference/` is Compose Material 3 at the pinned version (`gradle/libs.versions.toml`), drawn on Robolectric's native
+graphics, and the oracle that compares it with Exact's drawing of the same specimens (LLP 1115.001.001). It is in no
+app. On a machine with the SDK, Java 21 (`JAVA_HOME`) and Cargo:
+
+    bun host/android/reference/oracle.mjs            # draw both sides, compare, report
+    bun host/android/reference/oracle.mjs --compare  # compare what is already drawn
+
+The report is `reference/build/oracle/report.html`. `specimens.json` lists the specimens, their probes and the planted
+defects; each specimen's Exact half is `apps/material-specimens/specimens/<id>.contract`.

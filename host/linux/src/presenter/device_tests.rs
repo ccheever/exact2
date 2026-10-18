@@ -1,23 +1,14 @@
 //! The device's settings reach the app through the presenter's doors
 //! (LLP 1115.001 D3.1, D3.2): what a shell tells with [`Presenter::set_device`].
 use super::*;
-use exact_runner::{DataError, Value};
-
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 /// An app that reads every preference a device sets, and sizes a box in `rem`.
 const READS: &str = "shape Media\n  prefersColorScheme: string\n  prefersReducedMotion: bool\n  prefersContrast: string\n  pointer: string\n  hover: string\ncomponent App\n  resource media = exactViewport() as shape Media\n  view\n    column width=300 height=300\n      text `${media.prefersColorScheme} ${media.prefersReducedMotion} ${media.prefersContrast} ${media.pointer} ${media.hover}` testId=\"facts\"\n      box testId=\"rem\" width=\"10rem\" height=\"1rem\"\n";
 
-fn boot(source: &str) -> Presenter<Nothing> {
+fn boot(source: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
-        Nothing,
+        &crate::test_plan(source),
+        (),
         (400., 500.),
         1.,
         PathBuf::new(),
@@ -41,10 +32,11 @@ fn phone() -> Device {
         high_contrast: false,
         touch: true,
         touch_slop: 8.0,
+        dates: String::new(),
     }
 }
 
-fn facts(p: &Presenter<Nothing>) -> String {
+fn facts(p: &Presenter<()>) -> String {
     let kernel = p.host().kernel();
     let node = kernel
         .node_by_key(kernel.find_by_test_id("facts")[0])
@@ -52,7 +44,7 @@ fn facts(p: &Presenter<Nothing>) -> String {
     node.props.str(PropId::Text).unwrap_or_default().to_owned()
 }
 
-fn width(p: &Presenter<Nothing>, name: &str) -> f32 {
+fn width(p: &Presenter<()>, name: &str) -> f32 {
     let kernel = p.host().kernel();
     kernel
         .node_by_key(kernel.find_by_test_id(name)[0])
@@ -139,7 +131,93 @@ fn the_devices_locale_is_the_viewers_place() {
         (place.seed, place.time_zone.as_str()),
         (seed, zone.as_str())
     );
-    // Carried, with no door yet: the direction, the clock, bold text.
+    // Carried, with no door yet: the direction, the clock.
     let device = p.device().unwrap();
     assert!(device.hour24 && !device.rtl && !device.bold_text);
+}
+
+/// How an en-US phone on a 12-hour clock writes dates, as its shell tells it.
+const US_DATES: &str = "MMM d, y\nh:mm a\nh:mm:ss a\nMMM d, y, h:mm a\nMMM d, y, h:mm:ss a\nAM\nPM\n0\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nMon\nTue\nWed\nThu\nFri\nSat\nSun\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday\nBC\nAD";
+
+#[test]
+fn a_date_control_is_materials_field_and_fits_the_value_as_the_device_writes_it() {
+    let source = "component App\n  view\n    row\n      input type=\"date\" value=\"2026-10-16\" testId=\"day\"\n";
+    let mut p = boot(source);
+    let size = |p: &Presenter<()>| {
+        let kernel = p.host().kernel();
+        let frame = kernel
+            .node_by_key(kernel.find_by_test_id("day")[0])
+            .unwrap()
+            .frame;
+        (frame.width, frame.height)
+    };
+    let text = |p: &Presenter<()>, s: &str| {
+        let style = exact_kernel::StyleProps::default();
+        let spec = crate::paint::text_spec(&style, s);
+        p.text.borrow_mut().paragraph(&spec, None).width
+    };
+    // Told nothing, the field fits HTML's value; 56 points tall either way.
+    assert!(p.set_device(&phone()).is_none());
+    let iso = size(&p);
+    assert_eq!(iso.1, crate::paint::material::HEIGHT);
+    let us = Device {
+        dates: US_DATES.into(),
+        ..phone()
+    };
+    assert!(p.set_device(&us).is_none());
+    let written = size(&p);
+    assert_eq!(written.1, crate::paint::material::HEIGHT);
+    // The widest month's date and the trailing icon.
+    let widest = ["May 28, 2000", "Sep 28, 2000", "Dec 28, 2000"]
+        .map(|s| text(&p, s))
+        .into_iter()
+        .fold(0f32, f32::max);
+    assert!(written.0 >= (widest + crate::paint::material::WITH_ICON).floor());
+    assert_ne!(written, iso);
+    // A telling of nothing returns to HTML's value.
+    assert!(p.set_device(&phone()).is_none());
+    assert_eq!(size(&p), iso);
+}
+
+#[test]
+fn a_fields_placeholder_is_its_label_and_floats_as_it_fills() {
+    let source = "component App\n  state day = \"\"\n  action setDay(value)\n    day = value\n  view\n    row\n      input type=\"date\" value=day change=setDay placeholder=\"Due\" testId=\"day\"\n";
+    let mut p = boot(source);
+    let day = {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id("day")[0]).unwrap().id
+    };
+    p.clock(1000.);
+    let resting = p.frame().data().to_vec();
+    assert!(!p.needs_animation_frame(), "an empty field's label rests");
+    // A value floats it, over 150 ms, and then asks for no frame.
+    p.set_control_value(day, "2026-10-23").unwrap();
+    let _ = p.frame();
+    assert!(p.needs_animation_frame(), "the label is floating");
+    p.clock(1200.);
+    let floated = p.frame().data().to_vec();
+    assert!(!p.needs_animation_frame(), "and has floated");
+    assert_ne!(resting, floated);
+}
+
+/// Android's bold text (its font weight adjustment) is Bold Text (LLP
+/// 1115.000 D12.3): the system font one step heavier, and back.
+#[test]
+fn bold_text_weights_the_system_font() {
+    let mut p = boot(READS);
+    let weight = |p: &Presenter<()>| {
+        let kernel = p.host().kernel();
+        let key = kernel.find_by_test_id("facts")[0];
+        kernel.node_by_key(key).unwrap().text_style().font_weight
+    };
+    assert_eq!(weight(&p), 400);
+    assert!(p
+        .set_device(&Device {
+            bold_text: true,
+            ..phone()
+        })
+        .is_none());
+    assert_eq!(weight(&p), 600);
+    assert!(p.set_device(&phone()).is_none());
+    assert_eq!(weight(&p), 400);
 }

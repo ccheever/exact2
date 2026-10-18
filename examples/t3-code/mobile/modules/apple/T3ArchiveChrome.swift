@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1109.004-home-projection.decision.md#decision
+// @ref examples/t3-code/mobile/docs/1130.004-home-projection.decision.md#decision
 // Pinned365aa87982 ArchivedThreadsHeader, ScreenHeader and RNS mail-search toolbar patch.
 import UIKit
 

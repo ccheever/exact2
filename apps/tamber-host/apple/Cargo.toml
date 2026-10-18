@@ -1,0 +1,24 @@
+[package]
+name = "tamber-host-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Tamber binding host on Apple platforms: a native module drawing with the design"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "tamber_host_apple"
+crate-type = ["rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+tamber-host-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+tamber-host-data = { path = "../data" }

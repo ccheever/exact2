@@ -16,7 +16,7 @@ mod wire;
 pub use parse::nonnegative_row;
 pub(crate) use parse::{is_env, names_math, parse, refusal, signed, substitutes, Refused};
 
-use super::env::{self, Edge, Env, SegmentVar};
+use super::env::{self, Edge, Env, Region, SegmentVar};
 use super::{Dimension, StyleId, ViewportUnit};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -63,6 +63,8 @@ pub enum EnvTerm {
     Inset(Edge),
     /// `env(viewport-segment-<var> <x> <y>)`.
     Segment(SegmentVar, u8, u8),
+    /// `env(-exact-<region>-inset-<edge>)` (LLP 1123 D10).
+    Region(Region, Edge),
 }
 
 impl EnvTerm {
@@ -71,6 +73,7 @@ impl EnvTerm {
         match self {
             EnvTerm::Inset(edge) => Some(f64::from(env.inset(edge))),
             EnvTerm::Segment(var, x, y) => env::resolve_wide(var, x, y, env),
+            EnvTerm::Region(region, edge) => Some(f64::from(env.region_inset(region, edge))),
         }
     }
 }
@@ -253,6 +256,7 @@ fn env_dimension(term: EnvTerm, plus: f32) -> Dimension {
     match term {
         EnvTerm::Inset(edge) => Dimension::Env(edge, plus),
         EnvTerm::Segment(var, x, y) => Dimension::Segment(var, x, y, plus),
+        EnvTerm::Region(region, edge) => Dimension::Region(region, edge, plus),
     }
 }
 
@@ -396,15 +400,20 @@ impl Comparison {
         });
     }
 
-    /// Whether it reads the safe-area inset at `edge` under `env`: a text
-    /// once substituted.
+    /// Whether it reads the safe-area inset at `edge` under `env`, or the
+    /// corner-adapted safe area's there, which is never less (LLP 1123 D10):
+    /// a text once substituted.
     pub fn reads(self, edge: Edge, env: &Env) -> bool {
-        self.tree(|t| t.any(&|n| matches!(n, Node::Env(EnvTerm::Inset(e)) if *e == edge)))
-            .unwrap_or_else(|| match self.substituted(env) {
-                Some(Dimension::Env(e, _)) => e == edge,
-                Some(Dimension::Compare(c)) => c.reads(edge, env),
-                _ => false,
+        self.tree(|t| {
+            t.any(&|n| {
+                matches!(n, Node::Env(EnvTerm::Inset(e) | EnvTerm::Region(Region::SafeAreaCorners, e)) if *e == edge)
             })
+        })
+        .unwrap_or_else(|| match self.substituted(env) {
+            Some(Dimension::Env(e, _) | Dimension::Region(Region::SafeAreaCorners, e, _)) => e == edge,
+            Some(Dimension::Compare(c)) => c.reads(edge, env),
+            _ => false,
+        })
     }
 
     /// Append the wire form ([`wire::encode`]).

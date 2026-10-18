@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "digest": "b5cc5fc87f8a518f",
+  "name": "roles",
+  "tuples": 1,
+  "axes": [],
+  "dials": [],
+  "tokens": [
+    {"name": "-exact-secondary-label", "kind": "color", "role": "secondary-label", "values": ["light-dark(#3c3c4399, #ebebf599)"], "entries": null, "dials": [], "fallback": ["#3c3c4399", "#ebebf599"]},
+    {"name": "-exact-label", "kind": "color", "role": "label", "values": ["#0b0f14ff"], "entries": null, "dials": [], "fallback": ["#0b0f14ff", "#0b0f14ff"]},
+    {"name": "Canvas", "kind": "color", "role": "Canvas", "values": ["light-dark(#ffffffff, #101418ff)"], "entries": null, "dials": [], "fallback": ["#ffffffff", "#101418ff"]},
+    {"name": "text.muted", "kind": "color", "role": null, "values": ["light-dark(#3c3c4399, #ebebf599)"], "entries": null, "dials": [], "fallback": ["#3c3c4399", "#ebebf599"]},
+    {"name": "text.plain", "kind": "color", "role": null, "values": ["#0b0f14ff"], "entries": null, "dials": [], "fallback": ["#0b0f14ff", "#0b0f14ff"]},
+    {"name": "text.system", "kind": "color", "role": null, "values": ["light-dark(#ffffffff, #101418ff)"], "entries": null, "dials": [], "fallback": ["#ffffffff", "#101418ff"]},
+    {"name": "text.link", "kind": "color", "role": null, "values": ["LinkText"], "entries": null, "dials": [], "fallback": ["#0088ffff", "#0091ffff"]},
+    {"name": "ink", "kind": "color", "role": null, "values": ["-exact-tertiary-label"], "entries": null, "dials": [], "fallback": ["#3c3c434d", "#ebebf54d"]},
+    {"name": "text.shouted", "kind": "color", "role": null, "values": ["#0b0f14ff"], "entries": null, "dials": [], "fallback": ["#0b0f14ff", "#0b0f14ff"]}
+  ],
+  "exports": null
+}

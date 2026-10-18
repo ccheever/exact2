@@ -31,7 +31,7 @@ fn provider_charge_outlives_session_and_duplicate_stale_delivery() {
     let second = request(session, RasterDemand { view: 8, ..demand });
     assert_ne!(first, 0);
     assert_ne!(first, second);
-    let work = next_decode(0);
+    let work = next_decode(0, 0);
     assert_eq!(work.source, 9);
     assert_ne!(work.charge, 0);
     assert_eq!(complete(work.permit, 77, Some(release), 22400), 1);
@@ -123,7 +123,7 @@ fn native_destructor_reenters_charge_release_after_session_shutdown() {
         variant: variant::OWN8,
     };
     let request = request(session, d);
-    let work = next_decode(0);
+    let work = next_decode(0, 0);
     assert_eq!(
         complete(work.permit, work.charge, Some(release_charge), 4),
         1

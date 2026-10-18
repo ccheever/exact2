@@ -1,5 +1,5 @@
 // File half of T3 Code365aa87982 createComposerDraftContextHistory (MIT, LICENSE-T3).
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { DraftFile } from './shared/composer-editor-files';
 import type { ComposerMountedIdentity } from './composer-editor-state';
 import type { FileHoldTarget, HeldFile } from './composer-file-holds-io';

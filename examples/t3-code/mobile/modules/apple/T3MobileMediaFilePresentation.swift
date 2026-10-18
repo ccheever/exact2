@@ -1,6 +1,6 @@
 #if os(iOS)
 // Adapted from T3 Code (MIT), 365aa87982 T3NativeFilePresentation.swift.
-// @ref llp/1109.005-composer-and-transcript.decision.md#media-presentation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#media-presentation
 import ImageIO
 import QuickLook
 import UIKit

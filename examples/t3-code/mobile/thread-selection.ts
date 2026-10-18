@@ -1,5 +1,5 @@
-// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
-// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// @ref examples/t3-code/mobile/docs/1130.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
 import type { T3Client } from './shared/client';
 import { ClientError, bridgeReply, type Files, type Native } from './shared/protocol';
 import { fleet, parseFleetThreadId, trimOrigin } from './shared/settings-b-fleet';

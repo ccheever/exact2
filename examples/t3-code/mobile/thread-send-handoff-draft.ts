@@ -1,5 +1,5 @@
 // Ordinary Send's scoped draft publication; native queue receipts own byte admission.
-// @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#local-outbox-storage
 import type { T3Client } from './shared/client';
 import type { MobileComposerTarget } from './composer-target';
 import { mobileEditorCompleteQueuedSend, mobileEditorOwner, mobileEditorContextTargetCurrent } from './composer-editor-owner';

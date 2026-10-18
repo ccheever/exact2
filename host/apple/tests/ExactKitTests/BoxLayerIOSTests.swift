@@ -29,7 +29,7 @@ final class BoxLayerIOSTests: XCTestCase {
     func testACalculatedRadiusReadsTheKernelOnEachAxis() throws {
         let radius = try XCTUnwrap(CalculatedLength([
             "calc": .number(calc("min(50%, 10vw)")),
-            "env": [0, 0, 0, 0, 300, 600, 1, 1]
+            "env": [0, 0, 0, 0, 300, 600, 1, 1, 0]
         ]))
         var style: NodeStyle = ["background_color": [36, 104, 172, 255]]
         for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {
@@ -41,7 +41,7 @@ final class BoxLayerIOSTests: XCTestCase {
         // Cancellation precedes the final conversion to layout precision.
         let steep = BatchValue.calculation(try XCTUnwrap(CalculatedLength([
             "calc": .number(calc("calc(1e9 * (min(0.1%, 1px) - 0.2px) + 10px)")),
-            "env": [0, 0, 0, 0, 300, 600, 1, 1]
+            "env": [0, 0, 0, 0, 300, 600, 1, 1, 0]
         ])))
         XCTAssertEqual(steep.length(basis: 200), 10)
     }
@@ -202,7 +202,7 @@ final class BoxLayerIOSTests: XCTestCase {
     func testAPaddingResolvedAtLayoutReadsTheKernelsContentBox() throws {
         let padding = try XCTUnwrap(CalculatedLength([
             "calc": .number(calc("min(10%, 20px)")),
-            "env": [0, 0, 0, 0, 300, 600, 1, 1]
+            "env": [0, 0, 0, 0, 300, 600, 1, 1, 0]
         ]))
         let knots: NodeStyle = ["padding_top": .calculation(padding)]
         var style = knots

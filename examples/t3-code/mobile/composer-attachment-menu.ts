@@ -1,5 +1,5 @@
 // ComposerAttachmentButton / native UIButton.menu, upstream365aa87982.
-// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import {mobileClient} from './client';
 import type {T3Client} from './shared/client';
 import {obj} from './shared/domain';

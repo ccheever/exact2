@@ -1,5 +1,5 @@
 // Pinned365aa87982 features/sharing/incoming-share-model.ts, over native owned byte IDs.
-// @ref llp/1109.005-composer-and-transcript.decision.md#incoming-share-inbox
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#incoming-share-inbox
 import { ClientError } from './shared/protocol';
 import { obj, type Obj } from './shared/domain';
 import { fileStagingLimit, MAX_ATTACHMENTS, MAX_FILE_BYTES } from './shared/composer-editor-files';

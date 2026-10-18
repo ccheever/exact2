@@ -1,4 +1,4 @@
-// @ref llp/1109.005-composer-and-transcript.decision.md#incoming-share-inbox
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#incoming-share-inbox
 // App-owned ingress for pinned365aa87982 features/sharing.
 // GAP 006: Share Extension packaging is unavailable; there is no system ingress yet.
 import Foundation

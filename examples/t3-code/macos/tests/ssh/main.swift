@@ -1,7 +1,8 @@
 import Foundation
+import Darwin
 import XCTest
 
-// Add Environment → SSH (T3Ssh.swift). Compiles T3Protocol.swift and T3Ssh.swift
+// Add Environment → SSH (T3Ssh.swift). Compiles T3Link.swift (its T3Failure) and T3Ssh.swift
 // directly. Discovery reads a temporary fixture home (never ~/.ssh). The live
 // test runs only with T3_SSH_COMMAND naming an ssh test double whose "remote"
 // is a local fixture T3 server (FAKE_SSH_REMOTE_HOME/.t3), and checks the whole
@@ -59,6 +60,88 @@ final class SshTests: XCTestCase {
         XCTAssertTrue((41_000..<49_000).contains(T3Ssh.preferredPort(target)))
         XCTAssertEqual(T3Ssh.jsonObject("noise\n{\n  \"credential\": \"x\"\n}\n")?["credential"] as? String, "x")
         XCTAssertEqual(T3Ssh.sshError("Warning: Permanently added 'x'\nPermission denied (publickey).\n", fallback: "f"), "Permission denied (publickey).")
+    }
+
+    /// A listener on `address` (INADDR_ANY or loopback) and an ephemeral port that answers every
+    /// connection with an empty HTTP 200. `stop` cancels its read source and waits for the descriptor to close.
+    private func listener(any: Bool) throws -> (port: Int, stop: () -> Void) {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size); address.sin_family = sa_family_t(AF_INET); address.sin_port = 0
+        address.sin_addr = in_addr(s_addr: any ? INADDR_ANY : inet_addr("127.0.0.1"))
+        let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+        guard fd >= 0, bound == 0, listen(fd, 8) == 0 else { if fd >= 0 { close(fd) }; throw XCTSkip("no listener") }
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafeMutablePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) } }
+        let stopped = DispatchSemaphore(value: 0)
+        _ = fcntl(fd, F_SETFL, O_NONBLOCK)
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: DispatchQueue(label: "ssh-test-listener"))
+        source.setEventHandler {
+            let client = accept(fd, nil, nil)
+            guard client >= 0 else { return }
+            defer { close(client) }
+            _ = fcntl(client, F_SETFL, 0)
+            var noSignal: Int32 = 1
+            _ = setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            guard read(client, &buffer, buffer.count) > 0 else { return }
+            let reply = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            _ = reply.withCString { write(client, $0, strlen($0)) }
+        }
+        source.setCancelHandler { close(fd); stopped.signal() }
+        source.resume()
+        var closed = false
+        return (Int(UInt16(bigEndian: address.sin_port)), {
+            guard !closed else { return }; closed = true
+            source.cancel()
+            XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+        })
+    }
+
+    /// 9688e74112 (tunnel.test.ts / sshHelper.test.ts): a port another server answers on is not free,
+    /// even where the loopback bind would succeed beside a wildcard listener.
+    func testPortCheckSkipsAPortAnotherServerAnswersOn() throws {
+        let wildcard = try listener(any: true)
+        defer { wildcard.stop() }
+        XCTAssertTrue(T3Ssh.answersOnLoopback(wildcard.port))
+        XCTAssertFalse(T3Ssh.portFree(wildcard.port))
+        let loopback = try listener(any: false)
+        let port = loopback.port
+        XCTAssertFalse(T3Ssh.portFree(port))
+        loopback.stop()
+        XCTAssertFalse(T3Ssh.answersOnLoopback(port), "a refused connection is free")
+        XCTAssertTrue(T3Ssh.portFree(port))
+    }
+
+    /// 36f91c4568: reconnecting with no live default runtime finds the server it started still running
+    /// and reuses it (left running) instead of starting a second one; no `t3` is needed for that.
+    func testReconnectKeepsTheServerItStartedRunning() throws {
+        let server = try listener(any: false)
+        defer { server.stop() }
+        let home = NSTemporaryDirectory() + "t3-ssh-launch-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let state = home + "/.t3/ssh-launch/key"
+        try FileManager.default.createDirectory(atPath: state, withIntermediateDirectories: true)
+        let managed = Process()
+        managed.executableURL = URL(fileURLWithPath: "/bin/sleep"); managed.arguments = ["30"]
+        try managed.run()
+        defer { managed.terminate() }
+        try "\(managed.processIdentifier)\n".write(toFile: state + "/pid", atomically: true, encoding: .utf8)
+        try "\(server.port)\n".write(toFile: state + "/port", atomically: true, encoding: .utf8)
+        let ssh = T3Ssh(agent: true)
+        defer { ssh.destroy() }
+        let run = try ssh.run("/bin/sh", ["-s", "--", "key"], stdin: T3Ssh.launchScript, timeout: 30, environment: ["HOME": home, "PATH": "/usr/bin:/bin"])
+        XCTAssertEqual(run.status, 0, run.stderr)
+        XCTAssertEqual(T3Ssh.jsonObject(run.stdout)?["remotePort"] as? Int, server.port)
+        XCTAssertEqual(T3Ssh.jsonObject(run.stdout)?["serverKind"] as? String, "managed")
+        XCTAssertTrue(managed.isRunning, "the server is left running")
+
+        // Alive but never ready: the script says so and still leaves it running.
+        server.stop()
+        let stalled = try ssh.run("/bin/sh", ["-s", "--", "key"], stdin: T3Ssh.launchScript, timeout: 60, environment: ["HOME": home, "PATH": "/usr/bin:/bin"])
+        XCTAssertEqual(stalled.status, 1)
+        XCTAssertTrue(stalled.stderr.contains("the server was left running"), stalled.stderr)
+        XCTAssertTrue(managed.isRunning)
     }
 
     func testLiveTunnelThroughTheTestDouble() throws {

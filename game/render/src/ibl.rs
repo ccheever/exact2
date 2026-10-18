@@ -55,7 +55,11 @@ pub(crate) struct EnvironmentLight {
 }
 
 impl EnvironmentLight {
-    pub fn new(device: &wgpu::Device, directions: bool) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        directions: bool,
+        cache: Option<&wgpu::PipelineCache>,
+    ) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("game environment radiance"),
             size: wgpu::Extent3d {
@@ -206,7 +210,7 @@ impl EnvironmentLight {
             depth_stencil: None,
             multisample: Default::default(),
             multiview_mask: None,
-            cache: None,
+            cache,
         });
         Self {
             view,
@@ -712,7 +716,7 @@ mod tests {
             .collect()
     }
     fn prefiltered(gpu: &exact_gpu::Gpu, directions: bool, e: &Environment) -> EnvironmentLight {
-        let mut light = EnvironmentLight::new(&gpu.device, directions);
+        let mut light = EnvironmentLight::new(&gpu.device, directions, None);
         light.prepare(&gpu.device, &gpu.queue, e, None);
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         light.encode(&mut encoder, None);
@@ -876,7 +880,7 @@ mod tests {
             &texels,
         );
         let view = texture.create_view(&Default::default());
-        let mut light = EnvironmentLight::new(&gpu.device, false);
+        let mut light = EnvironmentLight::new(&gpu.device, false, None);
         let source = || MapSource {
             rotation: 0.,
             view: &view,
@@ -943,7 +947,7 @@ mod tests {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
-        let mut light = EnvironmentLight::new(&gpu.device, false);
+        let mut light = EnvironmentLight::new(&gpu.device, false, None);
         let step = |light: &mut EnvironmentLight, e: &Environment| {
             light.prepare(&gpu.device, &gpu.queue, e, None);
             let mut encoder = gpu.device.create_command_encoder(&Default::default());

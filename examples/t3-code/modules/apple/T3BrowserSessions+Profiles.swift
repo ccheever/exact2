@@ -2,7 +2,7 @@
 import Foundation
 import WebKit
 
-/// Browser surface part 4 (profiles; MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+/// Browser profiles (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 /// apps/desktop/src/preview/BrowserSession.ts `clearCookies`/`clearCache`, BrowserImport/BrowserImport.ts `writeCookies`).
 /// Every op acts on one environment's store for one profile (`store(environment:profile:)`: a persistent
 /// `WKWebsiteDataStore(forIdentifier:)`, Incognito's in memory), never across profiles.
@@ -13,9 +13,9 @@ import WebKit
 /// - `browserImportContext`, `browserImportIO`, `browserImportOpenSettings`: the import's reads (T3BrowserImportIO.swift);
 ///   `browserImportProgress`: a redraw while the wizard's command runs.
 extension T3BrowserSessions {
-    static let importIO = T3BrowserImportIO(policy: T3BrowserImportIO.resolve(env: ProcessInfo.processInfo.environment, packaged: T3LocalPolicy.packaged(resources: Bundle.main.resourceURL)))
+    static let importIO = T3BrowserImportIO(policy: T3BrowserImportIO.resolve(env: ProcessInfo.processInfo.environment, packaged: T3LocalPolicy.packaged()))
 
-    /// The part 4 ops; false for any other op.
+    /// The profile ops; false for any other op.
     func performProfiles(_ request: [String: Any], reply: ExactReply) -> Bool {
         let generation = request["generation"] as? Int ?? 0
         let answer = { (value: [String: Any]) in reply.send(["ok": true, "generation": generation, "value": value]) }
