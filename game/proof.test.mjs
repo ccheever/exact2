@@ -624,10 +624,9 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       expect(here.calls).toEqual([{host:native,build:false,mode:'0'}]);
     }
     if (selected('failure')) {
-    const started = performance.now();
     const failed=await run(['--hosts','linux','--report'],{R8B_FAIL:'1'});
-    // A fake external proof needs neither Cargo metadata nor Bun's external entrypoint search.
-    if (directory) expect(performance.now() - started).toBeLessThan(1000);
+    // Time the proof child's entrypoint; SDK snapshotting precedes this leg.
+    if (directory) expect(Object.values(JSON.parse(readFileSync(resolve(failed.root,'legs.json'))).legs)[0].durationMs).toBeLessThan(1000);
     expect(failed.code).toBe(1); expect(failed.text).toContain('REPORT linux 0: state unused');
     const summary=JSON.parse(readFileSync(resolve(failed.root,'summary.json'),'utf8'));
     expect(summary.rows.length).toBe(1); expect(summary.rows[0].failures).toEqual(['refusal']);
@@ -1215,9 +1214,9 @@ test('concurrent prove runs keep their save artifacts and web builds separate', 
       const owner=process.env.PROOF_TEST_OWNER, out=process.env.EXACT_PROOF_OUT, dist=process.env.EXACT_WEB_DIST;
       mkdirSync(out,{recursive:true});writeFileSync(out+'/owner',owner);
       if(dist) {mkdirSync(dist,{recursive:true});writeFileSync(dist+'/owner',owner);}
-      writeFileSync('./ready-'+owner,'');
+      writeFileSync(${JSON.stringify(resolve(dir,'ready-'))}+owner,'');
       const deadline=Date.now()+5000;
-      while(!existsSync('./ready-'+(owner==='a'?'b':'a'))) {
+      while(!existsSync(${JSON.stringify(resolve(dir,'ready-'))}+(owner==='a'?'b':'a'))) {
         if(Date.now()>deadline) throw new Error('peer proof never arrived');
         await Bun.sleep(10);
       }

@@ -48,7 +48,7 @@ if (device && !hosts.includes('ios')) throw new Error('--device requires ios in 
 const artifacts = resolve(app, 'artifacts/prove');
 mkdirSync(artifacts, {recursive:true});
 const root = continuedRoot ?? mkdtempSync(resolve(artifacts, 'run-'));
-const config = {hosts, repeat, repin, device, phone:phone ?? null};
+const config = {hosts, repeat, repin, device, phone:phone ?? null, env:Object.fromEntries(['RUSTUP_TOOLCHAIN','RUSTFLAGS','CARGO_TARGET_DIR','CARGO_BUILD_BUILD_DIR','EXACT_UPDATE_TRUST'].map(key => [key,process.env[key] ?? null]))};
 if (saved && JSON.stringify(saved.config) !== JSON.stringify(config)) throw new Error('continue refused: requested host/mode/profile matrix or device changed');
 if (saved) validateSnapshot(saved.snapshot, resolve(import.meta.dir, '..'), sourceApp);
 const record = saved ?? {version:1, before:previous, repin, hosts, config, snapshot:snapshot(resolve(import.meta.dir, '..'), sourceApp, root), legs:{}};
@@ -63,7 +63,7 @@ const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') 
   const destination = host === 'ios' && device ? 'ios-device' : host;
   const out = resolve(root, `${destination}-${mode}-${build ? 'build' : index}${profile === 'release' ? '-release' : ''}`);
   mkdirSync(out, {recursive:true});
-  record.legs[key] = {host, mode, profile, digest:record.snapshot.digest, state:'running', pins:null, verdict:null};
+  record.legs[key] = {host, mode, profile, digest:record.snapshot.digest, state:'running', startedAt:Date.now(), pins:null, verdict:null};
   writeJSON(resolve(root, 'legs.json'), record);
   // Resolve an external entrypoint in its own directory, without Cargo metadata.
   const child = spawn(process.execPath, ['./proof.mjs', host, ...(host === 'ios' && device ? ['--device', ...(phone ? ['--phone', phone] : [])] : []), ...(build ? ['--build-only'] : [])], {
@@ -84,7 +84,7 @@ const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') 
   writeFileSync(resolve(out, 'run.log'), log);
   const summaryPath = resolve(out, 'summary.json');
   const summary = existsSync(summaryPath) ? {...JSON.parse(readFileSync(summaryPath, 'utf8')), repeat:index, profile} : null;
-  record.legs[key] = {...record.legs[key], state:[0,3].includes(code) && summary ? 'complete' : 'failed', exitCode:code, verdict:summary?.status ?? 'FAIL', pins:summary?.pins, summaryPath:relative(root, summaryPath), summaryDigest:summary ? digest(readFileSync(summaryPath)) : null};
+  record.legs[key] = {...record.legs[key], durationMs:Date.now()-record.legs[key].startedAt, state:[0,3].includes(code) && summary ? 'complete' : 'failed', exitCode:code, verdict:summary?.status ?? 'FAIL', pins:summary?.pins, summaryPath:relative(root, summaryPath), summaryDigest:summary ? digest(readFileSync(summaryPath)) : null};
   writeJSON(resolve(root, 'legs.json'), record);
   if (args.includes('--report') && (!build || code !== 0) && summary) for (const hint of summary.facilities ?? []) console.log(`REPORT ${host} ${mode}: ${hint}`);
   if (![0,3].includes(code)) throw Object.assign(new Error(`${host} mode ${mode} ${build ? 'build' : index} failed: ${out}/run.log\n${log.slice(-2500)}`), {summary, webUnavailable:host === 'web' && webUnavailable(log)});

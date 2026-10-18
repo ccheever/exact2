@@ -1420,6 +1420,11 @@ screen, 2026-10-16.)
 
 ## Games
 
+- **A continued proof uses its saved source copy.** Keep the SDK unchanged until
+  it finishes. Edit the original game freely during a new run; `--continue` refuses
+  if its authored inputs differ from the snapshot, naming the file. Start a new
+  proof to verify the edit. `tools/` probes and `status.json` are not game inputs.
+
 - **A socket follower's local pose is `SocketFollow::offset`.** Its `Transform`
   is the fallback when the socket cannot resolve; rotating that fallback does not
   rotate a resolved attachment. Use `SocketFollow.offset.rotation` for the local

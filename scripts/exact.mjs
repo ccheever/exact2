@@ -36,20 +36,26 @@ import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { BINARYEN } from '../host/web/stages.mjs';
+if (import.meta.main && process.argv[2] === 'status' && !process.argv.includes('--help')) {
+  const {readStatus, formatStatus} = await import('../game/status.mjs');
+  const {resolve} = await import('node:path');
+  console.log(formatStatus(readStatus(resolve(process.argv[3] ?? '.'))));
+  process.exit(0);
+}
+const { BINARYEN } = await import('../host/web/stages.mjs');
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
-import { applyPattern, createApp, createGame, patternList, wireSnapback } from '../game/new.mjs';
-import { sdkFetch } from '../game/app/shells.mjs';
-import { appleArtifacts, assertAppleIdentity, stripForDistribution } from '../host/apple/build.mjs';
-import { closeFilesystemReader } from './filesystem.mjs';
-import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
-import { signRelease } from '../host/apple/assets.mjs';
-import { chromium } from './agent-launch.mjs';
-import { guardFlags, helpText } from './help.mjs';
-import { backendOrigin } from '../js/bake/src/typescript.mjs';
-import { devicePreflight } from '../snapback4/web/device-build.mjs';
+const { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } = await import('./app.mjs');
+const { applyPattern, createApp, createGame, patternList, wireSnapback } = await import('../game/new.mjs');
+const { sdkFetch } = await import('../game/app/shells.mjs');
+const { appleArtifacts, assertAppleIdentity, stripForDistribution } = await import('../host/apple/build.mjs');
+const { closeFilesystemReader } = await import('./filesystem.mjs');
+const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
+const { signRelease } = await import('../host/apple/assets.mjs');
+const { chromium } = await import('./agent-launch.mjs');
+const { guardFlags, helpText } = await import('./help.mjs');
+const { backendOrigin } = await import('../js/bake/src/typescript.mjs');
+const { devicePreflight } = await import('../snapback4/web/device-build.mjs');
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const APPLICATIONS = resolve(homedir(), 'Applications');
