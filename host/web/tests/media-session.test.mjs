@@ -10,10 +10,26 @@ import { afterAll, test, expect } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { chromium as installed } from '../../../scripts/agent-launch.mjs';
+import { browserMissing } from '../../../scripts/agent-playwright.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const glue = readFileSync(resolve(WEB, 'media-glue.js'), 'utf8');
+test('agent seekto validates time before looking for an owner', () => {
+  const exact = { views: new Map() };
+  runInNewContext(glue, { exact });
+  for (const seconds of [undefined, null, -1, NaN, Infinity, -Infinity]) {
+    const reply = exact.mediaSession.act(999, 'seekto', seconds);
+    expect(reply.malformed).toBe(true);
+    expect(reply.error).toContain('finite nonnegative seconds');
+  }
+  const refusal = exact.mediaSession.act(999, 'seekto', 0);
+  expect(refusal.error).toContain('there is no media session');
+  expect(Object.hasOwn(refusal, 'malformed')).toBe(false);
+});
+
 const page = `<!doctype html><meta charset="utf-8"><div id="exact-root"></div>
 <script type="module">
   // A second of silence at 8 kHz, a WAV every engine decodes.
@@ -53,6 +69,7 @@ const page = `<!doctype html><meta charset="utf-8"><div id="exact-root"></div>
 </script>`;
 
 const engines = ['chromium', 'firefox', 'webkit'];
+const engineTest = Object.fromEntries(await Promise.all(engines.map(async e => [e, need(e === 'chromium' ? 'chrome' : e, await browserMissing(e))])));
 
 async function launch(name) {
   const playwright = await import('playwright-core');
@@ -86,7 +103,7 @@ async function serve() {
 
 async function opened(engine, body) {
   const b = await browser(engine);
-  if (!b) return console.log(`skip: ${engine} is not installed`);
+  if (!b) throw new Error(`${engine} did not launch`);
   const server = await serve();
   try {
     const p = await b.newPage();
@@ -97,7 +114,7 @@ async function opened(engine, body) {
 }
 
 for (const engine of engines) {
-  test(`${engine}: the owner by mount, then by play, kept paused, handed on and cleared`, () => opened(engine, async p => {
+  engineTest[engine](`${engine}: the owner by mount, then by play, kept paused, handed on and cleared`, () => opened(engine, async p => {
     const got = await p.evaluate(async () => {
       const out = {};
       // Two claimants and a non-claimant, mounted in one turn: the later in the document owns.
@@ -151,7 +168,7 @@ for (const engine of engines) {
     expect(got.late).toBe(0);
   }), 60_000);
 
-  test(`${engine}: what is published never throws, and the artwork is resolved where it is published`, () => opened(engine, async p => {
+  engineTest[engine](`${engine}: what is published never throws, and the artwork is resolved where it is published`, () => opened(engine, async p => {
     const got = await p.evaluate(async () => {
       const out = {};
       const a = make('audio', { testId: 'a', ...meta('A'), mediaArtwork: 'assets/art.png' });
@@ -193,7 +210,7 @@ for (const engine of engines) {
     expect(got.ended).toBe('paused');
   }), 60_000);
 
-  test(`${engine}: a remote play over the visibility threshold stays playing until the app pauses`, () => opened(engine, async p => {
+  engineTest[engine](`${engine}: a remote play over the visibility threshold stays playing until the app pauses`, () => opened(engine, async p => {
     const got = await p.evaluate(async () => {
       const out = {};
       // Below its threshold: off screen.

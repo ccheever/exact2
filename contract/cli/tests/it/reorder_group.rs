@@ -16,9 +16,9 @@ component App
   state from = ""
   state to = ""
   state drops = 0
-  resource columns = columns() as shape list<string>
-  resource initial = cards() as shape list<Card>
-  mutation changed as shape list<Card>
+  resource columns = columns() as shape string[]
+  resource initial = cards() as shape Card[]
+  mutation changed as shape Card[]
   derive cards = match changed { case some(v) => v, case none => initial }
   action dropCard(col: string, item: string, before: option<string>, e: ReorderEvent)
     let at = match before { case some(k) => k, case none => "" }
@@ -29,9 +29,9 @@ component App
     send changed = move(item, col, at)
   view
     row
-      each col in columns key=col
+      for col in columns key=col
         list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) height=100 width=100
-          each card in filter(cards, k => k.col == col) key=card.id
+          for card in cards.filter(k => k.col == col) key=card.id
             column reorderFor=`col-${col}` testId=`grip-${card.id}` height=20
               text card.id
 "#;
@@ -182,6 +182,7 @@ fn report<D: DataSource>(r: &mut Runner<D>, list: &str, pin: Option<NodeKey>, to
         port_cross: 100.,
         port_main: 100.,
         cross: 100.,
+        padding: [0.0; 2],
         measurements: c
             .rows
             .iter()
@@ -268,6 +269,7 @@ fn drop_on<D: DataSource>(r: &mut Runner<D>, token: ReorderToken, list: &str) ->
 #[test]
 fn a_grouped_list_is_accepted_and_each_refusal_is_whole() {
     contract::compile(BOARD).unwrap();
+    contract::compile(&BOARD.replace("id: string", r#"id: enum<"a1", "b1">"#)).unwrap();
     let refused = |from: &str, to: &str| {
         let e = contract::compile(&BOARD.replace(from, to)).unwrap_err();
         (e.id.clone(), e.message.clone())
@@ -288,9 +290,9 @@ fn a_grouped_list_is_accepted_and_each_refusal_is_whole() {
         ),
         ("lower-reorder-group".into(), group.into())
     );
-    let (id, message) = refused("key=card.id", "key=length(card.id)");
+    let (id, message) = refused("key=card.id", "key=card.id.length");
     assert_eq!(id, "lower-reorder-group");
-    assert_eq!(message, "a grouped list's rows move between lists by their keys, so its `each` is keyed by a string, not a number: key it by the item's string id");
+    assert_eq!(message, "a grouped list's rows move between lists by their keys, so its `for` is keyed by a string, not a number: key it by the item's string id");
     // A row list keeps its own reorder refusal (LLP 1094 §7).
     let (id, _) = refused(
         "height=100 width=100",
@@ -652,6 +654,7 @@ fn remeasure<D: DataSource>(r: &mut Runner<D>, list: &str, size: f64) {
         port_cross: 100.,
         port_main: 100.,
         cross: 100.,
+        padding: [0.0; 2],
         measurements: c
             .rows
             .iter()
@@ -782,4 +785,17 @@ fn ok() -> Outcome {
         headers: vec![],
         body: b"{}".to_vec(),
     })
+}
+
+#[test]
+fn a_hold_on_a_live_clock_starts_when_the_drop_arrives() {
+    let mut r = boot(Mode::Later);
+    let token = lift(&mut r, "a3", true);
+    assert!(matches!(
+        into(&mut r, token, "list-c", 10.),
+        ReorderProgress::Accepted { .. }
+    ));
+    r.set_live_clock(Some(Box::new(|| 5000.)));
+    assert!(drop_on(&mut r, token, "list-c"));
+    assert_eq!(r.timer_due_ms(), Some(6000.));
 }

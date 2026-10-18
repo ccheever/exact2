@@ -75,8 +75,9 @@ impl Kernel {
         }
         let target = target?;
         let clip = arena.key(arena.parent(target.index)?);
-        let s = arena.style(target.index);
-        let p = arena.style(clip.index);
+        let target_style = arena.effective_style(target.index);
+        let clip_style = arena.effective_style(clip.index);
+        let (s, p) = (&*target_style, &*clip_style);
         if arena.node_type(target.index) != NodeType::View
             || arena.is_inline_run(target.index)
             || arena.node_type(clip.index) != NodeType::View
@@ -111,6 +112,10 @@ fn zero(v: Dimension) -> bool {
 }
 
 fn zero_insets(s: &StyleProps) -> bool {
+    // A negative padding lays out as zero.
+    let none = |v: Dimension| {
+        zero(v) || matches!(v, Dimension::Points(p) | Dimension::Percent(p) if p < 0.0)
+    };
     [
         s.padding_top,
         s.padding_right,
@@ -118,6 +123,6 @@ fn zero_insets(s: &StyleProps) -> bool {
         s.padding_left,
     ]
     .into_iter()
-    .all(zero)
+    .all(none)
         && s.border_widths().into_iter().all(|v| v == 0.0)
 }

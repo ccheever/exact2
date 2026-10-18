@@ -11,7 +11,7 @@ use exact_plan::{
 
 /// A small but complete plan: a counter slot, a derive, a resource, an
 /// action with a write, a timer, a root node with a text binding, and a
-/// `when` region with two arms.
+/// `if` region with two arms.
 fn sample() -> Plan {
     let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
     let number = b.primitive(TypeKind::Number);
@@ -52,6 +52,7 @@ fn sample() -> Plan {
             kind: BindingKind::Prop,
             id: 0,
             expr: text,
+            written: true,
         }],
         &[(EventKind::Press, tick, &[])],
         None,
@@ -209,6 +210,30 @@ fn font_sources_are_portable_local_relative_paths() {
     }
 }
 
+/// A bool is 0 or 1. Any other byte is refused, not read as `true`: a
+/// binding's `written` is a claim about its author (LLP 1115.000 D2).
+#[test]
+fn a_bool_is_zero_or_one_and_nothing_else() {
+    let written = sample();
+    let mut implied = sample();
+    implied.bindings[0].written = false;
+    let (a, b) = (written.encode(), implied.encode());
+    let differing: Vec<usize> = (0..a.len()).filter(|&i| a[i] != b[i]).collect();
+    assert_eq!(differing.len(), 1, "the bit is one byte of the plan");
+    let at = differing[0];
+    assert_eq!((a[at], b[at]), (1, 0));
+    let mut corrupt = a.clone();
+    corrupt[at] = 2;
+    assert_eq!(
+        Plan::decode(&corrupt),
+        Err(PlanError::UnknownEnum {
+            table: "bindings",
+            field: "written",
+            value: 2
+        })
+    );
+}
+
 #[test]
 fn host_event_kinds_round_trip_through_the_enum_codec() {
     for event in [
@@ -268,9 +293,14 @@ fn loading_is_a_validation_pass() {
     // A code body that indexes a missing slot is refused by pc and table.
     let mut bad_code = plan.clone();
     let start = bad_code.code.len() as u32;
-    bad_code
-        .code
-        .extend_from_slice(&[Opcode::LoadSlot as u8, 7, 0, 0, 0, Opcode::Return as u8]);
+    bad_code.code.to_mut().extend_from_slice(&[
+        Opcode::LoadSlot as u8,
+        7,
+        0,
+        0,
+        0,
+        Opcode::Return as u8,
+    ]);
     bad_code.derives[0].body = Code {
         offset: start,
         len: 6,
@@ -292,7 +322,7 @@ fn loading_is_a_validation_pass() {
     // A body without a terminating Return is refused.
     let mut no_return = plan.clone();
     let start = no_return.code.len() as u32;
-    no_return.code.push(Opcode::Unit as u8);
+    no_return.code.to_mut().push(Opcode::Unit as u8);
     no_return.derives[0].body = Code {
         offset: start,
         len: 1,
@@ -308,7 +338,10 @@ fn loading_is_a_validation_pass() {
     // An unknown opcode byte is refused.
     let mut unknown = plan.clone();
     let start = unknown.code.len() as u32;
-    unknown.code.extend_from_slice(&[250, Opcode::Return as u8]);
+    unknown
+        .code
+        .to_mut()
+        .extend_from_slice(&[250, Opcode::Return as u8]);
     unknown.derives[0].body = Code {
         offset: start,
         len: 2,
@@ -453,9 +486,14 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     // A backward jump (`Jump 0; Return`) would loop forever at boot.
     let mut looping = plan.clone();
     let start = looping.code.len() as u32;
-    looping
-        .code
-        .extend_from_slice(&[Opcode::Jump as u8, 0, 0, 0, 0, Opcode::Return as u8]);
+    looping.code.to_mut().extend_from_slice(&[
+        Opcode::Jump as u8,
+        0,
+        0,
+        0,
+        0,
+        Opcode::Return as u8,
+    ]);
     looping.slots[0].init = Code {
         offset: start,
         len: 6,
@@ -475,7 +513,7 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     body.extend_from_slice(&1.0f64.to_le_bytes());
     body.push(Opcode::Return as u8);
     let len = body.len() as u32;
-    misaligned.code.extend_from_slice(&body);
+    misaligned.code.to_mut().extend_from_slice(&body);
     misaligned.slots[0].init = Code { offset: start, len };
     assert!(matches!(
         misaligned.validate(),
@@ -488,6 +526,7 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     let mut fine = plan.clone();
     let start = fine.code.len() as u32;
     fine.code
+        .to_mut()
         .extend_from_slice(&[Opcode::Jump as u8, 5, 0, 0, 0, Opcode::Return as u8]);
     fine.slots[0].init = Code {
         offset: start,
@@ -547,8 +586,8 @@ fn a_huge_announced_count_reserves_little_before_it_is_refused() {
     // (count > remaining), and never reserved 16M entries first.
     let plan = sample();
     let mut bytes = plan.encode();
-    // strings count sits right after the 44-byte header.
-    bytes[44..48].copy_from_slice(&(1u32 << 24).to_le_bytes());
+    // strings count sits right after the 52-byte header.
+    bytes[52..56].copy_from_slice(&(1u32 << 24).to_le_bytes());
     assert!(matches!(Plan::decode(&bytes), Err(PlanError::BadCount(_))));
 }
 
@@ -724,7 +763,7 @@ fn a_callback_body_is_entered_and_left_only_at_its_ends() {
         let mut p = plan.clone();
         let start = p.code.len() as u32;
         let len = body.len() as u32;
-        p.code.extend_from_slice(&body);
+        p.code.to_mut().extend_from_slice(&body);
         p.slots[0].init = Code { offset: start, len };
         p.validate()
     };
@@ -807,4 +846,18 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
     same.resources = plan.resources.clone();
     same.data = plan.data.clone();
     assert_eq!(same, plan);
+}
+
+/// LLP 1126.001 WP8 places activity roots after the nodes table they index
+/// and allows a snapshot without a refresh source; LLP 1114.007 adds rangeFrame
+/// to the roster and decoration props to the kernel schema. Every host needs a
+/// new binary for this plan format.
+/// The format digest is pinned: a change to `tables/format.json`, a comment
+/// included, moves it, and every host then needs a new binary (LLP 1030 D3a).
+#[test]
+fn the_format_digest_is_pinned() {
+    assert_eq!(
+        FORMAT_DIGEST, 0xeadb_143e_ec78_a332,
+        "the plan format digest moved: if intended, name the break and the hosts that move"
+    );
 }

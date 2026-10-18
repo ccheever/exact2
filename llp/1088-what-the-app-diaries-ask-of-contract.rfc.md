@@ -191,7 +191,8 @@ needs two numbers or two strings, given …").
   rollover, and the data module already owns those. In a view, parsing is a
   footgun: `Number("")` is 0, and `NaN` spreads. Trigger: a view that needs a
   number from text on each keystroke, with no domain meaning.
-- **`toUpperCase`**: display casing is CSS `text-transform`.
+- **`toUpperCase`**: display casing is CSS `text-transform`. (Admitted
+  by Charlie, 2026-10-17, for strings handed elsewhere: §10, "`toUpperCase`".)
 - **`padStart`**. When admitted, it follows `StringPad`'s order: ToLength
   first; return `s` when the target length is at most `length(s)`, or when
   `fill` is empty (`"abc".padStart(Infinity, "") === "abc"`); only then apply
@@ -740,8 +741,8 @@ them, on every evaluator.
   units, each piece made well formed on its own (D2's rule: an astral
   character is two U+FFFD), and `split("", "")` is `[]`. One list step per
   piece, taken before the pieces are built (the runner counts them first;
-  the JS target steps before an empty separator's split and after any
-  other's, the same trap either way), then the list's extent measured as
+  the JS target counts a nonempty separator's matches up to the remaining
+  budget before splitting), then the list's extent measured as
   `Opcode::List`'s. No limit argument, no regular expression.
 - **Each evaluator.** Runner: `strings::{index_of, pieces, split}`,
   `lists::index_of`, `vm.rs` `list_call`. JS target: `x_indexOf` and
@@ -847,10 +848,11 @@ pass that cannot loop instead.
   `replaceItems(sourceItems)` repros). `state other = items` after a typed
   write is still `type-cannot-infer`, without a `?`. `derive d = some(d)`
   and `press=a(a, a)` are refused as before (tests in `instance.rs`).
-- **D7.1** as specified, `contract/analyze/src/payload.rs`, shared by
-  analysis and lowering. Payloads without a DOM property are named as the
-  in-repo apps name them (`scrollLeft, scrollTop`, `dx, dy`, `vx, vy`,
-  `height, velocity`, `item, before`).
+- **D7.1** as specified, `contract/types/src/payload.rs`, shared by
+  analysis and lowering, and by the type checker for an action a miscount
+  leaves untyped, which analysis never reaches (#478). Payloads without a
+  DOM property are named as the in-repo apps name them (`scrollLeft,
+  scrollTop`, `dx, dy`, `vx, vy`, `height, velocity`, `item, before`).
 - **D7.2** as specified, plus `hook` on a module tag keeping its own
   refusal (`lower-hook-module`). No in-repo or x2apps module tag changed.
 - **D7.4** as specified. Until stage 3, `replace(s, a, b)` points to
@@ -986,4 +988,21 @@ D1 and D2 as specified, with these differences:
   against the browser's methods and the trap). Driven with a scratch app on
   the web (JS and wasm targets) and macOS: an end before the start refused,
   Backspace, a sign flip, a search lowercased on both sides.
+
+### `toUpperCase`, 2026-10-17
+
+Charlie admitted it beside `toLowerCase`, for
+a string handed elsewhere (a native view's argument, `share`, a value stored
+or sent); text on screen is still uppercased by `text-transform`, which the
+docs say. JavaScript's `String.prototype.toUpperCase()`: Unicode's default
+full mapping, no locale, expansions kept (`"ß"` is `"SS"`, `"ΐ"` three
+characters). It goes where `toLowerCase` goes: the kernel's
+`uppercase_bounded`, counted before it builds and bounded by `MAX_STRING`,
+reached on the web through `link()`'s pointer, so a call links the case
+tables (`text_transform`) by use; budget.js's `x_toUpperCase` shares
+`x_toLowerCase`'s chunked count (uppercasing has no context rule, so a
+chunk's bytes are its share). Lean types it and leaves it unmodelled, as
+`toLowerCase` (semantics/README.md), and the generator writes neither;
+`semantics/corpus/typescript/uppercase.contract` holds Bun's values for the
+runner and the web runtime.
 

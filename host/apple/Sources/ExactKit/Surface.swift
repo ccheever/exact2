@@ -98,21 +98,31 @@ extension NodeView {
         let sides = ["top", "right", "bottom", "left"]
         let uniform = number("border_width")
         let widths = sides.map { number("border_width_" + $0, uniform) }
+        let styles = sides.map { style["border_style_" + $0]?.string ?? "solid" }
         let top = color("border_color_top", .clear)
         let colors = sides.map { color("border_color_" + $0, top).cgColor }
         let sizes = BorderPaint.radii(style, in: box)
         let radii = sizes.map { $0.width }
-        let fill = channels("background_color").map { CGColor(srgbRed: $0[0] / 255, green: $0[1] / 255, blue: $0[2] / 255, alpha: $0[3] / 255) }
+        let authored = channels("background_color").map { CGColor(srgbRed: $0[0] / 255, green: $0[1] / 255, blue: $0[2] / 255, alpha: $0[3] / 255) }
+        let fill = authored ?? fieldGround
         let gradients = Gradient.layers(style["background_image"])
         let radius = radii.max() ?? 0
         let shape = CornerShape(style["corner_shape"])
-        let said = gradients.isEmpty && (shape == nil || shape?.isAppleContinuous == true) && sizes.allSatisfy { $0.width == $0.height }
+        let said = !styles.contains(where: { $0 == "dotted" || $0 == "dashed" }) && gradients.isEmpty && (shape == nil || shape?.isAppleContinuous == true) && sizes.allSatisfy { $0.width == $0.height }
             && widths.allSatisfy { $0 == widths[0] } && (widths[0] == 0 || colors.allSatisfy { $0 == colors[0] })
             && radii.allSatisfy { $0 == 0 || $0 == radius } && radius <= min(box.width, box.height) / 2
         if said {
             var corners: CACornerMask = []
             let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
             for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
+            // The design's Field under a field's own bezel: on the bezel's corners (BoxLayerIOS.swift).
+            var radius = radius
+            #if os(iOS)
+            if authored == nil, fill != nil, radius == 0, !isCellField {
+                radius = FieldChromeCache.textareaRadius
+                corners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
+            }
+            #endif
             s.drawn = nil; s.contents = nil
             s.backgroundColor = fill
             s.cornerRadius = radius
@@ -130,7 +140,7 @@ extension NodeView {
                 for gradient in gradients.reversed() {
                     gradient.paint(ctx, clip: path, box: rect.insetBy(left: widths[3], top: widths[0], right: widths[1], bottom: widths[2]), dark: dark)
                 }
-                BorderPaint.paint(ctx, box: rect, widths: widths, colors: colors, radii: sizes, shape: shape)
+                BorderPaint.paint(ctx, box: rect, widths: widths, colors: colors, radii: sizes, styles: styles, shape: shape)
             }
             s.setNeedsDisplay()
         }

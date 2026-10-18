@@ -205,6 +205,7 @@ pub fn request(id: u64, d: RasterDemand) -> u64 {
                 height: d.height,
             },
             variant: d.variant,
+            crop: Crop::default(),
         },
         metadata: Metadata {
             natural: PixelSize {
@@ -274,16 +275,24 @@ pub fn status(id: u64, request: u64) -> u32 {
     }
 }
 
-/// Worker-only bounded wait. The returned charge must enter the pixel provider
+/// The gate's wakes so far: what a worker reads before it looks for a
+/// source's header, and passes to [`next_decode`].
+pub fn wake_sequence() -> u64 {
+    Gate::process().wake_sequence()
+}
+
+/// Worker-only bounded wait, returning early at a wake since `since` (a
+/// [`wake_sequence`]). The returned charge must enter the pixel provider
 /// BEFORE allocation; dropping the Runtime never invalidates this handle.
-pub fn next_decode(timeout_ms: u32) -> RasterWork {
+pub fn next_decode(timeout_ms: u32, since: u64) -> RasterWork {
     let gate = Gate::process();
     let permit = if timeout_ms == 0 {
         gate.next_decode()
     } else {
         // A wake with no decode returns too, so the worker reads the header
-        // of a source queued meanwhile.
-        gate.wait_work(Duration::from_millis(u64::from(timeout_ms.min(1000))))
+        // of a source queued meanwhile, or while it last looked.
+        let timeout = Duration::from_millis(u64::from(timeout_ms.min(1000)));
+        gate.wait_work_since(since, timeout)
     };
     let Some(permit) = permit else {
         return RasterWork::default();

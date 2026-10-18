@@ -553,6 +553,10 @@ fn compute_inner(
     let text_align = style.text_align();
     let align_content = style.align_content();
     drop(style);
+    // EXACT PATCH 30: the height bounds the caller cuts the columns by
+    if multicol.is_some() && run_mode == RunMode::PerformLayout {
+        tree.set_multicol_bounds(node_id, min_size.height, max_size.height);
+    }
     // EXACT PATCH 27: a multi-column container's children resolve percentage
     // widths against the column width. A height its columns size (the
     // caller's `used_height`) is no basis for percentage heights, even where
@@ -944,7 +948,7 @@ fn resolve_stretch_height(
 /// Compute the content-based width in the case that the width of the container is not known
 #[inline]
 fn determine_content_based_container_width(
-    tree: &mut impl LayoutPartialTree,
+    tree: &mut impl LayoutBlockContainer,
     items: &[BlockItem],
     available_width: AvailableSpace,
 ) -> f32 {
@@ -960,7 +964,25 @@ fn determine_content_based_container_width(
             .margin
             .resolve_or_zero(available_space.width.into_option(), |val, basis| tree.calc(val, basis))
             .horizontal_axis_sum();
-        let width = known_dimensions.width.unwrap_or_else(|| {
+        // EXACT PATCH 36: a cyclic percentage width or max-width compresses a
+        // replaced child's min-content contribution (CSS Sizing 3 §5.2.1).
+        // Chrome 151 takes zero even for calc(), floored by the authored inline
+        // minimum, not a size transferred from height. This is a contribution
+        // rule: the child's own content size and its final layout stay intact.
+        let compressed = if item.is_replaced && available_width == AvailableSpace::MinContent {
+            let style = tree.get_block_child_style(item.node_id);
+            let cyclic = style.size().width.into_raw().uses_percentage()
+                || style.max_size().width.into_raw().uses_percentage();
+            cyclic.then(|| {
+                // Resolve cyclic percentages in the minimum against zero, preserving its length terms.
+                let min = style.min_size().width.maybe_resolve(Some(0.0), |val, basis| tree.calc(val, basis));
+                let inset = if style.box_sizing() == BoxSizing::ContentBox { item.padding_border_sum.width } else { 0.0 };
+                min.unwrap_or(0.0) + inset
+            })
+        } else {
+            None
+        };
+        let width = compressed.or(known_dimensions.width).unwrap_or_else(|| {
             let item_available_width = match resolve_sizing_keyword(item.size_style.width, None, None) {
                 Some(SizingKeywordResolution::Measure(available_width)) => available_width,
                 Some(SizingKeywordResolution::Exact(width)) => AvailableSpace::Definite(width),

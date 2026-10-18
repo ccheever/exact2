@@ -1,7 +1,7 @@
 // Symbol images on the JS target (`image "symbol:<role>"`, LLP 1011): the
 // web host's rendering (`glue.js` `refreshSymbols`) — the role's path as a
 // mask over the node's tint (`AccentColor` when it sets none, LLP 1095 D8),
-// sized by its font — after each commit. A
+// sized by its font — after each commit and navigation projection. A
 // dynamic source names a role from `table`, the plan's own strings that are
 // roles, or, for one its data names (ledger diary F10), from every role,
 // loaded once (`symbol-roles.js`, the build's). Imported by an app's module
@@ -10,7 +10,30 @@
 import { After, PropHooks, inflight, journal, clock, data } from "./rt.js";
 
 let Table = {}, All = null; // every role: not asked for, loading, or loaded (true)
-const draw = (e, role) => { const [path, filled] = Table[role] ?? [""]; e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled); };
+let Pending = false;
+function schedule() {
+  if (typeof window === "undefined" || globalThis.__exactRender) return refresh();
+  if (Pending) return;
+  Pending = true; inflight.n++;
+  // After runs before navigation projection and queued root-font commands.
+  // A microtask reads their final styles without waiting on a visible frame.
+  queueMicrotask(() => {
+    Pending = false;
+    try { refresh(); } finally { inflight.n--; }
+  });
+}
+// A role, or an icon token (LLP 1121 D10): by name, by `sf/<name>`, or the build's own form,
+// `icon|sf|viewBox|path|svg`; an icon's SVG that is no template is shown as the file.
+const draw = (e, name) => {
+  const f = name.startsWith("icon|") ? name.split("|") : null;
+  const [path, filled, box, file] = f ? [f[3], 1, f[2], f[3] ? "" : f[4]] : Table[name] ?? [""];
+  e.toggleAttribute("data-symbol-file", !!file);
+  if (file) { e.removeAttribute("data-symbol-path"); e.src = `assets/${file}`; return; }
+  e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled);
+  // An icon's paths are each filled nonzero under its own viewBox (`d`s joined by `;`).
+  e.toggleAttribute("data-symbol-nonzero", !!box);
+  if (box) e.setAttribute("data-symbol-viewbox", box); else e.removeAttribute("data-symbol-viewbox");
+};
 function everyRole() {
   inflight.n++;
   All = import("./symbol-roles.js").then(m => {
@@ -19,7 +42,7 @@ function everyRole() {
     refresh();
   }).finally(() => inflight.n--);
 }
-const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:AccentColor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
+const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:var(--exact-accent,AccentColor)}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}';
 /** `table`: role → [path, filled], for sources a binding names. */
 export function symbols(table) {
   Table = table;
@@ -36,17 +59,25 @@ export function symbols(table) {
     if (e.localName === "img" && v?.startsWith("data:") && v.length > DATA_LIMIT) { journal.push(`t=${clock.now} image refused: a data: source is over ${DATA_LIMIT} bytes`); e.removeAttribute("src"); return true; }
     if (e.localName !== "img" || !v?.startsWith("symbol:")) { template(e, v); return false; }
     template(e, null);
-    if (!Table[v.slice(7)] && !All && !v.startsWith("symbol:sf/")) everyRole();
+    if (!Table[v.slice(7)] && !All && !v.startsWith("symbol:icon|")) everyRole();
     e.setAttribute("data-symbol-source", v); draw(e, v.slice(7));
     // Decorative unless its author named it (`alt`, `aria-label`), as the template writes it.
     if (!e.getAttribute("alt")) e.alt = "";
     return true;
   };
-  After.push(refresh);
+  After.push(schedule);
+  if (typeof window !== "undefined" && !globalThis.__exactRender) {
+    addEventListener("resize", schedule);
+    // A bare plan need not commit on resize. Projection can follow the resize
+    // listener, so observe its published marker rather than repeat its rule.
+    new MutationObserver(schedule).observe(document.getElementById("exact-root"), {
+      attributes: true, subtree: true, attributeFilter: ["data-exact-sidebar"],
+    });
+  }
 }
 function unsymbol(e) {
   if (!e.hasAttribute?.("data-symbol-source") && !e.hasAttribute?.("data-symbol-path")) return;
-  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source"]) e.removeAttribute(a);
+  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source", "data-symbol-viewbox", "data-symbol-nonzero", "data-symbol-file"]) e.removeAttribute(a);
   e.style.removeProperty("--exact-symbol-mask"); e.style.removeProperty("--exact-symbol-fit");
   if (e.getAttribute("src") === e.symbolPlaceholder) e.removeAttribute("src");
   e.symbolKey = e.symbolMask = e.symbolPlaceholder = e.symbolRefusal = null;
@@ -95,7 +126,7 @@ function refresh() {
       }
     }
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
-    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;
+    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${size}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
     // As the web host says it (glue.js `refreshSymbols`), once every role is here.
     const source = el.getAttribute("data-symbol-source");
     if (!path && All === true && !source?.startsWith("symbol:sf/") && el.symbolRefusal !== source) {
@@ -104,14 +135,15 @@ function refresh() {
     if (el.symbolKey !== key) {
       el.symbolKey = key;
       const point = size, stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
-      const paint = filled ? 'fill="black" fill-rule="evenodd"' : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
-      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="0 0 24 24"><path d="${path}" ${paint}/></svg>`)}")`;
+      const paint = filled ? `fill="black" fill-rule="${el.hasAttribute("data-symbol-nonzero") ? "nonzero" : "evenodd"}"` : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
+      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="${box}">${path.split(";").map(d => `<path d="${d}" ${paint}/>`).join("")}</svg>`)}")`;
       el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
     }
     if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder;
     el.style.setProperty("--exact-symbol-mask", el.symbolMask);
     const px = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), py = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
     const fits = size <= el.clientWidth - px && size <= el.clientHeight - py;
-    el.style.setProperty("--exact-symbol-fit", cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${size}px ${size}px` : cs.objectFit === "scale-down" ? "contain" : cs.objectFit === "fill" ? "100% 100%" : cs.objectFit);
+    // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
+    el.style.setProperty("--exact-symbol-fit", cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${size}px ${size}px` : cs.objectFit === "scale-down" || cs.objectFit === "fill" ? "contain" : cs.objectFit);
   }
 }

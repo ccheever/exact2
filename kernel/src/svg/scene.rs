@@ -15,7 +15,6 @@
 use super::length::Viewport;
 use super::transform::{self as tf, Affine, TransformOrigin};
 use super::{circle, dash_scale, geometry, view_box, view_box_transform, Paint, Path};
-use crate::generated::BorderStyle;
 use crate::generated::{
     Display, FillRule, NodeType, Overflow, PropId, StrokeLinecap, StrokeLinejoin, StyleId,
     StyleMask, StyleProps, TransformBox, VectorEffect, Visibility,
@@ -242,30 +241,16 @@ pub struct Shape {
     pub markers: Vec<Item>,
 }
 
-/// The content box inside a box's border box: x, y, width, height. A
-/// border takes space only when its style draws one (CSS: `none` and
-/// `hidden` compute the width to zero, whatever `medium` says).
-pub fn content_box(node: &NodeRef<'_>) -> (f32, f32, f32, f32) {
-    let s = node.style;
-    let len = |d: Dimension| match d {
-        Dimension::Points(p) => p,
-        Dimension::Percent(p) => node.frame.width * p / 100.0,
-        _ => 0.0,
-    };
-    let border = |w: f32, style: BorderStyle| match style {
-        BorderStyle::None | BorderStyle::Hidden => 0.0,
-        _ => w,
-    };
-    let left = len(s.padding_left) + border(s.border_width_left, s.border_style_left);
-    let top = len(s.padding_top) + border(s.border_width_top, s.border_style_top);
-    let w = node.frame.width
-        - left
-        - len(s.padding_right)
-        - border(s.border_width_right, s.border_style_right);
-    let h = node.frame.height
-        - top
-        - len(s.padding_bottom)
-        - border(s.border_width_bottom, s.border_style_bottom);
+/// CSS's content box inside a box's border box: x, y, width, height. The
+/// padding is what the last layout resolved, a percentage of the containing
+/// block (zero for a node with no engine layout); the border is CSS's, as
+/// the engine's also holds a native field's chrome.
+pub fn content_box(kernel: &Kernel, node: &NodeRef<'_>) -> (f32, f32, f32, f32) {
+    let (pl, pt, pr, pb) = kernel.resolved_padding(node.key).unwrap_or_default();
+    let [bt, br, bb, bl] = node.style.border_widths_in(kernel.arena().env());
+    let (left, top) = (pl + bl, pt + bt);
+    let w = node.frame.width - left - pr - br;
+    let h = node.frame.height - top - pb - bb;
     (left, top, w.max(0.0), h.max(0.0))
 }
 
@@ -287,15 +272,18 @@ pub fn resolve(
         Some(v) => Viewport {
             width: v.width,
             height: v.height,
+            env: kernel.arena().env(),
         },
         None => Viewport {
             width: content.2,
             height: content.3,
+            env: kernel.arena().env(),
         },
     };
     let clip =
         node.style.overflow_x != Overflow::Visible || node.style.overflow_y != Overflow::Visible;
-    let mut inherited = node.computed_style(StyleMask::INHERITED);
+    // As CSS computes it: Bold Text steps each text run, after its cascade.
+    let mut inherited = node.arena.computed_rows(node.slot, StyleMask::INHERITED);
     let mut r = Resolver {
         kernel,
         presented,
@@ -814,16 +802,7 @@ impl Resolver<'_, '_> {
             target.node_type,
             NodeType::SvgSymbol | NodeType::SvgViewport | NodeType::Svg
         ) {
-            let size = |d: Dimension, basis: f32| match d {
-                Dimension::Auto => basis,
-                d => super::length::resolve(d, basis),
-            };
-            let rect = (
-                x,
-                y,
-                size(style.width, vp.width).max(0.0),
-                size(style.height, vp.height).max(0.0),
-            );
+            let rect = viewport_rect(style, vp);
             let tstyle = cascade(&target, style);
             let vb = view_box(target.props);
             let view = view_box_transform(
@@ -837,10 +816,12 @@ impl Resolver<'_, '_> {
                 Some(v) => Viewport {
                     width: v.width,
                     height: v.height,
+                    ..vp
                 },
                 None => Viewport {
                     width: rect.2,
                     height: rect.3,
+                    ..vp
                 },
             };
             let clip =
@@ -909,10 +890,12 @@ impl Resolver<'_, '_> {
             Some(v) => Viewport {
                 width: v.width,
                 height: v.height,
+                ..vp
             },
             None => Viewport {
                 width: rect.2,
                 height: rect.3,
+                ..vp
             },
         };
         let clip = style.overflow_x != Overflow::Visible || style.overflow_y != Overflow::Visible;
@@ -932,15 +915,15 @@ impl Resolver<'_, '_> {
 /// A nested `svg`'s rect: `x`, `y`, and `width`/`height` whose `auto` is
 /// 100% (SVG 2 §8.2).
 fn viewport_rect(style: &StyleProps, vp: Viewport) -> (f32, f32, f32, f32) {
-    let size = |d: Dimension, basis: f32| match d {
-        Dimension::Auto => basis,
-        d => super::length::resolve(d, basis),
-    };
     (
         vp.x(style.x),
         vp.y(style.y),
-        size(style.width, vp.width).max(0.0),
-        size(style.height, vp.height).max(0.0),
+        vp.resolve(style.width, vp.width)
+            .unwrap_or(vp.width)
+            .max(0.0),
+        vp.resolve(style.height, vp.height)
+            .unwrap_or(vp.height)
+            .max(0.0),
     )
 }
 

@@ -100,6 +100,9 @@ fn tree_rows<D: DataSource>(
         if runner.inactive(node.id) {
             s.push_str(",\"inactive\":true");
         }
+        if runner.unopened_tabs().contains(&node.id) {
+            s.push_str(",\"unopened\":true");
+        }
         s.push_str(",\"children\":");
         ids(&node.children(), &mut s);
         s.push('}');

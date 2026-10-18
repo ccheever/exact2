@@ -138,6 +138,19 @@ fn interview_table_shapes_roundtrip_and_launch_fill() {
         assert_eq!(change.url, url);
         assert_eq!(json!(change.top), s["derives"]["current"]["id"]);
         assert!(change.removed.is_empty());
+        let visits: Vec<_> = s["slots"]["nav"]["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|tab| tab["stack"].as_array().unwrap())
+            .map(|entry| {
+                (
+                    entry["id"].as_u64().unwrap(),
+                    entry["url"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(change.visits, visits);
         assert!(r.take_router_change().is_none());
         if url == "/" {
             assert!(
@@ -433,7 +446,7 @@ component App
     main
       button press=open(top(nav).url) testId="read"
         text "Read"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}`
           text e.url
 "#;
@@ -676,7 +689,7 @@ component App
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" display="flex" flex-direction="column"
       column flex=1 position="relative"
-        each t in nav.tabs key=t.name
+        for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             STACK
       row role="tablist"
@@ -685,7 +698,7 @@ component App
         button role="tab" aria-controls="panel-saved" press=pick("saved")
           text "Saved"
 "#;
-    let stack = "each e in t.stack key=e.id\n              column navigationKey=`${e.id}` position=\"absolute\" inset=0\n                text e.url";
+    let stack = "for e in t.stack key=e.id\n              column navigationKey=`${e.id}` position=\"absolute\" inset=0\n                text e.url";
     contract::compile(&tabs.replace("STACK", stack)).unwrap();
     // A route inside a route is shown by no host.
     let nested = stack.replace("text e.url", "column navigationKey=\"inner\"");
@@ -693,7 +706,7 @@ component App
     assert_eq!(error.id, "lower-route-place", "{error}");
     assert!(error.message.contains("inside another route"), "{error}");
     // Behind a wrapper inside a panel: the message names the path.
-    let wrapped = "column\n              each e in t.stack key=e.id\n                column navigationKey=`${e.id}`";
+    let wrapped = "column\n              for e in t.stack key=e.id\n                column navigationKey=`${e.id}`";
     let error = contract::compile(&tabs.replace("STACK", wrapped)).unwrap_err();
     assert_eq!(error.id, "lower-route-place", "{error}");
     assert!(
@@ -702,11 +715,167 @@ component App
             .contains("`main > column > column > column > column`"),
         "{error}"
     );
-    // A key outside any root is not a route.
+    // @ref LLP 1116.020 D2 — beside the tabpanels: with tabs a route is a
+    // panel's, so a sheet drawn there is no sheet (round 18's contacts).
+    let sheet = "if top(nav).name == \"item\"\n        column navigationKey=`${top(nav).id}` navigationPresentation=\"modal\" position=\"absolute\" inset=0\n          text \"Item\"\n      row role=\"tablist\"";
+    let beside = tabs
+        .replace("STACK", stack)
+        .replacen("row role=\"tablist\"", sheet, 1);
+    let error = contract::compile(&beside).unwrap_err();
+    assert_eq!(error.id, "lower-route-place", "{error}");
+    assert!(
+        error.message.contains("beside the root's tabpanels")
+            && error.message.contains("is no sheet"),
+        "{error}"
+    );
+    // A root without tabs keeps its own children as routes.
+    let plain = "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  view\n    main navigationKey=`${top(nav).id}`\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` navigationPresentation=(e.name == \"add\" ? \"modal\" : \"\") position=\"absolute\" inset=0\n          text e.url\n";
+    contract::compile(plain).unwrap();
+    // A key outside any root is not a route: below a root that carries
+    // none, nothing is a navigation root (LLP 1116 D6 makes the first root
+    // with a key one).
     contract::compile(
-        "component App\n  view\n    column navigationKey=\"a\"\n      column navigationKey=\"b\"\n",
+        "component App\n  view\n    column\n      column navigationKey=\"a\"\n        column navigationKey=\"b\"\n",
     )
     .unwrap();
+}
+
+#[test]
+fn a_root_with_a_key_and_no_back_control_named_is_the_navigation_root() {
+    // @ref LLP 1116 D6, LLP 1115 D5 — `navigationBack` is optional: the
+    // first root with a `navigationKey` is the navigation root, naming the
+    // empty id, which no control carries, so the platform's Back is the
+    // router's own (the unit-converter builder lost the native bar to it).
+    let source = r#"routes nav
+  home "/"
+    detail "/detail"
+component App
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          text e.url
+"#;
+    let mut r = boot(contract::compile(source).unwrap(), "/detail");
+    let root = r.kernel().roots()[0];
+    let props = &r.kernel().node(root).unwrap().props;
+    assert_eq!(props.str(PropId::NavigationBack), Some(""));
+    assert_rows(&r);
+    let top = selected(&state(&r)["slots"]["nav"]).last().unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    assert!(
+        r.host_back(top).unwrap().is_some(),
+        "the system Back pops the router"
+    );
+    assert_eq!(selected(&state(&r)["slots"]["nav"]).len(), 1);
+    assert_rows(&r);
+    // Routes now sit where every host finds them, or are refused.
+    let wrapped = source.replace(
+        "      for e in stack(nav) key=e.id\n        column navigationKey",
+        "      column\n        for e in stack(nav) key=e.id\n          column navigationKey",
+    );
+    let error = contract::compile(&wrapped).unwrap_err();
+    assert_eq!(error.id, "lower-route-place", "{error}");
+    // A named control is the author's, as before.
+    let named = contract::compile(&source.replace(
+        "main navigationKey=`${top(nav).id}`",
+        "main navigationKey=`${top(nav).id}` navigationBack=\"back\"",
+    ))
+    .unwrap();
+    let r = boot(named, "/detail");
+    let root = r.kernel().roots()[0];
+    assert_eq!(
+        r.kernel()
+            .node(root)
+            .unwrap()
+            .props
+            .str(PropId::NavigationBack),
+        Some("back")
+    );
+}
+
+#[test]
+fn an_app_with_no_notfound_route_is_given_one_that_keeps_the_url_and_says_so() {
+    // @ref LLP 1116.009 D2 — a location no route matches keeps its URL: the
+    // compiler writes `notfound` and a screen for it where the app draws a
+    // route per stack entry, whether the route element is under an `if` or
+    // stands for every entry (a blank screen for one no branch names).
+    let source = r#"routes nav
+  home "/"
+    detail "/detail"
+component App
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          if e.name == "home"
+            text "Home" testId="home"
+          if e.name == "detail"
+            text "Detail" testId="detail"
+"#;
+    let under_when = source
+        .replace(
+            "        column navigationKey=`${e.id}` position=\"absolute\" inset=0\n          if e.name == \"home\"\n            text \"Home\" testId=\"home\"\n          if e.name == \"detail\"\n            text \"Detail\" testId=\"detail\"\n",
+            "        if e.name == \"home\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Home\" testId=\"home\"\n        if e.name == \"detail\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Detail\" testId=\"detail\"\n",
+        );
+    assert_ne!(under_when, source);
+    for source in [source, under_when.as_str()] {
+        let plan = contract::compile(source).unwrap();
+        let notfound: Vec<_> = plan.routes.iter().filter(|r| r.notfound).collect();
+        assert_eq!(notfound.len(), 1, "the compiler wrote one `notfound` route");
+        assert_eq!(plan.str(notfound[0].name), "notfound");
+        let mut r = boot(plan, "/absent/path?q=1");
+        // The location stays: no refusal, the root beneath it, the screen over it.
+        assert_eq!(r.take_router_change().unwrap().url, "/absent/path?q=1");
+        assert!(!r.journal().any(|l| l.contains("refused")));
+        let nav = state(&r)["slots"]["nav"].clone();
+        let stack = selected(&nav);
+        assert_eq!(stack.len(), 2);
+        assert_eq!(stack[0]["name"], "home");
+        assert_eq!(stack[1]["name"], "notfound");
+        assert_rows(&r);
+        let k = r.kernel();
+        assert_eq!(k.find_by_test_id("not-found").len(), 1);
+        let message = k.node_by_key(k.find_by_test_id("not-found-message")[0]);
+        assert_eq!(
+            message.unwrap().props.str(PropId::Text),
+            Some("There is no page at /absent/path?q=1.")
+        );
+        // A way home: a link to the first screen, which the platform follows as the router's own
+        // `go` (no `navigate` handler here), the not-found entry gone.
+        let link = r.kernel().find_by_test_id("not-found-home")[0];
+        assert_eq!(
+            r.kernel()
+                .node_by_key(link)
+                .unwrap()
+                .props
+                .str(PropId::Href),
+            Some("/")
+        );
+        r.host_go("/").unwrap().unwrap();
+        assert_eq!(r.take_router_change().unwrap().url, "/");
+        assert_eq!(selected(&state(&r)["slots"]["nav"]).len(), 1);
+        assert!(r.kernel().find_by_test_id("not-found").is_empty());
+        assert_eq!(r.kernel().find_by_test_id("home").len(), 1);
+        assert_rows(&r);
+    }
+    // An app that writes `notfound` draws its own; one with no navigation
+    // root has no screen to draw it in, and keeps the table it wrote.
+    let own = source.replace(
+        "    detail \"/detail\"\n",
+        "    detail \"/detail\"\n  notfound\n",
+    );
+    let plan = contract::compile(&own).unwrap();
+    assert_eq!(plan.routes.iter().filter(|r| r.notfound).count(), 1);
+    let r = boot(plan, "/absent");
+    assert!(r.kernel().find_by_test_id("not-found").is_empty());
+    let bare = "routes nav\n  home \"/\"\ncomponent App\n  view\n    text top(nav).url\n";
+    assert!(contract::compile(bare)
+        .unwrap()
+        .routes
+        .iter()
+        .all(|r| !r.notfound));
 }
 
 #[test]
@@ -720,7 +889,7 @@ component App
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` NAMED position="absolute" inset=0 display="flex" flex-direction="column"
           header
             text "Title"
@@ -745,7 +914,7 @@ component Pane
         // What the compiler cannot see through is given the benefit.
         "column id=e.url",
         "column id=\"list\" overflow-y=(e.url == \"/\" ? \"auto\" : \"hidden\")",
-        "when e.url == \"/\"\n            scroll id=\"list\" flex=1 min-height=0",
+        "if e.url == \"/\"\n            scroll id=\"list\" flex=1 min-height=0",
         "Pane(name=\"list\")",
         // A computed id may name the scroller beside a static still box.
         "column id=\"list\"\n          scroll id=e.url flex=1 min-height=0",
@@ -774,4 +943,34 @@ component Pane
         assert_eq!(error.id, "lower-route-scroll", "{body}: {error}");
         assert!(error.message.contains("never scrolls on y"), "{error}");
     }
+}
+
+#[test]
+fn coalesced_router_changes_keep_latest_visits_and_all_retired_ids() {
+    let mut r = boot(contract::compile(SOURCE).unwrap(), "/");
+    r.take_router_change();
+    r.act("openPost", vec![Value::str("a")]).unwrap();
+    let retired = state(&r)["derives"]["current"]["id"].as_u64().unwrap();
+    r.act("back", vec![]).unwrap();
+    r.act("openPost", vec![Value::str("b")]).unwrap();
+    r.act("selectTab", vec![Value::str("prompts")]).unwrap();
+    let change = r.take_router_change().unwrap();
+    let current = state(&r);
+    let visits: Vec<_> = current["slots"]["nav"]["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|tab| tab["stack"].as_array().unwrap())
+        .map(|entry| {
+            (
+                entry["id"].as_u64().unwrap(),
+                entry["url"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(change.url, "/prompts");
+    assert_eq!(change.removed, [retired]);
+    assert_eq!(change.visits, visits);
+    assert!(change.visits.iter().any(|(_, url)| url == "/post/b"));
+    assert!(!change.visits.iter().any(|(id, _)| *id == retired));
 }

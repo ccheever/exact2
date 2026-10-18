@@ -1,0 +1,15 @@
+tamber components
+
+theme
+  accent.fill = #1083fe
+
+// A native view's params (D15): the compiler names and checks them.
+component MapCard
+  params
+    pin: color = accent.fill  control=color  priority=1
+    inset: length = 8px  in 0..24  control=slider  priority=2
+    tint: color = color-mix(in oklab, param.pin 40%, white)  control=none
+
+component Clock
+  params
+    tick: duration = 200ms

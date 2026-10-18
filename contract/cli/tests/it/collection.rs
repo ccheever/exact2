@@ -1,8 +1,8 @@
 //! Opt-in is literal and the first implementation refuses ambiguous row flow.
 fn source(list: &str, rows: &str) -> String {
-    format!("component App\n  state yes = true\n  resource rows = rows() as shape list<number>\n  view\n    {list}\n{rows}\n")
+    format!("component App\n  state yes = true\n  resource rows = rows() as shape number[]\n  view\n    {list}\n{rows}\n")
 }
-const ROW: &str = "      each x in rows key=x\n        text `${x}`";
+const ROW: &str = "      for x in rows key=x\n        text `${x}`";
 
 fn index_keys(list: &str) {
     struct SharedRows(Vec<Value>);
@@ -20,7 +20,7 @@ fn index_keys(list: &str) {
             ))
         }
     }
-    let src = format!("component App\n  state step = 0\n  resource rows = rows(step) as shape list<string>\n  action next\n    step = step + 1\n  view\n    {list} testId=\"list\"\n      each item, i in rows key=i\n        text `${{i}}:${{item}}` testId=`row-${{i}}`\n");
+    let src = format!("component App\n  state step = 0\n  resource rows = rows(step) as shape string[]\n  action next\n    step = step + 1\n  view\n    {list} testId=\"list\"\n      for item, i in rows key=i\n        text `${{i}}:${{item}}` testId=`row-${{i}}`\n");
     let mut r = Runner::boot(
         contract::compile(&src).unwrap(),
         SharedRows(["a", "b", "c", "x", "d"].map(Value::str).to_vec()),
@@ -84,7 +84,7 @@ fn literal_opt_in_and_ordinary_each_compile() {
     ] {
         contract::compile(&source(list, ROW)).unwrap();
     }
-    let nested = "      each x in rows key=x\n        column\n          when yes\n            text `${x}`\n          else\n            text \"off\"";
+    let nested = "      for x in rows key=x\n        column\n          if yes\n            text `${x}`\n          else\n            text \"off\"";
     contract::compile(&source("list virtualized=true height=200", nested)).unwrap();
 }
 #[test]
@@ -172,17 +172,17 @@ fn invalid_opt_in_shape_and_layout_are_rejected_with_stable_ids() {
         ),
         (
             "list virtualized=true height=200",
-            "      each x in rows key=x\n        text \"a\"\n        text \"b\"",
+            "      for x in rows key=x\n        text \"a\"\n        text \"b\"",
             "lower-collection-template",
         ),
         (
             "list virtualized=true height=200",
-            "      each x in rows key=x\n        text \"a\" position=\"absolute\"",
+            "      for x in rows key=x\n        text \"a\" position=\"absolute\"",
             "lower-collection-flow",
         ),
         (
             "list virtualized=true height=200",
-            "      each x in rows key=x\n        text \"a\" margin-top=-10",
+            "      for x in rows key=x\n        text \"a\" margin-top=-10",
             "lower-collection-flow",
         ),
     ] {
@@ -211,7 +211,7 @@ const INTERACTIVE: &str = r#"
 component App
   state draft = ""
   state suffix = 0
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action edit(value)
     draft = value
   action revise
@@ -220,7 +220,7 @@ component App
     column
       input value=draft change=edit testId="echo"
       list virtualized=true height=320 testId="collection"
-        each x in rows key=x
+        for x in rows key=x
           Counter(id=x, suffix=suffix)
 component Counter
   props
@@ -243,6 +243,7 @@ fn feedback(r: &Runner<Rows>, top: f64) -> CollectionFeedback {
         port_cross: 640.0,
         port_main: 320.0,
         cross: 640.0,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -332,13 +333,13 @@ fn false_keeps_eager_semantics_and_no_collection_metadata() {
 fn inherited_typography_changes_measurement_epochs_without_rekeying() {
     let source = r#"component App
   state size = 16
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action revise
     size = size + 1
   view
     column font-size=size
       list virtualized=true height=320
-        each x in rows key=x
+        for x in rows key=x
           text `${x}`
 "#;
     let mut r = Runner::boot(
@@ -431,7 +432,7 @@ fn duplicate_keys_index_and_copy_on_a_virtualized_list() {
             Ok(Value::list(values.into_iter().map(Value::Number).collect()))
         }
     }
-    let source = "component App\n  state version = 0\n  resource rows = rows(version) as shape list<number>\n  action change(next: number)\n    version = next\n  view\n    list virtualized=true estimated-item-height=20 height=100 overflow-x=\"hidden\" testId=\"list\"\n      each x in rows key=x\n        text `${x}`\n";
+    let source = "component App\n  state version = 0\n  resource rows = rows(version) as shape number[]\n  action change(next: number)\n    version = next\n  view\n    list virtualized=true estimated-item-height=20 height=100 overflow-x=\"hidden\" testId=\"list\"\n      for x in rows key=x\n        text `${x}`\n";
     let boot = |source: &str| {
         Runner::boot(
             contract::compile(source).unwrap(),
@@ -453,7 +454,11 @@ fn duplicate_keys_index_and_copy_on_a_virtualized_list() {
     assert_eq!(runner.list_index(view, "n:1"), Some(0));
     assert_eq!(runner.list_index(view, "d1:n:1"), Some(1));
     assert_eq!(
-        runner.list_text(view, None).unwrap().matches('1').count(),
+        runner
+            .list_text(view, None, exact_runner::ListTextPolicy::Web)
+            .unwrap()
+            .matches('1')
+            .count(),
         2
     );
     runner.act("change", vec![Value::Number(2.0)]).unwrap();
@@ -465,12 +470,12 @@ fn duplicate_keys_index_and_copy_on_a_virtualized_list() {
 fn a_row_lifted_by_translate_and_z_index_keeps_its_place_in_the_index() {
     let src = r#"component App
   state lifted = 1
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action drop
     lifted = -1
   view
     list virtualized=true height=300 estimated-item-height=30
-      each k in rows key=k
+      for k in rows key=k
         row height=30 translate=(k == lifted ? "0px 10px" : "0px 0px") rotate=(k == lifted ? 2 : 0) top=(k == lifted ? 4 : 0) position="relative" z-index=(k == lifted ? 2 : 0) press=drop testId=`row-${k}`
           text `${k}`
 "#;

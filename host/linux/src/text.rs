@@ -19,6 +19,7 @@ pub(crate) mod cache;
 mod catalog;
 mod catalog_recipe;
 mod fallback;
+pub(crate) mod field;
 mod flow;
 #[cfg(test)]
 mod flow_tests;
@@ -85,6 +86,9 @@ pub struct Run {
     pub mark: u8,
     /// A Markdown link's target ([`markup::target`]); empty otherwise.
     pub href: String,
+    /// Bold Text weights this run (`TextStyle::bold_text`, LLP 1115.000
+    /// D12.3): a Markdown piece's own weight takes the step too.
+    pub bold_text: bool,
 }
 
 #[cfg(test)]
@@ -104,6 +108,7 @@ impl Clone for Run {
             hang: self.hang,
             mark: self.mark,
             href: self.href.clone(),
+            bold_text: self.bold_text,
         }
     }
 }
@@ -126,6 +131,7 @@ impl Run {
             hang: false,
             mark: 0,
             href: String::new(),
+            bold_text: style.bold_text,
         }
     }
 }
@@ -145,10 +151,17 @@ pub struct Spec {
     pub overflow_wrap: exact_kernel::OverflowWrap,
     /// CSS whitespace processing mode.
     pub white_space: exact_kernel::WhiteSpace,
+    /// CSS `text-wrap-style`; `balance` balances the lines before the first
+    /// forced break (`shaping::ShapedSource::balanced`).
+    pub text_wrap_style: exact_kernel::TextWrapStyle,
     /// CSS paragraph base direction.
     pub direction: exact_kernel::Direction,
     /// CSS `text-indent`, points: the first line's inset from its start edge.
     pub text_indent: f32,
+    /// CSS `text-box-trim` and `text-box-edge` (Inline Layout 3 §4).
+    pub text_box_trim: exact_kernel::TextBoxTrim,
+    /// The edges a trim cuts to.
+    pub text_box_edge: exact_kernel::TextBoxEdge,
 }
 
 impl Spec {
@@ -205,8 +218,11 @@ impl Spec {
             line_clamp: request.paragraph.line_clamp,
             overflow_wrap: request.paragraph.overflow_wrap,
             white_space: request.paragraph.white_space,
+            text_wrap_style: request.paragraph.text_wrap_style,
             direction: request.paragraph.direction,
             text_indent: request.paragraph.text_indent,
+            text_box_trim: request.paragraph.text_box_trim,
+            text_box_edge: request.paragraph.text_box_edge,
         };
         spec.shown(request.paragraph.markup == exact_kernel::Markup::Markdown)
     }
@@ -494,7 +510,7 @@ pub struct GlyphRun {
     pub coords: std::sync::Arc<[i16]>,
     /// The face's file and collection index, when it was loaded from one.
     pub file: Option<(std::sync::Arc<str>, u32)>,
-    /// The weight shaped with (the `wght` a variable face is set to).
+    /// The requested CSS weight; a declared face may pin a different `wght`.
     pub weight: u16,
     /// Points.
     pub size: f32,
@@ -562,6 +578,11 @@ impl TextEngine {
         Self::with_catalog(catalog::Catalog::new())
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_font_files(paths: &[&Path], sans: &str) -> Self {
+        Self::with_catalog(catalog::Catalog::from_files(paths, sans))
+    }
+
     fn with_catalog(catalog: catalog::Catalog) -> Self {
         Self {
             sans: catalog.sans.clone(),
@@ -610,6 +631,14 @@ impl TextEngine {
     /// the plan-identity boundary on a dev reload (LLP 1019 D4).
     pub fn install_plan(&mut self, plan: &Plan, assets: &Path) {
         self.install_plan_assets(plan, &Assets::embedded(assets.to_path_buf()));
+    }
+
+    /// Add newly interned installed-family lists before the next measure.
+    pub fn install_runtime(&mut self, compiled: usize, lists: &[String]) {
+        let added = self.catalog.borrow_mut().install_runtime(compiled, lists);
+        if !added.is_empty() {
+            self.paragraphs.invalidate_families(added);
+        }
     }
 
     fn install_plan_assets(&mut self, plan: &Plan, assets: &Assets) {
@@ -915,10 +944,16 @@ impl TextEngine {
         transform: Transform,
         mask: Option<&Mask>,
         clip: (f32, f32, f32, f32),
-    ) {
+    ) -> std::ops::Range<u32> {
         // Glyph positions already carry device scale. The GPU stream is separate
         // and remains full; only this CPU loop selects conservative ink spans.
         let glyph_ts = transform.pre_scale(1.0 / scale, 1.0 / scale);
+        let height = target.height();
+        let mut rows = if glyph_ts.is_identity() {
+            0..0
+        } else {
+            0..height
+        };
         paragraph.layouts();
         let mut catalog = paragraph.source.catalog.borrow_mut();
         let mut cache = paragraph.ink.borrow_mut();
@@ -949,9 +984,22 @@ impl TextEngine {
             let Some(glyph) = catalog.glyph(key, ink.color) else {
                 return;
             };
+            let gy = y - glyph.top;
+            if glyph_ts.is_identity() {
+                let start = (i64::from(gy) - 1).clamp(0, i64::from(height)) as u32;
+                let end = (i64::from(gy) + i64::from(glyph.pixmap.height()) + 1)
+                    .clamp(0, i64::from(height)) as u32;
+                if start < end {
+                    rows = if rows.is_empty() {
+                        start..end
+                    } else {
+                        rows.start.min(start)..rows.end.max(end)
+                    };
+                }
+            }
             target.draw_pixmap(
                 x + glyph.left,
-                y - glyph.top,
+                gy,
                 glyph.pixmap.as_ref(),
                 &paint,
                 glyph_ts,
@@ -978,6 +1026,7 @@ impl TextEngine {
                 draw(g, baseline, ink);
             }
         }
+        rows
     }
 }
 
@@ -1036,6 +1085,18 @@ fn premultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
 pub struct Measurer(pub Shared);
 
 impl TextMeasurer for Measurer {
+    fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
+        #[cfg(target_os = "android")]
+        if let Some(text) = crate::canvas::time::format(r) {
+            return Some(text);
+        }
+        let mut request = *r;
+        if r.format.starts_with("date-") || r.format.starts_with("time-") {
+            request.utc_offset = crate::zone::offset_minutes_at(r.time_zone, r.datetime);
+        }
+        exact_kernel::time::english(&request)
+    }
+
     fn button_measure(
         &mut self,
         request: &exact_kernel::ButtonMeasureRequest,
@@ -1048,9 +1109,18 @@ impl TextMeasurer for Measurer {
 
     fn field_chrome(
         &mut self,
-        _request: &exact_kernel::FieldChromeRequest,
+        request: &exact_kernel::FieldChromeRequest,
     ) -> exact_kernel::FieldChrome {
-        crate::paint::control::field_chrome()
+        crate::paint::control::field_chrome(request.font.size, request.labelled)
+    }
+
+    /// The shell's own field measures a field it hosts (LLP 1115.001 D8).
+    fn field_text(
+        &mut self,
+        kind: exact_kernel::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        crate::fields::measure(&mut self.0.borrow_mut(), kind, request)
     }
 
     fn set_language(&mut self, language: &str) {
@@ -1196,3 +1266,18 @@ mod css_tests;
 #[cfg(test)]
 #[path = "text/eviction_tests.rs"]
 mod eviction_tests;
+
+#[cfg(test)]
+#[path = "text/text_box_tests.rs"]
+mod text_box_tests;
+
+#[cfg(test)]
+#[path = "text/balance_tests.rs"]
+mod balance_tests;
+
+#[cfg(test)]
+#[path = "text/live_time_tests.rs"]
+mod live_time_tests;
+
+#[cfg(test)]
+mod variable_face_tests;

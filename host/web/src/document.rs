@@ -27,7 +27,12 @@ use super::element::{
     blocks, contents, css_style_of, folds, host_css_of, props_of, restricts_touch, svg_props_of,
     tag_of,
 };
-use super::{font_names, layers, Host};
+use super::fonts::font_names_for_runner;
+use super::{layers, Host};
+
+#[path = "document_url.rs"]
+mod document_url;
+pub use document_url::{frame_navigable, navigable};
 
 #[path = "page.rs"]
 mod page;
@@ -96,14 +101,22 @@ impl<D: DataSource> Host<D> {
 
 /// The document of `runner`'s current tree.
 pub fn project<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentError> {
-    walk(runner, None).map(|(document, _)| document)
+    walk(runner, None, true).map(|(document, _)| document)
+}
+
+/// [`project`], for the JavaScript runtime to adopt: a bare `font-size`
+/// style's weight and leading are not written (LLP 1115.000 D12.2), as its
+/// template writes none, so none stays inline once it sees an ancestor's
+/// weight arrive.
+pub fn project_for_js<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentError> {
+    walk(runner, None, false).map(|(document, _)| document)
 }
 
 /// [`project`], and what it computed for each view, for the first batch.
 pub(crate) fn project_keeping<D: DataSource>(
     runner: &Runner<D>,
 ) -> Result<(Document, Computed), DocumentError> {
-    walk(runner, Some(Computed::new())).map(|(document, computed)| {
+    walk(runner, Some(Computed::new()), true).map(|(document, computed)| {
         let mut computed = computed.unwrap_or_default();
         computed.reverse();
         (document, computed)
@@ -120,19 +133,51 @@ pub trait Source {
     fn children(&self, id: ViewId) -> Cow<'_, [ViewId]>;
     /// The element an SVG reference from `from` names.
     fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId>;
+    /// `style`, node `id`'s, with the weight and leading a text style named
+    /// on it gives (LLP 1115.000 D12.2): a kernel's tree knows them, a
+    /// render's tree has them in its facts already.
+    fn with_style_rows<'s>(
+        &self,
+        _id: ViewId,
+        style: Cow<'s, exact_kernel::StyleProps>,
+    ) -> Cow<'s, exact_kernel::StyleProps> {
+        style
+    }
 }
 
-struct KernelSource<'k>(&'k exact_kernel::Kernel);
+/// A kernel's tree; `bare`: a bare `font-size` style's rows are written
+/// too ([`super::element::css_style_named`]).
+struct KernelSource<'k> {
+    kernel: &'k exact_kernel::Kernel,
+    bare: bool,
+}
 
 impl Source for KernelSource<'_> {
     fn facts(&self, id: ViewId) -> Option<NodeFacts<'_>> {
-        self.0.node(id).map(|n| n.facts())
+        self.kernel.node(id).map(|n| n.facts())
     }
     fn children(&self, id: ViewId) -> Cow<'_, [ViewId]> {
-        Cow::Owned(self.0.node(id).map(|n| n.children()).unwrap_or_default())
+        Cow::Owned(
+            self.kernel
+                .node(id)
+                .map(|n| n.children())
+                .unwrap_or_default(),
+        )
     }
     fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId> {
-        self.0.resolve_id(from, id)
+        self.kernel.resolve_id(from, id)
+    }
+    fn with_style_rows<'s>(
+        &self,
+        id: ViewId,
+        style: Cow<'s, exact_kernel::StyleProps>,
+    ) -> Cow<'s, exact_kernel::StyleProps> {
+        match self.kernel.node(id) {
+            Some(node) if self.bare || node.names_text_style_through_font() => {
+                super::element::with_style_rows(style, &node)
+            }
+            _ => style,
+        }
     }
 }
 
@@ -178,11 +223,19 @@ pub fn project_tree<D: DataSource>(
     writing: Writing<'_>,
 ) -> Result<(Document, String), DocumentError> {
     let handlers = tree.handlers(runner.plan());
+    let presses = tree
+        .nodes()
+        .iter()
+        .filter_map(|n| {
+            exact_runner::press_writes_router(runner.plan(), n.site?).map(|writes| (n.id, writes))
+        })
+        .collect();
     let (out, keyframes, scroll_document, _, sent) = write(
         tree,
         tree.roots(),
         handlers,
-        font_names(runner.plan()),
+        presses,
+        font_names_for_runner(runner),
         None,
         writing,
     )?;
@@ -231,14 +284,25 @@ fn first_prop<S: Source>(src: &S, roots: &[ViewId], id: PropId) -> Option<String
 fn walk<D: DataSource>(
     runner: &Runner<D>,
     computed: Option<Computed>,
+    bare: bool,
 ) -> Result<(Document, Option<Computed>), DocumentError> {
-    let src = KernelSource(runner.kernel());
+    let _roles = runner.bind_roles(); // Its own (LLP 1121 stage 5).
+    let src = KernelSource {
+        kernel: runner.kernel(),
+        bare,
+    };
     let roots = runner.roots();
+    let handlers = runner.handlers();
+    let presses = handlers
+        .keys()
+        .filter_map(|id| runner.press_writes_router(*id).map(|writes| (*id, writes)))
+        .collect();
     let (out, keyframes, scroll_document, computed, _) = write(
         &src,
         &roots,
-        runner.handlers(),
-        font_names(runner.plan()),
+        handlers,
+        presses,
+        font_names_for_runner(runner),
         computed,
         Writing::default(),
     )?;
@@ -263,6 +327,7 @@ fn write<S: Source>(
     src: &S,
     roots: &[ViewId],
     handlers: SortedMap<ViewId, Vec<EventKind>>,
+    presses: SortedMap<ViewId, bool>,
     fonts: Vec<String>,
     computed: Option<Computed>,
     writing: Writing<'_>,
@@ -273,6 +338,7 @@ fn write<S: Source>(
         computed,
         fonts,
         handlers,
+        presses,
         routes: SortedMap::new(),
         keyframes: SortedMap::new(),
         out: String::new(),
@@ -483,6 +549,7 @@ struct Walk<'r, 'w, S: Source> {
     computed: Option<Computed>,
     fonts: Vec<String>,
     handlers: SortedMap<ViewId, Vec<EventKind>>,
+    presses: SortedMap<ViewId, bool>,
     routes: SortedMap<ViewId, Route>,
     keyframes: SortedMap<String, String>,
     out: String,
@@ -539,11 +606,16 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         let resolve = |from: ViewId, target: &str| src.resolve(from, target);
         let mut props = props_of(&node);
+        if let Some(raw) = props.get("data-decoration-styles") {
+            let css = crate::css::decoration_styles(raw, &self.fonts);
+            props.insert("data-decoration-styles".into(), css);
+        }
+        super::element::router_press(&mut props, self.presses.get(&id).copied());
         svg_props_of(&resolve, &node, &mut props);
         self.scroll_document |= props
             .get("data-scrolldocument")
             .is_some_and(|v| v == "true");
-        let text = match css_style_of(&resolve, &node) {
+        let text = match src.with_style_rows(id, css_style_of(&resolve, &node)) {
             Cow::Borrowed(style) => {
                 let fonts = &self.fonts;
                 self.css
@@ -675,10 +747,16 @@ impl<S: Source> Walk<'_, '_, S> {
                         attrs.push((name.clone(), None));
                     }
                 }
-                // `navigates` + `navigableURL`: a refused link loses its
-                // href; a refused frame shows about:blank.
+                // `navigates` + `navigableURL`, `frameURL`: a refused link
+                // loses its href; a refused frame shows about:blank.
                 "href" if !navigable(value) => {}
-                "src" if element == "iframe" && !navigable(value) => {
+                "src" if element == "iframe" && value.starts_with("app:/") => {
+                    attrs.push(("data-app-src".into(), Some(value.clone())));
+                }
+                "src"
+                    if element == "iframe"
+                        && !frame_navigable(value, props.get("sandbox").map(String::as_str)) =>
+                {
                     attrs.push((name.clone(), Some("about:blank".into())));
                 }
                 _ => attrs.push((name.clone(), Some(value.clone()))),
@@ -1025,169 +1103,6 @@ fn escape(out: &mut String, text: &str, attribute: bool) -> Result<(), &'static 
     }
     out.push_str(&text[run..]);
     Ok(())
-}
-
-/// Whether `href` navigates somewhere the page allows: `navigableURL`'s one
-/// scheme allowlist (http, https, mailto, tel), read the way the URL parser
-/// reads a scheme — surrounding C0 controls and spaces stripped, tabs and
-/// newlines removed anywhere, the scheme case-folded. A URL with no scheme is
-/// relative to the page's https base; an http(s) authority whose host does
-/// not parse is refused, as the parser's failure is (IDNA aside).
-pub fn navigable(href: &str) -> bool {
-    let trimmed = href.trim_matches(|c: char| c <= ' ');
-    let url: std::borrow::Cow<'_, str> = if trimmed.contains(['\t', '\n', '\r']) {
-        trimmed
-            .chars()
-            .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
-            .collect::<String>()
-            .into()
-    } else {
-        trimmed.into()
-    };
-    // A scheme is a letter, then letters, digits, `+`, `-` or `.`, then `:`.
-    for (at, b) in url.bytes().enumerate() {
-        match b {
-            b':' if at > 0 => {
-                let (scheme, rest) = (&url[..at], &url[at + 1..]);
-                let is = |name: &str| scheme.eq_ignore_ascii_case(name);
-                return if is("mailto") || is("tel") {
-                    true
-                } else if is("https") && !rest.starts_with("//") {
-                    // The base's own scheme reads the rest as relative
-                    // unless it starts `//`; another special scheme's
-                    // authority follows whatever slashes there are.
-                    true
-                } else {
-                    (is("http") || is("https")) && authority_parses(rest)
-                };
-            }
-            b if b.is_ascii_alphabetic() => {}
-            b if at > 0 && (b.is_ascii_digit() || matches!(b, b'+' | b'-' | b'.')) => {}
-            _ => break,
-        }
-    }
-    // Relative: a leading pair of slashes (either way) starts an authority.
-    let mut slashes = url.chars().take_while(|c| matches!(c, '/' | '\\'));
-    if slashes.next().is_some() && slashes.next().is_some() {
-        return authority_parses(&url);
-    }
-    true
-}
-
-/// The special authority after any slashes: a host (a bracketed IPv6, an
-/// IPv4 when its last label is numeric, or a domain free of forbidden code
-/// points) and a port of at most 65535.
-fn authority_parses(rest: &str) -> bool {
-    let rest = rest.trim_start_matches(['/', '\\']);
-    let authority = &rest[..rest.find(['/', '\\', '?', '#']).unwrap_or(rest.len())];
-    let hostport = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
-    let (host, port) = if let Some(inner) = hostport.strip_prefix('[') {
-        let Some((v6, after)) = inner.split_once(']') else {
-            return false;
-        };
-        if v6.is_empty()
-            || !v6
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.')
-        {
-            return false;
-        }
-        match after {
-            "" => (hostport, None),
-            p => match p.strip_prefix(':') {
-                Some(port) => (hostport, Some(port)),
-                None => return false,
-            },
-        }
-    } else {
-        match hostport.split_once(':') {
-            Some((h, p)) => (h, Some(p)),
-            None => (hostport, None),
-        }
-    };
-    if port.is_some_and(|p| {
-        !p.is_empty()
-            && (!p.bytes().all(|b| b.is_ascii_digit())
-                || p.parse::<u32>().map_or(true, |n| n > 65535))
-    }) {
-        return false;
-    }
-    if host.starts_with('[') {
-        return true;
-    }
-    let decoded = percent_decoded(host);
-    if decoded.is_empty()
-        || decoded.chars().any(|c| {
-            c <= ' '
-                || c == '\u{7f}'
-                || matches!(
-                    c,
-                    '#' | '%' | '/' | ':' | '<' | '>' | '?' | '@' | '[' | '\\' | ']' | '^' | '|'
-                )
-        })
-    {
-        return false;
-    }
-    // A host whose last label is a number is an IPv4 address and must be one.
-    let labels: Vec<&str> = decoded.trim_end_matches('.').split('.').collect();
-    let number = |label: &str| -> Option<u64> {
-        let lower = label.to_ascii_lowercase();
-        match lower.strip_prefix("0x") {
-            Some("") => Some(0),
-            Some(hex) => u64::from_str_radix(hex, 16).ok(),
-            None if lower.len() > 1 && lower.starts_with('0') => {
-                u64::from_str_radix(&lower[1..], 8).ok()
-            }
-            None => lower.parse().ok(),
-        }
-    };
-    let last = labels.last().copied().unwrap_or_default();
-    let numeric = !last.is_empty()
-        && (last.bytes().all(|b| b.is_ascii_digit())
-            || last
-                .to_ascii_lowercase()
-                .strip_prefix("0x")
-                .is_some_and(|h| h.bytes().all(|b| b.is_ascii_hexdigit())));
-    if !numeric {
-        return true;
-    }
-    let Some(parts) = labels
-        .iter()
-        .map(|l| number(l))
-        .collect::<Option<Vec<u64>>>()
-    else {
-        return false;
-    };
-    let (init, tail) = parts.split_at(parts.len() - 1);
-    parts.len() <= 4
-        && init.iter().all(|n| *n <= 255)
-        && tail[0] < 256u64.pow(5 - parts.len() as u32)
-}
-
-/// `host`'s percent-escapes decoded as the host parser decodes them (bytes
-/// that are not UTF-8 make it unparseable, as an empty host is).
-fn percent_decoded(host: &str) -> String {
-    let bytes = host.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        let hex = |b: u8| (b as char).to_digit(16);
-        match (
-            bytes[i],
-            bytes.get(i + 1).and_then(|b| hex(*b)),
-            bytes.get(i + 2).and_then(|b| hex(*b)),
-        ) {
-            (b'%', Some(h), Some(l)) => {
-                out.push((h * 16 + l) as u8);
-                i += 3;
-            }
-            (b, _, _) => {
-                out.push(b);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8(out).unwrap_or_default()
 }
 
 /// One piece of `markupPieces`, as the page reads it: numbers keep the

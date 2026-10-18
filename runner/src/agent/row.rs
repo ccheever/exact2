@@ -11,7 +11,8 @@ use super::{num, quote};
 use exact_kernel::{Color, ColorValue, Dimension, Edge, RowValue, StyleId};
 use std::fmt::Write as _;
 
-pub(super) fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
+/// Row `row`'s value `v`, as JSON text, onto `out`.
+pub fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
     // CSS's unbounded maximum is `none`, as the web writes it (LLP 1102 §3.11).
     if matches!(row, StyleId::MaxWidth | StyleId::MaxHeight)
         && matches!(v, RowValue::Dimension(Dimension::Auto))
@@ -56,6 +57,19 @@ pub(super) fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
                 format!(
                     "calc(env(safe-area-inset-{edge}) + {}px)",
                     num(offset as f64)
+                )
+            };
+            quote(&text, out)
+        }
+        RowValue::Dimension(Dimension::Region(region, edge, offset)) => {
+            let name = format!("{}{}", region.prefix(), edge.name());
+            let text = if offset == 0.0 {
+                format!("env({name})")
+            } else {
+                format!(
+                    "calc(env({name}) {} {}px)",
+                    if offset < 0.0 { "-" } else { "+" },
+                    num(offset.abs() as f64)
                 )
             };
             quote(&text, out)
@@ -122,6 +136,7 @@ pub(super) fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
         RowValue::AnimationTimeline(t) => quote(&t.css(), out),
         RowValue::AnimationRange(r) => quote(&r.css(), out),
         RowValue::TimelineScope(s) => quote(&s.css(), out),
+        RowValue::PositionTryFallbacks(s) => quote(&s.css(), out),
         RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => quote(&g.css(), out),
         RowValue::TextShadow(s) => quote(&s.css(), out),
         RowValue::BoxShadow(s) => quote(&s.css(), out),

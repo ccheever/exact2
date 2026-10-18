@@ -12,7 +12,7 @@ shape Swatch
 shape SpaceRow
   name: string
   note: string
-  swatches: list<Swatch>
+  swatches: Swatch[]
 
 shape Picture
   src: string
@@ -97,10 +97,10 @@ style Page
 
 component ColorGallery
   resource display = exactViewport() as shape Display
-  resource css = colorSpaces("css") as shape list<SpaceRow>
-  resource platform = colorSpaces("platform") as shape list<SpaceRow>
-  resource pictures = picturePairs() as shape list<PicturePair>
-  resource hdr = hdrPictures() as shape list<HdrPicture>
+  resource css = colorSpaces("css") as shape SpaceRow[]
+  resource platform = colorSpaces("platform") as shape SpaceRow[]
+  resource pictures = picturePairs() as shape PicturePair[]
+  resource hdr = hdrPictures() as shape HdrPicture[]
   resource hiddenPictures = hidden("pictures") as shape string
   resource hiddenHdr = hidden("hdr") as shape string
   resource caveat = caveat("constrained") as shape string
@@ -136,12 +136,12 @@ component ColorGallery
 
           text "CSS color spaces" class=Section
           text "Each row: red · green · blue · mid · white in that color space (HDR rows: as noted). More saturated than srgb means a wider gamut, visible on a P3 display." class=Legend
-          each row in css key=row.name
+          for row in css key=row.name
             SpaceRowView(row=row)
 
           text "Platform profiles · color(--name …)" class=Section
           text "Color spaces the OS ships, drawn by Apple from the profile. Apple only: browsers and Linux have no such profiles." class=Legend
-          each row in platform key=row.name
+          for row in platform key=row.name
             SpaceRowView(row=row)
 
           text "Image profiles" class=Section
@@ -149,13 +149,13 @@ component ColorGallery
           // Labels get their own grid row, so a wrapped label doesn't
           // misalign the pictures.
           column display="grid" grid-template-columns="minmax(0, 1fr) minmax(0, 1fr)" column-gap=8 testId="pictures"
-            each pair in pictures key=pair.a.src
+            for pair in pictures key=pair.a.src
               text pair.a.label class=Label align-self="end"
               text (pair.two ? pair.b.label : "") class=Label align-self="end"
               image pair.a.src width="100%" height=pair.a.height object-fit="fill" class=Framed testId=pair.a.src
-              when pair.two
+              if pair.two
                 image pair.b.src width="100%" height=pair.b.height object-fit="fill" class=Framed testId=pair.b.src
-          when hiddenPictures != ""
+          if hiddenPictures != ""
             text hiddenPictures class=Note padding-top=6
 
           text "HDR under each limit, side by side" class=Section
@@ -164,18 +164,18 @@ component ColorGallery
             text "no-limit" class=ColumnTitle
             text "constrained" class=ColumnTitle
             text "standard" class=ColumnTitle
-          each p in hdr key=p.src
+          for p in hdr key=p.src
             HdrTrio(src=p.src, label=p.label)
-          when hiddenHdr != ""
+          if hiddenHdr != ""
             text hiddenHdr class=Note padding-top=6
-          when caveat != ""
+          if caveat != ""
             text caveat class=Note padding-top=6 testId="constrained-caveat"
 
           text "HDR colors under each limit" class=Section
           text "color(rec2100-linear 4 4 4): four times SDR white, as a background, text, a text shadow behind white text, a border (laid on a layer, and drawn by the view), a box shadow, a gradient from 1× to 4× and SVG paint. On an HDR display each row steps down left to right; on SDR all three match." class=Legend
-          when host == "web"
+          if host == "web"
             text "Not in browsers yet: none draws rec2100 colors." class=Note padding-top=6
-          when host != "web"
+          if host != "web"
             column class=Row column-gap=6 padding-top=4
               text "no-limit" class=ColumnTitle
               text "constrained" class=ColumnTitle
@@ -255,10 +255,21 @@ component ColorGallery
           TransitionRow(label="legacy", moved=moved, from="#0000ff", to="#ffff00")
           TransitionRow(label="oklch", moved=moved, from="oklch(0.45 0.31 264)", to="oklch(0.97 0.21 110)")
           TransitionRow(label="display-p3", moved=moved, from="color(display-p3 0 0 1)", to="color(display-p3 1 1 0)")
-          when host != "web"
+          if host != "web"
             TransitionRow(label="HDR, 1× to 4×", moved=moved, from=one, to=four)
-          when host == "web"
+          if host == "web"
             text "The HDR row is not on the web: no browser draws rec2100 colors yet." class=Note padding-top=6
+          text "Accent" class=Section
+          text "The app's accent (on Apple, its catalog's AccentColor), a box's accent-color, one control's own, then auto: the app's again. Nested radii are concentric." class=Legend
+          button "App accent" buttonStyle="filled" press=choose(limit) testId="accent-app" align-self="flex-start"
+          column border-width=1 border-style="solid" border-color="-exact-separator" corner-shape="-exact-continuous" padding=12 row-gap=10 border-radius=32 accent-color="#0a84ff" testId="accent-blue"
+            button "Box: blue" buttonStyle="filled" press=choose(limit) align-self="flex-start"
+            column border-width=1 border-style="solid" border-color="-exact-separator" corner-shape="-exact-continuous" padding=12 row-gap=10 border-radius=20
+              row column-gap=8
+                button "Own: green" buttonStyle="filled" accent-color="#34c759" press=choose(limit) testId="accent-green"
+                button "Inherited" buttonStyle="filled" press=choose(limit)
+              column border-width=1 border-style="solid" border-color="-exact-separator" corner-shape="-exact-continuous" padding=12 row-gap=10 border-radius=8 accent-color="auto"
+                button "auto: the app's" buttonStyle="filled" press=choose(limit) testId="accent-auto" align-self="flex-start"
 
 component LimitControl
   props
@@ -296,7 +307,7 @@ component SpaceRowView
         text row.name class=Name
         text row.note class=Note
       column class=Row column-gap=4
-        each s in row.swatches key=s.label
+        for s in row.swatches key=s.label
           box class=Chip background-color=s.color
 
 component BorderRow
@@ -355,24 +366,24 @@ component HdrPaint
     four: string
   view
     column width=116 height=32 box-sizing="border-box" background-color="#000000" align-items="center" justify-content="center" class=Hairline testId=`hdr-${kind}`
-      when kind == "background"
+      if kind == "background"
         box width=116 height=32 background-color=four
-      when kind == "text"
+      if kind == "text"
         text "HDR" font-size=20 font-weight=800 color=four
-      when kind == "text-shadow"
+      if kind == "text-shadow"
         text "HDR" font-size=20 font-weight=800 color="#ffffff" text-shadow=`3px 3px 3px ${four}`
-      when kind == "border"
+      if kind == "border"
         box width=100 height=20 border-width=4 border-style="solid" border-color=four
-      when kind == "drawn-border"
+      if kind == "drawn-border"
         box width=100 height=20 box-sizing="border-box" border-width=2 border-left-width=8 border-right-width=8 border-style="solid" border-color=four
-      when kind == "shadow"
+      if kind == "shadow"
         box width=60 height=12 background-color="#000000" box-shadow=`0 0 10px 4px ${four}`
-      when kind == "gradient"
+      if kind == "gradient"
         box width=116 height=32 background-image=`linear-gradient(in srgb-linear to right, ${one}, ${four})`
-      when kind == "svg-fill"
+      if kind == "svg-fill"
         svg viewBox="0 0 116 32" width=116 height=32
           rect x=8 y=6 width=100 height=20 rx=4 fill=four
-      when kind == "svg-stroke"
+      if kind == "svg-stroke"
         svg viewBox="0 0 116 32" width=116 height=32
           rect x=8 y=6 width=100 height=20 rx=4 fill="none" stroke=four stroke-width=4
 

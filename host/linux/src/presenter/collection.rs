@@ -16,8 +16,8 @@ static LEAN: std::sync::LazyLock<bool> =
 /// One future model position, not the acknowledged picture's input position.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) struct ModelScroll {
-    key: NodeKey,
-    sequence: u64,
+    pub(super) key: NodeKey,
+    pub(super) sequence: u64,
     top: f32,
     left: Option<f32>,
 }
@@ -50,10 +50,9 @@ struct Cursor {
     key: Option<NodeKey>,
     sequence: u64,
     corrected: Option<u64>,
-    dimensions: Option<(f64, f64, f64, f64)>,
-    /// The last report, and the list's main-axis padding it went with: a
-    /// change of padding alone is news to the runner (LLP 1010 §6.9).
-    sent: Option<(CollectionFeedback, [f64; 2])>,
+    dimensions: Option<(f64, f64, f64, [f64; 2])>,
+    /// The last report.
+    sent: Option<CollectionFeedback>,
     queued: bool,
     requested_top: Option<f64>,
     model_scroll: Option<ModelScroll>,
@@ -61,7 +60,16 @@ struct Cursor {
     requested_left: Option<f64>,
     follow_end: bool,
     maximum: Option<(f32, f32)>,
+    end_port: Option<ScrollPort>,
 }
+
+#[derive(PartialEq)]
+struct ScrollPort {
+    size: (f32, f32),
+    padding: [f64; 4],
+    borders: [f32; 4],
+}
+
 impl Cursor {
     fn advance(&mut self) {
         self.sequence = self.sequence.saturating_add(1);
@@ -122,7 +130,7 @@ impl Cursor {
             *offset = target;
         }
     }
-    fn geometry(&mut self, dimensions: (f64, f64, f64, f64)) {
+    fn geometry(&mut self, dimensions: (f64, f64, f64, [f64; 2])) {
         if self.dimensions.is_some_and(|old| old != dimensions) {
             self.advance();
         }
@@ -234,12 +242,10 @@ fn main_of(axis: ListAxis, offset: (f32, f32)) -> f32 {
         ListAxis::Horizontal => offset.0,
     }
 }
+/// A padding against a containing block `basis` wide, clamped at 0, padding's
+/// range: a `calc()` that resolves below it computes to 0 (CSS Values 4 §10.12)
 fn length(kernel: &Kernel, value: Dimension, basis: f64) -> f64 {
-    match value.resolve(&kernel.env()) {
-        Dimension::Points(n) => n as f64,
-        Dimension::Percent(n) => basis * n as f64 / 100.,
-        _ => 0.,
-    }
+    f64::from(value.at_basis(kernel.arena().env(), basis as f32)).max(0.)
 }
 
 fn containing_width(kernel: &Kernel, view: ViewId, viewport: f64) -> f64 {
@@ -250,12 +256,13 @@ fn containing_width(kernel: &Kernel, view: ViewId, viewport: f64) -> f64 {
         at = parent.parent;
     }
     ancestors.into_iter().rev().fold(viewport, |basis, node| {
-        let [_, right, _, left] = node.style.border_widths();
+        let style = node.computed_style(exact_kernel::StyleMask::EMPTY);
+        let [_, right, _, left] = style.border_widths();
         (node.frame.width as f64
             - left as f64
             - right as f64
-            - length(kernel, node.style.padding_left, basis)
-            - length(kernel, node.style.padding_right, basis))
+            - length(kernel, style.padding_left, basis)
+            - length(kernel, style.padding_right, basis))
         .max(0.)
     })
 }
@@ -404,7 +411,8 @@ impl<D: DataSource> Presenter<D> {
             let top = number(PropId::ScrollTop);
             let left = number(PropId::ScrollLeft);
             let follow = node.props.bool(PropId::ScrollFollowEnd) == Some(true);
-            if top.is_none() && left.is_none() && !follow {
+            let tracks_end = self.tracks_scroll_end(view);
+            if top.is_none() && left.is_none() && !follow && !tracks_end {
                 continue;
             }
             let axes = effective_overflow(&node);
@@ -418,9 +426,27 @@ impl<D: DataSource> Presenter<D> {
                 &node,
                 None,
             );
+            let end_port = tracks_end.then(|| {
+                let kernel = self.host.kernel();
+                let basis = containing_width(kernel, view, self.viewport.0 as f64);
+                let style = node.style;
+                ScrollPort {
+                    size: (node.frame.width, node.frame.height),
+                    padding: [
+                        style.padding_top,
+                        style.padding_right,
+                        style.padding_bottom,
+                        style.padding_left,
+                    ]
+                    .map(|d| length(kernel, d, basis)),
+                    borders: style.border_widths(),
+                }
+            });
             let cursor = self.collection.cursors.entry(view).or_default();
+            let was_bound = cursor.key == Some(node.key);
             cursor.bind(node.key, 0);
             cursor.ordinary = true;
+            let before_model = cursor.model_scroll;
             let offset = self.scroll.entry(view).or_default();
             let current = cursor
                 .model_scroll
@@ -437,11 +463,21 @@ impl<D: DataSource> Presenter<D> {
                 cursor.follow_end = follow;
                 continue;
             }
+            let before_request = *offset;
             let mut target = current;
             if follow
                 && (!cursor.follow_end || current.1 >= cursor.maximum.map_or(0., |m| m.1) - 1.)
             {
                 target.1 = bounds.max.1;
+            }
+            let followed = tracks_end
+                && follow
+                && (!cursor.follow_end
+                    || (cursor.end_port == end_port
+                        && cursor.maximum.is_some_and(|m| bounds.max.1 > m.1)))
+                && target.1 > current.1;
+            if tracks_end {
+                cursor.end_port = end_port;
             }
             cursor.follow_end = follow;
             cursor.maximum = Some(bounds.max);
@@ -469,10 +505,22 @@ impl<D: DataSource> Presenter<D> {
                 }
                 self.dirty = true;
             }
+            if was_bound && (changed_top || changed_left || followed) {
+                self.scroll_end_requested(view, before_request, Completion::Instant);
+            } else if tracks_end {
+                self.scroll_end_retargeted(view, before_model);
+            }
         }
         self.collection
             .cursors
             .retain(|view, cursor| !cursor.ordinary || live.contains(view));
+    }
+
+    pub(super) fn has_pending_scroll(&self, view: ViewId) -> bool {
+        self.collection
+            .scroll_events
+            .iter()
+            .any(|(id, _)| *id == view)
     }
 
     // Browser scroll events are coalesced per event-loop turn. Report the
@@ -482,7 +530,8 @@ impl<D: DataSource> Presenter<D> {
         let mut error = None;
         for (view, key) in events {
             if self.host.kernel().node(view).is_none_or(|n| n.key != key)
-                || self.host.route_visibility(view).1
+                || self.host.route_visibility(view).0
+                || (self.host.route_visibility(view).1 && !self.tracks_scroll_end(view))
                 || !self
                     .host
                     .runner()
@@ -502,7 +551,7 @@ impl<D: DataSource> Presenter<D> {
         error
     }
 
-    fn pending_model_scroll(&self, view: ViewId) -> Option<ModelScroll> {
+    pub(super) fn pending_model_scroll(&self, view: ViewId) -> Option<ModelScroll> {
         let cursor = self.collection.cursors.get(&view)?;
         let pending = cursor.model_scroll?;
         (pending.sequence == cursor.sequence
@@ -569,7 +618,9 @@ impl<D: DataSource> Presenter<D> {
             if let Some(left) = accepted.left {
                 offset.0 = left;
             }
-            if *offset != before {
+            let moved = *offset != before;
+            self.scroll_end_acknowledged(view, accepted, moved);
+            if moved {
                 self.collection.scroll_event(view, accepted.key);
                 self.executor.notify();
             }
@@ -579,6 +630,7 @@ impl<D: DataSource> Presenter<D> {
                 self.dirty = true;
             }
         }
+        self.finish_collection_scroll_ends();
     }
 
     /// A Runner witness is usable only after feedback for the actual native
@@ -587,25 +639,22 @@ impl<D: DataSource> Presenter<D> {
         let Some(node) = self.host.kernel().node_by_key(facts.list) else {
             return false;
         };
-        let snapshots = self.host.collections();
+        let snapshots = self.host.collections_shallow();
         let Some(snapshot) = snapshots.iter().find(|s| s.view == node.id) else {
             return false;
         };
         let Some(g) = geometry(self.host.kernel(), snapshot, self.viewport.0 as f64) else {
             return false;
         };
-        // Nonzero vertical inset authoring is outside the measured-row policy.
-        // Do not admit a handbuilt plan that bypassed the compiler's rejection.
-        let basis = containing_width(self.host.kernel(), node.id, self.viewport.0 as f64);
+        // Native scroll offsets include leading padding; feedback starts at
+        // the first row. Both padding ends must match the last report.
         g.axis == ListAxis::Vertical
-            && g.origin == 0.
-            && length(self.host.kernel(), node.style.padding_bottom, basis) == 0.
-            && self
-                .collection
-                .cursors
-                .get(&node.id)
-                .is_some_and(|c| c.sequence == facts.scroll_sequence)
-            && facts.scroll_top == self.scroll_of(node.id).1 as f64
+            && facts.revision == snapshot.revision
+            && self.collection.cursors.get(&node.id).is_some_and(|c| {
+                c.sequence == facts.scroll_sequence
+                    && c.dimensions == Some((g.width, g.height, g.cross, g.padding))
+            })
+            && facts.scroll_top == (self.scroll_of(node.id).1 as f64 - g.origin).max(-g.origin)
             && facts.port_width == g.width
             && facts.port_height == g.height
             && facts.row_width == g.cross
@@ -861,6 +910,14 @@ impl<D: DataSource> Presenter<D> {
         }
         error
     }
+
+    pub(super) fn collection_scroll_pending(&self, view: ViewId) -> bool {
+        self.collection
+            .cursors
+            .get(&view)
+            .is_some_and(|c| c.queued || c.model_scroll.is_some())
+            || self.host.collection(view).is_some_and(|s| s.pending)
+    }
     pub(super) fn refine_collections(&mut self) -> Option<String> {
         if self.collection.hold {
             return None;
@@ -888,12 +945,15 @@ impl<D: DataSource> Presenter<D> {
             let snapshot = &snapshot;
             let all = std::cell::OnceCell::new();
             let retained_pin = self.arrange_pin();
+            let tracks_end = self.tracks_scroll_end(view);
             let cursor = self.collection.cursors.get_mut(&view).unwrap();
             cursor.queued = false;
             let Some(key) = self.host.kernel().node(view).map(|n| n.key) else {
                 continue;
             };
+            let was_bound = cursor.key == Some(key);
             cursor.bind(key, snapshot.scroll_sequence);
+            let before_model = cursor.model_scroll;
             if self.host.route_visibility(view).0 {
                 cursor.model_scroll = None;
                 continue;
@@ -909,7 +969,7 @@ impl<D: DataSource> Presenter<D> {
                 continue;
             };
             let planned = cursor.sequence;
-            cursor.geometry((g.width, g.height, g.cross, g.origin));
+            cursor.geometry((g.width, g.height, g.cross, g.padding));
             let resized_from = (cursor.sequence != planned).then_some(planned);
             // Match the browser's post-layout scrollTop (scrollLeft on a
             // horizontal list) prop write. Consume each changed request once;
@@ -933,9 +993,11 @@ impl<D: DataSource> Presenter<D> {
                 })
                 .filter(|main| main.is_finite());
             let before = self.scroll.get(&view).copied();
+            let mut requested_scroll = None;
             if requested != *requested_was {
                 *requested_was = requested;
                 if let Some(main) = requested {
+                    requested_scroll = was_bound.then_some(Completion::Instant);
                     cursor.advance();
                     cursor.model_main(
                         key,
@@ -950,6 +1012,25 @@ impl<D: DataSource> Presenter<D> {
             // An authored request this pass is a jump: nothing planned before it lands.
             let resized_from = resized_from.filter(|_| cursor.sequence == planned + 1);
             if let Some(main) = cursor.correction(snapshot, resized_from) {
+                let follows_end = tracks_end
+                    && resized_from.is_none()
+                    && snapshot.correction.is_some_and(|c| c.from.is_none())
+                    && self
+                        .host
+                        .kernel()
+                        .node(view)
+                        .is_some_and(|n| n.props.bool(PropId::ScrollFollowEnd) == Some(true))
+                    && cursor.maximum.is_some_and(|(_, maximum)| {
+                        main + g.origin > maximum as f64
+                            && main_of(axis, before.unwrap_or_default()) >= maximum - 1.
+                    });
+                if snapshot.seeking || follows_end {
+                    requested_scroll.get_or_insert(Completion::Collection);
+                }
+                if follows_end {
+                    cursor.maximum = Some((0., g.max));
+                }
+                let was = self.scroll.get(&view).copied().unwrap_or_default();
                 cursor.model_main(
                     key,
                     axis,
@@ -957,7 +1038,16 @@ impl<D: DataSource> Presenter<D> {
                     self.display.attached(),
                     self.scroll.entry(view).or_default(),
                 );
+                // The content stays where it shows: a shell that scrolls
+                // this list itself goes on from where it was (D7.3).
+                let now = self.scroll.get(&view).copied().unwrap_or_default();
+                self.reader.rebased(view, was, now);
                 self.dirty = true;
+            }
+            // Opening placement and measurement corrections are not a follow.
+            // Remember the end only once this list has finished opening.
+            if tracks_end && !snapshot.pending && snapshot.correction.is_none() {
+                cursor.maximum = Some((0., g.max));
             }
             if self.scroll.get(&view).copied() != before {
                 moved.push((view, key));
@@ -984,6 +1074,7 @@ impl<D: DataSource> Presenter<D> {
                 port_main: g.main(),
                 port_cross: g.port_cross(),
                 cross: g.cross,
+                padding: g.padding,
                 measurements: snapshot
                     .rows
                     .iter()
@@ -1016,13 +1107,20 @@ impl<D: DataSource> Presenter<D> {
                         == Some(view)
                 }),
             };
-            // Unchanged facts and padding are news only to a list a slice left
-            // pending.
-            let sent = (feedback.clone(), g.padding);
-            if cursor.sent.as_ref() == Some(&sent) && !snapshot.pending {
+            // Unchanged facts, the padding among them (LLP 1010 §6.9), are
+            // news only to a list a slice left pending.
+            let unchanged = cursor.sent.as_ref() == Some(&feedback) && !snapshot.pending;
+            if !unchanged {
+                cursor.sent = Some(feedback.clone());
+            }
+            if let Some(completion) = requested_scroll {
+                self.scroll_end_requested(view, before.unwrap_or_default(), completion);
+            } else if tracks_end {
+                self.scroll_end_retargeted(view, before_model);
+            }
+            if unchanged {
                 continue;
             }
-            cursor.sent = Some(sent);
             let velocity = (self.collection.velocity)
                 .filter(|(v, _)| *v == view)
                 .map_or(0.0, |(_, v)| v);
@@ -1056,6 +1154,7 @@ impl<D: DataSource> Presenter<D> {
         for &(view, key) in &moved {
             self.collection.scroll_event(view, key);
         }
+        self.finish_collection_scroll_ends();
         if self.collection.pending() || !moved.is_empty() {
             self.executor.notify();
             self.dirty = true;
@@ -1109,15 +1208,15 @@ mod tests {
             sequence: 2,
             ..Cursor::default()
         };
-        cursor.geometry((200., 300., 180., 10.));
-        cursor.geometry((190., 300., 170., 10.));
+        cursor.geometry((200., 300., 180., [10., 0.]));
+        cursor.geometry((190., 300., 170., [10., 0.]));
         assert_eq!(cursor.correction(&s, None), None);
         let mut cursor = Cursor {
             sequence: 2,
             ..Cursor::default()
         };
-        cursor.geometry((200., 300., 180., 10.));
-        cursor.geometry((200., 300., 180., 20.));
+        cursor.geometry((200., 300., 180., [10., 0.]));
+        cursor.geometry((200., 300., 180., [20., 0.]));
         assert_eq!(
             cursor.correction(&s, None),
             None,
@@ -1129,8 +1228,8 @@ mod tests {
             sequence: 2,
             ..Cursor::default()
         };
-        cursor.geometry((200., 300., 180., 10.));
-        cursor.geometry((200., 348., 180., 10.));
+        cursor.geometry((200., 300., 180., [10., 0.]));
+        cursor.geometry((200., 348., 180., [10., 0.]));
         assert_eq!(cursor.correction(&s, Some(2)), Some(200.));
         let mut cursor = Cursor {
             sequence: u64::MAX,
@@ -1166,7 +1265,7 @@ mod tests {
                 Ok(exact_runner::Value::list(vec![]))
             }
         }
-        let plan = contract::compile("component App\n  resource rows = rows() as shape list<number>\n  view\n    column width=200\n      list virtualized=true width=\"50%\" height=100 padding-left=\"10%\" padding-right=\"10%\" box-sizing=\"border-box\"\n        each x in rows key=x\n          text `${x}`\n").unwrap();
+        let plan = contract::compile("component App\n  resource rows = rows() as shape number[]\n  view\n    column width=200\n      list virtualized=true width=\"50%\" height=100 padding-left=\"10%\" padding-right=\"10%\" box-sizing=\"border-box\"\n        for x in rows key=x\n          text `${x}`\n").unwrap();
         let (host, error) = Host::boot(
             &plan.encode(),
             Empty,
@@ -1180,5 +1279,61 @@ mod tests {
         assert_eq!(facts.width, 100.);
         assert_eq!(facts.cross, 60.);
         assert_eq!(facts.origin, 0.);
+    }
+
+    /// A padding whose `calc()` resolves below zero is zero, CSS's range for
+    /// padding (LLP 1010 §6.9): the origin, the range and the reported
+    /// padding all take 0, on either axis, and the runner accepts the report.
+    #[test]
+    fn a_negative_resolved_padding_is_zero_on_either_axis() {
+        struct Rows;
+        impl DataSource for Rows {
+            fn query(
+                &mut self,
+                _: &str,
+                _: &[exact_runner::Value],
+            ) -> Result<exact_runner::Value, exact_runner::DataError> {
+                Ok(exact_runner::Value::list(
+                    (0..50)
+                        .map(|i| exact_runner::Value::Number(i as f64))
+                        .collect(),
+                ))
+            }
+        }
+        let below = "\"calc(env(safe-area-inset-bottom) - 12px)\"";
+        for list in [
+            format!("list virtualized=true width=200 height=100 overflow-x=\"hidden\" padding-top={below} padding-bottom={below}"),
+            format!("list virtualized=true display=\"flex\" width=200 height=100 overflow-x=\"scroll\" overflow-y=\"hidden\" padding-left={below} padding-right={below}"),
+        ] {
+            let source = format!("component App\n  resource rows = rows() as shape number[]\n  view\n    column width=200\n      {list}\n        for x in rows key=x\n          text `${{x}}` width=40 height=20\n");
+            let plan = contract::compile(&source).unwrap();
+            let (mut host, error) = Host::boot(
+                &plan.encode(),
+                Rows,
+                Box::new(exact_kernel::MonospaceMeasurer::default()),
+                400.,
+                500.,
+            )
+            .unwrap();
+            assert!(error.is_none());
+            let snapshot = host.collections()[0].clone();
+            let facts = geometry(host.kernel(), &snapshot, 400.).unwrap();
+            assert_eq!((facts.origin, facts.padding), (0., [0.; 2]), "{list}");
+            let feedback = CollectionFeedback {
+                view: snapshot.view,
+                revision: snapshot.revision,
+                scroll_sequence: 1,
+                offset: 0.,
+                port_main: facts.main(),
+                port_cross: facts.port_cross(),
+                cross: facts.cross,
+                padding: facts.padding,
+                measurements: vec![],
+                focus_view: None,
+                interaction_view: None,
+            };
+            host.collection_feedback_filled(feedback, CollectionFill::default())
+                .unwrap_or_else(|e| panic!("{list}: {e:?}"));
+        }
     }
 }

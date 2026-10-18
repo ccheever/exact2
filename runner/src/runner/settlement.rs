@@ -15,6 +15,7 @@ pub(super) struct Settled {
     pending_res: Vec<bool>,
     failed_res: Vec<Option<crate::failure::Failure>>,
     pending_mut: Vec<bool>,
+    failed_mut: Vec<Option<crate::failure::Failure>>,
     store_readers: Vec<bool>,
     resource_args: Vec<Vec<Value>>,
 }
@@ -93,8 +94,21 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// A store reader whose build-time answer, the bake's empty store's,
+    /// is passed over for its declared placeholder: before its source is
+    /// ready, at a launch whose store held granted secrets the bake never
+    /// saw (LLP 1027 D4, approved 2026-10-10). Without an `else` it stands.
+    fn secrets_unseen(&self, i: usize, row: &ResourcesRow, resources: &[Option<Held>]) -> bool {
+        !self.data.ready()
+            && self.store_readers[i]
+            && row.placeholder.map_or(row.placeholder_value.len > 0, |p| {
+                resources[p.0 as usize].is_some()
+            })
+            && self.store.opened_with_secrets()
+    }
+
     /// Whether resource `i` is another's `else` row (LLP 1048.003 D6).
-    fn is_placeholder_row(&self, i: usize) -> bool {
+    pub(super) fn is_placeholder_row(&self, i: usize) -> bool {
         self.plan
             .resources
             .iter()
@@ -188,7 +202,10 @@ impl<D: DataSource> Runner<D> {
                     && base.failed_res[r]
                         == crate::failure::state(&self.failed_args, &self.failed_why, r)
             }
-            Input::PendingMutation(m) => base.pending_mut[m] == self.pending_mut[m],
+            Input::PendingMutation(m) => {
+                base.pending_mut[m] == self.pending_mut[m]
+                    && base.failed_mut[m] == self.failed_mut[m]
+            }
             Input::Clock => base.now_ms.to_bits() == self.now_ms.to_bits(),
         })
     }
@@ -280,6 +297,7 @@ impl<D: DataSource> Runner<D> {
                             failed_resources: &self.failed_args,
                             failed_why: &self.failed_why,
                             pending_mutations: &self.pending_mut,
+                            failed_mutations: &self.failed_mut,
                             store_dependent_derives: &derive_store_dependent,
                             store_dependent_resources: &self.store_readers,
                         };
@@ -353,6 +371,7 @@ impl<D: DataSource> Runner<D> {
                                 failed_resources: &self.failed_args,
                                 failed_why: &self.failed_why,
                                 pending_mutations: &self.pending_mut,
+                                failed_mutations: &self.failed_mut,
                                 store_dependent_derives: &derive_store_dependent,
                                 store_dependent_resources: &self.store_readers,
                             };
@@ -415,11 +434,28 @@ impl<D: DataSource> Runner<D> {
                     // Consume the mark on mismatch or activation even when
                     // the old value stands during an asynchronous request.
                     // `states` is tentative, so a refused pass restores both.
-                    let kept_seed = states[i].as_ref().is_some_and(|s| {
-                        s.kept_seed
-                            && !self.data.ready()
-                            && s.args == args[..row.args.len as usize - usize::from(row.context)]
-                    });
+                    // A seed whose identity reads a resource still on its
+                    // fallback is not this launch's answer yet: it is
+                    // neither admitted nor reused (LLP 1027.005 D3, 2026-10-10).
+                    let unknown = states[i].as_ref().is_some_and(|s| s.kept_seed)
+                        && !self.data.ready()
+                        && self.identity_unknown(i, &states);
+                    let kept_seed = !unknown
+                        && states[i].as_ref().is_some_and(|s| {
+                            s.kept_seed
+                                && !self.data.ready()
+                                && s.args
+                                    == args[..row.args.len as usize - usize::from(row.context)]
+                        });
+                    if let Some(state) = states[i].as_mut().filter(|s| s.kept_seed && !kept_seed) {
+                        // Refused before readiness, not consumed by it: say so.
+                        if !self.data.ready() {
+                            let identity = row.args.len as usize - usize::from(row.context);
+                            let kept = state.args.clone();
+                            let now = (!unknown).then(|| &args[..identity]);
+                            super::kept::refuse(&mut self.keeping, &self.plan, i, &kept, now);
+                        }
+                    }
                     if let Some(state) = &mut states[i] {
                         state.kept_seed = kept_seed;
                     }
@@ -430,21 +466,25 @@ impl<D: DataSource> Runner<D> {
                     // or carried delivery answer (LLP 1030 D7).
                     let reuse = states[i]
                         .as_ref()
+                        .filter(|_| !unknown)
                         .filter(|s| {
                             kept_seed
                                 || failed
                                 || (asked_args.unwrap_or(&s.args) == &args
-                                && self.plan.str(row.source) != crate::delivery::SOURCE
-                                && self.plan.str(row.source) != crate::viewport::SOURCE
-                                && self.plan.str(row.source) != crate::time::SOURCE
-                                && self.plan.str(row.source) != crate::page::SOURCE
-                                && self.plan.str(row.source) != crate::surface_record::SOURCE
+                                && !exact_plan::runner_owned_source(self.plan.str(row.source))
                                 && !forced
                                 && (!self.store_readers[i]
                                     || s.store_revision == self.store.revision())
                                 // @ref LLP 1054.000.002 D4 — a placeholder stands
                                 // in only while its answer is on the way.
                                 && (!s.placeholder || pending_res[i] || awaiting[i]))
+                        })
+                        // A compiled answer a launch holding secrets passes
+                        // over (LLP 1027 D4) is never reused, failed or not,
+                        // even one that came to read the store at equal
+                        // arguments.
+                        .filter(|s| {
+                            !(s.value.is_compiled() && self.secrets_unseen(i, &row, &resources))
                         })
                         .map(|s| s.value.clone());
                     let mut value_args = if reuse.is_some() {
@@ -476,12 +516,9 @@ impl<D: DataSource> Runner<D> {
                     let value = match reuse {
                         Some(v) => v,
                         None if (boot || !self.data.ready())
-                            && self.plan.str(row.source) != crate::delivery::SOURCE
-                            && self.plan.str(row.source) != crate::viewport::SOURCE
-                            && self.plan.str(row.source) != crate::time::SOURCE
-                            && self.plan.str(row.source) != crate::page::SOURCE
-                            && self.plan.str(row.source) != crate::surface_record::SOURCE
+                            && !exact_plan::runner_owned_source(self.plan.str(row.source))
                             && row.initial.len > 0
+                            && !self.secrets_unseen(i, &row, &resources)
                             && (!self.data.ready()
                                 || (Value::from_bytes(self.plan.bytes(row.initial_args))
                                     .map_err(RunnerError::Plan)?
@@ -517,8 +554,10 @@ impl<D: DataSource> Runner<D> {
                             )
                         }
                         // @ref LLP 1048.003 D6 — the source can't answer yet
-                        // (its module isn't loaded) and nothing is compiled:
-                        // the placeholder shows, pending; `data_ready` asks.
+                        // (its module isn't loaded) and nothing is compiled,
+                        // or what is was passed over (`secrets_unseen`, LLP
+                        // 1027 D4): the placeholder shows, pending;
+                        // `data_ready` asks.
                         None if !self.data.ready()
                             && !exact_plan::runner_owned_source(self.plan.str(row.source))
                             && self.placeholder(i, &row, &resources).is_some() =>
@@ -638,6 +677,38 @@ impl<D: DataSource> Runner<D> {
                                     origin = 0;
                                     Held::new(value)
                                 }
+                                // @ref LLP 1027.000 D3 — a TypeScript answer's
+                                // failure belongs to its resource, not its input.
+                                Err(RunnerError::Data {
+                                    resource,
+                                    error: DataError::Failed(code, why, reason),
+                                }) => {
+                                    let kept = if let Some(state) = &states[i] {
+                                        placeholder = state.placeholder;
+                                        value_args = state.args.clone();
+                                        answered_for = state.answered_for.clone();
+                                        Some(state.value.clone())
+                                    } else {
+                                        placeholder = true;
+                                        self.placeholder(i, &row, &resources).map(Held::new)
+                                    };
+                                    let Some(kept) = kept else {
+                                        return Err(RunnerError::Data {
+                                            resource,
+                                            error: DataError::Failed(code, why, reason),
+                                        });
+                                    };
+                                    effects[i] = RequestEffect::Answered;
+                                    pending_res[i] = false;
+                                    self.log(super::lines::failed_now(&resource, &why));
+                                    self.failed_args[i] = Some(args.clone());
+                                    self.failed_why[i] = Some(crate::failure::Failure {
+                                        code,
+                                        message: why,
+                                        reason,
+                                    });
+                                    kept
+                                }
                                 Err(error) => return Err(error),
                                 Ok(Answer::Now(v)) => {
                                     if pending_res[i] || self.streaming(i) {
@@ -703,9 +774,19 @@ impl<D: DataSource> Runner<D> {
                         if !checked {
                             self.check_shape(i, value.get(&self.plan))?;
                         }
-                        // A fresh answer equal to the last keeps its object.
+                        // A fresh answer equal to the last keeps its object,
+                        // unless that would lose the compiled mark (a refused
+                        // kept seed equal to the compiled fallback is still a
+                        // fallback to an identity that reads it, kept.rs), or
+                        // give a placeholder one (`secrets_unseen`).
                         match &states[i] {
-                            Some(s) if Held::equivalent(&s.value, &value) => s.value.clone(),
+                            Some(s)
+                                if Held::equivalent(&s.value, &value)
+                                    && (s.value.is_compiled() || !value.is_compiled())
+                                    && !(placeholder && s.value.is_compiled()) =>
+                            {
+                                s.value.clone()
+                            }
                             _ => value,
                         }
                     };
@@ -763,6 +844,7 @@ impl<D: DataSource> Runner<D> {
                 pending_res,
                 failed_res: crate::failure::states(&self.failed_args, &self.failed_why),
                 pending_mut: self.pending_mut.clone(),
+                failed_mut: self.failed_mut.clone(),
                 store_readers,
                 resource_args,
             });
@@ -856,7 +938,12 @@ pub(super) fn zero(plan: &exact_plan::Plan, ty: exact_plan::TypesId) -> Option<V
     let row = plan.types.get(ty.0 as usize)?;
     Some(match row.kind {
         TypeKind::Number => Value::Number(0.0),
-        TypeKind::String => Value::str(""),
+        TypeKind::String => Value::str(
+            row.fields
+                .iter()
+                .next()
+                .map_or("", |f| plan.str(plan.field(f).name)),
+        ),
         TypeKind::Bool => Value::Bool(false),
         TypeKind::Unit => Value::Unit,
         TypeKind::Option => Value::NONE,

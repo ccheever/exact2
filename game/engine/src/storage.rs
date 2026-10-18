@@ -42,6 +42,7 @@ enum Lease<'a> {
     },
 }
 impl Drop for Lease<'_> {
+    #[inline]
     fn drop(&mut self) {
         match *self {
             Self::Hold { holds, slot } => holds.release(slot),
@@ -215,6 +216,12 @@ pub(crate) trait Erased {
     fn remove(&mut self, index: usize);
     /// Erase every row.
     fn clear(&mut self);
+    fn clear_presentation(&mut self) {
+        self.clear();
+    }
+    fn retained_bytes(&self) -> usize {
+        0
+    }
     /// The save representation: columnar rows, or a resource's value.
     fn write_save(&self, w: &mut dyn Writer);
     fn read_save(
@@ -247,6 +254,12 @@ impl<C: Data> Erased for Storage<C> {
     }
     fn remove(&mut self, index: usize) {
         self.raw.erase(index);
+    }
+    fn retained_bytes(&self) -> usize {
+        self.raw.retained_bytes()
+    }
+    fn clear_presentation(&mut self) {
+        self.raw.clear_presentation();
     }
     fn clear(&mut self) {
         self.raw.erase_all();

@@ -1,8 +1,9 @@
 //! The parsed document as the plan's own value, in the shapes both readers
 //! declare. One conversion, so `apps/markdown` and `apps/llp` cannot drift
-//! into two documents that render differently. @ref LLP 1033
+//! into two documents that render differently; a table is the one place
+//! they still differ ([`into_blocks_with_tables`]). @ref LLP 1033
 
-use crate::{Block, Document, Run};
+use crate::{Block, Document, Kind, Run};
 use exact_plan::{InlineStr, Str, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -66,13 +67,12 @@ impl Values {
         )
     }
 
-    fn cells(&mut self, list: &[Vec<Run>]) -> Value {
-        if list.is_empty() {
+    fn cells<'a>(&mut self, list: impl ExactSizeIterator<Item = &'a [Run]>) -> Value {
+        if list.len() == 0 {
             return self.empty_list.clone();
         }
         Value::list(
-            list.iter()
-                .enumerate()
+            list.enumerate()
                 .map(|(i, c)| Value::record(vec![self.index(i), self.runs(c)]))
                 .collect(),
         )
@@ -88,7 +88,27 @@ impl Values {
             self.string(&b.href),
             Value::Bool(b.header),
             self.runs(&b.runs),
-            self.cells(&b.cells),
+            self.cells(b.cells.iter().map(Vec::as_slice)),
+        ])
+    }
+
+    /// One table's rows as one block (see [`into_blocks_with_tables`]).
+    fn table(&mut self, index: usize, rows: &[Block]) -> Value {
+        let columns = rows[0].cells.len();
+        let cells: Vec<&[Run]> = rows
+            .iter()
+            .flat_map(|row| (0..columns).map(|c| row.cells.get(c).map_or(&[][..], Vec::as_slice)))
+            .collect();
+        Value::record(vec![
+            self.index(index),
+            self.string("table"),
+            Value::Number(columns as f64),
+            self.string(""),
+            self.string(""),
+            self.string(""),
+            Value::Bool(false),
+            self.empty_list.clone(),
+            self.cells(cells.into_iter()),
         ])
     }
 }
@@ -105,7 +125,7 @@ pub fn block(index: usize, b: &Block) -> Value {
     Values::new().block(index, b)
 }
 
-/// The `list<Block>` a document's `blocks` field takes. The top-level
+/// The `Block[]` a document's `blocks` field takes. The top-level
 /// document record is each app's own — `apps/markdown` carries the folder
 /// beside the file, `apps/llp` the document's place in the index — and this
 /// is the part they must not write twice.
@@ -120,15 +140,36 @@ pub fn blocks(doc: &Document) -> Value {
     )
 }
 
-/// Convert an owned document, releasing each parsed block after conversion so
-/// its allocations can serve later values instead of retaining both full forms.
-pub fn into_blocks(doc: Document) -> Value {
+/// `apps/markdown`'s `Block[]`, from an owned document: [`blocks`], except
+/// that each pipe table is one block, which the reader draws as one grid so
+/// that every row shares its columns, as a browser's table does. That block
+/// is `kind` `"table"`, `depth` its column count (its header row's cells),
+/// and `cells` the header's cells and then each row's, a row padded with
+/// empty cells or cut to the header's count, as GitHub Flavored Markdown
+/// says (<https://github.github.com/gfm/#tables-extension->). A block's id
+/// is its place in this list. `apps/llp` still draws a table row by row.
+///
+/// Each parsed block is released once it is converted (a table's rows once
+/// the table ends), so its allocations can serve later values instead of
+/// retaining both full forms.
+pub fn into_blocks_with_tables(doc: Document) -> Value {
     let mut values = Values::new();
-    // An in-place IntoIter collect can keep the much larger Vec<Block>
-    // allocation as the Value list's spare capacity. Allocate its exact size.
     let mut blocks = Vec::with_capacity(doc.blocks.len());
-    for (i, block) in doc.blocks.into_iter().enumerate() {
-        blocks.push(values.block(i, &block));
+    let mut rows: Vec<Block> = Vec::new();
+    for block in doc.blocks {
+        // A header row starts a table, also right after another table.
+        if !rows.is_empty() && (block.kind != Kind::TableRow || block.header) {
+            blocks.push(values.table(blocks.len(), &rows));
+            rows.clear();
+        }
+        if block.kind == Kind::TableRow {
+            rows.push(block);
+        } else {
+            blocks.push(values.block(blocks.len(), &block));
+        }
+    }
+    if !rows.is_empty() {
+        blocks.push(values.table(blocks.len(), &rows));
     }
     Value::list(blocks)
 }

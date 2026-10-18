@@ -103,7 +103,7 @@ pub fn prepare(case: &Case, index: usize) -> Result<Prepared, Verdict> {
         None => contract::lean::lean(&case.source, &name),
     }
     .map_err(|e| Verdict::Emit(e.to_string()))?;
-    let oracle = oracle::Oracle::new(&plan, seed_of(&case.name));
+    let oracle = oracle::Oracle::for_case(&plan, case);
     let (rust, data) = observe::run(plan, oracle, &case.events);
     let oracle = data.map_or_else(String::new, |o| o.text());
     Ok(Prepared {
@@ -395,15 +395,59 @@ pub fn corpus(dirs: &[PathBuf]) -> Result<(Vec<Scripted>, Vec<String>), String> 
             errors.push(e);
             Vec::new()
         });
-        if cases.is_empty() {
+        let cases = if cases.is_empty() {
             // A program without tests is explored: every element with a
             // `testId` the boot shows is tapped, twice, then the clock runs.
-            out.push(explore(&name, &src, Some(&f)));
+            vec![explore(&name, &src, Some(&f))]
         } else {
-            out.extend(cases);
-        }
+            cases
+        };
+        out.extend(prerendered_variants(stored_variants(cases)));
     }
     Ok((out, errors))
+}
+
+/// `cases`, each followed, when its program persists a state, by the same
+/// events on a device store the oracle fills (LLP 1116 D5): its `expect`s
+/// are the empty store's, so the variant only compares the two sides.
+pub fn stored_variants(cases: Vec<Scripted>) -> Vec<Scripted> {
+    let mut out = Vec::new();
+    for s in cases {
+        let persists = compile(&s.case).is_ok_and(|p| p.slots.iter().any(|r| r.persist));
+        let variant = persists.then(|| Scripted {
+            case: Case {
+                name: format!("{} (stored)", s.case.name),
+                stored: true,
+                ..s.case.clone()
+            },
+            items: s.case.events.iter().cloned().map(Item::Event).collect(),
+        });
+        out.push(s);
+        out.extend(variant);
+    }
+    out
+}
+
+/// `cases`, each followed, when its program has a tab panel, by the same
+/// events on a host that builds every panel from boot on (a prerendered
+/// page, LLP 1075.003 §9.14): its `expect`s are for panels that wait, so
+/// the variant only compares the two sides.
+pub fn prerendered_variants(cases: Vec<Scripted>) -> Vec<Scripted> {
+    let mut out = Vec::new();
+    for s in cases {
+        let panels = s.case.source.contains("\"tabpanel\"");
+        let variant = (panels && !s.case.prerendered).then(|| Scripted {
+            case: Case {
+                name: format!("{} (prerendered)", s.case.name),
+                prerendered: true,
+                ..s.case.clone()
+            },
+            items: s.case.events.iter().cloned().map(Item::Event).collect(),
+        });
+        out.push(s);
+        out.extend(variant);
+    }
+    out
 }
 
 /// A script for a program that has none: tap each `testId` the runner
@@ -415,6 +459,8 @@ pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
         source: source.to_string(),
         events: Vec::new(),
         path: path.map(Path::to_path_buf),
+        stored: false,
+        prerendered: false,
     };
     if let Ok(plan) = compile(&probe) {
         let oracle = oracle::Oracle::new(&plan, seed_of(name));

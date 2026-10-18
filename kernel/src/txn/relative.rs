@@ -2,7 +2,9 @@
 //! root font size the host set since the last commit reaches the nodes that
 //! inherit it, and every row written in `rem`/`em` is given the pixels it now
 //! means — parents before children, so an `em` font size builds on its
-//! parent's resolved one, as CSS computes it.
+//! parent's resolved one, as CSS computes it. A hairline row (LLP 1115.000
+//! D10.3) is resolved with them, against the display's scale as the host
+//! last set it.
 use super::*;
 use crate::generated::StyleProps;
 use crate::style::relative::MEDIUM;
@@ -28,6 +30,13 @@ pub(crate) fn resolve(
             let rows = StyleMask::of(StyleId::FontSize);
             let slots: Vec<u32> = arena.iter_live().collect();
             for slot in slots {
+                // Tab metrics use rem even when an authored local font stops
+                // inheritance. Refresh their minimum and cached host offers.
+                if arena.neutral_tab_root(slot).is_some() || arena.neutral_alert(slot) {
+                    control_env_changed(arena, layout, slot);
+                    receipt.layout_invalidated = true;
+                    touched.push(arena.key(slot));
+                }
                 if arena.inherited_source(slot, StyleId::FontSize).is_none()
                     && !arena
                         .control_text_start(slot)
@@ -39,9 +48,28 @@ pub(crate) fn resolve(
             }
         }
     }
+    if let Some(scale) = arena.display_scale_next.take() {
+        arena.display_scale = Some(scale);
+    }
+    // Bold Text (LLP 1115.000 D12.3): every text is measured and drawn again
+    // at the weight it now means.
+    if let Some(on) = arena
+        .bold_text_next
+        .take()
+        .filter(|on| *on != arena.bold_text)
+    {
+        arena.bold_text = on;
+        let rows = StyleMask::of(StyleId::FontWeight);
+        let slots: Vec<u32> = arena.iter_live().collect();
+        for slot in slots {
+            inherited_changed(arena, layout, slot, rows, receipt);
+            touched.push(arena.key(slot));
+        }
+    }
     if arena.relative_slots.is_empty() {
         return;
     }
+    let device = crate::style::relative::device_pixel(arena.display_scale.unwrap_or(1.0));
     let depth = |arena: &NodeArena, mut slot: u32| {
         let mut depth = 0u32;
         while let Some(parent) = arena.parent(slot) {
@@ -78,7 +106,7 @@ pub(crate) fn resolve(
             if id != StyleId::FontSize {
                 continue;
             }
-            let px = n * unit.basis(root, parent);
+            let px = n * unit.basis(root, parent, device);
             if next.set_resolved(id, px) {
                 changed.set(id);
             }
@@ -90,7 +118,7 @@ pub(crate) fn resolve(
             if id == StyleId::FontSize {
                 continue;
             }
-            let px = n * unit.basis(root, font);
+            let px = n * unit.basis(root, font, device);
             if next.set_resolved(id, px) {
                 changed.set(id);
             }

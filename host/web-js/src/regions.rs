@@ -36,7 +36,14 @@ impl Em<'_> {
                     };
                     // The arm's own slots, started from their initializers
                     // each time it shows, dropped when it hides (LLP 1017 P4c).
-                    let decl = self.owned(*arm, &format!("$a{arm}"), &mut sc)?;
+                    // A tab panel's one arm (LLP 1075.003 §9.14): the dev
+                    // loop carries its state by the panel's `id`, as the runner does.
+                    let panel = self.dev_reload
+                        && row
+                            .parent
+                            .is_some_and(|p| self.panels.binary_search(&p).is_ok());
+                    let carry = panel.then(|| format!("{parent}.getAttribute(\"id\")"));
+                    let decl = self.owned(*arm, &format!("$a{arm}"), &mut sc, carry.as_deref())?;
                     self.out.push_str(&decl);
                     self.children(self.sites.of_arm(*arm), "p", &sc)?;
                     let built = std::mem::replace(&mut self.out, saved);
@@ -68,8 +75,15 @@ impl Em<'_> {
     /// The declaration of arm `arm`'s own slots, as `name` (the enclosing
     /// instances' slots spread in), each a signal started from its
     /// initializer in `scope`, which then reads them through `name`; empty
-    /// when it owns none.
-    fn owned(&mut self, arm: u32, name: &str, scope: &mut Scope) -> Result<String, String> {
+    /// when it owns none. `carry`, the dev loop's for a tab panel's arm: an
+    /// expression naming the panel, by which each is carried across a reload.
+    fn owned(
+        &mut self,
+        arm: u32,
+        name: &str,
+        scope: &mut Scope,
+        carry: Option<&str>,
+    ) -> Result<String, String> {
         let plan = self.plan;
         let mut own = Vec::new();
         for (k, slot) in plan.slots.iter().enumerate() {
@@ -78,8 +92,16 @@ impl Em<'_> {
                     .map_err(|x| format!("child state {}: {x}", plan.str(slot.name)))?;
                 // Typed as a root slot is: its initializer and every write
                 // conform, or the runner refuses (SlotType).
-                let sig = self.uses.rt("sig");
                 let ty = serde_json::to_string(&type_code(plan, slot.ty)).unwrap();
+                if let Some(panel) = carry {
+                    let quoted = serde_json::to_string(plan.str(slot.name)).unwrap();
+                    let declared = type_json(plan, slot.ty);
+                    own.push(format!(
+                        "{k}:$devSig({quoted}+\"@\"+{panel},{init},{ty},{declared})"
+                    ));
+                    continue;
+                }
+                let sig = self.uses.rt("sig");
                 let name = string_name(plan, slot);
                 own.push(format!("{k}:{sig}({init},{ty}{name})"));
             }
@@ -95,7 +117,7 @@ impl Em<'_> {
         Ok(decl)
     }
 
-    /// An `each`, or a virtualized list's rows when `list` carries the
+    /// A `for`, or a virtualized list's rows when `list` carries the
     /// list's options (list.js `vl`).
     pub(super) fn each(
         &mut self,
@@ -121,7 +143,7 @@ impl Em<'_> {
             .map_err(|x| format!("region {r} key: {x}"))?;
         // The row's own slots, started from their initializers when
         // the row is created and kept with its key (LLP 1017 P4c).
-        let rows_decl = self.owned(arms[0], &format!("$r{r}"), &mut inner)?;
+        let rows_decl = self.owned(arms[0], &format!("$r{r}"), &mut inner, None)?;
         let saved = std::mem::take(&mut self.out);
         self.out.push_str(&rows_decl);
         self.children(self.sites.of_arm(arms[0]), "p", &inner)?;
@@ -139,6 +161,13 @@ impl Em<'_> {
                     ",1"
                 } else {
                     ""
+                };
+                // A development build names the region, for inspect mode's
+                // instance paths (rt.js `Eaches`, LLP 1122 T2b).
+                let pure = match (self.dev_reload, pure) {
+                    (true, "") => format!(",0,{r}"),
+                    (true, p) => format!("{p},{r}"),
+                    (false, p) => p.to_string(),
                 };
                 let _ = write!(
                     self.out,
@@ -163,17 +192,27 @@ pub(super) fn root_slot(
     let init = code::expression(plan, plan.code(r.init), top, uses)
         .map_err(|e| format!("slot {}: {e}", plan.str(r.name)))?;
     let ty = serde_json::to_string(&type_code(plan, r.ty)).unwrap();
+    // A persisted slot starts from the store's value where it fits, and is
+    // kept after each commit (LLP 1116 D5, persist.js).
+    let quoted = serde_json::to_string(plan.str(r.name)).unwrap();
+    let init = if r.persist {
+        format!("$stored({quoted},{init},{})", type_json(plan, r.ty))
+    } else {
+        init
+    };
     if dev_reload {
         let _ = write!(
             body,
-            "const s_{i}=$devSig({},{init},{ty},{});",
-            serde_json::to_string(plan.str(r.name)).unwrap(),
+            "const s_{i}=$devSig({quoted},{init},{ty},{});",
             type_json(plan, r.ty)
         );
     } else {
         let sig = uses.rt("sig");
         let name = string_name(plan, r);
         let _ = write!(body, "const s_{i}={sig}({init},{ty}{name});");
+    }
+    if r.persist {
+        let _ = write!(body, "$keep(s_{i},{quoted},{});", type_json(plan, r.ty));
     }
     Ok(())
 }

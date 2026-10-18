@@ -1,5 +1,5 @@
 # The game engine add-on (game/README.md; LLP 1046 §5): its own workspace, absent
-# from the root `members`, so exact2's five checks never compile it. It consumes
+# from the root `members`, so exact2's six checks never compile it. It consumes
 # exact2 by path, as an app outside the repository does.
 [workspace]
 members = ["engine", "derive", "bake", "render", "physics", "audio", "app"]
@@ -51,6 +51,10 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.bcdec_rs]
 opt-level = 3
+# Build scripts and proc macros load as dylibs, which Xcode 27's strip leaves
+# unloadable ("mis-aligned LINKEDIT string pool"), as in ../Cargo.toml.
+[profile.release.build-override]
+strip = false
 
 [profile.web]
 inherits = "release"

@@ -66,6 +66,41 @@ fn expect_value_says_text_reads_a_controls_value() {
 }
 
 #[test]
+fn an_assertion_word_from_elsewhere_names_its_rewrite() {
+    let refused = |src: &str| contract::tests(&format!("test \"t\"\n  {src}\n")).unwrap_err();
+    let e = refused("expect tree lacks \"banner\"");
+    assert_eq!(e.id, "syntax-expected-step", "{e}");
+    assert!(
+        e.message
+            .contains("not `lacks`; for a node that is not there, write `expect tree missing"),
+        "{e}"
+    );
+    let e = refused("expect tree contains \"banner\"");
+    assert!(
+        e.message
+            .contains("not `contains`; it matches a testId only"),
+        "{e}"
+    );
+    for src in [
+        "expect text \"row\" contains \"UPS\"",
+        "expect text \"row\" != \"UPS\"",
+    ] {
+        let e = refused(src);
+        assert_eq!(e.id, "syntax-expected-step", "{e}");
+        assert!(
+            e.message
+                .starts_with("`expect text` compares the whole text with `==`"),
+            "{e}"
+        );
+        assert!(e.message.contains("descendants' joined"), "{e}");
+    }
+    assert!(contract::tests(
+        "test \"t\"\n  expect tree missing \"banner\"\n  expect text \"row\" == \"UPS\"\n"
+    )
+    .is_ok());
+}
+
+#[test]
 fn the_apps_tests_parse() {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -255,11 +290,16 @@ fn a_file_and_a_test_carry_their_launch_facts() {
         ("test \"t\"\n  epoch today\n", 2),
         ("test \"t\"\n  epoch \"now\"\n", 2),
         ("test \"t\"\n  seed 1.5\n", 2),
+        ("test \"t\"\n  seed 4294967296\n", 2),
         ("test \"t\"\n  time-zone UTC\n", 2),
     ] {
         let e = contract::tests(src).unwrap_err();
         assert_eq!(e.span.line, line, "{src}: {e}");
     }
+    // The launch seed is below 2^32 on every host (LLP 1116.005 D5).
+    let e = contract::tests("test \"t\"\n  seed 4294967296\n").unwrap_err();
+    assert!(e.message.contains("0 through 2^32 - 1"), "{e}");
+    assert!(contract::tests("test \"t\"\n  seed 4294967295\n").is_ok());
 }
 
 #[test]
@@ -320,6 +360,37 @@ fn a_test_waits_for_the_apps_data_unless_it_says_before_data() {
 }
 
 #[test]
+fn fresh_resets_the_backend_before_each_test_it_leads() {
+    // The author's ruling of 2026-10-12 (sb4 app farm): a launch line, at the
+    // top for every test or leading one, with an optional seed file.
+    let src = "fresh\n\ntest \"a\"\n  tap \"x\"\n\ntest \"b\"\n  fresh \"fixtures/seed.json\"\n  tap \"y\"\n";
+    let tests = contract::tests(src).unwrap();
+    assert!(matches!(&tests[0].steps[0], Step::Fresh { seed: None, .. }));
+    assert!(
+        matches!(&tests[1].steps[0], Step::Fresh { seed: Some(s), .. } if s == "fixtures/seed.json")
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.starts_with(
+            "[{\"name\":\"a\",\"steps\":[{\"op\":\"fresh\",\"seed\":null,\"line\":1},"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"name\":\"b\",\"steps\":[{\"op\":\"fresh\",\"seed\":\"fixtures/seed.json\",\"line\":7},"),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  tap \"a\"\n  fresh\n", 3),
+        ("test \"t\"\n  fresh 7\n", 2),
+        ("fresh\nfresh \"s.json\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
 fn a_test_resizes_the_window_mid_test() {
     // reader: repagination on resize is driven, not polled for by hand.
     let tests =
@@ -345,6 +416,18 @@ fn a_test_closes_the_window_as_its_close_button_does() {
     assert!(matches!(&tests[0].steps[1], Step::Close { .. }));
     let json = contract::tests_json(&tests);
     assert!(json.contains("{\"op\":\"close\",\"line\":3}"), "{json}");
+}
+
+#[test]
+fn a_test_goes_back_as_a_person_does() {
+    // LLP 1116.006 D4 (chat-rooms, round 8): a test that opened a detail
+    // returns to the list by the platform's Back, not the app's own control.
+    let tests = contract::tests("test \"t\"\n  tap \"row\"\n  back\n  clock settle\n").unwrap();
+    assert!(matches!(&tests[0].steps[1], Step::Back { .. }));
+    let json = contract::tests_json(&tests);
+    assert!(json.contains("{\"op\":\"back\",\"line\":3}"), "{json}");
+    let e = contract::tests("test \"t\"\n  back \"list\"\n").unwrap_err();
+    assert!(e.message.starts_with("`back` takes nothing"), "{e}");
 }
 
 #[test]
@@ -549,5 +632,140 @@ fn only_a_tests_leading_fail_fetch_overrides_the_files() {
     assert!(
         json.starts_with("[{\"name\":\"a\",\"steps\":[{\"op\":\"fail-fetch\",\"prefix\":\"https://api.test/\",\"times\":null,\"line\":1},{\"op\":\"tap\""),
         "{json}"
+    );
+}
+
+#[test]
+fn a_test_asserts_that_a_control_is_disabled_or_enabled() {
+    // LLP 1116.010 D3: `expect disabled "id"` and `expect enabled "id"`, each one testId.
+    let src = "test \"t\"\n  expect disabled \"send\"\n  tap \"arm\"\n  expect enabled \"send\"\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(
+        matches!(&steps[0], Step::ExpectDisabled { target, disabled: true, .. } if target == "send")
+    );
+    assert!(
+        matches!(&steps[2], Step::ExpectDisabled { target, disabled: false, .. } if target == "send")
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(
+            "{\"op\":\"expect-disabled\",\"target\":\"send\",\"disabled\":true,\"line\":2}"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"op\":\"expect-disabled\",\"target\":\"send\",\"disabled\":false,\"line\":4}"
+        ),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  expect disabled send\n", 2),
+        ("test \"t\"\n  expect enabled\n", 2),
+        ("test \"t\"\n  expect disabled \"a\" \"b\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
+fn a_test_writes_through_the_apps_server_as_another_person() {
+    // LLP 1116.006 D8: method, a path under the server the app calls (or a
+    // whole URL), a JSON body that may span lines, and the persona.
+    let src = "test \"t\"\n  request POST \"/polls/1/votes\" {\"option\": 2, \"note\": \"a \\\"b\\\"\", \"tags\": [true, null, -1.5], \"by\": {}} as bob\n  request DELETE \"/items/3\" as \"token-grace\"\n  request GET \"http://127.0.0.1:8787/health\"\n  request PATCH \"/items/1\" {\n    \"locked\": false\n  }\n  clock +5000\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(matches!(
+        &steps[0],
+        Step::Request { method, path, body: Some(body), persona: Some(who), .. }
+            if method == "POST" && path == "/polls/1/votes" && who == "bob"
+                && body == "{\"option\":2,\"note\":\"a \\\"b\\\"\",\"tags\":[true,null,-1.5],\"by\":{}}"
+    ));
+    assert!(
+        matches!(&steps[1], Step::Request { body: None, persona: Some(who), .. } if who == "token-grace")
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"POST\",\"path\":\"/polls/1/votes\",\"body\":\"{\\\"option\\\":2,"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"GET\",\"path\":\"http://127.0.0.1:8787/health\",\"body\":null,\"as\":null,\"line\":4}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"PATCH\",\"path\":\"/items/1\",\"body\":\"{\\\"locked\\\":false}\",\"as\":null,\"line\":5},{\"op\":\"clock\""),
+        "{json}"
+    );
+    // LLP 1116.010 D3: `expect 409` after the persona, the status a refusal answers; in the JSON only when written.
+    let src = "test \"t\"\n  request POST \"/items\" {\"title\": \"Bread\"} as bob expect 409\n  request DELETE \"/items/3\" expect 404\n  request GET \"/items\"\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(
+        matches!(&steps[0], Step::Request { persona: Some(who), status: Some(409), .. } if who == "bob")
+    );
+    assert!(matches!(
+        &steps[1],
+        Step::Request {
+            persona: None,
+            status: Some(404),
+            ..
+        }
+    ));
+    assert!(matches!(&steps[2], Step::Request { status: None, .. }));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("\"as\":\"bob\",\"expect\":409,\"line\":2}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("\"as\":null,\"expect\":404,\"line\":3}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"GET\",\"path\":\"/items\",\"body\":null,\"as\":null,\"line\":4}"),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  request POST \"/items\" expect\n", 2),
+        ("test \"t\"\n  request POST \"/items\" expect 99\n", 2),
+        ("test \"t\"\n  request POST \"/items\" expect 409.5\n", 2),
+        ("test \"t\"\n  request POST \"/items\" expect \"409\"\n", 2),
+        ("test \"t\"\n  request post \"/items\"\n", 2),
+        ("test \"t\"\n  request POST \"items\"\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {\"a\": 1,}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {a: 1}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {\"a\": x}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" as\n", 2),
+        ("test \"t\"\n  request POST \"/items\" \"body\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
+fn the_forms_guide_key_syntax_parses_as_a_key_step() {
+    let file = contract_syntax::parse(
+        r#"test "enter in a field"
+  type "draft" key "Enter"
+"#,
+    )
+    .unwrap();
+    assert_eq!(file.tests.len(), 1);
+    assert!(
+        matches!(&file.tests[0].steps[0], contract_syntax::Step::Key { target, key, .. } if target == "draft" && key == "Enter")
+    );
+}
+
+#[test]
+fn expected_refusal_keeps_the_mutation_and_source_line() {
+    let tests = contract::tests("test \"refused send\"\n  expect refusal \"saved\"\n").unwrap();
+    let json: serde_json::Value = serde_json::from_str(&contract::tests_json(&tests)).unwrap();
+    assert_eq!(
+        json[0]["steps"][0],
+        serde_json::json!({"op":"expect-refusal", "target":"saved", "line":2})
     );
 }

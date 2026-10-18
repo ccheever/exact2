@@ -197,7 +197,7 @@ fn module(cases: &[Ready]) -> String {
 /// Run one batch in one Lean process: the opcode lines, then each case's.
 fn run_batch(cases: &[Ready], dir: &Path, tag: &str) -> Result<(Vec<String>, Vec<Report>), String> {
     let text = module(cases);
-    let text = leanrun::memo(dir, &text, || leanrun::run_module(&text, dir, tag))?.join("\n");
+    let text = leanrun::run_module(&text, dir, tag)?.join("\n");
     let mut head = Vec::new();
     let mut reports: Vec<Report> = Vec::new();
     for line in text.lines() {

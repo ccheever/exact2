@@ -80,6 +80,33 @@ fn aria_pressed_refuses_a_word_aria_does_not_have_and_a_number() {
     }
 }
 
+#[test]
+fn aria_disabled_is_accepted_on_a_button_and_focusable_role() {
+    let mut r = boot(
+        "component App\n  state unavailable = false\n  action block\n    unavailable = true\n  view\n    column\n      button aria-disabled=\"true\" press=block testId=\"button\"\n        text \"Check for updates\"\n      box role=\"button\" tabindex=0 aria-disabled=unavailable press=block testId=\"role\"\n        text \"Other\"\n",
+    );
+    let disabled = |r: &Runner<NoData>, id: &str| {
+        r.kernel()
+            .node(view_of(r, id))
+            .unwrap()
+            .props
+            .bool(PropId::AccessibilityDisabled)
+    };
+    assert_eq!(disabled(&r, "button"), Some(true));
+    assert_eq!(disabled(&r, "role"), Some(false));
+    assert_eq!(
+        r.kernel()
+            .node(view_of(&r, "button"))
+            .unwrap()
+            .props
+            .bool(PropId::Disabled),
+        None
+    );
+    let button = view_of(&r, "button");
+    r.dispatch(button, Event::Press).unwrap();
+    assert_eq!(disabled(&r, "role"), Some(true));
+}
+
 /// `aria-modal` (LLP 1080.003) lowers to `accessibilityModal` and follows
 /// its state; Signal Clone's call screen and menus had no way to say it.
 #[test]
@@ -210,7 +237,7 @@ fn an_unknown_aria_name_lists_the_carried_ones() {
     };
     let sort = refused("aria-sort");
     assert!(
-        sort.contains("`aria-sort` is ARIA's, and Contract does not carry it yet; Contract carries aria-busy, aria-checked, "),
+        sort.contains("`aria-sort` is ARIA's, and Contract does not carry it yet; Contract carries aria-atomic, aria-busy, aria-checked, "),
         "{sort}"
     );
     assert!(sort.contains("aria-current"), "{sort}");
@@ -253,4 +280,35 @@ fn tabindex_and_labelledby_bind_by_their_html_names() {
         .unwrap_err()
         .to_string();
     assert!(e.contains("`tabIndex` is spelled `tabindex` here"), "{e}");
+}
+
+/// LLP 1116 D8: ARIA's range values on a drawn bar (`role="progressbar"`),
+/// numbers written as HTML writes them, a bound one following its state;
+/// `aria-valuetext` is the words a reader speaks instead.
+#[test]
+fn aria_range_values_are_carried_as_htmls_numbers() {
+    let mut r = boot(
+        "component App\n  state done = 30\n  action more\n    done = done + 12.5\n  view\n    column\n      box role=\"progressbar\" aria-valuenow=done aria-valuemin=0 aria-valuemax=100 aria-valuetext=`${done} of 100` aria-label=\"Download\" testId=\"bar\" width=200 height=8\n      box role=\"slider\" aria-valuenow=\"7\" testId=\"knob\"\n      button press=more testId=\"more\"\n        text \"More\"\n",
+    );
+    let values = |r: &Runner<NoData>, t: &str| {
+        [
+            PropId::AccessibilityValueNow,
+            PropId::AccessibilityValueMin,
+            PropId::AccessibilityValueMax,
+            PropId::AccessibilityValueText,
+        ]
+        .map(|id| prop(r, t, id))
+    };
+    let some = |s: &str| Some(s.to_string());
+    assert_eq!(
+        values(&r, "bar"),
+        [some("30"), some("0"), some("100"), some("30 of 100")]
+    );
+    assert_eq!(values(&r, "knob"), [some("7"), None, None, None]);
+    let more = view_of(&r, "more");
+    r.dispatch(more, Event::Press).unwrap();
+    assert_eq!(
+        values(&r, "bar"),
+        [some("42.5"), some("0"), some("100"), some("42.5 of 100")]
+    );
 }

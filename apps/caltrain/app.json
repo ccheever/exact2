@@ -19,6 +19,69 @@
     "name": "Caltrain",
     "origin": "https://caltrain.exact.invalid"
   },
+  "widgets": [
+    {
+      "kind": "next-trains",
+      "title": "Next Trains",
+      "description": "See the next departures from your station at a glance.",
+      "families": [
+        "systemSmall",
+        "systemMedium",
+        "accessoryRectangular"
+      ],
+      "component": "NextTrains",
+      "props": "NextTrainsProps",
+      "refresh": "nextTrains",
+      "preview": {
+        "station": "Mountain View",
+        "departures": [
+          {
+            "id": "mv-north-101",
+            "train": 101,
+            "service": "Local",
+            "headsign": "San Francisco",
+            "at": 1787915700000
+          },
+          {
+            "id": "mv-south-102",
+            "train": 102,
+            "service": "Local",
+            "headsign": "San Jose",
+            "at": 1787916300000
+          }
+        ]
+      }
+    }
+  ],
+  "live_activities": [
+    {
+      "kind": "departure",
+      "title": "Train Departure",
+      "description": "Follow your next train.",
+      "component": "DepartureActivity",
+      "state": "DepartureState",
+      "preview": {
+        "station": "Mountain View",
+        "headsign": "San Francisco",
+        "train": 101,
+        "at": 1787915700000,
+        "status": "On time"
+      }
+    },
+    {
+      "kind": "service-alert",
+      "title": "Service Alert",
+      "description": "Follow a service disruption.",
+      "component": "ServiceAlertActivity",
+      "state": "ServiceAlertState",
+      "push": true,
+      "preview": {
+        "title": "Service delay",
+        "message": "Northbound trains delayed by 10 minutes.",
+        "updatedAt": 1787915700000
+      }
+    }
+  ],
   "rust": { "module": { "package": "caltrain-logic" } },
   "host": {
     "ios": {

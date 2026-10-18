@@ -12,12 +12,21 @@ import XCTest
 final class NavigationTabsIOSTests: XCTestCase {
     private var window: UIWindow?
     private var sessions: [ExactSession] = []
+    private var animationsWereEnabled = true
+
+    override func setUp() {
+        super.setUp()
+        // Hostless UIKit does not finish an animated tab selection.
+        animationsWereEnabled = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+    }
 
     override func tearDown() {
         for session in sessions { session.destroy() }
         sessions = []
         window?.isHidden = true
         window = nil
+        UIView.setAnimationsEnabled(animationsWereEnabled)
         super.tearDown()
     }
 
@@ -29,7 +38,12 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertTrue(done(), what)
     }
 
-    private func fixture(_ label: String, module: Bool = false) throws -> ExactSession {
+    /// `wholeScreen`: the window is the device's screen, so it reaches the
+    /// home indicator and the status bar and has their safe area. The
+    /// default window is iPhone 17's size at the screen's top left, which on
+    /// a larger phone (iPhone Air, 18 Pro Max) ends above the indicator, and
+    /// UIKit gives it no bottom inset.
+    private func fixture(_ label: String, module: Bool = false, wholeScreen: Bool = false) throws -> ExactSession {
         let env = ProcessInfo.processInfo.environment
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")))
         let session = ExactApp.shared.makeSession(label: label)
@@ -39,13 +53,16 @@ final class NavigationTabsIOSTests: XCTestCase {
         // In the test host's scene when it has one: UIKit presents a sheet
         // only from a window a scene holds.
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
-        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let iPhone17 = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: iPhone17)
+        // The host may have no connected scene yet; the window's own has the screen.
+        let frame = wholeScreen ? (window.windowScene?.screen.bounds ?? iPhone17) : iPhone17
+        window.frame = frame
         window.rootViewController = host
         window.makeKeyAndVisible()
         host.view.addSubview(view)
         self.window = window
-        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        XCTAssertNil(session.boot(plan: plan, size: frame.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         if module {
@@ -63,10 +80,277 @@ final class NavigationTabsIOSTests: XCTestCase {
         _ = Agent(session: session).tap(["id": Int(try node(session, testId).id)])
     }
 
+    /// The fixture's own switch between the tab bar and the authored
+    /// tablist (`appearance: none` on it), as the app's state writes it.
+    private func authoredTabs(_ session: ExactSession, _ authored: Bool) throws {
+        let list = try node(session, "tabs")
+        if session.presenter.navigation.adopts(tablist: list) == !authored { return }
+        // Pressed as its handler is (the switch may be on a tab not shown).
+        session.apply(session.runtime.press(try node(session, "tabs-authored").id, now: session.now()))
+        until(authored ? "the tablist writes appearance none" : "the tablist is the tab bar's again") {
+            session.presenter.navigation.adopts(tablist: list) == !authored
+        }
+    }
+
     /// A tap on the bar's item for a tab, as UIKit asks before selecting.
     private func tapTab(_ tabs: UITabBarController, _ index: Int) {
         let target = tabs.viewControllers![index]
         if tabs.delegate?.tabBarController?(tabs, shouldSelect: target) ?? true { tabs.selectedIndex = index }
+    }
+
+    func testAppearanceNoneKeepsRootTabsAuthoredAndTheirStacksRetained() throws {
+        let session = try fixture("authored-tabs", wholeScreen: true)
+        let p = session.presenter, navigation = p.navigation
+        let list = try node(session, "tabs")
+        let tabs = try XCTUnwrap(navigation.tabController)
+        let stacks = try XCTUnwrap(tabs.viewControllers)
+        try authoredTabs(session, true)
+        XCTAssertFalse(navigation.adopts(tablist: list))
+        XCTAssertFalse(list.isHidden)
+        XCTAssertTrue(tabs.tabBar.isHidden)
+        navigation.reportCovers()
+        until("the shown authored tablist has safe-area protection") { navigation.covers[list.id] != nil }
+        XCTAssertFalse(list.subviews.contains { $0 is UITabBar || $0 is UISegmentedControl })
+        try tapNode(session, "tab-second")
+        until("authored tab selects its retained stack") { tabs.selectedIndex == 1 }
+        XCTAssertTrue(tabs.viewControllers?[0] === stacks[0])
+        XCTAssertTrue(tabs.viewControllers?[1] === stacks[1])
+        try authoredTabs(session, false)
+        XCTAssertTrue(navigation.adopts(tablist: list))
+        XCTAssertTrue(list.isHidden)
+        XCTAssertFalse(tabs.tabBar.isHidden)
+        XCTAssertEqual(tabs.selectedIndex, 1)
+        XCTAssertTrue(tabs.viewControllers?[0] === stacks[0])
+    }
+
+    /// A style that drops the tablist's `accent-color` (here one sent by
+    /// hand, which replaces the whole style) as the bar hides: the bar's
+    /// tint, whose fallback was the bar's own tint, recursed until the
+    /// stack ran out and the process died.
+    func testABarTintWhoseAccentIsGoneStillResolves() throws {
+        let session = try fixture("tint-without-accent")
+        let p = session.presenter, list = try node(session, "tabs")
+        let tabs = try XCTUnwrap(p.navigation.tabController)
+        let tint = try XCTUnwrap(tabs.tabBar.tintColor)
+        p.apply(wireBatch([["op": "style", "id": Int(list.id), "style": ["appearance": "none", "written": ["appearance"]]]]))
+        XCTAssertTrue(tabs.tabBar.isHidden)
+        XCTAssertNotNil(tint.resolvedColor(with: tabs.tabBar.traitCollection).cgColor)
+    }
+
+    /// A tablist whose accent is the app's tint (`AccentColor`) has the tint
+    /// it inherits. Where the bar inherits that tint too, the bar's is left
+    /// to UIKit: behind an alert UIKit dims an inherited tint once, and a
+    /// bar tint read from a view's dimmed tint was dimmed again, so the
+    /// selected tab went grey where a hand-built app's stays dark. Where an
+    /// ancestor the bar is not inside sets the colour, the bar is still
+    /// given the colour the tablist resolves.
+    func testABarOnTheAppTintInheritsWhatTheTablistDoes() throws {
+        let session = try fixture("tint-inherited")
+        let p = session.presenter, list = try node(session, "tabs")
+        let tabs = try XCTUnwrap(p.navigation.tabController)
+        let traits = tabs.tabBar.traitCollection
+        let rgb = { (color: UIColor) -> [Int] in
+            var c: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            color.resolvedColor(with: traits).getRed(&c.0, green: &c.1, blue: &c.2, alpha: &c.3)
+            return [c.0, c.1, c.2].map { Int(($0 * 255).rounded()) }
+        }
+        p.apply(wireBatch([["op": "style", "id": Int(list.id), "style": ["accent_color": ["sys": "@tint"], "written": ["accent_color"]]]]))
+        tabs.view.tintColor = .systemRed
+        XCTAssertEqual(tabs.tabBar.tintColor.resolvedColor(with: traits), UIColor.systemRed.resolvedColor(with: traits),
+                       "the bar's tint is its container's, which UIKit dims once")
+        // A wrapper the bar is not inside sets the colour a nested tablist inherits.
+        p.apply(wireBatch([["op": "create", "id": 9001, "kind": "view", "style": ["accent_color": [0xcc, 0, 0, 255], "written": ["accent_color"]]],
+                           ["op": "create", "id": 9002, "kind": "view", "style": ["accent_color": ["sys": "@tint"], "written": ["accent_color"]]]]))
+        let wrapper = try XCTUnwrap(p.views[9001]), nested = try XCTUnwrap(p.views[9002])
+        try node(session, "panels").addSubview(wrapper)
+        wrapper.addSubview(nested)
+        XCTAssertFalse(tabs.tabBar.isDescendant(of: wrapper))
+        p.navigation.tint(nested)
+        XCTAssertEqual(rgb(tabs.tabBar.tintColor), rgb(nested.tintColor), "the colour the nested tablist resolves, not the bar's inherited tint")
+        XCTAssertNotEqual(rgb(tabs.tabBar.tintColor), rgb(.systemRed))
+        // An authored colour on the tablist is the bar's own.
+        p.apply(wireBatch([["op": "style", "id": Int(list.id), "style": ["accent_color": [0x38, 0x38, 0xf5, 255], "written": ["accent_color"]]]]))
+        XCTAssertEqual(rgb(tabs.tabBar.tintColor), [0x38, 0x38, 0xf5])
+    }
+
+    func testAppearanceToggleCoversSettleWithoutRepeatedDelivery() throws {
+        let session = try fixture("authored-tabs-settle")
+        let p = session.presenter, view = try XCTUnwrap(session.view)
+        let deliver = p.onCovers
+        var deliveries = 0
+        p.onCovers = { changes in
+            deliveries += 1
+            deliver?(changes)
+        }
+        defer { p.onCovers = deliver }
+        for appearance in ["none", "auto", "none"] {
+            try authoredTabs(session, appearance == "none")
+            for _ in 0..<12 {
+                view.layoutIfNeeded()
+                p.navigation.reportCovers()
+                RunLoop.main.run(mode: .default, before: Date())
+            }
+            let settled = deliveries
+            for _ in 0..<12 {
+                view.layoutIfNeeded()
+                p.navigation.reportCovers()
+                RunLoop.main.run(mode: .default, before: Date())
+            }
+            XCTAssertEqual(deliveries, settled, "unchanged geometry must not send another cover batch")
+            XCTAssertEqual(p.navigation.tabController?.tabBar.isHidden, appearance == "none")
+        }
+    }
+
+    func testAuthoredTabsStayAboveTheHomeIndicatorUnlessTheViewportCoversIt() throws {
+        let session = try fixture("authored-tabs-safe-area", wholeScreen: true)
+        let p = session.presenter
+        let list = try node(session, "tabs")
+        let window = try XCTUnwrap(self.window)
+        let root = try node(session, "navigation")
+        XCTAssertGreaterThan(window.safeAreaInsets.bottom, 0)
+        try authoredTabs(session, true)
+        let bottom = window.bounds.maxY - window.safeAreaInsets.bottom
+        let tab = try node(session, "tab-second")
+        until("authored tab content stays above the home indicator") {
+            p.navigation.covers[list.id] != nil && tab.bounds.height > 0 && tab.convert(tab.bounds, to: window).maxY <= bottom + 0.5
+        }
+        XCTAssertEqual(list.convert(list.bounds, to: window).maxY, window.bounds.maxY, accuracy: 0.5,
+                       "the authored background reaches the window edge")
+        XCTAssertEqual(list.bounds.height, 57 + window.safeAreaInsets.bottom, accuracy: 0.5,
+                       "the cover protects the authored content without shrinking it")
+        p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["viewportFit": "cover"]]]))
+        session.view?.fit()
+        until("cover explicitly allows tab content under the indicator") { tab.convert(tab.bounds, to: window).maxY > bottom + 0.5 }
+    }
+
+    func testAuthoredTopTabsProtectContentWithoutShrinkingTheViewport() throws {
+        let session = try fixture("authored-top-tabs")
+        let p = session.presenter, view = try XCTUnwrap(session.view)
+        let list = try node(session, "tabs"), tab = try node(session, "tab-second")
+        try authoredTabs(session, true)
+        try tapNode(session, "tabs-at-top")
+        let window = try XCTUnwrap(self.window)
+        until("headerless top tab content clears the status bar") {
+            abs(list.convert(list.bounds, to: window).minY) < 0.5 &&
+                tab.convert(tab.bounds, to: window).minY >= window.safeAreaInsets.top - 0.5
+        }
+        XCTAssertEqual(list.convert(list.bounds, to: window).minY, 0, accuracy: 0.5)
+        XCTAssertEqual(p.viewport.frame, view.bounds)
+        XCTAssertNotNil(p.navigation.covers[list.id])
+        let root = try node(session, "navigation")
+        p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["viewportFit": "cover"]]]))
+        view.fit()
+        until("cover leaves top protection to the author") { p.navigation.covers[list.id] == nil }
+    }
+
+    func testHiddenAuthoredTabsRestoreTheWholeViewport() throws {
+        let session = try fixture("hidden-authored-tabs")
+        let p = session.presenter, view = try XCTUnwrap(session.view)
+        let list = try node(session, "tabs")
+        try authoredTabs(session, true)
+        try tapNode(session, "chat")
+        until("hidden tablist takes no safe-area cover") { list.isHidden && p.navigation.covers[list.id] == nil }
+        view.fit()
+        XCTAssertEqual(p.viewport.frame, view.bounds)
+    }
+
+    func testAuthoredTabsDoNotInsetASheetViewport() throws {
+        let session = try fixture("authored-tabs-sheet", wholeScreen: true)
+        let p = session.presenter
+        let list = try node(session, "tabs")
+        try authoredTabs(session, true)
+        until("the authored tablist clears the home indicator") { p.navigation.covers[list.id] != nil }
+        let protected = p.navigation.covers[list.id]
+        if session.firstDrawMs == nil { session.firstDrawMs = ExactEnv.wall() }
+        try tapNode(session, "menu")
+        until("the menu is a sheet") { p.modals.coordinateView != nil }
+        let container = try XCTUnwrap(p.modals.coordinateView)
+        // This window finishes no presentation transition: the sheet's view
+        // is given the frame UIKit's would have.
+        container.frame = CGRect(x: 0, y: 300, width: 402, height: 574)
+        p.navigation.reportCovers()
+        XCTAssertEqual(p.navigation.covers[list.id], protected, "the root's tablist is not measured under a sheet")
+        let view = try XCTUnwrap(session.view)
+        view.fit()
+        // The document stays in the session's view; the sheet lays its own
+        // routes out in their blocks (LLP 1123 D1, D2)
+        XCTAssertEqual(p.viewport.frame, view.bounds, "a sheet does not move or resize the document")
+    }
+
+    func testAuthoredTabsLeaveLandscapeNavigationBackgroundAtTheEdges() throws {
+        let session = try fixture("authored-tabs-landscape")
+        let p = session.presenter, view = try XCTUnwrap(session.view)
+        let window = try XCTUnwrap(self.window), host = try XCTUnwrap(window.rootViewController)
+        // Deterministic landscape geometry without rotating the shared simulator.
+        window.frame = CGRect(x: 0, y: 0, width: 874, height: 402)
+        host.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 59, bottom: 0, right: 59)
+        window.layoutIfNeeded()
+        view.frame = host.view.bounds
+        try authoredTabs(session, true)
+        view.fit()
+        window.layoutIfNeeded()
+        let bar = try XCTUnwrap(p.navigation.primaryNavigation?.navigationBar)
+        XCTAssertGreaterThan(view.safeAreaInsets.left, 0)
+        XCTAssertEqual(p.viewport.frame, view.bounds)
+        XCTAssertEqual(bar.convert(bar.bounds, to: view).minX, 0, accuracy: 0.5)
+        XCTAssertEqual(bar.bounds.width, view.bounds.width, accuracy: 0.5)
+    }
+
+    func testAuthoredTabsAreNotSubstitutedForPlatformTouch() throws {
+        let session = try fixture("authored-tabs-touch")
+        let tab = try node(session, "tab-second")
+        let agent = Agent(session: session)
+        XCTAssertNotNil(agent.substituted(tab))
+        try authoredTabs(session, true)
+        XCTAssertNil(agent.substituted(tab), "platform touch must target the visible authored tab")
+        let reply = agent.aim(["id": Int(tab.id), "aim": ["press": true]])
+        if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "test host is in the background") }
+        let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
+        let point = try XCTUnwrap(aim["window"] as? [Double])
+        let hit = try XCTUnwrap(window?.hitTest(CGPoint(x: point[0], y: point[1]), with: nil))
+        XCTAssertTrue(hit === tab || hit.isDescendant(of: tab))
+    }
+
+    func testARIAUnavailableRootTabProjectsToItsBarItem() throws {
+        let session = try fixture("aria-root-tab")
+        let tab = try node(session, "tab-second")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(tab.id), "set": ["accessibilityDisabled": "true"]]]))
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let item = try XCTUnwrap(tabs.viewControllers?[1].tabBarItem)
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertTrue(item.accessibilityTraits.contains(.notEnabled))
+        tapTab(tabs, 1)
+        until("ARIA-unavailable tab still selects") { tabs.selectedIndex == 1 }
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(tab.id), "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(item.accessibilityTraits.contains(.notEnabled))
+    }
+
+    func testARIAUnavailableTabPanelReachesLiftedRouteAndRefreshesItsButton() throws {
+        let session = try fixture("aria-panel-route")
+        let p = session.presenter
+        let panel = try node(session, "panel-home")
+        let route = try node(session, "route-home")
+        let button = try node(session, "show-overlay")
+        XCTAssertTrue(p.navigation.logicalParent(of: route) === panel)
+        XCTAssertFalse(route.isDescendant(of: panel), "UIKit lifts the route into its controller")
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
+
+        p.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": ["accessibilityDisabled": "true"]]]))
+        XCTAssertTrue(button.ariaUnavailable, "inherit from the authored panel")
+        XCTAssertTrue(button.accessibilityTraits.contains(.notEnabled), "the ancestor change refreshes the exposed button")
+        XCTAssertFalse(button.disabled, "ARIA state leaves input available")
+
+        p.apply(wireBatch([["op": "props", "id": Int(button.id), "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(button.ariaUnavailable, "an explicit false overrides the panel")
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
+        p.apply(wireBatch([["op": "props", "id": Int(button.id), "clear": ["accessibilityDisabled"]]]))
+        XCTAssertTrue(button.accessibilityTraits.contains(.notEnabled), "clearing the override restores inheritance")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(button.id)
+        XCTAssertEqual(pressed, [button.id], "the lifted descendant still dispatches its press")
+        p.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled), "the ancestor becoming available refreshes the lifted route")
     }
 
     /// Regression (590d73531): a root overlay with a z-index after the
@@ -141,7 +425,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual([rgb.0, rgb.1, rgb.2].map { Int(($0 * 255).rounded()) }, [0x38, 0x38, 0xf5])
         let home = try XCTUnwrap(tabs.viewControllers?[0] as? UINavigationController)
         let second = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
-        XCTAssertEqual(second.viewControllers.count, 1, "another tab's stack is built too")
+        XCTAssertEqual(second.viewControllers.count, 0, "another tab is built when first selected (LLP 1075.003 §9.14)")
 
         // A pushed screen in Home.
         try tapNode(session, "detail")
@@ -191,6 +475,83 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Home selected") { tabs.selectedIndex == 0 }
         tapTab(tabs, 0)
         until("Home popped to its root") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
+    }
+
+    /// A tab selected while a push animates: the pushing stack stops being
+    /// the one navigation follows, so its `didShow` is not navigation's, and
+    /// the push must still end for later navigation to apply.
+    func testATabSelectedDuringAPushLeavesNavigationFree() throws {
+        let session = try fixture("tabs-mid-push")
+        let navigation = session.presenter.navigation
+        let tabs = try XCTUnwrap(navigation.tabController)
+        let home = try XCTUnwrap(tabs.viewControllers?[0] as? UINavigationController)
+        // Second shown once already: a stack's first appearance calls its
+        // `didShow`, which would end the push's transition by itself.
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        tapTab(tabs, 0)
+        until("Home selected") { tabs.selectedIndex == 0 }
+        try selectDuringPush(session, home) { self.tapTab(tabs, 1) } selected: { tabs.selectedIndex == 1 }
+        // Reselecting Home pops it to its root: a sync, which waits for no transition.
+        tapTab(tabs, 0)
+        until("Home selected") { tabs.selectedIndex == 0 }
+        tapTab(tabs, 0)
+        until("Home popped to its root") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
+
+        // Away and back while the push runs: Home's transition is navigation's
+        // again, and its own `didShow` ends it.
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(false) }
+        try tapNode(session, "detail")
+        XCTAssertNotNil(home.transitionCoordinator, "the push is animating")
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        tapTab(tabs, 0)
+        until("Home selected") { tabs.selectedIndex == 0 }
+        XCTAssertNotNil(home.transitionCoordinator, "Home was selected again while its push ran")
+        XCTAssertTrue(navigation.changing, "navigation waits for Home's push again")
+        until("the push over and navigation free") { home.transitionCoordinator == nil && !navigation.changing }
+        UIView.setAnimationsEnabled(false)
+        tapTab(tabs, 0)
+        until("Home popped to its root again") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
+    }
+
+    /// The same in a container the app owns (the tabs hatch).
+    func testATabSelectedDuringAPushInTheAppsContainerLeavesNavigationFree() throws {
+        setenv("EXACT_FIXTURE_CONTAINER", "app", 1)
+        defer { unsetenv("EXACT_FIXTURE_CONTAINER"); NativeViews.uninstallTable() }
+        let session = try fixture("tabs-owned-mid-push", module: true)
+        let navigation = session.presenter.navigation
+        until("the app's container holds the tabs") { navigation.tabController == nil && navigation.tabOwner != nil }
+        let owner = try XCTUnwrap(navigation.tabOwner)
+        let stacks = navigation.tabPanels.compactMap { navigation.tabNavigations[$0] }
+        let control = try XCTUnwrap(owner.view.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        try selectDuringPush(session, stacks[0]) {
+            control.selectedSegmentIndex = 1
+            for case let target as NSObject in control.allTargets {
+                for name in control.actions(forTarget: target, forControlEvent: .valueChanged) ?? [] { target.perform(Selector(name), with: control) }
+            }
+        } selected: { navigation.primaryNavigation === stacks[1] }
+    }
+
+    /// Pushes Detail on `home` with animation, selects another tab before the
+    /// push ends, and waits for navigation to leave the transition.
+    private func selectDuringPush(_ session: ExactSession, _ home: UINavigationController, select: () -> Void, selected: () -> Bool) throws {
+        // The push must still be running when the selection's batch arrives.
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(false) }
+        try tapNode(session, "detail")
+        XCTAssertNotNil(home.transitionCoordinator, "the push is animating")
+        select()
+        var selectedMidPush = false
+        until("the other tab selected and the push over") {
+            if selected(), home.transitionCoordinator != nil { selectedMidPush = true }
+            return selected() && home.transitionCoordinator == nil
+        }
+        XCTAssertTrue(selectedMidPush, "the tab was selected while the push ran")
+        until("navigation left the transition") { !session.presenter.navigation.changing }
+        let transition = session.presenter.navigation.observation()["transition"] as? [String: Any]
+        XCTAssertEqual(transition?["phase"] as? String, "idle", "a programmatic push settles idle")
     }
 
     /// The edge swipe on a tab's stack: Exact stays the delegate of both pop
@@ -298,6 +659,68 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(route.view.safeAreaInsets.bottom, before, "the content area held")
     }
 
+    /// The bottom edge under a tab bar (LLP 1116 D2): Second's scroller, its
+    /// route's last child, runs under the bar to the screen's edge, and UIKit
+    /// insets its content by the bar and the home indicator, as a table
+    /// view's under a tab bar is.
+    func testARoutesLastScrollerRunsUnderTheTabBar() throws {
+        let session = try fixture("tabs-edge")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        spin(0.3)
+        let second = try XCTUnwrap((tabs.viewControllers?[1] as? UINavigationController)?.topViewController as? RouteController)
+        let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
+        XCTAssertFalse(tabs.tabBar.isHidden)
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .automatic)
+        XCTAssertEqual(list.convert(list.bounds, to: second.view).maxY, second.view.bounds.maxY, accuracy: 0.5, "under the bar")
+        XCTAssertEqual(sv.adjustedContentInset.bottom, second.view.safeAreaInsets.bottom, accuracy: 0.5, "inset by the bar and the home indicator")
+        XCTAssertGreaterThan(sv.adjustedContentInset.bottom, 40, "the bar's height and the indicator's")
+        XCTAssertTrue(second.contentScrollView(for: .bottom) === sv, "the bar's edge follows it")
+    }
+
+    /// LLP 1115.000 D11.3: the selected tab, tapped again at its stack's
+    /// root, scrolls that screen's content to the top, its large title
+    /// expanding, as every tab bar app does. The scroller is the route's
+    /// content scroller, the status bar's (D11.1), and it scrolls with
+    /// UIKit's animation, which opens the title as it arrives. Another tab's
+    /// tap only selects it, and above the root the router pops (the test
+    /// above). The agent's frozen clock lands there unanimated
+    /// (PushedTitleIOSTests).
+    func testTheSelectedTabTappedAgainAtItsRootScrollsToTheTop() throws {
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "UIKit animates a scroll view's offset only in a scene's window")
+        }
+        let session = try fixture("tabs-retap")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        spin(0.3)
+        let nav = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
+        let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
+        let css = { sv.contentOffset.y + sv.adjustedContentInset.top }
+        let expanded = nav.navigationBar.frame.height
+        list.pendingScrollTop = 600
+        list.applyPendingScroll()
+        spin(0.3)
+        XCTAssertEqual(css(), 600, accuracy: 0.5, "scrolled down")
+        XCTAssertLessThan(nav.navigationBar.frame.height, expanded, "the large title collapsed")
+        // The other tab, then back: selecting a tab keeps its scroll.
+        tapTab(tabs, 0)
+        until("Home selected") { tabs.selectedIndex == 0 }
+        tapTab(tabs, 1)
+        until("Second selected again") { tabs.selectedIndex == 1 }
+        spin(0.3)
+        XCTAssertEqual(css(), 600, accuracy: 0.5, "a tab selected from another keeps its place")
+        // The selected tab, tapped again at its root.
+        tapTab(tabs, 1)
+        until("its content scrolled to the top") { abs(css()) < 0.5 && !sv.isDecelerating }
+        spin(0.5)
+        XCTAssertEqual(css(), 0, accuracy: 0.5)
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, "and the large title expanded")
+        XCTAssertEqual(nav.viewControllers.count, 1)
+    }
+
     func testUnmountingAndRemountingTheViewKeepsEveryTabsStack() throws {
         let session = try fixture("tabs-remount")
         try tapNode(session, "detail")
@@ -346,7 +769,9 @@ final class NavigationTabsIOSTests: XCTestCase {
 
     /// With the module loaded, a module view is made as its node is, in the
     /// batch that mounts its route: a screen is contained once that batch
-    /// is applied, when the route has its controller.
+    /// is applied, when the route has its controller. On a tab not yet
+    /// selected that is the batch that first selects it, which builds the
+    /// tab (LLP 1075.003 §3.7): until then the tab has no route.
     func testAScreenMadeWithItsRouteIsContainedOnceTheRouteMounts() throws {
         let session = try fixture("tabs-screen", module: true)
         defer { NativeViews.uninstallTable() }
@@ -355,9 +780,30 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
         spin(0.3)
         let navigation = session.presenter.navigation
-        let route = try XCTUnwrap(navigation.tabPanels.last.flatMap { navigation.tabNavigations[$0] }?.viewControllers.first)
-        until("the screen is contained") { route.children.count == 1 }
+        let other = try XCTUnwrap(navigation.tabPanels.last.flatMap { navigation.tabNavigations[$0] })
+        XCTAssertTrue(other.viewControllers.isEmpty, "the other tab waits for its first selection")
+        let tabs = try XCTUnwrap(navigation.tabController)
+        tapTab(tabs, tabs.viewControllers!.count - 1)
+        until("the screen is contained") { other.viewControllers.first?.children.count == 1 }
+        let route = try XCTUnwrap(other.viewControllers.first)
         XCTAssertTrue(route.children.first?.view.isDescendant(of: route.view) == true)
+    }
+
+    /// A `tabContainer` hook that keeps none of the stacks leaves them in
+    /// Exact's container, its bar showing the selected tab.
+    func testATabContainerHookThatKeepsNoneLeavesTheSelectedTabShown() throws {
+        defer { NativeViews.uninstallTable() }
+        let session = try fixture("tabs-kept", module: true)
+        let navigation = session.presenter.navigation
+        let log = { session.agent(#"{"op":"logs","since":0}"#) }
+        until("the module connected") { log().contains("hatch tabs: built") }
+        until("the hook was asked") { navigation.tabContainerAsked }
+        let container = try XCTUnwrap(navigation.tabController)
+        let stacks = navigation.tabPanels.compactMap { navigation.tabNavigations[$0] }
+        XCTAssertEqual(container.viewControllers?.count, stacks.count)
+        XCTAssertTrue(zip(container.viewControllers ?? [], stacks).allSatisfy { $0 === $1 }, "Exact's container keeps its stacks")
+        XCTAssertNotNil(container.tabBar.selectedItem, "the bar shows a tab selected")
+        XCTAssertEqual(container.tabBar.selectedItem, container.tabBar.items?[container.selectedIndex])
     }
 
     func testTheTabsHatchAContainerTheAppOwnsAndANativeScreen() throws {

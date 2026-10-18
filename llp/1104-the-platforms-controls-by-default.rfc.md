@@ -1,7 +1,7 @@
 # LLP 1104: The platform's controls by default — text fields and buttons
 
 **Type:** RFC
-**Status:** Draft r11, 2026-10-07. Built in full: steps 1–2 (fields, 3af60bc8b), step 3 (native buttons for `appearance="auto"`, 0365ad1a4) and step 4 (buttons native by default) are on main or landing. Earlier revisions: r1–r4 compiled field rows (built and replaced); r5 the platform's controls; r6–r7 James's 1069.011.001 and two blind reviews; r8 Charlie's rulings and the iOS focus probe; r9 fields as built; r10 step 3; r11 step 4.
+**Status:** Draft r12, 2026-10-12. r12 records Charlie's authored `::placeholder` colour ruling, as built. Built in full: steps 1–2 (fields, 3af60bc8b), step 3 (native buttons for `appearance="auto"`, 0365ad1a4) and step 4 (buttons native by default) are on main or landing. Earlier revisions: r1–r4 compiled field rows (built and replaced); r5 the platform's controls; r6–r7 James's 1069.011.001 and two blind reviews; r8 Charlie's rulings and the iOS focus probe; r9 fields as built; r10 step 3; r11 step 4.
 **Direction (Charlie, r5):** text fields and buttons default to the platform's look; hosts measure and draw it; author rows customise the native control where they can; hosts differ on purpose; the OS draws focus; fields and buttons share one switch whose default is `auto`.
 **Rulings (Charlie, on r7):**
 - On the web, a native control inherits the page's font and colour, as the common reset does (D4). `AGENTS.md`'s "the web is the standard" is amended to match. The other platforms keep their own control fonts.
@@ -158,13 +158,46 @@ The table is a starting point. The build fills in each cell from a measured fixt
 - **tvOS:** a field is UIKit's `UITextField` with tvOS's own look; editing opens the system's keyboard screen. Rows apply where tvOS's UIKit honours them, and stand-ins are reported. A textarea stays as today, a read-only text view; editable multi-line text on tvOS is out of scope.
 - **Disabled:** the platform's own disabled look (`isEnabled = false`, the browser's `:disabled`). r4's opacity 0.5 row goes. An authored `color` is kept when disabled, as 1069.011.001 D16 and the browser do.
 - **Placeholder:** the platform's own:
-  - iOS uses `UIColor.placeholderText` on the field and the textarea. That fixes the field's 30%-of-ink rule, which disagreed with the textarea.
+  - iOS uses `UIColor.placeholderText` on the field and the textarea. That fixes the field's 30%-of-ink rule, which disagreed with the textarea. **Amended 2026-10-16:** a header's search field, which is the bar's `UISearchBar`, keeps the search field's own placeholder ink, which UIKit draws darker than `placeholderText` (the euxy port's Patterns search read lighter than a hand-built one); an authored `::placeholder` colour or `placeholder` role still wins.
   - macOS uses `placeholderAttributedString` with the system's colour.
   - The web uses the UA's (the `::placeholder` rule at `index.html:89` stops reaching native fields).
 
-  An authored `::placeholder` colour is not in Contract and stays out of scope.
+  **Amended by Charlie, 2026-10-12, as built:** an authored `::placeholder`
+  part block admits `color` only, on a text field (`input` of a text type,
+  `textarea`), either in a named `style` block or under the element, where its
+  value may compute:
+
+  ```contract
+  style Field
+    ::placeholder
+      color="#6b7280"
+  ```
+
+  The parser carries each declaration as an attribute named `::placeholder
+  color` (`contract_syntax::PLACEHOLDER_COLOR`), so a class's and the field's
+  merge as any row does and the field's own wins. It lowers to one
+  non-inherited colour row, `placeholder_color`, whose unset mask is the
+  platform's colour. The web writes it as the private `--exact-placeholder-color`
+  (`css.rs`, `style.rs`), which `index.html`'s `::placeholder` rules read with
+  no second opacity: a bare field's falls back to its muted ink, a native
+  field's to the UA's (`revert-layer`, checked in Chrome, Firefox and WebKit);
+  the neutral look reads the same property before its default placeholder colour.
+  The Markdown editor's drawn placeholder reads it too. AppKit sets it in
+  `placeholderAttributedString`. UIKit's fields and navigation searches use
+  `applyPlaceholder` for `attributedPlaceholder`: the font stays the field's
+  and clearing the colour restores UIKit's. Both textareas draw their own
+  placeholder in it. Linux paints it, and hands it to a hosted field as its
+  hint colour. A terminal entry refuses the row (the schema gives it no
+  terminal admission). With no part block, the platform's own placeholder
+  colour above remains. `placeholder-color` and `-exact-placeholder-color` are
+  refused with the block to write; another property in the block says only
+  `color` is admitted; `::before` and `::after` are `syntax-part` (no generated
+  box); `contract vocab ::placeholder` answers with the block.
 
 ### D4 — A native control's text: the platform's on Apple, the page's on the web
+
+> **LLP 1115.000 D4.10 proposes** that a surface the web host paints (a field, a select, the
+> app bar) carry its own ink, not the inherited colour. Not yet accepted.
 
 The browser's UA sheet gives `input`, `textarea` and `button` their own text style instead of the inherited one. In Chromium:
 - `font: -webkit-small-control` (13.33px), `color: FieldText`;
@@ -233,6 +266,10 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
 
 ### D6 — The OS draws a native control's focus; Exact draws the bare box's
 
+> **LLP 1115.000 D7 proposes** that on the Mac focus follow the Mac and not the web: a click
+> on a button leaves the first responder, and Tab honours Keyboard Navigation. Not yet
+> accepted.
+
 - **One focus owner per node.** A native field's owner is the native view. A native button's owner is the native view on macOS, tvOS and the web, and the node on iOS (below). Anything else's owner is the node. Every focus path uses that one mapping: Tab traversal, programmatic `focus()`/`blur()`, `autofocus`, `retainFocus`, collection pinning of a focused row, activation, and the routing of `focus`, `blur` and `key`. The node relays events from its owner. The agent's `tap` and focus operations address the node, as today.
 - **A focusable button doesn't need a handler of its own.** A `button` is focusable and shows a ring with no press handler of its own. That fixes the `pressable` gap at `NodeViewMac.swift:205` and the ring mask at `FocusMac.swift:50`.
 - **Native controls:**
@@ -255,6 +292,7 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
 
   This is what a browser does after `all: unset` with a focus restore (CSS UI 4 §7.2.2).
 - **Painted hosts** have no OS ring and paint one as part of their look (D7): `field_ring` for fields on Linux, and a new ring for buttons there and in the terminal.
+- **An author takes a field's ring off (Charlie's ruling on #302, 2026-10-08; built 2026-10-12, #459):** the rings above are defaults. `outline="none"` (or `outline-style="none"`, the one value admitted) on a text `input` or a `textarea`, native or bare, draws none on any host: no UA ring or restore on the web, neither AppKit's nor Exact's on macOS, no `field_ring` on Linux. Tab order and the accessibility tree stay, and replacing the look is the author's duty (WCAG 2.4.7); #283 (`focusin`/`focusout`, `issues/20261009-bubbling-focus-events.md`) is how a wrapper hears the focus, on every host. The rest of `outline`, and `outline` on any other element, stay refused (`issues/closed/20261009-field-outline-none.md`).
 - **Retired:** `fieldStyle` (prop 253) and its `data-fieldstyle` mark. Prop numbers aren't reused.
 
 ### D7 — The painted hosts have a look of their own
@@ -275,6 +313,7 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
   - **The box:** `box-sizing` is the UA's, content-box for fields and border-box for buttons (D5).
   - **The authored rows** arrive as inline style, as today.
 - **Button looks:** `buttonStyle`'s web looks (`index.html:62-76`) are 1069.011.001's to change in its step 3. Its D5, for one, lifts line 62's `nowrap`. `bordered`, the default, is the UA button: line 62's `revert` rows already give it the UA's padding, border and font.
+  > **Amended by LLP 1116 D1 (2026-10-10).** `bordered` is no longer the UA button, and a native field no longer keeps the UA's chrome: the page draws a neutral-fill button and a 36 px field with a 1 px line and 8 px corners over the revert (LLP 1116 §4). The marker, the revert and the authored rows' precedence stand.
 - **The size gap:** the cause of the tiny native button is unmeasured. Phase 1 traces it first, with the JS target and the wasm oracle side by side, and fixes it before any app's buttons turn native.
 - **Sizes are the browser's.** Conformance compares the JS target against the wasm oracle in Chrome, and both pages ship this stylesheet. So §4 also compares them with a plain page of the same elements and no Exact stylesheet.
 
@@ -340,7 +379,7 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
    Proposed: the second, because hosting SwiftUI for a text view brings its own focus and measurement paths. Apple's own apps rarely border multi-line text, so this is the field's look extended, not a platform control.
 2. **Field styles.** Should fields get a vocabulary like `buttonStyle` (macOS `borderShape` capsule, a plain borderless platform field)? Proposed: not now.
 3. **`select`** is a `Control` already drawn natively. Should D2–D4 cover it? Proposed: yes, as a follow-up.
-4. **The `border-radius` exception** (D2 rule 2) is James's D15. It keeps Lexy's rounded native buttons, at the price of one CSS deviation under `appearance="auto"`. Charlie agrees; James to confirm.
+4. **The `border-radius` exception** (D2 rule 2) is James's D15. It keeps rounded native buttons, at the price of one CSS deviation under `appearance="auto"`. Charlie agrees; James to confirm.
 
 **Settled:**
 - r5 Q2: D2 makes most self-styled buttons bare with no edit, and the codemod covers the rest.

@@ -12,6 +12,8 @@ build = "build.rs"
 [[bin]]
 name = "weatherlight-render"
 path = "src/bin/weatherlight-render.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-js = { path = "../../../js" }

@@ -1,0 +1,23 @@
+component App
+  state count = 7
+  action bump
+    count = count + 1
+  action unbump
+    count = 0
+  action askClear
+    showModal("clear-confirm")
+  view
+    column width="100%" height="100%" gap=8 padding=16 box-sizing="border-box" align-items="flex-start" font-family="DejaVu Sans" font-size=16 line-height=1.5
+      button press=bump testId="bump"
+        text "Bump"
+      button press=askClear testId="ask-action"
+        text "Ask by action"
+      button commandfor="clear-confirm" command="show-modal" testId="ask-clear" padding=6 background-color="#e5e7eb"
+        text "Clear count…"
+      dialog id="clear-confirm" role="alertdialog" aria-label="Clear the count?" padding=16
+        text "The count goes back to zero."
+        button press=unbump destructive=true commandfor="clear-confirm" command="close" testId="clear-confirm-clear"
+          text "Clear"
+        button commandfor="clear-confirm" command="close" testId="clear-confirm-cancel"
+          text "Cancel"
+      text `Count ${count}` testId="counts"

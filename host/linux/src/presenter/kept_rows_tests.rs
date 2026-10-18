@@ -5,19 +5,10 @@ use super::*;
 use crate::image::Bitmap;
 use crate::paint::Shape;
 use crate::text::{Paragraph, RunPaint};
-use exact_runner::{DataError, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::Transform;
-
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 /// What the backend heard: each row begun, with the row it was said to
 /// have been, and each row freed.
@@ -89,7 +80,7 @@ fn a_renewed_row_is_not_the_row_it_was() {
         ))
         .unwrap()
         .encode(),
-        Nothing,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -106,17 +97,20 @@ fn a_renewed_row_is_not_the_row_it_was() {
     let first = std::mem::take(&mut *heard.borrow_mut());
     assert_eq!(first.begun.len(), 6, "each cell a kept row");
     assert!(first.begun.iter().all(|(_, previous)| previous.is_none()));
-    // Nothing changed: nothing is recorded again.
+    // () changed: nothing is recorded again.
     let _ = p.frame();
     assert!(heard.borrow().begun.is_empty());
     // One row changed, one was bound to another item.
     let key = |name: &str| p.host.kernel().find_by_test_id(name)[0];
     let (changed, renewed) = (key("c1"), key("c4"));
-    p.host.row_dirty.commit(&exact_kernel::CommitReceipt {
-        touched: vec![changed, renewed],
-        renewed: vec![renewed],
-        ..Default::default()
-    });
+    p.host.row_dirty.commit(
+        &exact_kernel::CommitReceipt {
+            touched: vec![changed, renewed],
+            renewed: vec![renewed],
+            ..Default::default()
+        },
+        0.0,
+    );
     let _ = p.frame();
     let heard = heard.borrow();
     let (was_changed, was_renewed) = (first.begun[1].0, first.begun[4].0);
@@ -128,4 +122,111 @@ fn a_renewed_row_is_not_the_row_it_was() {
     );
     assert_eq!(heard.begun[1].1, None, "a renewed row is a new one");
     assert!(heard.freed.contains(&was_renewed), "its old recording goes");
+}
+
+/// A reader made again holds none of the last one's rows (LLP 1115.001
+/// D15.1): the backend that records for it is told every row as a new one,
+/// and of none to free, though nothing in the app changed.
+#[test]
+fn a_new_reader_is_sent_every_row_again() {
+    let cells: String = (0..6)
+        .map(|i| format!("        box height=50 width=200 testId=\"c{i}\"\n"))
+        .collect();
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(&format!(
+            "component App\n  view\n    scroll testId=\"port\" width=200 height=400\n      column\n{cells}"
+        ))
+        .unwrap()
+        .encode(),
+        (),
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let first = Rc::new(RefCell::new(Heard::default()));
+    p.brush.replace_backend(Box::new(Keeps {
+        heard: first.clone(),
+        row: 0,
+    }));
+    let _ = p.frame();
+    assert_eq!(first.borrow().begun.len(), 6, "each cell a kept row");
+    let _ = p.frame();
+    assert!(!p.dirty(), "nothing is owed once it has painted");
+    let second = Rc::new(RefCell::new(Heard::default()));
+    p.reader_replaced(Box::new(Keeps {
+        heard: second.clone(),
+        row: 0,
+    }));
+    assert!(p.dirty(), "the new reader is owed a paint");
+    let _ = p.frame();
+    let second = second.borrow();
+    assert_eq!(second.begun.len(), 6, "every row is recorded for it");
+    assert!(second.begun.iter().all(|(_, previous)| previous.is_none()));
+    assert!(second.freed.is_empty(), "it was sent no row to free");
+}
+
+/// A row is recorded again when a layout changes what a node in it
+/// publishes beside a frame that stayed: a percentage padding whose
+/// containing block narrowed (CSS Box Model 3 §4.1) moves the row's content,
+/// which input reads anew, while its frame does not.
+#[test]
+fn a_row_whose_padding_alone_changed_is_recorded_again() {
+    for moved in [false, true] {
+        let (mut p, error) = Presenter::boot_with(
+            &contract::compile(
+                &r##"component App
+  state narrow = false
+  action shrink
+    narrow = true
+  view
+    column
+      box testId="shrink" press=shrink width=40 height=20
+      scroll testId="port" width=400 height=300 margin-top=(narrow ? SHIFT : 0)
+        column width=(narrow ? 300 : 400)
+          box testId="padded" width=200 height=50 box-sizing="border-box" padding-left="5%"
+          box testId="plain" width=200 height=50
+"##
+                .replace("SHIFT", if moved { "10" } else { "0" }),
+            )
+            .unwrap()
+            .encode(),
+            (),
+            (400., 500.),
+            1.,
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let heard = Rc::new(RefCell::new(Heard::default()));
+        p.brush.replace_backend(Box::new(Keeps {
+            heard: heard.clone(),
+            row: 0,
+        }));
+        let _ = p.frame();
+        let first = std::mem::take(&mut *heard.borrow_mut());
+        assert_eq!(first.begun.len(), 2, "each box a kept row");
+        let k = p.host.kernel();
+        let (shrink, padded) = (
+            k.find_by_test_id("shrink")[0],
+            k.find_by_test_id("padded")[0],
+        );
+        let frame = k.node_by_key(padded).unwrap().frame;
+        let shrink = k.node_by_key(shrink).unwrap().id;
+        let reply = crate::agent::handle(&mut p, &format!(r#"{{"op":"tap","id":{shrink}}}"#));
+        assert!(!reply.contains("error"), "{reply}");
+        let k = p.host.kernel();
+        let next = k.node_by_key(padded).unwrap().frame;
+        assert_eq!(next.x, frame.x);
+        assert_eq!(next.y, frame.y + if moved { 10. } else { 0. });
+        assert_eq!((next.width, next.height), (frame.width, frame.height));
+        assert_eq!(k.resolved_padding(padded).map(|p| p.0), Some(15.));
+        let _ = p.frame();
+        let heard = heard.borrow();
+        let again: Vec<_> = heard.begun.iter().map(|(_, previous)| *previous).collect();
+        assert_eq!(again, [Some(first.begun[0].0)], "the padded row alone");
+    }
 }

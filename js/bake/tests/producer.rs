@@ -282,12 +282,13 @@ assert.equal(readDevGeneration(cache,prefix+'app.js'),null);
 assert.deepEqual(readDevGeneration(cache,prefix+'app.hbc')?.body,files.get('app.hbc'));
 assert.equal(readDevGeneration(cache,prefix+'private.js'),null);
 "#;
-    let result = std::process::Command::new("bun")
-        .args(["--input-type=module", "-e", probe])
-        .arg(out)
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .output()
-        .unwrap();
+    let result =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .args(["--input-type=module", "-e", probe])
+            .arg(out)
+            .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .output()
+            .unwrap();
     assert!(
         result.status.success(),
         "{}",
@@ -511,12 +512,10 @@ fn bake_defers_uncaught_storage_but_keeps_source_errors_fatal() {
         "bake deferral creates no fabricated request"
     );
     live.data().load().unwrap();
-    let error = live.data_ready().unwrap_err();
-    // A storage refusal fails with the `storage` failure code (LLP 1109 D3).
-    assert!(
-        format!("{error:?}").contains("Failed(Storage"),
-        "runtime storage refusal remains a failure: {error:?}"
-    );
+    live.data_ready().unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("")));
+    assert_eq!(live.failed_resources().len(), 1);
+    assert!(!live.has_pending());
     f.write(
         "app.contract",
         &CONTRACT.replace("as shape string", "as shape string else fallback()"),
@@ -717,7 +716,7 @@ fn resident_producer_honors_compiler_overrides() {
     // This proves a real override ran and refused, without a Unix-only helper.
     let refusing = std::env::current_exe().unwrap();
     let tools = Tools {
-        tsc: refusing.clone(),
+        tsc: refusing,
         ..Tools::default()
     };
     let mut producer = exact_js_bake::Producer::new(tools).unwrap();
@@ -725,7 +724,7 @@ fn resident_producer_honors_compiler_overrides() {
         .bake(&f.0, None)
         .err()
         .unwrap()
-        .contains(&format!("{} refused", refusing.display())));
+        .contains("the TypeScript does not compile (tsc)"));
 }
 
 #[test]
@@ -885,7 +884,7 @@ fn web_build(app: &Path) -> Result<(), String> {
     let out = app.join("web-out");
     let _ = std::fs::remove_dir_all(&out);
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let built = std::process::Command::new("bun")
+    let built = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .arg(root.join("host/web-js/build.mjs"))
         .args(["logic", "--render", "none", "--out"])
         .arg(&out)
@@ -902,9 +901,9 @@ fn web_build(app: &Path) -> Result<(), String> {
 
 /// A package's declarations reach the type check of every producer from the
 /// capture (LLP 1027 D5, "Type-only package imports"): a type-only import
-/// checks against them, a changed `.d.ts` checks again, and a value import,
-/// a library the configuration does not load, or a global types package no
-/// file names is refused alike.
+/// checks against them, a changed `.d.ts` checks again, and a library the
+/// configuration does not load, or a global types package no file names, is
+/// refused alike.
 #[test]
 fn type_only_package_imports_check_alike_and_package_code_never_runs() {
     let f = Fixture::new();
@@ -939,7 +938,7 @@ fn type_only_package_imports_check_alike_and_package_code_never_runs() {
         "node_modules/rows/package.json",
         r#"{"name":"rows","type":"module","exports":{".":{"types":"./dist/index.d.ts","import":"./dist/index.js"}}}"#,
     );
-    let index = "import type { Inner } from './inner.js';\nimport type { Unit } from 'units';\nimport type { Plain } from 'plain';\nexport type Row = { id: string; count: Inner; unit: Unit; plain: Plain };\nexport declare const rows: Row[];\n";
+    let index = "export type ForeignOnly = MissingFromDOM;\nimport type { Inner } from './inner.js';\nimport type { Unit } from 'units';\nimport type { Plain } from 'plain';\nexport type Row = { id: string; count: Inner; unit: Unit; plain: Plain };\nexport declare const rows: Row[];\n";
     put("node_modules/rows/dist/index.d.ts", index);
     put(
         "node_modules/rows/dist/inner.d.ts",
@@ -1063,7 +1062,15 @@ fn type_only_package_imports_check_alike_and_package_code_never_runs() {
         f.0.join("plain-types"),
     )
     .unwrap();
+    // skipLibCheck ignores package-internal missing references. Direct app
+    // imports still name a missing declaration and must fail.
+    put(
+        "logic.ts",
+        &(logic("2")
+            + "\nimport type { Plain } from 'plain';\nexport const required: Plain = true;\n"),
+    );
     refused(&mut every, "'plain'");
+    put("logic.ts", &logic("2"));
     std::fs::rename(
         f.0.join("plain-types"),
         f.0.join("node_modules/@types/plain"),
@@ -1073,18 +1080,14 @@ fn type_only_package_imports_check_alike_and_package_code_never_runs() {
         "logic.ts",
         "import { rows } from 'rows';\nexport const prefix = rows.length + ': ';\n",
     );
-    let real = f.0.canonicalize().unwrap();
-    refused(
-        &mut every,
-        &format!(
-            "module outside captured app: {}",
-            real.join("node_modules/rows/dist/index.js").display()
-        ),
-    );
-    // A side-effect import is a value import: refused before any producer,
-    // the web build's own reading of app.ts included, runs the package.
+    // Its code is captured with it ("Package code", tests/packages.rs).
+    for result in every(&f) {
+        result.unwrap();
+    }
+    // One that needs Node is refused before any producer, the web build's
+    // own reading of app.ts included, runs the package.
     put("logic.ts", &format!("import 'plain';\n{}", logic("2")));
-    refused(&mut every, "module outside captured app: ");
+    refused(&mut every, "imports Node's built-in 'node:fs'");
     assert!(!ran.exists(), "a refused package's code never runs");
     // A specifier that leaves its package names no file of it.
     put("helper.ts", "export const helper = 'helped: ';\n");
@@ -1309,6 +1312,13 @@ fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
     let error = producer.bake(&f.0, None).err().unwrap();
     assert!(error.contains("logic.ts:4:24: Date.now()"), "{error}");
     assert!(error.contains("logic.ts:4:44: Math.random()"), "{error}");
+    // LLP 1116 D8: the refusal names where randomness comes from instead.
+    assert!(
+        error.contains(
+            "seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md)"
+        ),
+        "{error}"
+    );
     // An explicit date, a member named `now` elsewhere, a comment, and a
     // `Date` or `performance` the module binds itself are fine.
     f.write("logic.ts", "export const prefix = 'old: ';\n// Date.now() is refused\nexport const epoch = new Date(0).getTime() + ({ now: () => 1 }).now();\nexport const stamp = (performance: { now(): number }) => performance.now();\n");
@@ -1479,3 +1489,6 @@ fn windows_imported_packages_keep_identity_through_real_bakes() {
         assert_eq!(std::fs::read_to_string(f.0.join(name)).unwrap(), text);
     }
 }
+
+#[path = "producer/widgets.rs"]
+mod widgets;

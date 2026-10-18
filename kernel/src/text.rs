@@ -20,6 +20,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 pub(crate) mod case;
+pub mod decorations;
 
 /// A payload-free lifetime namespace. Allocation identity is valid only while
 /// retained: it is never a wire id, address handle, or serialized cache key.
@@ -107,6 +108,10 @@ pub struct TextStyle {
     pub letter_spacing: f32,
     /// OpenType numeric-feature bitmask.
     pub font_variant_numeric: u8,
+    /// Bold Text weights this run's font (LLP 1115.000 D12.3): its weight is
+    /// stepped already, and a weight a host gives a piece of it itself (a
+    /// Markdown piece's bold) takes the same step ([`crate::bolder`]).
+    pub bold_text: bool,
 }
 
 impl TextStyle {
@@ -137,6 +142,15 @@ impl TextStyle {
         s.style()
     }
 
+    /// This style drawn at `scale` of its size: its font size, a resolved
+    /// line height and its letter spacing (LLP 1116.001 D1.4, a fitted text).
+    pub fn scaled(mut self, scale: f32) -> Self {
+        self.font_size *= scale;
+        self.line_height = self.line_height.map(|h| h * scale);
+        self.letter_spacing *= scale;
+        self
+    }
+
     /// The run style carried by a node's style rows.
     pub fn from_style(s: &StyleProps) -> Self {
         TextStyle {
@@ -147,6 +161,7 @@ impl TextStyle {
             line_height: s.line_height.resolve(s.font_size),
             letter_spacing: s.letter_spacing,
             font_variant_numeric: s.font_variant_numeric,
+            bold_text: false,
         }
     }
 }
@@ -193,12 +208,23 @@ pub struct Paragraph {
     pub overflow_wrap: OverflowWrap,
     /// CSS whitespace preservation/collapsing.
     pub white_space: crate::WhiteSpace,
+    /// CSS `text-wrap-style`: `balance` breaks the lines before the first
+    /// forced break at the narrowest width that keeps their count
+    /// ([`exact_textflow::balanced_width`]), up to six lines.
+    pub text_wrap_style: crate::TextWrapStyle,
     /// CSS `text-indent` in points: the first line starts this far in from
     /// the start edge (right under `rtl`) and has that much less room.
     pub text_indent: f32,
     /// CSS `hyphens`. `none` already reached the runs' text
     /// ([`crate::Hyphens::shown`]); a host hyphenates `auto` where it can.
     pub hyphens: crate::Hyphens,
+    /// CSS `text-box-trim` and `text-box-edge` (Inline Layout 3 §4): the
+    /// measurer cuts the first line's over edge and the last line's under
+    /// edge to these font metrics, so its height and first baseline are the
+    /// trimmed box's, and the host paints the lines where it measured them.
+    pub text_box_trim: crate::TextBoxTrim,
+    /// The edges `text_box_trim` cuts to.
+    pub text_box_edge: crate::TextBoxEdge,
 }
 
 impl TextAlign {
@@ -243,8 +269,11 @@ impl Paragraph {
             text_overflow: p.text_overflow,
             overflow_wrap: p.overflow_wrap,
             white_space: p.white_space,
+            text_wrap_style: p.text_wrap_style,
             text_indent: p.text_indent,
             hyphens: p.hyphens,
+            text_box_trim: p.text_box_trim,
+            text_box_edge: p.text_box_edge,
         }
     }
 
@@ -259,8 +288,11 @@ impl Paragraph {
             text_overflow: s.text_overflow,
             overflow_wrap: s.overflow_wrap,
             white_space: s.white_space,
+            text_wrap_style: s.text_wrap_style,
             text_indent: s.text_indent,
             hyphens: s.hyphens,
+            text_box_trim: s.text_box_trim,
+            text_box_edge: s.text_box_edge,
         }
     }
 }
@@ -333,8 +365,140 @@ impl TextMetrics {
     }
 }
 
+/// Where a paragraph's text-box edges stand, in points from its top
+/// (Inline Layout 3 §4.2): its first line's over edges and its last line's
+/// under edges, read from the fonts that line is set in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextEdges {
+    /// The first line's text-over edge: the top of its fonts' ascent.
+    pub text_over: f32,
+    /// The first line's cap height above its baseline.
+    pub cap_over: f32,
+    /// The first line's x-height above its baseline.
+    pub ex_over: f32,
+    /// The last line's alphabetic baseline.
+    pub alphabetic_under: f32,
+    /// The last line's text-under edge: the bottom of its fonts' descent.
+    pub text_under: f32,
+}
+
+impl crate::TextBoxTrim {
+    /// Whether the first line's over edge is cut.
+    pub fn start(self) -> bool {
+        matches!(
+            self,
+            crate::TextBoxTrim::TrimStart | crate::TextBoxTrim::TrimBoth
+        )
+    }
+    /// Whether the last line's under edge is cut.
+    pub fn end(self) -> bool {
+        matches!(
+            self,
+            crate::TextBoxTrim::TrimEnd | crate::TextBoxTrim::TrimBoth
+        )
+    }
+}
+
+/// `text-box-edge`'s over edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverEdge {
+    /// The font's ascent.
+    Text = 0,
+    /// The cap height.
+    Cap = 1,
+    /// The x-height.
+    Ex = 2,
+}
+
+/// `text-box-edge`'s under edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnderEdge {
+    /// The font's descent.
+    Text = 0,
+    /// The alphabetic baseline.
+    Alphabetic = 1,
+}
+
+impl crate::TextBoxEdge {
+    /// The over edge: `auto` is `text`.
+    pub fn over(self) -> OverEdge {
+        use crate::TextBoxEdge::*;
+        match self {
+            Cap | CapAlphabetic => OverEdge::Cap,
+            Ex | ExAlphabetic => OverEdge::Ex,
+            Auto | Text | TextAlphabetic => OverEdge::Text,
+        }
+    }
+    /// The under edge: one keyword leaves it `text`.
+    pub fn under(self) -> UnderEdge {
+        use crate::TextBoxEdge::*;
+        match self {
+            TextAlphabetic | CapAlphabetic | ExAlphabetic => UnderEdge::Alphabetic,
+            Auto | Text | Cap | Ex => UnderEdge::Text,
+        }
+    }
+}
+
+impl Paragraph {
+    /// `text-box-trim` applied to a measurement: how much comes off the top,
+    /// and the trimmed metrics (height, and a first baseline that many points
+    /// higher). With no trim, nothing changes. A host paints the lines that
+    /// many points up, where the measurement put them.
+    pub fn trimmed(&self, metrics: TextMetrics, edges: TextEdges) -> (f32, TextMetrics) {
+        let trim = self.text_box_trim;
+        let top = if trim.start() {
+            match self.text_box_edge.over() {
+                OverEdge::Cap => edges.cap_over,
+                OverEdge::Ex => edges.ex_over,
+                OverEdge::Text => edges.text_over,
+            }
+        } else {
+            0.0
+        };
+        let under = match self.text_box_edge.under() {
+            UnderEdge::Alphabetic => edges.alphabetic_under,
+            UnderEdge::Text => edges.text_under,
+        };
+        let bottom = if trim.end() {
+            metrics.height - under
+        } else {
+            0.0
+        };
+        if !(top.is_finite() && bottom.is_finite()) {
+            return (0.0, metrics);
+        }
+        let height = (metrics.height - top - bottom).max(0.0);
+        let first_baseline = metrics.first_baseline.map(|b| (b - top).max(0.0));
+        (
+            top,
+            TextMetrics {
+                height,
+                first_baseline,
+                ..metrics
+            },
+        )
+    }
+}
+
+/// A system symbol to measure: an image whose source is `symbol:<role>`,
+/// drawn at its computed font size and weight.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SymbolRequest<'a> {
+    /// The role after `symbol:`: `sf/<name>`, or a portable role.
+    pub role: &'a str,
+    /// The image's computed font size, in points.
+    pub font_size: f32,
+    /// Its computed font weight, 1–1000.
+    pub font_weight: u16,
+}
+
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
+    /// The platform formats an instant on the runner clock (LLP 1126 D6).
+    fn format_time(&mut self, request: &crate::time::TimeRequest<'_>) -> Option<String> {
+        crate::time::english(request)
+    }
+
     /// Revision of host measuring traits (scale, content size, legibility,
     /// appearance). A change invalidates native button offers even if fonts
     /// and the tree stay the same. Hosts without changing traits return zero.
@@ -348,6 +512,18 @@ pub trait TextMeasurer {
         crate::FieldChrome::default()
     }
 
+    /// A text control's own text, where the host's control sets it with a
+    /// text engine of its own (LLP 1115.001 D8: Android's `EditText`): its
+    /// width, height and first baseline at the offer, asked during layout.
+    /// `None`, the default, measures it as any paragraph.
+    fn field_text(
+        &mut self,
+        _kind: crate::FieldKind,
+        _request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        None
+    }
+
     /// Native button border-box size, including its platform chrome and
     /// authored content insets (LLP 1069.011.001 D11). None preserves the
     /// default size / set_intrinsic_size path for existing hosts.
@@ -358,11 +534,24 @@ pub trait TextMeasurer {
         None
     }
 
+    /// A system symbol's natural size, as the host draws it, measured before
+    /// the layout that places it, so the first frame has its box. `None` when
+    /// this host cannot say; the image's size is then the one its host
+    /// reports once its view is made.
+    fn symbol_size(&mut self, _request: &SymbolRequest<'_>) -> Option<(f32, f32)> {
+        None
+    }
+
     /// The resolved document language; an empty language is unknown.
     fn set_language(&mut self, _language: &str) {}
 
     /// Size a paragraph under an offer.
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics;
+
+    /// Size presentation-only width candidates without retaining a paragraph artifact.
+    fn measure_reservation(&mut self, request: &TextMeasureRequest<'_>) -> Option<TextMetrics> {
+        Some(self.measure(request))
+    }
 
     /// Size a kernel-identified paragraph. Existing measurers use the ordinary
     /// synchronous path; callers constructing requests still need no stamp.
@@ -520,7 +709,8 @@ impl MonospaceMeasurer {
         TextMetrics {
             width: fragments.iter().map(|f| f.x + f.width).fold(0.0, f32::max),
             height: result.height,
-            first_baseline: Some(line_height * self.baseline_frac),
+            // No line, no first baseline
+            first_baseline: (!fragments.is_empty()).then_some(line_height * self.baseline_frac),
         }
     }
 }
@@ -531,6 +721,71 @@ impl TextMeasurer for MonospaceMeasurer {
         true
     }
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+        let metrics = self.measure_lines(request);
+        self.trim(request, metrics).1
+    }
+
+    fn lines(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        bottoms: &mut Vec<f32>,
+    ) {
+        self.line_bottoms(stamp, request, bottoms);
+        // A trimmed paragraph's lines move up by the top's cut, and the last
+        // ends at the trimmed height, as its measurement does.
+        if request.paragraph.text_box_trim != crate::TextBoxTrim::None {
+            let measured = self.measure_lines(request);
+            let (top, metrics) = self.trim(request, measured);
+            for b in bottoms.iter_mut() {
+                *b = (*b - top).min(metrics.height);
+            }
+            if let Some(last) = bottoms.last_mut() {
+                *last = metrics.height;
+            }
+        }
+    }
+}
+
+impl MonospaceMeasurer {
+    /// `text-box-trim` on a measurement: the cut off its top, and the
+    /// trimmed metrics.
+    fn trim(
+        &mut self,
+        request: &TextMeasureRequest<'_>,
+        metrics: TextMetrics,
+    ) -> (f32, TextMetrics) {
+        let p = &request.paragraph;
+        // Trim nothing without a line: CSS trims a formatted line's edges
+        let Some(baseline) = metrics.first_baseline else {
+            return (0.0, metrics);
+        };
+        if p.text_box_trim == crate::TextBoxTrim::None {
+            return (0.0, metrics);
+        }
+        // The reference face: cap height 0.7 em and x-height 0.5 em above the
+        // baseline, its ascent and descent the line box's.
+        // The edges are the root inline box's, the paragraph's own font
+        // (Inline Layout 3 §4.2); the line box is every run's.
+        let mut line = self.line_height(&p.strut);
+        let size = p.strut.font_size;
+        for run in request.runs {
+            line = line.max(self.line_height(&run.style));
+        }
+        let last = metrics.height - line + line * self.baseline_frac;
+        let edges = TextEdges {
+            text_over: 0.0,
+            cap_over: baseline - 0.7 * size,
+            ex_over: baseline - 0.5 * size,
+            alphabetic_under: last,
+            text_under: metrics.height,
+        };
+        p.trimmed(metrics, edges)
+    }
+}
+
+impl MonospaceMeasurer {
+    fn measure_lines(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         if let AxisOffer::Definite(width) = request.width {
             if !request.exclusions.is_empty() {
                 return self.flow(request, width);
@@ -646,15 +901,17 @@ impl TextMeasurer for MonospaceMeasurer {
             first_baseline: Some(line_height * self.baseline_frac),
         }
     }
+}
 
+impl MonospaceMeasurer {
     /// Every line is one line height, so each bottom is a multiple of it.
-    fn lines(
+    fn line_bottoms(
         &mut self,
         _stamp: &ParagraphStamp,
         request: &TextMeasureRequest<'_>,
         bottoms: &mut Vec<f32>,
     ) {
-        let height = self.measure(request).height;
+        let height = self.measure_lines(request).height;
         let line_height = request
             .runs
             .iter()
@@ -668,6 +925,7 @@ impl TextMeasurer for MonospaceMeasurer {
 }
 
 /// What [`TextStyle::from_style`] reads, gathered row by row.
+#[derive(Clone, Copy)]
 struct TextRows {
     font_size: f32,
     font_weight: u16,
@@ -722,20 +980,96 @@ impl TextRows {
             line_height: self.line_height.resolve(self.font_size),
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
+            bold_text: false,
         }
     }
 }
 
+/// Computed run rows carried down one inline tree. Keep line-height unresolved
+/// until a leaf: an inherited unitless value scales with that leaf's font size.
+#[derive(Clone, Copy)]
+pub(crate) struct RunRows {
+    text: TextRows,
+    pub hyphens: crate::Hyphens,
+    pub transform: crate::TextTransform,
+    mask: StyleMask,
+}
+
+impl RunRows {
+    pub fn from_rows(
+        own: &StyleProps,
+        inherit: impl FnOnce(StyleMask, &mut dyn FnMut(&StyleProps, StyleMask)),
+    ) -> Self {
+        let mut rows = StyleMask::EMPTY;
+        for id in TextStyle::ROWS {
+            rows.set(id);
+        }
+        rows.set(StyleId::Hyphens);
+        rows.set(StyleId::TextTransform);
+        let mut out = Self {
+            text: TextRows::of(own),
+            hyphens: own.hyphens,
+            transform: own.text_transform,
+            mask: own.mask,
+        };
+        inherit(rows, &mut |from, mask| {
+            out.take(from, mask);
+            out.mask = out.mask.union(mask);
+        });
+        out
+    }
+
+    /// Only Text children participate in an inline traversal, so control
+    /// typography boundaries have already been resolved at the traversal root.
+    pub fn child(mut self, own: &StyleProps) -> Self {
+        // A row set nowhere retains the child's own initial value, unmarked,
+        // exactly as computed_style does (including arena-only test styles).
+        self.take(own, own.mask.union(StyleMask::INHERITED.minus(self.mask)));
+        self.mask = self.mask.union(own.mask);
+        self
+    }
+
+    /// The rows set at or above this run.
+    pub fn said(&self) -> StyleMask {
+        self.mask
+    }
+
+    /// `from`'s rows in `mask` taken, as a text style gives them (LLP
+    /// 1115.000 D12.2), and marked set for the runs inside.
+    pub fn fill(mut self, from: &StyleProps, mask: StyleMask) -> Self {
+        self.take(from, mask);
+        self.mask = self.mask.union(mask);
+        self
+    }
+
+    fn take(&mut self, from: &StyleProps, mask: StyleMask) {
+        self.text.take(from, mask);
+        if mask.has(StyleId::Hyphens) {
+            self.hyphens = from.hyphens;
+        }
+        if mask.has(StyleId::TextTransform) {
+            self.transform = from.text_transform;
+        }
+    }
+
+    pub fn style(&self) -> TextStyle {
+        self.text.style()
+    }
+}
+
 /// The paragraph rows [`Paragraph::from_style`] reads besides its strut.
-const PARAGRAPH_ROWS: [StyleId; 8] = [
+const PARAGRAPH_ROWS: [StyleId; 11] = [
     StyleId::Direction,
     StyleId::TextAlign,
     StyleId::LineClamp,
     StyleId::TextOverflow,
     StyleId::OverflowWrap,
     StyleId::WhiteSpace,
+    StyleId::TextWrapStyle,
     StyleId::TextIndent,
     StyleId::Hyphens,
+    StyleId::TextBoxTrim,
+    StyleId::TextBoxEdge,
 ];
 
 struct ParagraphRows {
@@ -745,8 +1079,11 @@ struct ParagraphRows {
     text_overflow: crate::TextOverflow,
     overflow_wrap: crate::OverflowWrap,
     white_space: crate::WhiteSpace,
+    text_wrap_style: crate::TextWrapStyle,
     text_indent: f32,
     hyphens: crate::Hyphens,
+    text_box_trim: crate::TextBoxTrim,
+    text_box_edge: crate::TextBoxEdge,
 }
 
 impl ParagraphRows {
@@ -758,8 +1095,11 @@ impl ParagraphRows {
             text_overflow: s.text_overflow,
             overflow_wrap: s.overflow_wrap,
             white_space: s.white_space,
+            text_wrap_style: s.text_wrap_style,
             text_indent: s.text_indent,
             hyphens: s.hyphens,
+            text_box_trim: s.text_box_trim,
+            text_box_edge: s.text_box_edge,
         }
     }
     fn take(&mut self, s: &StyleProps, mask: StyleMask) {
@@ -781,11 +1121,20 @@ impl ParagraphRows {
         if mask.has(StyleId::WhiteSpace) {
             self.white_space = s.white_space;
         }
+        if mask.has(StyleId::TextWrapStyle) {
+            self.text_wrap_style = s.text_wrap_style;
+        }
         if mask.has(StyleId::TextIndent) {
             self.text_indent = s.text_indent;
         }
         if mask.has(StyleId::Hyphens) {
             self.hyphens = s.hyphens;
+        }
+        if mask.has(StyleId::TextBoxTrim) {
+            self.text_box_trim = s.text_box_trim;
+        }
+        if mask.has(StyleId::TextBoxEdge) {
+            self.text_box_edge = s.text_box_edge;
         }
     }
 }
@@ -803,6 +1152,7 @@ mod tests {
             line_height: None,
             letter_spacing: 0.0,
             font_variant_numeric: 0,
+            bold_text: false,
         }
     }
 
@@ -840,9 +1190,105 @@ mod tests {
             text_overflow: TextOverflow::Clip,
             overflow_wrap: OverflowWrap::Normal,
             white_space: crate::WhiteSpace::Normal,
+            text_wrap_style: crate::TextWrapStyle::Auto,
             text_indent: 0.0,
             hyphens: crate::Hyphens::Manual,
+            text_box_trim: crate::TextBoxTrim::None,
+            text_box_edge: crate::TextBoxEdge::Auto,
         }
+    }
+
+    /// `text-box: trim-both cap alphabetic` cuts a line to its cap height:
+    /// the reference face's cap is 0.7 em above a baseline 0.8 down a 1.2 em
+    /// line, so 10 pt text keeps 7 pt, its baseline at the bottom.
+    #[test]
+    fn text_box_trim_cuts_to_the_cap_height_and_baseline() {
+        let runs = [TextRun {
+            text: "Ab".into(),
+            style: style(10.0),
+        }];
+        let mut p = paragraph();
+        let mut m = MonospaceMeasurer::default();
+        let plain = m.measure(&TextMeasureRequest {
+            runs: &runs,
+            paragraph: p,
+            width: AxisOffer::MaxContent,
+            height: AxisOffer::MaxContent,
+            exclusions: &[],
+        });
+        assert_eq!((plain.height, plain.first_baseline), (12.0, Some(9.6)));
+        p.text_box_trim = crate::TextBoxTrim::TrimBoth;
+        p.text_box_edge = crate::TextBoxEdge::CapAlphabetic;
+        let cut = m.measure(&TextMeasureRequest {
+            runs: &runs,
+            paragraph: p,
+            width: AxisOffer::MaxContent,
+            height: AxisOffer::MaxContent,
+            exclusions: &[],
+        });
+        assert!((cut.height - 7.0).abs() < 1e-4, "{cut:?}");
+        assert!((cut.first_baseline.unwrap() - 7.0).abs() < 1e-4, "{cut:?}");
+        p.text_box_trim = crate::TextBoxTrim::TrimStart;
+        let start = m.measure(&TextMeasureRequest {
+            runs: &runs,
+            paragraph: p,
+            width: AxisOffer::MaxContent,
+            height: AxisOffer::MaxContent,
+            exclusions: &[],
+        });
+        assert!((start.height - 9.4).abs() < 1e-4, "only the top: {start:?}");
+    }
+
+    /// A line shorter than its glyphs is cut by negative amounts, so the
+    /// paragraph grows; its last line still ends where the measurement does.
+    /// Empty text has no line to cut and stays empty.
+    #[test]
+    fn a_trimmed_paragraphs_last_line_ends_at_its_height() {
+        let mut short = style(10.0);
+        short.line_height = Some(4.0);
+        let runs = [TextRun {
+            text: "Ab\nAb".into(),
+            style: short,
+        }];
+        let mut p = paragraph();
+        p.strut = short;
+        p.white_space = crate::WhiteSpace::PreLine;
+        p.text_box_trim = crate::TextBoxTrim::TrimBoth;
+        p.text_box_edge = crate::TextBoxEdge::CapAlphabetic;
+        let request = TextMeasureRequest {
+            runs: &runs,
+            paragraph: p,
+            width: AxisOffer::MaxContent,
+            height: AxisOffer::MaxContent,
+            exclusions: &[],
+        };
+        let mut m = MonospaceMeasurer::default();
+        let measured = m.measure(&request);
+        assert!(measured.height > 8.0, "the cuts are negative: {measured:?}");
+        let stamp = ParagraphStamp {
+            domain: TextDomain::default(),
+            owner: crate::NodeKey {
+                index: 0,
+                generation: 0,
+            },
+            view: 0,
+            metrics: 0,
+            paint_source: 0,
+        };
+        let mut bottoms = Vec::new();
+        m.lines(&stamp, &request, &mut bottoms);
+        assert_eq!(bottoms.len(), 2);
+        assert_eq!(bottoms.last(), Some(&measured.height));
+
+        let empty = [TextRun {
+            text: "".into(),
+            style: style(20.0),
+        }];
+        let empty = m.measure(&TextMeasureRequest {
+            runs: &empty,
+            ..request
+        });
+        assert_eq!(empty.height, 0.0, "{empty:?}");
     }
 
     fn measure(text: &str, width: AxisOffer, lines: u32) -> TextMetrics {

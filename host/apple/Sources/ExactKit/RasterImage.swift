@@ -2,6 +2,9 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import ObjectiveC
+#if os(iOS)
+import UIKit
+#endif
 
 enum RasterFailure: Error, CustomStringConvertible {
     case encodedLimit, headerLimit, dimensions, sourcePixels, overflow, tooLarge, decode, reservation
@@ -273,6 +276,31 @@ func webpSize(_ data: Data) -> (Int, Int)? {
     }
 }
 
+extension RasterMetadata {
+    /// An 8-bit PNG's metadata from its header, as ImageIO reads it, where
+    /// nothing before its pixels can change that: no ICC profile or cICP
+    /// (either can name an HDR transfer), EXIF (an orientation) or animation.
+    /// Nil for anything else, left to ImageIO.
+    static func plainPNG(prefix: Data, encodedBytes: Int) -> Self? {
+        let b = [UInt8](prefix)
+        guard b.count >= 33, b.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+              Array(b[12..<16]) == Array("IHDR".utf8), b[24] <= 8 else { return nil }
+        let u32 = { (i: Int) in Int(b[i]) << 24 | Int(b[i + 1]) << 16 | Int(b[i + 2]) << 8 | Int(b[i + 3]) }
+        let plain: Set<String> = ["PLTE", "tRNS", "sRGB", "gAMA", "cHRM", "pHYs", "bKGD", "tEXt", "zTXt", "iTXt", "tIME", "sBIT", "sPLT", "hIST"]
+        var at = 33
+        while at + 8 <= b.count {
+            let type = String(decoding: b[at + 4..<at + 8], as: UTF8.self)
+            if type == "IDAT" {
+                return try? validated(width: u32(16), height: u32(20), orientation: 1,
+                                      encodedBytes: encodedBytes, headerBytes: prefix.count)
+            }
+            guard plain.contains(type) else { return nil }
+            at += 12 + u32(at)
+        }
+        return nil
+    }
+}
+
 struct RasterDecodePlan: Sendable {
     let width: Int
     let height: Int
@@ -382,6 +410,25 @@ final class RasterImage: @unchecked Sendable {
     /// An HDR bitmap's headroom over SDR white, else 0.
     let headroom: Float
     private let svgViewport: CGSize?
+
+    /// The launch image as the asset catalog holds it, already at the
+    /// screen's scale (`RasterInput.catalog`): drawn into the planned storage
+    /// when the plan is that size, so the picture is the launch screen's, and
+    /// no ImageIO decode runs, whose first use loads every reader plug-in
+    /// (RawCamera's 450 KB of data among them). Nil leaves it to ImageIO.
+    static func catalog(_ name: String, metadata: RasterMetadata, plan: RasterDecodePlan,
+                        charge: any RasterBackingCharge, sourceOwner: (any RasterSourceOwner)?) -> RasterImage? {
+        #if os(iOS)
+        guard plan.variant != RasterVariant.hdr, !plan.deep,
+              let image = UIImage(named: name)?.cgImage, image.width == plan.width, image.height == plan.height,
+              // Drawn, never adopted: the catalog's image is UIKit's to keep.
+              let drawn = normalized(image, plan: plan, adopt: false) else { return nil }
+        let owner = RasterOwner(charge: charge, sourceOwner: sourceOwner)
+        return RasterImage(image: owner.own(drawn), natural: metadata.naturalSize, bytes: plan.outputBytes, animation: nil)
+        #else
+        return nil
+        #endif
+    }
     private init(image: CGImage, natural: CGSize, bytes: Int, animation: RasterAnimation?, headroom: Float = 0, svgViewport: CGSize? = nil) {
         self.image = image; naturalSize = natural; residentBytes = bytes; self.animation = animation; self.headroom = headroom
         self.svgViewport = svgViewport
@@ -494,7 +541,7 @@ final class RasterImage: @unchecked Sendable {
     /// where a bitmap of ours would be copied again at each first commit.
     /// BGRA8 or RGBA16F premultiplied: Core Animation's own layouts, which it
     /// shares without converting.
-    static func normalized(_ thumbnail: CGImage, plan: RasterDecodePlan) -> CGImage? {
+    static func normalized(_ thumbnail: CGImage, plan: RasterDecodePlan, adopt: Bool = true) -> CGImage? {
         // An HDR decode in a BT.2100 space is kept as ImageIO made it: Core
         // Animation tone-maps that to the layer's range, which it doesn't do
         // for extended linear content (LLP 1100 D5, D8).
@@ -504,7 +551,7 @@ final class RasterImage: @unchecked Sendable {
            thumbnail.width <= plan.width + 1, thumbnail.height <= plan.height + 1,
            thumbnail.bytesPerRow * thumbnail.height <= plan.outputBytes { return thumbnail }
         let space = storageSpace(thumbnail.colorSpace, plan: plan)
-        if isAdoptable(thumbnail, plan: plan, space: space) { return thumbnail }
+        if adopt, isAdoptable(thumbnail, plan: plan, space: space) { return thumbnail }
         let bitmap = plan.deep
             ? CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
             : CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue

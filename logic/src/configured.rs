@@ -11,6 +11,20 @@ macro_rules! configured {
             }
         }
         impl $crate::exact_runner::DataSource for $name {
+            fn prepare_snapshot(
+                &mut self,
+                module: Option<$crate::exact_runner::SnapshotModule<'_>>,
+                deadline: std::time::Instant,
+            ) -> Result<(), $crate::exact_runner::DataError> {
+                $crate::exact_runner::DataSource::prepare_snapshot(&mut self.0, module, deadline)
+            }
+            fn take_storage_changed(&mut self) -> bool {
+                $crate::exact_runner::DataSource::take_storage_changed(&mut self.0)
+            }
+            fn set_document_owner(&mut self, owner: u64) {
+                $crate::exact_runner::DataSource::set_document_owner(&mut self.0, owner)
+            }
+
             fn app_id(&self) -> &str {
                 $crate::exact_runner::DataSource::app_id(&self.0)
             }

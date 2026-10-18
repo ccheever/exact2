@@ -775,12 +775,16 @@ impl CanvasEngine for Canvases {
                         "canvas {} ({}): {e}; a new generation starts",
                         view, r.surface
                     );
+                    // Drawn once more, unless the last reply failed too:
+                    // a source that keeps failing waits for another cause.
+                    if r.error.is_none() {
+                        r.causes = r.causes.with(Causes::SIZE);
+                    }
                     r.error = Some(e.to_string());
                     r.wants_frame = false;
                     self.retired.push((r.lifetime, r.generation));
                     r.generation += 1;
                     r.fresh = true;
-                    r.causes = r.causes.with(Causes::SIZE);
                     r.ctx = Context2d::new();
                     r.gradients.clear();
                     log(line);
@@ -1043,7 +1047,7 @@ impl<D: DataSource> Runner<D> {
             let Some(node) = self.kernel.node(view) else {
                 continue;
             };
-            let (_, _, w, h) = exact_kernel::svg::scene::content_box(&node);
+            let (_, _, w, h) = exact_kernel::svg::scene::content_box(&self.kernel, &node);
             let bitmap = self.canvas_bitmap(view);
             let settings = self.canvas_settings(view);
             self.set_canvas_geometry(

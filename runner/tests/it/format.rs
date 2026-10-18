@@ -621,6 +621,92 @@ const NUMBERS: &[(f64, &str)] = &[
     (1801.4010577462614, "1.8K"),
 ];
 
+/// (n, formatNumber "decimal", "percent", "currency" "USD"), from Bun 1.4.2's
+/// `new Intl.NumberFormat("en-US", options).format(n)` with `{}`, `{ style:
+/// "percent" }` and `{ style: "currency", currency: "USD" }` (LLP 1116 D8):
+/// halves at each style's cut, a carry into a new digit, negative zero, the
+/// ends of the doubles. `host/web/tests/js-runtime.test.mjs` sweeps the JS
+/// target's against `Intl` itself.
+#[rustfmt::skip]
+const STYLED: &[(f64, &str, &str, &str)] = &[
+    (0.0, "0", "0%", "$0.00"),
+    (-0.0, "-0", "-0%", "-$0.00"),
+    (1.0, "1", "100%", "$1.00"),
+    (-1.0, "-1", "-100%", "-$1.00"),
+    (0.5, "0.5", "50%", "$0.50"),
+    (2.5, "2.5", "250%", "$2.50"),
+    (-2.5, "-2.5", "-250%", "-$2.50"),
+    (0.125, "0.125", "13%", "$0.13"),
+    (1.005, "1.005", "101%", "$1.01"),
+    (2.675, "2.675", "268%", "$2.68"),
+    (1.0005, "1.001", "100%", "$1.00"),
+    (999.9995, "1,000", "100,000%", "$1,000.00"),
+    (999999.5, "999,999.5", "99,999,950%", "$999,999.50"),
+    (0.9995, "1", "100%", "$1.00"),
+    (0.0005, "0.001", "0%", "$0.00"),
+    (0.00049, "0", "0%", "$0.00"),
+    (-0.0001, "-0", "-0%", "-$0.00"),
+    (0.256, "0.256", "26%", "$0.26"),
+    (0.005, "0.005", "1%", "$0.01"),
+    (-0.005, "-0.005", "-1%", "-$0.01"),
+    (0.045, "0.045", "5%", "$0.05"),
+    (1234.5, "1,234.5", "123,450%", "$1,234.50"),
+    (1481.4666666666667, "1,481.467", "148,147%", "$1,481.47"),
+    (-5.0, "-5", "-500%", "-$5.00"),
+    (1e21, "1,000,000,000,000,000,000,000", "100,000,000,000,000,000,000,000%", "$1,000,000,000,000,000,000,000.00"),
+    (123456789.125, "123,456,789.125", "12,345,678,913%", "$123,456,789.13"),
+    (9007199254740992.0, "9,007,199,254,740,992", "900,719,925,474,099,200%", "$9,007,199,254,740,992.00"),
+    (0.30000000000000004, "0.3", "30%", "$0.30"),
+    (5e-324, "0", "0%", "$0.00"),
+    (1e-7, "0", "0%", "$0.00"),
+    (1.7976931348623157e308, "179,769,313,486,231,570,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000", "17,976,931,348,623,157,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000%", "$179,769,313,486,231,570,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000.00"),
+    (-30.983473220840096, "-30.983", "-3,098%", "-$30.98"),
+    (0.00004066310634370893, "0", "0%", "$0.00"),
+    (462447.97483086586, "462,447.975", "46,244,797%", "$462,447.97"),
+    (-2408385.060261935, "-2,408,385.06", "-240,838,506%", "-$2,408,385.06"),
+    (2.7663973160088067e-7, "0", "0%", "$0.00"),
+    (-3600.212479941547, "-3,600.212", "-360,021%", "-$3,600.21"),
+    (1801.4010577462614, "1,801.401", "180,140%", "$1,801.40"),
+    (12345.678901, "12,345.679", "1,234,568%", "$12,345.68"),
+    (0.0995, "0.1", "10%", "$0.10"),
+    (99.995, "99.995", "10,000%", "$100.00"),
+    (0.999, "0.999", "100%", "$1.00"),
+    (1000000000000000.5, "1,000,000,000,000,000.5", "100,000,000,000,000,050%", "$1,000,000,000,000,000.50"),
+    // Halfway between two shortest forms: ICU's digits are JavaScript's, the even one.
+    (-881366968154907.2, "-881,366,968,154,907.2", "-88,136,696,815,490,720%", "-$881,366,968,154,907.20"),
+    (1469358899709795.2, "1,469,358,899,709,795.2", "146,935,889,970,979,520%", "$1,469,358,899,709,795.20"),
+];
+
+/// (code, formatNumber(1234.5, "currency", code), formatNumber(-0.005, …)):
+/// every code the roster lists, its symbol, spacing and fraction digits.
+#[rustfmt::skip]
+const CURRENCY: &[(&str, &str, &str)] = &[
+    ("USD", "$1,234.50", "-$0.01"),
+    ("EUR", "€1,234.50", "-€0.01"),
+    ("GBP", "£1,234.50", "-£0.01"),
+    ("JPY", "¥1,235", "-¥0"),
+    ("CNY", "CN¥1,234.50", "-CN¥0.01"),
+    ("INR", "₹1,234.50", "-₹0.01"),
+    ("CAD", "CA$1,234.50", "-CA$0.01"),
+    ("AUD", "A$1,234.50", "-A$0.01"),
+    ("NZD", "NZ$1,234.50", "-NZ$0.01"),
+    ("HKD", "HK$1,234.50", "-HK$0.01"),
+    ("SGD", "SGD\u{a0}1,234.50", "-SGD\u{a0}0.01"),
+    ("CHF", "CHF\u{a0}1,234.50", "-CHF\u{a0}0.01"),
+    ("SEK", "SEK\u{a0}1,234.50", "-SEK\u{a0}0.01"),
+    ("NOK", "NOK\u{a0}1,234.50", "-NOK\u{a0}0.01"),
+    ("DKK", "DKK\u{a0}1,234.50", "-DKK\u{a0}0.01"),
+    ("PLN", "PLN\u{a0}1,234.50", "-PLN\u{a0}0.01"),
+    ("MXN", "MX$1,234.50", "-MX$0.01"),
+    ("BRL", "R$1,234.50", "-R$0.01"),
+    ("KRW", "₩1,235", "-₩0"),
+    ("ZAR", "ZAR\u{a0}1,234.50", "-ZAR\u{a0}0.01"),
+    ("TWD", "NT$1,234.50", "-NT$0.01"),
+    ("ILS", "₪1,234.50", "-₪0.01"),
+    ("PHP", "₱1,234.50", "-₱0.01"),
+    ("VND", "₫1,235", "-₫0"),
+];
+
 fn date(ms: f64, offset: f64, style: &str) -> Value {
     formatting(
         Stdlib::FormatDate,
@@ -632,7 +718,7 @@ fn date(ms: f64, offset: f64, style: &str) -> Value {
 fn number(n: f64) -> Value {
     formatting(
         Stdlib::FormatNumber,
-        &[Value::Number(n), Value::str("compact")],
+        &[Value::Number(n), Value::str("compact"), Value::str("")],
     )
     .expect("a number")
 }
@@ -676,12 +762,62 @@ fn compact_numbers_are_intl_s_truncated() {
     );
 }
 
+fn styled(n: f64, style: &str, code: &str) -> Value {
+    formatting(
+        Stdlib::FormatNumber,
+        &[Value::Number(n), Value::str(style), Value::str(code)],
+    )
+    .expect("a number")
+}
+
+#[test]
+fn decimal_percent_and_currency_numbers_are_intl_s() {
+    let mut wrong = Vec::new();
+    for &(n, decimal, percent, usd) in STYLED {
+        let got = (
+            styled(n, "decimal", ""),
+            styled(n, "percent", ""),
+            styled(n, "currency", "USD"),
+        );
+        let want = (Value::str(decimal), Value::str(percent), Value::str(usd));
+        if got != want {
+            wrong.push(format!("{n}: {got:?}, Intl {want:?}"));
+        }
+    }
+    for &(code, whole, tiny) in CURRENCY {
+        let got = (
+            styled(1234.5, "currency", code),
+            styled(-0.005, "currency", code),
+        );
+        if got != (Value::str(whole), Value::str(tiny)) {
+            wrong.push(format!("{code}: {got:?}, Intl {whole:?} {tiny:?}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} of {} rows:\n{}",
+        wrong.len(),
+        STYLED.len() + CURRENCY.len(),
+        wrong.join("\n")
+    );
+    // The table is the roster's literal choice, code for code.
+    let listed: Vec<&str> = Stdlib::FormatNumber.params()[2]
+        .split(" | ")
+        .map(|c| c.trim_matches('"'))
+        .collect();
+    let tested: Vec<&str> = CURRENCY.iter().map(|c| c.0).collect();
+    assert_eq!(listed, tested);
+}
+
 /// D7: every entry prints `""` for a non-finite argument or an offset past
 /// ±18 h, where Intl prints `NaN` or `∞`, or throws a RangeError.
 #[test]
 fn invalid_input_is_blank_from_every_entry() {
     for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         assert_eq!(number(bad), Value::str(""), "{bad}");
+        assert_eq!(styled(bad, "decimal", ""), Value::str(""), "{bad}");
+        assert_eq!(styled(bad, "percent", ""), Value::str(""), "{bad}");
+        assert_eq!(styled(bad, "currency", "JPY"), Value::str(""), "{bad}");
         for (ms, offset) in [(bad, 0.0), (0.0, bad)] {
             assert_eq!(format_time(ms, offset), Value::str(""), "{ms} at {offset}");
             assert_eq!(date(ms, offset, "medium"), Value::str(""));
@@ -776,7 +912,7 @@ fn to_fixed_is_javascript_s_and_format_decimal_is_exact() {
         assert_eq!(
             fixed(Stdlib::ToFixed, x, d),
             Some(Value::str(want)),
-            "toFixed({x}, {d})"
+            "({x}).toFixed({d})"
         );
     }
     #[rustfmt::skip]
@@ -805,6 +941,74 @@ fn to_fixed_is_javascript_s_and_format_decimal_is_exact() {
     }
 }
 
+/// (thenMs, nowMs, utcOffset, "day", "day-time", "list") of `formatDay`
+/// (LLP 1116.020 D8): the dates, times and weekdays from Bun 1.4.2's
+/// `Intl.DateTimeFormat("en-US", { timeZone: "±HH:MM", ... })` with
+/// `dateStyle: "medium"`, `timeStyle: "short"`, `weekday: "long"` and
+/// `dateStyle: "short"`, the words chosen by the offset's calendar days
+/// (host/web/tests/js-runtime.test.mjs sweeps the JS target against Intl the
+/// same way). Sunday 2026-10-11 16:42 at -07:00 back a week and on two days;
+/// a midnight; the year's turn either way and at +01:00; the last wall time.
+#[rustfmt::skip]
+const DAYS: &[(f64, f64, f64, &str, &str, &str)] = &[
+    (1791762120000.0, 1791762120000.0, -420.0, "Today", "Today at 4:42 PM", "4:42 PM"),
+    (1791754920000.0, 1791762120000.0, -420.0, "Today", "Today at 2:42 PM", "2:42 PM"),
+    (1791700920000.0, 1791762120000.0, -420.0, "Yesterday", "Yesterday at 11:42 PM", "Yesterday"),
+    (1791701940000.0, 1791762120000.0, -420.0, "Yesterday", "Yesterday at 11:59 PM", "Yesterday"),
+    (1791675720000.0, 1791762120000.0, -420.0, "Yesterday", "Yesterday at 4:42 PM", "Yesterday"),
+    (1791589320000.0, 1791762120000.0, -420.0, "Oct 9, 2026", "Oct 9, 2026 at 4:42 PM", "Friday"),
+    (1791243720000.0, 1791762120000.0, -420.0, "Oct 5, 2026", "Oct 5, 2026 at 4:42 PM", "Monday"),
+    (1791157320000.0, 1791762120000.0, -420.0, "Oct 4, 2026", "Oct 4, 2026 at 4:42 PM", "10/4/26"),
+    (1791790920000.0, 1791762120000.0, -420.0, "Tomorrow", "Tomorrow at 12:42 AM", "10/12/26"),
+    (1791934920000.0, 1791762120000.0, -420.0, "Oct 13, 2026", "Oct 13, 2026 at 4:42 PM", "10/13/26"),
+    (1791762120000.0, 1791762120000.0, 0.0, "Today", "Today at 11:42 PM", "11:42 PM"),
+    (1791763920000.0, 1791762120000.0, 0.0, "Tomorrow", "Tomorrow at 12:12 AM", "10/12/26"),
+    (1798761540000.0, 1798761660000.0, 0.0, "Yesterday", "Yesterday at 11:59 PM", "Yesterday"),
+    (1798761660000.0, 1798761540000.0, 0.0, "Tomorrow", "Tomorrow at 12:01 AM", "1/1/27"),
+    (1798761540000.0, 1798761660000.0, 60.0, "Today", "Today at 12:59 AM", "12:59 AM"),
+    (1798243140000.0, 1798761660000.0, 0.0, "Dec 25, 2026", "Dec 25, 2026 at 11:59 PM", "12/25/26"),
+    (1798156740000.0, 1798761660000.0, 0.0, "Dec 24, 2026", "Dec 24, 2026 at 11:59 PM", "12/24/26"),
+    (1767225540000.0, 1798761540000.0, 330.0, "Jan 1, 2026", "Jan 1, 2026 at 5:29 AM", "1/1/26"),
+    (253402300799999.0, 253402300799999.0, 0.0, "Today", "Today at 11:59 PM", "11:59 PM"),
+];
+
+fn day(then: f64, now: f64, offset: f64, mode: &str) -> Option<Value> {
+    formatting(
+        Stdlib::FormatDay,
+        &[
+            Value::Number(then),
+            Value::Number(now),
+            Value::Number(offset),
+            Value::str(mode),
+        ],
+    )
+}
+
+#[test]
+fn a_day_s_label_is_relative_to_now_at_the_offset() {
+    let mut wrong = Vec::new();
+    for &(then, now, offset, d, dt, list) in DAYS {
+        for (mode, want) in [("day", d), ("day-time", dt), ("list", list)] {
+            if day(then, now, offset, mode) != Some(Value::str(want)) {
+                wrong.push(format!("{then} {now} {offset} {mode}: {want}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+    // Either instant invalid, as `formatDate` judges one, is "" (D7); a mode
+    // the compiler refuses is refused.
+    for (then, now, offset) in [
+        (f64::NAN, 0.0, 0.0),
+        (0.0, f64::INFINITY, 0.0),
+        (0.0, 0.0, 1081.0),
+        (253402300800000.0, 0.0, 0.0),
+        (0.0, -62135596800001.0, 0.0),
+    ] {
+        assert_eq!(day(then, now, offset, "list"), Some(Value::str("")));
+    }
+    assert_eq!(day(0.0, 0.0, 0.0, "relative"), None);
+}
+
 #[test]
 fn a_style_outside_the_table_is_refused_not_guessed() {
     let args = [Value::Number(0.0), Value::Number(0.0), Value::str("long")];
@@ -812,10 +1016,15 @@ fn a_style_outside_the_table_is_refused_not_guessed() {
     assert_eq!(
         formatting(
             Stdlib::FormatNumber,
-            &[Value::Number(1.0), Value::str("integer")]
+            &[Value::Number(1.0), Value::str("integer"), Value::str("")]
         ),
         None
     );
+    // A code the roster does not list, or none, is no currency (LLP 1116 D8).
+    for code in ["XYZ", "usd", ""] {
+        let args = [Value::Number(1.0), Value::str("currency"), Value::str(code)];
+        assert_eq!(formatting(Stdlib::FormatNumber, &args), None, "{code}");
+    }
     // `formatTime` is the core's, never the capability's.
     assert_eq!(
         formatting(

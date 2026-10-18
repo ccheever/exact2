@@ -282,6 +282,25 @@ The rejects, one fixture each in `contract/corpus/rejects.txt`:
 `route-template` (a template literal passed to a verb, D3), and `route-root`
 (the table must match `/` by pattern or declare `notfound`).
 
+**Amended 2026-10-12 (LLP 1116.009 D2).** An app that declares no `notfound`
+and whose view opens on a navigation root that draws a route per stack entry
+(`each e in stack(nav)`, or a tab's `t.stack`) is compiled as if it had
+written one, and its screen. The compiler appends the `notfound` row to the
+table after the `route-root` check (which is of the table as written, so a
+missing `/` is still refused), and wraps each such `each`'s body: `when
+e.name == "notfound"` a route titled "Not Found" that says "Page not found",
+names the location and links "Go Home" to the first tab's root, `else` what the
+author wrote (`contract/syntax/src/notfound.rs`, in Contract as an author
+would write it, so the runner, the JS target and the semantics see an
+ordinary table and view). A location no route matches then keeps its URL: the
+launch, a deep link, a `go` or a `push` of a computed location open the
+not-found entry, over the first tab's root, and the app boots. Back and the
+link are the router's own. An app that writes `notfound` draws its own, as
+before. An app with no navigation root has no screen to draw it in and is
+unchanged: a launch no route matches opens `/` and journals the refusal
+(`RouterContext::launch`, router.js `launch`), a verb's refusal is a journal
+line. A detail whose id names nothing matches its route: the app says so.
+
 The plan gains a `routes` table (`name`, `pattern`, `parent: opt:routes`,
 `tab: bool`, `notfound: bool`) and the header gains `router: opt:slots`,
 the same move as the `sources` table and `app_id` (LLP 1005 §1): the plan
@@ -492,6 +511,32 @@ keeps its `open?url=` form and never reaches `navigate`; `DocumentsMac`'s
 test-id seam is for files, not locations. The location is derived by
 `location_of` (§3) in the crate, so the hosts agree.
 
+**Amended 2026-10-11 (Charlie’s 2026-10-08 option A, implemented by the
+protocol lane).** An app may declare the Web App Manifest's
+`protocol_handlers: [{protocol, url}]` in `app.json`, with an absolute-path
+handler template containing one `%s` (for example `/open?u=%s`). For an
+incoming URL whose scheme matches a declared `protocol`, the host replaces
+`%s` with `encodeURIComponent` of the complete incoming URL, including its
+scheme and fragment, then canonicalizes that handler path as the location.
+Selection is case-insensitive, while the encoded URL keeps its original
+spelling. The first matching declaration wins. Cold delivery remains the
+launch location; further pre-boot URLs queue as `navigate` events after the
+first frame, in order. Warm delivery remains one `navigate` event per URL, in
+arrival order. A macOS URL array keeps its order; UIKit supplies URL contexts
+as a set, so the iOS adapter sorts a batch by URL string for a stable order.
+The app still needs a navigation root to hear the event and a
+route that accepts the handler location. An unmatched URL uses D8's existing
+`location_of`. The Apple bake registers these schemes beside
+`host.<platform>.urlSchemes`. An entry's optional `distribution_only: true`
+limits its Apple scheme registration and native template to archive or
+`--distribution` builds; it defaults to false. The build-only flag is omitted
+from the native string dictionary. The web build copies the declarations into
+`manifest.json`, where browser support and scheme policy decide whether a
+link opens the installed app. Linux's first non-flag argument retains D8's
+`location_of`: it is a CLI location, not an OS protocol-handler registration.
+The Apple binary fingerprint and compatibility identity include the declared
+handlers, since registration and templates are baked into Info.plist.
+
 ### D9 — One implementation; the value crosses the seam; the corpus runs in three places
 
 - **`exact-route`** is a leaf crate: the table, `canonical`, `location_of`,
@@ -574,6 +619,18 @@ and there is no Back button that could. On the web it is a `pushState`
 the address bar must change. Values, verbs and URLs are identical on every
 platform; an app that wants different routing on one platform branches its
 own actions, and nothing here encourages it.
+
+**Amended 2026-10-11 (LLP 1116.004 D1, decided under LLP 1116's standing
+instruction).** Where the app leaves placement unsaid, a wide window's
+presentation is the platform's default: a root tablist placed as a bar (the
+tabs recipe's, a direct child of the root's column) is a sidebar, and a stack
+whose root route is a list whose rows push (they draw the disclosure) shows
+that route beside its top, as a split view does. Written placement stays the
+app's choice: a vertical or positioned tablist is its rail, a `viewport`
+branch its composition, and `navigationSplit` opts a stack out or sizes its
+column. Either way it is still one value, presented: the router never learns
+the window, and a resize changes only the projection. Built on the web
+(900 px and up); the iPad and Mac presenters are queued.
 
 ## 5. Interview, as it would read
 

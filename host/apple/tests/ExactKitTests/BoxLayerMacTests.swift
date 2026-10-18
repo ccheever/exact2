@@ -1,6 +1,8 @@
 #if os(macOS)
 import AppKit
+import ImageIO
 import XCTest
+import CExact
 @testable import ExactKit
 
 /// A box Core Animation can paint keeps no bitmap on AppKit, as on UIKit
@@ -46,6 +48,7 @@ final class BoxLayerMacTests: XCTestCase {
         }
         let n = node(style, size: CGSize(width: 160, height: 80))
         let media = MediaPlatformView()
+        n.applyContentBox(padding: [10, 10, 10, 10])
         VideoView.layout(media, in: n)
         let mediaLayer = try XCTUnwrap(media.layer)
         XCTAssertEqual(media.frame, CGRect(x: 10, y: 10, width: 140, height: 60))
@@ -53,6 +56,7 @@ final class BoxLayerMacTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(mask.path).contains(CGPoint(x: 10, y: 5)))
         XCTAssertTrue(try XCTUnwrap(mask.path).contains(CGPoint(x: 70, y: 5)))
         n.frame.size = CGSize(width: 80, height: 160)
+        n.applyContentBox(padding: [10, 10, 10, 10])
         VideoView.layout(media, in: n)
         XCTAssertEqual(media.frame, CGRect(x: 10, y: 10, width: 60, height: 140))
         let resized = try XCTUnwrap(mediaLayer.mask as? CAShapeLayer)
@@ -151,7 +155,7 @@ final class BoxLayerMacTests: XCTestCase {
         let video = VideoView(owner: n)
         n.video = video
         guard let media = n.subviews.first else {
-            throw XCTSkip("the optional video module is not beside this test runner")
+            throw missing("module", "the video module is not beside this test runner (EXACT_VIDEO_DYLIB)")
         }
         video.update()
         var style: NodeStyle = ["padding_left": 10, "padding_top": 10, "padding_right": 10, "padding_bottom": 10]
@@ -159,10 +163,12 @@ final class BoxLayerMacTests: XCTestCase {
             style["border_radius_" + corner] = ["pct": 50]
         }
         n.applyStyle(style)
+        n.applyContentBox(padding: [10, 10, 10, 10])
         XCTAssertEqual(media.frame, CGRect(x: 10, y: 10, width: 140, height: 60))
         let mask = try XCTUnwrap(media.layer?.mask as? CAShapeLayer)
         XCTAssertFalse(try XCTUnwrap(mask.path).contains(CGPoint(x: 10, y: 5)))
         n.applyStyle([:])
+        n.applyFieldContent(["rect": NSNull()])
         XCTAssertEqual(media.frame, n.bounds)
         XCTAssertNil(media.layer?.mask)
         n.applyStyle(style)
@@ -184,6 +190,66 @@ final class BoxLayerMacTests: XCTestCase {
         n.frame.size = CGSize(width: 80, height: 160)
         XCTAssertEqual(n.cornerSizes(in: n.bounds), Array(repeating: CGSize(width: 40, height: 80), count: 4))
         XCTAssertNil(FlatPaint(style), "percentage geometry cannot use a fixed-radius flat leaf")
+    }
+
+    /// A content box layout sends with no frame or style change (a
+    /// percentage padding whose containing block widened) repaints an
+    /// image by the new one: a radius over a padded content box draws, so
+    /// the next display draws it rather than keeping the sublayer's choice.
+    func testAnImageFollowsAContentBoxSentAlone() throws {
+        _ = NSApplication.shared
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-content-box-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let context = try XCTUnwrap(CGContext(data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 800,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(red: 1, green: 0, blue: 0, alpha: 1); context.fill(CGRect(x: 0, y: 0, width: 200, height: 100))
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(root.appendingPathComponent("wide.png") as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let p = Presenter(), loader = RasterLoader(), resolver = AssetResolver(root: root)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        let n = NodeView(id: 1, kind: "image", presenter: p)
+        defer { loader.shutdown(); n.raster = nil; window.close(); withExtendedLifetime(resolver) {} }
+        p.views[1] = n; p.viewport.addSubview(n)
+        n.frame = NSRect(x: 0, y: 0, width: 40, height: 40)
+        var style = round(20); style["object_fit"] = .string("cover"); style["padding_left"] = .object(["pct": .number(10)])
+        n.applyStyle(style)
+        n.loadGeneration = 1
+        loader.load(n, source: "wide.png", resolver: resolver)
+        let end = Date(timeIntervalSinceNow: 300)
+        while n.raster == nil && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+        n.applyFieldContent(["rect": [0.0, 0.0, 40.0, 40.0]])
+        n.display()
+        XCTAssertNotNil(n.imageLayer, "an unpadded rounded image is a sublayer")
+        XCTAssertNil(n.layer?.contents)
+        n.applyFieldContent(["rect": [4.0, 0.0, 36.0, 40.0]])
+        n.display()
+        XCTAssertNil(n.imageLayer)
+        XCTAssertNotNil(n.layer?.contents, "a radius over a padded content box draws")
+    }
+
+    /// LLP 1116: a padding that resolves at layout (`min(10%, 20px)`
+    /// arrives as a calculation's handle) reads the content box the kernel published,
+    /// for the box and for each side; without one, the box's bounds.
+    func testAPaddingResolvedAtLayoutReadsTheKernelsContentBox() throws {
+        let bytes = Array("min(10%, 20px)".utf8)
+        let handle = bytes.withUnsafeBufferPointer { exact_calc_parse($0.baseAddress, $0.count) }
+        let padding = try XCTUnwrap(CalculatedLength([
+            "calc": .number(Double(handle)),
+            "env": [0, 0, 0, 0, 300, 600, 1, 1, 0]
+        ]))
+        let knots: NodeStyle = ["padding_top": .calculation(padding)]
+        var style = knots
+        style["padding_left"] = 6; style["border_width"] = 2
+        let n = node(style, size: CGSize(width: 300, height: 120))
+        n.applyContentBox(padding: [20, 0, 0, 6], border: [2, 2, 2, 2])
+        XCTAssertEqual(n.contentBox(), CGRect(x: 8, y: 22, width: 290, height: 96))
+        XCTAssertEqual(["top", "right", "bottom", "left"].map { n.padding($0) }, [20, 0, 0, 6])
+        n.applyFieldContent(["rect": NSNull()])
+        XCTAssertEqual(n.contentBox(), CGRect(x: 0, y: 0, width: 300, height: 120), "a box sent none is its own content box")
     }
 
     private func node(_ style: NodeStyle, kind: String = "view", size: CGSize = CGSize(width: 300, height: 120)) -> NodeView {

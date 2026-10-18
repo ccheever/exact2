@@ -76,7 +76,7 @@ extension NodeView {
     func paragraphBox() -> CGRect {
         let box = contentBox()
         guard let record = columnRecord, let first = record.fragments.first else { return box }
-        let width = record.columns.isEmpty ? first.rect.width - (bounds.width - box.width) : first.rect.width
+        let width = record.columns.isEmpty ? first.rect.width - (layoutBounds.width - box.width) : first.rect.width
         return CGRect(x: box.minX, y: box.minY, width: max(0, width), height: 1e7)
     }
 
@@ -110,9 +110,10 @@ extension NodeView {
     func drawParagraphFragments(_ ctx: CGContext, paragraph: Paragraph, spec: Spec, dirty: NSRect) {
         eachFragment(ctx) { box, at in
             let dirty = dirty.offsetBy(dx: -at.x, dy: -at.y)
-            presenter?.selection.draw(self, paragraph: paragraph, spec: spec, dirty: dirty)
             paintBackgroundThroughText(ctx, paragraph: paragraph, spec: spec, in: box)
             TextEngine.draw(paragraph, spec: spec, in: box, context: ctx, dirty: dirty)
+            // Over the ink: the selection's fill, then its glyphs again in the selection's own colour.
+            presenter?.selection.draw(self, paragraph: paragraph, spec: spec, in: ctx, dirty: dirty)
         }
     }
     #endif
@@ -173,22 +174,5 @@ extension NodeView {
             rule.backgroundColor = TextEngine.color(c).cgColor
             return rule
         }
-    }
-}
-
-extension TextEngine {
-    /// @ref LLP 1093 D6 — each line box's bottom, in content coordinates, of
-    /// the paragraph `request` answers: the one the presenter paints.
-    func lineBottoms(_ request: ExactMeasureRequest) -> [CGFloat] {
-        guard request.width >= 0, request.exclusion_count == 0, request.markup == 0 else { return [] }
-        return paragraph(requestSpec(request), width: CGFloat(request.width)).lineBottoms
-    }
-
-    /// The kernel's line-box hook (`exact_set_lines`); `ctx` is the engine.
-    static let linesText: ExactLinesFn = { ctx, request, out, cap in
-        guard let ctx, let request = request?.pointee else { return 0 }
-        let bottoms = Unmanaged<TextEngine>.fromOpaque(ctx).takeUnretainedValue().lineBottoms(request)
-        if let out { for (i, b) in bottoms.prefix(cap).enumerated() { out[i] = Float(b) } }
-        return bottoms.count
     }
 }

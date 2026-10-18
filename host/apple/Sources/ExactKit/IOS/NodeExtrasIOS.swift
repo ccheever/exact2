@@ -17,7 +17,16 @@ struct AimedGradient {
     let gradient: Gradient, stops: ([CGFloat], [CGColor])
 }
 
+/// A paragraph's specs, apart from its view: three `Spec`s inline made every
+/// `NodeView` about 1 KB larger, text or not (2112 bytes, a 2.5 KB block).
+final class TextSpecs {
+    var rasterKey: TextRasterKey?
+    var rasterSpec: Spec?
+    var cached: Spec?
+}
+
 final class NodeExtras {
+    var pressContact: PressContact?
     var inlinePressed: UInt32?
     /// A Markdown link pressed in this text: its target, followed on release over it.
     var linkPressed: String?
@@ -65,7 +74,16 @@ final class NodeExtras {
     #endif
     var textArea: UITextView?
     var field: UITextField?
+    var fieldWaits = false
+    weak var headerField: UITextField?
+    #if os(iOS)
+    /// A number input's stepper (`NumberStepperIOS.swift`).
+    var stepper: FieldStepper?
+    #endif
+    var toldText: String?
     var pendingValue: String?
+    /// A native field in a grouped list's row (`isCellField`).
+    var fieldInCell = false
     var video: VideoView?
     var web: UIView?
     var metal: MetalView?
@@ -80,11 +98,13 @@ final class NodeExtras {
     var symbolRefusal: String?
     var focusRing: CAShapeLayer?
     var scrollEventQueued: Bool = false
-    var lastScrollEvent: CGPoint = .zero
+    var lastScrollEvent: (offset: CGPoint, topInset: CGFloat) = (.zero, 0)
     var dispatchingScrollEvent: Bool = false
-    var beforeLayoutScroll: CGPoint?
+    var scrollEnd: ScrollEnd?
+    var beforeLayoutScroll: (offset: CGPoint, topInset: CGFloat)?
+    /// Logical coordinates survive hiding and physical backend replacement.
     var hiddenScroll: CGPoint?
-    var followedScroll: (top: CGFloat, end: Bool)?
+    var followedScroll: (top: CGFloat, end: Bool, start: Bool)?
     var followsEndAfterInteraction = false
     var followingEndAnimated = false
     var anchoredScrollTop: CGFloat?
@@ -99,12 +119,17 @@ final class NodeExtras {
     var glassSlot: GlassSlot?
     var pendingScrollLeft: Double?
     var pendingScrollTop: Double?
+    var pendingScrollTransfer = false
     /// A collapsing title's scroller (LLP 1075.003 Stage 3): its expanded
     /// title's inset, where `scrollTop` 0 rests; 0 for every other scroller.
     var scrollOrigin: CGFloat = 0
     /// …and the smallest inset it has had: its title collapsed.
     var scrollCollapsed: CGFloat = 0
     /// What the style last said of the scroll view's indicators and deceleration.
+    weak var nativeScrollView: UIScrollView?
+    weak var nativeScrollDelegate: (any UIScrollViewDelegate)?
+    /// Content room implemented as native insets, not a smaller CSS viewport.
+    var nativeScrollContentInsets = UIEdgeInsets.zero
     var scrollWritten: String?
     /// A hatched node whose hatch undoes its own additions: its row may be
     /// reused (LLP 1075.003.000.000 §8).
@@ -125,10 +150,12 @@ extension NodeView {
         return made
     }
     var inlinePressed: UInt32? { get { extras?.inlinePressed } set { if newValue != nil || extras != nil { more.inlinePressed = newValue } } }
+    var pressContact: PressContact? { get { extras?.pressContact } set { if newValue != nil || extras != nil { more.pressContact = newValue } } }
     var linkPressed: String? { get { extras?.linkPressed } set { if newValue != nil || extras != nil { more.linkPressed = newValue } } }
     var svgPressed: UInt32? { get { extras?.svgPressed } set { if newValue != nil || extras != nil { more.svgPressed = newValue } } }
     var clipPath: CGPath? { get { extras?.clipPath } set { if newValue != nil || extras != nil { more.clipPath = newValue } } }
     var clipRule: CGPathFillRule { get { extras?.clipRule ?? .winding } set { if newValue != .winding || extras != nil { more.clipRule = newValue } } }
+    var fieldInCell: Bool { get { extras?.fieldInCell ?? false } set { if newValue || extras != nil { more.fieldInCell = newValue } } }
     var boxGradient: CAGradientLayer? { get { extras?.boxGradient } set { if newValue != nil || extras != nil { more.boxGradient = newValue } } }
     var aimedGradient: AimedGradient? { get { extras?.aimedGradient } set { if newValue != nil || extras != nil { more.aimedGradient = newValue } } }
     var shadowCaster: ShadowCaster? { get { extras?.shadowCaster } set { if newValue != nil || extras != nil { more.shadowCaster = newValue } } }
@@ -163,6 +190,15 @@ extension NodeView {
     #endif
     package var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
     package var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
+    /// An `input` whose field waits for its closed box (`makeWaitingField`).
+    var fieldWaits: Bool { get { extras?.fieldWaits ?? false } set { if newValue || extras != nil { more.fieldWaits = newValue } } }
+    /// UIKit's field standing in for this one while it shows: the bar's
+    /// search field (`HeaderSearch`), a prompt's (`PromptField`).
+    var headerField: UITextField? { get { extras?.headerField } set { if newValue != nil || extras != nil { more.headerField = newValue } } }
+    var selectionField: UITextField? { headerField ?? field }
+    /// The editor's text as the app was last told it; nil once the app has set the value since (`FieldComposition.swift`).
+    var toldText: String? { get { extras?.toldText } set { if newValue != nil || extras != nil { more.toldText = newValue } } }
+    /// A `value` that arrived while text was marked, applied when the composition ends.
     var pendingValue: String? { get { extras?.pendingValue } set { if newValue != nil || extras != nil { more.pendingValue = newValue } } }
     var video: VideoView? { get { extras?.video } set { if newValue != nil || extras != nil { more.video = newValue } } }
     var web: UIView? { get { extras?.web } set { if newValue != nil || extras != nil { more.web = newValue } } }
@@ -178,11 +214,12 @@ extension NodeView {
     var symbolRefusal: String? { get { extras?.symbolRefusal } set { if newValue != nil || extras != nil { more.symbolRefusal = newValue } } }
     var focusRing: CAShapeLayer? { get { extras?.focusRing } set { if newValue != nil || extras != nil { more.focusRing = newValue } } }
     var scrollEventQueued: Bool { get { extras?.scrollEventQueued ?? false } set { if newValue || extras != nil { more.scrollEventQueued = newValue } } }
-    var lastScrollEvent: CGPoint { get { extras?.lastScrollEvent ?? .zero } set { if newValue != .zero || extras != nil { more.lastScrollEvent = newValue } } }
+    var lastScrollEvent: (offset: CGPoint, topInset: CGFloat) { get { extras?.lastScrollEvent ?? (.zero, 0) } set { if newValue.offset != .zero || newValue.topInset != 0 || extras != nil { more.lastScrollEvent = newValue } } }
     var dispatchingScrollEvent: Bool { get { extras?.dispatchingScrollEvent ?? false } set { if newValue || extras != nil { more.dispatchingScrollEvent = newValue } } }
-    var beforeLayoutScroll: CGPoint? { get { extras?.beforeLayoutScroll } set { if newValue != nil || extras != nil { more.beforeLayoutScroll = newValue } } }
+    var scrollEnd: ScrollEnd? { get { extras?.scrollEnd } set { if newValue != nil || extras != nil { more.scrollEnd = newValue } } }
+    var beforeLayoutScroll: (offset: CGPoint, topInset: CGFloat)? { get { extras?.beforeLayoutScroll } set { if newValue != nil || extras != nil { more.beforeLayoutScroll = newValue } } }
     var hiddenScroll: CGPoint? { get { extras?.hiddenScroll } set { if newValue != nil || extras != nil { more.hiddenScroll = newValue } } }
-    var followedScroll: (top: CGFloat, end: Bool)? { get { extras?.followedScroll } set { if newValue != nil || extras != nil { more.followedScroll = newValue } } }
+    var followedScroll: (top: CGFloat, end: Bool, start: Bool)? { get { extras?.followedScroll } set { if newValue != nil || extras != nil { more.followedScroll = newValue } } }
     var followingEndAnimated: Bool { get { extras?.followingEndAnimated ?? false } set { if newValue || extras != nil { more.followingEndAnimated = newValue } } }
     var followsEndAfterInteraction: Bool { get { extras?.followsEndAfterInteraction ?? false } set { if newValue || extras != nil { more.followsEndAfterInteraction = newValue } } }
     var anchoredScrollTop: CGFloat? { get { extras?.anchoredScrollTop } set { if newValue != nil || extras != nil { more.anchoredScrollTop = newValue } } }
@@ -215,29 +252,58 @@ extension NodeView {
     /// Where CSS's `scrollTop` 0 is in UIKit's offsets: past the scroller's
     /// top inset when a collapsing title's bar insets it — the scrollport's
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset
-    /// plus that inset fixed while the title collapses) — else 0.
-    func scrollTopInset(_ sv: UIScrollView) -> CGFloat { scrollOrigin > 0 ? sv.adjustedContentInset.top : 0 }
+    /// plus that inset fixed while the title collapses), or past native content room.
+    func scrollTopInset(_ sv: UIScrollView) -> CGFloat {
+        scrollOrigin > 0 ? sv.adjustedContentInset.top : extras?.nativeScrollContentInsets.top ?? 0
+    }
+    /// Native padding and footer space are content, unlike a bar or keyboard.
+    package func scrollPortInsets(_ sv: UIScrollView) -> UIEdgeInsets {
+        let inset = sv.adjustedContentInset, content = extras?.nativeScrollContentInsets ?? .zero
+        return UIEdgeInsets(top: inset.top - content.top, left: inset.left - content.left,
+                            bottom: inset.bottom - content.bottom, right: inset.right - content.right)
+    }
+    /// The least content height UIKit takes: the box, or for a scroller
+    /// UIKit insets, the port between the insets the kernel lays its content
+    /// out in (LLP 1116.000 D1.2), so a page shorter than that port does not
+    /// scroll by the bar and the home indicator, as a table view's does not.
+    func scrollFloor(_ sv: UIScrollView) -> CGFloat {
+        guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height }
+        return max(0, sv.bounds.height - top - bottom)
+    }
 }
 extension UIColor {
     /// LLP 1115 D2: what an unset background is, the platform's —
-    /// `systemBackground` (tvOS has none; white stands in).
-    static var platformBackground: UIColor {
+    /// `systemBackground` (tvOS has none; white stands in) — or the theme's
+    /// where it replaces the page's ground (LLP 1095 D4).
+    /// `view`'s presenter's theme (LLP 1121 stage 5).
+    package static func platformBackground(in view: UIView?) -> UIColor {
         #if os(tvOS)
-        return .white
+        return ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .white)
         #else
-        return .systemBackground
+        return ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .systemBackground)
         #endif
     }
 }
 extension NodeView {
-    /// LLP 1115 §2, "inherited is unsaid": the colour row `key` when it is
-    /// written on this node — not a platform colour, and not the same as
-    /// the nearest node view above it has (what CSS's inheritance gave it).
-    /// Nil leaves the control the platform's tint (D4).
-    func ownColor(_ key: String) -> BatchValue? {
-        guard let row = style[key], !row.isSystemColor else { return nil }
-        let above = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? NodeView }.first
-        return row.key == above?.style[key]?.key ? nil : row
+    /// LLP 1115.000 D2: whether the author wrote the row `key` on this node,
+    /// as an attribute or a row of its class. The style says so row by row
+    /// (`written`); it is false of a value the node only inherits and of a
+    /// row the compiler implied (a sheet's, a heading's, a tag's own).
+    func wrote(_ key: String) -> Bool {
+        guard case .array(let rows)? = style["written"] else { return false }
+        return rows.contains(.string(key))
+    }
+    /// LLP 1115 §2, "what the author writes wins": the colour row `key` when
+    /// its author wrote it on this node, a platform colour and one equal to
+    /// its parent's included. Nil leaves the control the platform's (D4).
+    func ownColor(_ key: String) -> BatchValue? { wrote(key) ? style[key] : nil }
+    /// A field's text: its own `color`, else the design's `FieldText`, else
+    /// the platform's; an inherited colour never tints a field (LLP 1115 D4,
+    /// LLP 1121 D9).
+    /// A field of the author's own (`appearance="none"`) is their box, and
+    /// inherits as text does.
+    var fieldInk: UIColor {
+        showsOwnTextColor || !isNativeTextControl ? color("text_color", SystemColor.canvasText) : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
     }
     /// `ownColor` as this node draws it now, or nil.
     func ownUIColor(_ key: String) -> UIColor? {

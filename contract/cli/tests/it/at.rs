@@ -19,12 +19,12 @@ impl DataSource for Names {
 const SRC: &str = r#"
 component App
   state i = 1
-  resource names = names() as shape list<string>
+  resource names = names() as shape string[]
   action go(n: number)
     i = n
   view
     column
-      match at(names, i)
+      match names.at(i)
         case some(n)
           text n testId="at"
         case none
@@ -60,7 +60,7 @@ fn at_is_some_of_the_item_or_none() {
         (-4.0, "nobody"),
     ] {
         r.act("go", vec![Value::Number(i)]).unwrap();
-        assert_eq!(text(&r), expected, "at(names, {i})");
+        assert_eq!(text(&r), expected, "names.at({i})");
     }
 }
 
@@ -71,10 +71,10 @@ fn at_reads_a_record_s_field() {
 shape Msg
   name: string
 component App
-  resource msgs = msgs() as shape list<Msg>
+  resource msgs = msgs() as shape Msg[]
   view
     column
-      match at(msgs, -1)
+      match msgs.at(-1)
         case some(m)
           text m.name testId="at"
         case none
@@ -109,11 +109,11 @@ component App
 #[test]
 fn at_takes_a_list_and_a_number() {
     for (call, id) in [
-        (r#"at("abc", 1)"#, "type-arg"),
-        (r#"at(names, "1")"#, "type-arg"),
-        ("at(names)", "type-arity"),
+        (r#""abc".at(1)"#, "type-arg"),
+        (r#"names.at("1")"#, "type-arg"),
+        ("names.at()", "type-arity"),
     ] {
-        let source = SRC.replace("at(names, i)", call);
+        let source = SRC.replace("names.at(i)", call);
         let error = contract::compile(&source).unwrap_err().to_string();
         assert!(error.contains(id), "{call}: {error}");
     }

@@ -109,7 +109,7 @@ extension Presenter {
             source.natural = natural
             source.raster = leaver.raster
         }
-        source.root = presentationRoot(of: leaver)
+        source.root = ViewPresentation.root(of: leaver)
         if let old = flights[id] { landFlight(old) }
         flights[id] = Flight(id: id, source: source)
     }
@@ -123,7 +123,9 @@ extension Presenter {
     func flightFrame(_ op: BatchOp) -> Bool {
         guard op.op == .frame, let f = flights[op.id], f.view != nil else { return false }
         f.geometry = op
-        f.slot?.frame = CGRect(x: op.x, y: op.y, width: op.w, height: op.h)
+        // Layout's new size for what is placed in it while it flies (`layoutBounds`).
+        f.view?.grid?.layout = CGRect(x: op.x, y: op.y, width: op.w, height: op.h)
+        if let slot = f.slot { slot.frame = PixelGrid.place(CGRect(x: op.x, y: op.y, width: op.w, height: op.h), in: gridOrigin(above: slot), scale: gridScale).drawn }
         return true
     }
 
@@ -163,7 +165,8 @@ extension Presenter {
         f.clip?.removeFromSuperview()
         let op = f.geometry ?? {
             var op = BatchOp(op: .frame, nodeID: f.id)
-            op.x = slot.frame.minX; op.y = slot.frame.minY; op.w = slot.frame.width; op.h = slot.frame.height
+            let r = view.grid?.layout ?? slot.frame // layout's, not the drawn one the slot took
+            op.x = r.minX; op.y = r.minY; op.w = r.width; op.h = r.height
             return op
         }()
         applyGeometry(op)
@@ -244,7 +247,7 @@ extension Presenter {
             self.scrollIntoView(slot)
             self.showFlight(f)
         }
-        guard let own = presentationRoot(of: parent) else { slot.removeFromSuperview(); flights.removeValue(forKey: f.id); return }
+        guard let own = ViewPresentation.root(of: parent) else { slot.removeFromSuperview(); flights.removeValue(forKey: f.id); return }
         // The flight goes in B's presentation (D4 step 3), unless A's encloses
         // it: then in A's, so a photo closing from an overlay above the routes
         // into a thumbnail in a route stays above that overlay as it fades,
@@ -337,6 +340,7 @@ extension Presenter {
     /// least that shows it whole (`scrollIntoView`'s `nearest`), innermost
     /// first, at once (LLP 1013.000 D5).
     private func scrollIntoView(_ slot: UIView) {
+        let root = ViewPresentation.root(of: slot)
         var ancestor = slot.superview
         while let current = ancestor {
             if let sv = current as? UIScrollView, sv.isScrollEnabled || sv === viewport {
@@ -355,27 +359,9 @@ extension Presenter {
                 offset.y = min(max(offset.y, -inset.top), max(-inset.top, sv.contentSize.height - sv.bounds.height + inset.bottom))
                 if offset != sv.contentOffset { sv.setContentOffset(offset, animated: false) }
             }
-            if let vc = current.next as? UIViewController, vc.view === current, Self.presents(vc) { break }
+            if current === root { break }
             ancestor = current.superview
         }
-    }
-
-    /// The root view of the controller presenting `view`: a route's, a
-    /// sheet's, a fullscreen presentation's, else the window.
-    private func presentationRoot(of view: UIView) -> UIView? {
-        var ancestor: UIView? = view
-        while let current = ancestor {
-            if let vc = current.next as? UIViewController, vc.view === current, Self.presents(vc) { return current }
-            ancestor = current.superview
-        }
-        return view.window
-    }
-
-    /// A controller whose view is a presentation's root: a route in a
-    /// navigation or tab container, or one with no parent (a window's root,
-    /// a sheet, a fullscreen presentation).
-    private static func presents(_ vc: UIViewController) -> Bool {
-        vc.parent == nil || vc.parent is UINavigationController || vc.parent is UITabBarController
     }
 
     private static func dropEmptyLayer(_ layer: UIView) {

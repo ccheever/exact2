@@ -11,55 +11,35 @@
 //! and only the live tail below it (a streaming reply, a spinner, the input)
 //! is redrawn. Full screen, the app owns the alternate screen and the mouse.
 
-use crate::host::{After, Host, Key, Mode};
+use crate::host::{Host, Key, Mode};
 use crate::image::{protocol_bytes, Protocol};
 use exact_runner::DataSource;
-use rustix::event::{poll, PollFd, PollFlags, Timespec};
-use rustix::termios::{tcgetattr, tcgetwinsize, tcsetattr, OptionalActions, Termios};
-use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::io::IsTerminal;
 use vte::{Params, Parser, Perform};
 
-/// The terminal's settings before raw mode, for every way out.
-static SAVED: Mutex<Option<(Termios, Mode)>> = Mutex::new(None);
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+pub use unix::{run, size};
 
-/// Alternate screen, SGR mouse with drags, bracketed paste, kitty keyboard
-/// disambiguation (LLP 1101 D6).
-const ENTER_FULL: &str = "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[>1u";
-/// The normal screen: no mouse capture, so selection stays the terminal's.
-const ENTER_INLINE: &str = "\x1b[?25l\x1b[?2004h\x1b[>1u";
-/// Each mode undone, in reverse.
-const LEAVE_FULL: &str =
-    "\x1b[<u\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[0 q\x1b[?25h\x1b[?1049l";
-const LEAVE_INLINE: &str = "\x1b[<u\x1b[?2004l\x1b[?1006l\x1b[?1000l\x1b[0m\x1b[0 q\x1b[?25h";
-
-fn restore() {
-    let saved = SAVED.lock().ok().and_then(|mut s| s.take());
-    let mut out = std::io::stdout();
-    if let Some((termios, mode)) = saved {
-        let leave = if mode == Mode::Fullscreen {
-            LEAVE_FULL
-        } else {
-            LEAVE_INLINE
-        };
-        let _ = out.write_all(leave.as_bytes());
-        let _ = out.flush();
-        let _ = tcsetattr(rustix::stdio::stdin(), OptionalActions::Now, &termios);
-    }
-}
-
-/// The terminal's size in cells, if it reports one.
+/// Terminal size discovery is available only on Unix.
+#[cfg(not(unix))]
 pub fn size() -> Option<(usize, usize)> {
-    let w = tcgetwinsize(rustix::stdio::stdout()).ok()?;
-    (w.ws_col > 0 && w.ws_row > 0).then_some((w.ws_col as usize, w.ws_row as usize))
+    None
 }
 
-/// Whether stdout is a terminal.
+/// Interactive terminal I/O is available only on Unix; headless use is portable.
+#[cfg(not(unix))]
+pub fn run<D: DataSource>(_host: &mut Host<D>) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "the interactive terminal host runs on Unix only",
+    ))
+}
+
+/// Whether stdin and stdout are terminals.
 pub fn is_terminal() -> bool {
-    rustix::termios::isatty(rustix::stdio::stdout())
-        && rustix::termios::isatty(rustix::stdio::stdin())
+    std::io::stdout().is_terminal() && std::io::stdin().is_terminal()
 }
 
 /// What the input decodes to.
@@ -323,13 +303,23 @@ impl Inline {
 
     /// The record to publish once this frame's bytes are out, when what is
     /// printed changed since the last one (LLP 1101.002 §0 P5).
-    pub(crate) fn printed(&mut self, mode: Mode) -> Option<String> {
+    pub(crate) fn printed(
+        &mut self,
+        mode: Mode,
+        colors: crate::color::ColorDepth,
+    ) -> Option<String> {
         let now = (self.logs, self.through.clone());
         if now == self.published {
             return None;
         }
         self.published = now;
-        Some(record(mode, self.protocol, self.logs, &self.through))
+        Some(record(
+            mode,
+            self.protocol,
+            colors,
+            self.logs,
+            &self.through,
+        ))
     }
 
     /// Position queries asked and not yet answered.
@@ -401,8 +391,11 @@ impl Inline {
             fresh = true;
             out.push_str("\x1b[J");
             let (from, to) = (bottom_of(lead), bottom_of(settled));
-            if to > from {
-                let painted = host.render_settled(from, to - from);
+            // Scrollback can arrive in a single large burst. Rasterize it
+            // in bounded strips instead of allocating a cell for every
+            // column of the entire transcript before writing any of it.
+            for top in (from..to).step_by(128) {
+                let painted = host.render_settled(top, (to - top).min(128));
                 self.print_rows(&painted, &host.images, out);
             }
             self.printed
@@ -500,7 +493,10 @@ impl Inline {
             out.push_str(&painted.grid.row_sgr(y));
             if self.protocol != Protocol::Blocks {
                 for (id, r) in &painted.images {
-                    if r.y + r.h - 1 == y as i32 && r.y >= 0 && r.h > 0 {
+                    // An image may begin in an earlier strip. Its last
+                    // row emits the protocol image over the rows already
+                    // printed, exactly once.
+                    if r.y + r.h - 1 == y as i32 && r.h > 0 {
                         if let Some(image) = images.of(*id) {
                             let bytes =
                                 protocol_bytes(self.protocol, image, r.w as usize, r.h as usize);
@@ -520,6 +516,7 @@ impl Inline {
     }
 
     /// Leave the screen with the last frame in place and the cursor below it.
+    #[cfg(unix)]
     fn finish(&self, out: &mut String) {
         let down = self.live.saturating_sub(1 + self.cursor_row);
         if down > 0 {
@@ -547,7 +544,13 @@ fn json_string(s: &str) -> String {
 /// The terminal's record for the app, `exactSurface("terminal")`: `log`
 /// counts the logs seen (a new one is a new transcript), and `printed` is
 /// the `id` of that log's last child written to scrollback.
-pub(crate) fn record(mode: Mode, images: Protocol, log: u64, printed: &str) -> String {
+pub(crate) fn record(
+    mode: Mode,
+    images: Protocol,
+    colors: crate::color::ColorDepth,
+    log: u64,
+    printed: &str,
+) -> String {
     let mode = if mode == Mode::Inline {
         "inline"
     } else {
@@ -559,186 +562,89 @@ pub(crate) fn record(mode: Mode, images: Protocol, log: u64, printed: &str) -> S
         Protocol::Blocks => "blocks",
     };
     let printed = json_string(printed);
+    let colors = colors as u8;
     format!(
-        "{{\"mode\":\"{mode}\",\"images\":\"{images}\",\"colors\":24,\"log\":{log},\"printed\":\"{printed}\"}}"
+        "{{\"mode\":\"{mode}\",\"images\":\"{images}\",\"colors\":{colors},\"log\":{log},\"printed\":\"{printed}\"}}"
     )
-}
-
-/// Hand the URLs the app asked to open (`openURL`, a clicked link) to the
-/// system's opener, detached: the terminal stays the app's.
-fn open_outbound<D: DataSource>(host: &mut Host<D>) {
-    let opener = if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    for url in host.outbound.drain(..) {
-        let _ = std::process::Command::new(opener)
-            .arg(&url)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-    }
-}
-
-/// Run the host in this terminal until the app or the user quits.
-pub fn run<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
-    let stdin = rustix::stdio::stdin();
-    let saved = tcgetattr(stdin)?;
-    let mut raw = saved.clone();
-    raw.make_raw();
-    // Keep output post-processing: "\n" still returns the carriage, so a
-    // panic message is readable.
-    *SAVED.lock().expect("saved") = Some((saved, host.mode));
-    tcsetattr(stdin, OptionalActions::Now, &raw)?;
-    let hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        restore();
-        hook(info);
-    }));
-    let result = run_raw(host);
-    restore();
-    result
-}
-
-fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
-    let mut stdout = std::io::stdout();
-    let mode = host.mode;
-    stdout.write_all(
-        if mode == Mode::Fullscreen {
-            ENTER_FULL
-        } else {
-            ENTER_INLINE
-        }
-        .as_bytes(),
-    )?;
-    stdout.flush()?;
-    // The data module's threads wake the loop through a socket.
-    let (mut wake_rx, wake_tx) = UnixStream::pair()?;
-    wake_rx.set_nonblocking(true)?;
-    wake_tx.set_nonblocking(true)?;
-    let wake_tx = Arc::new(Mutex::new(wake_tx));
-    host.listen(Arc::new(move || {
-        if let Ok(mut w) = wake_tx.lock() {
-            let _ = w.write(&[1]);
-        }
-    }));
-    host.announced();
-    let start = Instant::now();
-    let now = || start.elapsed().as_secs_f64() * 1000.0;
-    let mut parser = Parser::new();
-    let mut decoder = Decoder::default();
-    let mut shown: Option<crate::grid::Grid> = None;
-    let mut inline = Inline::new(Protocol::detect());
-    let mut buf = [0u8; 8192];
-    host.publish(&record(mode, inline.protocol, 0, ""));
-    loop {
-        if let Some((cols, rows)) = size() {
-            host.resize(cols, rows);
-        }
-        host.tick(now());
-        let mut out = String::new();
-        match mode {
-            Mode::Fullscreen => {
-                let grid = &host.frame().grid;
-                if shown.as_ref() != Some(grid) {
-                    out = grid.diff(shown.as_ref());
-                    shown = Some(grid.clone());
-                }
-            }
-            Mode::Inline => inline.frame(host, &mut out),
-        }
-        if host.quitting() {
-            if mode == Mode::Inline {
-                inline.finish(&mut out);
-            }
-            stdout.write_all(out.as_bytes())?;
-            stdout.flush()?;
-            return Ok(());
-        }
-        if !out.is_empty() {
-            stdout.write_all(out.as_bytes())?;
-            stdout.flush()?;
-            host.frames += 1;
-        }
-        // Tell the app what is in scrollback now that the bytes are out,
-        // so it can let go (LLP 1101.001 P1; 1101.002 §0 P5).
-        if mode == Mode::Inline {
-            if let Some(r) = inline.printed(mode) {
-                host.publish(&r);
-            }
-        }
-        // Sleep until input, a wake, the next timer, or a size check.
-        let wait = host
-            .timer_due_ms()
-            .map(|due| (due - now()).clamp(0.0, 250.0))
-            .unwrap_or(250.0);
-        let wait = if decoder.escape {
-            wait.min(ESC_WAIT_MS)
-        } else {
-            wait
-        };
-        let timeout = Timespec {
-            tv_sec: 0,
-            tv_nsec: (wait * 1_000_000.0) as i64,
-        };
-        let stdin = rustix::stdio::stdin();
-        let mut fds = [
-            PollFd::new(&stdin, PollFlags::IN),
-            PollFd::new(&wake_rx, PollFlags::IN),
-        ];
-        if poll(&mut fds, Some(&timeout))? == 0 {
-            for input in flush_escape(&mut decoder) {
-                if let Input::Key(k) = input {
-                    if host.key(k) == After::Quit {
-                        return Ok(());
-                    }
-                }
-            }
-            continue;
-        }
-        let (input_ready, woken) = (!fds[0].revents().is_empty(), !fds[1].revents().is_empty());
-        if woken {
-            let mut sink = [0u8; 256];
-            while matches!(wake_rx.read(&mut sink), Ok(n) if n > 0) {}
-            host.announced();
-        }
-        if !input_ready {
-            continue;
-        }
-        let n = rustix::io::read(stdin, &mut buf)?;
-        if n == 0 {
-            return Ok(());
-        }
-        // These keys were typed against what the terminal showed by now.
-        host.read_at = host.frames;
-        for input in decode(&mut parser, &mut decoder, &buf[..n]) {
-            match input {
-                Input::Key(k) => {
-                    if host.key(k) == After::Quit {
-                        let mut out = String::new();
-                        if mode == Mode::Inline {
-                            inline.frame(host, &mut out);
-                            inline.finish(&mut out);
-                        }
-                        stdout.write_all(out.as_bytes())?;
-                        return Ok(());
-                    }
-                }
-                Input::Click(x, y) => host.click(x, y),
-                Input::CursorAt(row, _) => inline.answered(host, row),
-                Input::Wheel(x, y, rows) => host.wheel(x, y, rows),
-                Input::Paste(text) => host.paste(&text),
-            }
-        }
-        open_outbound(host);
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(unix))]
+    #[test]
+    fn interactive_terminal_is_refused_by_name() {
+        for mode in [Mode::Inline, Mode::Fullscreen] {
+            let plan =
+                contract::compile_terminal("component App\n  view\n    text \"hello\"\n").unwrap();
+            let mut host = Host::boot(plan, (), mode, 20, 12).unwrap();
+            let error = run(&mut host).unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+            assert_eq!(
+                error.to_string(),
+                "the interactive terminal host runs on Unix only"
+            );
+        }
+    }
+
+    #[test]
+    fn protocol_images_cross_paint_strips_without_being_dropped_or_repeated() {
+        let path =
+            std::env::temp_dir().join(format!("terminal-strip-image-{}.png", std::process::id()));
+        let file = std::fs::File::create(&path).unwrap();
+        let mut encoder = png::Encoder::new(file, 1, 1);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(&[20, 40, 60])
+            .unwrap();
+        let source = format!(
+            "component App\n  view\n    column\n      text \"before\"\n      image \"{}\" width=\"2ch\" height=\"260lh\"\n      text \"after\"\n",
+            path.display()
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Inline, 20, 12).unwrap();
+        for protocol in [Protocol::Kitty, Protocol::Iterm] {
+            let writer = Inline::new(protocol);
+            let mut whole = String::new();
+            writer.print_rows(
+                &host.render_settled(0, host.document_rows()),
+                &host.images,
+                &mut whole,
+            );
+            let mut strips = String::new();
+            for top in (0..host.document_rows()).step_by(128) {
+                writer.print_rows(
+                    &host.render_settled(top, (host.document_rows() - top).min(128)),
+                    &host.images,
+                    &mut strips,
+                );
+            }
+            assert_eq!(strips, whole);
+            let command = match protocol {
+                Protocol::Kitty => "a=T",
+                _ => "1337;File=",
+            };
+            assert_eq!(strips.matches(command).count(), 1);
+        }
+        host.set_colors(crate::color::ColorDepth::Monochrome);
+        for protocol in [Protocol::Blocks, Protocol::Kitty, Protocol::Iterm] {
+            let writer = Inline::new(protocol);
+            let painted = host.render_settled(0, host.document_rows());
+            assert!(painted.images.is_empty());
+            // The fixture is only two columns wide, so its alternate text
+            // is clipped to the same image box.
+            assert!(painted.grid.text().contains("[i"));
+            let mut out = String::new();
+            writer.print_rows(&painted, &host.images, &mut out);
+            assert!(!out.contains("a=T") && !out.contains("1337;File="));
+            assert!(!out.contains("38;") && !out.contains("48;"));
+        }
+        std::fs::remove_file(path).unwrap();
+    }
 
     fn keys(bytes: &[u8]) -> Vec<Input> {
         decode(&mut Parser::new(), &mut Decoder::default(), bytes)

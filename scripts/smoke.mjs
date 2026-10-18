@@ -1,24 +1,20 @@
 #!/usr/bin/env bun
-// The smoke drives the resolved app through the agent API (LLP 1012) on the
-// web, macOS, iOS, or Linux. Every app gets the generic host fixtures and its
-// own app.test.contract; Caltrain's landmarks, interactions, GPU reference,
-// and deck run when its fixture root is present. Not a blocking check (it needs Chrome or
-// a window server): `bun scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`
-// --app-only runs the complete selected app drive and its Contract tests,
-// not the unrelated bare-plan host fixtures. On the web those fixtures run on
-// a second build that links every capability (LLP 1047 D7); --app-only skips
-// it too. ios --device selects a phone.
-// after `bun host/web/build.mjs` / `bun host/apple/build.mjs [--ios]` /
-// `cargo build --profile host-dev -p caltrain-linux`.
+// Drive an app through the agent API (LLP 1012), its app.test.contract and generic host
+// fixtures; Caltrain's interactions run when its fixture root is present.
+// `bun scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`; ios --device selects a phone.
+// Build native apps first with host/apple/build.mjs [--ios] or cargo build --profile host-dev
+// -p <app>-linux. The web builds here. --app-only skips bare-plan host fixtures and their
+// all-capabilities web build (LLP 1047 D7), keeping the app drive and its Contract tests.
 import { spawnSync } from 'node:child_process';
-import { createHash, verify } from 'node:crypto';
+import { createHash, randomUUID, verify } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
+import { driveStore } from './agent-launch.mjs';
 import { HOST_DEV, resolveApp, withAppFixture } from './app.mjs';
-import { agree, explainNode, hostSections, httpFrameSmoke, poolingDrive } from './smoke-inspect.mjs';
+import { agree, explainNode, hostSections, httpFrameSmoke, poolingDrive, rebooted } from './smoke-inspect.mjs';
 import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
 import { jsTargetBuild, readStaticFile, serveStatic } from '../host/web/serve.mjs';
 import { canonicalBytes, publicKeyFromRaw, webRelease } from './deploy.mjs';
@@ -376,6 +372,35 @@ if (host === 'host' || host === 'host-ios') {
   const hcheck = (ok, what) => { trace(`${ok ? 'ok' : 'FAIL'} ${what}`); if (!ok) hostFailures.push(what); return ok; };
   const settleHost = async (ms = 300) => { await sleep(ms); };
   try {
+    if (host === 'host') {
+      // A notification uses openURL's path; inject between the launch callbacks in the real embedded host.
+      const source = resolve(dir, 'notification.contract'), plan = resolve(dir, 'notification.plan'), launchControl = resolve(dir, 'launch-control');
+      writeFileSync(source, `routes nav
+  home "/"
+    thread "/thread/:id"
+  notfound
+component App
+  state got = "none"
+  action follow(location: string)
+    got = location
+    nav = open(nav, location)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow testId="root"
+      text top(nav).url testId="location"
+      text got testId="got"
+`);
+      const built = spawnSync(resolve(ROOT, 'target/debug/contract'), ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+      if (built.status !== 0) throw new Error(built.stderr || built.error?.message || 'notification fixture failed to compile');
+      writeFileSync(launchControl, 'open b app://thread/42\n');
+      const cold = await open({ host, session: 'b', plan, env: { EXACT_HOST_CONTROL: launchControl } }); try {
+        let tree = await cold.tree();
+        hcheck(byTestId(tree, 'location')?.props.text === '/thread/42', `embedded launch location survives view attachment: ${JSON.stringify(byTestId(tree, 'location')?.props)}`);
+        hcheck(byTestId(tree, 'got')?.props.text === 'none', 'a cold notification location does not run the warm navigate action');
+        cold.session = 'a'; hcheck(byTestId(await cold.tree(), 'location')?.props.text === '/', 'the other embedded session keeps its launch route');
+        cold.session = 'b'; await cold.type('root', '/thread/43'); tree = await cold.tree();
+        hcheck(byTestId(tree, 'location')?.props.text === '/thread/43' && byTestId(tree, 'got')?.props.text === '/thread/43', 'a mounted embedded session hears warm navigation');
+      } finally { await cold.close(); }
+    }
     hcheck(Array.isArray(s.sessions) && s.sessions.join(',') === 'a,b', `the host announced sessions ${JSON.stringify(s.sessions)}, not a,b`);
     // 1. Two sessions of one plan, overlapping ids, answering apart.
     const ta = await s.tree();
@@ -489,7 +514,9 @@ if (host === 'web') {
   }
 }
 
-const s = await open({ host, browser: 'chrome' });
+// A fresh named store admits app storage without sharing another drive's profile or port.
+const appDrive = host === 'web' ? { storage: `smoke-${randomUUID()}`, env: { EXACT_AGENT_EPHEMERAL_PORT: '1' } } : {};
+const s = await open({ host, browser: 'chrome', ...appDrive });
 // A web artifact's staged capabilities (LLP 1047.000 §9): the page boots
 // without them, and the first agent call loads inspection before it asks.
 const stages = async () => host === 'web' && !jsTargetBuild(selectedWebDist) ? JSON.parse(await s.carrier.evaluate('JSON.stringify(exact.stages())')) : {};
@@ -502,6 +529,7 @@ try {
   // 1. Every resolved app must produce a tree and a rendered root. A
   // `caltrain-main` root admits Caltrain's fixture; once admitted, every
   // landmark its later steps need is required rather than silently skipped.
+  if (host === 'web') { await s.clock('data'); check((await s.state()).storage?.available === true, 'the app drive has no scratch store'); }
   let tree = await s.tree();
   check(tree.roots?.length > 0 && tree.nodes.length > 0, `${app.name} produced no live roots`);
   if (staged.inspection) check((await stages()).inspection === 'loaded', 'the first agent call did not load the inspection stage');
@@ -759,6 +787,7 @@ try {
   failures.push(`the ${app.name} drive stopped: ${error.message}`);
 } finally {
   await s.close();
+  if (appDrive.storage) rmSync(driveStore(app, appDrive.storage, appDrive.env).profile, { recursive: true, force: true });
 }
 
 // 8. The nested case (LLP 1010, the scroll fixture): a scroll node that
@@ -802,7 +831,7 @@ if (apple && !device) await httpFrameSmoke({ host, open, check });
         check(attrs.lang === lang && attrs.dir === dir, 'the document element carries lang and dir');
         if (jsTargetBuild(selectedWebDist)) { // a JS page (the plan compiled ahead) reloads, its launch facts in its URL
           await f.carrier.evaluate('location.reload()').catch(() => {});
-          for (let i = 0; i < 200 && !(await f.carrier.evaluate("document.readyState === 'complete' && document.getElementById('exact-root')?.dataset.bootMs != null && !!globalThis.exact?.agentSettled").catch(() => false)); i++) await sleep(25);
+          await rebooted(f.carrier);
           await f.carrier.evaluate('exact.ready'); } else await f.carrier.evaluate('fetch("/__plan").then(r => r.arrayBuffer()).then(b => exact.reload(new Uint8Array(b)))');
         check(byTestId(await f.tree(), 'place')?.props.text === expected, 'web reload retains launch facts');
         const attrsAfter = await f.carrier.evaluate('({lang:document.documentElement.lang,dir:document.documentElement.dir})');
@@ -910,7 +939,7 @@ if (caltrainFixture) {
       if (host === 'web') { let g = await f.gpuMs(); for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = await f.gpuMs(); } }
       await sleep(150); // one frame of the surface after its first capture
       const shotPath = resolve(tmp, 'canvas.png');
-      await f.screenshot(shotPath, true);
+      await f.screenshot(shotPath, true, host === 'ios' ? 'app' : undefined); // iOS: the app's drawing, as the reference was, not the display
       const image = decodePng(readFileSync(shotPath));
       const scale = image.width / l.viewport.w;
       // iOS's screen also has a bottom safe area; use its reported viewport
@@ -1076,8 +1105,8 @@ if (deckFixture) {
 // on the row's button is the pan's once past the slop, never the swipe's (rule
 // 3: a press keeps a contact from a swipe, not from a pan; kanban F6); a tap
 // presses it. The
-// same numbers on every host that can hold a contact; iOS, which holds none
-// (LLP 1080.000 P3), answers `unsupported`, said so, not faked.
+// same numbers on every host; a contact a carrier cannot hold (iOS on the row, which
+// only UIKit could give to the swipe or the pan) answers `unsupported`, said, not faked.
 {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
   const plan = resolve(tmp, 'precedence.plan');
@@ -1096,19 +1125,19 @@ if (deckFixture) {
         await g.clock('settle');
         return true;
       };
-      if (!await drag('row', [200, 50], [[20, 0], [100, 0]])) {
-        console.log(`${host} precedence: unsupported (this carrier holds no contact); unverified here`);
-      } else {
-        check(await slots() === '1/0/0', `a horizontal drag on the row: replies/panned/pressed ${await slots()}, expected the swipe alone (1/0/0)`);
-        await drag('row', [200, 50], [[0, 10], [0, 20]]);
-        check(await slots() === '1/30/0', `a vertical drag on the row: ${await slots()}, expected the surface's pan (1/30/0)`);
-        await drag('button', [40, 20], [[0, 10], [0, 20]]);
-        check(await slots() === '1/60/0', `a drag from the row's button: ${await slots()}, expected the surface's pan and no press (1/60/0)`);
-        await g.tap('button');
-        await g.clock('settle');
-        check(await slots() === '1/60/1', `a tap on the button: ${await slots()}, expected its press (1/60/1)`);
-        console.log(`${host} precedence: swipe inside pan ${await slots()} (replies/panned/pressed)`);
+      // What a carrier cannot hold is said, not counted: on iOS the row's two drags (only UIKit could give them to the swipe or the pan).
+      const n = [0, 0, 0], unheld = [];
+      for (const [what, target, at, moves, adds, expected] of [
+        ['a horizontal drag on the row', 'row', [200, 50], [[20, 0], [100, 0]], [1, 0, 0], 'the swipe alone'],
+        ['a vertical drag on the row', 'row', [200, 50], [[0, 10], [0, 20]], [0, 30, 0], "the surface's pan"],
+        ["a drag from the row's button", 'button', [40, 20], [[0, 10], [0, 20]], [0, 30, 0], "the surface's pan and no press"],
+        ['a tap on the button', 'button', null, null, [0, 0, 1], 'its press']]) {
+        if (!(moves ? await drag(target, at, moves) : (await g.tap(target), await g.clock('settle'), true))) { unheld.push(what); continue; }
+        adds.forEach((v, i) => { n[i] += v; });
+        check(await slots() === n.join('/'), `${what}: replies/panned/pressed ${await slots()}, expected ${expected} (${n.join('/')})`);
       }
+      const skips = host === 'ios' ? ['a horizontal drag on the row', 'a vertical drag on the row'] : []; check(unheld.join() === skips.join() && await slots() === (skips.length ? '0/30/1' : '1/60/1'), `precedence: unsupported [${unheld.join(', ')}], expected [${skips.join(', ')}]; ${await slots()}`);
+      console.log(`${host} precedence: swipe inside pan ${await slots()} (replies/panned/pressed)${unheld.length ? `; unsupported, unverified here: ${unheld.join(', ')}` : ''}`);
     } catch (error) {
       failures.push(`the precedence fixture stopped: ${error.message}`);
     } finally {
@@ -1126,7 +1155,8 @@ if (deckFixture) {
 // top safe area; web and Linux report zero. Focusing the input
 // at the bottom: on iOS the software keyboard rises, the viewport insets
 // itself by the keyboard's height and reveals the field above it, the layout
-// viewport untouched — a browser's visual viewport; a tap on the dismiss
+// viewport untouched — a browser's visual viewport, which the fixture asks
+// for (`resizes-visual`; iOS's default resizes, LLP 1116 D2); a tap on the dismiss
 // button takes the focus, and the keyboard goes. `layout.env` reports both,
 // by the web's `env()` names, on every host.
 {
@@ -1180,11 +1210,11 @@ if (deckFixture) {
         check(kb === 0 && note.y === noteBefore.y, `no software keyboard here: keyboard-inset-height ${kb}, the field at ${note.y} (was ${noteBefore.y})`);
         console.log(`${host} insets: env ${JSON.stringify(env)}; the viewport ${l.viewport.w}×${l.viewport.h}; no keyboard`);
       }
-      // A finger lands only where the target is seen: the strip at the
-      // page's bottom is under the software keyboard, so the tap is refused,
-      // having pressed nothing and kept the editor and its keyboard.
+      // A finger lands only where the target is seen: a tap at a point in the strip under the
+      // keyboard is refused, pressing nothing and keeping the editor and its keyboard (a plain
+      // `tap under` scrolls the strip above the keyboard first, as a person would, and presses it).
       if (host === 'ios') {
-        const under = await f.tap('under').then(() => null, (e) => e.message);
+        const under = await f.tap('under', { at: [l.viewport.w / 2, 4] }).then(() => null, (e) => e.message);
         st = await f.state();
         check(/under the software keyboard/.test(under ?? '') && st.slots.under === 0 && st.slots.focused === true && st.keyboard?.visible === true, `a tap under the keyboard is refused and changes nothing: ${under}, ${JSON.stringify(st.slots)}, keyboard ${JSON.stringify(st.keyboard)}`);
       }
@@ -1403,7 +1433,7 @@ if (app.modules.tags.includes('exact-fixture') && ['web', 'macos', 'ios'].includ
 }
 // A painting host loads no module; the fixture's hatches run there (LLP 1075.003.000.001 §8 stage 4).
 if (app.modules.tags.includes('exact-fixture') && host === 'linux') await (await import('./smoke-native.mjs')).paintingHatchSmoke({ host, open, check });
-
+if (app.modules.tags.includes('exact-swatch') && ['macos', 'ios'].includes(host)) await (await import('./smoke-tamber.mjs')).tamberSmoke({ host, open, check }); // LLP 1121 D12
 // 15. The recorder (LLP 1067.000): one native object, a view and functions.
 if (app.modules.tags.includes('waveform-view') && ['web', 'macos', 'ios'].includes(host)) {
   const { recorderSmoke } = await import('./smoke-recorder.mjs');

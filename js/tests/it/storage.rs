@@ -10,7 +10,7 @@ use std::{
 };
 pub(crate) const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storage.hbc"));
 pub(crate) const APP: &str = "dev.exact.storage-test";
-pub(crate) const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+pub(crate) const GRANTS: &str = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
 pub(crate) fn plan() -> Plan {
     contract::compile(
         r#"
@@ -26,7 +26,7 @@ component App
         text "Save file"
       button press=invoke("add", "from SQLite") testId="sqlite"
         text "Save row"
-      when pending(output)
+      if pending(output)
         text "Working" testId="pending"
       match output
         case some(result)
@@ -128,7 +128,7 @@ fn native_modules_are_deferred_retired_and_unavailable_to_validation() {
         .module()
         .with_native(|_| Box::new(Native { data: None }));
     assert!(!root.0.exists());
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     m.activate().unwrap();
     assert_eq!(call(&mut m, &mut s, "native", "persisted"), "persisted");
     assert_eq!(
@@ -145,6 +145,13 @@ fn native_modules_are_deferred_retired_and_unavailable_to_validation() {
     assert!(
         text(m.query("work", &args("native", "bake")).unwrap()).contains("unavailable during bake")
     );
+    // The bake links no module: `native.call` throws storage's refusal, and a
+    // source that lets it through leaves its resource to launch (euxy port F1).
+    let src = "shape Result\n  text: string\ncomponent App\n  resource r = work(\"native-direct\", \"x\") as shape Result\n  view\n    text r.text\n";
+    let mut baking = Module::inspect(HBC.to_vec()).unwrap();
+    baking.set_budget_ms(f64::INFINITY);
+    let baked = contract::bake(contract::compile(src).unwrap(), baking).unwrap();
+    assert_eq!(baked.resources[0].initial.len, 0);
     m.activate_for_validation().unwrap();
     // Validation links no module, so the app is told so plainly: `native` is null.
     assert_eq!(
@@ -186,7 +193,7 @@ fn native_later_answers_from_the_modules_own_thread() {
     }
     let root = Root::new();
     let mut m = root.module().with_native(|_| Box::new(Native));
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     m.activate().unwrap();
     let native = m.native().expect("a module offers its native handle");
     for (value, expected) in [
@@ -230,7 +237,7 @@ fn native_later_without_a_handler_answers_now() {
     }
     let root = Root::new();
     let mut m = root.module().with_native(|_| Box::new(Native));
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     m.activate().unwrap();
     assert_eq!(call(&mut m, &mut s, "later", "quick"), "now:quick");
 }
@@ -240,7 +247,7 @@ fn storage_is_lazy_persistent_isolated_and_grant_checked() {
     let root = Root::new();
     let other = Root::new();
     let mut m = root.module();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert!(!m.is_loaded());
     assert!(!root.0.exists());
     m.activate().unwrap();
@@ -286,19 +293,25 @@ fn storage_refuses_during_bake_even_if_a_host_configured_it() {
     assert_eq!(std::fs::read_dir(root.0.join("data")).unwrap().count(), 0);
     let mut unconfigured = Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap();
     unconfigured.bind(&plan());
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(
         call(&mut unconfigured, &mut s, "bake", ""),
         "Unavailable:unsupported:storage is unsupported by this host"
     );
-    // A drive that names no scratch store: the web's refusal, word for word.
+    // A drive that names no scratch store reads an empty one (ENOENT), as the web's says it, word for word.
     let mut agent = Module::new(HBC.to_vec(), APP, GRANTS).with_agent_seed(Some(1));
     agent.bind(&plan());
     agent.activate().unwrap();
-    assert_eq!(
-        call(&mut agent, &mut s, "bake", ""),
-        "Unavailable:agent:storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"
-    );
+    let read = call(&mut agent, &mut s, "bake", "");
+    assert!(read.starts_with("Unavailable:ENOENT:filesystem: no such file or directory: app:/"));
+    assert!(read.ends_with(
+        " (a drive that names no scratch store reads an empty one; --storage <name> names one)"
+    ));
+    // That caught refused read is journaled once, for the driver's note.
+    let said = |j: Vec<String>| j.iter().filter(|l| l.contains("refused (agent)")).count();
+    assert_eq!(said(DataSource::take_logs(&mut agent)), 1);
+    call(&mut agent, &mut s, "bake", "");
+    assert_eq!(said(DataSource::take_logs(&mut agent)), 0, "once a drive");
 }
 
 #[test]
@@ -306,7 +319,7 @@ fn storage_then_fetch_then_storage_preserves_each_answer_context() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let aa = args("fetch", "a");
     let bb = args("fetch", "b");
     let pending = vec![
@@ -335,7 +348,7 @@ fn storage_an_answer_does_not_await_still_lands() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "unawaited", "first"), "answered");
     assert_eq!(call(&mut m, &mut s, "read-at", "unawaited"), "first");
     assert_eq!(call(&mut m, &mut s, "queued", "second"), "answered");
@@ -364,7 +377,7 @@ fn storage_chained_across_answers_settles_each_answer() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let aa = args("serial", "a");
     let bb = args("serial", "b");
     let pending = vec![
@@ -466,7 +479,7 @@ fn unload_invalidates_continuations_and_configuration_survives_reload() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(
         call(&mut m, &mut s, "file", "before unload"),
         "before unload"
@@ -729,12 +742,12 @@ component App
         .unwrap()
         .1
         .clone();
-    let identity = Value::list(vec![Value::str("status"), Value::str("A")])
-        .to_bytes()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    assert_eq!(encoded.split_once('|').unwrap().0, identity);
+    // The entry starts with its identifying arguments' canonical list
+    let mut kept = exact_plan::bytes::Reader::new(&encoded);
+    assert_eq!(
+        Value::decode(&mut kept).unwrap(),
+        Value::list(vec![Value::str("status"), Value::str("A")])
+    );
     drop(first);
 
     let mut next = Runner::boot_stored(
@@ -999,7 +1012,7 @@ fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let target = Target::Resource(0);
     let a = args("walk", "x");
     let mut answer = m.answer_for(target, &mut s, "work", &a).unwrap();
@@ -1064,7 +1077,7 @@ fn storage_refusals_carry_a_stable_code() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
     let codes: Vec<String> = call(&mut m, &mut s, "codes", "")
         .lines()
@@ -1085,7 +1098,7 @@ fn storage_refusals_carry_a_stable_code() {
 /// A folder the person chose is reached from TypeScript as from Rust (LLP
 /// 1069.010 D1, files F2): the same `doc:` path, the same grants, the same
 /// executor, and with no app storage at all (a drive with no scratch store),
-/// where an `app:/` path is still refused as `agent`.
+/// where an `app:/` read finds an empty store, as a fresh install's does.
 #[test]
 fn a_document_the_person_chose_is_storage_without_app_directories() {
     let dir = Root::new();
@@ -1094,24 +1107,64 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
     std::fs::write(folder.join("a.txt"), "A").unwrap();
     std::fs::write(folder.join("sub/b.txt"), "B").unwrap();
     let doc = exact_data::documents::mint(&folder, 9101).unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
-    let expected = "a.txt=A sub/0 new=hi Unavailable ENOENT Unavailable denied Unavailable EISDIR Unavailable ENOTDIR Unavailable ENOTEMPTY Unavailable failed Unavailable failed Unavailable failed";
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    let expected = "a.txt=A sub/0 new=hi Unavailable ENOENT Unavailable denied Unavailable EISDIR Unavailable ENOTDIR Unavailable ENOTEMPTY Unavailable failed Unavailable failed Unavailable ENOENT";
     let mut agent = Module::new(HBC.to_vec(), APP, GRANTS).with_agent_seed(Some(1));
+    agent.set_document_owner(9101);
     agent.set_budget_ms(f64::INFINITY);
     agent.bind(&plan());
     agent.activate().unwrap();
     assert_eq!(
         call(&mut agent, &mut s, "doc", &doc),
-        format!("{expected} Unavailable agent")
+        format!("{expected} Unavailable ENOENT")
     );
     let mut m = dir.module();
+    m.set_document_owner(9101);
     m.activate().unwrap();
     assert_eq!(
         call(&mut m, &mut s, "doc", &doc),
         format!("{expected} Unavailable ENOENT")
     );
     assert!(!folder.join("new.txt").exists());
+    let mut other = dir.module();
+    other.set_document_owner(9103);
+    other.activate().unwrap();
+    assert_eq!(
+        call(&mut other, &mut s, "doc-link", &format!("{doc}/a.txt")),
+        ["refused"; 8].join(" ")
+    );
     exact_data::documents::forget(9101);
+}
+
+#[test]
+fn typescript_file_reads_obey_the_encoded_result_boundary() {
+    let root = Root::new();
+    let folder = root.0.join("chosen");
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = folder.join("large");
+    let boundary = ((exact_data::storage::MAX_BYTES - 13) / 4) * 3;
+    std::fs::File::create(&file)
+        .unwrap()
+        .set_len(boundary as u64)
+        .unwrap();
+    let doc = exact_data::documents::mint(&file, 9120).unwrap();
+    let mut module = root.module();
+    module.set_document_owner(9120);
+    module.activate().unwrap();
+    let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    assert_eq!(
+        call(&mut module, &mut store, "read-size", &doc),
+        boundary.to_string()
+    );
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_len((boundary + 1) as u64)
+        .unwrap();
+    assert!(call(&mut module, &mut store, "read-size", &doc)
+        .contains("storage result exceeds its byte limit"));
+    exact_data::documents::forget(9120);
 }
 
 #[test]
@@ -1128,8 +1181,9 @@ fn typescript_document_operations_refuse_descendant_symlinks() {
     symlink(&outside, folder.join("dir-link")).unwrap();
     let doc = exact_data::documents::mint(&folder, 9102).unwrap();
     let mut module = root.module();
+    module.set_document_owner(9102);
     module.activate().unwrap();
-    let mut store = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     for leaf in ["link", "dir-link/secret"] {
         assert_eq!(
             call(

@@ -18,6 +18,7 @@
 #![deny(missing_docs)]
 
 pub mod map;
+mod widget;
 
 use exact_runner::{DataError, DataSource, Value};
 
@@ -268,6 +269,10 @@ impl DataSource for Caltrain {
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match source {
+            "nextTrains" => {
+                arity(args, 1)?;
+                Ok(widget::timeline(finite_number(args, 0)?))
+            }
             "defaultLocation" => {
                 arity(args, 0)?;
                 Ok(Value::record(vec![

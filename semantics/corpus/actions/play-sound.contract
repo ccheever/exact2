@@ -10,6 +10,7 @@ component App
   action tick
     playSound("assets/tick.wav")
     playSound("assets/tick.wav", at=performanceNow() + 100, gain=0.5, group="hat")
+    playSound("assets/tick.wav", playbackRate=2, pan=-0.5)
     n = n + 1
   action stop
     stopSounds(group="hat")

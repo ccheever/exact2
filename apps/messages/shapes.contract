@@ -7,19 +7,16 @@ shape Message
   preview: string
   from: string
   outgoing: bool
-  time: string
-  tail: bool
-  gap: number
+  ends: bool
+  last: bool
+  nextReacted: bool
   sender: string
-  avatar: bool
+  avatars: bool
   initials: string
-  stamp: string
-  receipt: string
-  receiptNew: bool
+  stamped: bool
   reaction: string
   reply: string
   truncated: bool
-  arrival: bool
   edited: bool
 shape Thread
   id: string
@@ -30,20 +27,20 @@ shape Thread
   unread: bool
   muted: bool
   preview: string
-  time: string
+  at: number
   draft: string
 shape Snapshot
   revision: number
   connected: bool
   notice: string
-  threads: list<Thread>
+  threads: Thread[]
   id: string
   name: string
   initials: string
   color: string
   model: string
   draft: string
-  messages: list<Message>
+  messages: Message[]
   typing: bool
   busy: bool
   error: string

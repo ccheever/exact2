@@ -55,6 +55,12 @@ NSMutableDictionary *query_for(const char *service, const char *name) {
   query[(__bridge id)kSecClass] = (__bridge id)kSecClassGenericPassword;
   query[(__bridge id)kSecAttrService] = [NSString stringWithUTF8String:service];
   query[(__bridge id)kSecAttrAccount] = [NSString stringWithUTF8String:name];
+  NSBundle *bundle = [NSBundle mainBundle];
+  NSString *owner = [bundle objectForInfoDictionaryKey:@"ExactAppIdentifier"];
+  NSString *group = [bundle objectForInfoDictionaryKey:@"ExactKeychainAccessGroup"];
+  if (group.length && [owner isEqualToString:query[(__bridge id)kSecAttrService]]) {
+    query[(__bridge id)kSecAttrAccessGroup] = group;
+  }
   return query;
 }
 

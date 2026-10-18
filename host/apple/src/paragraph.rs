@@ -3,6 +3,23 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
+    /// Every node, parents before children: the order a whole tree's views
+    /// are made in.
+    pub(super) fn preorder(&self) -> Vec<ViewId> {
+        let kernel = self.runner.kernel();
+        let mut stack: Vec<ViewId> = self.runner.roots().into_iter().rev().collect();
+        let mut order = Vec::new();
+        while let Some(id) = stack.pop() {
+            order.push(id);
+            if let Some(node) = kernel.node(id) {
+                let mut children = node.children();
+                children.reverse();
+                stack.extend(children);
+            }
+        }
+        order
+    }
+
     /// An `option` or a run in one (LLP 1069.001 D2): a select's menu item,
     /// which the presenter reads from the kernel (`exact_select_options`),
     /// never a view. A native button's title and image, or a run in its
@@ -46,9 +63,11 @@ impl<D: DataSource> Host<D> {
         if node.node_type != NodeType::View || kernel.arena().children(node.key.index).is_empty() {
             return None;
         }
-        let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) =
-            (node.style.width, node.style.height)
-        else {
+        let env = kernel.arena().env();
+        let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) = (
+            node.style.width.resolve(env),
+            node.style.height.resolve(env),
+        ) else {
             return None;
         };
         // No `background-color` is `currentcolor`: the text colour fills it.
@@ -177,7 +196,7 @@ impl<D: DataSource> Host<D> {
                 // A run painting an inherited `color` that moves (LLP 1062 D5).
                 let mut shown = style::Shown::default();
                 shown.set(Property::Color, self.paint.runs.get(&id).copied());
-                let (style, _) = style::style_json_presented(&run, &kernel.env(), &shown);
+                let (style, _) = style::style_json_inherited(&run, &kernel.env(), &shown);
                 let handlers: Vec<_> = self
                     .inline_runs
                     .get(&id)
@@ -353,7 +372,10 @@ impl<D: DataSource> Host<D> {
         }
         if style != m.style {
             batch.style(id, &style);
+            // Kept to compare with the next: without the slack its
+            // formatting grew into (a quarter of a long style).
             m.style = style;
+            m.style.shrink_to_fit();
         }
     }
 
@@ -369,7 +391,7 @@ impl<D: DataSource> Host<D> {
             batch.controls = true;
             return;
         }
-        let children = self.runner.kernel().node(id).expect("live").children();
+        let mut children = self.runner.kernel().node(id).expect("live").children();
         if self.mirror.get(&id).is_none_or(|m| m.children != children) {
             // Retained children still inherit from the same parent. Only an
             // arriving subtree needs its descendants' spelling hints revisited;
@@ -396,7 +418,6 @@ impl<D: DataSource> Host<D> {
         if self.native_protected_id(id) || self.paragraph_owner(id).is_some() {
             return;
         }
-        let mut children = children;
         if self.native_mode() {
             children.retain(|child| {
                 !self.native_protected_id(*child) || self.native_selected_id(*child)
@@ -440,7 +461,7 @@ impl<D: DataSource> Host<D> {
                 if let Some((owner, _)) = self.inline_runs.get(&child) {
                     runs.push((child, *owner));
                 } else {
-                    restyled.push((child, style::style_json_presented(&c, &env, &inherited).0));
+                    restyled.push((child, style::style_json_inherited(&c, &env, &inherited).0));
                 }
                 stack.extend(c.children());
             }
@@ -464,6 +485,7 @@ impl<D: DataSource> Host<D> {
             if m.style != style {
                 batch.style(id, &style);
                 m.style = style;
+                m.style.shrink_to_fit();
             }
         }
         if !self.dirty_paragraphs.is_empty() {
@@ -509,7 +531,7 @@ impl<D: DataSource> Host<D> {
     /// A node's props as Swift gets them: a hatch word the plan does not give
     /// this platform is sent as `hatchOff`, so the node is an ordinary one
     /// there and Swift lists the word as unhandled.
-    pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> BTreeMap<String, String> {
+    pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
         let mut props = props_for(node);
         if !self.hatches.off.is_empty() {
             if let Some(word) = props.get(PropId::Hatch.name()) {
@@ -521,4 +543,54 @@ impl<D: DataSource> Host<D> {
         }
         props
     }
+}
+
+/// Props by their own names, including derived text advances.
+pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
+    let mut out = exact_kernel::SortedMap::default();
+    for (id, value) in node.props.iter() {
+        let text = match value {
+            PropValue::Str(_) if id == PropId::Href && node.props.link().is_none() => continue,
+            PropValue::Str(s) => s.to_string(),
+            PropValue::Bool(b) => b.to_string(),
+            PropValue::Int(i) => i.to_string(),
+            PropValue::Float(f) if matches!(id, PropId::Datetime | PropId::Start | PropId::End) => {
+                f.to_string()
+            }
+            PropValue::Float(f) => style::num(*f as f32),
+        };
+        out.insert(id.name().to_string(), text);
+    }
+    // Swift paints the measured paragraph with text-transform applied (LLP 1064 D5).
+    if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
+        out.insert(PropId::Text.name().to_string(), shown);
+    }
+    style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
+    if let Some(scale) = fit_scale(node) {
+        out.insert("fitScale".into(), scale);
+    }
+    if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
+        // The runner preserves collection anchors and follows the end using
+        // sequence-checked corrections. Eager native autoscroll would compete.
+        out.remove(PropId::ScrollFollowEnd.name());
+    }
+    if node.node_type == NodeType::TextInput {
+        out.remove("spellcheck");
+        if let Some(value) = node.spellcheck() {
+            out.insert("spellcheck".into(), value.to_string());
+        }
+    }
+    if node.node_type == NodeType::Image {
+        if let Some(role) = node
+            .props
+            .str(PropId::ImageSource)
+            .and_then(|s| s.strip_prefix("symbol:"))
+        {
+            out.insert(
+                "symbolName".into(),
+                exact_kernel::apple_symbol_name(role).into(),
+            );
+        }
+    }
+    out
 }

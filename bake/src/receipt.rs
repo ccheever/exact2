@@ -40,11 +40,12 @@ pub(crate) fn emit(
     compat: &mut Compat,
     trust: &str,
     app: &Path,
-    platform: &str,
-    target: &str,
+    destination: (&str, &str),
     manifest: &Manifest,
     out: &Path,
+    entries: &std::collections::BTreeMap<String, contract::snapshot::Entry>,
 ) -> Result<(), String> {
+    let (platform, target) = destination;
     for name in [
         "EXACT_UPDATE_RECEIPT",
         "EXACT_UPDATE_GENESIS",
@@ -75,6 +76,12 @@ pub(crate) fn emit(
     source_map(trust, app, out, &plan, &plan_bytes);
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
     let mut assets = asset_cards(app, out, manifest)?;
+    let (widget_assets, plans) = crate::widgets::emit(
+        out,
+        platform == "ios" && app.join("app.ts").is_file(),
+        entries,
+    )?;
+    assets.extend(widget_assets);
     let rust_assets = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
         stage_rust_bundle(
             Path::new(&directory),
@@ -99,6 +106,9 @@ pub(crate) fn emit(
     compat.target = target.into();
     compat.embedded =
         json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,"genesis":true});
+    if plans.as_object().is_some_and(|p| !p.is_empty()) {
+        compat.embedded["plans"] = plans;
+    }
     // The GPU product is built (and on Apple, signed) before the host. Its
     // exact bytes belong to this app/cohort; a sibling filename is not identity.
     if platform != "web" {
@@ -153,6 +163,7 @@ pub(crate) fn emit(
         std::fs::create_dir_all(&destination)
             .map_err(|e| format!("{}: {e}", destination.display()))?;
         let stem = format!("{platform}-{target}");
+        crate::widgets::copy(out, &destination.join(format!("{stem}.entries")), &assets)?;
         // Never watched: the builder rewrites these from OUT_DIR after every
         // Cargo run, so a watch here would rerun this bake on every next build.
         std::fs::write(destination.join(format!("{stem}.json")), compat.to_json())
@@ -261,7 +272,13 @@ fn asset_cards(app: &Path, out: &Path, manifest: &Manifest) -> Result<Vec<Value>
                 .as_array()
                 .ok_or("missing shader roots")?
                 .iter()
-                .map(|v| watch::optional_tree(Path::new(v.as_str().unwrap()), &outputs)),
+                .filter_map(|v| {
+                    watch::shader_tree(
+                        Path::new(v.as_str().unwrap()),
+                        &outputs,
+                        declared.as_deref(),
+                    )
+                }),
         );
     let paths = roots.collect::<std::collections::BTreeSet<_>>();
     for path in paths {
@@ -430,6 +447,18 @@ fn shape(plan: &exact_plan::Plan, ty: exact_plan::TypesId, depth: usize) -> Resu
     })
 }
 
+/// The plan's requirement graph against a cohort's compatibility inputs
+/// (`exact-bake graph`): what a publisher that starts from a signed stream
+/// head, not a native bake, checks a new plan against.
+pub fn plan_graph(plan_bytes: &[u8], inputs: &Value, target: &str) -> Result<Value, String> {
+    let plan = exact_plan::Plan::decode(plan_bytes).map_err(|e| format!("the plan: {e:?}"))?;
+    let mut graph = artifact_graph(&plan, inputs, &[], target)?;
+    let node = &mut graph["artifacts"][0];
+    node["sha256"] = json!(hash(plan_bytes));
+    node["bytes"] = json!(plan_bytes.len());
+    Ok(graph)
+}
+
 fn artifact_graph(
     plan: &exact_plan::Plan,
     inputs: &Value,
@@ -581,6 +610,8 @@ fn artifact_graph(
         ("video", makes(exact_kernel::NodeType::Video)),
         ("web", makes(exact_kernel::NodeType::WebView)),
         ("sound", !plan.sounds.is_empty()),
+        // LLP 1125 D6: the MIDI arm for a plan that asks for ports or hears an input.
+        ("midi", exact_runner::uses::uses_midi(plan)),
     ]
     .into_iter()
     .filter_map(|(module, reached)| reached.then_some(module))
@@ -598,8 +629,43 @@ fn artifact_graph(
     // whose plan is fixed links these and no other (LLP 1047.001 D2).
     let uses: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
     Ok(
-        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"uses":uses,"mediaSession":media_session,"artifacts":artifacts}),
+        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"uses":uses,"mediaSession":media_session,"launchBackground":launch_background(plan),"artifacts":artifacts}),
     )
+}
+
+/// LLP 1116.011 D2.3: the ground the app's first route stands on, which the
+/// iOS launch screen shows until its first frame: `"grouped"` where the first
+/// route's `background-color` is the role the compiler gives a route that
+/// scrolls a grouped list (`-exact-grouped-background`, LLP 1116.007 D5),
+/// `"system"` for any other (the platform's page, `systemBackground`). A route
+/// is a node with a `navigationKey` and no `navigationBack` (the navigation
+/// root has both); the first in the plan's order, past the page the compiler
+/// writes for an unknown address (its test id `not-found`), is the first one
+/// the author declared. A route whose background is written or computed is
+/// the author's: the manifest's `background_color` names its launch colour.
+fn launch_background(plan: &exact_plan::Plan) -> &'static str {
+    use exact_kernel::PropId;
+    use exact_plan::BindingKind::{Prop, Style};
+    let literal = |node: &exact_plan::NodesRow, kind, id: u16| {
+        node.bindings.iter().find_map(|b| {
+            let b = plan.binding(b);
+            (b.kind == kind && b.id == id).then(|| crate::colors::literal(plan, b))
+        })
+    };
+    let route = plan.nodes.iter().find(|node| {
+        let has = |id: PropId| literal(node, Prop, id as u16).is_some();
+        has(PropId::NavigationKey)
+            && !has(PropId::NavigationBack)
+            && literal(node, Prop, PropId::TestId as u16) != Some(Some("not-found"))
+    });
+    let ground = route.and_then(|node| {
+        literal(node, Style, exact_kernel::StyleId::BackgroundColor as u16).flatten()
+    });
+    if ground == Some("-exact-grouped-background") {
+        "grouped"
+    } else {
+        "system"
+    }
 }
 
 /// Refresh the resident compiler's candidate graph beside its plan. The
@@ -676,16 +742,53 @@ fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), S
     Ok(())
 }
 
-/// A signed GPU product's file name and digest, watched by the bake: its exact
-/// bytes belong to this app and cohort, which the loader checks before opening it.
+/// A signed GPU product's file name and digest, watched by the bake: its code
+/// belongs to this app and cohort, which the loader checks before opening it.
 fn gpu_product(path: &Path) -> Result<(String, String), String> {
     println!("cargo:rerun-if-changed={}", path.display());
     let bytes = std::fs::read(path).map_err(|e| format!("GPU product {}: {e}", path.display()))?;
     let name = path.file_name().and_then(|n| n.to_str());
     Ok((
         name.ok_or("GPU product filename is not UTF-8")?.to_string(),
-        hash(&bytes),
+        code_digest(&bytes),
     ))
+}
+
+/// A GPU product's digest: its exact bytes, except that a signed 64-bit
+/// Mach-O's code signature is left out, with the three sizes that follow it
+/// (the signature command's `datasize`, `__LINKEDIT`'s `vmsize` and
+/// `filesize`) read as zero. A re-signer (AppDrop signs every .ipa again
+/// for each recipient) keeps the digest; any change to the code it signs
+/// does not. Anything else is hashed whole. GpuModule.swift's
+/// `codeDigest` and host/apple/assets.mjs's `codeDigest` are this one.
+fn code_digest(bytes: &[u8]) -> String {
+    let word = |at: usize| {
+        bytes
+            .get(at..at + 4)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap()) as usize)
+    };
+    let macho = || -> Option<Vec<u8>> {
+        if word(0)? != 0xfeed_facf {
+            return None;
+        }
+        let (mut at, mut signature, mut zero) = (32, None, Vec::new());
+        for _ in 0..word(16)? {
+            let (cmd, size) = (word(at)?, word(at + 4)?);
+            if cmd == 0x1d {
+                signature = Some(word(at + 8)?);
+                zero.push((at + 12, 4));
+            } else if cmd == 0x19 && bytes.get(at + 8..at + 24)? == b"__LINKEDIT\0\0\0\0\0\0" {
+                zero.extend([(at + 32, 8), (at + 48, 8)]);
+            }
+            at += size.max(8);
+        }
+        let mut code = bytes.get(..signature?)?.to_vec();
+        for (at, len) in zero {
+            code.get_mut(at..at + len)?.fill(0);
+        }
+        Some(code)
+    };
+    hash(&macho().unwrap_or_else(|| bytes.to_vec()))
 }
 
 fn hash(bytes: &[u8]) -> String {
@@ -767,6 +870,7 @@ mod tests {
                 kind: exact_plan::BindingKind::Prop,
                 id: exact_kernel::PropId::Hatch as u16,
                 expr,
+                written: true,
             }];
             b.node(
                 exact_kernel::NodeType::Video as u8,
@@ -825,6 +929,7 @@ mod tests {
                 kind: exact_plan::BindingKind::Prop,
                 id: prop as u16,
                 expr,
+                written: true,
             }];
             b.node(
                 exact_kernel::NodeType::Video as u8,
@@ -847,6 +952,89 @@ mod tests {
                 (json!(["video"]), json!(claims))
             );
         }
+    }
+
+    /// LLP 1116.011 D2.3: the receipt says what the first route stands on, for
+    /// the iOS launch screen: the grouped grey where the route scrolls a
+    /// grouped list (stopwatch, round 13), the page's own otherwise.
+    #[test]
+    fn a_plan_says_the_ground_its_first_route_stands_on() {
+        const SCREEN: &str = "routes nav
+  home \"/\"
+component App
+  view
+    main navigationKey=`${top(nav).id}` navigationBack=\"back\"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll=\"l\" ROUTE position=\"absolute\" inset=0
+          header
+            text \"Laps\" role=\"heading\" aria-level=1
+          LIST
+            section
+              row
+                text \"One\"
+";
+        const GROUPED: &str =
+            "list id=\"l\" appearance=\"auto\" listStyle=\"inset-grouped\" flex=1 min-height=0";
+        let launch = |route: &str, list: &str| {
+            let plan = contract::compile(&SCREEN.replace("ROUTE", route).replace("LIST", list))
+                .unwrap_or_else(|e| panic!("{e}"));
+            artifact_graph(&plan, &json!({}), &[], "aarch64-apple-ios-sim").unwrap()
+                ["launchBackground"]
+                .clone()
+        };
+        assert_eq!(launch("", GROUPED), json!("grouped"));
+        assert_eq!(
+            launch("", &GROUPED.replace("inset-grouped", "grouped")),
+            json!("grouped")
+        );
+        // Any other scroll, or a page of its own, is the platform's.
+        assert_eq!(
+            launch("", "scroll id=\"l\" flex=1 min-height=0"),
+            json!("system")
+        );
+        assert_eq!(
+            launch("background-color=\"-exact-background\"", GROUPED),
+            json!("system")
+        );
+        // No route at all, as a plan with no navigation root is.
+        let bare =
+            contract::compile("component App\n  view\n    text \"a\" testId=\"a\"\n").unwrap();
+        assert_eq!(
+            artifact_graph(&bare, &json!({}), &[], "aarch64-apple-ios-sim").unwrap()
+                ["launchBackground"],
+            json!("system")
+        );
+    }
+
+    #[test]
+    fn a_gpu_digest_survives_re_signing_but_not_a_code_change() {
+        // A 64-bit Mach-O: __LINKEDIT, then the signature command, the code,
+        // and the signature at offset 160.
+        let signed = |signature: &[u8], code: u8| {
+            let mut b = vec![0u8; 160];
+            b[..4].copy_from_slice(&0xfeed_facfu32.to_le_bytes());
+            b[16..20].copy_from_slice(&2u32.to_le_bytes());
+            b[32..36].copy_from_slice(&0x19u32.to_le_bytes());
+            b[36..40].copy_from_slice(&72u32.to_le_bytes());
+            b[40..50].copy_from_slice(b"__LINKEDIT");
+            b[64..72].copy_from_slice(&(signature.len() as u64).to_le_bytes());
+            b[80..88].copy_from_slice(&(signature.len() as u64 + 8).to_le_bytes());
+            b[104..108].copy_from_slice(&0x1du32.to_le_bytes());
+            b[108..112].copy_from_slice(&16u32.to_le_bytes());
+            b[112..116].copy_from_slice(&160u32.to_le_bytes());
+            b[116..120].copy_from_slice(&(signature.len() as u32).to_le_bytes());
+            b[150] = code;
+            b.extend_from_slice(signature);
+            b
+        };
+        let ours = code_digest(&signed(b"ad-hoc", 1));
+        assert_eq!(
+            ours,
+            code_digest(&signed(b"a recipient's longer signature", 1))
+        );
+        assert_ne!(ours, code_digest(&signed(b"ad-hoc", 2)));
+        assert_ne!(ours, hash(&signed(b"ad-hoc", 1)));
+        assert_eq!(code_digest(b"not Mach-O"), hash(b"not Mach-O"));
     }
 
     #[test]

@@ -1,16 +1,23 @@
 // @ref LLP 1069.001 D5 — `input type="checkbox"` is projected onto UIKit as
 // a tablist is onto a segmented control: `switch` is a `UISwitch`; a plain
-// checkbox is drawn as Safari iOS draws it, a rounded square filled with
-// `accent-color` and a checkmark (UIKit has no checkbox). Contract owns the
-// value: the control flips at once, reports, and shows the committed
-// `checked` after the action (D4). `appearance: none` draws nothing native.
+// checkbox is the platform's checklist mark (LLP 1116 D2: iOS has no square
+// checkbox, and Safari's read as a web form), an empty circle that fills
+// with a checkmark in `accent-color`, as Reminders and Notes draw one. On
+// tvOS, where it stands in for a switch too, it is Safari's rounded square.
+// Contract owns the value: the control flips at once, reports, and shows the
+// committed `checked` after the action (D4). `appearance: none` draws
+// nothing native. VoiceOver reads it as UIKit reads a toggle (LLP 1115.000
+// D13.3).
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// Safari iOS's checkbox: a 16×16 rounded square, filled and checked when
-/// on. A radio is drawn on it (`ExactRadio`, RadioIOS.swift).
+/// The checklist mark: an SF Symbol circle scaled with the body text, filled
+/// and checked when on (tvOS: a 16×16 rounded square). A radio is drawn on
+/// it, with its own symbols (`ExactRadio`, RadioIOS.swift). VoiceOver reads
+/// a checkbox as it reads UIKit's own toggles (`updateAccessibility`).
 class ExactCheckbox: UIControl {
     var isOn = false { didSet { if isOn != oldValue { setNeedsDisplay(); updateAccessibility() } } }
+    var ariaUnavailable = false { didSet { if ariaUnavailable != oldValue { updateAccessibility() } } }
     var accent: UIColor? { didSet { setNeedsDisplay() } }
     override var isEnabled: Bool { didSet { setNeedsDisplay(); updateAccessibility() } }
     override init(frame: CGRect) {
@@ -23,21 +30,60 @@ class ExactCheckbox: UIControl {
         updateAccessibility()
     }
     required init?(coder: NSCoder) { nil }
+    #if os(tvOS)
     override var intrinsicContentSize: CGSize { CGSize(width: 16, height: 16) }
+    #else
+    /// The mark's side: UIKit's 22-point circle at the default text size,
+    /// scaled with the body style by `UIFontMetrics` to 44 at most, about
+    /// where UIKit's own list checkmark stops (48 by 43 at the largest
+    /// size). At the body font's `.large` symbol scale it had grown to 80
+    /// points there and outweighed its row (LLP 1116.019 D1).
+    var side: CGFloat {
+        min(44, ceil(UIFontMetrics(forTextStyle: .body).scaledValue(for: 22, compatibleWith: traitCollection)))
+    }
+    /// The mark's symbol, drawn fitted to `side`; on, its checkmark white
+    /// over the accent.
+    func mark(on: Bool, tint: UIColor) -> UIImage? {
+        let size = UIImage.SymbolConfiguration(pointSize: side)
+        guard on else { return UIImage(systemName: "circle", withConfiguration: size)?.withTintColor(tint, renderingMode: .alwaysOriginal) }
+        return UIImage(systemName: "checkmark.circle.fill", withConfiguration: size.applying(UIImage.SymbolConfiguration(paletteColors: [.white, tint])))
+    }
+    override var intrinsicContentSize: CGSize { CGSize(width: side, height: side) }
+    /// A finger's target is 44 points each way at least (Apple's minimum),
+    /// whatever the mark's size: the touch reaches past the mark's box,
+    /// which stays the mark's for layout (LLP 1115.000 D13.2). Where two
+    /// marks' margins meet (radios side by side), the nearer mark has it.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if bounds.contains(point) { return true }
+        guard bounds.insetBy(dx: min(0, (bounds.width - 44) / 2), dy: min(0, (bounds.height - 44) / 2)).contains(point) else { return false }
+        let mine = hypot(point.x - bounds.midX, point.y - bounds.midY)
+        let marks = superview?.superview?.subviews.flatMap { $0.subviews.compactMap { $0 as? ExactCheckbox } } ?? []
+        return !marks.contains { other in
+            guard other !== self, !other.isHidden else { return false }
+            let there = convert(point, to: other)
+            return hypot(there.x - other.bounds.midX, there.y - other.bounds.midY) < mine
+        }
+    }
+    #endif
     @objc func activated() {
         isOn.toggle()
         sendActions(for: .valueChanged)
     }
-    /// VoiceOver reads it as Safari's: a button with a checked state.
+    /// A toggle, as UIKit has one (LLP 1115.000 D13.3): the `toggleButton`
+    /// trait and UIKit's own value, "1" on and "0" off, which is what a
+    /// `UISwitch` reports and what VoiceOver speaks in the reader's language.
+    /// It had been Safari's English words, "checked" and "unchecked", read
+    /// out as written in every language.
     func updateAccessibility() {
-        accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
-        accessibilityValue = isOn ? "checked" : "unchecked"
+        accessibilityTraits = isEnabled && !ariaUnavailable ? [.button, .toggleButton] : [.button, .toggleButton, .notEnabled]
+        accessibilityValue = isOn ? "1" : "0"
     }
     override func draw(_ rect: CGRect) {
         let side = min(bounds.width, bounds.height)
-        let box = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
         let fill = accent ?? tintColor ?? .systemBlue
         let alpha: CGFloat = isEnabled ? 1 : 0.4
+        #if os(tvOS)
+        let box = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
         if isOn {
             fill.withAlphaComponent(alpha).setFill()
             UIBezierPath(roundedRect: box, cornerRadius: side * 0.25).fill()
@@ -51,18 +97,22 @@ class ExactCheckbox: UIControl {
             UIColor.white.withAlphaComponent(alpha).setStroke()
             check.stroke()
         } else {
-            let ring = UIBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), cornerRadius: side * 0.25)
-            #if os(tvOS)
             // tvOS has no systemBackground; the ring shows what is behind it.
-            UIColor.clear.setFill()
-            #else
-            UIColor.systemBackground.withAlphaComponent(alpha).setFill()
-            #endif
-            ring.fill()
+            let ring = UIBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), cornerRadius: side * 0.25)
             ring.lineWidth = 1
             UIColor.systemGray.withAlphaComponent(alpha).setStroke()
             ring.stroke()
         }
+        #else
+        // The ring in the tertiary label colour, the fill in the accent;
+        // dimmed while disabled. Fitted to the box when the author made it
+        // smaller than the mark.
+        let tint = isOn ? fill.withAlphaComponent(alpha) : (isEnabled ? UIColor.tertiaryLabel : .quaternaryLabel)
+        guard let image = mark(on: isOn, tint: tint) else { return }
+        let scale = min(side, self.side) / max(image.size.width, image.size.height)
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        image.draw(in: CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height))
+        #endif
     }
 }
 
@@ -87,6 +137,8 @@ final class ControlHost: NSObject {
     /// Each `progress`'s activity indicator (ProgressIOS.swift): a view,
     /// not a control, so beside `controls`.
     var spinners: [UInt32: UIActivityIndicatorView] = [:]
+    /// Each determinate `progress`'s bar (LLP 1116 D8), beside them.
+    var bars: [UInt32: UIProgressView] = [:]
     /// Each native button's face as the runner last gave it. A face is the
     /// control's viewless contents, which change only in a batch that says
     /// so (`Batch.controls`), and its own props, which change only in a
@@ -136,13 +188,46 @@ final class ControlHost: NSObject {
         return made
     }
 
+    /// Whether a native button's control could not show: it is in a closed
+    /// `dialog` or popover (`MenuHost.inClosedBox`), which UIKit's menu and
+    /// alert present from its face, or in what a native bar stands for (a
+    /// lifted header, an adopted tablist: `NavigationHost.covers`), whose
+    /// items are made from faces too, while the host hides it: the cover
+    /// leaves after the box shows again. It gets one when that changes, as
+    /// a field in a closed box waits for it to show.
+    private func unshown(_ node: NodeView) -> Bool {
+        if presenter.menus.inClosedBox(node) { return true }
+        let covers = presenter.navigation.covers
+        guard covers.values.contains(.whole) else { return false }
+        var at: UIView? = node
+        while let view = at {
+            if let box = view as? NodeView, covers[box.id] == .whole, box.hiddenByHost { return true }
+            at = view.superview
+        }
+        return false
+    }
+
+    /// The native buttons the last sync left without a control (`unshown`).
+    private var waiting: Set<UInt32> = []
+    /// A closed box now shows in Exact's views (the agent's top layer, a
+    /// sheet, a context menu's preview): its buttons get their controls now,
+    /// whether or not a batch laid it out.
+    func syncShown() {
+        if waiting.contains(where: { presenter.views[$0].map { !unshown($0) } ?? false }) { sync(contents: false) }
+    }
+
+    /// Asks for the face of `id` again at the next sync.
+    func faceChanged(_ id: UInt32) { faces.removeValue(forKey: id) }
+
     /// `contents`: a control's viewless contents may have changed (a batch
     /// with `controls`, or a sync outside any batch); `touched`, the nodes
     /// the batch changed.
     func sync(contents: Bool = true, touched: [UInt32] = []) {
         if contents { faces.removeAll() } else { for id in touched { faces.removeValue(forKey: id) } }
-        let owners = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
+        let all = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
+        let owners = all.filter { !($0.isNativeButton && unshown($0)) }
         let live = Set(owners.map(\.id))
+        waiting = Set(all.map(\.id)).subtracting(live)
         // A leaving control keeps drawing until its exit ends (LLP 1069.011 D9).
         let leaving = Set(presenter.leaving.values.flatMap { $0.members.map(\.id) })
         for id in Array(controls.keys) where !live.contains(id) && !leaving.contains(id) {
@@ -191,13 +276,27 @@ final class ControlHost: NSObject {
                 configureValue(control, owner, accent: accent)
             }
             #endif
+            if let c = control as? ExactCheckbox {
+                c.ariaUnavailable = owner.ariaUnavailable
+            }
             if !(control is NativeButtonIOS) {
                 assign(control, \.isEnabled, !owner.disabled)
                 assign(control, \.accessibilityLabel, owner.props["accessibilityLabel"])
                 assign(control, \.accessibilityIdentifier, owner.props["testId"])
             }
-            let natural = naturalSize(control, owner)
+            var natural = naturalSize(control, owner)
             let box = control is NativeButtonIOS ? owner.bounds : owner.contentBox()
+            #if os(iOS)
+            // A select its box holds narrower than its widest option wraps its
+            // title and grows taller, as a pop-up button does under Auto Layout,
+            // rather than running past its box (unit-converter at the largest
+            // text size, round 22). Its width stays the widest option's (D3).
+            var narrowed: CGFloat?
+            if owner.props["type"] == "select", let button = control as? UIButton, box.width > 0, box.width < natural.width - 0.5 {
+                narrowed = box.width
+                natural.height = max(natural.height, selectHeight(button, width: box.width))
+            }
+            #endif
             // A slider's track spans its box, as the web's does; a native
             // button fills it, its chrome inside (LLP 1069.011 D6); the
             // others keep their own size. A select aligns its closed value
@@ -210,7 +309,7 @@ final class ControlHost: NSObject {
                 #if os(tvOS)
                 let width = natural.width
                 #else
-                let width = control is UISlider ? box.width : natural.width
+                let width = control is UISlider ? box.width : narrowed ?? natural.width
                 #endif
                 var x = box.midX - width / 2
                 #if os(iOS)
@@ -244,12 +343,16 @@ final class ControlHost: NSObject {
 
     @objc private func changed(_ sender: UIControl) {
         let id = UInt32(sender.tag)
-        guard presenter.views[id] != nil else { return }
+        guard let node = presenter.views[id] else { return }
+        // Read first: the press's batch syncs a bound control back to `checked`.
         #if os(tvOS)
         let on = (sender as? ExactCheckbox)?.isOn ?? false
         #else
         let on = (sender as? UISwitch)?.isOn ?? (sender as? ExactCheckbox)?.isOn ?? false
         #endif
+        // A click on a checkbox is heard before its `input` and `change` (HTML
+        // dispatches `click`, then fires those as its activation behaviour).
+        if node.handlers.contains("press") { presenter.press(id) }
         presenter.checked(id, on)
         // The committed state is authoritative: an action that refused the
         // toggle snaps the control back (D4).
@@ -302,6 +405,8 @@ final class ControlHost: NSObject {
         controls.removeAll()
         for spinner in spinners.values { spinner.removeFromSuperview() }
         spinners.removeAll()
+        for bar in bars.values { bar.removeFromSuperview() }
+        bars.removeAll()
         reported.removeAll()
         kinds.removeAll()
         menus.removeAll()

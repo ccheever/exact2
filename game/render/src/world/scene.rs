@@ -50,9 +50,12 @@ pub(crate) fn drawn(w: &World, e: Entity) -> Option<glam::Affine3A> {
     Some(global)
 }
 pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
-    let global = drawn(w, e)?;
+    drawn(w, e).map(decompose)
+}
+// Shared by direct reads and feed rows that already know no offsets exist.
+pub(super) fn decompose(global: glam::Affine3A) -> Transform {
     let (scale, rotation, position) = global.to_scale_rotation_translation();
-    Some(Transform {
+    Transform {
         position,
         rotation: glam::Quat::from_vec4(
             glam::Vec4::from_array(rotation.to_array())
@@ -60,7 +63,7 @@ pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
                 .unwrap_or(glam::Vec4::W),
         ),
         scale,
-    })
+    }
 }
 // Bounded even if tools edit a cycle before propagation.
 pub(crate) fn snap(w: &World, mut e: Entity, parent_changed: bool) -> bool {
@@ -524,7 +527,12 @@ impl Scene {
                 .normalize_or(-Vec3::Y),
             color: s.color.into(),
             illuminance: s.illuminance * PHOTOMETRIC_SCALE,
-            shadows: (shadows && s.shadows).then(Shadows::default),
+            shadows: (shadows && s.shadows).then(|| {
+                w.try_resource::<Shadows>()
+                    .as_deref()
+                    .copied()
+                    .unwrap_or_default()
+            }),
         };
         let sun = self.sun.map(|s| directional(s, true));
         let fill = self.fill.map(|s| directional(s, false));
@@ -534,6 +542,7 @@ impl Scene {
             .copied()
             .unwrap_or_default();
         FrameInput {
+            viewport_css_height: pixels.then_some(size.y),
             glows: &[],
             seconds: if w.tick() == 0 {
                 0.
@@ -609,6 +618,7 @@ struct Owner {
     // Each chain link's presentation Offset, leaf to root: socketed props
     // follow the drawn rig, drawn(parent) · local · offset at every link.
     offsets: Vec<History>,
+    priming: crate::node_poses::Priming,
 }
 /// An entity's presentation offset, or the identity.
 fn offset_of(w: &World, e: Entity) -> Transform {
@@ -621,6 +631,7 @@ impl Owner {
             first_attachment: None,
             chain: Vec::new(),
             offsets: Vec::new(),
+            priming: Default::default(),
         };
         owner.update(w, entity, false, true);
         owner
@@ -666,6 +677,7 @@ impl Owner {
 #[derive(Default)]
 pub(crate) struct DiagnosticRegistry {
     world: Option<exact_game::WorldId>,
+    node_warnings: std::collections::BTreeSet<(&'static str, &'static str)>,
     messages: std::collections::BTreeMap<(Entity, &'static str), String>,
 }
 impl std::ops::Deref for DiagnosticRegistry {
@@ -680,6 +692,15 @@ impl std::ops::DerefMut for DiagnosticRegistry {
     }
 }
 impl DiagnosticRegistry {
+    pub(crate) fn node_warning(&mut self, model: usize, name: &'static str, reason: &'static str) {
+        if self.node_warnings.len() >= 64 || !self.node_warnings.insert((name, reason)) {
+            return;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        eprintln!("model {model} node offset `{name}`: {reason}");
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::warn_1(&format!("model {model} node offset `{name}`: {reason}").into());
+    }
     pub(crate) fn restored(&mut self, w: &World) {
         self.world = Some(w.id());
     }
@@ -700,9 +721,12 @@ struct Attachment {
     // The follower's own presentation Offset, after the socket's.
     drawn: History,
     model_digest: u64,
+    node: u32,
 }
 #[derive(Default)]
 pub(crate) struct Attachments {
+    node_offsets: crate::node_poses::Histories,
+    assignments: crate::node_poses::Assignments,
     owners: std::collections::BTreeMap<Entity, Owner>,
     // Feed keeps one generation per entity index, in index order.
     items: Vec<Attachment>,
@@ -711,7 +735,14 @@ pub(crate) struct Attachments {
     pub(crate) model_digests: std::collections::BTreeMap<String, u64>,
 }
 impl Attachments {
+    pub(crate) fn retain_primes(&mut self, retain: bool) {
+        for owner in self.owners.values_mut() {
+            owner.priming.retain_until_draw(retain);
+        }
+    }
     pub fn reset(&mut self) {
+        self.node_offsets = Default::default();
+        self.assignments = Default::default();
         self.owners.clear();
         self.items.clear();
         self.output.clear();
@@ -736,8 +767,10 @@ impl Attachments {
         initial: bool,
         next_tick: bool,
         parent_changed: bool,
-        models_changed: bool,
+        _models_changed: bool,
     ) {
+        self.node_offsets.update(w, initial);
+        self.assignments.update(w);
         if initial {
             self.owners.clear();
         }
@@ -752,6 +785,65 @@ impl Attachments {
         for (e, _) in w.query::<&exact_game::Pose>().iter() {
             if w.has::<Transform>(e) {
                 self.owners.entry(e).or_insert_with(|| Owner::new(w, e));
+            }
+        }
+        for (e, _) in w.query::<&exact_game::NodeOffsets>().iter() {
+            if w.has::<Transform>(e) {
+                self.owners.entry(e).or_insert_with(|| Owner::new(w, e));
+            }
+        }
+        for (_, follow) in w.query::<&exact_game::SocketFollow>().iter() {
+            let target = match &follow.target {
+                exact_game::FollowTarget::Entity(e) => Some(*e),
+                exact_game::FollowTarget::Name(n) => w.named(n),
+            };
+            if let Some(e) = target.filter(|e| w.contains(*e) && w.has::<Transform>(*e)) {
+                self.owners.entry(e).or_insert_with(|| Owner::new(w, e));
+            }
+        }
+        // Prime model-local endpoints once per owner, before visiting followers.
+        // A newly added charm inherits an established owner's interpolation.
+        for (&e, owner) in &mut self.owners {
+            let Some(mesh) = w.get::<exact_game::Mesh>(e) else {
+                continue;
+            };
+            let exact_game::Mesh::Asset(name) = &*mesh else {
+                continue;
+            };
+            let Some(model) = w.model(name) else { continue };
+            let sampled = w.get::<exact_game::Pose>(e).filter(|p| {
+                p.local.len() == model.nodes.len() * 10 && p.previous.len() == p.local.len()
+            });
+            let digest = self
+                .model_digests
+                .get(name)
+                .copied()
+                .unwrap_or(w.model_revision());
+            owner.priming.begin(
+                w.tick(),
+                (self.assignments.revision(e), digest),
+                sampled.is_some(),
+                initial || exact_game::animation::socket_stale(w, e) || snap(w, e, parent_changed),
+                self.node_offsets.pair(e, false),
+            );
+            if owner.priming.capturing() {
+                for (i, node) in model.nodes.iter().enumerate() {
+                    let local = sampled.as_ref().map_or_else(
+                        || {
+                            let (scale, rotation, position) =
+                                Mat4::from_cols_array(&node.transform)
+                                    .to_scale_rotation_translation();
+                            Transform {
+                                scale,
+                                rotation: rotation.normalize(),
+                                position,
+                            }
+                        },
+                        |p| crate::node_poses::read(&p.local[i * 10..]),
+                    );
+                    owner.priming.pair(i, [local; 2]);
+                }
+                owner.priming.captured();
             }
         }
         let mut at = 0;
@@ -801,7 +893,7 @@ impl Attachments {
                 || !self
                     .items
                     .get(at)
-                    .is_some_and(|v| v.history.entity == e && v.owner == target);
+                    .is_some_and(|v| v.history.entity == e && v.owner == target && v.node == node);
             if fresh {
                 if self.items.get(at).is_some_and(|v| v.history.entity == e) {
                     self.items.remove(at);
@@ -811,6 +903,7 @@ impl Attachments {
                     Attachment {
                         history: History::new(e, home),
                         owner: target,
+                        node,
                         chain: vec![],
                         offset: follow.offset,
                         drawn: History::new(e, offset_of(w, e)),
@@ -832,30 +925,20 @@ impl Attachments {
                 .or_insert_with(|| Owner::new(w, target))
                 .first_attachment
                 .get_or_insert(e.index());
-            let model_changed = if models_changed {
-                let digest = self
-                    .model_digests
-                    .get(name)
-                    .copied()
-                    .unwrap_or(w.model_revision());
-                let changed = item.model_digest != digest;
-                item.model_digest = digest;
-                changed
-            } else {
-                false
-            };
+            let digest = self
+                .model_digests
+                .get(name)
+                .copied()
+                .unwrap_or(w.model_revision());
+            item.model_digest = digest;
             item.offset = follow.offset;
             item.chain.clear();
             let sampled = w.get::<exact_game::Pose>(target).filter(|p| {
                 p.local.len() == model.nodes.len() * 10 && p.previous.len() == p.local.len()
             });
-            let snap = initial
-                || model_changed
-                || exact_game::animation::socket_stale(w, target)
-                || snap(w, target, parent_changed);
             let nodes = std::iter::successors(Some(node), |&i| model.nodes[i as usize].parent);
             if let Some(p) = &sampled {
-                let prev = if snap { &p.local } else { &p.previous };
+                let prev = &p.previous;
                 item.chain.extend(nodes.map(|i| {
                     let start = i as usize * 10;
                     let read = |values: &[f32]| Transform {
@@ -878,6 +961,19 @@ impl Attachments {
                         scale,
                     }; 2]
                 }));
+            }
+
+            let owner = self.owners.get_mut(&target).expect("resolved owner");
+            let rows = owner.priming.rows(self.node_offsets.pair(target, false));
+            for (pair, i) in item
+                .chain
+                .iter_mut()
+                .zip(std::iter::successors(Some(node), |&i| {
+                    model.nodes[i as usize].parent
+                }))
+            {
+                let base = owner.priming.pair(i as usize, *pair);
+                *pair = crate::node_poses::node_pair(base, rows, &model.nodes[i as usize]);
             }
             item.chain.reverse();
             at += 1;

@@ -20,6 +20,7 @@ name = "exact_linux"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-grants = { path = "../../grants" }
 exact-canvas = { path = "../../canvas" }
 exact-data = { path = "../../data" }
 exact-color = { path = "../../color" }
@@ -42,13 +43,16 @@ exact-runner = { path = "../../runner" }
 # `websocket`: the transport for an app's WebSockets (exactStream sockets); the
 # vendored v4 crate gates it behind a default feature (27275f3d4), which
 # default-features = false had turned off.
-ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket"] }
+# `portable-http`: rustls and the portable sockets on a Mac too, which
+# conformance's network runs this host over (src/executor.rs).
+ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket", "portable-http"] }
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 libloading = "0.8"
 base64 = "0.22"
 tiny-skia = "0.12"
+unicode-segmentation = "1.13"
 # Text (LLP 1085.000): Parley lays out, fontique finds and matches faces
 # (its `system` feature off: no fontconfig, no platform font API), swash
 # rasterizes the face Parley chose. Every one is Rust.
@@ -88,8 +92,16 @@ chrono = "0.4"
 chrono-tz = "0.10"
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_System_Com"] }
 
+[features]
+# Integration tests only: a new executor waits for a native-worker slot
+# (src/executor.rs `WAIT_FOR_SLOT`), turned on by the dev-dependency below.
+test-wait = []
+
 [dev-dependencies]
+exact-linux = { path = ".", features = ["test-wait"] }
 cc = "1"
 caltrain = { path = "../../apps/caltrain" }
 caltrain-data = { path = "../../apps/caltrain/data" }
 contract = { path = "../../contract/cli" }
+# A scripted socket transport names the URL type its trait takes.
+url = "2.5"

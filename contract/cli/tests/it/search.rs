@@ -101,54 +101,55 @@ fn a_launcher_highlights_the_rows_whose_code_starts_with_the_digit_typed() {
 fn the_searches_take_two_strings() {
     let src = corpus("search.contract");
     for (call, replacement) in [
-        ("includes(s.name, typed)", "includes(sessions, typed)"),
-        ("startsWith(s.code, typed)", "startsWith(s.code, 1)"),
-        ("endsWith(s.file, \".md\")", "endsWith(true, \".md\")"),
+        ("s.name.includes(typed)", "sessions.includes(typed)"),
+        ("s.code.startsWith(typed)", "s.code.startsWith(1)"),
+        ("s.file.endsWith(\".md\")", "true.endsWith(\".md\")"),
     ] {
         assert!(src.contains(call), "{call}");
         let e = contract::compile(&src.replace(call, replacement)).unwrap_err();
         assert_eq!(e.id, "type-argument", "{replacement}: {e}");
     }
-    let e = contract::compile(&src.replace("endsWith(s.file, \".md\")", "endsWith(s.file)"))
+    let e = contract::compile(&src.replace("s.file.endsWith(\".md\")", "s.file.endsWith()"))
         .unwrap_err();
     assert_eq!(e.id, "type-arity", "{e}");
 }
 
 #[test]
-fn the_webs_method_spellings_name_the_function_form() {
+fn a_free_spelling_of_the_webs_method_names_the_method_form() {
     let src = corpus("search.contract");
-    for (call, method, fix) in [
+    for (call, free, fix) in [
         (
-            "includes(s.name, typed)",
             "s.name.includes(typed)",
-            "write `includes(s, t)`",
+            "includes(s.name, typed)",
+            "write `x.includes(…)`",
         ),
         (
-            "startsWith(s.code, typed)",
             "s.code.startsWith(typed)",
-            "write `startsWith(s, t)`",
+            "startsWith(s.code, typed)",
+            "write `x.startsWith(…)`",
         ),
         (
-            "endsWith(s.file, \".md\")",
             "s.file.endsWith(\".md\")",
-            "write `endsWith(s, t)`",
+            "endsWith(s.file, \".md\")",
+            "write `x.endsWith(…)`",
         ),
     ] {
-        let e = contract::compile(&src.replace(call, method)).unwrap_err();
-        assert_eq!(e.id, "syntax-method-call", "{method}: {e}");
-        assert!(e.message.contains(fix), "{method}: {e}");
+        assert!(src.contains(call), "{call}");
+        let e = contract::compile(&src.replace(call, free)).unwrap_err();
+        assert_eq!(e.id, "syntax-method-form", "{free}: {e}");
+        assert!(e.message.contains(fix), "{free}: {e}");
     }
     // The predecessor's name is gone: the words are the web's. The refusal
     // names the spelling that works, so an app outside this repo that still
     // writes `contains` is told the fix, not sent to a `resource`.
     for spelling in ["contains(s.name, typed)", "s.name.contains(typed)"] {
-        let e = contract::compile(&src.replace("includes(s.name, typed)", spelling)).unwrap_err();
+        let e = contract::compile(&src.replace("s.name.includes(typed)", spelling)).unwrap_err();
         assert!(
             matches!(e.id.as_str(), "type-refused-idiom" | "syntax-method-call"),
             "{spelling}: {e}"
         );
         assert!(
-            e.message.contains("write `includes(s, t)`"),
+            e.message.contains("write `s.includes(t)`"),
             "{spelling}: {e}"
         );
     }
@@ -156,7 +157,7 @@ fn the_webs_method_spellings_name_the_function_form() {
 
 /// LLP 1088 D1, D2: calendar's end-after-start and calc's Backspace in the
 /// view — two strings compare in code-unit order, and `slice`,
-/// `replaceAll` and `toLowerCase` are the web's (`end` may be left out).
+/// `replaceAll`, `toLowerCase` and `toUpperCase` are the web's (`end` may be left out).
 #[test]
 fn strings_compare_and_cut_as_the_web_does() {
     let plan = contract::compile(&corpus("strings.contract")).unwrap();
@@ -175,6 +176,7 @@ fn strings_compare_and_cut_as_the_web_does() {
         "an omitted end is the string's end"
     );
     assert_eq!(text(&r, "lower"), "οδος paris", "a final sigma");
+    assert_eq!(text(&r, "upper"), "ΟΔΟΣ PARIS");
     r.act("setEnd", vec![Value::str("09:00")]).unwrap();
     assert_eq!(text(&r, "valid"), "end before start");
     r.act("backspace", vec![]).unwrap();
@@ -204,22 +206,28 @@ fn string_order_and_slice_are_typed() {
             "given `bool` and `bool`",
         ),
         (
-            "slice(expr, 1)",
-            "slice(expr)",
+            "expr.slice(1)",
+            "expr.slice()",
             "type-arity",
-            "`slice` takes 2 to 3 argument(s), given 1; expected `slice(string | list, number, number?)`",
+            "`.slice(…)` takes 1 to 2 argument(s), given 0; expected `(string | list).slice(number, number?)`",
         ),
         (
-            "slice(expr, 1)",
-            "slice(expr, 1, 2, 3)",
+            "expr.slice(1)",
+            "expr.slice(1, 2, 3)",
             "type-arity",
-            "given 4",
+            "given 3",
         ),
         (
-            "toLowerCase(query)",
-            "toLowerCase(1)",
+            "query.toLowerCase()",
+            "(1).toLowerCase()",
             "type-argument",
             "expects `string`",
+        ),
+        (
+            "query.toUpperCase()",
+            "toUpperCase(query)",
+            "syntax-method-form",
+            "write `query.toUpperCase()`",
         ),
     ] {
         assert!(src.contains(from), "{from}");
@@ -230,7 +238,7 @@ fn string_order_and_slice_are_typed() {
     contract::compile("component App\n  state n = 0\n  action slice(by: number)\n    n = n + by\n  view\n    button \"s\" press=slice(1)\n")
         .unwrap();
     contract::compile(
-        "component App\n  state xs = [\"a\", \"b\"]\n  derive ys = slice(xs, 1)\n  view\n    text join(ys, \",\")\n",
+        "component App\n  state xs = [\"a\", \"b\"]\n  derive ys = xs.slice(1)\n  view\n    text ys.join(\",\")\n",
     )
     .unwrap();
 }

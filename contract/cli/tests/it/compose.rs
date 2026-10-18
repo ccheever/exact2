@@ -43,7 +43,7 @@ fn a_slot_takes_the_nodes_under_a_use_in_the_use_sites_scope() {
     let body = k.find_by_test_id("body")[0];
     let body = k.node_by_key(body).unwrap();
     let text = body.props.iter().find_map(|(id, v)| match v {
-        PropValue::Str(s) if id.name() == "text" => Some(s.clone()),
+        PropValue::Str(s) if id.name() == "text" => Some(s.to_string()),
         _ => None,
     });
     assert_eq!(text.as_deref(), Some("2 trains"));
@@ -77,6 +77,13 @@ fn a_provide_section_fills_an_inject_and_the_nearest_component_wins() {
     ] {
         assert_eq!(color_of(id), Color::parse_hex(hex).unwrap().into(), "{id}");
     }
+}
+
+#[test]
+fn a_forwarded_slot_fill_checks_its_injected_provider_type() {
+    let source = "component App\n  provide\n    accent = 1\n  view\n    Shell()\n      Label()\ncomponent Shell\n  slot\n  view\n    Pass()\n      children\ncomponent Pass\n  slot\n  view\n    children\ncomponent Label\n  inject\n    accent: string\n  view\n    text accent.toString()\n";
+    let error = contract::compile(source).unwrap_err();
+    assert_eq!(error.id, "type-provide", "{error}");
 }
 
 #[test]
@@ -145,12 +152,12 @@ fn a_misspelled_or_mistyped_prop_is_refused_where_it_is_written() {
 
 #[test]
 fn a_declaration_continued_on_an_indented_line_is_told_to_join_it() {
-    let src = "shape Task\n  id: string\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n    else empty()\n  view\n    text \"a\"\n";
+    let src = "shape Task\n  id: string\ncomponent App\n  resource tasks = loadTasks() as shape Task[]\n    else empty()\n  view\n    text \"a\"\n";
     let error = contract::compile(src).unwrap_err();
     assert_eq!(error.id, "syntax-expected-section");
     assert_eq!(
         error.message,
-        "`else …` is indented under the line above, and a declaration is one line: join them (like `resource tasks = loadTasks() as shape list<Task> else empty()`)"
+        "`else …` is indented under the line above, and a declaration is one line: join them (like `resource tasks = loadTasks() as shape Task[] else empty()`)"
     );
     // An over-indented section is not a continuation: the plain message stands.
     let src = "component App\n  state n = 0\n    view\n      text \"a\"\n";
@@ -159,26 +166,20 @@ fn a_declaration_continued_on_an_indented_line_is_told_to_join_it() {
 }
 
 #[test]
-fn failed_names_why_a_mutation_is_not_its_argument() {
-    let src = "shape Saved\n  ok: bool\ncomponent App\n  mutation save as shape Saved\n  view\n    text failed(save) ? \"x\" : \"y\"\n";
-    let error = contract::compile(src).unwrap_err();
-    assert_eq!(error.id, "type-failed-argument");
-    assert!(error.message.starts_with("`save` is a mutation, and `failed` takes a resource: a mutation whose request fails without an answer keeps its previous value"), "{error}");
+fn failed_and_failure_name_mutations() {
+    let src = "shape Saved\n  ok: bool\ncomponent App\n  mutation save as shape Saved\n  view\n    text (match failure(save) { case some(f) => f.code, case none => failed(save) ? \"x\" : \"y\" })\n";
+    contract::compile(src).unwrap();
 }
 
 #[test]
-fn an_annotated_state_or_derive_is_told_its_type_is_inferred() {
+fn a_state_may_declare_its_type_and_a_derive_is_told_its_type_is_inferred() {
     let state = "shape Task\n  id: string\ncomponent App\n  state deleted: option<Task> = none\n  view\n    text \"a\"\n";
-    let error = contract::compile(state).unwrap_err();
-    assert_eq!(
-        (error.id.as_str(), error.message.as_str()),
-        ("syntax-expected", "a state's type is inferred, so `state deleted` takes no `: type`: write `state deleted = …`; an empty start is `none` or `[]`, and the writes give it its type")
-    );
+    contract::compile(state).unwrap();
     let derive = "component App\n  derive n: number = 2\n  view\n    text \"a\"\n";
     let error = contract::compile(derive).unwrap_err();
     assert_eq!(
         error.message,
-        "a derive's type is inferred, so `derive n` takes no `: type`: write `derive n = …`, which is its expression's"
+        "drop `: number`; a derive's type is its expression's"
     );
 }
 
@@ -195,31 +196,34 @@ fn an_html_label_names_the_text_and_the_field_name() {
 }
 
 #[test]
-fn a_view_if_and_a_state_as_name_the_contract_form() {
-    let view_if = "component App\n  state on = false\n  view\n    column\n      if on\n        text \"a\"\n      else\n        text \"b\"\n";
+fn a_view_when_and_a_state_as_name_the_contract_form() {
+    let view_if = "component App\n  state on = false\n  view\n    column\n      when on\n        text \"a\"\n      else\n        text \"b\"\n";
     let error = contract::compile(view_if).unwrap_err();
     assert_eq!(
         (error.id.as_str(), error.message.as_str()),
-        ("syntax-stray-keyword", "`if` is an action's statement: a view chooses with `when <condition>`, and an `else` after its block at the same indent")
+        (
+            "syntax-view-keyword",
+            "a view chooses with `if`: write `if <condition>`, and `else if` for `else when`"
+        )
     );
     let state_as =
         "component App\n  state draft = none as option<string>\n  view\n    text \"a\"\n";
     let error = contract::compile(state_as).unwrap_err();
     assert_eq!(
         (error.id.as_str(), error.message.as_str()),
-        ("syntax-expected-newline", "a state takes no `as`: its type is inferred from its initializer and the writes to it (a `none` takes its type from a write such as `draft = some(…)`)")
+        ("syntax-expected-newline", "drop `as option<string>`; a state's type is inferred from its initializer and the writes to it (a `none` takes its type from a write such as `draft = some(…)`)")
     );
     let count_as = "component App\n  state n = 0 as number\n  view\n    text \"a\"\n";
     let error = contract::compile(count_as).unwrap_err();
     assert_eq!(
         error.message,
-        "a state takes no `as`: its type is inferred from its initializer and the writes to it"
+        "drop `as number`; a state's type is inferred from its initializer and the writes to it"
     );
     let derive_as = "component App\n  derive n = 2 as number\n  view\n    text \"a\"\n";
     let error = contract::compile(derive_as).unwrap_err();
     assert_eq!(
         error.message,
-        "a derive takes no `as`: its type is inferred from its expression"
+        "drop `as number`; a derive's type is inferred from its expression"
     );
 }
 
@@ -238,7 +242,7 @@ fn position_fixed_says_how_to_pin_a_box() {
 
 #[test]
 fn a_mutation_clause_out_of_order_names_the_order() {
-    let src = "shape Ack\n  ok: bool\nshape Card\n  id: string\n\ncomponent App\n  resource cards = board() as shape list<Card>\n  mutation changed as shape Ack refreshes cards queue\n  view\n    text \"a\"\n";
+    let src = "shape Ack\n  ok: bool\nshape Card\n  id: string\n\ncomponent App\n  resource cards = board() as shape Card[]\n  mutation changed as shape Ack refreshes cards queue\n  view\n    text \"a\"\n";
     let error = contract::compile(src).unwrap_err();
     assert_eq!(error.id, "syntax-expected-newline", "{error}");
     assert!(
@@ -346,23 +350,17 @@ fn a_mistaken_section_word_names_the_section() {
 
 #[test]
 fn a_stray_else_and_a_body_on_the_next_line_say_where_they_go() {
-    let deep = "component App\n  state on = false\n  view\n    column\n      when on\n        text \"a\"\n        else\n          text \"b\"\n";
+    let deep = "component App\n  state on = false\n  view\n    column\n      if on\n        text \"a\"\n        else\n          text \"b\"\n";
     let error = contract::compile(deep).unwrap_err();
     assert!(
         error.message.ends_with(
-            "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+            "an `else` sits at its `if`'s indentation, on the line after the `if`'s block"
         ),
         "{error}"
     );
+    // A `fn`'s body may start on the next line (LLP 1116.017 D2); a derive's may not.
     let body = "fn label(done: bool): string =\n  done ? \"Done\" : \"Open\"\ncomponent App\n  view\n    text label(true)\n";
-    let error = contract::compile(body).unwrap_err();
-    assert_eq!(error.id, "syntax-expected-expression");
-    assert!(
-        error
-            .message
-            .starts_with("a fn's expression starts on its `=` line"),
-        "{error}"
-    );
+    contract::compile(body).unwrap();
     let derive = "component App\n  state done = false\n  derive label =\n    done ? \"Done\" : \"Open\"\n  view\n    text label\n";
     let error = contract::compile(derive).unwrap_err();
     assert!(
@@ -406,4 +404,101 @@ fn a_shape_named_like_a_built_in_says_so() {
     )
     .unwrap_err();
     assert_eq!(error.message, "shape `A` declared twice");
+}
+
+#[test]
+fn enum_parameters_generate_literal_unions_and_refuse_unknown_members() {
+    let src = r#"shape Choice
+  value: enum<"draft", "published">
+fn echo(value: enum<"draft", "published">): enum<"draft", "published"> = value
+component App
+  resource choice = choice() as shape Choice else empty()
+  action choose(value: enum<"draft", "published">)
+    focus(value)
+  action go
+    choose("draft")
+  view
+    button "Choose" press=go
+"#;
+    let plan = contract::compile(src).unwrap();
+    let declarations = contract::typescript(&plan).unwrap();
+    assert!(
+        declarations.contains("\"draft\" | \"published\""),
+        "{declarations}"
+    );
+    for (good, bad) in [
+        ("choose(\"draft\")", "choose(\"missing\")"),
+        (
+            "enum<\"draft\", \"published\">",
+            "enum<\"draft\", \"draft\">",
+        ),
+    ] {
+        assert!(contract::compile(&src.replace(good, bad)).is_err(), "{bad}");
+    }
+    contract::compile(&src.replace("button \"Choose\" press=go", "column\n      text choice.value\n      text (choice.value == \"draft\" ? choice.value.slice(0, 2) : choice.value + \"!\")\n      button \"Choose\" press=go")).unwrap();
+    let style_error =
+        contract::compile(&src.replace("button \"Choose\" press=go", "view opacity=choice.value"))
+            .unwrap_err();
+    assert_eq!(style_error.id, "lower-attr-type");
+    let props = "component App\n  state value = \"draft\"\n  view\n    Child(value=VALUE)\ncomponent Child\n  props\n    value: enum<\"draft\", \"published\">\n  view\n    text value\n";
+    contract::compile(&props.replace("VALUE", "\"draft\"")).unwrap();
+    for value in ["\"missing\"", "value"] {
+        assert!(contract::compile(&props.replace("VALUE", value)).is_err());
+    }
+    assert!(contract::compile(&src.replace(
+        "= value\ncomponent",
+        "= false ? value : \"missing\"\ncomponent"
+    ))
+    .is_err());
+    let enum_ty = plan
+        .types
+        .iter()
+        .position(|t| plan.str(t.name) == "enum")
+        .unwrap();
+    assert!(
+        exact_plan::Value::str("published").conforms(&plan, exact_plan::TypesId(enum_ty as u32))
+    );
+    assert!(!exact_plan::Value::str("missing").conforms(&plan, exact_plan::TypesId(enum_ty as u32)));
+}
+
+#[test]
+fn nested_enum_parameters_keep_membership_and_enum_keys_and_overrides_work() {
+    let app = "component App\n  action pick(a: option<enum<\"a\", \"b\">>, b: enum<\"a\", \"b\">[])\n    focus(\"ok\")\n  action go\n    pick(some(\"a\"), [\"a\", \"b\"])\n  view\n    button \"Pick\" press=go\n";
+    contract::compile(app).unwrap();
+    for (good, bad) in [
+        ("some(\"a\")", "some(\"bad\")"),
+        ("[\"a\", \"b\"]", "[\"a\", \"bad\"]"),
+    ] {
+        assert!(contract::compile(&app.replace(good, bad)).is_err(), "{bad}");
+    }
+    let keyed = "shape Choice\n  value: enum<\"a\", \"b\">\ncomponent App\n  resource choices = choices() as shape Choice[] else empty()\n  resource choice = choice() as shape Choice else empty(value=\"b\")\n  view\n    column\n      text choice.value\n      for x in choices key=x.value\n        text x.value testId=\"enum-row\"\n";
+    let plan = contract::compile(keyed).unwrap();
+    assert!(contract::compile(&keyed.replace("value=\"b\"", "value=\"bad\"")).is_err());
+    struct Choices;
+    impl DataSource for Choices {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(if source == "choices" {
+                Value::list(vec![
+                    Value::record(vec![Value::str("a")]),
+                    Value::record(vec![Value::str("b")]),
+                ])
+            } else {
+                Value::record(vec![Value::str("b")])
+            })
+        }
+    }
+    let baked = contract::bake(plan, Choices).unwrap();
+    let runner = Runner::boot(
+        baked,
+        Choices,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(runner.kernel().find_by_test_id("enum-row").len(), 2);
+
+    let wrapped = "shape Choice\n  value: option<enum<\"a\", \"b\">>[]\ncomponent App\n  resource choice = choice() as shape Choice else empty(value=[some(\"b\"), none])\n  view\n    text \"nested\"\n";
+    contract::compile(wrapped).unwrap();
+    assert!(contract::compile(&wrapped.replace("some(\"b\")", "some(\"bad\")")).is_err());
 }

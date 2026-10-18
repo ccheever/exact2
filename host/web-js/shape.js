@@ -10,6 +10,7 @@ export function conforms(v, t, i = [0], o) {
   if (c === "n") return typeof v === "number" && isFinite(v);
   if (c === "N") return typeof v === "number"; // any number: a hidden parameter's (emit.rs)
   if (c === "b") return typeof v === "boolean";
+  if (c === "e") { const end = t.indexOf(":", i[0]), n = Number(t.slice(i[0], end)); i[0] = end + 1; const values = JSON.parse(t.slice(i[0], i[0] + n)); i[0] += n; return typeof v === "string" && values.includes(v); }
   if (c === "s") return typeof v === "string";
   if (c === "u") return v == null;
   if (c === "?") { if (v == null) { skip(t, i); return true; } return conforms(v, t, i, o); }
@@ -22,7 +23,7 @@ export function conforms(v, t, i = [0], o) {
   if (c === "{") { let k = 0; const was = Array.isArray(o) ? o : null; for (; t[i[0]] !== "}"; k++) if (!Array.isArray(v) || !conforms(v[k], t, i, was?.[k])) return false; i[0]++; return v.length === k; }
   return true;
 }
-function skip(t, i) { const c = t[i[0]++]; if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
+function skip(t, i) { const c = t[i[0]++]; if (c === "e") { const end = t.indexOf(":", i[0]); i[0] = end + 1 + Number(t.slice(i[0], end)); } else if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
 /** Contract's `==`, and what the runner compares a resource's arguments
  * with (runner/src/compare.rs `equal`, `Value`'s `PartialEq`): numbers as
  * IEEE compares them (`-0` equals `0`, NaN equals nothing, itself
@@ -53,4 +54,17 @@ export function failureCode(e) {
   if (e[Shaped]) return "shape";
   if (e.name === "FetchError") return FETCH_FAILURE[e.kind] ?? "error";
   return e.kind === "Unavailable" && typeof e.code === "string" ? "storage" : "error";
+}
+/** `failure(x).reason`: a string the thrown value carries as `reason` (the snapback4 driver's refusal code, `SLOT_FULL`),
+ * else empty; as js/src/prelude.js `fail` reads it (the author's ruling of 2026-10-12). */
+export const failureReason = e => e && typeof e === "object" && typeof e.reason === "string" ? e.reason : "";
+
+/** The compiler's positional TextDecorations record as the shared named JSON. */
+export function decorationRecord(v) {
+  if (v == null) return null;
+  const named = ([name, start, end]) => ({ name, start, end });
+  return JSON.stringify({ value: v[0], spans: v[1].map(named),
+    blocks: v[2].map(item => ({ ...named(item), marker: item[3] || null })),
+    hidden: v[3].map(([start, end, reveal]) => ({ start, end, reveal: reveal == null ? null : { start: reveal[0], end: reveal[1] } })),
+    atoms: v[4].map(item => ({ ...named(item), label: item[3] })) });
 }

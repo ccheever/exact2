@@ -6,11 +6,11 @@
 component App
   state x = 1.005
   state zero = 0
-  derive fixed = `${toFixed(x, 2)} ${toFixed(x, 0)} ${toFixed(x, 20)}`
-  derive rounding = `${toFixed(1.45, 1)} ${toFixed(2.5, 0)} ${toFixed(-2.5, 0)} ${toFixed(0.5, 0)} ${toFixed(1.255, 2)} ${toFixed(8.345, 2)} ${toFixed(10.235, 2)}`
-  derive signs = `${toFixed(-0.001, 2)} ${toFixed(-0, 2)} ${toFixed(123.456, 1)} ${toFixed(0.0004, 3)}`
-  derive big = `${toFixed(1000000000000000000000, 2)} ${toFixed(-1000000000000000000000, 0)} ${toFixed(999999999999999900000, 2)}`
-  derive bad = `[${toFixed(1 / zero, 2)}][${toFixed(zero / zero, 0)}]`
+  derive fixed = `${x.toFixed(2)} ${x.toFixed(0)} ${x.toFixed(20)}`
+  derive rounding = `${(1.45).toFixed(1)} ${(2.5).toFixed(0)} ${(-2.5).toFixed(0)} ${(0.5).toFixed(0)} ${(1.255).toFixed(2)} ${(8.345).toFixed(2)} ${(10.235).toFixed(2)}`
+  derive signs = `${(-0.001).toFixed(2)} ${(-0).toFixed(2)} ${(123.456).toFixed(1)} ${(0.0004).toFixed(3)}`
+  derive big = `${(1000000000000000000000).toFixed(2)} ${(-1000000000000000000000).toFixed(0)} ${(999999999999999900000).toFixed(2)}`
+  derive bad = `[${(1 / zero).toFixed(2)}][${(zero / zero).toFixed(0)}]`
   action set(v: number)
     x = v
   view
@@ -20,7 +20,7 @@ component App
       text signs testId="signs"
       text big testId="big"
       text bad testId="bad"
-      text toFixed(0.1, 100) testId="long"
+      text (0.1).toFixed(100) testId="long"
       button "neg" press=set(-1.5) testId="neg"
       button "tiny" press=set(0.000001) testId="tiny"
 

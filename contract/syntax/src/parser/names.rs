@@ -8,14 +8,14 @@
 //! a section line, `refresh` before a name in a body) and a name everywhere
 //! else. A shape field, a named argument, a member after `.` and an
 //! attribute name can never head an expression, so they admit every word.
-//! A state's or derive's name takes no type annotation: its type is inferred
-//! (`type_annotation`).
+//! A state's name may declare its type (`state x: T = …`); a derive's takes
+//! none: its type is its expression's (`type_annotation`).
 
 use super::*;
 
 /// The words no binder may be.
 pub(super) const RESERVED: [&str; 16] = [
-    "when", "if", "else", "each", "in", "match", "case", "as", "fn", "and", "or", "not", "true",
+    "when", "if", "else", "for", "in", "match", "case", "as", "fn", "and", "or", "not", "true",
     "false", "none", "some",
 ];
 
@@ -45,6 +45,7 @@ pub(super) fn section_hint(word: &str) -> String {
         "mutations" => "mutation",
         "actions" => "action",
         "tasks" => "task",
+        "sequences" => "sequence",
         "views" => "view",
         "slots" => "slot",
         "provides" => "provide",
@@ -53,17 +54,17 @@ pub(super) fn section_hint(word: &str) -> String {
     };
     let place = match section {
         "props" => " (any component but the first in the file declares them)",
-        "resource" | "mutation" | "task" => " (only the root component declares one)",
+        "resource" | "mutation" | "task" | "sequence" => " (only the root component declares one)",
         _ => "",
     };
     format!(": did you mean `{section}`{place}?")
 }
 
 /// A view's `else` or `case` with nothing to belong to, and where it goes (authoring
-/// bench: an `else` indented one level under its `when`).
+/// bench: an `else` indented one level under its `if`).
 pub(super) fn stray(word: &str) -> String {
     let goes = if word == "else" {
-        "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+        "an `else` sits at its `if`'s indentation, on the line after the `if`'s block"
     } else {
         "a `case` arm sits indented under its `match`"
     };
@@ -107,7 +108,7 @@ impl Parser {
         })
     }
 
-    /// A plain `else` ends its line. `else if` and `else when` are parsed by
+    /// A plain `else` ends its line. `else if` is parsed by
     /// the caller first: an `else` around one nested branch (the chess,
     /// kanban2 and spreadsheet diaries). The indented form under `else` is
     /// the same tree.
@@ -131,20 +132,17 @@ impl Parser {
 
     /// A TypeScript-style `: T` before a state's or derive's `=`, or `as T` after its
     /// initializer (`form` "as none" when that initializer is `none`; authoring bench):
-    /// its type is inferred.
+    /// its type is inferred. The refusal leads with the edit, `drop` and the type as
+    /// written (LLP 1116.014 D1).
     pub(super) fn type_annotation(&self, w: &str, name: &str, form: &str) -> R<()> {
         let state = w == "state";
+        // A state's `: T` is its declared type (LLP 1116.015 D2); a derive's is its expression's.
         if form == ":" && self.at_punct(":") {
-            let from = if state {
-                "; an empty start is `none` or `[]`, and the writes give it its type"
-            } else {
-                ", which is its expression's"
-            };
             return self.err(
                 "syntax-expected",
                 format!(
-                    "a {w}'s type is inferred, so `{w} {name}` takes no `: type`: \
-                     write `{w} {name} = …`{from}"
+                    "drop `: {}`; a derive's type is its expression's",
+                    self.written_type()
                 ),
             );
         }
@@ -159,10 +157,49 @@ impl Parser {
             };
             return self.err(
                 "syntax-expected-newline",
-                format!("a {w} takes no `as`: its type is inferred from {from}"),
+                format!(
+                    "drop `as {}`; a {w}'s type is inferred from {from}",
+                    self.written_type()
+                ),
             );
         }
         Ok(())
+    }
+
+    /// The type written after the `:` or `as` the parser stands at, as the author
+    /// wrote it: its tokens up to the `=`, a `persist` or the end of the line.
+    fn written_type(&self) -> String {
+        let mut text = String::new();
+        for t in &self.tokens[(self.pos + 1).min(self.tokens.len())..] {
+            match &t.kind {
+                TokenKind::Ident(w) if w == "persist" => break,
+                TokenKind::Ident(w) => text.push_str(w),
+                TokenKind::Punct("=") => break,
+                TokenKind::Punct(",") => text.push_str(", "),
+                TokenKind::Punct(p) => text.push_str(p),
+                TokenKind::Number(n) => text.push_str(&n.to_string()),
+                _ => break,
+            }
+        }
+        text
+    }
+
+    /// `persist` after a state's initializer (LLP 1116 D5): where it is
+    /// written. A derive has nothing of its own to keep.
+    pub(super) fn persist_word(&mut self, w: &str, name: &str) -> R<Option<Span>> {
+        if !self.at_ident("persist") {
+            return Ok(None);
+        }
+        if w != "state" {
+            return self.err(
+                "syntax-persist-derive",
+                format!(
+                    "a derive is recomputed from what it reads, so `derive {name}` has nothing \
+                     to keep: write `persist` on the `state` it reads"
+                ),
+            );
+        }
+        Ok(Some(self.next().span))
     }
 
     /// A name a binder introduces, or one that refers to a binder's name: any
@@ -192,4 +229,47 @@ impl Parser {
             _ => self.ident(),
         }
     }
+}
+
+/// A `timer` (or `interval`) section, which Contract writes as a `task`
+/// (LLP 1092), rewritten with the builder's own interval, gate and action
+/// where the line names them (`timer t interval=1000 running=on tick=step`,
+/// `timer t every 1000 when on then step`), so the repair keeps the timer
+/// (LLP 1116.018: three repairs deleted it).
+pub(super) fn timer_hint(word: &str, line: &[Token]) -> String {
+    let (mut ms, mut gate, mut action) = (None, None, None);
+    let mut i = 0;
+    while i < line.len() {
+        // The value after a key, as `key=value` or `key value`, and where it ends.
+        let value = |at: usize| -> Option<(String, usize)> {
+            let at = match line.get(at).map(|t| &t.kind) {
+                Some(TokenKind::Punct("=")) => at + 1,
+                _ => at,
+            };
+            match line.get(at).map(|t| &t.kind) {
+                Some(TokenKind::Ident(v)) => Some((v.clone(), at)),
+                Some(TokenKind::Number(n)) => Some((n.to_string(), at)),
+                _ => None,
+            }
+        };
+        if let TokenKind::Ident(w) = &line[i].kind {
+            let slot = match w.as_str() {
+                "interval" | "every" | "ms" | "period" => Some(&mut ms),
+                "when" | "running" | "active" | "enabled" | "while" | "if" => Some(&mut gate),
+                "then" | "tick" | "action" | "run" | "do" | "call" | "onTick" => Some(&mut action),
+                _ => None,
+            };
+            if let (Some(slot), Some((v, end))) = (slot, value(i + 1)) {
+                *slot = Some(v);
+                i = end;
+            }
+        }
+        i += 1;
+    }
+    let ms = ms.unwrap_or_else(|| "1000".into());
+    let gate = gate.map_or(String::new(), |g| format!(" when {g}"));
+    let action = action.unwrap_or_else(|| "tick".into());
+    format!(
+        "a timer is a `task`: write `task {action}Timer{gate}` with `every({ms}, {action})` indented under it, and `{action}` an action; the task runs while its `when` holds, so start and stop are a state (docs/recipes/timers.md). There is no `{word}` section"
+    )
 }

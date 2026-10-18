@@ -1,8 +1,9 @@
 //! A WebSocket client off Apple (RFC 6455): TCP from the standard
-//! library, TLS from the same rustls and trust store as `RustlsHttpTransport`.
-//! One bounded writer queue serializes every masked client frame and accounts
-//! queued data; the reader joins fragments and admits control replies without
-//! ever blocking behind that writer.
+//! library, TLS from the same rustls and trust store as `RustlsHttpTransport`,
+//! and the same environment proxy (an HTTP CONNECT tunnel; see `tunnel`).
+//! One readiness-driven I/O pump owns each socket and rustls connection. It
+//! multiplexes the bounded outbound queue with requested receives, so control
+//! frames remain live while a large data message drains.
 //! @ref LLP 0057#3-the-boundary — the platform owns the socket and TLS
 
 use crate::boundary::HostError;
@@ -10,23 +11,36 @@ use crate::stdlib::abort::{AbortRegistration, AbortSignal};
 use crate::stdlib::websocket::{
     Event, Incoming, Message, MessageSender, MessageSource, SocketTransport,
 };
+use mio::event::Source;
+use mio::net::TcpStream as MioTcpStream;
+use mio::{Events, Interest, Poll, Token, Waker};
 use std::io::{Read, Write};
-use std::net::{Shutdown, TcpStream, ToSocketAddrs};
+use std::net::{Shutdown, TcpStream as StdTcpStream, ToSocketAddrs};
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicUsize, Ordering},
     mpsc, Arc, Mutex,
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const MAX_HEAD: usize = 16 << 10;
+/// How long a proxy has to answer CONNECT, its request written and its whole
+/// answer read: a deadline, not a per-read timeout a slow drip could renew.
+const CONNECT_BUDGET: Duration = Duration::from_secs(15);
 const FRAGMENT: usize = 16 << 10;
 const MAX_OUTBOUND_BYTES: usize = 16 << 20;
 const MAX_OUTBOUND_MESSAGES: usize = 256;
 // @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — data and control frames share one bounded command channel
 const MAX_OUTBOUND_COMMANDS: usize = MAX_OUTBOUND_MESSAGES + 16;
-const OPEN: u8 = 1;
-const CLOSING: u8 = 2;
-const CLOSED: u8 = 3;
+const MAX_READ_FRAMES_PER_TURN: usize = 32;
+const SOCKET_TOKEN: Token = Token(0);
+const WAKE_TOKEN: Token = Token(1);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AdmissionState {
+    Open,
+    Closing,
+    Closed,
+}
 
 /// Plaintext `ws:` and rustls `wss:`, one connection per socket. The trust
 /// store loads on the first `wss:` open, never at construction (a host that
@@ -35,7 +49,42 @@ const CLOSED: u8 = 3;
 pub struct TcpSocketTransport {
     tls: std::sync::OnceLock<Arc<rustls::ClientConfig>>,
     #[cfg(test)]
+    proxy: TestProxy,
+    #[cfg(test)]
+    connect_budget: Option<Duration>,
+    #[cfg(test)]
     writer_gate: Option<Arc<(Mutex<bool>, std::sync::Condvar)>>,
+    #[cfg(test)]
+    pump_observer: Option<Arc<PumpObserver>>,
+    #[cfg(test)]
+    zero_socket_writes: bool,
+}
+
+/// Where a test transport's proxy comes from: none (the default, so a
+/// developer's own proxy settings never reach a loopback fixture), the
+/// environment (as in production), or a given one.
+#[cfg(test)]
+#[derive(Clone, Default)]
+enum TestProxy {
+    #[default]
+    None,
+    Environment,
+    Given(ureq::Proxy),
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct PumpObserver {
+    parked: std::sync::atomic::AtomicBool,
+    exited: std::sync::atomic::AtomicBool,
+    close_received: std::sync::atomic::AtomicBool,
+    terminal_draining: std::sync::atomic::AtomicBool,
+    returns: AtomicUsize,
+    network_bytes: AtomicUsize,
+    last_write_progress: Mutex<Option<Instant>>,
+    write_blocked: std::sync::atomic::AtomicBool,
+    peer_fin: std::sync::atomic::AtomicBool,
+    send_state: std::sync::OnceLock<Arc<Mutex<SendState>>>,
 }
 
 impl TcpSocketTransport {
@@ -49,7 +98,11 @@ impl TcpSocketTransport {
         tls.set(config).expect("a fresh TLS configuration");
         Self {
             tls,
+            proxy: TestProxy::None,
+            connect_budget: None,
             writer_gate: None,
+            pump_observer: None,
+            zero_socket_writes: false,
         }
     }
 
@@ -57,12 +110,116 @@ impl TcpSocketTransport {
     fn with_writer_gate(gate: Arc<(Mutex<bool>, std::sync::Condvar)>) -> Self {
         Self {
             tls: std::sync::OnceLock::new(),
+            proxy: TestProxy::None,
+            connect_budget: None,
             writer_gate: Some(gate),
+            pump_observer: None,
+            zero_socket_writes: false,
         }
+    }
+
+    #[cfg(test)]
+    fn with_pump_observer(observer: Arc<PumpObserver>) -> Self {
+        Self {
+            tls: std::sync::OnceLock::new(),
+            proxy: TestProxy::None,
+            connect_budget: None,
+            writer_gate: None,
+            pump_observer: Some(observer),
+            zero_socket_writes: false,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_tls_and_pump_observer(
+        config: Arc<rustls::ClientConfig>,
+        observer: Arc<PumpObserver>,
+    ) -> Self {
+        let tls = std::sync::OnceLock::new();
+        tls.set(config).expect("a fresh TLS configuration");
+        Self {
+            tls,
+            proxy: TestProxy::None,
+            connect_budget: None,
+            writer_gate: None,
+            pump_observer: Some(observer),
+            zero_socket_writes: false,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_tls_zero_socket_writes(config: Arc<rustls::ClientConfig>) -> Self {
+        let tls = std::sync::OnceLock::new();
+        tls.set(config).expect("a fresh TLS configuration");
+        Self {
+            tls,
+            proxy: TestProxy::None,
+            connect_budget: None,
+            writer_gate: None,
+            pump_observer: None,
+            zero_socket_writes: true,
+        }
+    }
+
+    /// A transport whose proxy comes from `proxy`, with `NO_PROXY` and the
+    /// protocol applied as to the environment's, and a CONNECT that must be
+    /// answered within `connect_budget` (default `CONNECT_BUDGET`).
+    #[cfg(test)]
+    fn with_tls_and_proxy(
+        config: Arc<rustls::ClientConfig>,
+        proxy: TestProxy,
+        connect_budget: Option<Duration>,
+    ) -> Self {
+        let mut transport = Self::with_tls(config);
+        transport.proxy = proxy;
+        transport.connect_budget = connect_budget;
+        transport
     }
 
     fn tls(&self) -> Arc<rustls::ClientConfig> {
         self.tls.get_or_init(tls_config).clone()
+    }
+
+    // @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — the portable transport traverses fetch's environment proxy
+    /// The proxy a socket to `host:port` goes through: the environment's, as
+    /// fetch's ureq agent reads it, unless `NO_PROXY` names the host. One the
+    /// socket cannot speak (`https://`, SOCKS) fails the open rather than
+    /// being skipped.
+    fn proxy_for(&self, host: &str, port: u16) -> Result<Option<ureq::Proxy>, HostError> {
+        #[cfg(test)]
+        let proxy = match &self.proxy {
+            TestProxy::None => None,
+            TestProxy::Environment => ureq::Proxy::try_from_env(),
+            TestProxy::Given(proxy) => Some(proxy.clone()),
+        };
+        #[cfg(not(test))]
+        let proxy = ureq::Proxy::try_from_env();
+        let Some(proxy) = proxy else {
+            return Ok(None);
+        };
+        // The target's authority alone: NO_PROXY names hosts, and a path too long for `http::Uri` cannot defeat it
+        if format!("http://{host}:{port}/")
+            .parse::<ureq::http::Uri>()
+            .is_ok_and(|uri| proxy.is_no_proxy(&uri))
+        {
+            return Ok(None);
+        }
+        if proxy.protocol() != ureq::ProxyProtocol::Http {
+            return Err(failed(format!(
+                "the environment's proxy {} is not an http:// CONNECT proxy, the only kind a \
+                 WebSocket tunnels through; use one or name the host in NO_PROXY",
+                named(&proxy)
+            )));
+        }
+        Ok(Some(proxy))
+    }
+
+    fn connect_budget(&self) -> Duration {
+        #[cfg(test)]
+        if let Some(budget) = self.connect_budget {
+            return budget;
+        }
+        CONNECT_BUDGET
     }
 }
 
@@ -90,76 +247,124 @@ fn failed(what: impl std::fmt::Display) -> HostError {
     HostError::Failed(format!("the socket did not open: {what}"))
 }
 
-enum Wire {
-    Plain(TcpStream),
-    Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
+enum HandshakeWire {
+    Plain(StdTcpStream),
+    Tls {
+        stream: Box<rustls::StreamOwned<rustls::ClientConnection, StdTcpStream>>,
+    },
 }
 
-/// rustls keeps read and write protocol state in one connection, so the two
-/// socket halves cannot use independent `StreamOwned`s. Give a queued writer
-/// priority over the receive loop instead: otherwise a timed-out reader can
-/// immediately reacquire an unfair platform mutex forever. Linux's mutex does
-/// exactly that under contention; Darwin happened to hand the lock over.
-/// @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — portable framing has one serialized rustls connection
-struct SharedWire {
-    wire: Mutex<Wire>,
-    writer_waiting: AtomicBool,
+impl HandshakeWire {
+    fn into_nonblocking(self, #[cfg(test)] zero_socket_writes: bool) -> std::io::Result<Wire> {
+        let convert = |tcp: StdTcpStream| {
+            tcp.set_read_timeout(None)?;
+            tcp.set_write_timeout(None)?;
+            tcp.set_nonblocking(true)?;
+            Ok::<_, std::io::Error>(PumpSocket {
+                tcp: MioTcpStream::from_std(tcp),
+                #[cfg(test)]
+                zero_writes: zero_socket_writes,
+            })
+        };
+        match self {
+            Self::Plain(tcp) => convert(tcp).map(Wire::Plain),
+            Self::Tls { stream } => {
+                let rustls::StreamOwned { conn, sock } = *stream;
+                Ok(Wire::Tls {
+                    conn: Box::new(conn),
+                    sock: convert(sock)?,
+                })
+            }
+        }
+    }
 }
 
-impl SharedWire {
-    fn new(wire: Wire) -> Self {
-        Self {
-            wire: Mutex::new(wire),
-            writer_waiting: AtomicBool::new(false),
+struct PumpSocket {
+    tcp: MioTcpStream,
+    #[cfg(test)]
+    zero_writes: bool,
+}
+
+impl Read for PumpSocket {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        self.tcp.read(bytes)
+    }
+}
+
+impl Write for PumpSocket {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        #[cfg(test)]
+        if self.zero_writes && !bytes.is_empty() {
+            return Ok(0);
         }
+        self.tcp.write(bytes)
     }
 
-    fn read(&self, out: &mut [u8]) -> std::io::Result<usize> {
-        loop {
-            while self.writer_waiting.load(Ordering::Acquire) {
-                std::thread::yield_now();
-            }
-            let mut wire = self.wire.lock().expect("socket wire poisoned");
-            // Close the check-to-lock race. A writer which announced itself
-            // while this reader acquired the mutex gets the next turn.
-            if self.writer_waiting.load(Ordering::Acquire) {
-                drop(wire);
-                continue;
-            }
-            return wire.read(out);
-        }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.tcp.flush()
     }
+}
 
-    fn write(
-        &self,
-        operation: impl FnOnce(&mut Wire) -> std::io::Result<()>,
+impl Source for PumpSocket {
+    fn register(
+        &mut self,
+        registry: &mio::Registry,
+        token: Token,
+        interests: Interest,
     ) -> std::io::Result<()> {
-        self.writer_waiting.store(true, Ordering::Release);
-        let result = operation(&mut self.wire.lock().expect("socket wire poisoned"));
-        self.writer_waiting.store(false, Ordering::Release);
-        result
+        self.tcp.register(registry, token, interests)
+    }
+
+    fn reregister(
+        &mut self,
+        registry: &mio::Registry,
+        token: Token,
+        interests: Interest,
+    ) -> std::io::Result<()> {
+        self.tcp.reregister(registry, token, interests)
+    }
+
+    fn deregister(&mut self, registry: &mio::Registry) -> std::io::Result<()> {
+        self.tcp.deregister(registry)
     }
 }
 
-impl Read for Wire {
+impl Read for HandshakeWire {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         match self {
-            Wire::Plain(s) => s.read(out),
-            Wire::Tls(s) => s.read(out),
+            Self::Plain(s) => s.read(out),
+            Self::Tls { stream } => stream.read(out),
         }
     }
 }
-impl Write for Wire {
+impl Write for HandshakeWire {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         match self {
-            Wire::Plain(s) => s.write(bytes),
-            Wire::Tls(s) => s.write(bytes),
+            Self::Plain(s) => s.write(bytes),
+            Self::Tls { stream } => stream.write(bytes),
         }
     }
     fn flush(&mut self) -> std::io::Result<()> {
         match self {
-            Wire::Plain(s) => s.flush(),
-            Wire::Tls(s) => s.flush(),
+            Self::Plain(s) => s.flush(),
+            Self::Tls { stream } => stream.flush(),
+        }
+    }
+}
+
+enum Wire {
+    Plain(PumpSocket),
+    Tls {
+        conn: Box<rustls::ClientConnection>,
+        sock: PumpSocket,
+    },
+}
+
+impl Wire {
+    fn tcp_mut(&mut self) -> &mut PumpSocket {
+        match self {
+            Self::Plain(tcp) => tcp,
+            Self::Tls { sock, .. } => sock,
         }
     }
 }
@@ -198,11 +403,26 @@ impl TcpSocketTransport {
         let port = url
             .port_or_known_default()
             .ok_or_else(|| failed("no port"))?;
-        let addrs: Vec<_> = (host.trim_start_matches('[').trim_end_matches(']'), port)
+        // Through a proxy the connection is the proxy's, and the proxy resolves
+        // the target, as fetch's CONNECT does (ureq's default for HTTP proxies)
+        let proxy = self.proxy_for(host, port)?;
+        let (dial_host, dial_port) = match proxy.as_ref() {
+            Some(proxy) => (proxy.host(), proxy.port()),
+            None => (host, port),
+        };
+        let addrs: Vec<_> = (
+            dial_host.trim_start_matches('[').trim_end_matches(']'),
+            dial_port,
+        )
             .to_socket_addrs()
             .map_err(failed)?
             .collect();
         signal.check()?;
+        // Establish both readiness resources before a server can observe a TCP
+        // connection or successful WebSocket upgrade. The Waker is mio's
+        // platform primitive (EVFILT_USER/eventfd/IOCP), not a second socket.
+        let poll = Poll::new().map_err(failed)?;
+        let wake = Arc::new(Waker::new(poll.registry(), WAKE_TOKEN).map_err(failed)?);
         let mut last = failed("no resolved address");
         let mut tcp = None;
         for address in addrs {
@@ -215,19 +435,27 @@ impl TcpSocketTransport {
                 Err(e) => last = failed(e),
             }
         }
-        let tcp = tcp.ok_or(last)?;
+        let mut tcp = tcp.ok_or(last)?;
         tcp.set_nodelay(true).map_err(failed)?;
-        // Aborting shuts the connection down, which ends any blocked read.
+        // Aborting wakes Poll even when the connection is completely idle.
+        // Shutdown is retained as a second, idempotent way to make socket I/O
+        // observe cancellation if it races the wake.
         let registration = {
             let socket = tcp.try_clone().map_err(failed)?;
+            let wake = Arc::clone(&wake);
             signal.register(move || {
                 let _ = socket.shutdown(Shutdown::Both);
+                let _ = wake.wake();
             })
         };
         signal.check()?;
         let shutdown = tcp.try_clone().map_err(failed)?;
         tcp.set_read_timeout(Some(Duration::from_secs(15)))
             .map_err(failed)?;
+        if let Some(proxy) = proxy.as_ref() {
+            tunnel(&mut tcp, proxy, host, port, self.connect_budget())
+                .map_err(|e| signal.check().err().unwrap_or(e))?;
+        }
         let mut wire = if url.scheme() == "wss" {
             let name = rustls::pki_types::ServerName::try_from(
                 host.trim_start_matches('[')
@@ -236,68 +464,84 @@ impl TcpSocketTransport {
             )
             .map_err(failed)?;
             let tls = rustls::ClientConnection::new(self.tls(), name).map_err(failed)?;
-            Wire::Tls(Box::new(rustls::StreamOwned::new(tls, tcp)))
+            HandshakeWire::Tls {
+                stream: Box::new(rustls::StreamOwned::new(tls, tcp)),
+            }
         } else {
-            Wire::Plain(tcp)
+            HandshakeWire::Plain(tcp)
         };
         let (buffered, protocol) =
             handshake(&mut wire, url, protocols).map_err(|e| match signal.check() {
                 Err(aborted) => aborted,
                 Ok(()) => e,
             })?;
-        // Windows clones do not share these timeout options. Configure the
-        // retained I/O handle, not a handle used only to shut it down.
-        let tcp = match &wire {
-            Wire::Plain(tcp) => tcp,
-            Wire::Tls(tls) => &tls.sock,
-        };
-        tcp.set_read_timeout(Some(Duration::from_millis(25)))
+        // The connector (including Windows' select + SO_ERROR path) has
+        // already proved this socket connected. Convert that exact retained
+        // handle after the bounded blocking handshake; mio does not reconnect.
+        let mut wire = wire
+            .into_nonblocking(
+                #[cfg(test)]
+                self.zero_socket_writes,
+            )
             .map_err(failed)?;
-        // A writer holds the shared wire while a frame drains. If the peer
-        // stops reading, that write must not block forever: the stall is
-        // bounded, and then the connection fails like any other write error.
-        tcp.set_write_timeout(Some(WRITE_STALL_TIMEOUT))
+        poll.registry()
+            .register(
+                wire.tcp_mut(),
+                SOCKET_TOKEN,
+                Interest::READABLE.add(Interest::WRITABLE),
+            )
             .map_err(failed)?;
-        let wire = Arc::new(SharedWire::new(wire));
         let buffered_amount = Arc::new(AtomicUsize::new(0));
+        let command_count = Arc::new(AtomicUsize::new(0));
         let send_state = Arc::new(Mutex::new(SendState {
-            phase: OPEN,
+            admission: AdmissionState::Open,
             queued_bytes: 0,
             queued_messages: 0,
+            terminal: None,
+            graceful_teardown: false,
+            #[cfg(test)]
+            history: Vec::new(),
         }));
         let (commands, outgoing) = mpsc::sync_channel(MAX_OUTBOUND_COMMANDS);
+        let (requests, incoming) = mpsc::sync_channel(1);
         let sender = Arc::new(TcpSender {
             commands,
+            wake: Arc::clone(&wake),
+            command_count: Arc::clone(&command_count),
             buffered: Arc::clone(&buffered_amount),
             state: Arc::clone(&send_state),
             shutdown: shutdown.try_clone().map_err(failed)?,
         });
-        let writer_wire = Arc::clone(&wire);
-        let writer_shutdown = shutdown.try_clone().map_err(failed)?;
+        let pump_shutdown = shutdown.try_clone().map_err(failed)?;
+        let pump_signal = signal.clone();
         #[cfg(test)]
         let writer_gate = self.writer_gate.clone();
+        #[cfg(test)]
+        let pump_observer = self.pump_observer.clone();
+        let pump_wake = Arc::clone(&wake);
         std::thread::spawn(move || {
-            #[cfg(test)]
-            if let Some(gate) = writer_gate {
-                let (lock, ready) = &*gate;
-                let mut open = lock.lock().expect("WebSocket writer gate poisoned");
-                while !*open {
-                    open = ready.wait(open).expect("WebSocket writer gate poisoned");
-                }
-            }
-            writer_loop(
+            pump_loop(
+                wire,
+                buffered,
+                max_message,
                 outgoing,
-                writer_wire,
-                writer_shutdown,
+                incoming,
+                poll,
+                pump_wake,
+                pump_shutdown,
                 buffered_amount,
+                command_count,
                 send_state,
+                pump_signal,
+                #[cfg(test)]
+                writer_gate,
+                #[cfg(test)]
+                pump_observer,
             )
         });
         Ok(Socket {
-            wire,
-            buffered,
-            at: 0,
-            limit: max_message,
+            requests,
+            wake,
             shutdown,
             signal: signal.clone(),
             _registration: registration,
@@ -307,10 +551,162 @@ impl TcpSocketTransport {
     }
 }
 
+/// A proxy as an error names it: its scheme, host and port, never the
+/// credentials its URL may carry.
+fn named(proxy: &ureq::Proxy) -> String {
+    let scheme = proxy.uri().scheme_str().unwrap_or("http");
+    format!("{scheme}://{}:{}", proxy.host(), proxy.port())
+}
+
+/// Opens an HTTP CONNECT tunnel to `host:port` through `proxy` on `tcp`, as
+/// ureq's `ConnectProxyConnector` does for fetch, with Basic credentials from
+/// the proxy's URL. Every write and read checks one deadline, `budget` from
+/// now. Informational (1xx) answers are passed over, and any 2xx final answer
+/// opens the tunnel (RFC 9110 §9.3.6, §15.2; this ureq takes only 200). The
+/// answer is read a byte at a time, so no tunnel byte is consumed with it. An
+/// error gives its status code, never its reason phrase, which a proxy may
+/// fill with anything, the credentials it was sent included.
+fn tunnel(
+    tcp: &mut StdTcpStream,
+    proxy: &ureq::Proxy,
+    host: &str,
+    port: u16,
+    budget: Duration,
+) -> Result<(), HostError> {
+    use base64::Engine as _;
+    let target = format!("{host}:{port}");
+    let through = |what: String| failed(format!("the proxy {} {what}", named(proxy)));
+    let deadline = Instant::now() + budget;
+    let remaining = || {
+        let left = deadline.saturating_duration_since(Instant::now());
+        (!left.is_zero()).then_some(left).ok_or_else(|| {
+            through(format!(
+                "did not answer CONNECT {target} within {} s",
+                budget.as_secs_f64()
+            ))
+        })
+    };
+    let mut head = format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n");
+    if proxy.username().is_some() || proxy.password().is_some() {
+        let credentials = format!(
+            "{}:{}",
+            proxy.username().unwrap_or_default(),
+            proxy.password().unwrap_or_default()
+        );
+        let encoded = base64::engine::general_purpose::STANDARD.encode(credentials);
+        head.push_str(&format!("Proxy-Authorization: Basic {encoded}\r\n"));
+    }
+    head.push_str("\r\n");
+    let mut unsent = head.as_bytes();
+    while !unsent.is_empty() {
+        tcp.set_write_timeout(Some(remaining()?)).map_err(failed)?;
+        match tcp.write(unsent) {
+            Ok(0) => return Err(through(format!("closed before CONNECT {target} was sent"))),
+            Ok(sent) => unsent = &unsent[sent..],
+            Err(e) if is_retry(&e) => {}
+            Err(e) => return Err(through(format!("was not sent CONNECT {target}: {e}"))),
+        }
+    }
+    let status = loop {
+        let mut answer = Vec::with_capacity(256);
+        let mut byte = [0u8; 1];
+        while !answer.ends_with(b"\r\n\r\n") {
+            if answer.len() >= MAX_HEAD {
+                return Err(through(format!(
+                    "answered CONNECT {target} with a head over {MAX_HEAD} bytes"
+                )));
+            }
+            tcp.set_read_timeout(Some(remaining()?)).map_err(failed)?;
+            match tcp.read(&mut byte) {
+                Ok(0) => return Err(through(format!("closed before answering CONNECT {target}"))),
+                Ok(_) => answer.push(byte[0]),
+                Err(e) if is_retry(&e) => {}
+                Err(e) => return Err(through(format!("did not answer CONNECT {target}: {e}"))),
+            }
+        }
+        // 101 would switch protocols, which a CONNECT answer cannot
+        match connect_status(&answer) {
+            Some(status @ 100..=199) if status != 101 => continue,
+            status => break status,
+        }
+    };
+    // The upgrade that follows keeps the open's own timeouts
+    tcp.set_write_timeout(None).map_err(failed)?;
+    tcp.set_read_timeout(Some(Duration::from_secs(15)))
+        .map_err(failed)?;
+    match status {
+        Some(200..=299) => Ok(()),
+        Some(status) => Err(through(format!(
+            "refused CONNECT {target} with status {status}"
+        ))),
+        None => Err(through(format!(
+            "answered CONNECT {target} with a malformed head"
+        ))),
+    }
+}
+
+/// Whether a deadline-bound loop tries an I/O call again: an interrupted
+/// call, or a timeout, on which the deadline itself then decides.
+fn is_retry(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::TimedOut
+    )
+}
+
+/// The status of a CONNECT answer's head, ending in its blank line, or `None`
+/// when it breaks RFC 9112's grammar (§4–5): an `HTTP/1.0` or `HTTP/1.1`
+/// status line with a three-digit code and an optional reason, then header
+/// lines of a token, a colon and a value, a folded line continuing the one
+/// before. A reason or value may hold any octet but a control other than tab
+/// (obs-text included). A status line ending at its code, without the space
+/// before an empty reason, is taken, as proxies send it.
+fn connect_status(head: &[u8]) -> Option<u16> {
+    // Every line ends in CRLF: a bare LF leaves a line without its CR, and a
+    // bare CR is a control, which no part below admits
+    let mut lines = head
+        .strip_suffix(b"\n\r\n")?
+        .split(|b| *b == b'\n')
+        .map(|line| line.strip_suffix(b"\r"));
+    let status_line = lines.next()??;
+    let (code, reason) = status_line
+        .strip_prefix(b"HTTP/1.1 ")
+        .or_else(|| status_line.strip_prefix(b"HTTP/1.0 "))?
+        .split_at_checked(3)?;
+    let text = |octets: &[u8]| {
+        octets
+            .iter()
+            .all(|&b| b == b'\t' || (b >= 0x20 && b != 0x7f))
+    };
+    let token = |b: &u8| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(b);
+    if !code.iter().all(u8::is_ascii_digit)
+        || !(reason.is_empty() || reason.starts_with(b" ") && text(reason))
+    {
+        return None;
+    }
+    let mut first = true;
+    for line in lines {
+        let line = line?;
+        let well_formed = match line.first() {
+            Some(b' ' | b'\t') => !first && text(line),
+            _ => line.iter().position(|b| *b == b':').is_some_and(|colon| {
+                colon > 0 && line[..colon].iter().all(token) && text(&line[colon + 1..])
+            }),
+        };
+        if !well_formed {
+            return None;
+        }
+        first = false;
+    }
+    std::str::from_utf8(code).ok()?.parse().ok()
+}
+
 /// Send the opening handshake and check the answer. Returns bytes read past
 /// the head (the first frames, if the server was quick).
 fn handshake(
-    wire: &mut Wire,
+    wire: &mut HandshakeWire,
     url: &url::Url,
     protocols: &[String],
 ) -> Result<(Vec<u8>, String), HostError> {
@@ -395,11 +791,9 @@ fn handshake(
 }
 
 struct Socket {
-    wire: Arc<SharedWire>,
-    buffered: Vec<u8>,
-    at: usize,
-    limit: usize,
-    shutdown: TcpStream,
+    requests: mpsc::SyncSender<ReceiveRequest>,
+    wake: Arc<Waker>,
+    shutdown: StdTcpStream,
     signal: AbortSignal,
     _registration: AbortRegistration,
     sender: Arc<TcpSender>,
@@ -424,20 +818,47 @@ enum Command {
 
 struct TcpSender {
     commands: mpsc::SyncSender<Command>,
+    wake: Arc<Waker>,
+    command_count: Arc<AtomicUsize>,
     buffered: Arc<AtomicUsize>,
     state: Arc<Mutex<SendState>>,
-    shutdown: TcpStream,
+    shutdown: StdTcpStream,
 }
 
 struct SendState {
-    phase: u8,
+    admission: AdmissionState,
     queued_bytes: usize,
     queued_messages: usize,
+    terminal: Option<TerminalLatch>,
+    /// The pump has handed its final frame to TCP (or is already
+    /// half-closing) and owns a graceful TCP teardown from here on.
+    graceful_teardown: bool,
+    #[cfg(test)]
+    history: Vec<TerminalStep>,
+}
+
+/// Test-only record of terminal-latch transitions, in the order the pump made
+/// them under the send-state lock.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TerminalStep {
+    LatchedDeferred,
+    LatchedDeliverable,
+    CloseSent,
+    Deliverable,
+}
+
+struct TerminalLatch {
+    result: Result<Received, HostError>,
+    delivered: bool,
+    deliverable: bool,
+    peer_close: bool,
 }
 
 enum CommandQueueError {
     Full,
     Closed,
+    Wake(std::io::Error),
 }
 
 impl CommandQueueError {
@@ -445,25 +866,52 @@ impl CommandQueueError {
         match self {
             Self::Full => HostError::Failed("the socket's outbound command queue is full".into()),
             Self::Closed => HostError::Failed("the socket is closed".into()),
+            Self::Wake(error) => {
+                HostError::Failed(format!("the socket wake notification failed: {error}"))
+            }
         }
     }
 }
 
 impl TcpSender {
     fn queue(&self, state: &mut SendState, command: Command) -> Result<(), CommandQueueError> {
+        if self
+            .command_count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                (count < MAX_OUTBOUND_COMMANDS).then_some(count + 1)
+            })
+            .is_err()
+        {
+            state.admission = AdmissionState::Closed;
+            let _ = self.shutdown.shutdown(Shutdown::Both);
+            let _ = self.wake.wake();
+            return Err(CommandQueueError::Full);
+        }
         match self.commands.try_send(command) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                if let Err(error) = self.wake.wake() {
+                    state.admission = AdmissionState::Closed;
+                    let _ = self.shutdown.shutdown(Shutdown::Both);
+                    Err(CommandQueueError::Wake(error))
+                } else {
+                    Ok(())
+                }
+            }
             Err(mpsc::TrySendError::Full(_)) => {
+                self.command_count.fetch_sub(1, Ordering::AcqRel);
                 // A peer that does not read can prevent even a close frame
                 // from draining. Fail abruptly instead of adding an unbounded
                 // control-frame escape hatch beside the data quotas.
-                state.phase = CLOSED;
+                state.admission = AdmissionState::Closed;
                 let _ = self.shutdown.shutdown(Shutdown::Both);
+                let _ = self.wake.wake();
                 Err(CommandQueueError::Full)
             }
             Err(mpsc::TrySendError::Disconnected(_)) => {
-                state.phase = CLOSED;
+                self.command_count.fetch_sub(1, Ordering::AcqRel);
+                state.admission = AdmissionState::Closed;
                 let _ = self.shutdown.shutdown(Shutdown::Both);
+                let _ = self.wake.wake();
                 Err(CommandQueueError::Closed)
             }
         }
@@ -472,7 +920,7 @@ impl TcpSender {
     fn enqueue(&self, opcode: u8, payload: &[u8]) -> Result<(), HostError> {
         saturating_add(&self.buffered, payload.len());
         let mut state = self.state.lock().expect("WebSocket sender poisoned");
-        if state.phase != OPEN {
+        if state.admission != AdmissionState::Open {
             return Ok(());
         }
         if state.queued_bytes.saturating_add(payload.len()) > MAX_OUTBOUND_BYTES
@@ -482,9 +930,10 @@ impl TcpSender {
             // full and closes the connection. An abrupt local failure keeps
             // memory bounded when even a close frame could sit behind a
             // non-reading peer.
-            state.phase = CLOSED;
+            state.admission = AdmissionState::Closed;
             drop(state);
             let _ = self.shutdown.shutdown(Shutdown::Both);
+            let _ = self.wake.wake();
             return Ok(());
         }
         let queued = self.queue(
@@ -501,7 +950,7 @@ impl TcpSender {
                 // a full implementation buffer fails the connection without
                 // synchronously throwing into script.
                 CommandQueueError::Full => Ok(()),
-                CommandQueueError::Closed => Err(error.host_error()),
+                CommandQueueError::Closed | CommandQueueError::Wake(_) => Err(error.host_error()),
             };
         }
         state.queued_bytes = state.queued_bytes.saturating_add(payload.len());
@@ -509,51 +958,19 @@ impl TcpSender {
         Ok(())
     }
 
-    fn control(&self, opcode: u8, payload: Vec<u8>) -> Result<(), HostError> {
-        let mut state = self.state.lock().expect("WebSocket sender poisoned");
-        if state.phase == OPEN {
-            self.queue(&mut state, Command::Control { opcode, payload })
-                .map_err(CommandQueueError::host_error)?;
-        }
-        Ok(())
-    }
-
     fn mark_closed(&self) {
-        self.state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
+        self.state
+            .lock()
+            .expect("WebSocket sender poisoned")
+            .admission = AdmissionState::Closed;
+        let _ = self.wake.wake();
     }
 
-    fn phase(&self) -> u8 {
-        self.state.lock().expect("WebSocket sender poisoned").phase
-    }
-
-    fn peer_close(&self, payload: Vec<u8>) {
-        let mut state = self.state.lock().expect("WebSocket sender poisoned");
-        if state.phase == OPEN {
-            state.phase = CLOSING;
-            let _ = self.queue(
-                &mut state,
-                Command::Control {
-                    opcode: 0x8,
-                    payload,
-                },
-            );
-        }
-        state.phase = CLOSED;
-    }
-
-    fn fail_too_large(&self) {
-        let mut state = self.state.lock().expect("WebSocket sender poisoned");
-        if state.phase != OPEN {
-            return;
-        }
-        state.phase = CLOSING;
-        let _ = self.queue(
-            &mut state,
-            Command::Control {
-                opcode: 0x8,
-                payload: 1009u16.to_be_bytes().to_vec(),
-            },
-        );
+    fn admission(&self) -> AdmissionState {
+        self.state
+            .lock()
+            .expect("WebSocket sender poisoned")
+            .admission
     }
 }
 
@@ -568,10 +985,10 @@ impl MessageSender for TcpSender {
 
     fn close(&self, code: Option<u16>, reason: &str) -> Result<(), HostError> {
         let mut state = self.state.lock().expect("WebSocket sender poisoned");
-        if state.phase != OPEN {
+        if state.admission != AdmissionState::Open {
             return Ok(());
         }
-        state.phase = CLOSING;
+        state.admission = AdmissionState::Closing;
         let mut payload = Vec::new();
         if let Some(code) = code {
             payload.extend_from_slice(&code.to_be_bytes());
@@ -590,67 +1007,19 @@ impl MessageSender for TcpSender {
     fn buffered_amount(&self) -> usize {
         self.buffered.load(Ordering::Acquire)
     }
+
+    fn buffered_messages(&self) -> usize {
+        self.state
+            .lock()
+            .expect("WebSocket sender poisoned")
+            .queued_messages
+    }
 }
 
 fn saturating_add(amount: &AtomicUsize, bytes: usize) {
     let _ = amount.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
         Some(current.saturating_add(bytes))
     });
-}
-
-fn writer_loop(
-    commands: mpsc::Receiver<Command>,
-    wire: Arc<SharedWire>,
-    shutdown: TcpStream,
-    buffered: Arc<AtomicUsize>,
-    state: Arc<Mutex<SendState>>,
-) {
-    let mut close_written = false;
-    while let Ok(command) = commands.recv() {
-        let (result, accounted, closing) = match command {
-            Command::Data {
-                opcode,
-                payload,
-                accounted,
-            } if !close_written => (write_message(&wire, opcode, &payload), accounted, false),
-            Command::Data { .. } => {
-                // A data command that lost a race with a written close is
-                // discarded and remains in bufferedAmount permanently.
-                continue;
-            }
-            Command::Control { opcode, payload } => {
-                let result = write_one(&wire, true, opcode, &payload);
-                (result, 0, opcode == 0x8)
-            }
-        };
-        if result.is_err() {
-            state.lock().expect("WebSocket sender poisoned").phase = CLOSED;
-            let _ = shutdown.shutdown(Shutdown::Both);
-            return;
-        }
-        if accounted != 0 {
-            buffered.fetch_sub(accounted, Ordering::AcqRel);
-            let mut state = state.lock().expect("WebSocket sender poisoned");
-            state.queued_bytes = state.queued_bytes.saturating_sub(accounted);
-            state.queued_messages = state.queued_messages.saturating_sub(1);
-        }
-        if closing {
-            close_written = true;
-        }
-    }
-}
-
-fn write_message(wire: &SharedWire, opcode: u8, payload: &[u8]) -> std::io::Result<()> {
-    if payload.is_empty() {
-        return write_one(wire, true, opcode, payload);
-    }
-    // One fragment per turn on the wire. Only this writer thread sends, so
-    // fragments stay contiguous on the wire; the reader may run in between.
-    for (index, chunk) in payload.chunks(FRAGMENT).enumerate() {
-        let fin = (index + 1) * FRAGMENT >= payload.len();
-        write_one(wire, fin, if index == 0 { opcode } else { 0 }, chunk)?;
-    }
-    Ok(())
 }
 
 /// How long one frame may wait for a peer that is not reading before the
@@ -660,12 +1029,1711 @@ const WRITE_STALL_TIMEOUT: Duration = Duration::from_secs(15);
 #[cfg(test)]
 const WRITE_STALL_TIMEOUT: Duration = Duration::from_millis(500);
 
-fn write_one(wire: &SharedWire, fin: bool, opcode: u8, payload: &[u8]) -> std::io::Result<()> {
-    let frame = masked_frame(fin, opcode, payload)?;
-    wire.write(|wire| {
-        wire.write_all(&frame)?;
-        wire.flush()
-    })
+struct ReceiveRequest {
+    binary_payload: bool,
+    reply: mpsc::SyncSender<Result<Received, HostError>>,
+}
+
+struct ReceiveOperation {
+    binary_payload: bool,
+    message: Option<(u8, Vec<u8>)>,
+}
+
+struct Input {
+    bytes: Vec<u8>,
+    at: usize,
+}
+
+impl Input {
+    fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes, at: 0 }
+    }
+
+    fn available(&self) -> &[u8] {
+        &self.bytes[self.at..]
+    }
+
+    fn append(&mut self, bytes: &[u8]) {
+        if self.at == self.bytes.len() {
+            self.bytes.clear();
+            self.at = 0;
+        } else if self.at > 0 && self.at >= self.bytes.len() / 2 {
+            self.bytes.drain(..self.at);
+            self.at = 0;
+        }
+        self.bytes.extend_from_slice(bytes);
+    }
+
+    fn take(&mut self, count: usize) -> Vec<u8> {
+        let start = self.at;
+        self.at += count;
+        self.bytes[start..start + count].to_vec()
+    }
+
+    fn discard(&mut self, count: usize) {
+        self.at += count;
+    }
+}
+
+struct ActiveData {
+    opcode: u8,
+    payload: Vec<u8>,
+    accounted: usize,
+    next: usize,
+}
+
+impl ActiveData {
+    fn frame(&mut self) -> std::io::Result<(Vec<u8>, bool)> {
+        if self.payload.is_empty() {
+            return masked_frame(true, self.opcode, &[]).map(|frame| (frame, true));
+        }
+        let start = self.next;
+        let end = start.saturating_add(FRAGMENT).min(self.payload.len());
+        self.next = end;
+        let final_fragment = end == self.payload.len();
+        masked_frame(
+            final_fragment,
+            if start == 0 { self.opcode } else { 0 },
+            &self.payload[start..end],
+        )
+        .map(|frame| (frame, final_fragment))
+    }
+}
+
+enum FrameKind {
+    Data { final_fragment: bool },
+    Control { opcode: u8 },
+}
+
+struct OutgoingFrame {
+    bytes: Vec<u8>,
+    at: usize,
+    kind: FrameKind,
+}
+
+struct Control {
+    opcode: u8,
+    payload: Vec<u8>,
+}
+
+enum Parse {
+    NeedData(usize),
+    Received(Received),
+    Yield,
+}
+
+enum ControlParse {
+    NeedData(usize),
+    Data,
+    Progress,
+    Closed(Received),
+    Yield,
+}
+
+enum ReadProgress {
+    Bytes,
+    Eof,
+    Blocked,
+}
+
+enum WriteProgress {
+    Blocked,
+    Retry,
+    Network(usize),
+    Eof,
+}
+
+impl Wire {
+    fn wants_write(&self) -> bool {
+        match self {
+            Self::Plain(_) => false,
+            Self::Tls { conn, .. } => conn.wants_write(),
+        }
+    }
+
+    fn read_into(&mut self, input: &mut Input, wanted: usize) -> std::io::Result<ReadProgress> {
+        let mut bytes = [0; 16 << 10];
+        let wanted = wanted.min(bytes.len());
+        match self {
+            Self::Plain(tcp) => match tcp.read(&mut bytes[..wanted]) {
+                Ok(0) => Ok(ReadProgress::Eof),
+                Ok(count) => {
+                    input.append(&bytes[..count]);
+                    Ok(ReadProgress::Bytes)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    Ok(ReadProgress::Blocked)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                    Ok(ReadProgress::Bytes)
+                }
+                Err(error) => Err(error),
+            },
+            Self::Tls { conn, sock } => match conn.reader().read(&mut bytes[..wanted]) {
+                Ok(0) => Ok(ReadProgress::Eof),
+                Ok(count) => {
+                    input.append(&bytes[..count]);
+                    Ok(ReadProgress::Bytes)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    match conn.read_tls(sock) {
+                        Ok(0) => Ok(ReadProgress::Eof),
+                        Ok(_) => {
+                            conn.process_new_packets().map_err(|error| {
+                                std::io::Error::new(std::io::ErrorKind::InvalidData, error)
+                            })?;
+                            Ok(ReadProgress::Bytes)
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            Ok(ReadProgress::Blocked)
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                            Ok(ReadProgress::Bytes)
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
+                Err(error) => Err(error),
+            },
+        }
+    }
+
+    fn write_frame(&mut self, frame: &mut OutgoingFrame) -> std::io::Result<WriteProgress> {
+        match self {
+            Self::Plain(_) if frame.at == frame.bytes.len() => Ok(WriteProgress::Blocked),
+            Self::Plain(tcp) => match tcp.write(&frame.bytes[frame.at..]) {
+                Ok(0) => Err(std::io::ErrorKind::WriteZero.into()),
+                Ok(count) => {
+                    frame.at += count;
+                    Ok(WriteProgress::Network(count))
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    Ok(WriteProgress::Blocked)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                    Ok(WriteProgress::Retry)
+                }
+                Err(error) => Err(error),
+            },
+            Self::Tls { conn, sock } => {
+                if conn.wants_write() {
+                    return write_tls_progress(conn, sock);
+                }
+                if frame.at == frame.bytes.len() {
+                    return Ok(WriteProgress::Blocked);
+                }
+                let count = conn.writer().write(&frame.bytes[frame.at..])?;
+                if count == 0 {
+                    return Err(std::io::ErrorKind::WriteZero.into());
+                }
+                frame.at += count;
+                Ok(WriteProgress::Retry)
+            }
+        }
+    }
+
+    fn frame_flushed(&self, frame: &OutgoingFrame) -> bool {
+        frame.at == frame.bytes.len() && !self.wants_write()
+    }
+
+    fn write_tls_pending(&mut self) -> std::io::Result<WriteProgress> {
+        let Self::Tls { conn, sock } = self else {
+            return Ok(WriteProgress::Blocked);
+        };
+        write_tls_progress(conn, sock)
+    }
+}
+
+fn write_tls_progress(
+    connection: &mut rustls::ClientConnection,
+    socket: &mut impl Write,
+) -> std::io::Result<WriteProgress> {
+    match connection.write_tls(socket) {
+        Ok(0) => Ok(WriteProgress::Eof),
+        Ok(count) => Ok(WriteProgress::Network(count)),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(WriteProgress::Blocked),
+        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(WriteProgress::Retry),
+        Err(error) => Err(error),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn parse_available(
+    operation: &mut ReceiveOperation,
+    input: &mut Input,
+    controls: &mut std::collections::VecDeque<Control>,
+    command_count: &AtomicUsize,
+    state: &Mutex<SendState>,
+    limit: usize,
+    close_started: bool,
+    frames_left: &mut usize,
+) -> Result<Parse, HostError> {
+    loop {
+        if *frames_left == 0 {
+            return Ok(Parse::Yield);
+        }
+        let bytes = input.available();
+        if bytes.len() < 2 {
+            return Ok(Parse::NeedData(2 - bytes.len()));
+        }
+        let (fin, opcode) = (bytes[0] & 0x80 != 0, bytes[0] & 0x0f);
+        if bytes[0] & 0x70 != 0 || bytes[1] & 0x80 != 0 {
+            return Err(protocol("reserved bits, or a masked server frame"));
+        }
+        let (head, length) = match bytes[1] & 0x7f {
+            126 if bytes.len() < 4 => return Ok(Parse::NeedData(4 - bytes.len())),
+            126 => (4, u16::from_be_bytes([bytes[2], bytes[3]]) as u64),
+            127 if bytes.len() < 10 => return Ok(Parse::NeedData(10 - bytes.len())),
+            127 => (10, u64::from_be_bytes(bytes[2..10].try_into().unwrap())),
+            length => (2, length as u64),
+        };
+        if opcode >= 8 && (!fin || length > 125) {
+            return Err(protocol("a fragmented or long control frame"));
+        }
+        // Preserve the receive-only API exact2 already consumes: the first
+        // binary frame's declared length returns before its payload is read or
+        // allocated. Event consumers use the payload-bearing path below.
+        if opcode == 0x2 && operation.message.is_none() && !operation.binary_payload {
+            input.discard(head);
+            return Ok(Parse::Received(Received::BinaryLength(length as usize)));
+        }
+        if opcode < 8 {
+            match (opcode, &operation.message) {
+                (0x1, None) | (0x2, None) => {}
+                (0x0, Some(_)) => {}
+                _ => return Err(protocol("a frame out of sequence")),
+            }
+            let so_far = operation
+                .message
+                .as_ref()
+                .map_or(0, |(_, message)| message.len()) as u64;
+            if so_far.saturating_add(length) > limit as u64 {
+                input.discard(head);
+                let mut send = state.lock().expect("WebSocket sender poisoned");
+                if !close_started {
+                    replace_controls_with_close(
+                        controls,
+                        command_count,
+                        1009u16.to_be_bytes().to_vec(),
+                    )?;
+                    send.admission = AdmissionState::Closing;
+                }
+                return Ok(Parse::Received(Received::TooLarge));
+            }
+        }
+        let Ok(length) = usize::try_from(length) else {
+            return Err(protocol("a frame length that does not fit this platform"));
+        };
+        let frame_length = head.saturating_add(length);
+        if input.available().len() < frame_length {
+            return Ok(Parse::NeedData(frame_length - input.available().len()));
+        }
+        input.discard(head);
+        let payload = input.take(length);
+        *frames_left -= 1;
+        if opcode >= 8 {
+            match opcode {
+                0x8 => {
+                    let (code, reason) = parse_close_payload(&payload)?;
+                    let echo = if code == 1005 {
+                        vec![]
+                    } else {
+                        payload.clone()
+                    };
+                    let mut send = state.lock().expect("WebSocket sender poisoned");
+                    if !close_started {
+                        replace_controls_with_close(controls, command_count, echo)?;
+                    }
+                    send.admission = AdmissionState::Closed;
+                    return Ok(Parse::Received(Received::Closed { code, reason }));
+                }
+                0x9 => {
+                    if !close_started {
+                        reserve_control(command_count)?;
+                        controls.push_back(Control {
+                            opcode: 0xA,
+                            payload,
+                        });
+                    }
+                }
+                0xA => {}
+                _ => return Err(protocol("an unknown control opcode")),
+            }
+            continue;
+        }
+        if matches!(opcode, 0x1 | 0x2) {
+            operation.message = Some((opcode, Vec::new()));
+        }
+        let (_, whole) = operation.message.as_mut().unwrap();
+        whole.extend_from_slice(&payload);
+        if fin {
+            let (kind, bytes) = operation.message.take().unwrap();
+            let received = if kind == 0x1 {
+                Received::Text(
+                    String::from_utf8(bytes)
+                        .map_err(|_| protocol("a text message that is not UTF-8"))?,
+                )
+            } else {
+                Received::Binary(bytes)
+            };
+            return Ok(Parse::Received(received));
+        }
+    }
+}
+
+fn parse_control_prefix(
+    input: &mut Input,
+    controls: &mut std::collections::VecDeque<Control>,
+    command_count: &AtomicUsize,
+    state: &Mutex<SendState>,
+    close_started: bool,
+    frames_left: &mut usize,
+) -> Result<ControlParse, HostError> {
+    let mut progressed = false;
+    loop {
+        if *frames_left == 0 {
+            return Ok(ControlParse::Yield);
+        }
+        let bytes = input.available();
+        if bytes.len() < 2 {
+            return Ok(if progressed {
+                ControlParse::Progress
+            } else {
+                ControlParse::NeedData(2 - bytes.len())
+            });
+        }
+        let (fin, opcode) = (bytes[0] & 0x80 != 0, bytes[0] & 0x0f);
+        if opcode < 8 {
+            return Ok(if progressed {
+                ControlParse::Progress
+            } else {
+                ControlParse::Data
+            });
+        }
+        if bytes[0] & 0x70 != 0 || bytes[1] & 0x80 != 0 {
+            return Err(protocol("reserved bits, or a masked server frame"));
+        }
+        let (head, length): (usize, usize) = match bytes[1] & 0x7f {
+            126 if bytes.len() < 4 => return Ok(ControlParse::NeedData(4 - bytes.len())),
+            126 => (4, u16::from_be_bytes([bytes[2], bytes[3]]) as usize),
+            127 if bytes.len() < 10 => return Ok(ControlParse::NeedData(10 - bytes.len())),
+            127 => {
+                let length = u64::from_be_bytes(bytes[2..10].try_into().unwrap());
+                let length = usize::try_from(length)
+                    .map_err(|_| protocol("a frame length that does not fit this platform"))?;
+                (10, length)
+            }
+            length => (2, length as usize),
+        };
+        if !fin || length > 125 {
+            return Err(protocol("a fragmented or long control frame"));
+        }
+        let frame_length = head.saturating_add(length);
+        if bytes.len() < frame_length {
+            return Ok(ControlParse::NeedData(frame_length - bytes.len()));
+        }
+        input.discard(head);
+        let payload = input.take(length);
+        *frames_left -= 1;
+        progressed = true;
+        match opcode {
+            0x8 => {
+                let (code, reason) = parse_close_payload(&payload)?;
+                let echo = if code == 1005 { Vec::new() } else { payload };
+                let mut send = state.lock().expect("WebSocket sender poisoned");
+                if !close_started {
+                    replace_controls_with_close(controls, command_count, echo)?;
+                }
+                send.admission = AdmissionState::Closed;
+                return Ok(ControlParse::Closed(Received::Closed { code, reason }));
+            }
+            0x9 => {
+                if !close_started {
+                    reserve_control(command_count)?;
+                    controls.push_back(Control {
+                        opcode: 0xA,
+                        payload,
+                    });
+                }
+            }
+            0xA => {}
+            _ => return Err(protocol("an unknown control opcode")),
+        }
+    }
+}
+
+fn parse_close_payload(payload: &[u8]) -> Result<(u16, String), HostError> {
+    let code = match payload.len() {
+        0 => 1005,
+        1 => return Err(protocol("a one-byte close")),
+        _ => u16::from_be_bytes([payload[0], payload[1]]),
+    };
+    if code != 1005 && (!(1000..=4999).contains(&code) || matches!(code, 1004 | 1005 | 1006 | 1015))
+    {
+        return Err(protocol("an invalid close code"));
+    }
+    let reason = std::str::from_utf8(payload.get(2..).unwrap_or(&[]))
+        .map_err(|_| protocol("a close reason that is not UTF-8"))?
+        .to_string();
+    Ok((code, reason))
+}
+
+fn drop_controls(controls: &mut std::collections::VecDeque<Control>, command_count: &AtomicUsize) {
+    command_count.fetch_sub(controls.len(), Ordering::AcqRel);
+    controls.clear();
+}
+
+fn replace_controls_with_close(
+    controls: &mut std::collections::VecDeque<Control>,
+    command_count: &AtomicUsize,
+    payload: Vec<u8>,
+) -> Result<(), HostError> {
+    drop_controls(controls, command_count);
+    reserve_control(command_count)?;
+    controls.push_front(Control {
+        opcode: 0x8,
+        payload,
+    });
+    Ok(())
+}
+
+fn reserve_control(command_count: &AtomicUsize) -> Result<(), HostError> {
+    command_count
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            (count < MAX_OUTBOUND_COMMANDS).then_some(count + 1)
+        })
+        .map(|_| ())
+        .map_err(|_| HostError::Failed("the socket's outbound command queue is full".into()))
+}
+
+fn finish_data(
+    active: &mut Option<ActiveData>,
+    buffered: &AtomicUsize,
+    command_count: &AtomicUsize,
+    state: &Mutex<SendState>,
+) {
+    let Some(data) = active.take() else {
+        return;
+    };
+    if data.accounted != 0 {
+        buffered.fetch_sub(data.accounted, Ordering::AcqRel);
+    }
+    command_count.fetch_sub(1, Ordering::AcqRel);
+    let mut state = state.lock().expect("WebSocket sender poisoned");
+    state.queued_bytes = state.queued_bytes.saturating_sub(data.accounted);
+    state.queued_messages = state.queued_messages.saturating_sub(1);
+}
+
+fn latch_terminal(
+    result: Result<Received, HostError>,
+    deliverable: bool,
+    state: &Mutex<SendState>,
+) {
+    let peer_close = matches!(
+        &result,
+        Ok(Received::Closed { code, .. }) if *code != 1006
+    );
+    let mut send = state.lock().expect("WebSocket sender poisoned");
+    send.admission = AdmissionState::Closed;
+    if let Some(terminal) = send.terminal.as_mut() {
+        if terminal.peer_close || !peer_close {
+            #[cfg(test)]
+            let became_deliverable = deliverable && !terminal.deliverable;
+            terminal.deliverable |= deliverable;
+            #[cfg(test)]
+            if became_deliverable {
+                send.history.push(TerminalStep::Deliverable);
+            }
+            return;
+        }
+    }
+    #[cfg(test)]
+    send.history.push(if deliverable {
+        TerminalStep::LatchedDeliverable
+    } else {
+        TerminalStep::LatchedDeferred
+    });
+    send.terminal = Some(TerminalLatch {
+        result,
+        delivered: false,
+        deliverable,
+        peer_close,
+    });
+}
+
+fn deliver_terminal(
+    request: &mut Option<(ReceiveRequest, ReceiveOperation)>,
+    requests: &mpsc::Receiver<ReceiveRequest>,
+    state: &Mutex<SendState>,
+) {
+    // Admission holds this same state lock through queue insertion. Once the
+    // pump owns it, every request which observed OPEN is either active or
+    // visible in `requests`, so a racing EOF cannot turn into channel closure.
+    let delivery = {
+        let mut send = state.lock().expect("WebSocket sender poisoned");
+        let terminal = send.terminal.as_mut();
+        let Some(terminal) =
+            terminal.filter(|terminal| terminal.deliverable && !terminal.delivered)
+        else {
+            return;
+        };
+        let pending = request
+            .take()
+            .map(|(request, _)| request)
+            .or_else(|| requests.try_recv().ok());
+        terminal.delivered = pending.is_some();
+        pending.map(|pending| (pending, terminal.result.clone()))
+    };
+    let Some((request, result)) = delivery else {
+        return;
+    };
+    let _ = request.reply.send(result);
+}
+
+fn defer_terminal(result: Result<Received, HostError>, state: &Mutex<SendState>) {
+    latch_terminal(result, false, state);
+}
+
+fn release_terminal(
+    request: &mut Option<(ReceiveRequest, ReceiveOperation)>,
+    requests: &mpsc::Receiver<ReceiveRequest>,
+    state: &Mutex<SendState>,
+) {
+    {
+        let mut send = state.lock().expect("WebSocket sender poisoned");
+        // Set in the same critical section that can make the terminal
+        // deliverable, so a caller dropping the socket on that result never
+        // races the pump into a resetting shutdown.
+        send.graceful_teardown = true;
+        #[cfg(test)]
+        send.history.push(TerminalStep::CloseSent);
+        if let Some(terminal) = send.terminal.as_mut() {
+            #[cfg(test)]
+            let became_deliverable = !terminal.deliverable;
+            terminal.deliverable = true;
+            #[cfg(test)]
+            if became_deliverable {
+                send.history.push(TerminalStep::Deliverable);
+            }
+        }
+    }
+    deliver_terminal(request, requests, state);
+}
+
+fn publish_terminal(
+    request: &mut Option<(ReceiveRequest, ReceiveOperation)>,
+    requests: &mpsc::Receiver<ReceiveRequest>,
+    result: Result<Received, HostError>,
+    state: &Mutex<SendState>,
+) {
+    latch_terminal(result, true, state);
+    deliver_terminal(request, requests, state);
+}
+
+fn fail_pump(
+    request: &mut Option<(ReceiveRequest, ReceiveOperation)>,
+    requests: &mpsc::Receiver<ReceiveRequest>,
+    error: HostError,
+    state: &Mutex<SendState>,
+    shutdown: &StdTcpStream,
+) {
+    publish_terminal(request, requests, Err(error), state);
+    let _ = shutdown.shutdown(Shutdown::Both);
+}
+
+fn abnormal_close() -> Received {
+    Received::Closed {
+        code: 1006,
+        reason: String::new(),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReadSide {
+    Open,
+    Closing,
+    Done,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WriteSide {
+    Open,
+    Done,
+}
+
+struct CloseState {
+    read: ReadSide,
+    write: WriteSide,
+    close_started: bool,
+    close_sent: bool,
+    close_received: bool,
+    finish_after_close_sent: bool,
+    peer_fin: bool,
+}
+
+impl CloseState {
+    fn new() -> Self {
+        Self {
+            read: ReadSide::Open,
+            write: WriteSide::Open,
+            close_started: false,
+            close_sent: false,
+            close_received: false,
+            finish_after_close_sent: false,
+            peer_fin: false,
+        }
+    }
+
+    fn receive_close(&mut self) {
+        self.close_received = true;
+        self.finish_after_close_sent = true;
+        self.read = ReadSide::Done;
+    }
+}
+
+#[derive(Default)]
+struct TerminalDrain {
+    fragmented: Option<u8>,
+    message_len: u64,
+    data_left: usize,
+}
+
+fn begin_terminal_drain(
+    close: &mut CloseState,
+    drain: &mut TerminalDrain,
+    request: &mut Option<(ReceiveRequest, ReceiveOperation)>,
+    #[cfg(test)] observer: Option<&PumpObserver>,
+) {
+    if close.read != ReadSide::Open {
+        return;
+    }
+    if let Some((_, operation)) = request.as_mut() {
+        if let Some((opcode, message)) = operation.message.take() {
+            drain.fragmented = Some(opcode);
+            drain.message_len = message.len() as u64;
+        }
+    }
+    close.read = ReadSide::Closing;
+    #[cfg(test)]
+    if let Some(observer) = observer {
+        observer.terminal_draining.store(true, Ordering::Release);
+    }
+}
+
+enum DrainParse {
+    NeedData(usize),
+    Progress,
+    Closed(Received),
+    TooLarge,
+    Yield,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn parse_terminal_drain(
+    drain: &mut TerminalDrain,
+    input: &mut Input,
+    controls: &mut std::collections::VecDeque<Control>,
+    command_count: &AtomicUsize,
+    state: &Mutex<SendState>,
+    limit: usize,
+    close_started: bool,
+    frames_left: &mut usize,
+) -> Result<DrainParse, HostError> {
+    let mut progressed = false;
+    loop {
+        if drain.data_left != 0 {
+            let discarded = drain.data_left.min(input.available().len());
+            input.discard(discarded);
+            drain.data_left -= discarded;
+            progressed |= discarded != 0;
+            if drain.data_left != 0 {
+                return Ok(DrainParse::NeedData(drain.data_left.min(FRAGMENT)));
+            }
+            *frames_left -= 1;
+        }
+        if *frames_left == 0 {
+            return Ok(DrainParse::Yield);
+        }
+        let bytes = input.available();
+        if bytes.len() < 2 {
+            return Ok(if progressed {
+                DrainParse::Progress
+            } else {
+                DrainParse::NeedData(2 - bytes.len())
+            });
+        }
+        let (fin, opcode) = (bytes[0] & 0x80 != 0, bytes[0] & 0x0f);
+        if bytes[0] & 0x70 != 0 || bytes[1] & 0x80 != 0 {
+            return Err(protocol("reserved bits, or a masked server frame"));
+        }
+        let (head, length) = match bytes[1] & 0x7f {
+            126 if bytes.len() < 4 => return Ok(DrainParse::NeedData(4 - bytes.len())),
+            126 => (4, u16::from_be_bytes([bytes[2], bytes[3]]) as u64),
+            127 if bytes.len() < 10 => return Ok(DrainParse::NeedData(10 - bytes.len())),
+            127 => (10, u64::from_be_bytes(bytes[2..10].try_into().unwrap())),
+            length => (2, length as u64),
+        };
+        if opcode >= 8 {
+            if !fin || length > 125 {
+                return Err(protocol("a fragmented or long control frame"));
+            }
+            let length = length as usize;
+            let frame_length = head + length;
+            if bytes.len() < frame_length {
+                return Ok(DrainParse::NeedData(frame_length - bytes.len()));
+            }
+            input.discard(head);
+            let payload = input.take(length);
+            *frames_left -= 1;
+            progressed = true;
+            match opcode {
+                0x8 => {
+                    let (code, reason) = parse_close_payload(&payload)?;
+                    if !close_started {
+                        let echo = if code == 1005 { Vec::new() } else { payload };
+                        replace_controls_with_close(controls, command_count, echo)?;
+                    }
+                    state.lock().expect("WebSocket sender poisoned").admission =
+                        AdmissionState::Closed;
+                    return Ok(DrainParse::Closed(Received::Closed { code, reason }));
+                }
+                0x9 if !close_started => {
+                    reserve_control(command_count)?;
+                    controls.push_back(Control {
+                        opcode: 0xA,
+                        payload,
+                    });
+                }
+                0x9 | 0xA => {}
+                _ => return Err(protocol("an unknown control opcode")),
+            }
+            continue;
+        }
+        if !matches!(opcode, 0x0..=0x2) {
+            return Err(protocol("an unknown data opcode"));
+        }
+        match (opcode, drain.fragmented) {
+            (0x1 | 0x2, None) => {
+                drain.message_len = length;
+                drain.fragmented = (!fin).then_some(opcode);
+            }
+            (0x0, Some(kind)) => {
+                drain.message_len = drain.message_len.saturating_add(length);
+                if fin {
+                    drain.fragmented = None;
+                } else {
+                    drain.fragmented = Some(kind);
+                }
+            }
+            _ => return Err(protocol("a frame out of sequence")),
+        }
+        if drain.message_len > limit as u64 {
+            input.discard(head);
+            let mut send = state.lock().expect("WebSocket sender poisoned");
+            if !close_started {
+                replace_controls_with_close(
+                    controls,
+                    command_count,
+                    1009u16.to_be_bytes().to_vec(),
+                )?;
+                send.admission = AdmissionState::Closing;
+            }
+            return Ok(DrainParse::TooLarge);
+        }
+        if fin {
+            drain.message_len = 0;
+        }
+        let length = usize::try_from(length)
+            .map_err(|_| protocol("a frame length that does not fit this platform"))?;
+        input.discard(head);
+        drain.data_left = length;
+        progressed = true;
+        if drain.data_left == 0 {
+            *frames_left -= 1;
+        }
+    }
+}
+
+fn stop_polling_tcp(poll: &Poll, wire: &mut Wire, registered: &mut bool) -> Result<(), HostError> {
+    if *registered {
+        poll.registry()
+            .deregister(wire.tcp_mut())
+            .map_err(|error| {
+                HostError::Failed(format!(
+                    "the socket readiness deregistration failed: {error}"
+                ))
+            })?;
+        *registered = false;
+    }
+    Ok(())
+}
+
+fn poll_writes_only(
+    poll: &Poll,
+    wire: &mut Wire,
+    write_only: &mut bool,
+) -> Result<bool, HostError> {
+    if !*write_only {
+        poll.registry()
+            .reregister(wire.tcp_mut(), SOCKET_TOKEN, Interest::WRITABLE)
+            .map_err(|error| {
+                HostError::Failed(format!("the socket readiness registration failed: {error}"))
+            })?;
+        *write_only = true;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn abandon_active(active: &mut Option<ActiveData>, command_count: &AtomicUsize) {
+    if active.take().is_some() {
+        command_count.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn is_close_frame(frame: &Option<OutgoingFrame>) -> bool {
+    matches!(
+        frame,
+        Some(OutgoingFrame {
+            kind: FrameKind::Control { opcode: 0x8 },
+            ..
+        })
+    )
+}
+
+fn discard_unsent_close_frame(
+    frame: &mut Option<OutgoingFrame>,
+    wire: &Wire,
+    command_count: &AtomicUsize,
+) {
+    let unsent_close = matches!(
+        frame,
+        Some(OutgoingFrame {
+            at: 0,
+            kind: FrameKind::Control { opcode: 0x8 },
+            ..
+        })
+    ) && !wire.wants_write();
+    if unsent_close {
+        frame.take();
+        command_count.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn drain_commands(
+    commands: &mpsc::Receiver<Command>,
+    controls: &mut std::collections::VecDeque<Control>,
+    command_count: &AtomicUsize,
+    mut retain_close: bool,
+) {
+    retain_close &= !controls.iter().any(|control| control.opcode == 0x8);
+    while let Ok(command) = commands.try_recv() {
+        match command {
+            Command::Control {
+                opcode: 0x8,
+                payload,
+            } if retain_close => {
+                controls.push_back(Control {
+                    opcode: 0x8,
+                    payload,
+                });
+                retain_close = false;
+            }
+            Command::Data { .. } | Command::Control { .. } => {
+                command_count.fetch_sub(1, Ordering::AcqRel);
+            }
+        }
+    }
+}
+
+/// How long a finished pump keeps reading after its half-close while it waits
+/// for the peer's FIN.
+#[cfg(not(test))]
+const CLOSE_LINGER: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const CLOSE_LINGER: Duration = Duration::from_secs(2);
+
+/// Close TCP cleanly once the WebSocket exchange is finished. Every frame the
+/// pump will ever write is already in the kernel, possibly behind a slow
+/// reader. Half-close writing so FIN follows those bytes, then read and discard
+/// until the peer's FIN, abort, or `CLOSE_LINGER`. Shutting down the receive
+/// side or closing the last handle while inbound bytes are unread instead
+/// sends RST (every platform on close; Windows also on `SD_RECEIVE`), and RST
+/// discards our unsent send queue — including the Close or 1009 the peer has
+/// not read yet.
+// @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — half-close and drain before teardown
+#[allow(clippy::too_many_arguments)]
+fn linger_close(
+    poll: &mut Poll,
+    events: &mut Events,
+    wire: &mut Wire,
+    registered: &mut bool,
+    shutdown: &StdTcpStream,
+    signal: &AbortSignal,
+    state: &Mutex<SendState>,
+) {
+    state
+        .lock()
+        .expect("WebSocket sender poisoned")
+        .graceful_teardown = true;
+    let _ = shutdown.shutdown(Shutdown::Write);
+    let deadline = Instant::now() + CLOSE_LINGER;
+    let interest = if *registered {
+        poll.registry()
+            .reregister(wire.tcp_mut(), SOCKET_TOKEN, Interest::READABLE)
+    } else {
+        poll.registry()
+            .register(wire.tcp_mut(), SOCKET_TOKEN, Interest::READABLE)
+    };
+    if interest.is_ok() {
+        *registered = true;
+        let mut scratch = [0u8; 16 << 10];
+        'linger: loop {
+            if signal.aborted() {
+                break;
+            }
+            loop {
+                // A peer that keeps sending never yields WouldBlock, so the
+                // cap and abort are checked after every read, not only when
+                // the socket goes quiet.
+                if signal.aborted() || Instant::now() >= deadline {
+                    break 'linger;
+                }
+                match wire.tcp_mut().read(&mut scratch) {
+                    Ok(0) => break 'linger,
+                    Ok(_) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(_) => break 'linger,
+                }
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            match poll.poll(events, Some(left)) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+    }
+    let _ = stop_polling_tcp(poll, wire, registered);
+    let _ = shutdown.shutdown(Shutdown::Both);
+}
+
+#[cfg(test)]
+struct PumpExit(Option<Arc<PumpObserver>>);
+
+#[cfg(test)]
+impl Drop for PumpExit {
+    fn drop(&mut self) {
+        if let Some(observer) = &self.0 {
+            observer.parked.store(false, Ordering::Release);
+            observer.exited.store(true, Ordering::Release);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pump_loop(
+    mut wire: Wire,
+    buffered_input: Vec<u8>,
+    limit: usize,
+    commands: mpsc::Receiver<Command>,
+    requests: mpsc::Receiver<ReceiveRequest>,
+    mut poll: Poll,
+    _wake: Arc<Waker>,
+    shutdown: StdTcpStream,
+    buffered: Arc<AtomicUsize>,
+    command_count: Arc<AtomicUsize>,
+    state: Arc<Mutex<SendState>>,
+    signal: AbortSignal,
+    #[cfg(test)] writer_gate: Option<Arc<(Mutex<bool>, std::sync::Condvar)>>,
+    #[cfg(test)] pump_observer: Option<Arc<PumpObserver>>,
+) {
+    #[cfg(test)]
+    let _exit = PumpExit(pump_observer.clone());
+    #[cfg(test)]
+    if let Some(observer) = &pump_observer {
+        let _ = observer.send_state.set(Arc::clone(&state));
+    }
+    let mut events = Events::with_capacity(8);
+    let mut input = Input::new(buffered_input);
+    let mut terminal_drain = TerminalDrain::default();
+    let mut request: Option<(ReceiveRequest, ReceiveOperation)> = None;
+    let mut controls = std::collections::VecDeque::new();
+    let mut active: Option<ActiveData> = None;
+    let mut frame: Option<OutgoingFrame> = None;
+    let mut close = CloseState::new();
+    let mut read_ready = !input.available().is_empty();
+    let mut write_ready = true;
+    let mut tcp_registered = true;
+    let mut write_only = false;
+    let mut stall_deadline: Option<Instant> = None;
+
+    loop {
+        let mut reschedule_read = false;
+        if let Err(error) = signal.check() {
+            fail_pump(&mut request, &requests, error, &state, &shutdown);
+            return;
+        }
+        if stall_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            fail_pump(
+                &mut request,
+                &requests,
+                HostError::Failed("the socket write made no progress before its deadline".into()),
+                &state,
+                &shutdown,
+            );
+            return;
+        }
+
+        let stop_data = close.read != ReadSide::Open || close.finish_after_close_sent;
+        if close.close_sent {
+            drain_commands(&commands, &mut controls, &command_count, false);
+        } else if stop_data {
+            drain_commands(
+                &commands,
+                &mut controls,
+                &command_count,
+                !is_close_frame(&frame),
+            );
+        }
+        if stop_data && frame.is_none() {
+            abandon_active(&mut active, &command_count);
+        }
+
+        if request.is_none() {
+            match requests.try_recv() {
+                Ok(next) => {
+                    let binary_payload = next.binary_payload;
+                    request = Some((
+                        next,
+                        ReceiveOperation {
+                            binary_payload,
+                            message: None,
+                        },
+                    ));
+                    // A readable edge may have been paused while there was no
+                    // receive demand. A nonblocking read rechecks it safely.
+                    read_ready = true;
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    if close.close_sent {
+                        linger_close(
+                            &mut poll,
+                            &mut events,
+                            &mut wire,
+                            &mut tcp_registered,
+                            &shutdown,
+                            &signal,
+                            &state,
+                        );
+                    } else {
+                        let _ = shutdown.shutdown(Shutdown::Both);
+                    }
+                    return;
+                }
+            }
+        }
+
+        let mut read_wanted = 0;
+        let mut read_frames = MAX_READ_FRAMES_PER_TURN;
+        if close.read == ReadSide::Open {
+            if let Some((_, operation)) = request.as_mut() {
+                match parse_available(
+                    operation,
+                    &mut input,
+                    &mut controls,
+                    &command_count,
+                    &state,
+                    limit,
+                    close.close_started,
+                    &mut read_frames,
+                ) {
+                    Ok(Parse::Received(received)) => {
+                        match received {
+                            received @ Received::Closed { .. } => {
+                                close.receive_close();
+                                #[cfg(test)]
+                                if let Some(observer) = &pump_observer {
+                                    observer.close_received.store(true, Ordering::Release);
+                                }
+                                if close.close_sent || close.write == WriteSide::Done {
+                                    publish_terminal(&mut request, &requests, Ok(received), &state);
+                                } else {
+                                    defer_terminal(Ok(received), &state);
+                                }
+                            }
+                            Received::TooLarge => {
+                                discard_unsent_close_frame(&mut frame, &wire, &command_count);
+                                close.read = ReadSide::Done;
+                                close.finish_after_close_sent = true;
+                                if close.close_sent || close.write == WriteSide::Done {
+                                    publish_terminal(
+                                        &mut request,
+                                        &requests,
+                                        Ok(Received::TooLarge),
+                                        &state,
+                                    );
+                                } else {
+                                    defer_terminal(Ok(Received::TooLarge), &state);
+                                }
+                            }
+                            received => {
+                                let (finished, _) = request.take().unwrap();
+                                let _ = finished.reply.send(Ok(received));
+                            }
+                        }
+                        reschedule_read = true;
+                    }
+                    Ok(Parse::NeedData(wanted)) => read_wanted = wanted,
+                    Ok(Parse::Yield) => reschedule_read = true,
+                    Err(error) => {
+                        fail_pump(&mut request, &requests, error, &state, &shutdown);
+                        return;
+                    }
+                }
+            }
+        }
+
+        if close.read == ReadSide::Closing && !reschedule_read {
+            match parse_terminal_drain(
+                &mut terminal_drain,
+                &mut input,
+                &mut controls,
+                &command_count,
+                &state,
+                limit,
+                close.close_started,
+                &mut read_frames,
+            ) {
+                Ok(DrainParse::NeedData(wanted)) => read_wanted = wanted,
+                Ok(DrainParse::Progress | DrainParse::Yield) => reschedule_read = true,
+                Ok(DrainParse::Closed(received)) => {
+                    close.receive_close();
+                    #[cfg(test)]
+                    if let Some(observer) = &pump_observer {
+                        observer.close_received.store(true, Ordering::Release);
+                    }
+                    if close.close_sent || close.write == WriteSide::Done {
+                        publish_terminal(&mut request, &requests, Ok(received), &state);
+                    } else {
+                        defer_terminal(Ok(received), &state);
+                    }
+                    reschedule_read = true;
+                }
+                Ok(DrainParse::TooLarge) => {
+                    discard_unsent_close_frame(&mut frame, &wire, &command_count);
+                    close.read = ReadSide::Done;
+                    close.finish_after_close_sent = true;
+                    if close.close_sent || close.write == WriteSide::Done {
+                        publish_terminal(&mut request, &requests, Ok(Received::TooLarge), &state);
+                    } else {
+                        defer_terminal(Ok(Received::TooLarge), &state);
+                    }
+                    reschedule_read = true;
+                }
+                Err(error) => {
+                    fail_pump(&mut request, &requests, error, &state, &shutdown);
+                    return;
+                }
+            }
+        }
+
+        let background_read = close.read == ReadSide::Closing
+            || close.peer_fin
+            || close.close_sent
+            || command_count.load(Ordering::Acquire) != 0
+            || frame.is_some()
+            || wire.wants_write()
+            || active.is_some();
+        if request.is_none() && close.read == ReadSide::Open && !reschedule_read && background_read
+        {
+            let mut frames = MAX_READ_FRAMES_PER_TURN;
+            match parse_control_prefix(
+                &mut input,
+                &mut controls,
+                &command_count,
+                &state,
+                close.close_started,
+                &mut frames,
+            ) {
+                Ok(ControlParse::NeedData(wanted)) => read_wanted = wanted,
+                Ok(ControlParse::Data) => {
+                    // Preserve receive backpressure and the binary
+                    // head-only contract until demand is posted.
+                    read_ready = false;
+                }
+                Ok(ControlParse::Progress | ControlParse::Yield) => {
+                    reschedule_read = true;
+                }
+                Ok(ControlParse::Closed(received)) => {
+                    close.receive_close();
+                    #[cfg(test)]
+                    if let Some(observer) = &pump_observer {
+                        observer.close_received.store(true, Ordering::Release);
+                    }
+                    if close.close_sent || close.write == WriteSide::Done {
+                        publish_terminal(&mut request, &requests, Ok(received), &state);
+                    } else {
+                        defer_terminal(Ok(received), &state);
+                    }
+                    reschedule_read = true;
+                }
+                Err(error) => {
+                    fail_pump(&mut request, &requests, error, &state, &shutdown);
+                    return;
+                }
+            }
+        }
+
+        let should_read = read_ready
+            && close.read != ReadSide::Done
+            && !reschedule_read
+            && (request.is_some() || background_read);
+        if should_read {
+            let wanted = read_wanted.clamp(1, FRAGMENT);
+            match wire.read_into(&mut input, wanted) {
+                Ok(ReadProgress::Bytes) => reschedule_read = true,
+                Ok(ReadProgress::Blocked) if close.read == ReadSide::Open => read_ready = false,
+                Ok(ReadProgress::Blocked | ReadProgress::Eof) | Err(_) => {
+                    if signal.aborted() {
+                        fail_pump(
+                            &mut request,
+                            &requests,
+                            signal.check().unwrap_err(),
+                            &state,
+                            &shutdown,
+                        );
+                        return;
+                    }
+                    close.read = ReadSide::Done;
+                    if !close.close_received {
+                        let admitted_close =
+                            state.lock().expect("WebSocket sender poisoned").admission
+                                == AdmissionState::Closing;
+                        if admitted_close && !close.close_sent && close.write == WriteSide::Open {
+                            defer_terminal(Ok(abnormal_close()), &state);
+                        } else {
+                            publish_terminal(&mut request, &requests, Ok(abnormal_close()), &state);
+                        }
+                    }
+                    reschedule_read = true;
+                }
+            }
+        }
+
+        // A write-side close is independent of a peer FIN. Give readable work
+        // above one turn to retain a Close, then stop because no reply can be
+        // put on the wire.
+        if close.write == WriteSide::Done {
+            begin_terminal_drain(
+                &mut close,
+                &mut terminal_drain,
+                &mut request,
+                #[cfg(test)]
+                pump_observer.as_deref(),
+            );
+            if close.read == ReadSide::Closing && !close.close_received {
+                continue;
+            }
+            publish_terminal(&mut request, &requests, Ok(abnormal_close()), &state);
+            let _ = stop_polling_tcp(&poll, &mut wire, &mut tcp_registered);
+            let _ = shutdown.shutdown(Shutdown::Both);
+            return;
+        }
+
+        let stop_data = close.read != ReadSide::Open || close.finish_after_close_sent;
+        if stop_data && frame.is_none() {
+            abandon_active(&mut active, &command_count);
+        }
+        if frame.is_none() && !wire.wants_write() && !close.close_sent {
+            if let Some(control) = controls.pop_front() {
+                match masked_frame(true, control.opcode, &control.payload) {
+                    Ok(bytes) => {
+                        frame = Some(OutgoingFrame {
+                            bytes,
+                            at: 0,
+                            kind: FrameKind::Control {
+                                opcode: control.opcode,
+                            },
+                        });
+                    }
+                    Err(error) => {
+                        fail_pump(
+                            &mut request,
+                            &requests,
+                            HostError::Failed(error.to_string()),
+                            &state,
+                            &shutdown,
+                        );
+                        return;
+                    }
+                }
+            } else if !stop_data {
+                if active.is_none() {
+                    match commands.try_recv() {
+                        Ok(Command::Data {
+                            opcode,
+                            payload,
+                            accounted,
+                        }) => {
+                            active = Some(ActiveData {
+                                opcode,
+                                payload,
+                                accounted,
+                                next: 0,
+                            });
+                        }
+                        Ok(Command::Control { opcode, payload }) => {
+                            match masked_frame(true, opcode, &payload) {
+                                Ok(bytes) => {
+                                    frame = Some(OutgoingFrame {
+                                        bytes,
+                                        at: 0,
+                                        kind: FrameKind::Control { opcode },
+                                    });
+                                }
+                                Err(error) => {
+                                    fail_pump(
+                                        &mut request,
+                                        &requests,
+                                        HostError::Failed(error.to_string()),
+                                        &state,
+                                        &shutdown,
+                                    );
+                                    return;
+                                }
+                            }
+                        }
+                        Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => {}
+                    }
+                }
+                if frame.is_none() {
+                    if let Some(data) = active.as_mut() {
+                        match data.frame() {
+                            Ok((bytes, final_fragment)) => {
+                                frame = Some(OutgoingFrame {
+                                    bytes,
+                                    at: 0,
+                                    kind: FrameKind::Data { final_fragment },
+                                });
+                            }
+                            Err(error) => {
+                                fail_pump(
+                                    &mut request,
+                                    &requests,
+                                    HostError::Failed(error.to_string()),
+                                    &state,
+                                    &shutdown,
+                                );
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let writes_allowed = {
+            #[cfg(test)]
+            {
+                writer_gate
+                    .as_ref()
+                    .is_none_or(|gate| *gate.0.lock().expect("WebSocket writer gate poisoned"))
+            }
+            #[cfg(not(test))]
+            {
+                true
+            }
+        };
+        let pending_before_write = frame.is_some() || wire.wants_write();
+        if pending_before_write {
+            stall_deadline.get_or_insert_with(|| Instant::now() + WRITE_STALL_TIMEOUT);
+        }
+        let mut retry_write = false;
+        if writes_allowed {
+            if let Some(outgoing) = frame.as_mut() {
+                let can_attempt = match &wire {
+                    Wire::Plain(_) => write_ready,
+                    Wire::Tls { conn, .. } => !conn.wants_write() || write_ready,
+                };
+                let close_frame = matches!(&outgoing.kind, FrameKind::Control { opcode: 0x8 });
+                let at_before = outgoing.at;
+                match can_attempt.then(|| wire.write_frame(outgoing)).transpose() {
+                    Ok(None) => {}
+                    Ok(Some(WriteProgress::Eof)) => {
+                        close.write = WriteSide::Done;
+                        begin_terminal_drain(
+                            &mut close,
+                            &mut terminal_drain,
+                            &mut request,
+                            #[cfg(test)]
+                            pump_observer.as_deref(),
+                        );
+                        defer_terminal(Ok(abnormal_close()), &state);
+                    }
+                    Ok(Some(WriteProgress::Network(_bytes))) => {
+                        let progressed_at = Instant::now();
+                        stall_deadline = Some(progressed_at + WRITE_STALL_TIMEOUT);
+                        retry_write = true;
+                        #[cfg(test)]
+                        if let Some(observer) = &pump_observer {
+                            observer.network_bytes.fetch_add(_bytes, Ordering::AcqRel);
+                            observer.write_blocked.store(false, Ordering::Release);
+                            *observer
+                                .last_write_progress
+                                .lock()
+                                .expect("WebSocket progress observer poisoned") =
+                                Some(progressed_at);
+                        }
+                    }
+                    Ok(Some(WriteProgress::Retry)) => retry_write = true,
+                    Ok(Some(WriteProgress::Blocked)) => {
+                        write_ready = false;
+                        #[cfg(test)]
+                        if let Some(observer) = &pump_observer {
+                            observer.write_blocked.store(true, Ordering::Release);
+                        }
+                    }
+                    Err(error) => {
+                        close.write = WriteSide::Done;
+                        begin_terminal_drain(
+                            &mut close,
+                            &mut terminal_drain,
+                            &mut request,
+                            #[cfg(test)]
+                            pump_observer.as_deref(),
+                        );
+                        defer_terminal(
+                            Err(HostError::Failed(format!(
+                                "the socket write failed: {error}"
+                            ))),
+                            &state,
+                        );
+                    }
+                }
+                if close_frame && outgoing.at != at_before {
+                    close.close_started = true;
+                }
+                if close.write == WriteSide::Open && wire.frame_flushed(outgoing) {
+                    let completed = frame.take().unwrap();
+                    match completed.kind {
+                        FrameKind::Data { final_fragment } if final_fragment => {
+                            finish_data(&mut active, &buffered, &command_count, &state);
+                        }
+                        FrameKind::Data { .. } if stop_data => {
+                            abandon_active(&mut active, &command_count);
+                        }
+                        FrameKind::Data { .. } => {}
+                        FrameKind::Control { opcode: 0x8 } => {
+                            command_count.fetch_sub(1, Ordering::AcqRel);
+                            close.close_started = true;
+                            close.close_sent = true;
+                            drop_controls(&mut controls, &command_count);
+                            abandon_active(&mut active, &command_count);
+                            drain_commands(&commands, &mut controls, &command_count, false);
+                            release_terminal(&mut request, &requests, &state);
+                        }
+                        FrameKind::Control { .. } => {
+                            command_count.fetch_sub(1, Ordering::AcqRel);
+                        }
+                    }
+                    retry_write = true;
+                }
+            } else if wire.wants_write() && write_ready {
+                match wire.write_tls_pending() {
+                    Ok(WriteProgress::Eof) => {
+                        close.write = WriteSide::Done;
+                        begin_terminal_drain(
+                            &mut close,
+                            &mut terminal_drain,
+                            &mut request,
+                            #[cfg(test)]
+                            pump_observer.as_deref(),
+                        );
+                        defer_terminal(Ok(abnormal_close()), &state);
+                    }
+                    Ok(WriteProgress::Network(_bytes)) => {
+                        let progressed_at = Instant::now();
+                        stall_deadline = Some(progressed_at + WRITE_STALL_TIMEOUT);
+                        retry_write = true;
+                        #[cfg(test)]
+                        if let Some(observer) = &pump_observer {
+                            observer.network_bytes.fetch_add(_bytes, Ordering::AcqRel);
+                            observer.write_blocked.store(false, Ordering::Release);
+                            *observer
+                                .last_write_progress
+                                .lock()
+                                .expect("WebSocket progress observer poisoned") =
+                                Some(progressed_at);
+                        }
+                    }
+                    Ok(WriteProgress::Retry) => retry_write = true,
+                    Ok(WriteProgress::Blocked) => {
+                        write_ready = false;
+                        #[cfg(test)]
+                        if let Some(observer) = &pump_observer {
+                            observer.write_blocked.store(true, Ordering::Release);
+                        }
+                    }
+                    Err(error) => {
+                        close.write = WriteSide::Done;
+                        begin_terminal_drain(
+                            &mut close,
+                            &mut terminal_drain,
+                            &mut request,
+                            #[cfg(test)]
+                            pump_observer.as_deref(),
+                        );
+                        defer_terminal(
+                            Err(HostError::Failed(format!(
+                                "the socket write failed: {error}"
+                            ))),
+                            &state,
+                        );
+                    }
+                }
+            }
+        }
+
+        if close.write == WriteSide::Done {
+            begin_terminal_drain(
+                &mut close,
+                &mut terminal_drain,
+                &mut request,
+                #[cfg(test)]
+                pump_observer.as_deref(),
+            );
+            if close.read == ReadSide::Closing && !close.close_received {
+                continue;
+            }
+            publish_terminal(&mut request, &requests, Ok(abnormal_close()), &state);
+            let _ = stop_polling_tcp(&poll, &mut wire, &mut tcp_registered);
+            let _ = shutdown.shutdown(Shutdown::Both);
+            return;
+        }
+        let pending_write = frame.is_some() || wire.wants_write();
+        if !pending_write {
+            stall_deadline = None;
+        }
+        if (close.finish_after_close_sent && close.close_sent && !pending_write)
+            || (close.read == ReadSide::Done
+                && !pending_write
+                && controls.is_empty()
+                && command_count.load(Ordering::Acquire) == 0)
+        {
+            linger_close(
+                &mut poll,
+                &mut events,
+                &mut wire,
+                &mut tcp_registered,
+                &shutdown,
+                &signal,
+                &state,
+            );
+            return;
+        }
+
+        // Read/parse work is bounded. Writes and their no-progress deadline
+        // get a turn before another local input batch.
+        if reschedule_read || retry_write {
+            continue;
+        }
+        if command_count.load(Ordering::Acquire) != 0 && !pending_write {
+            continue;
+        }
+        if close.read == ReadSide::Done {
+            match poll_writes_only(&poll, &mut wire, &mut write_only) {
+                Ok(true) => {
+                    // mio readiness is edge-triggered on epoll. The socket may
+                    // already be writable when EPOLL_CTL_MOD changes the
+                    // interest set, so probe it before waiting for an edge
+                    // which need not recur.
+                    write_ready = true;
+                    continue;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    fail_pump(&mut request, &requests, error, &state, &shutdown);
+                    return;
+                }
+            }
+        }
+        #[cfg(test)]
+        if let Some(observer) = &pump_observer {
+            observer.parked.store(true, Ordering::Release);
+        }
+        let timeout =
+            stall_deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
+        let waited = poll.poll(&mut events, timeout);
+        #[cfg(test)]
+        if let Some(observer) = &pump_observer {
+            observer.parked.store(false, Ordering::Release);
+            observer.returns.fetch_add(1, Ordering::AcqRel);
+        }
+        match waited {
+            Ok(()) => {
+                // Waker and socket readiness can be coalesced. After every
+                // wake, retry nonblocking I/O and drain it to WouldBlock so a
+                // readiness edge cannot be consumed only by the poll call.
+                read_ready = true;
+                write_ready = true;
+                for event in &events {
+                    if event.token() != SOCKET_TOKEN {
+                        continue;
+                    }
+                    read_ready |= event.is_readable();
+                    write_ready |= event.is_writable();
+                    if event.is_read_closed() && close.read != ReadSide::Done {
+                        // A peer FIN is an in-order end of the byte stream,
+                        // not a terminal condition: data frames ahead of it
+                        // still belong to receive demand. Only parse leading
+                        // control frames without demand; EOF itself is
+                        // processed when a read reaches it.
+                        // @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — read FIN keeps queued messages
+                        close.peer_fin = true;
+                        read_ready = true;
+                        #[cfg(test)]
+                        if let Some(observer) = &pump_observer {
+                            observer.peer_fin.store(true, Ordering::Release);
+                        }
+                    }
+                    if event.is_write_closed() {
+                        close.write = WriteSide::Done;
+                        begin_terminal_drain(
+                            &mut close,
+                            &mut terminal_drain,
+                            &mut request,
+                            #[cfg(test)]
+                            pump_observer.as_deref(),
+                        );
+                        read_ready = true;
+                    }
+                    if event.is_error() {
+                        // The next nonblocking operation obtains the concrete
+                        // error without treating a read HUP as a write HUP.
+                        read_ready = true;
+                        write_ready = true;
+                    }
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+                fail_pump(
+                    &mut request,
+                    &requests,
+                    HostError::Failed(format!("the socket readiness wait failed: {error}")),
+                    &state,
+                    &shutdown,
+                );
+                return;
+            }
+        }
+    }
 }
 
 fn masked_frame(fin: bool, opcode: u8, payload: &[u8]) -> std::io::Result<Vec<u8>> {
@@ -694,6 +2762,7 @@ fn masked_frame(fin: bool, opcode: u8, payload: &[u8]) -> std::io::Result<Vec<u8
     Ok(frame)
 }
 
+#[derive(Clone)]
 enum Received {
     Text(String),
     Binary(Vec<u8>),
@@ -703,167 +2772,56 @@ enum Received {
 }
 
 impl Socket {
-    /// Exactly `n` bytes, or `None` at the end of the connection.
-    fn take(&mut self, n: usize) -> Result<Option<Vec<u8>>, HostError> {
-        let mut out = Vec::with_capacity(n);
-        let from_buffer = (self.buffered.len() - self.at).min(n);
-        out.extend_from_slice(&self.buffered[self.at..self.at + from_buffer]);
-        self.at += from_buffer;
-        if self.at == self.buffered.len() {
-            self.buffered.clear();
-            self.at = 0;
-        }
-        let mut chunk = [0u8; 16 << 10];
-        while out.len() < n {
-            let want = (n - out.len()).min(chunk.len());
-            let read = self.wire.read(&mut chunk[..want]);
-            match read {
-                // An abort shuts the connection down: that end is ours.
-                Ok(0) => return self.signal.check().map(|()| None),
-                Ok(k) => out.extend_from_slice(&chunk[..k]),
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e)
-                    if matches!(
-                        e.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    // Reading and writing share rustls's connection state.
-                    // Yield after releasing the lock so an outbound burst is
-                    // not starved by this receive loop immediately relocking.
-                    std::thread::yield_now();
-                    continue;
-                }
-                Err(_) if self.signal.aborted() => return Err(self.signal.check().unwrap_err()),
-                // A reset is the far side going away: 1006, as a browser says.
-                Err(_) => return Ok(None),
-            }
-        }
-        Ok(Some(out))
-    }
-
     fn receive(&mut self, binary_payload: bool) -> Result<Received, HostError> {
-        if self.sender.phase() == CLOSED {
-            return Ok(Received::Closed {
-                code: 1006,
-                reason: String::new(),
-            });
+        self.signal.check()?;
+        let mut state = self.sender.state.lock().expect("WebSocket sender poisoned");
+        if let Some(terminal) = state.terminal.as_mut() {
+            if terminal.deliverable && !terminal.delivered {
+                terminal.delivered = true;
+                return terminal.result.clone();
+            }
         }
-        let mut message: Option<(u8, Vec<u8>)> = None;
-        loop {
-            self.signal.check()?;
-            let Some(head) = self.take(2)? else {
-                self.sender.mark_closed();
-                return Ok(Received::Closed {
-                    code: 1006,
-                    reason: String::new(),
-                });
-            };
-            let (fin, opcode) = (head[0] & 0x80 != 0, head[0] & 0x0f);
-            if head[0] & 0x70 != 0 || head[1] & 0x80 != 0 {
-                return Err(protocol("reserved bits, or a masked server frame"));
-            }
-            let len = match head[1] & 0x7f {
-                126 => match self.take(2)? {
-                    Some(b) => u16::from_be_bytes([b[0], b[1]]) as u64,
-                    None => {
-                        self.sender.mark_closed();
-                        return Ok(Received::Closed {
-                            code: 1006,
-                            reason: String::new(),
-                        });
+        if state.admission == AdmissionState::Closed
+            && state
+                .terminal
+                .as_ref()
+                .is_none_or(|terminal| terminal.deliverable)
+        {
+            return Ok(abnormal_close());
+        }
+        let (reply, received) = mpsc::sync_channel(1);
+        if self
+            .requests
+            .send(ReceiveRequest {
+                binary_payload,
+                reply,
+            })
+            .is_err()
+        {
+            state.admission = AdmissionState::Closed;
+            return Ok(abnormal_close());
+        }
+        if let Err(error) = self.wake.wake() {
+            state.admission = AdmissionState::Closed;
+            drop(state);
+            let _ = self.shutdown.shutdown(Shutdown::Both);
+            return Err(HostError::Failed(format!(
+                "the socket wake notification failed: {error}"
+            )));
+        }
+        drop(state);
+        match received.recv() {
+            Ok(result) => result,
+            Err(_) => {
+                self.signal.check()?;
+                let mut state = self.sender.state.lock().expect("WebSocket sender poisoned");
+                if let Some(terminal) = state.terminal.as_mut() {
+                    if terminal.deliverable && !terminal.delivered {
+                        terminal.delivered = true;
+                        return terminal.result.clone();
                     }
-                },
-                127 => match self.take(8)? {
-                    Some(b) => u64::from_be_bytes(b.try_into().unwrap()),
-                    None => {
-                        self.sender.mark_closed();
-                        return Ok(Received::Closed {
-                            code: 1006,
-                            reason: String::new(),
-                        });
-                    }
-                },
-                n => n as u64,
-            };
-            if opcode >= 8 {
-                if !fin || len > 125 {
-                    return Err(protocol("a fragmented or long control frame"));
                 }
-                let Some(payload) = self.take(len as usize)? else {
-                    self.sender.mark_closed();
-                    return Ok(Received::Closed {
-                        code: 1006,
-                        reason: String::new(),
-                    });
-                };
-                match opcode {
-                    0x8 => {
-                        let code = match payload.len() {
-                            0 => 1005,
-                            1 => return Err(protocol("a one-byte close")),
-                            _ => u16::from_be_bytes([payload[0], payload[1]]),
-                        };
-                        if code != 1005
-                            && (!(1000..=4999).contains(&code)
-                                || matches!(code, 1004 | 1005 | 1006 | 1015))
-                        {
-                            return Err(protocol("an invalid close code"));
-                        }
-                        let reason = std::str::from_utf8(payload.get(2..).unwrap_or(&[]))
-                            .map_err(|_| protocol("a close reason that is not UTF-8"))?;
-                        let echo = if code == 1005 {
-                            vec![]
-                        } else {
-                            payload.clone()
-                        };
-                        self.sender.peer_close(echo);
-                        return Ok(Received::Closed {
-                            code,
-                            reason: reason.to_string(),
-                        });
-                    }
-                    0x9 => self.sender.control(0xA, payload)?,
-                    0xA => {}
-                    _ => return Err(protocol("an unknown control opcode")),
-                }
-                continue;
-            }
-            // Preserve the receive-only API exact2 already consumes: the
-            // first binary frame's declared length is returned immediately,
-            // before its payload is read or allocated. Event consumers use
-            // the payload-bearing path below instead.
-            if opcode == 0x2 && message.is_none() && !binary_payload {
-                return Ok(Received::BinaryLength(len as usize));
-            }
-            match (opcode, &message) {
-                (0x1, None) | (0x2, None) => message = Some((opcode, Vec::new())),
-                (0x0, Some(_)) => {}
-                _ => return Err(protocol("a frame out of sequence")),
-            }
-            let so_far = message.as_ref().map_or(0, |(_, bytes)| bytes.len()) as u64;
-            if so_far + len > self.limit as u64 {
-                self.sender.fail_too_large();
-                return Ok(Received::TooLarge);
-            }
-            let Some(payload) = self.take(len as usize)? else {
-                self.sender.mark_closed();
-                return Ok(Received::Closed {
-                    code: 1006,
-                    reason: String::new(),
-                });
-            };
-            let (_, whole) = message.as_mut().unwrap();
-            whole.extend_from_slice(&payload);
-            if fin {
-                let (kind, bytes) = message.take().unwrap();
-                return if kind == 0x1 {
-                    String::from_utf8(bytes)
-                        .map(Received::Text)
-                        .map_err(|_| protocol("a text message that is not UTF-8"))
-                } else {
-                    Ok(Received::Binary(bytes))
-                };
+                Ok(abnormal_close())
             }
         }
     }
@@ -909,11 +2867,23 @@ impl MessageSource for Socket {
 
 impl Drop for Socket {
     fn drop(&mut self) {
-        if self.sender.phase() == OPEN && !self.signal.aborted() {
+        if self.sender.admission() == AdmissionState::Open && !self.signal.aborted() {
             let _ = self.sender.close(Some(1000), "");
         }
         self.sender.mark_closed();
-        let _ = self.shutdown.shutdown(Shutdown::Both);
+        // After its Close reaches TCP the pump half-closes and finishes TCP
+        // itself; a receive-side shutdown here could reset those queued
+        // final bytes.
+        let graceful = self
+            .sender
+            .state
+            .lock()
+            .expect("WebSocket sender poisoned")
+            .graceful_teardown;
+        if !graceful {
+            let _ = self.shutdown.shutdown(Shutdown::Both);
+        }
+        let _ = self.wake.wake();
     }
 }
 

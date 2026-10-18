@@ -10,6 +10,15 @@
 import AppKit
 
 extension Agent {
+    /// Agent coordinates are relative to the page viewport, including a node
+    /// shown in a popover or sheet. AppKit takes points in the receiving window.
+    func pointerPoint(_ point: CGPoint, in window: NSWindow) -> NSPoint {
+        let clip = presenter.viewport.contentView
+        let pagePoint = clip.convert(NSPoint(x: point.x + clip.bounds.origin.x, y: point.y + clip.bounds.origin.y), to: nil)
+        guard let page = clip.window, page !== window else { return pagePoint }
+        return window.convertPoint(fromScreen: page.convertPoint(toScreen: pagePoint))
+    }
+
     /// The modifiers a request names (`"Shift+Meta"`), as AppKit's flags;
     /// none when it names none, nil when a word is no modifier.
     static func heldModifiers(_ request: [String: Any]) -> NSEvent.ModifierFlags? {

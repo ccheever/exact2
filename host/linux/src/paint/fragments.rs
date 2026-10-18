@@ -33,7 +33,11 @@ impl Painter {
         // The kernel measures a Text subtree as one paragraph. Inline
         // descendants deliberately have zero frames, not paint boxes.
         let build = || {
-            let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
+            let computed = node.computed_style(StyleMask::INHERITED);
+            let mut spec = text_spec(&computed, "");
+            // A fitted paragraph's line box is at its runs' scale (LLP 1116.001 D1.4).
+            let strut = exact_kernel::TextStyle::from_style(&computed).scaled(node.fit_scale());
+            spec.strut = Run::from_style("", strut);
             spec.runs = node
                 .text_runs()
                 .iter()
@@ -64,7 +68,15 @@ impl Painter {
         };
         let mut palette = Vec::new();
         text_palette(kernel, node, self.dark, walk.reveal, &mut palette);
-        presented_text_colors(walk, node, &paragraph, &mut palette);
+        presented_text_colors(walk, node, &paragraph, &mut palette, self.dark);
+        let shown_before = self.accepted_text.get(&node.key);
+        let roll = (self.numerals)
+            .roll(node.key, s.content_transition, shown_before, &paragraph)
+            .filter(|_| frags.is_empty());
+        if roll.is_some() {
+            // Drawn anew each frame it rolls, never kept in a row.
+            self.row_refuse();
+        }
         walk.text.insert(node.key, paragraph.clone());
         // The canvas recorder leases the same paragraph the paint drew.
         self.row_text(node.key, &paragraph);
@@ -75,6 +87,8 @@ impl Painter {
             .then(|| paragraph.ellipsized(width))
             .flatten()
             .unwrap_or_else(|| paragraph.clone());
+        // An ellipsized line changes in place.
+        let roll = roll.filter(|_| Rc::ptr_eq(&shown, &paragraph));
         let mut backgrounds = Vec::new();
         text_backgrounds(kernel, node, None, self.dark, walk.reveal, &mut backgrounds);
         let reveal = walk.reveal;
@@ -85,7 +99,14 @@ impl Painter {
                 painter.backend.fill(&shape, color, ts);
             }
             painter.text_decorations(kernel, &shown, &palette, origin, ts, reveal);
-            painter.text_paint(node, kernel, &shown, &palette, origin, rect, ts, reveal);
+            match &roll {
+                Some(roll) => {
+                    painter.roll_glyphs(node, kernel, roll, &palette, origin, rect, ts, reveal)
+                }
+                None => {
+                    painter.text_paint(node, kernel, &shown, &palette, origin, rect, ts, reveal)
+                }
+            }
         };
         if frags.is_empty() {
             return at(self, (content.0, content.1));
@@ -110,7 +131,7 @@ impl Painter {
     ) {
         let s = node.style;
         let width = s.column_rule_width;
-        if s.column_rule_style != exact_kernel::BorderStyle::Solid || width <= 0.0 {
+        if s.column_rule_style != exact_kernel::ColumnRuleStyle::Solid || width <= 0.0 {
             return;
         }
         let Some(columns) = kernel.columns(node.key) else {

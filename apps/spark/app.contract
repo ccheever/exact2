@@ -30,14 +30,14 @@ shape Profile
   distance: string
   bio: string
   likesYou: bool
-  photos: list<string>
-  interests: list<string>
+  photos: string[]
+  interests: string[]
 
 // A decision is 1 (nope), 2 (like) or 3 (super like). The deck's history is
 // a stack of them in base 4, the latest in the lowest digit, so an undo can
 // pop one and a parked card knows which way it left.
 fn lastOf(stack: number): number = stack - floor(stack / 4) * 4
-fn unit(v: number): number = min(max(v, 0), 1)
+fn unit(v: number): number = v > 0 ? min(v, 1) : 0
 fn magnitude(v: number): number = max(v, 0 - v)
 
 // What a release decides, from where the card is and how fast it was going:
@@ -66,7 +66,7 @@ style Page
   color="#21262e"
 
 component Spark
-  resource profiles = profiles() as shape list<Profile>
+  resource profiles = profiles() as shape Profile[]
   resource viewport = exactViewport() as shape Viewport
 
   // The top card's index, and where the finger has moved it.
@@ -85,7 +85,7 @@ component Spark
   // The profile a like matched, or -1.
   state matched = -1
 
-  derive count = length(profiles)
+  derive count = profiles.length
   derive cardWidth = min(viewport.width - 24, 420)
   derive throwAt = cardWidth * 0.3
   // Far enough that a thrown card, tilted 20 degrees, clears the screen
@@ -96,8 +96,8 @@ component Spark
   // The one after next (hidden until it moves up), the next, the top and
   // the parked card, in the data's bottom-to-top order so each paints over
   // the one before; each keyed by id, so a card keeps its node as it rises.
-  derive deck = filter(profiles, (p) => p.n >= index - 1 and p.n <= index + 2)
-  derive topLikesYou = length(filter(profiles, (p) => p.n == index and p.likesYou)) > 0
+  derive deck = profiles.filter((p) => p.n >= index - 1 and p.n <= index + 2)
+  derive topLikesYou = profiles.filter((p) => p.n == index and p.likesYou).length > 0
   // How far the top card is towards a decision, 0 to 1: the next card grows
   // with it, so it is already full size when the top one leaves.
   derive progress = unit(max(magnitude(x), 0 - y) / throwAt)
@@ -166,16 +166,16 @@ component Spark
     main testId="spark" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" position="relative" class=Page font-family="system-ui" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
       Header(likes=likes)
       column testId="stage" flex=1 min-height=0 position="relative"
-        when index >= count
+        if index >= count
           EmptyDeck(restart=restart)
-        each p in deck key=p.id
+        for p in deck key=p.id
           Card(p=p, pos=(p.n - index), x=x, y=y, dragging=dragging, photo=(p.n == index ? photo : (p.n == index - 1 ? flungPhoto : 0)), cardWidth=cardWidth, progress=progress, lastDir=lastDir, offX=offX, offY=offY, flungY=flungY, drag=drag, settle=settle, nextPhoto=nextPhoto, prevPhoto=prevPhoto)
       row testId="actions" flex-shrink=0 justify-content="center" align-items="center" gap=18 padding-top=10 padding-bottom=18
         RoundButton(testId="btn-undo", label="Undo", size=48, glyph=24, color="#f5b83d", path="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z", off=(index == 0), press=undo)
         RoundButton(testId="btn-nope", label="Nope", size=64, glyph=32, color="#ff4458", path="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z", off=(index >= count), press=settle(1, 0, 0))
         RoundButton(testId="btn-super", label="Super like", size=48, glyph=24, color="#2ea8ff", path="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z", off=(index >= count), press=settle(3, 0, 0))
         RoundButton(testId="btn-like", label="Like", size=64, glyph=32, color="#1fd18a", path="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z", off=(index >= count), press=settle(2, 0, 0))
-      each p in filter(profiles, (q) => q.n == matched) key=p.id
+      for p in profiles.filter((q) => q.n == matched) key=p.id
         MatchOverlay(p=p, keepSwiping=keepSwiping)
       head description="Swipe right to like, left to pass."
 
@@ -225,13 +225,13 @@ component Card
   // The finger tilts the card as it moves it; a thrown card leaves at 20 degrees.
   derive tilt = pos == -1 ? (lastDir == 1 ? -20 : (lastDir == 2 ? 20 : 0)) : tx * 0.06
   derive stampAt = cardWidth * 0.25
-  derive shown = match first(filter(p.photos, (u, i) => i == photo)) { case some(u) => u, case none => "" }
+  derive shown = match first(p.photos.filter((u, i) => i == photo)) { case some(u) => u, case none => "" }
   view
     column testId=(pos == 0 ? "card-top" : `card-${p.id}`) aria-label=`${p.name}, ${p.age}` position="absolute" top=8 bottom=8 left=`calc(50% - ${cardWidth / 2}px)` width=cardWidth display="flex" flex-direction="column" overflow="hidden" border-radius=18 background-color="#2b2f36" box-shadow="0 10px 28px rgba(20, 24, 31, 0.18)" translate=`${tx}px ${ty}px` rotate=tilt scale=(pos <= 0 ? 1 : (pos == 1 ? 0.94 + 0.06 * progress : 0.94)) opacity=(pos == 2 ? 0 : 1) transition=cardTransition(pos, dragging)
       image shown aria-label=`Photo of ${p.name}` position="absolute" top=0 left=0 width="100%" height="100%" object-fit="cover" background-color="#2b2f36"
       column position="absolute" left=0 right=0 bottom=0 height="60%" background-image="linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.9))"
       row position="absolute" top=8 left=10 right=10 gap=4 testId=(pos == 0 ? "photo-pips" : `pips-${p.id}`)
-        each u in p.photos key=u
+        for u in p.photos key=u
           column flex=1 height=4 border-radius=2 background-color="#ffffff" opacity=(shown == u ? 1 : 0.4)
       Stamp(testId=(pos == 0 ? "stamp-like" : `like-${p.id}`), label="LIKE", color="#1fd18a", tilt=-16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit(x / stampAt)) : (pos == -1 and lastDir == 2 ? 1 : 0)), dragging=dragging, top=48, left=22)
       Stamp(testId=(pos == 0 ? "stamp-nope" : `nope-${p.id}`), label="NOPE", color="#ff4458", tilt=16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit((0 - x) / stampAt)) : (pos == -1 and lastDir == 1 ? 1 : 0)), dragging=dragging, top=48, left=(cardWidth - 160))
@@ -239,10 +239,12 @@ component Card
       // The photo's halves page through the photos on a tap and drag the card
       // otherwise: `pan` and `press` on one node (LLP 1057.001 §1 rule 4), not
       // a press inside a panning card, which would keep the contact (rule 3).
-      row flex=1 min-height=0
+      // Positioned, as the info below is, so both paint over the photo and its
+      // shade, which are absolute and would otherwise cover them and take the finger.
+      row position="relative" flex=1 min-height=0
         column testId=(pos == 0 ? "photo-left" : `left-${p.id}`) aria-label="Previous photo" flex=1 touch-action="none" pan=drag panrelease=settle(0) press=prevPhoto
-        column testId=(pos == 0 ? "photo-right" : `right-${p.id}`) aria-label="Next photo" flex=1 touch-action="none" pan=drag panrelease=settle(0) press=nextPhoto(length(p.photos))
-      column testId=(pos == 0 ? "card-info" : `info-${p.id}`) flex-shrink=0 padding-left=18 padding-right=18 padding-bottom=18 padding-top=8 gap=6 touch-action="none" pan=drag panrelease=settle(0)
+        column testId=(pos == 0 ? "photo-right" : `right-${p.id}`) aria-label="Next photo" flex=1 touch-action="none" pan=drag panrelease=settle(0) press=nextPhoto(p.photos.length)
+      column testId=(pos == 0 ? "card-info" : `info-${p.id}`) position="relative" flex-shrink=0 padding-left=18 padding-right=18 padding-bottom=18 padding-top=8 gap=6 touch-action="none" pan=drag panrelease=settle(0)
         row align-items="baseline" gap=10
           text p.name testId=(pos == 0 ? "top-name" : `name-${p.id}`) font-size=32 font-weight=800 color="#ffffff" letter-spacing=-0.5
           text `${p.age}` font-size=26 font-weight=400 color="#ffffff"
@@ -250,7 +252,7 @@ component Card
         Detail(path="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z", label=p.distance)
         text p.bio font-size=15 line-height=1.35 color="rgba(255, 255, 255, 0.92)" line-clamp=2 text-overflow="ellipsis" overflow="hidden"
         row flex-wrap="wrap" gap=6 padding-top=4
-          each tag in p.interests key=tag
+          for tag in p.interests key=tag
             text tag font-size=13 font-weight=600 color="#ffffff" padding-left=10 padding-right=10 padding-top=5 padding-bottom=5 border-radius=999 background-color="rgba(255, 255, 255, 0.18)" border-width=1 border-style="solid" border-color="rgba(255, 255, 255, 0.35)"
 
 // A line of the card's details: a small glyph and its text.

@@ -10,6 +10,14 @@ build = "build.rs"
 [lib]
 name = "markdown_stress_web"
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "markdown-stress-dev"
+path = "src/bin/markdown-stress-dev.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

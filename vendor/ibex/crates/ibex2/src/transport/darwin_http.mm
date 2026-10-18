@@ -345,7 +345,6 @@ void *ibex2_darwin_http_start(void *session_handle, const char *method,
       }
     }
     if (body_len > 0) request.HTTPBody = [NSData dataWithBytes:body length:body_len];
-    // Zero keeps URLSession's default (60 s without data).
     if (timeout_seconds > 0) request.timeoutInterval = timeout_seconds;
     Ibex2Exchange *exchange = [[Ibex2Exchange alloc] initWithLimit:max_body];
     exchange.pool = pool;

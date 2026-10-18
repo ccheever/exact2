@@ -18,7 +18,8 @@ theorem paused_bool : ∀ c, Reachable videoPlayer c → SlotIn "paused" IsBool 
       simp only [videoPlayer, List.mem_cons, List.mem_nil_iff, or_false] at ha
       -- One case per action, however many the app declares.
       repeat' first | (rcases ha with rfl | ha) | subst ha
-      all_goals simp [wp, assignPre, Keeps, Effects.write, Effects.rowWrite, Effects.command, IsBool]
+      -- `Assn.outer`: what follows a `let` (settle's `nextQuiet`) is proved under it.
+      all_goals simp [wp, assignPre, Keeps, Assn.outer, Effects.write, Effects.rowWrite, Effects.command, IsBool]
       -- `toggle` writes `not paused`, a bool whatever it read.
       intro v hv _
       rcases hv with ⟨-, rfl⟩ | ⟨-, rfl⟩ <;> simp
@@ -27,9 +28,11 @@ theorem paused_bool : ∀ c, Reachable videoPlayer c → SlotIn "paused" IsBool 
   · simp only [videoPlayer, List.mem_cons, List.mem_nil_iff, or_false] at hst
     repeat' first | (rcases hst with rfl | hst) | subst hst
     all_goals simp at hn
-    rcases hv with ⟨h, -⟩ | ⟨_, hv⟩
+    -- The third origin is a persisted state's stored value: not this state.
+    rcases hv with ⟨h, -⟩ | ⟨_, hv⟩ | ⟨h, -⟩
     · cases h
     · rw [EvalR.bool_iff] at hv; exact ⟨_, hv⟩
+    · cases h
   · simp [videoPlayer] at hm
   · simp [videoPlayer] at hr
 
@@ -76,6 +79,6 @@ theorem done_focuses {o c args rows c' out}
         exact ⟨rfl, rfl, rfl⟩)
   obtain ⟨hw, hs, hc⟩ := hq
   rw [hs] at hA; cases hA
-  exact ⟨by rw [hsl, hw]; rfl, by rw [hcmd, hc]⟩
+  exact ⟨by rw [hsl, hw]; rfl, by rw [hcmd, hc]; rfl⟩
 
 end VideoPlayer

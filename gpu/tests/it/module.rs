@@ -230,6 +230,9 @@ mod seams {
         fn take_error(&mut self) -> Option<SurfaceError> {
             self.1.take()
         }
+        fn opaque(&self) -> bool {
+            true
+        }
         fn wants_input(&self) -> bool {
             true
         }
@@ -288,7 +291,8 @@ mod seams {
     #[test]
     fn module_seams_drain_once_and_stamp_frames() {
         if gpu_load() != 0 {
-            eprintln!("{}; seam device test skipped", exact_gpu::native::error());
+            // Only an absent adapter skips (and fails under EXACT_REQUIRED); a load failure fails.
+            exact_gpu::fixture::device_or_skip::<()>(Err(exact_gpu::native::error()));
             return;
         }
         // SAFETY: a retained Metal layer stays alive until after gpu_destroy.
@@ -310,6 +314,8 @@ mod seams {
         };
         assert_ne!(id, 0, "{}", exact_gpu::native::error());
         assert_eq!(gpu_wants_input(id), 1);
+        assert_eq!(gpu_presentation_flags(id), 3);
+        assert_eq!(gpu_presentation_flags(u32::MAX), 0);
         assert_eq!(exact_gpu::native::bind(id, "[]"), 0);
         assert_eq!(unsafe { gpu_bind_at(id, b"[]".as_ptr(), 2, 500.0) }, 0);
         BINDS.with(|b| assert_eq!(*b.borrow(), [None, Some(500.0)]));
@@ -422,7 +428,7 @@ mod seams {
     #[test]
     fn surface_failures_reach_the_real_abi_and_committed_binds_stay_accepted() {
         if gpu_load() != 0 {
-            eprintln!("SKIP error ABI fixture: {}", exact_gpu::native::error());
+            exact_gpu::fixture::device_or_skip::<()>(Err(exact_gpu::native::error()));
             return;
         }
         // SAFETY: retained layer outlives the canvas.
@@ -731,7 +737,7 @@ fn lifecycle_and_clock_reach_surfaces_without_a_device() {
     );
     m.set_seekable(false);
     assert!(m.agent(agent, "").unwrap().ends_with("clock:false"));
-    exact_gpu::native::load_headless(&REGISTRY);
+    exact_gpu::native::load_headless(&REGISTRY, "test-gpu");
     let id = exact_gpu::native::create_headless("probe");
     assert_eq!(exact_gpu::native::agent(id, ""), "clock:true");
     exact_gpu::native::unload();

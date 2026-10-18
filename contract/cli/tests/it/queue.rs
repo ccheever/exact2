@@ -19,7 +19,7 @@ component App
   state ticks = 0
   state trigger = 0
   resource probe = check() as shape number
-  resource big = big(trigger) as shape list<Ack>
+  resource big = big(trigger) as shape Ack[]
   mutation wrote as shape Ack queue refreshes probe then afterWrote
   mutation rec as shape Ack queue
   derive last = match wrote { case some(a) => a.op, case none => "-" }
@@ -59,7 +59,7 @@ component App
     column
       text log testId="log"
       text pending(wrote) ? "busy" : "idle" testId="busy"
-      each a in big key=a.op
+      for a in big key=a.op
         text a.op + a.op
 "#;
 
@@ -69,6 +69,8 @@ component App
 struct Desk {
     later: bool,
     fail_parse: bool,
+    fail_now: bool,
+    malformed: bool,
     fail_check: bool,
     asks: Vec<String>,
     checks: usize,
@@ -118,6 +120,11 @@ impl DataSource for Desk {
                 "https://desk.test/step1",
                 &op,
             ))),
+            "save" if self.fail_now => Err(DataError::Failed(
+                exact_runner::failure::FailureCode::Error,
+                "no seats left".into(),
+                "FULL".into(),
+            )),
             "save" if self.later => Ok(Answer::Later(Request::post_json(
                 "https://desk.test/save",
                 &op,
@@ -133,8 +140,15 @@ impl DataSource for Desk {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
+        if self.malformed {
+            return Ok(Answer::Now(Value::Number(42.0)));
+        }
         if self.fail_parse {
-            return Err(DataError::Unavailable("parse refused".into()));
+            return Err(DataError::Failed(
+                exact_runner::failure::FailureCode::Error,
+                "parse refused".into(),
+                "FULL".into(),
+            ));
         }
         let op = args[0].as_str().unwrap_or("");
         match outcome {
@@ -776,4 +790,136 @@ fn the_commit_after_a_refused_queued_ask_reports_its_refusal() {
         Err(RunnerError::TaskKey { task }) if task == "watch"
     ));
     assert!(r.journal().any(|l| l.contains("rec queued send refused")));
+}
+
+#[test]
+fn mutation_failures_are_readable_clear_on_send_and_do_not_run_then() {
+    let app = APP.replacen("  action pair", "  action clearFailure\n    wrote = none\n  action pair", 1).replace("  derive last =", "  derive why = match failure(wrote) { case some(f) => f.code, case none => \"ok\" }\n  derive broken = failed(wrote)\n  derive last =");
+    let mut r = boot_with(
+        &app,
+        Desk {
+            later: true,
+            ..Desk::default()
+        },
+    );
+    r.act("one", vec![Value::str("a")]).unwrap();
+    let t = tickets(&mut r);
+    r.data().fail_parse = true;
+    r.fulfill(t[0], reply("ok")).unwrap();
+    assert_eq!(r.derive("broken"), Some(&Value::Bool(true)));
+    assert_eq!(r.derive("why"), Some(&Value::str("FULL")));
+    assert_eq!(slot(&r, "log"), "");
+    r.act("clearFailure", vec![]).unwrap();
+    assert_eq!(
+        r.derive("why"),
+        Some(&Value::str("ok")),
+        "assignment clears a queued mutation failure"
+    );
+    r.data().fail_parse = false;
+    r.data().malformed = true;
+    r.act("one", vec![Value::str("bad")]).unwrap();
+    let t = tickets(&mut r);
+    r.fulfill(t[0], reply("ok")).unwrap();
+    assert_eq!(r.derive("why"), Some(&Value::str("shape")));
+    r.data().malformed = false;
+    r.act("one", vec![Value::str("b")]).unwrap();
+    assert_eq!(r.derive("why"), Some(&Value::str("ok")));
+    assert_eq!(r.derive("broken"), Some(&Value::Bool(false)));
+    let t = tickets(&mut r);
+    r.fulfill(t[0], reply("ok")).unwrap();
+    r.advance(0.0).unwrap();
+    assert_eq!(slot(&r, "log"), " b");
+}
+
+#[test]
+fn a_queue_next_clears_failure_for_immediate_and_deferred_answers() {
+    let app = APP.replace("  derive last =", "  derive why = match failure(wrote) { case some(f) => f.code, case none => \"ok\" }\n  derive last =");
+    for deferred in [false, true] {
+        let mut r = boot_with(
+            &app,
+            Desk {
+                later: true,
+                ..Desk::default()
+            },
+        );
+        r.act("pair", vec![]).unwrap();
+        let first = tickets(&mut r)[0];
+        r.data().fail_parse = true;
+        r.fulfill(first, reply("ok")).unwrap();
+        assert_eq!(r.derive("why"), Some(&Value::str("FULL")));
+        r.data().fail_parse = false;
+        r.data().later = deferred;
+        r.advance(0.0).unwrap();
+        assert_eq!(
+            r.derive("why"),
+            Some(&Value::str("ok")),
+            "next deferred={deferred}"
+        );
+        if deferred {
+            let next = tickets(&mut r)[0];
+            r.fulfill(next, reply("ok")).unwrap();
+            assert_eq!(r.derive("why"), Some(&Value::str("ok")));
+        }
+    }
+}
+
+#[test]
+fn a_refused_queue_next_restores_the_previous_failure() {
+    let app = APP.replace("  derive last =", "  derive why = match failure(wrote) { case some(f) => f.code, case none => \"ok\" }\n  derive last =");
+    let mut r = boot_with(
+        &app,
+        Desk {
+            later: true,
+            ..Desk::default()
+        },
+    );
+    r.act("pair", vec![]).unwrap();
+    let first = tickets(&mut r)[0];
+    r.data().fail_parse = true;
+    r.fulfill(first, reply("ok")).unwrap();
+    r.data().fail_parse = false;
+    r.data().later = false;
+    r.data().fail_check = true;
+    assert!(r.advance(0.0).is_err());
+    assert_eq!(r.derive("why"), Some(&Value::str("FULL")));
+    assert_eq!(r.queued(), [("wrote".to_string(), 1)]);
+    r.data().fail_check = false;
+    r.act("bump", vec![]).unwrap();
+    r.advance(0.0).unwrap();
+    assert_eq!(r.derive("why"), Some(&Value::str("ok")));
+}
+
+#[test]
+fn immediate_mutation_refusals_expose_domain_failures_and_clear_on_retry() {
+    for queued in [false, true] {
+        let app = APP.replace("  derive last =", "  derive why = match failure(wrote) { case some(f) => f.code, case none => \"ok\" }\n  derive broken = failed(wrote)\n  derive last =");
+        let app = if queued {
+            app
+        } else {
+            app.replace(
+                "mutation wrote as shape Ack queue",
+                "mutation wrote as shape Ack",
+            )
+            .replace("    send wrote = save(\"b\")\n", "")
+            .replace("    send wrote = two(\"m\")\n", "")
+        };
+        let mut r = boot_with(
+            &app,
+            Desk {
+                fail_now: true,
+                ..Desk::default()
+            },
+        );
+        r.act("one", vec![Value::str("a")]).unwrap();
+        assert_eq!(r.derive("broken"), Some(&Value::Bool(true)));
+        assert_eq!(r.derive("why"), Some(&Value::str("FULL")));
+        assert_eq!(slot(&r, "log"), "");
+        assert!(!busy(&r));
+        r.data().fail_now = false;
+        r.act("one", vec![Value::str("b")]).unwrap();
+        assert_eq!(r.derive("broken"), Some(&Value::Bool(false)));
+        assert_eq!(r.derive("why"), Some(&Value::str("ok")));
+        r.advance(0.0).unwrap();
+        assert_eq!(slot(&r, "log"), " b");
+    }
 }

@@ -105,42 +105,15 @@ impl<D: DataSource> Runner<D> {
         }
         let view = feedback.view;
         let mut tree = self.tree.take().expect("booted");
-        // @ref LLP 1010 §6.9 — the list's own padding and scroll padding,
-        // `env()` and a computed value resolved: the room a host scrolls
-        // before and past the rows, and the inset `scrollIntoView` aligns
-        // within. Not the layout's padding, which adds a route's cover (LLP
-        // 1075.003 §3.5) that Apple's hosts do not scroll.
-        if let Some(node) = self.kernel.node(view) {
-            let env = self.kernel.env();
-            let points = |d: exact_kernel::Dimension| match d.resolve(&env) {
-                exact_kernel::Dimension::Points(n) => n as f64,
-                _ => 0.0,
-            };
-            let (s, r) = (node.style, &node.style.rare);
-            tree.set_collection_insets(
-                view,
-                crate::instance::collection::Insets {
-                    padding: [
-                        s.padding_top,
-                        s.padding_right,
-                        s.padding_bottom,
-                        s.padding_left,
-                    ]
-                    .map(points),
-                    scroll: [
-                        r.scroll_padding_top,
-                        r.scroll_padding_right,
-                        r.scroll_padding_bottom,
-                        r.scroll_padding_left,
-                    ]
-                    .map(points),
-                },
-            );
-        }
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
+            let scroll_margin = |view| scroll_margin(&self.kernel, view);
+            let scroll_padding = |view| scroll_padding(&self.kernel, view);
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.fonts = Some(self.fonts.clone());
             update.reuse = self.reuse;
+            update.scroll_padding = Some(&scroll_padding);
+            update.scroll_margin = Some(&scroll_margin);
             tree.update_collection(&mut update, feedback, fill)
                 .map(|changed| {
                     (
@@ -246,7 +219,7 @@ impl<D: DataSource> Runner<D> {
                     break;
                 }
                 let first_ticket = self.next_ticket;
-                match self.dispatch_edge(view, event) {
+                match self.arrived(|r| r.dispatch_edge(view, event)) {
                     Ok((receipt, changed)) => {
                         result.receipts.push(Timed {
                             at_ms: self.now_ms,
@@ -279,6 +252,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        result.now_ms = self.now_ms;
         Ok(result)
     }
     /// List `view`'s port is at `offset` (from its first row, as a report's):
@@ -302,6 +276,7 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let shown = {
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.fonts = Some(self.fonts.clone());
             tree.show_collection(&mut update, view, offset);
             update.shown
         };
@@ -443,4 +418,40 @@ impl<D: DataSource> Runner<D> {
         }
         renewed
     }
+}
+
+/// `view`'s `scroll-padding`, top, right, bottom, left, in points, as its
+/// committed style resolves it now ([`Update::scroll_padding`]): `env()` and a
+/// computed value resolved.
+pub(super) fn scroll_padding(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
+    let Some(node) = kernel.node(view) else {
+        return [0.0; 4];
+    };
+    let env = kernel.arena().env();
+    let r = &node.style.rare;
+    [
+        r.scroll_padding_top,
+        r.scroll_padding_right,
+        r.scroll_padding_bottom,
+        r.scroll_padding_left,
+    ]
+    .map(|d| match d.resolve(env) {
+        exact_kernel::Dimension::Points(n) => n as f64,
+        _ => 0.0,
+    })
+}
+
+/// The expanded target box used by a keyed list jump.
+pub(super) fn scroll_margin(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
+    let Some(node) = kernel.node(view) else {
+        return [0.0; 4];
+    };
+    let r = &node.style.rare;
+    [
+        r.scroll_margin_top,
+        r.scroll_margin_right,
+        r.scroll_margin_bottom,
+        r.scroll_margin_left,
+    ]
+    .map(|d| f64::from(d.at_basis(kernel.arena().env(), 0.0)))
 }

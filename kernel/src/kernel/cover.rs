@@ -9,17 +9,28 @@
 //! Authored rows never change, and a host that reports nothing (the web,
 //! Linux, the agent's presentation) lays out exactly as authored.
 //!
+//! A scroller whose content the platform itself insets — UIKit's adjusted
+//! content inset under a navigation bar and over the home indicator — is
+//! reported by those insets (`Inset`): its content box for layout excludes
+//! them, so content that fills the scroller's height rests between the bar
+//! and the indicator, while the content keeps its place (the platform's
+//! inset moves it) and its published scroll extent leaves them out (the
+//! platform adds them back). Scrolling content still passes under both.
+//!
 //! A replaced header that cleared the status bar itself (the web's
 //! `padding-top: env(safe-area-inset-top)` under `viewport-fit=cover`)
 //! hands that inset to its route's top cover, so the route's content starts
 //! at the bar's bottom whichever of the two padded it (LLP 1075.003 §9.10).
+//!
+//! The margins a platform's own list gives a grouped list's cards and cells
+//! are a claim of the same kind (`grouped::GroupedMargins`), set here.
 
 use super::Kernel;
 use crate::arena::NodeArena;
 use crate::error::{KernelError, LayoutError};
 use crate::id::ViewId;
 use crate::layout::LayoutMirror;
-use crate::style::{Dimension, Edge};
+use crate::style::{Dimension, Edge, Region};
 
 /// A host container's claim on one box.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -29,6 +40,10 @@ pub enum HostCover {
     Edges([f32; 4]),
     /// Replaced by a native control: the box takes no space.
     Whole,
+    /// A scroller the platform insets by these points at its top and bottom
+    /// edges: subtracted from its content box's height for layout, never
+    /// moving the content, and left out of its published extent.
+    Inset([f32; 2]),
 }
 
 impl Kernel {
@@ -43,12 +58,16 @@ impl Kernel {
             .arena
             .slot_of(view)
             .ok_or(LayoutError::UnknownView(view))?;
-        if let Some(HostCover::Edges(edges)) = cover {
-            if !edges.iter().all(|e| e.is_finite() && *e >= 0.0) {
-                return Err(LayoutError::InvalidIntrinsicSize(view).into());
-            }
+        let edges: &[f32] = match &cover {
+            Some(HostCover::Edges(e)) => e,
+            Some(HostCover::Inset(e)) => e,
+            _ => &[],
+        };
+        if !edges.iter().all(|e| e.is_finite() && *e >= 0.0) {
+            return Err(LayoutError::InvalidIntrinsicSize(view).into());
         }
-        let cover = cover.filter(|c| *c != HostCover::Edges([0.0; 4]));
+        let cover =
+            cover.filter(|c| *c != HostCover::Edges([0.0; 4]) && *c != HostCover::Inset([0.0; 2]));
         let before = self.arena.cover(slot);
         if before == cover {
             return Ok(());
@@ -63,7 +82,16 @@ impl Kernel {
         let parent = (whole(before) != whole(cover))
             .then(|| self.arena.parent(slot))
             .flatten();
-        for slot in std::iter::once(slot).chain(parent) {
+        // And a block under it is hidden or shown with it (`block::apply`).
+        let blocks: Vec<u32> = if whole(before) != whole(cover) {
+            let arena = &self.arena;
+            (arena.blocks.roots())
+                .filter(|b| *b != slot && arena.is_ancestor(slot, *b))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        for slot in std::iter::once(slot).chain(parent).chain(blocks) {
             if let (Some(node), Some(layout)) = (self.arena.taffy(slot), self.layout.as_deref_mut())
             {
                 layout.restyle(&self.arena, slot, node);
@@ -71,6 +99,99 @@ impl Kernel {
             }
         }
         Ok(())
+    }
+}
+
+impl Kernel {
+    /// Set or clear (`None`) the margins the platform's list gives the
+    /// grouped list `view`. Nonfinite or negative lengths are refused.
+    pub fn set_grouped_margins(
+        &mut self,
+        view: ViewId,
+        margins: Option<crate::grouped::GroupedMargins>,
+    ) -> Result<(), KernelError> {
+        let slot = self
+            .arena
+            .slot_of(view)
+            .ok_or(LayoutError::UnknownView(view))?;
+        let lengths = margins.map_or([0.0; 4], |m| [m.card[0], m.card[1], m.cell[0], m.cell[1]]);
+        if !lengths.iter().all(|l| l.is_finite() && *l >= 0.0) {
+            return Err(LayoutError::InvalidIntrinsicSize(view).into());
+        }
+        if self.arena.grouped_margins(slot) == margins {
+            return Ok(());
+        }
+        self.arena.set_grouped_margins(slot, margins);
+        if let Some(r) = &mut self.region {
+            r.intrinsic(slot);
+        }
+        if let Some(layout) = self.layout.as_deref_mut() {
+            for &section in self.arena.children(slot) {
+                crate::grouped::restyle(&self.arena, layout, section);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A cover's part of a box's engine style (@ref LLP 1075.003 §3.5): a
+/// container's bars add to the padding of the route they cover, a box a bar
+/// replaces takes no space, and a scroller the platform insets ends its
+/// content box that much sooner (LLP 1116.000 D1.2): its end padding takes
+/// both insets, so its children keep their start and their scroll extent's
+/// end is where the platform's own inset begins.
+pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    let (style, env) = (arena.effective_style(slot), arena.env());
+    match arena.cover(slot) {
+        Some(HostCover::Whole) => s.display = taffy::style::Display::None,
+        Some(HostCover::Edges(_)) => {
+            let [top, right, bottom, left] = added_padding(arena, slot);
+            s.padding = taffy::geometry::Rect {
+                top: style.padding_top.floor_lp(env, top),
+                right: style.padding_right.floor_lp(env, right),
+                bottom: style.padding_bottom.floor_lp(env, bottom),
+                left: style.padding_left.floor_lp(env, left),
+            };
+        }
+        Some(HostCover::Inset(_)) => {
+            let [_, _, bottom, _] = added_padding(arena, slot);
+            s.padding.bottom = style.padding_bottom.floor_lp(env, bottom);
+        }
+        None => {}
+    }
+}
+
+/// The points a cover adds to the box's padding for layout (`apply`), top,
+/// right, bottom and left: the host's sizing, not the box's CSS padding.
+pub(crate) fn added_padding(arena: &NodeArena, slot: u32) -> [f32; 4] {
+    match arena.cover(slot) {
+        Some(HostCover::Edges([top, right, bottom, left])) => {
+            [top + header_inset(arena, slot, top), right, bottom, left]
+        }
+        Some(HostCover::Inset([top, bottom])) => [0.0, 0.0, top + bottom, 0.0],
+        _ => [0.0; 4],
+    }
+}
+
+/// The scroll extent a scroller publishes: what the engine measured, less
+/// the insets the platform adds back (`Inset`).
+pub(crate) fn published_extent(arena: &NodeArena, slot: u32, extent: (f32, f32)) -> (f32, f32) {
+    match arena.cover(slot) {
+        Some(HostCover::Inset([top, bottom])) => (extent.0, (extent.1 - top - bottom).max(0.0)),
+        _ => extent,
+    }
+}
+
+/// Whether the platform insets this scroller (`Inset`).
+pub(crate) fn inset(arena: &NodeArena, slot: u32) -> bool {
+    matches!(arena.cover(slot), Some(HostCover::Inset(_)))
+}
+
+/// `s` as authored at the end the platform's inset took (`apply`).
+pub(crate) fn without_inset(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    if inset(arena, slot) {
+        let (style, env) = (arena.effective_style(slot), arena.env());
+        s.padding.bottom = style.padding_bottom.floor_lp(env, 0.0);
     }
 }
 
@@ -85,7 +206,8 @@ pub(crate) fn children_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror,
 
 /// The top inset a box's replaced first child cleared for itself: that
 /// child is covered whole and pads its top by `env(safe-area-inset-top)`
-/// (or a comparison that reads it, LLP 1001 §2).
+/// or the corner-adapted safe area's, which never lies above it (LLP 1123
+/// D10), or a `calc()` or comparison that reads one (LLP 1001 §2).
 /// It counts only while a bar covers the box's top (`top > 0`); a scroller
 /// that goes under the bar is inset by the platform instead.
 pub(crate) fn header_inset(arena: &NodeArena, slot: u32, top: f32) -> f32 {
@@ -97,11 +219,16 @@ pub(crate) fn header_inset(arena: &NodeArena, slot: u32, top: f32) -> f32 {
         arena.cover(first),
         arena.style(first).padding_top,
     ) {
-        (true, Some(HostCover::Whole), Dimension::Env(Edge::Top, _)) => {
-            arena.env().inset(Edge::Top)
-        }
+        (true, Some(HostCover::Whole), Dimension::Env(Edge::Top, _))
+        | (
+            true,
+            Some(HostCover::Whole),
+            Dimension::Region(Region::SafeAreaCorners, Edge::Top, _),
+        ) => arena.env().inset(Edge::Top),
         // `max(env(safe-area-inset-top), 12px)` clears the inset too.
-        (true, Some(HostCover::Whole), Dimension::Compare(c)) if c.reads(Edge::Top) => {
+        (true, Some(HostCover::Whole), Dimension::Compare(c))
+            if c.reads(Edge::Top, arena.env()) =>
+        {
             arena.env().inset(Edge::Top)
         }
         _ => 0.0,

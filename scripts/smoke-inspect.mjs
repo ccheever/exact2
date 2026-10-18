@@ -116,7 +116,10 @@ export async function hostSections(s, { host, tree, state, check }) {
     await s.type('station-search', { key: 'Enter' });
     state = await s.state();
     tree = await s.tree();
-    check(state.slots.lastKey === 'Enter' && byTestId(tree, 'search-hint')?.props.text === 'searching · last key Enter', `Enter at the field: lastKey ${JSON.stringify(state.slots.lastKey)}, hint ${JSON.stringify(byTestId(tree, 'search-hint')?.props.text)}`);
+    // The field hears the key; on iOS Return then puts the keyboard away from
+    // a single-line field (LLP 1115.000 D9.2), so the hint goes with the focus.
+    const hint = byTestId(tree, 'search-hint')?.props.text;
+    check(state.slots.lastKey === 'Enter' && (host === 'ios' ? state.slots.searchFocused === false && hint === undefined : hint === 'searching · last key Enter'), `Enter at the field: lastKey ${JSON.stringify(state.slots.lastKey)}, searchFocused ${state.slots.searchFocused}, hint ${JSON.stringify(hint)}`);
     check(byTestId(tree, 'station-search')?.props.value === 'Palo', `Enter changed the field's text to ${JSON.stringify(byTestId(tree, 'station-search')?.props.value)}`);
   }
   return { state, tree };
@@ -157,4 +160,16 @@ export async function poolingDrive(s, { host, check }) {
   check(after.parks > before.parks && after.takes > before.takes, `carousel: the feed's far move parked ${after.parks - before.parks} and took ${after.takes - before.takes} rows; both must grow`);
   if (a) check(a.coverage?.kept?.parkedRoots === after.parked, `carousel: layout agree counted ${a.coverage?.kept?.parkedRoots} parked roots, state.pool ${after.parked}`);
   console.log(`${host} carousel pool: parks ${before.parks}→${after.parks}, takes ${before.takes}→${after.takes}, parked ${after.parked}`);
+}
+
+/** A web page the smoke reloaded has booted again. Nothing notifies across a reload, so this polls, and its bound
+ *  only stops a page that never boots (docs/testing.md). The bound was 5 s, which a loaded Mac's boot outlasts, and
+ *  the caller then read an `exact` the page had not made yet ("exact is not defined"). */
+export async function rebooted(carrier) {
+  const ready = "document.readyState === 'complete' && document.getElementById('exact-root')?.dataset.bootMs != null && !!globalThis.exact?.agentSettled";
+  for (let i = 0; i < 600; i++) {
+    if (await carrier.evaluate(ready).catch(() => false)) return;
+    await new Promise((done) => setTimeout(done, 50));
+  }
+  throw new Error('the reloaded page did not boot within 30 s');
 }

@@ -253,7 +253,7 @@ fn currentcolor_borders_and_inline_runs_follow_an_animating_color() {
 #[test]
 fn an_exit_animates_a_colour_the_node_never_transitioned() {
     let mut host = boot(
-        "keyframes leave\n  to background-color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"Hide\"\n      when shown\n        column testId=\"gone\" height=40 background-color=\"#ff0000\" -exact-exit-animation=\"leave 1s linear both\"\n",
+        "keyframes leave\n  to background-color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"Hide\"\n      if shown\n        column testId=\"gone\" height=40 background-color=\"#ff0000\" -exact-exit-animation=\"leave 1s linear both\"\n",
     );
     let (hide, gone) = (view(&host, "hide"), view(&host, "gone"));
     let off = host.dispatch_at(hide, Event::Press, 0.0);
@@ -390,7 +390,7 @@ fn an_svg_fill_moves_between_its_light_dark_pair() {
 #[test]
 fn an_exit_presents_text_color_over_the_last_style() {
     let mut host = boot(
-        "keyframes leave\n  to color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button \"Hide\" press=hide testId=\"hide\"\n      when shown\n        text \"Leaving\" testId=\"gone\" color=\"#ff0000\" -exact-exit-animation=\"leave 1s linear both\"\n",
+        "keyframes leave\n  to color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button \"Hide\" press=hide testId=\"hide\"\n      if shown\n        text \"Leaving\" testId=\"gone\" color=\"#ff0000\" -exact-exit-animation=\"leave 1s linear both\"\n",
     );
     let (hide, gone) = (view(&host, "hide"), view(&host, "gone"));
     host.dispatch_at(hide, Event::Press, 0.0);
@@ -449,4 +449,43 @@ fn cancelling_color_motion_restores_inheriting_views_and_inline_runs() {
         serde_json::json!([255, 255, 255, 255]),
         "{paragraph}"
     );
+}
+
+/// LLP 1116 D5: a radius that is a calculation with a percentage crosses to
+/// Swift as a handle on the kernel's evaluator, the environment's inset in
+/// it: `min(50%, calc(env(safe-area-inset-top) + 10px))` is half the basis up
+/// to 60 points, then 30.
+#[test]
+fn a_calculated_radius_carries_its_own_environment() {
+    use exact_kernel::{Env, StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(
+            StyleId::BorderRadiusTopLeft,
+            &StyleValue::Text("min(50%, calc(env(safe-area-inset-top) + 10px))".into()),
+        )
+        .unwrap();
+    let context = |top| {
+        let (json, _) = exact_apple::style::style_json(&style, &Env::new(top, 0.0, 0.0, 0.0));
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let radius = &value["border_radius_top_left"];
+        let handle = radius["calc"].as_u64().unwrap() as u32;
+        let environment: Vec<f64> = radius["env"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap())
+            .collect();
+        (
+            handle,
+            exact_apple::calc::Context::new(handle, &environment).unwrap(),
+        )
+    };
+    let (first_handle, first) = context(20.0);
+    assert_eq!(first.length(40.0), 20.0);
+    assert_eq!(first.length(200.0), 30.0);
+    let (other_handle, other) = context(2.0);
+    assert_eq!(first_handle, other_handle);
+    assert_eq!(other.length(200.0), 12.0);
+    assert_eq!(first.length(200.0), 30.0);
 }

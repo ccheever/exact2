@@ -1,0 +1,72 @@
+// data: metronome
+// Synthetic conformance plan: clock in (LLP 1125 D9) on the wasm runner, the
+// JS runtime and the Linux host, all under the driver, on the metronome's
+// data app (which grants `device.midi`): a sequence that follows `clk`
+// waits, hears the tempo from the ticks, counts in from Start, re-anchors at
+// a tempo change, starts its window over after a gap, stops at Stop (heard
+// by a handler), resumes at Continue from Song Position, restarts at a key
+// change and stops at the gate. The journal's `sequence`, `sound` and `midi`
+// lines, `state.transport` (its `follow` included), `state.midi`, the voices
+// and `exactTransport()`'s answer compare on every target. (No slot shares a
+// name with the metronome's.)
+
+sound "assets/kick.wav"
+sound "assets/hat.wav"
+
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+
+shape Track
+  beats: number
+  loops: number
+  offset: number
+  output: string
+  steps: Step[]
+
+shape Transport
+  state: string
+  reason: string
+  bpm: number
+  anchorAt: number
+  anchorBeat: number
+  clock: string
+
+fn hit(beat: number, src: string, n: number): Step = Step(beat=beat, src=src, gain=1, group="", note=n, velocity=100, channel=9, duration=0.25, haptic="")
+
+component ClockConf
+  state clkOn = false
+  state clkTake = 0
+  state clkHeard = 0
+  state clkLast = -1
+  state clkBeat = -2
+  resource clkTransport = exactTransport() as shape Transport
+  action clkAsk
+    requestMIDIAccess()
+  action clkStart
+    clkOn = true
+  action clkStop
+    clkOn = false
+  action clkRestart
+    clkTake = clkTake + 1
+  action clkHear(e: MIDIMessageEvent)
+    clkHeard = clkHeard + 1
+    clkLast = match e.data.at(0) { case some(v) => v, case none => -1 }
+    clkBeat = e.beat
+  sequence follow when clkOn key=clkTake
+    play([Track(beats=1, loops=0, offset=0, output="synth", steps=[hit(0, "assets/kick.wav", 36), hit(0.5, "assets/hat.wav", 42)]), Track(beats=0.75, loops=0, offset=-20, output="", steps=[hit(0, "assets/hat.wav", -1)])], bpm=110, from=-2, countIn=[hit(0, "assets/hat.wav", -1), hit(1, "assets/hat.wav", -1)], clock="clk")
+  view
+    column midimessage=clkHear midiinputs=["clk"] testId="root"
+      text `${clkTransport.state} ${clkTransport.reason} ${clkTransport.bpm} ${clkTransport.clock}` testId="transport"
+      text `${clkHeard} ${clkLast} ${clkBeat}` testId="heard"
+      button "ask" press=clkAsk testId="ask"
+      button "start" press=clkStart testId="start"
+      button "stop" press=clkStop testId="stop"
+      button "restart" press=clkRestart testId="restart"

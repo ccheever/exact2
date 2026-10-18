@@ -7,6 +7,10 @@ state in exactly this form; the two texts are compared line by line.
   `== <step>`              the step that produced what follows
   `outcome ok|refused|poisoned`
   `slot <name> <value>`    each root slot, declaration order, mutations last
+  `store <name> <value>`   each persisted state (LLP 1116 D5), declaration
+                           order: what the device's store keeps for it,
+                           which after every commit that stands is the
+                           slot's value
   `derive <name> <value>`  each derive, declaration order
   `resource <name> <value>`
   `queued <name> <count>`   each `queue` mutation's waiting sends
@@ -14,7 +18,8 @@ state in exactly this form; the two texts are compared line by line.
   `view <testId> <text>`   each element with a `testId`, in preorder, but
                            none inside a virtualized `list`: the runner
                            shows the rows its window lays out (a layout
-                           fact), the semantics every row
+                           fact), the semantics every row. An unopened
+                           tab panel has no descendants to observe
 
 Values: a number is `n` and its 16 hex digits of IEEE bits (every NaN is
 `7ff8000000000000`); a string is quoted with `\"`, `\\`, `\n`, `\r`, `\t`
@@ -87,6 +92,8 @@ def lines (p : Program) (label : String) (c : Config) (out : Outcome) (commandsB
     if c.poisoned then head else
     head ++
     ((c.slots.filter fun (x, _) => p.locale != .some x).map fun (x, v) => "slot " ++ x ++ " " ++ value v) ++
+    ((p.states.filter (·.persist)).filterMap fun st => (lookup st.name c.slots).map fun v =>
+      "store " ++ st.name ++ " " ++ value v) ++
     (p.derives.filterMap fun d => (lookup d.name c.settled.derives).map fun v =>
       "derive " ++ d.name ++ " " ++ value v) ++
     (p.resources.filterMap fun r => (lookup r.name c.settled.resources).map fun v =>

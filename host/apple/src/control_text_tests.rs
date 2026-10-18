@@ -35,6 +35,8 @@ struct CachedChrome {
     seen: HashSet<(u8, u32)>,
     forever: bool,
     failure: Option<std::rc::Rc<std::cell::Cell<bool>>>,
+    /// A font size whose chrome never settles while set.
+    fails_at: Option<std::rc::Rc<std::cell::Cell<Option<f32>>>>,
 }
 impl TextMeasurer for CachedChrome {
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
@@ -49,6 +51,10 @@ impl TextMeasurer for CachedChrome {
         };
         let provisional = self.forever
             || self.failure.as_ref().is_some_and(|f| f.get())
+            || self
+                .fails_at
+                .as_ref()
+                .is_some_and(|f| f.get() == Some(r.font.size))
             || self.seen.insert((kind, r.font.size.to_bits()));
         FieldChrome {
             top: 6.0,
@@ -66,6 +72,9 @@ const SOURCE: &str = r#"component Fields
       input testId="field" padding="1em" value="hello"
       input testId="bare" appearance="none" value="hello"
       textarea testId="area" rows=2
+      view testId="padded" width=200 height=40 box-sizing="border-box" padding-left="5%"
+      svg testId="mark" width=150 height=40 box-sizing="border-box" padding-left="10%"
+        rect width=10 height=10
 "#;
 fn field(host: &Host<NoData>, name: &str) -> u32 {
     let kernel = host.runner().kernel();
@@ -76,11 +85,18 @@ fn field(host: &Host<NoData>, name: &str) -> u32 {
 }
 
 fn boot(measurer: CachedChrome) -> Result<(Host<NoData>, String), crate::HostError> {
-    let plan = contract::compile(SOURCE).unwrap().encode();
+    boot_source(SOURCE, measurer)
+}
+fn boot_source(
+    source: &str,
+    measurer: CachedChrome,
+) -> Result<(Host<NoData>, String), crate::HostError> {
+    let plan = contract::compile(source).unwrap().encode();
     Host::boot_stored_after_decode(
         crate::host::PlanBytes::Copied(&plan),
         NoData,
         Box::new(measurer),
+        crate::host::LaunchLayout::NONE,
         exact_runner::Viewport::sized(400.0, 800.0),
         None,
         Vec::new(),
@@ -92,6 +108,7 @@ fn boot(measurer: CachedChrome) -> Result<(Host<NoData>, String), crate::HostErr
         false,
         None,
         crate::link::Links::ALL,
+        None,
         |runner| {
             let mut env = runner.kernel().env();
             env.control_text_styles = Some(styles(17.0));
@@ -187,12 +204,16 @@ fn running_session_chrome_failure_keeps_updates_but_withholds_staged_geometry() 
     batch.content(native, 300., 400.);
     batch.field_content(
         native,
-        Some(exact_kernel::Frame {
-            x: 1.,
-            y: 2.,
-            width: 3.,
-            height: 4.,
+        Some(crate::batch::ContentBox {
+            rect: exact_kernel::Frame {
+                x: 1.,
+                y: 2.,
+                width: 3.,
+                height: 4.,
+            },
+            padding: None,
         }),
+        false,
     );
     batch.region("{\"op\":\"native-region\",\"origin\":[10,20]}");
     batch.props(native, &[("value", "kept".into())], &[]);
@@ -237,13 +258,17 @@ fn running_session_chrome_failure_keeps_updates_but_withholds_staged_geometry() 
     }
     // Promotion may already have memoized this guessed editor rect. A
     // settled answer equal to that guess must still reach the presenter.
-    let guessed = host
-        .runner()
-        .kernel()
-        .node(native)
-        .unwrap()
-        .field_content_rect();
+    let published = |host: &Host<NoData>, id| {
+        let kernel = host.runner().kernel();
+        super::layout::published_content_box(&kernel.node(id).unwrap(), kernel)
+    };
+    let guessed = published(&host, native);
     host.mirror.get_mut(&native).unwrap().field_content = guessed;
+    // As may an ordinary box's content box, which only layout resolves
+    let padded = field(&host, "padded");
+    let content = published(&host, padded);
+    assert_eq!(content.map(|c| c.rect.x), Some(20.));
+    host.mirror.get_mut(&padded).unwrap().field_content = content;
     failure.set(false);
     let settled: serde_json::Value = serde_json::from_str(&host.resize(400., 800.)).unwrap();
     assert!(settled["error"].is_null(), "{settled}");
@@ -262,6 +287,14 @@ fn running_session_chrome_failure_keeps_updates_but_withholds_staged_geometry() 
             .iter()
             .any(|op| op["op"] == "fieldContent" && op["id"] == native),
         "withheld editor rects must be republished: {settled}"
+    );
+    assert!(
+        settled["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|op| op["op"] == "fieldContent" && op["id"] == padded),
+        "withheld content boxes must be republished: {settled}"
     );
 }
 
@@ -325,8 +358,7 @@ fn resolved_button_geometry_has_one_measurement_and_presentation_payload() {
     assert_eq!(rows.button.padding_left, Dimension::Points(42.));
     assert_eq!(rows.button.padding_right, Dimension::Points(20.));
     assert!(rows.button.mask.has(StyleId::PaddingTop));
-    let presented =
-        crate::button::face_json(kernel.press_face(id).as_ref(), Some(&rows), "bordered");
+    let presented = crate::button::face_json(kernel.press_face(id).as_ref(), Some(&rows), None);
     assert_eq!(captured.borrow().last().unwrap(), &presented);
     let json: serde_json::Value = serde_json::from_str(&presented).unwrap();
     assert_eq!(json["rows"]["button"]["padding_top"], 31.);
@@ -368,6 +400,7 @@ fn control_size_fonts_feed_em_resolution_and_the_shared_face_payload() {
         crate::host::PlanBytes::Copied(&plan),
         NoData,
         Box::new(MonospaceMeasurer::default()),
+        crate::host::LaunchLayout::NONE,
         exact_runner::Viewport::sized(400., 800.),
         None,
         Vec::new(),
@@ -379,6 +412,7 @@ fn control_size_fonts_feed_em_resolution_and_the_shared_face_payload() {
         false,
         None,
         crate::link::Links::ALL,
+        None,
         |runner| {
             let mut env = runner.kernel().env();
             env.control_text_styles = Some(platform);
@@ -398,11 +432,10 @@ fn control_size_fonts_feed_em_resolution_and_the_shared_face_payload() {
     let json: serde_json::Value = serde_json::from_str(&crate::button::face_json(
         kernel.press_face(id).as_ref(),
         Some(&rows),
-        "bordered",
+        None,
     ))
     .unwrap();
     assert_eq!(json["rows"]["title"]["font_size"], 57.);
-    assert_eq!(json["rows"]["title"]["font_size_resolved"], 1);
 }
 
 #[test]
@@ -476,4 +509,169 @@ fn trait_notification_remeasures_buttons_when_control_fonts_are_unchanged() {
     CALLS.set(0);
     bridge.resize(400.0, 800.0);
     assert_eq!(CALLS.get(), 0, "ordinary layouts reuse the new revision");
+}
+
+/// LLP 1116.005 D2: a native field in a grouped list's row asks UIKit for
+/// the field in a list's cell (the kind's cell bit, 4) and is published as
+/// one (`"cell":true` beside its editor box), so iOS draws it borderless,
+/// the cell being the field. A field outside the list is neither.
+#[test]
+fn a_field_in_a_grouped_row_is_asked_for_and_published_as_the_cells_field() {
+    use std::{cell::RefCell, rc::Rc};
+    struct Kinds(Rc<RefCell<Vec<u8>>>);
+    #[allow(unsafe_code)] // Borrow the test-owned callback context and request synchronously.
+    extern "C" fn chrome(
+        ctx: *mut std::ffi::c_void,
+        r: *const crate::control_text::CFieldChromeRequest,
+    ) -> crate::control_text::CFieldChrome {
+        // This callback borrows the request only for the synchronous call.
+        let (out, r) = unsafe { (&*(ctx as *const RefCell<Vec<u8>>), &*r) };
+        out.borrow_mut().push(r.kind);
+        crate::control_text::CFieldChrome::default()
+    }
+    impl TextMeasurer for Kinds {
+        fn measure(&mut self, r: &TextMeasureRequest<'_>) -> TextMetrics {
+            MonospaceMeasurer::default().measure(r)
+        }
+        fn field_chrome(&mut self, r: &FieldChromeRequest) -> FieldChrome {
+            crate::control_text::chrome(chrome, Rc::as_ptr(&self.0) as *mut _, r)
+        }
+    }
+    let source = r#"component Form
+  view
+    column
+      list appearance="auto" listStyle="inset-grouped"
+        section
+          row
+            column flex=1 min-width=0
+              input testId="in-row" value="a" placeholder="Name"
+              textarea testId="area-in-row" value="b"
+      input testId="outside" value="c"
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let kinds = Rc::new(RefCell::new(Vec::new()));
+    let (host, batch) =
+        crate::Host::boot(&plan, NoData, Box::new(Kinds(kinds.clone())), 400., 800.).unwrap();
+    let asked = kinds.borrow().clone();
+    assert!(
+        asked.contains(&4) && asked.contains(&(3 | 4)) && asked.contains(&0),
+        "{asked:?}"
+    );
+    assert!(!asked.contains(&3), "{asked:?}");
+    let ops: serde_json::Value = serde_json::from_str(&batch).unwrap();
+    let content = |name: &str| {
+        let id = field(&host, name);
+        ops["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["op"] == "fieldContent" && op["id"] == id)
+            .cloned()
+            .unwrap_or_else(|| panic!("{name}: no editor box in {batch}"))
+    };
+    assert_eq!(content("in-row")["cell"], true);
+    assert_eq!(content("area-in-row")["cell"], true);
+    assert!(content("outside")["cell"].is_null());
+    assert!(host
+        .runner()
+        .kernel()
+        .node(field(&host, "in-row"))
+        .unwrap()
+        .is_cell_field());
+}
+
+/// The ops of `batch` for `id` named `name`.
+fn ops_of(batch: &str, name: &str, id: u32) -> Vec<serde_json::Value> {
+    let v: serde_json::Value = serde_json::from_str(batch).unwrap();
+    v["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|op| op["op"] == name && op["id"] == id)
+        .cloned()
+        .collect()
+}
+
+/// A failed layout's guessed scene reaches the presenter in no batch, the
+/// failed one or one a later turn makes: the layout that settles sends it.
+#[test]
+fn a_failed_layout_holds_its_scenes_until_one_settles() {
+    let source = r#"component Fields
+  state narrow = false
+  state big = false
+  action shrink
+    narrow = true
+    big = true
+  view
+    column width=(narrow ? 300 : 400)
+      button press=shrink testId="shrink"
+        text "Narrow"
+      input testId="field" value="hello" font-size=(big ? 31 : 22)
+      svg testId="mark" width=150 height=40 box-sizing="border-box" padding-left="10%"
+        rect width=10 height=10
+        rect width=10 height=10 translate=(big ? "20px 0px" : "0px 0px") transition="translate 300ms"
+"#;
+    let fails_at = std::rc::Rc::new(std::cell::Cell::new(Some(31.)));
+    let (mut host, _) = boot_source(
+        source,
+        CachedChrome {
+            fails_at: Some(fails_at.clone()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mark = field(&host, "mark");
+    let failed = host.dispatch_at(field(&host, "shrink"), exact_runner::Event::Press, 0.);
+    assert!(failed.contains("\"layoutProvisional\":true"), "{failed}");
+    assert!(
+        ops_of(&failed, "svg", mark).is_empty(),
+        "a guessed scene: {failed}"
+    );
+    let tick = host.tick(16.);
+    assert!(
+        ops_of(&tick, "svg", mark).is_empty(),
+        "a guessed scene later: {tick}"
+    );
+    fails_at.set(None);
+    let settled = host.resize(400., 800.);
+    let scene = ops_of(&settled, "svg", mark);
+    assert_eq!(
+        scene.last().map(|op| op["scene"]["box"].clone()),
+        Some(serde_json::json!([30, 0, 120, 40])),
+        "{settled}"
+    );
+}
+
+/// A boot whose first layout settles and whose resize handler's layout does
+/// not: what the boot batch held, the layout that settles sends.
+#[test]
+fn a_boot_whose_resize_round_fails_sends_its_held_geometry_on_recovery() {
+    let source = r#"component Fields
+  state big = false
+  action grow(w: number, h: number, r: DOMRectReadOnly)
+    big = true
+  view
+    column testId="page" width=400 resize=grow
+      input testId="field" value="hello" font-size=(big ? 31 : 22)
+      view testId="padded" width=200 height=40 box-sizing="border-box" padding-left="5%"
+"#;
+    let fails_at = std::rc::Rc::new(std::cell::Cell::new(Some(31.)));
+    let (mut host, first) = boot_source(
+        source,
+        CachedChrome {
+            fails_at: Some(fails_at.clone()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let padded = field(&host, "padded");
+    assert!(first.contains("\"layoutProvisional\":true"), "{first}");
+    assert!(ops_of(&first, "frame", padded).is_empty(), "{first}");
+    fails_at.set(None);
+    let settled = host.resize(400., 800.);
+    assert!(!ops_of(&settled, "frame", padded).is_empty(), "{settled}");
+    assert!(
+        !ops_of(&settled, "fieldContent", padded).is_empty(),
+        "{settled}"
+    );
 }

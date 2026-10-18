@@ -3,6 +3,25 @@
 version = 4
 
 [[package]]
+name = "activity-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "activity-fixture-data",
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "activity-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -351,6 +370,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "caltrain-android"
+version = "0.1.0"
+dependencies = [
+ "caltrain-data",
+ "contract",
+ "exact-bake",
+ "exact-linux",
+]
+
+[[package]]
 name = "caltrain-apple"
 version = "0.1.0"
 dependencies = [
@@ -655,6 +684,8 @@ dependencies = [
  "exact-motion",
  "exact-plan",
  "exact-runner",
+ "exact-tamber",
+ "libc",
  "serde_json",
  "sha2",
 ]
@@ -676,6 +707,7 @@ dependencies = [
  "contract-syntax",
  "contract-types",
  "exact-kernel",
+ "exact-motion",
  "exact-plan",
  "exact-runner",
  "serde_json",
@@ -688,10 +720,13 @@ dependencies = [
  "contract-analyze",
  "contract-syntax",
  "contract-types",
+ "exact-color",
  "exact-kernel",
  "exact-motion",
  "exact-num",
  "exact-plan",
+ "exact-route",
+ "exact-tamber",
  "icu_locale",
  "serde_json",
  "sha2",
@@ -706,6 +741,7 @@ name = "contract-types"
 version = "0.1.0"
 dependencies = [
  "contract-syntax",
+ "exact-num",
  "exact-plan",
  "exact-route",
 ]
@@ -1119,6 +1155,7 @@ dependencies = [
  "exact-textflow",
  "ibex2",
  "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -1140,6 +1177,7 @@ name = "exact-bake"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "contract-syntax",
  "exact-color",
  "exact-filesystem",
  "exact-gpu-reflect",
@@ -1179,6 +1217,7 @@ name = "exact-color"
 version = "0.1.0"
 dependencies = [
  "exact-num",
+ "libm",
 ]
 
 [[package]]
@@ -1245,6 +1284,7 @@ dependencies = [
 name = "exact-grants"
 version = "0.1.0"
 dependencies = [
+ "ibex2",
  "serde_json",
  "url",
 ]
@@ -1323,6 +1363,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "smol_str",
  "taffy",
 ]
 
@@ -1342,7 +1383,9 @@ dependencies = [
  "exact-canvas",
  "exact-color",
  "exact-data",
+ "exact-grants",
  "exact-kernel",
+ "exact-linux",
  "exact-markdown",
  "exact-motion",
  "exact-plan",
@@ -1370,6 +1413,8 @@ dependencies = [
  "skrifa",
  "swash",
  "tiny-skia",
+ "unicode-segmentation",
+ "url",
  "vello",
  "wgpu 29.0.4",
  "windows-sys 0.61.2",
@@ -1480,6 +1525,7 @@ version = "0.1.0"
 name = "exact-markdown-editor"
 version = "0.1.0"
 dependencies = [
+ "exact-kernel",
  "exact-markdown",
 ]
 
@@ -1530,6 +1576,8 @@ dependencies = [
  "libc",
  "serde_json",
  "sha2",
+ "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1555,6 +1603,7 @@ dependencies = [
  "exact-num",
  "exact-plan",
  "exact-route",
+ "serde_json",
  "sha2",
 ]
 
@@ -1575,17 +1624,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-tamber"
+version = "0.1.0"
+dependencies = [
+ "exact-color",
+ "exact-kernel",
+ "exact-motion",
+ "exact-num",
+ "serde_json",
+]
+
+[[package]]
 name = "exact-terminal"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
+ "chrono-tz",
  "contract",
  "exact-kernel",
  "exact-plan",
  "exact-runner",
  "exact-textflow",
+ "iana-time-zone",
+ "libc",
  "png",
  "rustix 1.1.4",
+ "signal-hook",
+ "smol_str",
  "unicode-segmentation",
  "unicode-width 0.2.2",
  "vt100",
@@ -1641,6 +1707,8 @@ dependencies = [
  "exact-runner",
  "exact-textflow",
  "exact-web-capabilities",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -2136,6 +2204,7 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-runner",
+ "exact-terminal",
  "markdown-parse",
  "png",
  "rustix 1.1.4",
@@ -2148,6 +2217,7 @@ dependencies = [
 name = "harness-terminal"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-terminal",
  "harness-data",
 ]
@@ -2290,11 +2360,11 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "cc",
- "exact-grants",
  "form_urlencoded",
  "getrandom 0.2.17",
  "hermes-lean-sys",
  "libc",
+ "mio",
  "ring",
  "rustls",
  "rustls-native-certs",
@@ -2773,12 +2843,14 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "markdown-parse",
+ "memchr",
 ]
 
 [[package]]
 name = "llp-terminal"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-terminal",
  "llp-data",
 ]
@@ -2868,7 +2940,9 @@ dependencies = [
 name = "markdown-data"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-data",
+ "exact-kernel",
  "exact-plan",
  "exact-runner",
  "markdown-parse",
@@ -2938,6 +3012,27 @@ dependencies = [
  "exact-web",
  "exact-web-capabilities",
  "markdown-data",
+]
+
+[[package]]
+name = "material-specimens-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "hello-data",
+]
+
+[[package]]
+name = "material-specimens-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-kernel",
+ "exact-linux",
+ "serde_json",
+ "tiny-skia",
 ]
 
 [[package]]
@@ -3033,6 +3128,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "metronome-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "metronome-data",
+]
+
+[[package]]
+name = "metronome-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "metronome-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "metronome-data",
+]
+
+[[package]]
+name = "metronome-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "metronome-data",
+]
+
+[[package]]
 name = "mimalloc"
 version = "0.1.52"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3059,6 +3196,18 @@ checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "mio"
+version = "1.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee"
+dependencies = [
+ "libc",
+ "log",
+ "wasi",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3165,6 +3314,16 @@ dependencies = [
  "indexmap",
  "rustc-hash",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "native-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "native-fixture-data",
 ]
 
 [[package]]
@@ -4425,10 +4584,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "shelf-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
+
+[[package]]
 name = "shelf-apple"
 version = "0.1.0"
 dependencies = [
  "exact-apple",
+ "exact-apple-update",
  "exact-js",
  "exact-js-bake",
  "exact-logic",
@@ -4450,6 +4622,26 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "signal-hook"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
 
 [[package]]
 name = "signature"
@@ -4832,6 +5024,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "tamber-host-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "tamber-host-data",
+]
+
+[[package]]
+name = "tamber-host-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "tamber-host-data",
+]
+
+[[package]]
+name = "tamber-host-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "tamber-host-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "tamber-host-data",
+]
+
+[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4887,6 +5120,7 @@ version = "0.1.0"
 dependencies = [
  "exact-plan",
  "exact-runner",
+ "libm",
 ]
 
 [[package]]
@@ -4912,6 +5146,37 @@ dependencies = [
  "exact-web",
  "exact-web-capabilities",
  "textflow-data",
+]
+
+[[package]]
+name = "theme-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "theme-fixture-data",
+]
+
+[[package]]
+name = "theme-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "theme-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "theme-fixture-data",
 ]
 
 [[package]]
@@ -5062,6 +5327,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
+name = "typetour-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "typetour-data",
+]
+
+[[package]]
 name = "typetour-apple"
 version = "0.1.0"
 dependencies = [
@@ -5150,6 +5425,16 @@ name = "unicode-width"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+
+[[package]]
+name = "unsaid-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "hello-data",
+]
 
 [[package]]
 name = "untrusted"

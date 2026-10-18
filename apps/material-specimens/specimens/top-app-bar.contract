@@ -1,0 +1,12 @@
+routes nav
+  tab library "/"
+component App
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%" position="relative"
+      for t in nav.tabs key = t.name
+        for e in t.stack key = e.id
+          column navigationKey=`${e.id}` position="absolute" inset=0 display="flex" flex-direction="column"
+            header
+              text "Library" role="heading" aria-level=1

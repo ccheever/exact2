@@ -4,18 +4,73 @@
 //! data source is ready — a TypeScript module its host loads after first
 //! pixel — and the runner asks again at `data_ready`.
 //!
-//! Encoded as the identifying arguments (one canonical list) and the value, hex, joined
-//! by `|`; a kept answer whose arguments no longer match, whose bytes no
-//! longer decode, or whose value no longer fits the declared shape is
-//! simply not used, and the compiled empty-store placeholder stands.
+//! Kept as the identifying arguments' canonical list followed by the answer's
+//! canonical bytes, each decoded as it was encoded; a kept answer whose arguments no longer match, whose
+//! bytes no longer decode, or whose value no longer fits the declared shape
+//! is simply not used, and the compiled empty-store placeholder stands.
 
-use super::{DataSource, Runner, RunnerError};
+use super::{DataSource, ResourceState, Runner, RunnerError};
 use crate::store::Store;
 use exact_kernel::CommitReceipt;
 use exact_plan::Value;
 
-/// The largest kept answer, encoded: a session, a list of names — never a feed.
-pub(super) const MAX_KEPT_BYTES: usize = 8 * 1024;
+/// The largest kept answer: its identifying arguments' and its value's
+/// canonical bytes together. Reading, decoding and shape-checking one this
+/// size at boot takes under a millisecond on an iPhone simulator (LLP 1027
+/// D4, 2026-10-16): a library a first screen shows, never a feed.
+const KEPT_DATA_BYTES: usize = 256 * 1024;
+/// The longest kept entry: the data, with the arguments' list header
+pub(super) const MAX_KEPT_BYTES: usize = KEPT_DATA_BYTES + 5;
+/// The longest the kept entries are together: what a boot reads and
+/// decodes in all, on Apple's main thread (about 2 ms for two entries on a
+/// loaded iPhone simulator), what a native host keeps on disk beside the
+/// app's own files, and, as base64, about 700 K of the characters a web
+/// page's `localStorage` shares with the app's secrets and persisted
+/// states (LLP 1027 D4, 2026-10-16).
+pub(crate) const KEPT_TOTAL_BYTES: usize = 2 * MAX_KEPT_BYTES;
+
+/// Whether answers are kept, and the resources an answer too big to keep was said of, once each
+#[derive(Debug, Default)]
+pub(super) struct Keeping {
+    pub(super) on: bool,
+    pub(super) too_big: Vec<usize>,
+    /// The resources said to be kept under an argument of this launch's own, once each
+    pub(super) of_launch: Vec<usize>,
+    /// Kept answers this boot refused, by resource, with why: journaled
+    /// with the ones it shows, so a refusal is never silent.
+    pub(super) refused: Vec<(usize, String)>,
+}
+
+/// Note that resource `i`'s kept answer, kept for `kept`, was refused
+/// for this launch's identifying `now` (or, with `now` unknown, because
+/// they read a store reader still on its fallback). Once per resource.
+pub(super) fn refuse(
+    keeping: &mut Keeping,
+    plan: &exact_plan::Plan,
+    i: usize,
+    kept: &[Value],
+    now: Option<&[Value]>,
+) {
+    if keeping.refused.iter().any(|(r, _)| *r == i) {
+        return;
+    }
+    let json = |args: &[Value]| {
+        let mut out = String::new();
+        crate::agent::untyped_json(&Value::list(args.to_vec()), &mut out);
+        out
+    };
+    let why = match now {
+        Some(now) => format!(
+            "this launch asks for {}",
+            super::lines::shortened(&json(now))
+        ),
+        None => "this launch's arguments read a store reader still on its fallback".into(),
+    };
+    let name = plan.str(plan.resources[i].name);
+    keeping
+        .refused
+        .push((i, super::lines::kept_refused(name, Some(&json(kept)), &why)));
+}
 
 /// The store name a resource's kept answer lives under.
 /// The kept entries in `snapshot` no declared reader of `plan` seeds. A
@@ -23,7 +78,7 @@ pub(super) const MAX_KEPT_BYTES: usize = 8 * 1024;
 /// so any other entry (a reader made transient, a resource removed) is
 /// forgotten on disk, not carried forever. A reload's carried readers are
 /// checked for compatibility instead.
-pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, String)]) -> Vec<String> {
+pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, Vec<u8>)]) -> Vec<String> {
     snapshot
         .iter()
         .filter_map(|(name, _)| {
@@ -39,7 +94,7 @@ pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, String)]) -
 
 /// Every kept entry in `snapshot`: what an app that keeps no answers
 /// forgets (LLP 1069.008.000 D7).
-pub(super) fn all(snapshot: &[(String, String)]) -> Vec<String> {
+pub(super) fn all(snapshot: &[(String, Vec<u8>)]) -> Vec<String> {
     snapshot
         .iter()
         .filter(|(name, _)| name.starts_with(Store::KEPT))
@@ -53,17 +108,17 @@ pub(super) fn kept_name(resource: &str) -> String {
     name
 }
 
-pub(super) fn encode(args: &[Value], value: &Value) -> String {
-    let mut s = hex(&Value::list(args.to_vec()).to_bytes());
-    s.push('|');
-    s.push_str(&hex(&value.to_bytes()));
-    s
+pub(super) fn encode(args: &[Value], value: &Value) -> Vec<u8> {
+    let mut w = exact_plan::bytes::Writer::default();
+    Value::list(args.to_vec()).encode(&mut w);
+    value.encode(&mut w);
+    w.into_vec()
 }
 
-// Count canonical bytes only as far as the hex-text budget permits. Iterators
+// Count canonical bytes only as far as the budget permits. Iterators
 // borrow children: even an enormous list never allocates a traversal-sized stack.
 fn fits(args: &[Value], value: &Value) -> bool {
-    let mut remaining = (MAX_KEPT_BYTES - 1) / 2 - 5; // separator and args-list header
+    let mut remaining = KEPT_DATA_BYTES;
     let mut stack = vec![std::slice::from_ref(value).iter(), args.iter()];
     while let Some(items) = stack.last_mut() {
         let Some(item) = items.next() else {
@@ -98,77 +153,345 @@ fn fits(args: &[Value], value: &Value) -> bool {
     true
 }
 
-pub(super) fn decode(text: &str) -> Option<(Vec<Value>, Value)> {
-    if text.len() > MAX_KEPT_BYTES {
+pub(super) fn decode(bytes: &[u8]) -> Option<(Vec<Value>, Value)> {
+    if bytes.len() > MAX_KEPT_BYTES {
         return None;
     }
-    let (a, v) = text.split_once('|')?;
-    let args = match Value::from_bytes(&unhex(a)?).ok()? {
-        Value::List(items) => items.to_vec(),
-        _ => return None,
+    // Each from its own depth, as it was kept: no envelope costs the answer a level
+    let mut r = exact_plan::bytes::Reader::new(bytes);
+    let Value::List(args) = Value::decode(&mut r).ok()? else {
+        return None;
     };
-    let value = Value::from_bytes(&unhex(v)?).ok()?;
-    Some((args, value))
-}
-
-/// Two lowercase digits a byte (`{:02x}`'s), without the formatter: a kept
-/// answer is written on a first press's path.
-fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        out.push(char::from(DIGITS[usize::from(b >> 4)]));
-        out.push(char::from(DIGITS[usize::from(b & 15)]));
-    }
-    out
-}
-
-fn unhex(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    fn digit(b: u8) -> Option<u8> {
-        match b {
-            b'0'..=b'9' => Some(b - b'0'),
-            b'a'..=b'f' => Some(b - b'a' + 10),
-            b'A'..=b'F' => Some(b - b'A' + 10),
-            _ => None,
-        }
-    }
-    s.as_bytes()
-        .chunks_exact(2)
-        .map(|pair| Some(digit(pair[0])? * 16 + digit(pair[1])?))
-        .collect()
+    let value = Value::decode(&mut r).ok()?;
+    r.is_empty().then(|| (args.to_vec(), value))
 }
 
 impl<D: DataSource> Runner<D> {
+    /// Whether resource `i`'s identifying call arguments (not its `with`
+    /// context) read, directly or through derives, a store-reading resource
+    /// still on its fallback, its compiled answer or placeholder, before its
+    /// source is ready: its identity is not yet known, so its kept answer
+    /// must wait. An account resource with no kept answer of its own shows
+    /// its placeholder (`did: ""`), and that empty id would match whatever
+    /// another launch kept (LLP 1027.005 D3, 2026-10-10). Kept seeds,
+    /// carried and checkpoint answers and non-store values are known.
+    pub(super) fn identity_unknown(&self, i: usize, states: &[Option<ResourceState>]) -> bool {
+        use crate::instance::Input;
+        let deps = self.sites.deps();
+        let row = &self.plan.resources[i];
+        let identity = row.args.len as usize - usize::from(row.context);
+        let mut work: Vec<_> = row
+            .args
+            .iter()
+            .take(identity)
+            .map(|a| deps.reads_of(&self.plan, self.plan.arg(a).expr))
+            .collect();
+        let mut derives = vec![false; self.plan.derives.len()];
+        while let Some(reads) = work.pop() {
+            for input in deps.inputs(&reads) {
+                match input {
+                    Input::Resource(r) | Input::PendingResource(r) | Input::FailedResource(r)
+                        if self.store_readers[r]
+                            && states[r]
+                                .as_ref()
+                                .is_some_and(|s| s.placeholder || s.value.is_compiled()) =>
+                    {
+                        return true;
+                    }
+                    Input::Derive(d) if !derives[d] => {
+                        derives[d] = true;
+                        work.push(deps.derives[d].clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
+    /// What the first frame shows from the bake until its source is ready
+    /// (LLP 1048.003 D6; feed F24: say so in the journal), and each store
+    /// reader whose build-time answer a store holding secrets passed over
+    /// for its placeholder (LLP 1027 D4, 2026-10-10).
+    pub(super) fn journal_build_time(&mut self) {
+        let secrets = self.store.opened_with_secrets();
+        for i in 0..self.stale.len() {
+            let Some(state) = self.resources[i].as_ref().filter(|_| self.stale[i]) else {
+                continue;
+            };
+            let name = self.plan.str(self.plan.resources[i].name);
+            let line = if state.value.is_compiled() {
+                super::lines::build_time(name)
+            } else if state.placeholder
+                && secrets
+                && self.store_readers[i]
+                && self.plan.resources[i].initial.len > 0
+            {
+                super::lines::secrets_unseen(name)
+            } else {
+                continue;
+            };
+            self.log(line);
+        }
+    }
+
+    /// Journal each kept answer the first frame shows, with the arguments it
+    /// was kept for (development tools read the journal; its request lines
+    /// already carry URLs), so a stale answer is traceable to its key.
+    pub(super) fn journal_kept_seeds(&mut self) {
+        self.journal_refused();
+        for i in 0..self.plan.resources.len() {
+            if let Some(state) = self.resources[i].as_ref().filter(|s| s.kept_seed) {
+                let mut args = String::new();
+                crate::agent::untyped_json(&Value::list(state.args.clone()), &mut args);
+                let line =
+                    super::lines::kept_shown(self.plan.str(self.plan.resources[i].name), &args);
+                self.log(line);
+            }
+        }
+    }
+
+    /// Journal the kept answers refused by a settlement that stood: at
+    /// boot, and at a later commit before readiness (an identity changed).
+    pub(super) fn journal_refused(&mut self) {
+        for (_, line) in std::mem::take(&mut self.keeping.refused) {
+            self.log(line);
+        }
+    }
+
+    /// The kept answer that may seed resource `i`'s first frame: its
+    /// identifying arguments and value, when they still decode, count as
+    /// many arguments as the call identifies and fit its shape; otherwise
+    /// the refusal is noted for the journal.
+    pub(super) fn kept_seed(&mut self, i: usize) -> Option<(Vec<Value>, Value)> {
+        let row = &self.plan.resources[i];
+        let name = self.plan.str(row.name);
+        let entry = self.store.kept(&kept_name(name))?;
+        let identity = row.args.len as usize - usize::from(row.context);
+        let seed = decode(entry)
+            .filter(|(args, value)| args.len() == identity && self.check_shape(i, value).is_ok());
+        if seed.is_none() {
+            let line = super::lines::kept_refused(name, None, "it no longer decodes or fits");
+            self.keeping.refused.push((i, line));
+        }
+        seed
+    }
+
     /// Keep a store-reading resource's fresh answer for the next boot's
     /// first frame (LLP 1027 D4), when this source may not be ready then.
     pub(super) fn keep_answer(&mut self, i: usize, args: &[Value], value: &Value) {
-        if !self.keeps_answers || !self.store_readers[i] {
+        if !self.keeping.on || !self.store_readers[i] {
             return;
         }
         // @ref LLP 1039 D3 / LLP 1030 D7 — runner facts are never kept answers.
         let source = self.plan.str(self.plan.resources[i].source);
-        if source == crate::viewport::SOURCE
-            || source == crate::time::SOURCE
-            || source == crate::page::SOURCE
-            || source == crate::delivery::SOURCE
-            || source == crate::surface_record::SOURCE
-        {
+        if exact_plan::runner_owned_source(source) {
             return;
         }
         // @ref LLP 1027.005 D6 — context reaches the source but does not
-        // enter the kept entry or its 8 KB budget. With no context these
-        // are the exact same arguments and encoding as before.
+        // enter the kept entry or its budget.
         let row = &self.plan.resources[i];
         let args = &args[..row.args.len as usize - usize::from(row.context)];
+        let name = kept_name(self.plan.str(row.name));
         if !fits(args, value) {
+            // An older answer kept for it would show stale at the next launch: forget it (with the commit), and
+            // say so once
+            self.store.forget_kept(&name);
+            if !self.keeping.too_big.contains(&i) {
+                self.keeping.too_big.push(i);
+                let line = format!(
+                    "too big to keep: resource `{}` answered with more than {KEPT_DATA_BYTES} bytes ({kib} KiB) counting its identifying arguments, so the next launch cannot show this answer before the resource answers again. To show it at launch, keep the answer and its identifying arguments under {kib} KiB: move what the first screen does not need into another resource, and pass large inputs that do not identify the answer (a token, a time) after `with`, which are not counted; an input that identifies it stays in the call, or becomes a smaller key (LLP 1027 D4)",
+                    self.plan.str(row.name),
+                    kib = KEPT_DATA_BYTES / 1024,
+                );
+                self.log(line);
+            }
             return;
         }
-        let encoded = encode(args, value);
-        let name = kept_name(self.plan.str(self.plan.resources[i].name));
-        self.store.keep(&name, &encoded);
+        self.say_of_launch(i, args);
+        let entry = encode(args, value);
+        self.make_room(&name, entry.len());
+        self.store.keep(&name, entry);
+    }
+
+    /// Forget other kept answers, the longest first, until `len` more bytes
+    /// under `name` keep the entries within [`KEPT_TOTAL_BYTES`]: a kept
+    /// answer is a cache, which its resource fills again when it answers.
+    fn make_room(&mut self, name: &str, len: usize) {
+        let mut others: Vec<(String, usize)> = self
+            .store
+            .kept_lengths()
+            .into_iter()
+            .filter(|(other, _)| other != name)
+            .collect();
+        let mut total = len + others.iter().map(|(_, n)| n).sum::<usize>();
+        others.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+        for (other, n) in others {
+            if total <= KEPT_TOTAL_BYTES {
+                break;
+            }
+            total -= n;
+            self.store.forget_kept(&other);
+            let line = format!(
+                "kept answers are at most {} KiB together: forgot `{}`'s ({n} bytes) to keep `{}`'s, so the next launch shows `{0}`'s placeholder until it answers (LLP 1027 D4)",
+                KEPT_TOTAL_BYTES / 1024,
+                &other[Store::KEPT.len()..],
+                &name[Store::KEPT.len()..],
+            );
+            self.log(line);
+        }
+    }
+
+    /// Say once that resource `i` is kept under an identifying argument of
+    /// this launch's own, so the next launch never matches it (LLP
+    /// 1027.005): one that reads an `exactTime()` resource and is its
+    /// `epochAtZero` or `seed` as they are. The compiler names one written
+    /// so; this finds one it could not follow. A time made from the clock
+    /// (a record's creation, saved) may identify the answer: not said.
+    fn say_of_launch(&mut self, i: usize, args: &[Value]) {
+        if self.keeping.of_launch.contains(&i) {
+            return;
+        }
+        let epoch = self.time.epoch_at_zero;
+        let seed = self.place().seed;
+        let Some((k, what)) = args.iter().enumerate().find_map(|(k, arg)| {
+            let &Value::Number(v) = arg else { return None };
+            let what = if epoch > 0.0 && v == epoch {
+                "`epochAtZero`"
+            } else if seed > 0.0 && v == seed {
+                "`seed`"
+            } else {
+                return None;
+            };
+            self.reads_clock(i, k).then_some((k, what))
+        }) else {
+            return;
+        };
+        self.keeping.of_launch.push(i);
+        let row = &self.plan.resources[i];
+        let line = format!(
+            "`{name}`'s kept answer is never shown at launch: its identifying argument {n} is this launch's {what}, which changes every launch. Pass it after `with` (`resource {name} = {source}(…) with …`), which still reaches the source but is not counted (LLP 1027.005)",
+            name = self.plan.str(row.name),
+            source = self.plan.str(row.source),
+            n = k + 1,
+        );
+        self.log(line);
+    }
+
+    /// Whether resource `i`'s argument `k` reads, directly or through
+    /// derives, an `exactTime()` resource.
+    fn reads_clock(&self, i: usize, k: usize) -> bool {
+        use crate::instance::Input;
+        let deps = self.sites.deps();
+        let Some(arg) = self.plan.resources[i].args.iter().nth(k) else {
+            return false;
+        };
+        let mut work = vec![deps.reads_of(&self.plan, self.plan.arg(arg).expr)];
+        let mut derives = vec![false; self.plan.derives.len()];
+        while let Some(reads) = work.pop() {
+            for input in deps.inputs(&reads) {
+                match input {
+                    Input::Resource(r) | Input::PendingResource(r) | Input::FailedResource(r)
+                        if self.plan.str(self.plan.resources[r].source) == crate::time::SOURCE =>
+                    {
+                        return true;
+                    }
+                    Input::Derive(d) if !derives[d] => {
+                        derives[d] = true;
+                        work.push(deps.derives[d].clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
+    /// A peer committed to the app's store (LLP 1126.001 WP12). The host
+    /// supplies a fresh snapshot; only store readers and persisted slots
+    /// are refreshed. Ordinary window state and pure resources stay local.
+    pub fn store_changed(
+        &mut self,
+        snapshot: Vec<(String, Vec<u8>)>,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        let result = self.restore_store(snapshot).and_then(|change| {
+            if !change.any {
+                return Ok(None);
+            }
+            if change.read {
+                let readers = self.store_readers();
+                self.owe(&readers);
+                self.refresh_next.extend(readers);
+            }
+            if self.poisoned {
+                return Err(RunnerError::Poisoned);
+            }
+            self.settle(false)
+                .and_then(|_| self.gate_step())
+                .and_then(|_| self.update())
+                .map(Some)
+        });
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_next(result.is_ok());
+        match result {
+            Ok(receipt) => {
+                if let Some(receipt) = &receipt {
+                    self.log_outcome("store changed", &Ok(receipt.clone()), was_poisoned);
+                }
+                Ok(receipt)
+            }
+            Err(error) => {
+                let refused = Err(error);
+                self.log_outcome("store changed", &refused, was_poisoned);
+                refused.map(Some)
+            }
+        }
+    }
+
+    /// Adopt a pre-pixel change without asking; `data_ready_after_store`
+    /// performs the activation's one settlement, including queued sends.
+    pub fn adopt_store(
+        &mut self,
+        snapshot: Vec<(String, Vec<u8>)>,
+    ) -> Result<crate::StoreChange, RunnerError> {
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        let result = self.restore_store(snapshot);
+        self.conclude(checkpoint, &result, was_poisoned);
+        result
+    }
+
+    fn restore_store(
+        &mut self,
+        snapshot: Vec<(String, Vec<u8>)>,
+    ) -> Result<crate::StoreChange, RunnerError> {
+        let change = self.store.refresh_snapshot(snapshot);
+        if !change.any {
+            return Ok(change);
+        }
+        for i in 0..self.slots.len() {
+            if self.plan.slots[i].persist {
+                let initial = self.eval(self.plan.slots[i].init, &[], &[])?;
+                self.slots[i] = self.restore_persisted(i, initial);
+            }
+        }
+        Ok(change)
+    }
+
+    fn store_readers(&self) -> Vec<usize> {
+        self.store_readers
+            .iter()
+            .enumerate()
+            .filter_map(|(i, reads)| {
+                (*reads
+                    && !exact_plan::runner_owned_source(
+                        self.plan.str(self.plan.resources[i].source),
+                    ))
+                .then_some(i)
+            })
+            .collect()
     }
 
     /// The data source is ready — a host loaded its TypeScript module after
@@ -180,15 +503,30 @@ impl<D: DataSource> Runner<D> {
     /// commit, and a refusal fails the resource, which `refresh` asks again,
     /// as after a failed reply.
     pub fn data_ready(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.data_ready_after_store(crate::StoreChange::default())
+    }
+
+    /// Activation after adopting a peer's pre-pixel store revision.
+    pub fn data_ready_after_store(
+        &mut self,
+        change: crate::StoreChange,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         if !self.data.ready() {
             self.log("data_ready: the data source is not ready");
             return Ok(None);
         }
-        let stale: Vec<usize> = (0..self.stale.len()).filter(|i| self.stale[*i]).collect();
+        let readers = if change.read {
+            self.store_readers()
+        } else {
+            Vec::new()
+        };
+        let stale: Vec<usize> = (0..self.stale.len())
+            .filter(|i| self.stale[*i] || readers.contains(i))
+            .collect();
         // Writes made before the source was ready are overlaid from here
         self.overlays.iter_mut().for_each(|o| *o = None);
         if self.unsent.is_empty() {
-            if stale.is_empty() && self.writes.records.is_empty() {
+            if !change.any && stale.is_empty() && self.writes.records.is_empty() {
                 return Ok(None);
             }
             self.owe(&stale);
@@ -270,10 +608,14 @@ impl<D: DataSource> Runner<D> {
         for (m, source, args) in std::mem::take(&mut self.unsent) {
             let target = super::Target::Mutation(m);
             let name = self.plan.str(self.plan.mutations[m].name).to_string();
-            let refused = match self
+            self.mutation_requests += 1;
+            let answer = self
                 .data
-                .answer_for(target, &mut self.store, &source, &args)
-            {
+                .answer_for(target, &mut self.store, &source, &args);
+            // What its turn sent as an answer (LLP 1016.000 D7, the amendment
+            // of 2026-10-18).
+            self.stage_answer(target);
+            let refused = match answer {
                 Ok(super::Answer::Now(value))
                     if self.conforms(&value, self.plan.mutations[m].ty) =>
                 {
@@ -326,29 +668,30 @@ mod tests {
     fn a_kept_answer_round_trips_and_a_damaged_one_is_not_used() {
         let args = vec![Value::str("mv"), Value::Number(3.0)];
         let value = Value::record(vec![Value::Bool(true), Value::str("ada")]);
-        let text = encode(&args, &value);
-        let (a, v) = decode(&text).unwrap();
+        let bytes = encode(&args, &value);
+        let (a, v) = decode(&bytes).unwrap();
         assert_eq!(a, args);
         assert_eq!(v.to_bytes(), value.to_bytes());
-        assert!(decode("").is_none());
-        assert!(decode("zz|00").is_none());
-        let valid_args = hex(&Value::list(vec![]).to_bytes());
-        for invalid in ["€", "€x", "é", "💬", "a💬a", "0g", "+1"] {
-            assert!(decode(&format!("{invalid}|00")).is_none());
-            assert!(decode(&format!("{valid_args}|{invalid}")).is_none());
+        assert!(decode(b"").is_none());
+        assert!(decode(&bytes[..bytes.len() - 1]).is_none());
+        // An entry kept as hex text, or bytes that are not an arguments list then one answer, is not used
+        assert!(decode(b"0500000000|00").is_none());
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        for not_an_entry in [
+            Value::list(args.clone()).to_bytes(),
+            [Value::str("mv").to_bytes(), value.to_bytes()].concat(),
+            trailing,
+        ] {
+            assert!(decode(&not_an_entry).is_none());
         }
-        assert!(decode(&text[..text.len() - 1]).is_none());
+        // The deepest answer a value may be still decodes: keeping it costs no level
+        let mut deep = Value::Number(1.0);
+        for _ in 0..64 {
+            deep = Value::record(vec![deep]);
+        }
+        assert!(decode(&encode(&args, &deep)).is_some());
         assert_eq!(kept_name("remembered"), "exact.kept.remembered");
-    }
-
-    #[test]
-    fn hex_is_two_lowercase_digits_a_byte() {
-        let every: Vec<u8> = (0..=255).collect();
-        let reference = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        assert_eq!(hex(&every), reference(&every));
-        assert_eq!(hex(&[]), "");
-        let value = Value::record(vec![Value::str("é💬"), Value::Number(-2.5)]).to_bytes();
-        assert_eq!(hex(&value), reference(&value));
     }
 
     #[test]
@@ -370,8 +713,9 @@ mod tests {
                 );
             }
         }
-        // Hex plus its separator is always odd: 8191 fits, 8193 does not.
-        for size in [4084, 4085, 4086, 10000] {
+        // The data budget's edge: with no arguments, a string of the budget less its 5-byte header fits, one more does not.
+        let edge = KEPT_DATA_BYTES - 5;
+        for size in [edge - 1, edge, edge + 1, 2 * KEPT_DATA_BYTES] {
             let value = Value::str(&"x".repeat(size));
             for args in [&[][..], &values[..]] {
                 assert_eq!(
@@ -380,6 +724,9 @@ mod tests {
                 );
             }
         }
-        assert!(!fits(&[], &Value::list(vec![Value::Unit; 100_000])));
+        assert!(!fits(
+            &[],
+            &Value::list(vec![Value::Unit; KEPT_DATA_BYTES + 1])
+        ));
     }
 }

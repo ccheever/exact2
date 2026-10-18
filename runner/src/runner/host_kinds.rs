@@ -6,18 +6,26 @@ use super::Event;
 use exact_plan::EventKind;
 
 impl Event {
-    /// Decode ABI kind 6 (`key`) or 43 (`keyup`), 10 (contextmenu, its point when it has one), 13
+    /// Decode ABI kind 6 (`key`), 43 (`keyup`) or 44 (`keycapture`),
+    /// 10 (contextmenu, its point when it has one), 13
     /// (scroll), 19 (media), 20 (pan), 21 (select), 28 (panrelease, LLP
     /// 1057 §10.6), 29 to 31 (the pointer's down, up and move), 32 to 34
     /// (the clipboard's copy, cut and paste), 35 (`selectionchange`), 36
-    /// (beforeunload), 37 (wheel), 38 (drop) or 39 (resize, its
-    /// `contentRect` as `x,y,width,height`) from its UTF-8 payload.
+    /// (beforeunload), 37 (wheel), 38 (drop), 39 (resize, its
+    /// `contentRect` as `x,y,width,height`), 40 to 42 and 48 (a field's
+    /// input, change, select and replacement input), 45 (intersect,
+    /// `0|1,ratio`), 46 and 47 (focusin, focusout), 50 (toggle, oldState,newState)
+    /// 51 (scrollend, none), 52 (field selectionchange), or 53/54
+    /// (beforeinput/input metadata) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
-            // A key's down (6) and up (43, #140): the chord, then its code
+            // A key's down (6), up (43) or capture (44, #140): the chord, then its code
             // and repeat (`KeyboardEvent::parse`).
             6 => super::KeyboardEvent::parse(payload)
                 .map(Event::Key)
+                .ok_or("invalid key event"),
+            44 => super::KeyboardEvent::parse(payload)
+                .map(Event::Keycapture)
                 .ok_or("invalid key event"),
             // DOM's keyup is never a repeat.
             43 => super::KeyboardEvent::parse(payload)
@@ -38,18 +46,74 @@ impl Event {
             10 => Event::contextmenu_payload(payload).ok_or("invalid contextmenu event"),
             // Studio diary R17, R3, R19: DOM's beforeunload, wheel and drop.
             36 => Ok(Event::Beforeunload),
+            // DOM's `scrollend`: no payload (LLP 1005, 2026-10-13).
+            51 => Ok(Event::Scrollend),
             37 => super::WheelEvent::parse(payload)
                 .map(Event::Wheel)
                 .ok_or("invalid wheel event"),
             38 => super::DropEvent::parse(payload)
                 .map(Event::Drop)
                 .ok_or("invalid drop event"),
+            45 => {
+                let (hit, ratio) = payload
+                    .split_once(',')
+                    .ok_or("invalid intersection entry")?;
+                let is_intersecting = match hit {
+                    "0" => false,
+                    "1" => true,
+                    _ => return Err("invalid intersection entry"),
+                };
+                let intersection_ratio = exact_num::parse_f64(ratio)
+                    .ok()
+                    .filter(|r| (0.0..=1.0).contains(r))
+                    .filter(|r| is_intersecting || *r == 0.0)
+                    .ok_or("invalid intersection entry")?;
+                Ok(Event::Intersect {
+                    is_intersecting,
+                    intersection_ratio,
+                })
+            }
             39 => super::ResizeRect::parse(payload)
                 .map(Event::Resize)
                 .ok_or("invalid resize rect"),
             // A text field's `input`, `change` and `select` with its
             // selection (x2apps codeedit #2).
-            40..=42 => Event::field_payload(kind, payload).ok_or("invalid field selection"),
+            40..=42 | 48 | 52 => {
+                Event::field_payload(kind, payload).ok_or("invalid field selection")
+            }
+            // DOM's bubbling focusin (46) and focusout (47, #283; 45 is `intersect`):
+            // the target's id and the relatedTarget's, if any.
+            46 | 47 => Event::focus_payload(kind == 46, payload).ok_or("invalid focus event"),
+            53 | 54 => Event::edit_payload(kind, payload).ok_or("invalid input event"),
+            50 => {
+                let fields: Vec<_> = payload.split(',').collect();
+                match fields.as_slice() {
+                    [old, new] if [old, new].iter().all(|s| matches!(**s, "open" | "closed")) => {
+                        Ok(Event::Toggle {
+                            old_open: *old == "open",
+                            new_open: *new == "open",
+                        })
+                    }
+                    [old, new, start, end]
+                        if [old, new]
+                            .iter()
+                            .all(|s| matches!(**s, "checked" | "unchecked")) =>
+                    {
+                        let start = start.parse::<u32>().map_err(|_| "invalid toggle range")?;
+                        let end = end.parse::<u32>().map_err(|_| "invalid toggle range")?;
+                        if start >= end {
+                            return Err("invalid toggle range");
+                        }
+                        Ok(Event::DecorationToggle {
+                            old_checked: *old == "checked",
+                            new_checked: *new == "checked",
+                            start,
+                            end,
+                        })
+                    }
+                    _ => Err("invalid toggle event"),
+                }
+            }
             _ => Err("unknown event kind"),
         }
     }
@@ -105,17 +169,47 @@ impl Event {
         Some(Self::Media(kind, value.into()))
     }
 
-    /// Decode ABI kind 35 (`selectionchange`): `start,end,` then the
-    /// selected text verbatim; offsets are whole, `0 <= start <= end`.
+    /// ABI kind 35: start,end,count, then count x,y,width,height rectangles,
+    /// then selected text verbatim. Offsets are whole, `0 <= start <= end`.
     pub fn selection_change_payload(payload: &str) -> Option<Self> {
-        let mut parts = payload.splitn(3, ',');
-        let start: u32 = parts.next()?.parse().ok()?;
-        let end: u32 = parts.next()?.parse().ok()?;
-        let text = parts.next()?;
-        (start <= end).then(|| Self::SelectionChange {
+        let (start, rest) = payload.split_once(',')?;
+        let (end, rest) = rest.split_once(',')?;
+        let (count, mut text) = rest.split_once(',')?;
+        let start: u32 = start.parse().ok()?;
+        let end: u32 = end.parse().ok()?;
+        let count: usize = count.parse().ok()?;
+        if start > end || count > text.len() / 8 {
+            return None;
+        }
+        let mut rects = Vec::new();
+        for _ in 0..count {
+            let mut values = [0.0_f64; 4];
+            for value in &mut values {
+                let (number, rest) = text.split_once(',')?;
+                *value = number.parse().ok()?;
+                if !value.is_finite() {
+                    return None;
+                }
+                text = rest;
+            }
+            let [x, y, width, height] = values;
+            if width < 0.0 || height < 0.0 {
+                return None;
+            }
+            rects.push(crate::geometry::GeometryAnswer {
+                x,
+                y,
+                width,
+                height,
+                provisional: false,
+                unavailable: false,
+            });
+        }
+        Some(Self::SelectionChange {
             text: text.into(),
             start: f64::from(start),
             end: f64::from(end),
+            rects,
         })
     }
 
@@ -135,6 +229,34 @@ impl Event {
 #[cfg(test)]
 mod tests {
     use super::Event;
+
+    #[test]
+    fn selection_rectangles_preserve_geometry_and_verbatim_text() {
+        let event = Event::of_host_kind(35, "3,9,2,-4,12,30,18,0,30,8,18,a, b\nc").unwrap();
+        let Event::SelectionChange {
+            text,
+            start,
+            end,
+            rects,
+        } = event
+        else {
+            panic!("selection event")
+        };
+        assert_eq!((text.as_str(), start, end), ("a, b\nc", 3.0, 9.0));
+        assert_eq!(rects.len(), 2);
+        assert_eq!(
+            rects[0].value(),
+            exact_plan::Value::record(vec![
+                exact_plan::Value::Number(-4.0),
+                exact_plan::Value::Number(12.0),
+                exact_plan::Value::Number(30.0),
+                exact_plan::Value::Number(18.0),
+                exact_plan::Value::Bool(false),
+                exact_plan::Value::Bool(false),
+            ])
+        );
+        assert_eq!(rects[1].y + rects[1].height, 48.0);
+    }
 
     #[test]
     fn kinds_decode_and_refuse_by_name() {
@@ -159,16 +281,35 @@ mod tests {
             Ok(Event::Clipboard(exact_plan::EventKind::Paste, text)) if text == "a\tb\n1\t2"
         ));
         assert!(matches!(
-            Event::of_host_kind(35, "3,9,a, b\nc"),
-            Ok(Event::SelectionChange { text, start: 3.0, end: 9.0 }) if text == "a, b\nc"
+            Event::of_host_kind(35, "3,9,0,a, b\nc"),
+            Ok(Event::SelectionChange { text, start: 3.0, end: 9.0, rects }) if text == "a, b\nc" && rects.is_empty()
         ));
-        for refused in ["9,3,x", "1,2", "-1,2,x", "a,2,x"] {
+        for refused in [
+            "9,3,0,x",
+            "1,2",
+            "-1,2,0,x",
+            "a,2,0,x",
+            "0,1,1,0,0,-1,2,x",
+            "0,1,1,NaN,0,1,2,x",
+            "0,1,2,0,0,1,2,x",
+        ] {
             assert_eq!(
                 Event::of_host_kind(35, refused).err(),
                 Some("invalid text selection"),
                 "{refused}"
             );
         }
+        assert_eq!(
+            Event::of_host_kind(47, "1:a1b"),
+            Ok(Event::Focusout {
+                target: "a".into(),
+                related_target: Some("b".into())
+            })
+        );
+        assert_eq!(
+            Event::of_host_kind(46, "typed").err(),
+            Some("invalid focus event")
+        );
         assert_eq!(
             Event::of_host_kind(99, "").err(),
             Some("unknown event kind")

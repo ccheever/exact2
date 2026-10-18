@@ -30,6 +30,13 @@ component Styles
         text "right" font-weight=(on ? 700 : 400)
       view flex=(on ? "none" : "0 1 auto") testId="auto" width=(on ? "auto" : 200) height=20 background-color="#999999"
       view testId="ellipse" width=160 height=80 background-color="#2468ac" border-radius="50%"
+      view testId="dotted-1" width=100 height=30 border-bottom="1px dotted #888888"
+      view testId="dotted-2" width=100 height=30 border="2px dotted #888888" border-radius=10
+      view testId="dotted-4" width=100 height=30 border="4px dotted #888888" border-radius=10
+      view testId="dashed-1" width=100 height=30 border-bottom="1px dashed #888888"
+      view testId="dashed-2" width=100 height=30 border="2px dashed #888888" border-radius=10
+      view testId="dashed-4" width=100 height=30 border="4px dashed #888888" border-radius=10
+      view testId="mixed-border" width=100 height=30 border-width="1px 2px 4px 2px" border-style="dotted dashed solid none" border-color="#aa0000 #00aa00 #0000aa #000000" border-radius=10
       input testId="title" value=title readonly=on input=titleInput
       textarea testId="body" value=body readonly=(on or width > 300) input=bodyInput
       input testId="locked" value="locked" readonly=true
@@ -44,5 +51,9 @@ component Styles
         view testId="ordered-c" width=40 height=12 background-color="gold" order=1
       view testId="current" width=60 height=20 color="#2a9d8f" background-color=(on ? "currentcolor" : "#e76f51")
       text "inherits" testId="inherits" color=(on ? "unset" : "#e76f51")
+      text "Settle every thread in this section and keep the newest one open" testId="balanced" width=180 text-wrap=(on ? "auto" : "balance")
       input testId="free"
       textarea testId="free-body"
+      input testId="hinted" placeholder="Search"
+        ::placeholder
+          color=(on ? "#2a9d8f80" : "#e76f51")

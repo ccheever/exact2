@@ -6,6 +6,13 @@ use super::*;
 /// Fixed geometry used by Linux's own painters. Text-bearing controls are
 /// measured from their painted labels in `size_controls` instead.
 fn fixed_painted_size(kind: exact_kernel::ControlKind) -> Option<(f32, f32)> {
+    use exact_kernel::ControlKind::{Checkbox, Radio, Range, Switch};
+    // Under the neutral look a mark is sized by its font, which the kernel
+    // reads from the look's rows as it lays the control out (LLP 1115.000
+    // D17): nothing fixed is reported over that.
+    if crate::paint::look::neutral() && matches!(kind, Checkbox | Radio | Switch | Range) {
+        return None;
+    }
     match kind {
         exact_kernel::ControlKind::Checkbox | exact_kernel::ControlKind::Radio => {
             Some((13.0, 13.0))
@@ -50,6 +57,21 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::Disabled) == Some(true) {
             return true;
         }
+        // A date or time control's press opens the platform's picker where a
+        // shell takes requests (LLP 1115.001.000 D1), or holds one for the agent.
+        if (self.has_shell() || self.agent)
+            && matches!(
+                exact_kernel::ControlKind::of(node.node_type, node.props),
+                Some(
+                    exact_kernel::ControlKind::Date
+                        | exact_kernel::ControlKind::Time
+                        | exact_kernel::ControlKind::DateTimeLocal
+                )
+            )
+        {
+            self.pick(id);
+            return true;
+        }
         // A select's press opens its menu (D7).
         if node.props.str(PropId::Type) == Some("select") {
             self.menu = Some(id);
@@ -72,6 +94,25 @@ impl<D: DataSource> Presenter<D> {
         }
         self.dirty = true;
         let mut dispatched = false;
+        // A click on a checkbox is heard before its `input` and `change` (HTML
+        // dispatches `click`, then fires those as its activation behaviour).
+        if self
+            .host
+            .runner()
+            .handlers_of(id)
+            .contains(&EventKind::Press)
+        {
+            let held = self.modifiers();
+            let press = if held == Default::default() {
+                Event::Press
+            } else {
+                Event::PressWith(held)
+            };
+            if let Some(e) = self.host.dispatch_at(id, press, now_ms) {
+                eprintln!("exact: {e}");
+            }
+            dispatched = true;
+        }
         for (event, kind) in [
             (Event::Input(on.into()), EventKind::Input),
             (Event::Change(on.into()), EventKind::Change),
@@ -264,6 +305,11 @@ impl<D: DataSource> Presenter<D> {
             width = width.max(p.width + 32.0);
             row = row.max(p.height + 8.0);
         }
+        if crate::paint::look::neutral() {
+            // The look's menu row is no shorter than this (LLP 1115.000 D17).
+            use exact_kernel::generated::metric::MENU_ROW_HEIGHT;
+            row = row.max(crate::paint::look::px(MENU_ROW_HEIGHT, style.font_size));
+        }
         let height = row * choices.len() as f32 + 2.0 * MENU_PAD;
         let (x, y, _, h) = b.rect;
         let below = y + h + 2.0;
@@ -337,8 +383,27 @@ impl<D: DataSource> Presenter<D> {
                 let Some(kind) = exact_kernel::ControlKind::of(node.node_type, node.props) else {
                     continue;
                 };
+                let neutral = crate::paint::look::neutral();
+                // The neutral look's file field is its button and its
+                // words, in the field's own type.
+                if neutral && kind == exact_kernel::ControlKind::File {
+                    sizes.push((id, crate::paint::neutral::file_size(&mut text, &node)));
+                    continue;
+                }
                 if let Some(size) = fixed_painted_size(kind) {
                     sizes.push((id, size));
+                    continue;
+                }
+                // And its date fields are the kernel's size for one, the
+                // browser's own control's, which the value drawn here fits.
+                if neutral
+                    && matches!(
+                        kind,
+                        exact_kernel::ControlKind::Date
+                            | exact_kernel::ControlKind::Time
+                            | exact_kernel::ControlKind::DateTimeLocal
+                    )
+                {
                     continue;
                 }
                 // Native buttons measure synchronously through TextMeasurer before layout.
@@ -353,17 +418,12 @@ impl<D: DataSource> Presenter<D> {
                         .into_iter()
                         .map(|c| c.label)
                         .collect(),
-                    exact_kernel::ControlKind::Date => vec!["0000-00-00".into()],
-                    exact_kernel::ControlKind::Time => vec!["00:00:00".into()],
-                    exact_kernel::ControlKind::DateTimeLocal => {
-                        vec!["0000-00-00T00:00".into()]
+                    exact_kernel::ControlKind::Date
+                    | exact_kernel::ControlKind::Time
+                    | exact_kernel::ControlKind::DateTimeLocal => {
+                        date_samples(&node, self.brush.dates.as_ref())
                     }
                     _ => continue,
-                };
-                let chevron = if kind == exact_kernel::ControlKind::Select {
-                    30.0
-                } else {
-                    12.0
                 };
                 let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
                 let (mut w, mut h) = (0f32, 0f32);
@@ -372,10 +432,34 @@ impl<D: DataSource> Presenter<D> {
                     w = w.max(p.width);
                     h = h.max(p.height);
                 }
+                if neutral {
+                    // The look's select, as the page's sheet sizes it (LLP
+                    // 1115.000 D17): the control's line round its widest
+                    // option, a field's padding before it and room for the
+                    // caret after, on the select's own line.
+                    use crate::paint::look::{number, px};
+                    use exact_kernel::generated::metric;
+                    let em = style.font_size;
+                    let line = px(metric::CONTROL_LINE, em);
+                    let inline = px(metric::FIELD_PADDING_INLINE, em)
+                        + px(metric::SELECT_PADDING_END, em)
+                        + 2.0 * line;
+                    let high = number(metric::SELECT_LINE_HEIGHT) * em + 2.0 * line;
+                    sizes.push((id, ((w + inline).ceil(), high)));
+                    continue;
+                }
+                // Material's filled field round the text and its trailing icon.
                 if h == 0.0 {
                     h = style.font_size * 1.2;
                 }
-                sizes.push((id, ((w + chevron).ceil(), (h + 6.0).ceil())));
+                let high = (h + 32.0).max(crate::paint::material::height());
+                sizes.push((
+                    id,
+                    (
+                        (w + crate::paint::material::with_icon()).ceil(),
+                        high.ceil(),
+                    ),
+                ));
             }
         }
         for (id, size) in sizes {
@@ -384,6 +468,41 @@ impl<D: DataSource> Presenter<D> {
             }
         }
     }
+}
+
+/// What a date control may show, to fit the widest: HTML's widest values,
+/// in the device's writing where its shell told it (`paint/dates.rs`), with
+/// the seconds where the value or its `step` has them, and its own value.
+fn date_samples(
+    node: &exact_kernel::NodeRef<'_>,
+    dates: Option<&crate::paint::dates::Dates>,
+) -> Vec<String> {
+    let kind = node.props.str(PropId::Type).unwrap_or("date");
+    let value = node.props.str(PropId::Value).unwrap_or("");
+    let step = node
+        .props
+        .str(PropId::Step)
+        .and_then(|s| s.parse::<f64>().ok());
+    let seconds =
+        step.is_some_and(|s| s % 60.0 != 0.0) || value.len() > "00:00".len() && kind == "time";
+    let clock = |h: u32| match seconds {
+        true => format!("{h:02}:58:58"),
+        false => format!("{h:02}:58"),
+    };
+    let mut samples: Vec<String> = match kind {
+        "date" => (1..=12).map(|m| format!("2000-{m:02}-28")).collect(),
+        "time" => vec![clock(11), clock(23)],
+        _ => (1..=12)
+            .flat_map(|m| [11, 23].map(|h| format!("2000-{m:02}-28T{}", clock(h))))
+            .collect(),
+    };
+    samples.push(value.to_string());
+    for s in &mut samples {
+        if let Some(shown) = dates.and_then(|d| d.show(kind, s)) {
+            *s = shown;
+        }
+    }
+    samples
 }
 
 #[cfg(test)]
@@ -410,17 +529,11 @@ mod tests {
             None,
             "the kernel's 20 × 20"
         );
-    }
-
-    struct Empty;
-    impl exact_runner::DataSource for Empty {
-        fn query(
-            &mut self,
-            name: &str,
-            _: &[exact_runner::Value],
-        ) -> Result<exact_runner::Value, exact_runner::DataError> {
-            Err(exact_runner::DataError::UnknownSource(name.into()))
-        }
+        assert_eq!(
+            fixed_painted_size(ControlKind::ProgressBar),
+            None,
+            "the kernel's `10em` by `1em`, under the plan's `width: 100%`"
+        );
     }
 
     /// LLP 1069.001, amended 2026-10-07: a progress is painted as one still
@@ -430,8 +543,8 @@ mod tests {
     fn a_progress_paints_still_spokes_in_its_color_and_takes_no_press() {
         let app = "component App\n  view\n    column width=100 height=100 background-color=\"#ffffff\" align-items=\"flex-start\"\n      progress testId=\"spin\" width=40 height=40 color=\"#ff0000\"\n";
         let (mut p, error) = super::Presenter::boot_with(
-            &contract::compile(app).unwrap().encode(),
-            Empty,
+            &crate::test_plan(app),
+            (),
             (100., 100.),
             1.,
             std::path::PathBuf::new(),
@@ -464,6 +577,49 @@ mod tests {
         assert_eq!(
             p.type_text(spin, "50"),
             Err(format!("view {spin} is not an input"))
+        );
+    }
+
+    /// LLP 1116 D8: a determinate progress is painted as UIKit's progress
+    /// view: a 4 px track across its box, centred, filled with the accent
+    /// to its value; as wide as its column and `1em` tall (LLP 1115.000
+    /// D10.2: 160 by 16 before, HTML's box); a press is its ancestor's.
+    #[test]
+    fn a_progress_bar_paints_its_value_in_the_accent_and_takes_no_press() {
+        let app = "component App\n  view\n    column width=200 height=100 background-color=\"#ffffff\" align-items=\"flex-start\"\n      progress testId=\"bar\" value=3 max=4 accent-color=\"#ff0000\"\n";
+        let (mut p, error) = super::Presenter::boot_with(
+            &crate::test_plan(app),
+            (),
+            (200., 100.),
+            1.,
+            std::path::PathBuf::new(),
+            super::PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let bar = {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id("bar")[0]).unwrap().id
+        };
+        let (x, y, w, h) = p.rect_of(bar).unwrap();
+        assert_eq!((w, h), (200.0, 16.0));
+        let mut at = |dx: f32, dy: f32| {
+            let c = p
+                .frame()
+                .pixel((x + dx) as u32, (y + dy) as u32)
+                .unwrap()
+                .demultiply();
+            [c.red(), c.green(), c.blue()]
+        };
+        assert_eq!(at(60.0, 8.0), [0xff, 0, 0], "filled to three quarters");
+        assert_eq!(at(140.0, 8.0), [0xff, 0, 0], "of 200: to 150");
+        let rest = at(180.0, 8.0);
+        assert!(rest[0] < 0xff && rest[0] == rest[1], "the track: {rest:?}");
+        assert_eq!(at(60.0, 2.0), [0xff, 0xff, 0xff], "above the track");
+        let now = p.host().now();
+        assert!(
+            !p.toggle_control(bar, now),
+            "a press passes to its ancestor"
         );
     }
 }

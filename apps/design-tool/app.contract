@@ -1,0 +1,1686 @@
+// The design tool (LLP 1122), T1: a `tamber/1` client over an app's design
+// files, served by the app's Tamber server at its own local URL
+// (`bun exact.mjs tamber tool <app>`). app.ts is the protocol client; this
+// view keeps no design state of its own: the files are the design.
+
+shape FileDigest
+  path: string
+  digest: string
+
+shape Hello
+  ok: bool
+  error: string
+  protocol: string
+  format: number
+  app: string
+  files: FileDigest[]
+  // The dev loop's own origin, as it prints it, which "Open in a tab"
+  // opens; "" with none. And the origin the canvas frames it at: the same
+  // port as localhost, another site than the tool's.
+  page: string
+  frame: string
+  // A dev loop serves the wire: a value edit applies in place, and a
+  // scrub previews on the running copies.
+  live: bool
+
+shape Change
+  seq: number
+  kind: string
+  who: string
+  files: string[]
+  tokens: string[]
+
+// A held proposal (LLP 1122 D10): its proposer, diff, the tokens it
+// changes and its operations; a recomputed one names the one it replaces.
+shape HeldItem
+  index: number
+  text: string
+
+// An import's review (LLP 1122 D11): the mapped tokens with each mode's
+// value and swatches, the role overrides it offers (off until ticked), the
+// values it did not map and why, and the count check.
+// A mode's value: `mode` 0 is the default (or a set's own `when`), k the
+// k-th `when`; a swatch side is "" for a value no page can paint (a
+// reference to a token).
+shape ModeValue
+  label: string
+  mode: number
+  value: string
+  light: string
+  dark: string
+
+// `kind`: `token` (added or set, its modes' values), `axis` (a new axis),
+// `drop` (a mode's value dropped), or `other`, said in `text`.
+shape Mapped
+  index: number
+  kind: string
+  name: string
+  text: string
+  modes: ModeValue[]
+
+shape Offer
+  role: string
+  token: string
+  items: string
+  note: string
+  // Ticked to begin with (a recomputed import's kept offers); a picked id
+  // flips it.
+  on: bool
+
+shape Unmapped
+  name: string
+  value: string
+  why: string
+  derived: bool
+  block: string
+  key: string
+
+shape Held
+  proposal: string
+  client: string
+  tint: string
+  diff: string
+  tokens: string[]
+  replaces: string
+  items: HeldItem[]
+  // An import's ("" for any other proposal).
+  importer: string
+  mapped: Mapped[]
+  offers: Offer[]
+  unmapped: Unmapped[]
+  counted: string
+  countOk: bool
+  // The import an edit replaced, and whether its offers begin on (a
+  // recomputed import, or an edit of one).
+  from: string
+  kept: bool
+
+// An import started from picked files: the proposal it holds, or why not.
+shape Imported
+  ok: bool
+  error: string
+  proposal: string
+  note: string
+  // With nothing to propose, what it still reports.
+  counted: string
+  unmapped: Unmapped[]
+
+// A running build (LLP 1122 D4): its effective scheme, contrast, mode and
+// root font size from its status, its pin, whether its status has caught
+// up with the last pin frame the server sent it (any client's pin, or a
+// hand-back), and the last command it could not apply.
+shape Build
+  id: string
+  host: string
+  // Its status has come (none since it registered or reloaded, else).
+  reported: bool
+  scheme: string
+  contrast: string
+  mode: string
+  rootFontSize: number
+  pin: string
+  caughtUp: bool
+  // Its status names a pin revision older than the last frame it was sent.
+  behind: bool
+  unsupported: string
+
+shape AxisChoice
+  name: string
+  values: string[]
+
+// The app's own design's axes, read while another file is open.
+shape AppAxes
+  axes: AxisChoice[]
+
+// One row of an inspected node (LLP 1122 D5): its value, where it comes
+// from, and what the inspector offers: the token rung (`rung` "token", the
+// token and the grid column of the branch that won), a token it links, or
+// why it is read-only.
+shape SelRow
+  name: string
+  value: string
+  source: string
+  rung: string
+  token: string
+  // The param rung's (LLP 1122 T3): its full and short names; `token` is
+  // then the token it aliases, offered, never the default (D6).
+  param: string
+  short: string
+  reason: string
+  column: string
+
+// The latest node a build's inspect mode selected, joined to source.
+shape Inspected
+  has: bool
+  // Why it is no longer current (its page left inspect mode, its build
+  // went or moved on, changes were missed, the axes changed, its scheme is
+  // not known): it offers no edit then.
+  stale: string
+  build: string
+  node: number
+  readOnly: string
+  source: string
+  chain: string[]
+  // The grid column of the branch that won for it (its modes and scheme),
+  // and that column's place, whole (every axis's value, the scheme).
+  modes: string
+  place: string
+  rows: SelRow[]
+  trimmed: bool
+  // Whether this tool has inspect mode on a build, as the server and the
+  // pages tell it.
+  inspecting: bool
+
+// A token's static source sites (`uses`): the impact of editing it.
+shape UseSite
+  file: string
+  line: number
+  col: number
+  text: string
+
+shape Uses
+  ok: bool
+  error: string
+  token: string
+  sites: UseSite[]
+
+// What a pin did.
+shape Pinned
+  ok: bool
+  error: string
+  note: string
+
+shape Changes
+  ok: bool
+  error: string
+  answer: number
+  seq: number
+  epoch: string
+  missed: bool
+  recent: Change[]
+  // The session's undo and redo depth, and which run of the server they
+  // are for (a new run empties them).
+  undo: number
+  redo: number
+  session: number
+  held: Held[]
+  builds: Build[]
+  // The files' digests as the poll has them: what a design read follows
+  // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
+  files: string
+
+// A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
+// D4): `control` is `color`, `slider`, `stepper` or `select`.
+shape Control
+  name: string
+  kind: string
+  control: string
+  label: string
+  help: string
+  value: string
+  number: number
+  min: number
+  max: number
+  step: number
+  priority: number
+  // A slider's or stepper's range and step, as the person reads them.
+  bounds: string
+  options: string[]
+  // What a number the slider or stepper gives is written with: `px` for a
+  // length (LLP 1121 D15: a length dial is a px value), nothing for a number.
+  unit: string
+  // A colour's swatch: the value itself, or (a param naming a token) what
+  // it folds to.
+  swatch: string
+
+shape DialGroup
+  name: string
+  dials: Control[]
+  more: Control[]
+
+// The component panel (LLP 1122 D7, T3): a component's params, each with
+// its control (`c.name` is the param's full name), grouped as dials are.
+shape ParamRow
+  c: Control
+  // `Component.param`, or the full name where two components share it.
+  short: string
+  // The app has a line for it in the design's `params` block.
+  set: bool
+  // The tokens the default reads that a literal line no longer follows
+  // (LLP 1121 D14's mark).
+  pinned: string[]
+  default: string
+
+shape ParamGroup
+  name: string
+  params: ParamRow[]
+  more: ParamRow[]
+
+shape ComponentPanel
+  identity: string
+  name: string
+  // Declared in the design (`app.tamber#Name`): a view that isn't Contract.
+  native: bool
+  groups: ParamGroup[]
+
+shape Column
+  id: string
+  label: string
+
+// A declared pair's contrast in one cell (LLP 1121 D3, `pair=`).
+shape PairBadge
+  name: string
+  ratio: string
+  low: bool
+
+shape Cell
+  column: string
+  label: string
+  css: string
+  swatch: string
+  residual: bool
+  note: string
+  // The token's kind (LLP 1121 stage 6), and a shadow's value to preview
+  // in the column's scheme.
+  kind: string
+  shadow: string
+  scheme: string
+  pairs: PairBadge[]
+
+shape TokenRow
+  name: string
+  kind: string
+  follows: string
+  cells: Cell[]
+
+// The tokens changed since the last highlight faded, each by its latest
+// client and in that client's colour (LLP 1122 D10).
+shape Lit
+  seq: number
+  epoch: string
+  file: string
+  // The cursor once the oldest highlight here fades (per file and run).
+  fadeTo: string
+  // Each cell changed, `<token>|<column>`, and its client's colour.
+  cells: string[]
+  cellTints: string[]
+  names: string[]
+  whos: string[]
+  tints: string[]
+
+shape TokenGroup
+  name: string
+  tokens: TokenRow[]
+
+shape Design
+  ok: bool
+  error: string
+  file: string
+  answer: number
+  groups: DialGroup[]
+  columns: Column[]
+  tokenGroups: TokenGroup[]
+  names: string[]
+  axes: AxisChoice[]
+  // The design's icons (LLP 1121 D10), read only: no operation writes one.
+  icons: IconRow[]
+  // Each component with params (LLP 1121 D15).
+  components: ComponentPanel[]
+
+shape IconRow
+  name: string
+  // Each source as written, "" where unwritten.
+  sf: string
+  material: string
+  svg: string
+
+// A dial an expression names, and where its control is.
+shape DialInput
+  name: string
+  group: string
+  more: bool
+  // `control=none`: no control to go to.
+  hidden: bool
+
+// The branch a grid cell shows (LLP 1122 D6's target branch): the `when`
+// that won for its tuple, or the default, and what its value reads.
+shape Branch
+  ok: bool
+  error: string
+  token: string
+  // Its kind (a platform name it reads is a colour's, or a length's or a text style's).
+  kind: string
+  column: string
+  // The column's place, whole: its scheme and every axis's value.
+  place: string
+  label: string
+  when: string
+  value: string
+  expression: bool
+  inputs: string[]
+  dials: DialInput[]
+  // Platform roles and system colours it names, which no token overrides.
+  roles: string[]
+  exact: bool
+  own: string
+  // A component's param (LLP 1122 T3), its full name in `token`: its edit
+  // is `set-param`, and it has no rename or remove.
+  param: bool
+  // The design read it is of.
+  answer: number
+
+// The branch editor's typed fields (stage 6's kinds): the value shown, cut
+// into parts by its kind, the source between them kept as `fixed` parts.
+// Joined again they are the value byte for byte; an optional part left
+// empty is dropped with its `pre` and `post`.
+shape Part
+  index: number
+  key: string
+  label: string
+  // number, select, inset, style, text; fixed: written as it is, not shown.
+  control: string
+  text: string
+  pre: string
+  post: string
+  optional: bool
+  // A later part (its key; `after`, its index, -1 for none) while which
+  // holds something this optional one is required: a blur before a spread.
+  needs: string
+  after: number
+  options: string[]
+
+shape Typed
+  // A field fits this value (not an expression, a `calc()` or a named length).
+  ok: bool
+  of: string
+  parts: Part[]
+  tail: string
+
+// An edit before it is written: `propose`'s answer.
+// The scrub as the data module keeps it (LLP 1122 D6): `live` from Scrub
+// live until Keep, Cancel or an end; `open` its id once the server opened
+// it; `ready` when the server previews the draft as it is now (Keep writes
+// that); `ended`, how the last one ended without a write, said once it is
+// not live.
+shape Scrub
+  ok: bool
+  error: string
+  live: bool
+  open: string
+  ready: bool
+  // A frame is on its way.
+  sending: bool
+  ended: string
+
+shape Proposal
+  ok: bool
+  error: string
+  active: bool
+  chip: string
+  diff: string
+  tokens: string[]
+  // The edit it is of (as `draftKey` spells it), and what Apply writes:
+  // that edit against the digests this proposal read.
+  key: string
+  // One operation, which a scrub can preview (not a param's first `when`
+  // line, which writes its own line first).
+  scrubbable: bool
+  review: string
+
+// A write, an undo or a redo: what it did, and the stacks after it.
+shape Written
+  ok: bool
+  error: string
+  undo: number
+  redo: number
+  last: string
+  key: string
+  session: number
+  // What an accept or a drop did, in words; an edited import's picks,
+  // carried to the proposal that replaced it.
+  note: string
+  carried: string[]
+  // The last write moved to its other rung (LLP 1122 D6's re-scope, T3):
+  // what the offer says, or "" where it has none.
+  rescope: string
+
+// The session changeset (LLP 1122 D9): each write since the tool opened,
+// in plain words, with the diff under the tool's own.
+shape ChangeEntry
+  seq: number
+  who: string
+  tint: string
+  mine: bool
+  text: string
+  diff: string
+  committed: bool
+
+shape Changeset
+  ok: bool
+  error: string
+  entries: ChangeEntry[]
+
+// What a commit would take now: its edits, or a refusal to show.
+shape Scope
+  open: number
+  refused: bool
+  // No answer: Commit stays on, and says why when pressed.
+  unavailable: bool
+
+shape Refusal
+  file: string
+  why: string
+
+// A `commit`: its sha and files and the edits it took, or each file it
+// refused and why.
+shape EditLine
+  n: number
+  text: string
+
+shape Committed
+  ok: bool
+  error: string
+  commit: string
+  files: string[]
+  refused: Refusal[]
+  edits: EditLine[]
+
+// The design files' git log, read as edits.
+shape HistoryFile
+  file: string
+  refused: string
+  edits: string[]
+
+shape HistoryCommit
+  commit: string
+  short: string
+  author: string
+  date: string
+  subject: string
+  files: HistoryFile[]
+
+shape History
+  ok: bool
+  error: string
+  commits: HistoryCommit[]
+  more: bool
+
+// A past commit's inverse, held for review, or why it cannot apply.
+shape Reverted
+  ok: bool
+  error: string
+  commit: string
+  proposal: string
+  refused: string[]
+
+shape Ratio
+  column: string
+  label: string
+  ratio: string
+
+shape Contrast
+  ok: bool
+  error: string
+  ratios: Ratio[]
+
+component DesignTool
+  // Who this person is, asked once: every write is `design-tool:<person>`.
+  state person = "" persist
+  state renaming = false
+  // The canvas's size: a bare frame never sizes to its guest (LLP 1020 D1).
+  state canvasSize = "phone" persist
+  // The pin being composed: which build ("" every build), and the facts
+  // `prefer` pins, each "" when left alone.
+  state pinBuild = ""
+  state pinScheme = ""
+  state pinContrast = ""
+  state pinMode: string[] = []
+  state pinFont = 0
+  mutation pinned as shape Pinned
+  // Inspect mode on the builds (LLP 1122 D4, D5), and the token whose
+  // impact the inspector shows.
+  resource inspected = loadSelection(changes.answer, design.answer) as shape Inspected else empty()
+  mutation inspectSent as shape Pinned refreshes inspected
+  state impactToken = ""
+  resource uses = loadUses(impactToken, changes.answer) as shape Uses else empty(ok=true)
+  mutation outlined as shape Pinned
+  state draftName = ""
+  // The long poll's place: the last sequence number seen, in which run, and
+  // one more ask per answer, so an answer with nothing new asks again.
+  state since = 0
+  state epoch = ""
+  // The files as of the last answer: reads of the design follow these, not
+  // `since`, so a stream of build statuses never reads a big design again.
+  state filesAt = ""
+  // A proposal's place in the poll: it follows every answer, at least one
+  // each 25 s, but while a scrub is shown (its class moves without files:
+  // the JS loop's builds, its design reader getting ready, which says
+  // nothing), so a stream of scrub frames proposes nothing again.
+  state proposeAt = 0
+  state asks = 0
+  resource hello = loadHello() as shape Hello else empty(ok=true)
+  derive client = `design-tool:${person}`
+  // A pin's modes are the running app's: its own design's axes, whichever
+  // file is open (the last read of it).
+  resource appAxes = loadAppAxes(file, filesAt, epoch) as shape AppAxes else empty()
+  derive pinAxes = file == "" ? design.axes : appAxes.axes
+  derive pinFontOk = pinFont == 0 or (pinFont >= 4 and pinFont <= 64)
+  resource changes = waitChanges(since, epoch, asks, client) as shape Changes else empty(ok=true)
+  // The design file shown ("": the app's own), a group's "more" opened,
+  // and the two tokens whose contrast is shown.
+  state file = ""
+  state opened: string[] = []
+  state pickA = ""
+  state pickB = ""
+  resource design = loadDesign(file, filesAt, epoch) as shape Design else empty(ok=true)
+  // Contrast and a cell's branch follow the design read they are of.
+  resource contrast = loadContrast(pickA, pickB, design.answer) as shape Contrast else empty(ok=true)
+  // The cell chosen in the grid, and the edit being considered: an
+  // operation, the token or dial, the `when` (`axis=value …`, "" for the
+  // default) and the value. Nothing is written until Apply.
+  state selToken = ""
+  state selColumn = ""
+  // The place the inspector put the cell at: a design read since with
+  // other axes puts another tuple at that column, refused.
+  state selPlace = ""
+  state pinning = false
+  // "Only this mode" chosen for the cell's edit, and a dial an expression's
+  // input pointed to.
+  state scopeOwn = false
+  state focusDial = ""
+  state editKind = ""
+  state editTarget = ""
+  state editWhen = ""
+  state editValue = ""
+  // The typed fields' cut (stage 6's kinds): the value they are cut from is
+  // the branch's, or what its text field set (`rawBase`, for `rawFor`'s
+  // branch); a field's edits keep the cut, so a part mid-typing (`1` on its
+  // way to `1px`) leaves every field where it is. `partTexts`: the fields'
+  // texts, for `partFor`'s cut.
+  state rawBase = ""
+  state rawFor = ""
+  state partTexts: string[] = []
+  state partFor = ""
+  // The branch (by its value) a cell's token draft was typed against.
+  state draftFor = ""
+  state newName = ""
+  state newValue = ""
+  state renameTo = ""
+  resource branch = loadBranch(file, selToken, selColumn, design.answer) as shape Branch else empty(ok=true)
+  resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, filesAt, proposeAt, hello.live, epoch) as shape Proposal else empty(ok=true)
+  // Scrubbing, chosen explicitly (D6, never the default): each value the
+  // draft takes is a frame previewed on every running copy, written to no
+  // file; Keep (or a slider let go) writes it once, Cancel puts the
+  // committed value back. `scrubAsk` counts Scrub live presses, `scrubTick`
+  // each Keep or Cancel; the module keeps the session, and the poll's
+  // answers bring an end the server made.
+  state scrubAsk = 0
+  state scrubTick = 0
+  // From Scrub live to Keep or Cancel: the panel shows while the opening
+  // frame is still on its way.
+  state scrubWant = false
+  resource scrub = scrubFrame(scrubAsk, scrubTick, file, editKind, editTarget, editWhen, editValue, client, proposal.review, changes.answer) as shape Scrub else empty(ok=true)
+  derive scrubShown = scrub.live or (scrubWant and pending(scrub))
+  // The changeset follows the long poll and each design read (which
+  // measures what changed); history is read when shown.
+  resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
+  resource scope = loadScope(client, changes.answer) as shape Scope else empty(open=0, refused=false, unavailable=false)
+  // The items of held proposals picked for "Accept picked"
+  // (`<proposal>:<index>`), and the last change whose highlight has faded.
+  state picked: string[] = []
+  state faded = ""
+  resource lit = loadLit(file, design.answer, faded) as shape Lit else empty(seq=0)
+  state historyShown = false
+  state historyPages = 1
+  resource history = loadHistory(historyShown, historyPages, since, epoch) as shape History else empty(ok=true)
+  mutation committed as shape Committed refreshes changeset, scope
+  // The importer for a picked file: shadcn CSS, a Tailwind v4 sheet, DTCG
+  // JSON (several files, a mode each).
+  state importKind = "shadcn"
+  mutation imported as shape Imported
+  mutation reverted as shape Reverted
+  // One slot for a write, an undo or a redo: its reply holds the stacks.
+  mutation written as shape Written refreshes design then afterWrite
+  // The stacks as the last write left them, unless a new run of the
+  // server has emptied them since (a write that found the restart itself is
+  // newer than the poll, and says so).
+  derive stack = match written { case some(w) => (w.session >= changes.session ? w : Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="", carried=[], rescope="")), case none => Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="", carried=[], rescope="") }
+  derive draftKey = `${file}␟${editKind}␟${editTarget}␟${editWhen}␟${editValue}`
+  // A cell's edit whose branch the grid no longer shows (another client
+  // changed it): not applied, lest it make a `when` no one asked for.
+  // What the branch editor writes: a token's branch, or a param's line (T3).
+  derive branchOp = branch.param ? "set-param" : "set-token"
+  // (A panel edit of a param is no branch editor draft: `draftFor` is the branch editor's.)
+  derive draftStale = editKind == branchOp and draftFor != "" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
+  // The branch's value as the draft has it, and its typed fields.
+  derive shownValue = editKind == branchOp and draftFor != "" and editTarget == branch.token and not draftStale ? editValue : branch.value
+  // The branch by what it is, not which read: a read that gives the same
+  // value back (after a scrub cancelled, an undo elsewhere) keeps the cut.
+  derive branchKey = `${branch.token}␟${branch.column}␟${branch.when}␟${branch.value}`
+  derive partsBase = rawFor == branchKey and editKind == branchOp and editTarget == branch.token ? rawBase : branch.value
+  resource typed = loadParts(branch.kind, partsBase, design.answer) as shape Typed else empty(ok=false)
+  // The cut by its value and its parts (a reread that reads a name as
+  // another kind cuts it otherwise, and a draft of the old cut is stale).
+  derive partsKey = `${branchKey}␟${typed.of}␟${typed.parts.map(p => p.key).join(",")}`
+  // The fields' texts: the draft's while it is this cell's token edit from
+  // this cut, else the cut's own (another edit replaced it, or none).
+  derive fieldDraft = partFor == partsKey and editKind == branchOp and editTarget == branch.token
+  derive fieldTexts = fieldDraft ? partTexts : typed.parts.map(p => p.text)
+  // Fields that must hold something and are empty (required, or holding the
+  // place before a later part that is written): emptied, a later part would
+  // read in its place, so nothing is drafted until they are filled.
+  derive partMissing = typed.parts.filter(p => p.control != "fixed" and fieldTexts.slice(p.index, p.index + 1).join("") == "" and (not p.optional or (p.after >= 0 and fieldTexts.slice(p.after, p.after + 1).join("") != ""))).map(p => p.label).join(", ")
+  // A cell's token draft typed against another value of its branch (it
+  // moved under it, a write elsewhere): stale, as one for another branch is.
+  derive partsStale = editKind == branchOp and editTarget == branch.token and draftFor != "" and draftFor != branchKey
+
+  // The oldest highlight here fades after 3 s, then the next.
+  task fading when lit.names.length > 0 key=`${lit.epoch}-${lit.file}-${lit.seq}`
+    after(3000, fade)
+  // Each answer asks again: at once after one, after 3 s after a failure.
+  task follow when not pending(changes) and changes.ok key=changes.answer
+    after(1, advance)
+  task retry when not pending(changes) and not changes.ok key=changes.answer
+    after(3000, advance)
+
+  action advance
+    // A change (the files' digests moved), another run, more missed than
+    // the server keeps, or no answer: read the files again.
+    if changes.missed or not hello.ok or not changes.ok or changes.seq != since
+      refresh hello
+    if not design.ok
+      refresh design
+    since = changes.seq
+    filesAt = changes.files
+    if not scrubShown
+      proposeAt = changes.answer
+    epoch = changes.epoch
+    asks = asks + 1
+  action reconnect
+    refresh hello
+    // A poll still held answers for itself; a second would race it. One
+    // answered goes on from where it got to, as `advance` would.
+    if not pending(changes)
+      if changes.ok
+        since = changes.seq
+        filesAt = changes.files
+        if not scrubShown
+          proposeAt = changes.answer
+        epoch = changes.epoch
+      asks = asks + 1
+  action editName(v: string)
+    draftName = v
+  action saveName
+    if draftName.trim() != ""
+      person = draftName.trim()
+      renaming = false
+  action changeName
+    // The tool stays itself while the name is retyped: its long poll keeps
+    // naming it, so its pins hold. A scrub open is its own: it ends first.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    draftName = person
+    renaming = true
+  action dialNumber(op: string, name: string, unit: string, n: number)
+    // A scrub open on another edit ends first.
+    if scrubShown and not (editKind == op and editTarget == name and editWhen == "")
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = op
+    editTarget = name
+    editWhen = ""
+    // A panel edit: the param's own line, no branch editor draft or mode scope.
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
+    editValue = `${n}${unit}`
+  action dialStepped(op: string, name: string, unit: string, v: string)
+    // A stepper's number, with its dial's unit.
+    if scrubShown and not (editKind == op and editTarget == name and editWhen == "")
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = op
+    editTarget = name
+    editWhen = ""
+    // A panel edit: the param's own line, no branch editor draft or mode scope.
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
+    editValue = v.trim() == "" ? "" : `${v.trim()}${unit}`
+  action dialReleased(op: string, name: string, n: number)
+    // A slider let go: the scrub on it writes its last value, once that is
+    // previewed.
+    if scrubShown and editKind == op and editTarget == name and editWhen == "" and not pending(written)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = releaseScrub(file, editKind, editTarget, editWhen, editValue)
+  action dialText(op: string, name: string, v: string)
+    // A scrub open on another edit ends first.
+    if scrubShown and not (editKind == op and editTarget == name and editWhen == "")
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = op
+    editTarget = name
+    editWhen = ""
+    // A panel edit: the param's own line, no branch editor draft or mode scope.
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
+    editValue = v.trim()
+  action resetParam(name: string)
+    // The app's line goes, and the default applies again: `unset-param`.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = "unset-param"
+    editTarget = name
+    editWhen = ""
+    editValue = ""
+    // A panel edit: the param's own line, no branch editor draft or mode scope.
+    draftFor = ""
+    rawFor = ""
+    partFor = ""
+    scopeOwn = false
+  action rescope
+    if not pending(written)
+      send written = rescopeLast(client)
+  action toggleInspect
+    if not pending(inspectSent)
+      send inspectSent = sendInspect(client, not inspected.inspecting)
+  // A row's token, on the branch that won for the selected copy: the grid's
+  // cell editor, its edits and scrubs, scoped to that branch.
+  action editFromSelection(token: string, column: string, place: string)
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    // The app's own design: the one the running app resolved it in.
+    file = ""
+    selToken = token
+    selColumn = column
+    selPlace = place
+    pinning = false
+    scopeOwn = false
+    focusDial = ""
+    editKind = ""
+    rawFor = ""
+    partFor = ""
+    impactToken = token
+  action showImpact(token: string)
+    impactToken = token
+  action outlineImpact
+    if impactToken != "" and not pending(outlined)
+      send outlined = outlineUses(client, impactToken)
+  action selectCell(token: string, column: string)
+    // A scrub open is of another edit: it ends first.
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    selToken = token
+    selColumn = column
+    selPlace = ""
+    pinning = false
+    scopeOwn = false
+    focusDial = ""
+    editKind = ""
+    rawFor = ""
+    partFor = ""
+  action showDial(name: string, group: string, more: bool)
+    if more and not opened.includes(group)
+      opened = opened.concat([group])
+    focusDial = name
+  action cellText(v: string)
+    // A scrub open on another edit (another branch of it, a panel edit) ends first.
+    if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == (scopeOwn ? branch.own : branch.when))
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = branchOp
+    editTarget = branch.token
+    editWhen = scopeOwn ? branch.own : branch.when
+    editValue = v.trim()
+    // The typed fields are cut from this text now.
+    rawBase = v.trim()
+    rawFor = branchKey
+    partFor = ""
+    draftFor = branchKey
+  action partEdit(i: number, v: string)
+    // One typed field: the value with this part changed and every other as
+    // written, so the line written changes only there.
+    if typed.ok and typed.of == partsBase
+      if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == (scopeOwn ? branch.own : branch.when))
+        scrubTick = scrubTick + 1
+        scrubWant = false
+        send written = cancelScrub(scrubAsk)
+      let texts = fieldTexts.map((t, j) => j == i ? v.trim() : t)
+      let missing = typed.parts.filter(p => p.control != "fixed" and texts.slice(p.index, p.index + 1).join("") == "" and (not p.optional or (p.after >= 0 and texts.slice(p.after, p.after + 1).join("") != ""))).length > 0
+      partTexts = texts
+      partFor = partsKey
+      draftFor = branchKey
+      editKind = branchOp
+      editTarget = branch.token
+      editWhen = scopeOwn ? branch.own : branch.when
+      editValue = missing ? "" : [typed.parts.map(p => p.control == "fixed" ? p.text : (texts.slice(p.index, p.index + 1).join("") == "" and p.optional ? "" : [p.pre, texts.slice(p.index, p.index + 1).join(""), p.post].join(""))).join(""), typed.tail].join("")
+  action onlyThisMode
+    if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == branch.own)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    // A value already typed for this cell is kept, now for this mode alone.
+    if not (editKind == branchOp and draftFor != "" and editTarget == branch.token)
+      editValue = branch.value
+      // A fresh draft: the fields are the value's, and it is of this value.
+      rawFor = ""
+      partFor = ""
+      draftFor = branchKey
+    scopeOwn = true
+    editKind = branchOp
+    editTarget = branch.token
+    editWhen = branch.own
+  action pin
+    pinning = true
+  action editNewName(v: string)
+    newName = v
+  action editNewValue(v: string)
+    newValue = v
+  // Its button's `disabled` is no guard against Enter in either field (`submit`).
+  action addToken
+    if newName.trim() != "" and newValue.trim() != ""
+      if scrubShown
+        scrubTick = scrubTick + 1
+        scrubWant = false
+        send written = cancelScrub(scrubAsk)
+      editKind = "add-token"
+      editTarget = newName.trim()
+      editWhen = ""
+      editValue = newValue.trim()
+  action editRename(v: string)
+    renameTo = v
+  action renameToken
+    if renameTo.trim() != ""
+      if scrubShown
+        scrubTick = scrubTick + 1
+        scrubWant = false
+        send written = cancelScrub(scrubAsk)
+      editKind = "rename-token"
+      editTarget = selToken
+      editWhen = ""
+      editValue = renameTo.trim()
+  action removeToken
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = "remove-token"
+    editTarget = selToken
+    editWhen = ""
+    editValue = ""
+  action cancelEdit
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = ""
+    scopeOwn = false
+    rawFor = ""
+    partFor = ""
+  action startScrub
+    if not scrub.live and not pending(written)
+      scrubAsk = scrubAsk + 1
+      scrubWant = true
+  action keepScrub
+    // The one write: what the server previews, once it is the draft.
+    if scrub.live and scrub.ready and not partsStale and not pending(scrub) and not pending(written)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = releaseScrub(file, editKind, editTarget, editWhen, editValue)
+  action cancelScrub
+    scrubTick = scrubTick + 1
+    scrubWant = false
+    send written = cancelScrub(scrubAsk)
+  action apply
+    // Only the proposal shown, for the edit drafted, is written.
+    if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not draftStale and not partsStale and not pending(written) and not scrubShown
+      send written = writeEdit(file, editKind, editTarget, editWhen, editValue, client, proposal.review)
+  action afterWrite
+    // The draft written is done with; one drafted since stays.
+    match written
+      case some(w)
+        if w.carried.length > 0
+          picked = picked.concat(w.carried)
+        if w.ok and w.key != "" and w.key == draftKey
+          editKind = ""
+          scopeOwn = false
+          rawFor = ""
+          partFor = ""
+          if w.last == "remove" or w.last == "rename"
+            selToken = ""
+      case none
+        editKind = ""
+  action undo
+    if not pending(written)
+      send written = undoLast(client)
+  action redo
+    if not pending(written)
+      send written = redoLast(client)
+  action reloadDesign
+    refresh design
+  action chooseCanvasSize(size: string)
+    canvasSize = size
+  action choosePinBuild(id: string)
+    pinBuild = id
+  action choosePinScheme(v: string)
+    pinScheme = v
+  action choosePinContrast(v: string)
+    pinContrast = v
+  action choosePinMode(axis: string, value: string)
+    pinMode = pinMode.filter(m => m.indexOf(`${axis}=`) != 0).concat(value == "" ? [] : [`${axis}=${value}`])
+  action choosePinFont(v: string)
+    pinFont = match parseNumber(v) { case some(n) => n, case none => 0 }
+  action applyPin
+    if not pending(pinned)
+      send pinned = sendPin(client, pinBuild, pinScheme, pinContrast, pinMode.join(" "), pinFont, false, false)
+  action clearPins
+    pinScheme = ""
+    pinContrast = ""
+    pinMode = []
+    pinFont = 0
+    if not pending(pinned)
+      send pinned = sendPin(client, pinBuild, "", "", "", 0, false, true)
+  action previewPin
+    if not pending(pinned) and pinBuild != "" and pinMode.length == 1
+      send pinned = sendPin(client, pinBuild, "", "", pinMode.join(" "), 0, true, false)
+  action chooseKind(k: string)
+    importKind = k
+  action pickImport
+    showPicker("import-file")
+  action importPicked(files: Picked[])
+    if not pending(imported) and files.length > 0
+      send imported = importFiles(client, importKind, files.map(f => f.path).join("\n"), files.map(f => f.name).join("\n"))
+  action acceptImportNow(proposal: string)
+    if not pending(written)
+      send written = acceptImport(client, proposal, picked.join(";"))
+  action editImportValue(proposal: string, index: number, mode: number, v: string)
+    if not pending(written)
+      send written = editImport(client, proposal, index, mode, v, picked.join(";"))
+  // A mapped token is in until unticked: its id is picked when left out.
+  action toggleLeaveOut(id: string, checked: bool)
+    picked = checked ? picked.filter(p => p != id) : picked.filter(p => p != id).concat([id])
+  // An offer's id is picked when it differs from where it began.
+  action toggleOffer(id: string, on: bool, checked: bool)
+    picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
+  action togglePick(id: string, checked: bool)
+    picked = checked ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
+  action acceptAll(proposal: string)
+    if not pending(written)
+      send written = acceptHeld(client, proposal, "")
+  action acceptPicked(proposal: string, items: string)
+    if not pending(written) and items != ""
+      send written = acceptHeld(client, proposal, items)
+  action dropProposal(proposal: string)
+    if not pending(written)
+      send written = dropHeld(client, proposal)
+  action fade
+    faded = lit.fadeTo
+  action commit
+    if not pending(committed)
+      send committed = commitSession(client)
+  action toggleHistory
+    historyShown = not historyShown
+  action moreHistory
+    historyPages = historyPages + 1
+  action newerHistory
+    historyPages = historyPages > 1 ? historyPages - 1 : 1
+  action revert(commit: string)
+    if not pending(reverted)
+      send reverted = revertCommit(client, commit)
+  action toggleMore(group: string)
+    opened = opened.includes(group) ? opened.filter(g => g != group) : opened.concat([group])
+  action chooseFile(f: string)
+    if scrubShown
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    // An edit drafted in one file is not carried to another.
+    file = f
+    editKind = ""
+    selToken = ""
+    selColumn = ""
+    selPlace = ""
+    pinning = false
+    scopeOwn = false
+    focusDial = ""
+  action chooseA(name: string)
+    pickA = name
+  action chooseB(name: string)
+    pickB = name
+
+  view
+    main testId="root" width="100%" height="100%" display="flex" flex-direction="column"
+      header display="flex" align-items="center" gap=12 padding="8px 16px"
+        text "Design tool" role="heading" aria-level=1 flex=1
+        if person != "" and not renaming
+          button press=changeName testId="person"
+            text client
+      scroll id="content" flex=1 min-height=0 padding=16
+        if person == "" or renaming
+          column gap=8 max-width=420 testId="ask-name"
+            text "Your name" role="heading" aria-level=2
+            text "Every edit you make is written as yours, so others reading the history know who made it." color="-exact-secondary-label"
+            if renaming
+              text "A new name is a new client: pins this tool holds are handed back when it changes." color="-exact-secondary-label" font="-exact-footnote" testId="rename-note"
+            input value=draftName input=editName submit=saveName placeholder="Ada" aria-label="Your name" testId="name"
+            button press=saveName disabled=(draftName.trim() == "") buttonStyle="filled" testId="save-name"
+              text "Continue"
+        else if not hello.ok
+          column gap=8 max-width=520 testId="no-server"
+            text "No design server" role="heading" aria-level=2
+            text hello.error color="-exact-secondary-label" testId="no-server-message"
+            button press=reconnect buttonStyle="bordered" testId="reconnect"
+              text "Try Again"
+        else
+          column gap=16
+            column gap=4 testId="hello"
+              text hello.app role="heading" aria-level=2 testId="app"
+              text `${hello.protocol} · IR format ${hello.format}` color="-exact-secondary-label" testId="protocol"
+            column gap=4 testId="files"
+              for f in hello.files key=f.path
+                row gap=12
+                  text f.path flex=1 testId=`file-${f.path}`
+                  text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
+            // The canvas (LLP 1122 D3): the running app, at the dev loop's own
+            // URL, in a frame the tool never scripts; every control goes
+            // through the design server. Sandboxed short of navigating the tool.
+            column gap=8 testId="canvas"
+              row gap=8 align-items="center"
+                text "Canvas" role="heading" aria-level=2 flex=1
+                select value=canvasSize change=chooseCanvasSize aria-label="Canvas size" testId="canvas-size"
+                  option "Phone" value="phone"
+                  option "Tablet" value="tablet"
+                  option "Desktop" value="desktop"
+                if hello.page != ""
+                  link href=hello.page target="_blank" testId="canvas-open"
+                    text "Open in a tab"
+              if hello.page != ""
+                iframe src=hello.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+              else
+                column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"
+                  text "No app running" role="heading" aria-level=3
+                  text "The canvas shows the app from its dev loop. Start one (bun exact.mjs web, in the app's directory), then open the tool through it: bun exact.mjs tamber tool --via <its URL>. Stop this tool first: it holds the design server, and --via refuses while it runs." color="-exact-secondary-label" testId="no-app-how"
+            // The builds (LLP 1122 D4): every running copy, its effective
+            // facts from its own report, and pins, which last while the tool
+            // runs (its long poll names it) and are handed back when it stops.
+            // The inspector (LLP 1122 D5): inspect mode on the builds, the node
+            // a click in one selected, where each row's value comes from, and
+            // what may be edited from here (failing closed).
+            column gap=8 testId="inspector"
+              row gap=8 align-items="center"
+                text "Inspector" role="heading" aria-level=2 flex=1
+                button press=toggleInspect disabled=pending(inspectSent) buttonStyle=(inspected.inspecting ? "filled" : "bordered") testId="inspect-toggle"
+                  text (inspected.inspecting ? "Stop inspecting" : "Inspect")
+              match inspectSent
+                case some(i)
+                  text (i.ok ? i.note : i.error) color=(i.ok ? "-exact-secondary-label" : "-exact-system-red") font="-exact-footnote" testId="inspect-result"
+                case none
+                  text "" display="none"
+              if not inspected.has
+                text "Turn on Inspect, then click a view in the canvas or on a device: its source, rows and tokens show here." color="-exact-secondary-label" testId="no-selection"
+              else
+                column gap=4 testId="selection"
+                  text inspected.source font="-exact-headline" testId="selection-source"
+                  for c in inspected.chain key=c
+                    text `in ${c}` color="-exact-secondary-label" font="-exact-footnote"
+                  text `${inspected.build}${inspected.modes != "" ? ` · ${inspected.modes}` : ""}` color="-exact-secondary-label" font="-exact-footnote" testId="selection-build"
+                  if inspected.stale != ""
+                    text `No longer current: ${inspected.stale}. Select it again to edit from here.` color="-exact-system-orange" testId="selection-stale"
+                  if inspected.readOnly != ""
+                    text `Read-only: ${inspected.readOnly}` color="-exact-system-orange" testId="selection-readonly"
+                  if inspected.trimmed
+                    text "Some rows were left out: the report was too large." color="-exact-secondary-label" font="-exact-footnote"
+                  for r in inspected.rows key=r.name
+                    row gap=8 align-items="center" flex-wrap="wrap" testId=`selrow-${r.name}`
+                      text r.name font="-exact-footnote" width="9rem"
+                      text r.value font="-exact-caption1" font-family="ui-monospace, monospace" flex=1 min-width=0
+                      text r.source color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-source-${r.name}`
+                      if r.rung == "param"
+                        button press=editFromSelection(r.param, r.column, inspected.place) buttonStyle="bordered" testId=`selrow-edit-${r.name}`
+                          text `Edit ${r.short}`
+                        if r.token != ""
+                          button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-token-${r.name}`
+                            text `Edit the token ${r.token} instead`
+                      else if r.rung == "token"
+                        button press=editFromSelection(r.token, r.column, inspected.place) buttonStyle="bordered" testId=`selrow-edit-${r.name}`
+                          text `Edit ${r.token}`
+                      else if r.token != ""
+                        button press=editFromSelection(r.token, r.column, inspected.place) testId=`selrow-link-${r.name}`
+                          text `Open ${r.token}`
+                      if r.rung == "" and r.reason != ""
+                        text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-reason-${r.name}`
+              if impactToken != ""
+                column gap=2 testId="impact"
+                  row gap=8 align-items="center"
+                    text (pending(uses) or uses.token != impactToken ? `${impactToken}: reading its uses…` : uses.ok ? `${impactToken}: read at ${uses.sites.length} source site(s), statically (not a count of mounted copies)` : uses.error) font="-exact-footnote" flex=1 testId="impact-count"
+                    button press=outlineImpact disabled=(pending(outlined) or not inspected.inspecting) testId="impact-outline"
+                      text "Outline"
+                  match outlined
+                    case some(o)
+                      text (o.ok ? o.note : o.error) color=(o.ok ? "-exact-secondary-label" : "-exact-system-red") font="-exact-caption1" testId="impact-outlined"
+                    case none
+                      text "" display="none"
+                  for u in (uses.token == impactToken ? uses.sites : []) key=`${u.file}:${u.line}:${u.col}`
+                    text u.text color="-exact-secondary-label" font="-exact-caption1"
+            column gap=8 testId="builds"
+              text "Builds" role="heading" aria-level=2
+              if changes.builds.length == 0
+                text "No build is connected. The canvas's page is one once a dev loop runs; a device joins launched at the dev URL: bun exact.mjs ios --run --url <dev url>, or the Mac's likewise." color="-exact-secondary-label" testId="no-builds"
+              for b in changes.builds key=b.id
+                column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`build-${b.id}`
+                  row gap=8 align-items="center"
+                    text `${b.host} · ${b.id}` font="-exact-footnote" flex=1
+                    if b.pin != ""
+                      text (b.caughtUp ? `pinned: ${b.pin}` : `pinning: ${b.pin}`) font="-exact-caption1" color=(b.caughtUp ? "-exact-secondary-label" : "-exact-system-orange") testId=`build-pin-${b.id}`
+                    else if b.behind
+                      text "handing back" font="-exact-caption1" color="-exact-system-orange" testId=`build-pin-${b.id}`
+                  if b.reported
+                    text `${b.scheme}${b.contrast != "" and b.contrast != "no-preference" ? ` · contrast ${b.contrast}` : ""}${b.mode != "" ? ` · ${b.mode}` : ""}${b.rootFontSize > 0 ? ` · ${b.rootFontSize}px` : ""}` testId=`build-status-${b.id}`
+                  else
+                    text "Not reported yet: it has not said what it shows." color="-exact-secondary-label" font="-exact-caption1" testId=`build-status-${b.id}`
+                  if b.unsupported != ""
+                    text `Not applied: ${b.unsupported}` color="-exact-system-orange" font="-exact-caption1" testId=`build-unsupported-${b.id}`
+              row gap=8 align-items="center" flex-wrap="wrap" testId="pin-form"
+                select value=pinBuild change=choosePinBuild aria-label="Pin on" testId="pin-build"
+                  option "Every build" value=""
+                  for b in changes.builds key=b.id
+                    option `${b.host} · ${b.id}` value=b.id
+                select value=pinScheme change=choosePinScheme aria-label="Scheme" testId="pin-scheme"
+                  option "Scheme…" value=""
+                  option "Light" value="light"
+                  option "Dark" value="dark"
+                select value=pinContrast change=choosePinContrast aria-label="Contrast" testId="pin-contrast"
+                  option "Contrast…" value=""
+                  option "More" value="more"
+                  option "Less" value="less"
+                  option "No preference" value="no-preference"
+                for a in pinAxes key=a.name
+                  select value=pinMode.filter(m => m.indexOf(`${a.name}=`) == 0).map(m => m.slice(a.name.length + 1)).join("") change=choosePinMode(a.name) aria-label=a.name testId=`pin-mode-${a.name}`
+                    option `${a.name}…` value=""
+                    for v in a.values key=v
+                      option v value=v
+                input type="number" min=4 max=64 value=(pinFont > 0 ? `${pinFont}` : "") placeholder="px" change=choosePinFont aria-label="Root font size" width=80 testId="pin-font"
+                button press=applyPin disabled=(pending(pinned) or (pinScheme == "" and pinContrast == "" and pinMode.length == 0 and pinFont == 0) or not pinFontOk) buttonStyle="filled" testId="pin-apply"
+                  text "Pin"
+                // One axis on one build, alone: it replaces that build's pin.
+                button press=previewPin disabled=(pending(pinned) or pinBuild == "" or pinMode.length != 1 or pinScheme != "" or pinContrast != "" or pinFont != 0) testId="pin-preview"
+                  text "Preview this mode only"
+                button press=clearPins disabled=pending(pinned) testId="pin-clear"
+                  text "Hand back"
+              match pinned
+                case some(p)
+                  text (p.ok ? p.note : p.error) color=(p.ok ? "-exact-secondary-label" : "-exact-system-red") testId="pin-result"
+                case none
+                  text "" display="none"
+            // Design files only: the server's files hold the app's Contract
+            // sources too (LLP 1121 stage 8 D), whose state parts it writes.
+            if hello.files.filter(f => !f.path.endsWith(".contract")).length > 1
+              select value=file change=chooseFile aria-label="Design file" testId="file"
+                option "The app's design" value=""
+                for f in hello.files.filter(f => !f.path.endsWith(".contract")) key=f.path
+                  option f.path value=f.path
+            if pending(design) and design.answer == 0
+              row gap=8 align-items="center" testId="design-loading"
+                progress aria-label="Reading the design"
+                text "Reading the design…" color="-exact-secondary-label"
+            else if not design.ok
+              row gap=8 align-items="center"
+                text design.error color="-exact-system-red" white-space="pre-wrap" flex=1 testId="design-error"
+                button press=reloadDesign buttonStyle="bordered" testId="reload-design"
+                  text "Try Again"
+            // The design read, and nothing of it before or after a refusal.
+            if design.ok and design.answer != 0 and design.file == file
+              column gap=12 testId="dials"
+                text "Dials" role="heading" aria-level=2
+                if design.groups.length == 0
+                  text "This design has no dials." color="-exact-secondary-label" testId="no-dials"
+                for g in design.groups key=g.name
+                  column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`group-${g.name}`
+                    text (g.name == "" ? "Dials" : g.name) role="heading" aria-level=3
+                    for c in g.dials key=c.name
+                      DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
+                    if g.more.length > 0
+                      button press=toggleMore(g.name) testId=`more-${g.name}`
+                        text (opened.includes(g.name) ? "Fewer" : `More (${g.more.length})`)
+                      if opened.includes(g.name)
+                        for c in g.more key=c.name
+                          DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber("set-dial", c.name, c.unit), onText=dialText("set-dial", c.name), onStep=dialStepped("set-dial", c.name, c.unit), onRelease=dialReleased("set-dial", c.name))
+              if design.components.length > 0
+                column gap=12 testId="components"
+                  text "Components" role="heading" aria-level=2
+                  for k in design.components key=k.identity
+                    column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`component-${k.name}`
+                      row gap=8 align-items="baseline"
+                        text k.name role="heading" aria-level=3
+                        text (k.native ? `${k.identity} · a native view's` : k.identity) color="-exact-secondary-label" font="-exact-footnote" testId=`component-${k.name}-identity`
+                      for g in k.groups key=g.name
+                        column gap=4 testId=`param-group-${k.name}-${g.name}`
+                          if g.name != ""
+                            text g.name font="-exact-subheadline"
+                          for r in g.params key=r.c.name
+                            ParamControl(r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
+                          if g.more.length > 0
+                            button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
+                              text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
+                            if opened.includes(`${k.identity}|${g.name}`)
+                              for r in g.more key=r.c.name
+                                ParamControl(r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
+              column gap=8 testId="tokens"
+                text "Tokens" role="heading" aria-level=2
+                column overflow-x="auto" align-items="flex-start" testId="grid"
+                  column gap=2 flex-shrink=0
+                    row gap=8 align-items="end"
+                      text "Token" width=200 flex-shrink=0 font="-exact-footnote" color="-exact-secondary-label"
+                      for col in design.columns key=col.id
+                        text col.label width=96 flex-shrink=0 font="-exact-footnote" color="-exact-secondary-label" testId=`column-${col.id}`
+                    for tg in design.tokenGroups key=tg.name
+                      text tg.name font="-exact-subheadline" padding="8px 0 2px" testId=`token-group-${tg.name}`
+                      for t in tg.tokens key=t.name
+                        row gap=8 align-items="center" testId=`token-${t.name}`
+                          column width=200 flex-shrink=0
+                            text t.name
+                            if lit.names.includes(t.name)
+                              text `changed by ${lit.whos.filter((w, i) => lit.names.indexOf(t.name) == i).join("")}` font="-exact-caption1" color=lit.tints.filter((c, i) => lit.names.indexOf(t.name) == i).join("") testId=`changed-by-${t.name}`
+                            if t.follows != ""
+                              text `follows ${t.follows}` font="-exact-caption1" color="-exact-secondary-label" testId=`follows-${t.name}`
+                          for cell in t.cells key=cell.column
+                            column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(lit.cells.includes(`${t.name}|${cell.column}`) ? lit.cellTints.filter((c, i) => lit.cells.indexOf(`${t.name}|${cell.column}`) == i).join("") : "transparent") press=selectCell(t.name, cell.column) role="button" aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
+                              if cell.kind == "box-shadow"
+                                // In a padded box of the column's scheme, so the shadow falls on its own ground.
+                                view padding=6 border-radius=4 color-scheme=cell.scheme background-color="-exact-background" testId=`cell-shadow-${t.name}-${cell.column}`
+                                  view height=16 border-radius=4 background-color="-exact-secondary-background" box-shadow=cell.shadow
+                              else if cell.kind == "text-shadow"
+                                view color-scheme=cell.scheme background-color="-exact-background" border-radius=4 testId=`cell-shadow-${t.name}-${cell.column}`
+                                  text "Aa" color="-exact-label" text-shadow=cell.shadow
+                              else if cell.kind == "color"
+                                view height=24 border-radius=4 background-color=cell.swatch border="1px solid -exact-separator"
+                              if cell.residual
+                                text "fallback" font="-exact-caption2" color="-exact-system-orange" testId=`cell-fallback-${t.name}-${cell.column}`
+                              text (cell.residual ? cell.note : cell.css) font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 testId=`cell-text-${t.name}-${cell.column}`
+                              for b in cell.pairs key=b.name
+                                text `${b.ratio} on ${b.name}` font="-exact-caption2" color=(b.low ? "-exact-system-red" : "-exact-secondary-label") line-clamp=1 testId=`pair-${t.name}-${cell.column}-${b.name}`
+              if design.icons.length > 0
+                column gap=4 testId="icons"
+                  text "Icons" font="-exact-subheadline" padding="8px 0 2px"
+                  text "Read only: no edit operation writes an icon, so change one in the design file." color="-exact-secondary-label" font="-exact-footnote"
+                  for ic in design.icons key=ic.name
+                    row gap=8 align-items="center" testId=`icon-${ic.name}`
+                      text ic.name width="12rem" flex-shrink=0
+                      text [ic.sf != "" ? `sf ${ic.sf}` : "", ic.material != "" ? `material ${ic.material}` : "", ic.svg != "" ? "svg" : ""].filter(x => x != "").join(" · ") color="-exact-secondary-label" font="-exact-footnote" testId=`icon-${ic.name}-sources`
+              // The branch of the cell chosen, read of the grid shown.
+              if selPlace != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and branch.place != selPlace
+                text "The design's axes changed since that copy was selected, so this column is another branch now: select it again." color="-exact-system-orange" testId="branch-moved"
+              if selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and (selPlace == "" or branch.place == selPlace)
+                column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"
+                  text (scopeOwn ? `${branch.token} · ${branch.own} (only this mode)` : branch.label) role="heading" aria-level=3 testId="branch-label"
+                  if branch.kind == "duration" or branch.kind == "easing"
+                    text "Rebuilds: an edit to a motion token rebuilds the app, so Apply writes it, with no scrub." font="-exact-footnote" color="-exact-secondary-label" testId="branch-rebuilds"
+                  if branch.expression and not pinning and not typed.ok
+                    text `Follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: edit those, or pin a value here.` color="-exact-secondary-label" testId="branch-inputs"
+                    for n in branch.inputs key=n
+                      button press=selectCell(n, selColumn) testId=`input-${n}`
+                        text n
+                    for d in branch.dials key=d.name
+                      if d.hidden
+                        text `${d.name}: a dial with no control (control=none)` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${d.name}`
+                      else
+                        button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
+                          text `${d.name} (dial)`
+                    for r in branch.roles key=r
+                      text `${r}: ${branch.kind == "color" ? "a platform colour" : "a platform value"}, set by the system` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${r}`
+                    button press=pin buttonStyle="bordered" testId="pin"
+                      text "Pin a value"
+                  else
+                    if branch.expression and typed.ok
+                      // Its fields keep the names it holds (a shadow's colour token).
+                      text `Names ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: its fields keep them; edit those for their own values.` color="-exact-secondary-label" testId="branch-names"
+                      for n in branch.inputs key=n
+                        button press=selectCell(n, selColumn) testId=`input-${n}`
+                          text n
+                      for d in branch.dials.filter(d => not d.hidden) key=d.name
+                        button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
+                          text `${d.name} (dial)`
+                    else if branch.expression
+                      text `Pinned here: no longer follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}.` color="-exact-system-orange" testId="pinned"
+                    if typed.ok and typed.of == partsBase
+                      column gap=6 testId="typed"
+                        for p in typed.parts.filter(p => p.control != "fixed") key=p.key
+                          row gap=8 align-items="center" testId=`part-${p.key}`
+                            text p.label width="7rem" color="-exact-secondary-label" font="-exact-footnote"
+                            if p.control == "number"
+                              input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                            else if p.control == "select"
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                for o in p.options key=o
+                                  option (o == "" ? "none" : o) value=o
+                            else if p.control == "inset"
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("").toLowerCase() change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                option "outside" value=""
+                                option "inset" value="inset"
+                            else if p.control == "style"
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                option "unsaid" value=""
+                                option "italic" value="italic"
+                            else
+                              input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                        if partMissing != ""
+                          text `Give ${partMissing} a value: emptied, the part after it would be read in its place.` color="-exact-system-orange" font="-exact-footnote" testId="typed-missing"
+                    input value=shownValue change=cellText aria-label=`${branch.token} value` testId="branch-value"
+                  if not branch.exact
+                    button press=onlyThisMode testId="only-this-mode"
+                      text "Only this mode"
+                  if not branch.param
+                    row gap=8
+                      input value=renameTo input=editRename submit=renameToken placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
+                      button press=renameToken disabled=(renameTo.trim() == "") testId="rename"
+                        text "Rename"
+                      button commandfor="confirm-remove" command="show-modal" destructive=true testId="remove"
+                        text "Remove"
+                  dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
+                    button press=removeToken destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
+                      text "Remove"
+                    button commandfor="confirm-remove" command="close"
+                      text "Cancel"
+              if not branch.ok
+                text branch.error color="-exact-system-red" testId="branch-error"
+              column gap=8 testId="add"
+                text "Add a token" role="heading" aria-level=3
+                row gap=8
+                  input value=newName input=editNewName submit=addToken placeholder="surface.raised" aria-label="New token's name" flex=1 min-width=0 testId="new-name"
+                  input value=newValue input=editNewValue submit=addToken placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
+                  button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "") testId="add-token"
+                    text "Add"
+              if editKind != ""
+                column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
+                  if draftStale or partsStale
+                    text "The branch this edit was for has changed: choose the cell and type it again." color="-exact-system-orange" testId="draft-stale"
+                  if not proposal.ok
+                    text proposal.error color="-exact-system-red" white-space="pre-wrap" testId="proposal-error"
+                  else if proposal.active
+                    row gap=8 align-items="center"
+                      text (proposal.chip == "live" ? "Live" : "Rebuilds") font="-exact-footnote" padding="2px 8px" border-radius=8 background-color="-exact-tertiary-background" testId="chip"
+                      text proposal.tokens.join(", ") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId="proposal-tokens"
+                    text proposal.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId="proposal-diff"
+                  if scrubShown
+                    column gap=4 testId="scrub"
+                      if not scrub.ok
+                        text scrub.error color="-exact-system-red" white-space="pre-wrap" testId="scrub-error"
+                      else if scrub.open != ""
+                        text (scrub.ready ? "Previewing: the running copies show this value, and the files are unchanged until Keep." : scrub.sending ? "Previewing: sending this value to the running copies…" : "Previewing the last value sent: this one is not previewed.") color="-exact-system-orange" testId="scrub-previewing"
+                      row gap=8
+                        button press=keepScrub disabled=(not scrub.ok or not scrub.ready or partsStale or pending(scrub) or pending(written)) buttonStyle="filled" testId="scrub-keep"
+                          text "Keep"
+                        button press=cancelScrub aria-keyshortcuts="Escape" testId="scrub-cancel"
+                          text "Cancel scrub"
+                  else
+                    row gap=8
+                      button press=apply disabled=(not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or draftStale or partsStale or pending(written)) buttonStyle="filled" testId="apply"
+                        text "Apply"
+                      if editKind == "set-dial" or editKind == "set-token" or editKind == "set-param"
+                        button press=startScrub disabled=(not hello.live or not proposal.ok or not proposal.active or pending(proposal) or proposal.key != draftKey or proposal.chip != "live" or not proposal.scrubbable or draftStale or partsStale or pending(written)) testId="scrub-start"
+                          text "Scrub live"
+                      button press=cancelEdit testId="cancel-edit"
+                        text "Cancel"
+                    if (editKind == "set-dial" or editKind == "set-token" or editKind == "set-param") and proposal.ok and proposal.active and proposal.chip != "live"
+                      text (hello.live ? "This edit rebuilds the app, so it can't be scrubbed: Apply writes it." : "Scrubbing previews on the running copies: open the tool through a dev loop (tamber tool --via).") color="-exact-secondary-label" font="-exact-footnote" testId="scrub-unavailable"
+              if not scrubShown and scrub.ended != ""
+                text scrub.ended color="-exact-secondary-label" testId="scrub-note"
+              row gap=8 align-items="center" testId="undo-bar"
+                button press=undo disabled=(stack.undo == 0 or pending(written)) testId="undo"
+                  text `Undo (${stack.undo})`
+                button press=redo disabled=(stack.redo == 0 or pending(written)) testId="redo"
+                  text `Redo (${stack.redo})`
+                if stack.rescope != ""
+                  button press=rescope disabled=pending(written) testId="rescope"
+                    text stack.rescope
+                if not stack.ok
+                  text stack.error color="-exact-system-red" white-space="pre-wrap" flex=1 testId="write-error"
+                else if stack.note != ""
+                  text stack.note color="-exact-secondary-label" flex=1 testId="write-note"
+              column gap=8 testId="contrast"
+                text "Contrast" role="heading" aria-level=2
+                text "Text over background, between the stored values: a role or platform colour is its fallback until a running app reports it." color="-exact-secondary-label" font="-exact-footnote"
+                row gap=8
+                  select value=pickA change=chooseA aria-label="Text" testId="pick-a"
+                    option "Text…" value=""
+                    for n in design.names key=n
+                      option n value=n
+                  select value=pickB change=chooseB aria-label="Background" testId="pick-b"
+                    option "Background…" value=""
+                    for n in design.names key=n
+                      option n value=n
+                if not contrast.ok
+                  text contrast.error color="-exact-system-red" testId="contrast-error"
+                for r in contrast.ratios key=r.column
+                  row gap=12
+                    text r.label width=160
+                    text r.ratio testId=`ratio-${r.column}`
+            column gap=8 testId="inbox"
+              text "Proposals" role="heading" aria-level=2
+              if changes.held.length == 0
+                text "No proposal is waiting." color="-exact-secondary-label" testId="no-proposals"
+              for h in changes.held key=h.proposal
+                column gap=6 padding=12 border-radius=10 border-width=2 border-style="solid" border-color=h.tint testId=`held-${h.proposal}`
+                  if h.importer != ""
+                    // An import (LLP 1122 D11): mapped tokens in until unticked, role
+                    // overrides out until ticked, what it did not map, and the count.
+                    text `${h.client} imports a ${h.importer} theme` font="-exact-headline" testId=`held-title-${h.proposal}`
+                    text h.counted color=(h.countOk ? "-exact-secondary-label" : "-exact-system-red") font="-exact-footnote" testId=`held-count-${h.proposal}`
+                    if h.replaces != ""
+                      text `Recomputed from ${h.replaces} with the items chosen, on the files as they are now: review its diff, then accept it to write it. The overrides kept are on because they were ticked.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
+                    else if h.from != ""
+                      text `Held again from ${h.from} with your edit, on the files as they are now: review its diff, then accept it.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
+                    if h.replaces != "" or h.from != ""
+                      text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
+                    text `Tokens (${h.mapped.length})` role="heading" aria-level=3
+                    for m in h.mapped key=`${m.index}`
+                      row gap=8 align-items="center" flex-wrap="wrap" testId=`mapped-${h.proposal}-${m.index}`
+                        input type="checkbox" disabled=pending(written) checked=(not picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
+                        text m.name width=200 flex-shrink=0 font="-exact-footnote"
+                        if m.kind != "token"
+                          text m.text color="-exact-secondary-label" font="-exact-caption1" testId=`mapped-text-${h.proposal}-${m.index}`
+                        for md in m.modes key=`${md.mode}`
+                          row gap=4 align-items="center"
+                            if md.light != ""
+                              view width=16 height=16 border-radius=3 background-color=md.light border="1px solid -exact-separator"
+                            if md.dark != ""
+                              view width=16 height=16 border-radius=3 background-color=md.dark border="1px solid -exact-separator"
+                            text md.label font="-exact-caption2" color="-exact-secondary-label"
+                            input value=md.value change=editImportValue(h.proposal, m.index, md.mode) aria-label=`${m.name} ${md.label}` min-width=160 font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
+                    text (h.kept ? "Role overrides, as ticked" : "Role overrides, off until ticked") role="heading" aria-level=3
+                    for o in h.offers key=o.role
+                      row gap=8 align-items="center" testId=`offer-${h.proposal}-${o.role}`
+                        if o.items != ""
+                          input type="checkbox" disabled=pending(written) checked=(o.on != picked.includes(`${h.proposal}:${o.items}`)) change=toggleOffer(`${h.proposal}:${o.items}`, o.on) aria-label=`${o.role} = ${o.token}` testId=`override-${h.proposal}-${o.role}`
+                        text `${o.role} = ${o.token}` font="-exact-footnote"
+                        if o.note != ""
+                          text o.note color="-exact-secondary-label" font="-exact-caption1" testId=`offer-note-${h.proposal}-${o.role}`
+                    text `Not mapped (${h.unmapped.length})` role="heading" aria-level=3
+                    for u in h.unmapped key=u.key
+                      text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1" testId=`unmapped-${h.proposal}-${u.key}`
+                    row gap=8
+                      button press=acceptImportNow(h.proposal) disabled=pending(written) buttonStyle="filled" testId=`accept-${h.proposal}`
+                        text "Accept"
+                      button press=dropProposal(h.proposal) disabled=pending(written) destructive=true testId=`drop-${h.proposal}`
+                        text "Drop"
+                  else
+                    text `${h.client} proposes ${h.tokens.join(", ")}` testId=`held-title-${h.proposal}`
+                    if h.replaces != ""
+                      text `Recomputed from ${h.replaces} on the files as they are now: review it again.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
+                    text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
+                    for it in h.items key=`${it.index}`
+                      row gap=8 align-items="center"
+                        input type="checkbox" checked=picked.includes(`${h.proposal}:${it.index}`) change=togglePick(`${h.proposal}:${it.index}`) aria-label=it.text testId=`pick-${h.proposal}-${it.index}`
+                        text it.text font="-exact-footnote"
+                    row gap=8
+                      button press=acceptAll(h.proposal) disabled=pending(written) buttonStyle="filled" testId=`accept-${h.proposal}`
+                        text "Accept"
+                      button press=acceptPicked(h.proposal, h.items.filter(it => picked.includes(`${h.proposal}:${it.index}`)).map(it => `${it.index}`).join(",")) disabled=(pending(written) or not h.items.map(it => picked.includes(`${h.proposal}:${it.index}`)).includes(true)) testId=`accept-picked-${h.proposal}`
+                        text "Accept picked"
+                      button press=dropProposal(h.proposal) disabled=pending(written) destructive=true testId=`drop-${h.proposal}`
+                        text "Drop"
+            column gap=8 testId="import"
+              text "Import a theme" role="heading" aria-level=2
+              text "Its tokens, the role overrides it offers (each off until ticked) and what it could not map are held as a proposal, reviewed above." color="-exact-secondary-label" font="-exact-footnote"
+              row gap=8 align-items="center"
+                select value=importKind change=chooseKind aria-label="Kind" testId="import-kind"
+                  option "shadcn (CSS)" value="shadcn"
+                  option "Tailwind v4 (CSS)" value="tailwind"
+                  option "DTCG (JSON, a file a mode)" value="dtcg"
+                button press=pickImport disabled=pending(imported) testId="import-choose"
+                  text "Choose files…"
+                input type="file" multiple=(importKind == "dtcg") id="import-file" testId="import-file" display="none" change=importPicked
+              match imported
+                case some(i)
+                  text (i.ok ? i.note : i.error) color=(i.ok ? "-exact-secondary-label" : "-exact-system-red") white-space="pre-wrap" testId="import-result"
+                  if i.counted != ""
+                    text i.counted color="-exact-secondary-label" font="-exact-footnote" testId="import-counted"
+                    for u in i.unmapped key=u.key
+                      text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1"
+                case none
+                  text "" display="none"
+            column gap=8 testId="changeset"
+              text "Changes" role="heading" aria-level=2
+              if changeset.entries.length == 0
+                text "Nothing has changed since the tool opened." color="-exact-secondary-label" testId="no-changes"
+              for e in changeset.entries key=`${e.seq}`
+                column gap=2 testId=`entry-${e.seq}`
+                  row gap=6 align-items="center"
+                    view width=8 height=8 border-radius=4 background-color=e.tint
+                    text e.text color=(e.committed ? "-exact-secondary-label" : "-exact-label") flex=1 testId=`entry-text-${e.seq}`
+                  if e.mine and e.diff != ""
+                    text e.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" color="-exact-secondary-label" testId=`entry-diff-${e.seq}`
+              row gap=8 align-items="center"
+                button press=commit disabled=(pending(committed) or (scope.open == 0 and not scope.refused and not scope.unavailable)) buttonStyle="bordered" testId="commit"
+                  text "Commit"
+                text "Commits what this session wrote, never pushes." color="-exact-secondary-label" font="-exact-footnote"
+              match committed
+                case some(c)
+                  if c.ok
+                    column gap=2 testId="committed"
+                      text `Committed ${c.commit}: ${c.files.join(", ")}` testId="committed-summary"
+                      for t in c.edits key=`${t.n}`
+                        text t.text color="-exact-secondary-label" font="-exact-footnote"
+                  else
+                    column gap=2 testId="commit-refused"
+                      text c.error color="-exact-system-red" white-space="pre-wrap" testId="commit-error"
+                      for r in c.refused key=r.file
+                        text `${r.file}: ${r.why}` color="-exact-system-red" testId=`refused-${r.file}`
+                case none
+                  text "" display="none"
+            column gap=8 testId="history"
+              button press=toggleHistory testId="toggle-history"
+                text (historyShown ? "Hide history" : "History")
+              if historyShown
+                if not history.ok
+                  text history.error color="-exact-system-red" testId="history-error"
+                for c in history.commits key=c.commit
+                  column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`commit-${c.short}`
+                    row gap=8 align-items="center"
+                      text `${c.short} · ${c.author} · ${c.date}` font="-exact-footnote" color="-exact-secondary-label" flex=1
+                      button press=revert(c.commit) disabled=pending(reverted) testId=`revert-${c.short}`
+                        text "Revert"
+                    text c.subject testId=`subject-${c.short}`
+                    for f in c.files key=f.file
+                      text f.file font="-exact-footnote"
+                      if f.refused != ""
+                        text f.refused color="-exact-system-orange" font="-exact-caption1"
+                      for t in f.edits key=t
+                        text t font="-exact-caption1" testId=`edit-${c.short}`
+                row gap=8
+                  if historyPages > 1
+                    button press=newerHistory testId="newer-history"
+                      text "Newer"
+                  if history.more
+                    button press=moreHistory testId="more-history"
+                      text "Older"
+                match reverted
+                  case some(r)
+                    if r.ok
+                      text `Held for review as ${r.proposal}: the revert of ${r.commit.slice(0, 12)}.` testId="reverted"
+                    else
+                      column gap=2 testId="revert-refused"
+                        text r.error color="-exact-system-red" white-space="pre-wrap"
+                        for t in r.refused key=t
+                          text t color="-exact-system-red" font="-exact-footnote"
+                  case none
+                    text "" display="none"
+            column gap=4 testId="following"
+              text (changes.ok ? `Following changes · ${changes.seq}` : changes.error) color="-exact-secondary-label" font="-exact-footnote" testId="follow-state"
+              for c in changes.recent key=`${c.seq}`
+                text `${c.files.join(", ")} · ${c.who}` testId=`change-${c.seq}`
+
+// One dial's control. A dial with no metadata has its kind's: a colour's
+// field and swatch, a ranged number's slider.
+component DialControl
+  props
+    c: Control
+    focused: bool
+    onNumber: action
+    onText: action
+    onStep: action
+    onRelease: action
+  view
+    column gap=4 padding=4 border-radius=6 background-color=(focused ? "-exact-tertiary-background" : "transparent") testId=`dial-${c.name}`
+      row gap=8 align-items="center"
+        text c.label flex=1
+        text c.value color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-value`
+      if c.control == "color"
+        row gap=8 align-items="center" testId=`dial-${c.name}-color`
+          view width=28 height=28 border-radius=6 background-color=c.swatch border="1px solid -exact-separator"
+          input value=c.value change=onText aria-label=c.label flex=1 min-width=0 testId=`dial-${c.name}-field`
+      else if c.control == "slider"
+        // Each value while it is dragged; let go, a scrub open on it is kept.
+        input type="range" min=c.min max=c.max step=c.step value=c.number input=onNumber change=onRelease aria-label=c.label testId=`dial-${c.name}-slider`
+      else if c.control == "stepper"
+        input type="number" min=c.min max=c.max step=c.step value=`${c.number}` input=onStep aria-label=c.label testId=`dial-${c.name}-stepper`
+      else if c.control == "select"
+        select value=c.value change=onText aria-label=c.label testId=`dial-${c.name}-select`
+          for o in c.options key=o
+            option o value=o
+      else if c.control == "token"
+        // A param's own default: a token's name or a literal, typed.
+        input value=c.value change=onText aria-label=c.label testId=`dial-${c.name}-field`
+      if c.bounds != ""
+        text c.bounds color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-bounds`
+      if c.help != ""
+        text c.help color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-help`
+
+// A param's row in the component panel: its control (the dials panel's),
+// whether the app sets it or the default applies, Reset, and D14's mark.
+component ParamControl
+  props
+    r: ParamRow
+    focused: bool
+    onNumber: action
+    onText: action
+    onStep: action
+    onRelease: action
+    onReset: action
+  view
+    column gap=2 testId=`param-${r.short}`
+      DialControl(c=r.c, focused=focused, onNumber=onNumber, onText=onText, onStep=onStep, onRelease=onRelease)
+      row gap=8 align-items="center" padding="0 4px"
+        text (r.set ? `set here · default ${r.default}` : "the default") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-source`
+        if r.set
+          button press=onReset testId=`param-${r.short}-reset`
+            text "Reset"
+      if r.pinned.length > 0
+        text `pinned: no longer follows ${r.pinned.join(", ")}` color="-exact-system-orange" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-pinned`

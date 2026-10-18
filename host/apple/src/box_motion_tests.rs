@@ -225,7 +225,7 @@ component A
 }
 
 #[test]
-fn macos_samples_them() {
+fn hosts_without_box_lowering_sample_them() {
     let plan = contract::compile(APP).unwrap().encode();
     let (mut host, _) = Host::boot(
         &plan,
@@ -235,6 +235,7 @@ fn macos_samples_them() {
         844.0,
     )
     .unwrap();
+    // LLP 1126 D10: watchOS samples box motion; it has no Core Animation presenter.
     assert!(!host.svg.box_motion || cfg!(any(target_os = "ios", target_os = "tvos")));
     let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
     if !cfg!(any(target_os = "ios", target_os = "tvos")) {
@@ -335,4 +336,97 @@ component A
     );
     assert!(host.engine.node_sampled(node));
     assert!(svg_lower::glass_sampling(host.runner.kernel(), &mut host.engine).is_empty());
+}
+
+/// LLP 1115.003 D4: a box's `translate` given as a percentage of itself
+/// lowers too, resolved against its border box when its specs are made, and
+/// its specs are made again when it resizes.
+#[test]
+fn a_percentage_translate_lowers_against_the_box_and_follows_a_resize() {
+    let app = "keyframes lift\n  from translate=\"0px 100%\"\n  to translate=\"0px 0px\"\ncomponent A\n  state on = false\n  state tall = false\n  action go\n    on = true\n  action grow\n    tall = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      button press=grow testId=\"grow\"\n        text \"Grow\"\n      box testId=\"lane\" width=40 height=(tall ? 120 : 90) animation=(on ? \"lift 500ms ease-out both\" : \"none\")\n";
+    let plan = contract::compile(app).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    ios(&mut host);
+    let lane = id(&host, "lane");
+    let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+    let y = |batch: &str| -> Vec<f64> {
+        specs(batch, lane)
+            .unwrap_or_default()
+            .iter()
+            .find(|s| s["k"] == "transform.translation.y")
+            .map(|s| {
+                s["v"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_f64().unwrap())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(y(&on), [90.0, 0.0], "{on}");
+    let v: serde_json::Value = serde_json::from_str(&on).unwrap();
+    assert_eq!(v["motion"], false, "Core Animation plays it: {on}");
+    let grown = host.dispatch_at(id(&host, "grow"), Event::Press, 200.0);
+    assert_eq!(y(&grown), [120.0, 0.0], "{grown}");
+}
+
+/// @ref LLP 1121 D8 — an opacity animation on a node whose press (`:active`
+/// lowered to the press paint) or `:hover` look paints its opacity stays
+/// sampled by the engine on both platforms (Core Animation would add the
+/// host's opacity layers to its own sample); one on a node without either
+/// is Core Animation's.
+#[test]
+fn a_press_or_a_look_keeps_an_opacity_animation_sampled() {
+    let app = r##"keyframes blink
+  from opacity=1
+  to opacity=0.4
+component A
+  state on = false
+  action go
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      box testId="pressed" press=go width=20 height=20 animation=(on ? "blink 1s linear infinite" : "none")
+        :active
+          opacity = 0.6
+      box testId="hovered" width=20 height=20 animation=(on ? "blink 1s linear infinite" : "none")
+        :hover
+          opacity = 0.8
+      box testId="plain" width=20 height=20 animation=(on ? "blink 1s linear infinite" : "none")
+"##;
+    for ios_motion in [false, true] {
+        let plan = contract::compile(app).unwrap().encode();
+        let (mut host, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            844.0,
+        )
+        .unwrap();
+        if ios_motion {
+            ios(&mut host);
+        }
+        host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
+        let sampled = |name: &str| {
+            host.engine.node_sampled(exact_kernel::motion::motion_node(
+                host.runner.kernel().node(id(&host, name)).unwrap().key,
+            ))
+        };
+        assert!(
+            sampled("pressed") && sampled("hovered"),
+            "ios: {ios_motion}"
+        );
+        assert!(!sampled("plain"), "ios: {ios_motion}");
+    }
 }

@@ -52,7 +52,7 @@ export function createStorageRequests(appId, admitted) {
           return encoded;
         }
         if (key == null) {
-          // Said once, as on every host (trivia F7): the page's console reaches the driver's logs.
+          // The first refused read or write is said once, as on every host (trivia F7): the page's console reaches the driver's logs.
           if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
           throw new Error(agentStorageRefusal);
         }

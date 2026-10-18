@@ -20,6 +20,8 @@ pub enum Kind {
     Call,
     /// `style`.
     Style,
+    /// `decoration`.
+    Decoration,
     /// `keyframes`.
     Keyframes,
     /// `timeline`.
@@ -33,6 +35,7 @@ impl Kind {
             Kind::Component => "component",
             Kind::Call => "shape or function",
             Kind::Style => "style",
+            Kind::Decoration => "decoration",
             Kind::Keyframes => "keyframes",
             Kind::Timeline => "timeline",
         }
@@ -143,7 +146,7 @@ pub fn rescope(file: &mut File, scope: &Scope) -> Result<(), SyntaxError> {
 }
 
 /// Every name `file` binds locally: component members, parameters, and
-/// `each`, `match`, arrow and `let` binders. The loader renames another
+/// `for`, `match`, arrow and `let` binders. The loader renames another
 /// file's `fn` or shape of one of these names, so the type checker, which
 /// calls a `fn` before a binding, never reaches past the binding to it.
 pub fn bindings(file: &mut File) -> std::collections::HashSet<String> {
@@ -159,11 +162,19 @@ pub fn calls(file: &mut File) -> std::collections::HashSet<String> {
     seen.called
 }
 
+/// Every named type referenced by annotations in `file`.
+pub fn type_names(file: &mut File) -> std::collections::HashSet<String> {
+    let mut seen = Seen::default();
+    walk(file, &Scope::default(), Some(&mut seen)).expect("an empty scope refuses nothing");
+    seen.typed
+}
+
 /// What a collecting walk records.
 #[derive(Default)]
 struct Seen {
     bound: std::collections::HashSet<String>,
     called: std::collections::HashSet<String>,
+    typed: std::collections::HashSet<String>,
 }
 
 fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), SyntaxError> {
@@ -181,10 +192,15 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         sounds: _,
         shapes,
         styles,
+        decorations,
+        decoration_scopes: _,
         keyframes,
         timelines,
         // A `@color-profile`'s dashed name is global, as in CSS.
         color_profiles: _,
+        // The theme's names are the app's, as roles are (LLP 1095 D4).
+        theme: _,
+        design: _,
         fns,
         tests,
         launch: _,
@@ -199,6 +215,11 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
     for style in styles {
         r.scope.rename(Kind::Style, &mut style.name, style.span)?;
         r.attrs(&mut style.attrs)?;
+    }
+    for decoration in decorations {
+        r.scope
+            .rename(Kind::Decoration, &mut decoration.name, decoration.span)?;
+        r.attrs(&mut decoration.attrs)?;
     }
     for k in keyframes {
         r.scope.rename(Kind::Keyframes, &mut k.name, k.span)?;
@@ -245,7 +266,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
 struct Rewriter<'a> {
     scope: &'a Scope,
     /// The bindings in scope where the rewrite stands — a component's
-    /// members, an action's or `fn`'s parameters, `each`, `match`, arrow and
+    /// members, an action's or `fn`'s parameters, `for`, `match`, arrow and
     /// `let` binders. A call of one is the binding's, never a top-level name.
     locals: Vec<String>,
     /// For each of `locals`, whether it is an action, prop or inject: the
@@ -270,12 +291,15 @@ impl Rewriter<'_> {
             provides,
             slot: _,
             states,
+            persist: _,
             derives,
             resources,
             mutations,
             actions,
             tasks,
+            sequences,
             view,
+            params: _,
             span,
         } = c;
         self.scope.rename(Kind::Component, name, *span)?;
@@ -318,6 +342,18 @@ impl Rewriter<'_> {
         for t in tasks {
             self.expr(&mut t.timer.0)?;
             for e in t.gate.iter_mut().chain(t.key.iter_mut()) {
+                self.expr(e)?;
+            }
+        }
+        for q in sequences {
+            let options = q.options.iter_mut().map(|o| &mut o.1);
+            for e in q
+                .gate
+                .iter_mut()
+                .chain(q.key.iter_mut())
+                .chain([&mut q.tracks])
+                .chain(options)
+            {
                 self.expr(e)?;
             }
         }
@@ -373,6 +409,11 @@ impl Rewriter<'_> {
     }
 
     fn ty(&mut self, ty: &mut TypeExpr) -> R {
+        if let TypeExpr::Named(name, _) = ty {
+            if let Some(seen) = self.seen.as_deref_mut() {
+                seen.typed.insert(name.clone());
+            }
+        }
         match ty {
             TypeExpr::Named(name, _) if PRIMITIVES.contains(&name.as_str()) => Ok(()),
             // A type is a shape, never a `fn`: a shape this file sees, else
@@ -401,6 +442,7 @@ impl Rewriter<'_> {
                     Ok(())
                 }
             },
+            TypeExpr::Enum(..) => Ok(()),
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
         }
     }

@@ -1,5 +1,6 @@
-//! CSS's font-relative lengths, `rem` and `em` (CSS Values 4 §6.1), and a
-//! platform text style as a `font-size` (`-exact-title1`, LLP 1115 D3).
+//! CSS's font-relative lengths, `rem` and `em` (CSS Values 4 §6.1), a
+//! platform text style as a `font-size` (`-exact-title1`, LLP 1115 D3), and
+//! the hairline, one device pixel (`-exact-hairline`, LLP 1115.000 D10.3).
 //!
 //! A row authored as `1.5rem` or `0.8em` keeps what was written here, beside
 //! the row, and the row itself always holds the pixels it resolves to — what
@@ -13,8 +14,13 @@
 //! computed `font-size` — and, for `font-size` itself, against the parent's,
 //! as CSS says. `px` never scales. A text style is the platform's size for it
 //! at the root font size (the platform's body size): the schema's ramp,
-//! [`text_style_size`].
+//! [`text_style_size`]. A hairline is 1 px over the display's scale, which
+//! the host sets as it sets the root font size
+//! ([`crate::Kernel::set_display_scale`]) and which is 1 until it does: a
+//! layout input, so a hairline border is one device pixel in layout and in
+//! paint on every host, where an authored `0.5` is one only at 2x.
 //! @ref LLP 1069.000 D3
+//! @ref LLP 1115.000 D10.3
 
 use crate::error::StyleValueError;
 use crate::generated::{StyleCodec, StyleId, StyleProps};
@@ -33,23 +39,49 @@ pub enum Unit {
     /// A platform text style's size at the root font size, by its id in
     /// [`crate::TEXT_STYLES`]; only a `font-size` is one.
     TextStyle(u8),
+    /// One device pixel (`-exact-hairline`): 1 px over the display's scale.
+    Hairline,
 }
 
 impl Unit {
     /// The pixels one of this unit is, given the root's and the
-    /// reference (the parent's or the element's) font size.
-    pub fn basis(self, root: f32, reference: f32) -> f32 {
+    /// reference (the parent's or the element's) font size, and the pixels
+    /// one device pixel is ([`device_pixel`]).
+    pub fn basis(self, root: f32, reference: f32, device: f32) -> f32 {
         match self {
             Unit::Rem => root,
             Unit::Em => reference,
             Unit::TextStyle(id) => text_style_size(id, root),
+            Unit::Hairline => device,
         }
     }
 }
 
+/// The pixels one device pixel is on a display of `scale` device pixels a
+/// px: what a hairline resolves to.
+pub fn device_pixel(scale: f32) -> f32 {
+    1.0 / scale
+}
+
+/// A named length's unit by its written name, `-exact-<name>` of the
+/// schema's `lengths`, ASCII case-insensitively, as CSS matches keywords.
+/// @ref LLP 1115.000 D10.3
+pub fn named_length(name: &str) -> Option<Unit> {
+    let name = name.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
+    let exact = name
+        .get(..7)
+        .filter(|p| p.eq_ignore_ascii_case("-exact-"))
+        .map(|_| &name[7..])?;
+    crate::NAMED_LENGTHS
+        .iter()
+        .find(|n| exact.eq_ignore_ascii_case(n))
+        .map(|_| Unit::Hairline)
+}
+
 /// A text style's id by its written name: `-exact-<name>` or its WebKit
-/// alias, ASCII case-insensitively, as CSS matches keywords.
-/// @ref LLP 1115 D3
+/// alias, ASCII case-insensitively, as CSS matches keywords. An Exact role's
+/// trailing number may follow a hyphen: `-exact-title-1` is `-exact-title1`.
+/// @ref LLP 1115 D3, LLP 1116.007 D3.2
 pub fn text_style(name: &str) -> Option<u8> {
     let name = name.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
     let exact = name
@@ -59,10 +91,51 @@ pub fn text_style(name: &str) -> Option<u8> {
     crate::TEXT_STYLES
         .iter()
         .position(|s| {
-            exact.is_some_and(|n| n.eq_ignore_ascii_case(s.name))
+            exact.is_some_and(|n| same_role(n, s.name))
                 || (!s.alias.is_empty() && name.eq_ignore_ascii_case(s.alias))
         })
         .map(|i| i as u8)
+}
+
+/// Whether `written` is the role `name`, or `name` with a hyphen before its
+/// last digit (`title-1` for `title1`).
+fn same_role(written: &str, name: &str) -> bool {
+    written.eq_ignore_ascii_case(name)
+        || written.rsplit_once('-').is_some_and(|(stem, number)| {
+            number.len() == 1
+                && name.len() == stem.len() + 1
+                && name.ends_with(number)
+                && name.as_bytes()[..stem.len()].eq_ignore_ascii_case(stem.as_bytes())
+        })
+}
+
+/// The index of `column` among a text style's columns (the metric table's).
+pub fn column_index(column: crate::style::metrics::Column) -> usize {
+    use crate::style::metrics::Column;
+    match column {
+        // Android's type is the device's reported ramp, never a table's
+        // (LLP 1115.001.001 D2.5): its look reads the web's until that lands.
+        Column::Web | Column::Material => 0,
+        Column::Ios => 1,
+        Column::Mac => 2,
+        Column::Neutral => 3,
+    }
+}
+
+/// Text style `id`'s weight in `column`, CSS's number (LLP 1115.000 D12.2).
+pub fn text_style_weight(id: u8, column: crate::style::metrics::Column) -> u16 {
+    crate::TEXT_STYLES
+        .get(usize::from(id))
+        .map_or(400, |s| s.weights[column_index(column)])
+}
+
+/// Text style `id`'s leading in `column`: a line height over its size, or
+/// `normal`, the face's own (LLP 1115.000 D12.2).
+pub fn text_style_leading(id: u8, column: crate::style::metrics::Column) -> crate::LineHeight {
+    crate::TEXT_STYLES
+        .get(usize::from(id))
+        .and_then(|s| s.leadings[column_index(column)])
+        .map_or(crate::LineHeight::Normal, crate::LineHeight::Number)
 }
 
 /// The size of text style `id` where the root font size is `root`: the
@@ -149,6 +222,7 @@ impl Relative {
                 Unit::Rem => out.push(0),
                 Unit::Em => out.push(1),
                 Unit::TextStyle(id) => out.extend_from_slice(&[2, *id]),
+                Unit::Hairline => out.push(3),
             }
             out.extend_from_slice(&n.to_bits().to_le_bytes());
         }
@@ -191,11 +265,17 @@ pub fn parse(text: &str) -> Option<(Unit, f32)> {
     if let Some(id) = text_style(text) {
         return Some((Unit::TextStyle(id), 1.0));
     }
+    if let Some(unit) = named_length(text) {
+        return Some((unit, 1.0));
+    }
     let t = text.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
-    let lower = t.get(t.len().saturating_sub(3)..)?.to_ascii_lowercase();
-    let (unit, number) = if lower == "rem" {
+    let suffix = t.get(t.len().saturating_sub(3)..)?;
+    let (unit, number) = if suffix.eq_ignore_ascii_case("rem") {
         (Unit::Rem, &t[..t.len() - 3])
-    } else if lower.ends_with("em") {
+    } else if suffix
+        .get(suffix.len().saturating_sub(2)..)
+        .is_some_and(|s| s.eq_ignore_ascii_case("em"))
+    {
         (Unit::Em, &t[..t.len() - 2])
     } else {
         return None;
@@ -218,6 +298,12 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>,
         return Err(StyleValueError::WrongKind {
             style: id,
             expected: "a length: a text style is a `font-size`",
+        });
+    }
+    if unit == Unit::Hairline && matches!(id, StyleId::FontSize | StyleId::LineHeight) {
+        return Err(StyleValueError::WrongKind {
+            style: id,
+            expected: "a size of text: `-exact-hairline` is a width",
         });
     }
     if !admits_relative(id) {
@@ -243,7 +329,7 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>,
 pub(crate) fn pixels_text(
     id: StyleId,
     value: &StyleValue,
-) -> Result<Option<StyleValue>, StyleValueError> {
+) -> Result<Option<StyleValue<'static>>, StyleValueError> {
     let StyleValue::Text(text) = value else {
         return Ok(None);
     };
@@ -270,15 +356,68 @@ pub(crate) fn pixels_text(
     Ok(Some(StyleValue::Number(n as f64)))
 }
 
-/// What the row holds until the kernel resolves it: the length at CSS's
-/// initial font size, in the form the row's codec reads as pixels.
-pub(crate) fn provisional(id: StyleId, (unit, n): (Unit, f32)) -> StyleValue {
-    pixels(id, n * unit.basis(MEDIUM, MEDIUM))
+/// CSS's unitless zero, a length (CSS Values 4 §6.1), on a pixel row: the
+/// number 0, which the row's codec reads. A computed shorthand's side is
+/// one (`border-width=`${w}px 0``). Not `line-height`, whose bare number
+/// is a multiplier.
+fn unitless_zero(id: StyleId, value: &StyleValue) -> Option<StyleValue<'static>> {
+    let StyleValue::Text(text) = value else {
+        return None;
+    };
+    let stroke = matches!(id, StyleId::StrokeWidth | StyleId::StrokeDashoffset);
+    if id.codec() == StyleCodec::LineHeight || !(admits_relative(id) || stroke) {
+        return None;
+    }
+    let n = exact_num::parse_f64(text.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])).ok()?;
+    (n == 0.0).then_some(StyleValue::Number(0.0))
 }
 
-fn pixels(id: StyleId, px: f32) -> StyleValue {
+type PreparedLength = (Option<(Unit, f32)>, Option<StyleValue<'static>>);
+
+/// Convert the one length spelling `value` can contain. The accepted
+/// units have disjoint last bytes, after CSS whitespace. Keep the original
+/// value for each parser so its grammar and refusal stay unchanged.
+pub(crate) fn prepare(id: StyleId, value: &StyleValue) -> Result<PreparedLength, StyleValueError> {
+    // A text style is a keyword, so no last byte tells it: every name and
+    // alias begins `-` (LLP 1115 D3), which only a negative length shares.
+    if let StyleValue::Text(text) = value {
+        let dashed = text
+            .trim_start_matches(['\t', '\n', '\u{c}', '\r', ' '])
+            .starts_with('-');
+        if dashed && (text_style(text).is_some() || named_length(text).is_some()) {
+            let relative = of(id, value)?;
+            return Ok((relative, relative.map(|r| provisional(id, r))));
+        }
+    }
+    let last = match value {
+        StyleValue::Text(text) => text
+            .trim_end_matches(['\t', '\n', '\u{c}', '\r', ' '])
+            .as_bytes()
+            .last()
+            .copied(),
+        _ => None,
+    };
+    match last {
+        Some(b'm' | b'M') => {
+            let relative = of(id, value)?;
+            Ok((relative, relative.map(|r| provisional(id, r))))
+        }
+        Some(b'h' | b'H') => Ok((None, super::cells::of(id, value)?)),
+        Some(b'x' | b'X') => Ok((None, pixels_text(id, value)?)),
+        Some(b'0'..=b'9' | b'.') => Ok((None, unitless_zero(id, value))),
+        _ => Ok((None, None)),
+    }
+}
+
+/// What the row holds until the kernel resolves it: the length at CSS's
+/// initial font size, in the form the row's codec reads as pixels.
+pub(crate) fn provisional(id: StyleId, (unit, n): (Unit, f32)) -> StyleValue<'static> {
+    pixels(id, n * unit.basis(MEDIUM, MEDIUM, 1.0))
+}
+
+fn pixels(id: StyleId, px: f32) -> StyleValue<'static> {
     if id.codec() == StyleCodec::LineHeight {
-        StyleValue::Text(format!("{}px", exact_num::Shortest(px as f64)))
+        StyleValue::Text(format!("{}px", exact_num::Shortest(px as f64)).into())
     } else {
         StyleValue::Number(px as f64)
     }
@@ -308,6 +447,94 @@ mod tests {
     use super::*;
 
     #[test]
+    fn length_dispatch_preserves_conversions_and_refusals_for_every_row() {
+        fn prior(id: StyleId, value: &StyleValue) -> Result<PreparedLength, StyleValueError> {
+            let relative = of(id, value)?;
+            let provisional = relative.map(|r| super::provisional(id, r));
+            let pixels = pixels_text(id, value)?;
+            let cells = super::super::cells::of(id, value)?;
+            let zero = unitless_zero(id, value);
+            Ok((relative, provisional.or(pixels).or(cells).or(zero)))
+        }
+        let texts = [
+            "",
+            "#00abff",
+            "#ABC",
+            "normal",
+            "medium",
+            "auto",
+            "none",
+            "1",
+            "0",
+            "-0.0",
+            "1px",
+            "-1PX",
+            "1.5rem",
+            "-.5em",
+            "+2REM",
+            "1e1Em",
+            "rem",
+            "-em",
+            "1 rem",
+            "1.rem",
+            "1remx",
+            "1ch",
+            "1.5LH",
+            "-2ch",
+            "1e1lh",
+            "ch",
+            "1 ch",
+            "1e39rem",
+            "1e39ch",
+            "1e39px",
+            "NaNem",
+            "infinitylh",
+            "1%",
+            "calc(1px + 2%)",
+            "min(1em, 2px)",
+            "light-dark(#000, #fff)",
+            "color(display-p3 1 0 0)",
+            "界ch",
+            "é",
+            "\u{a0}1em",
+            "1lh\u{a0}",
+            "1px\0",
+            "1em\u{b}",
+            "\u{b}1ch",
+            // Not text styles, though they begin or end as one does.
+            "-exact-",
+            "-exact-nothing",
+            "exact-body",
+            "-exact-bodyem",
+            "-exact-bodych",
+            "-apple-system-nothing",
+        ];
+        // Every text style by its name and its alias: a keyword, which no
+        // unit's last byte tells (LLP 1115 D3).
+        let styles = crate::TEXT_STYLES
+            .iter()
+            .flat_map(|s| [format!("-exact-{}", s.name), s.alias.to_string()])
+            .flat_map(|s| [s.to_ascii_uppercase(), s]);
+        let texts: Vec<String> = texts.iter().map(|t| t.to_string()).chain(styles).collect();
+        for id in StyleId::ALL {
+            for value in [
+                StyleValue::Auto,
+                StyleValue::Number(12.0),
+                StyleValue::Percent(50.0),
+            ] {
+                assert_eq!(prepare(id, &value), prior(id, &value), "{id:?} {value:?}");
+            }
+            for text in &texts {
+                for (left, right) in [("", ""), (" ", " "), ("\t\n", "\u{c}\r ")] {
+                    let text = format!("{left}{text}{right}");
+                    let value = StyleValue::Text(text.as_str().into());
+                    assert_eq!(prepare(id, &value), prior(id, &value), "{id:?} {text:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn parses_css_numbers_with_either_unit() {
         assert_eq!(parse("1.5rem"), Some((Unit::Rem, 1.5)));
         assert_eq!(parse(" 0.875REM "), Some((Unit::Rem, 0.875)));
@@ -330,6 +557,30 @@ mod tests {
             "an Exact role is written -exact-"
         );
         assert_eq!(text_style("-exact-title9"), None);
+        // LLP 1116.007 D3.2: round 9's builders hyphenated the number.
+        for (written, name) in [
+            ("-exact-title-1", "-exact-title1"),
+            ("-exact-title-2", "-exact-title2"),
+            ("-exact-title-3", "-exact-title3"),
+            ("-exact-caption-1", "-exact-caption1"),
+            (" -EXACT-Caption-2 ", "-exact-caption2"),
+        ] {
+            assert_eq!(text_style(written), text_style(name), "{written}");
+            assert!(text_style(written).is_some(), "{written}");
+        }
+        for refused in [
+            "-exact-title-4",
+            "-exact-body-1",
+            "-exact-title--1",
+            "-exact--title1",
+            "-exact-large-title-1",
+            "-exact-title-12",
+            "-exact-large-1itle",
+            "-apple-system-title-1",
+        ] {
+            assert_eq!(text_style(refused), None, "{refused}");
+        }
+        assert_eq!(text_style("-exact-large-title"), Some(0));
         assert_eq!(parse("-exact-title1"), Some((Unit::TextStyle(title1), 1.0)));
         // iOS at the default Dynamic Type (17), the Mac (13), the web (16).
         assert_eq!(text_style_size(title1, 17.0), 28.0);

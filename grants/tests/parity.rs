@@ -7,12 +7,19 @@ fn native_and_browser_use_the_same_grant_corpus() {
     for case in cases.as_array().unwrap() {
         let spec = case["spec"].as_str().unwrap();
         let parsed = GrantSet::parse(spec);
+        let native = ibex2::grant::GrantSet::parse(spec);
+        assert_eq!(
+            native.is_ok(),
+            parsed.is_ok(),
+            "Ibex grammar: {spec}: {native:?}"
+        );
         assert_eq!(
             parsed.is_ok(),
             case["ok"].as_bool().unwrap(),
             "{spec}: {parsed:?}"
         );
         if let Ok(set) = parsed {
+            let native = native.unwrap();
             for probes in ["fs", "nativeFs"] {
                 if let Some(probes) = case[probes].as_array() {
                     for probe in probes {
@@ -22,6 +29,20 @@ fn native_and_browser_use_the_same_grant_corpus() {
                             "fs.write" => Operation::FsWrite { path },
                             other => panic!("unknown probe {other}"),
                         };
+                        let native_op = match &operation {
+                            Operation::FsRead { path } => {
+                                ibex2::grant::Operation::FsRead { path: path.clone() }
+                            }
+                            Operation::FsWrite { path } => {
+                                ibex2::grant::Operation::FsWrite { path: path.clone() }
+                            }
+                            _ => unreachable!(),
+                        };
+                        assert_eq!(
+                            native.permits(&native_op),
+                            set.permits(&operation),
+                            "Ibex admission: {spec}: {probe}"
+                        );
                         assert_eq!(
                             set.permits(&operation),
                             probe[2].as_bool().unwrap(),
@@ -30,18 +51,36 @@ fn native_and_browser_use_the_same_grant_corpus() {
                     }
                 }
             }
-            if let Some(fetches) = case["fetch"].as_array() {
-                for probe in fetches {
+            for family in ["fetch", "websocket"] {
+                for probe in case[family].as_array().into_iter().flatten() {
                     let url = url::Url::parse(probe[0].as_str().unwrap()).unwrap();
                     let origin = Origin::new(
                         url.scheme(),
                         url.host_str().unwrap(),
                         url.port_or_known_default().unwrap(),
                     );
+                    let theirs =
+                        ibex2::grant::Origin::new(&origin.scheme, &origin.host, origin.port);
+                    let (ours, native_op) = if family == "fetch" {
+                        (
+                            Operation::Fetch { origin },
+                            ibex2::grant::Operation::Fetch { origin: theirs },
+                        )
+                    } else {
+                        (
+                            Operation::WebSocket { origin },
+                            ibex2::grant::Operation::WebSocket { origin: theirs },
+                        )
+                    };
                     assert_eq!(
-                        set.permits(&Operation::Fetch { origin }),
+                        native.permits(&native_op),
+                        set.permits(&ours),
+                        "Ibex admission: {spec}: {probe}",
+                    );
+                    assert_eq!(
+                        set.permits(&ours),
                         probe[1].as_bool().unwrap(),
-                        "{spec}: {probe}"
+                        "{spec}: {family} {probe}"
                     );
                 }
             }

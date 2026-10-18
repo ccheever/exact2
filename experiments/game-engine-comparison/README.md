@@ -2,7 +2,7 @@
 
 See [LLP 1041.003](../../llp/1041.003-game-engines-for-agents.research.md)
 for the recommendation, method and limitations. These are diagnostic
-microfixtures, outside the five blocking checks. No production dependency
+microfixtures, outside the six blocking checks. No production dependency
 was added to Exact. Repetition counts are runtime executions, not agent trials.
 
 Each directory retains the actual authored source and JSON from its fleet
@@ -24,10 +24,11 @@ in each `bun.lock`; fleet Bun was 1.3.14. In a scratch copy:
 bun install --frozen-lockfile
 ```
 
-The runners name the existing fleet Chromium executable explicitly:
-`/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome`.
-Use that same executable for reproduction on the original hosts, or
-adjust the path in a scratch copy for another installed browser and
+The JavaScript runners use `CHROME` when set, otherwise Chromium at
+`$HOME/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome`.
+The Godot Python harness uses its headless-shell counterpart under the same cache.
+Use the same executable for reproduction on the original hosts, or
+set `CHROME` to another installed browser and
 record the difference. Browser launch flags select headless/software
 rendering. Servers and browsers close after the proof.
 

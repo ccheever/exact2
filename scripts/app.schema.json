@@ -148,6 +148,20 @@
         "browser"
       ]
     },
+    "orientation": {
+      "type": "string",
+      "description": "The Web App Manifest's default screen orientation (Screen Orientation API values). The web manifest carries it; the iPhone and Android lock to it; iPad keeps every orientation, as its multitasking requires.",
+      "enum": [
+        "any",
+        "natural",
+        "landscape",
+        "landscape-primary",
+        "landscape-secondary",
+        "portrait",
+        "portrait-primary",
+        "portrait-secondary"
+      ]
+    },
     "theme_color": {
       "type": "string"
     },
@@ -159,7 +173,7 @@
     "background_color": {
       "type": "string",
       "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
-      "description": "The first-frame background, the web page's and the iOS launch screen's: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes, so a colour the web accepts is one every host builds."
+      "description": "The first-frame background, the web page's and the iOS launch screen's: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes, so a colour the web accepts is one every host builds. Unset, the iOS launch screen is the platform's: systemBackground, or the grouped background where the first route scrolls a grouped list."
     },
     "lang": {
       "description": "The W3C manifest's language: a BCP 47 tag for the page's <html lang> and the web manifest. Absent is en.",
@@ -168,12 +182,12 @@
     },
     "link": {
       "type": "array",
-      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists", "io", "transitions"] },
+      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists", "io", "transitions", "media_picker", "auth_session", "numerals", "dates"] },
       "uniqueItems": true,
-      "description": "Capabilities a native production build links before any plan uses them (LLP 1047 D8; LLP 1047.001), so a later bundle may: an archive otherwise links what its plan uses and nothing else, and a bundle that needs more is a new binary. Names are the runner's (`exact_runner::Capability::name`)."
+      "description": "Capabilities a native production build links before any plan uses them (LLP 1047 D8; LLP 1047.001), so a later bundle may: an archive otherwise links what its plan uses (and `auth_session` what its grants name) and nothing else, and a bundle that needs more is a new binary. Development links every capability but `media_picker` and `auth_session`, which it links as production would (LLP 1047.001.000 F). Names are the runner's (`exact_runner::Capability::name`)."
     },
     "icons": {
-      "description": "The app's icons, as the web manifest spells them (`src`, `sizes`, `type`, `purpose`). The native bakes derive their icon sets from these; a distribution build refuses an app without a square one.",
+      "description": "The app's raster icons, as the web manifest spells them (`src`, `sizes`, `type`, `purpose`). Apple bakes derive their icon sets from these unless host.ios.icon or host.macos.icon selects an Icon Composer project; an iOS distribution build requires either that project or a square raster of at least 512 px.",
       "type": "array",
       "items": {
         "type": "object",
@@ -195,6 +209,130 @@
           }
         },
         "additionalProperties": false
+      }
+    },
+    "live_activities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "component",
+          "state",
+          "preview"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "component": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "state": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]*(?![\\s\\S])",
+            "description": "Literal platform label; no control characters."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]*(?![\\s\\S])",
+            "description": "Literal platform label; no control characters."
+          },
+          "preview": {
+            "type": "object"
+          },
+          "push": {
+            "type": "boolean",
+            "default": false
+          },
+          "frequent": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    },
+    "widgets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "families",
+          "component",
+          "props",
+          "refresh",
+          "preview"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "title": {
+            "type": "string",
+            "description": "Gallery display name; defaults to the humanised kind."
+          },
+          "description": {
+            "type": "string",
+            "description": "Gallery description; defaults to the humanised kind."
+          },
+          "component": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "props": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "refresh": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "families": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "systemSmall",
+                "systemMedium",
+                "systemLarge",
+                "systemExtraLarge",
+                "accessoryCircular",
+                "accessoryRectangular",
+                "accessoryInline"
+              ]
+            }
+          },
+          "preview": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "protocol_handlers": {
+      "type": "array",
+      "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s.",
+      "items": {
+        "type": "object",
+        "required": ["protocol", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "protocol": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$" },
+          "url": { "type": "string", "pattern": "^/(?!/)(?:(?!%s|#).)*%s(?:(?!%s|#).)*$" },
+          "distribution_only": { "type": "boolean", "description": "Register this handler in Apple bundles only for an archive or --distribution build. Defaults to false." }
+        }
       }
     },
     "file_handlers": {
@@ -248,7 +386,7 @@
       ],
       "properties": {
         "id": {
-          "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>; change it before distributing.",
+          "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>-<six hex digits>, unique to the app; change it before distributing.",
           "type": "string",
           "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
         },
@@ -278,9 +416,24 @@
           "description": "iOS: `minimumOS` (default 17.0), `deviceFamily` (iphone, ipad), and the keys below.",
           "type": "object",
           "properties": {
+            "icon": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Primary Icon Composer .icon directory, relative to app.json and inside the app. Compiled with the app's catalogs; conflicts with an .appiconset in those catalogs are refused. Absent: use icons. tvOS does not inherit this field."
+            },
             "minimumOS": {
               "description": "The oldest iOS the app runs on, as \"17.0\"; never below 17.0.",
               "type": "string"
+            },
+            "launchImage": {
+              "description": "A picture the launch screen centres on `background_color` (UILaunchScreen's UIImageName), drawn `width` points wide: the app's first frame drawn ahead of it, so the launch shows what the first frame shows (Expo's splash `image` and `imageWidth`). A PNG in the app's directory; light and dark alike.",
+              "type": "object",
+              "required": ["src", "width"],
+              "additionalProperties": false,
+              "properties": {
+                "src": { "type": "string", "pattern": "\\.png$", "description": "The PNG, relative to the app's directory." },
+                "width": { "type": "number", "minimum": 1, "description": "Its width on the launch screen, in points; its height follows its aspect." }
+              }
             },
             "optimize": {
               "enum": ["speed", "size"],
@@ -342,6 +495,15 @@
                 "type": "string"
               }
             },
+            "queriesSchemes": {
+              "description": "Other apps' URL schemes a native module may ask `canOpenURL` about, to see whether the app is installed (Info.plist's LSApplicationQueriesSchemes): iOS answers false for any scheme not listed, and honours at most 50. A scheme as RFC 3986 writes it, without `:`.",
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$"
+              }
+            },
             "team": {
               "type": "string"
             }
@@ -352,8 +514,13 @@
           "description": "macOS: `minimumOS` (default 14.0), the first window's size, and the keys below.",
           "type": "object",
           "properties": {
+            "icon": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Primary Icon Composer .icon directory, relative to app.json and inside the app. Compiled with the app's catalogs; conflicts with an .appiconset in those catalogs are refused. Absent: use icons."
+            },
             "resources": {
-              "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved. Excluded from plan assets and TypeScript capture; changing them requires a new binary. Mach-O code is signed with the bundle.",
+              "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved, before the bundle is sealed (a build stamp placed here is inside the seal). Excluded from plan assets and TypeScript capture; changing them requires a new binary. Mach-O code is signed with the bundle; a helper executable needing a hardened-runtime exception names it in the source's grants, as `runtime.allow-jit Helpers/node/bin/node`; the app's own executable takes none (LLP 1069.008 D9).",
               "type": "array",
               "items": {
                 "type": "object", "required": ["from", "to"], "additionalProperties": false,
@@ -431,6 +598,17 @@
                 "height"
               ],
               "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "android": {
+          "description": "Android: `minimumOS` (default 12).",
+          "type": "object",
+          "properties": {
+            "minimumOS": {
+              "description": "The oldest Android the app runs on, as \"12\"; never below 10. Below 12 the APK carries the reader's Android 10 and 11 code (host/android/README.md, \"Android 10 and 11\"); at 12 or later it carries none.",
+              "enum": ["10", "11", "12", "13", "14", "15", "16"]
             }
           },
           "additionalProperties": false
@@ -517,6 +695,7 @@
           }
         },
         "channels": {
+          "description": "Each channel's update origin: a directory or URL, or \"appdrop\" for AppDrop's origin named after deploy.signing.key (https://appdrop.app/u/<key id>), which needs no account or server.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -526,7 +705,8 @@
           "type": "string",
           "enum": [
             "next-launch",
-            "app-decides"
+            "app-decides",
+            "immediate"
           ]
         },
         "check": {
@@ -558,6 +738,14 @@
         },
         "brownfield": {
           "type": "boolean"
+        },
+        "appdrop": {
+          "description": "Publish iOS binary changes to AppDrop, after the streams (`scripts/deploy-appdrop.mjs`). `{}` makes the first such deploy create the link and write its `url` here, to commit. The update key stays out of app.json: $APPDROP_MANAGE_KEY, or the one the appdrop CLI saved. The install page offers the link for iOS when install.ios names no methods.",
+          "type": "object",
+          "properties": {
+            "url": { "type": "string", "pattern": "^https://[^/]+/d/[A-Za-z0-9]+/?$" }
+          },
+          "additionalProperties": false
         },
         "signing": {
           "type": "object",
@@ -708,6 +896,10 @@
         "items": { "type": "string", "minLength": 1 }
       }
     },
+    "tamber": {
+      "type": "string",
+      "description": "The app's design (LLP 1121 D2): a `.tamber` file, relative to app.json. Without it, `app.tamber` beside app.contract is the design when there is one."
+    },
     "strings": {
       "type": "object",
       "description": "The UI's string tables (LLP 1060): strings/<locale>.json beside app.contract, read by `t(\"key\", name=value)`.",
@@ -752,6 +944,26 @@
       },
       "additionalProperties": false,
       "description": "Where app.ts runs: `placement` is \"main\" (the default) or \"worker\". The TypeScript module's placement (LLP 1027.002), globally and per platform, and the directories it imports from outside the app."
+    },
+    "verify": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "type": "array",
+          "description": "Findings of `verify`'s check that are the app's design (a brand palette's contrast, a reference's small keys): each names the check's finding kind (or `fixed-type`, a font size the app's Contract fixes; `fixed-symbol`, a symbol sized in points beside text; `broken-words`, `overflow-wrap: anywhere` on prose) and a node by its testId (or the testId of the control whose label it is; a trailing * matches a prefix, `mute-*`) and says why. verify prints them as accepted and does not count them.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["finding", "node", "why"],
+            "properties": {
+              "finding": { "type": "string", "enum": ["covered", "squeezed", "clipped", "overflow", "overlap", "contrast", "card", "target", "fixed-type", "fixed-symbol", "broken-words"] },
+              "node": { "type": "string", "pattern": "^[^*]+\\*?$", "description": "A testId, or a non-empty prefix of one and a single trailing *: a bare * would accept the finding on every node." },
+              "why": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
     },
     "audio_session": {
       "type": "string",

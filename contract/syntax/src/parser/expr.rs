@@ -53,6 +53,16 @@ impl Parser {
     pub(super) fn ternary(&mut self) -> R<Expr> {
         let cond = self.binary(0)?;
         if self.eat_punct("?") {
+            // `x ?? d`, `x?.f`: TypeScript's absence, which Contract spells as an option.
+            let (mark, next) = (self.tokens[self.pos - 1].span, self.peek().span);
+            let touching = next.line == mark.line && next.col == mark.end_col;
+            if touching && (self.at_punct("?") || self.at_punct(".")) {
+                let form = if self.at_punct("?") { "??" } else { "?." };
+                return self.err(
+                    "syntax-refused-idiom",
+                    format!("Contract has no `{form}`: absence is an option, so `x ?? d` is `match x {{ case some(v) => v, case none => d }}` and `x?.f` is `match x {{ case some(v) => some(v.f), case none => none }}`"),
+                );
+            }
             let below = self.last;
             let a = self.expr()?;
             let below = below.max(self.last);
@@ -111,6 +121,15 @@ impl Parser {
                 break;
             }
             self.next();
+            // `a === b`: `==` then `=`.
+            if matches!(op, BinOp::Eq | BinOp::Ne) && self.at_punct("=") {
+                let strict = if op == BinOp::Eq { "===" } else { "!==" };
+                let loose = if op == BinOp::Eq { "==" } else { "!=" };
+                return self.err(
+                    "syntax-refused-idiom",
+                    format!("Contract has no `{strict}`: write `{loose}`, which compares lists and records by value"),
+                );
+            }
             let right = self.binary(prec + 1)?;
             let span = left.span();
             self.built(depth.max(self.last), span)?;
@@ -140,7 +159,18 @@ impl Parser {
 
     pub(super) fn postfix(&mut self) -> R<Expr> {
         let mut e = self.primary()?;
-        while self.at_punct(".") {
+        loop {
+            // `xs[i]`, `s[0]`: the web's bracket indexing, directly after its value.
+            let (last, next) = (self.tokens[self.pos - 1].span, self.peek().span);
+            if self.at_punct("[") && next.line == last.line && next.col == last.end_col {
+                return self.err(
+                    "syntax-refused-idiom",
+                    "Contract has no `xs[i]`: write `xs.at(i)`, an option (`none` past the end; a negative index counts from the end, unlike `xs[i]`), read as `match xs.at(i) { case some(x) => x, case none => 0 }` with what `none` shows; for text, `s.slice(i, i + 1)`",
+                );
+            }
+            if !self.at_punct(".") {
+                break;
+            }
             self.next();
             let (field, span) = self.field_name()?;
             // `xs.map(f)`: the web's method call, directly after the name.
@@ -149,6 +179,18 @@ impl Parser {
                 && next.line == span.line
                 && next.col == span.col + field.chars().count() as u32
             {
+                // @ref LLP 1116.015 D2 — a roster function whose first argument is
+                // its subject is called on it: `s.trim()` is `trim(s)`.
+                if crate::idioms::is_method(&field) {
+                    let below = self.last;
+                    self.next();
+                    let mut args = vec![e];
+                    args.extend(self.call_args()?);
+                    self.built(below.max(self.last), span)?;
+                    self.methods.push((field.clone(), span));
+                    e = Expr::Call(field, args, span);
+                    continue;
+                }
                 return Err(SyntaxError {
                     id: "syntax-method-call",
                     message: format!(
@@ -159,7 +201,15 @@ impl Parser {
                 });
             }
             self.built(self.last, span)?;
-            e = Expr::Member(Box::new(e), field, span);
+            // `xs.length` is `length(xs)`, which the checker resolves by the
+            // receiver's type: a record's `length` field is read as one
+            // (@ref LLP 1116.015 D2, amended 2026-10-17).
+            e = if field == "length" {
+                self.methods.push((field.clone(), span));
+                Expr::Call(field, vec![e], span)
+            } else {
+                Expr::Member(Box::new(e), field, span)
+            };
         }
         Ok(e)
     }
@@ -188,7 +238,7 @@ impl Parser {
                     if self.at_punct(".") {
                         return self.err(
                             "syntax-refused-idiom",
-                            "Contract has no spread: write `concat(xs, [x])` for `[...xs, x]`, the web's `xs.concat([x])`",
+                            "Contract has no spread: write `xs.concat([x])` for `[...xs, x]`",
                         );
                     }
                     items.push(self.expr()?);
@@ -282,7 +332,13 @@ impl Parser {
                 }),
                 _ => {
                     if self.eat_punct("(") {
+                        let start = self.pos - 2;
                         let args = self.call_args()?;
+                        if (crate::idioms::is_method(&w) || w == "length") && !args.is_empty() {
+                            let message = crate::idioms::method_form(&w, &args);
+                            let edits = self.method_edits(start, &w, args.len());
+                            self.free.push((w.clone(), SyntaxError { id: "syntax-method-form", message, span }, edits));
+                        }
                         self.built(self.last, span)?;
                         Ok(Expr::Call(w, args, span))
                     } else {
@@ -349,7 +405,7 @@ impl Parser {
         if matches!(body, Expr::Ident(..)) && !self.at_punct(",") && !self.at_punct(")") {
             return Err(SyntaxError {
                 id: "syntax-callback-view",
-                message: "a callback returns one value, not a view node: repeat children with `each x in xs key=x.id` under their parent".into(),
+                message: "a callback returns one value, not a view node: repeat children with `for x in xs key=x.id` under their parent".into(),
                 span: body.span(),
             });
         }
@@ -368,19 +424,16 @@ impl Parser {
         // Text decodes the escapes a `"…"` string does; `\${` is literal text.
         while let Some(c) = raw[pos..].chars().next() {
             if c == '\\' {
-                let next = raw[pos + 1..].chars().next();
-                let Some(decoded) = next.and_then(escaped) else {
-                    return Err(SyntaxError {
-                        id: "syntax-bad-escape",
-                        message: crate::lexer::bad_escape(next),
-                        span: Span {
-                            source_id: span.source_id,
-                            ..Span::point(span.line, span.col + 1 + pos as u32)
-                        },
-                    });
-                };
+                let (decoded, len) = escape(&raw[pos + 1..]).map_err(|message| SyntaxError {
+                    id: "syntax-bad-escape",
+                    message,
+                    span: Span {
+                        source_id: span.source_id,
+                        ..Span::point(span.line, span.col + 1 + pos as u32)
+                    },
+                })?;
                 text.push(decoded);
-                pos += 1 + next.map_or(0, char::len_utf8);
+                pos += 1 + len;
                 continue;
             }
             if !raw[pos..].starts_with("${") {
@@ -391,7 +444,7 @@ impl Parser {
             let after = &raw[pos + 2..];
             let end = template_expr_end(after).ok_or(SyntaxError {
                 id: "syntax-unterminated-template-expr",
-                message: "`${` never closes".into(),
+                message: "`${` never closes`}`".into(),
                 span,
             })?;
             if !text.is_empty() {
@@ -421,8 +474,16 @@ impl Parser {
                 depth: self.depth,
                 view_depth: self.view_depth,
                 last: 0,
+                free: Vec::new(),
+                methods: Vec::new(),
+                retired: Vec::new(),
+                edits: Vec::new(),
             };
             let e = sub.expr()?;
+            self.free.append(&mut sub.free);
+            self.retired.append(&mut sub.retired);
+            self.edits.append(&mut sub.edits);
+            self.methods.append(&mut sub.methods);
             deepest = deepest.max(sub.last);
             if !matches!(sub.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
                 return sub.err("syntax-template-expr", "unexpected token in `${…}`");

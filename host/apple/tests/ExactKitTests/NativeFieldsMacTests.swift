@@ -214,6 +214,53 @@ final class NativeFieldsMacTests: XCTestCase {
         node.applyProps(set: ["markup": "markdown"], clear: [])
         XCTAssertFalse(node.isNativeTextControl)
     }
+    /// LLP 1095 D4: the native editor's two background surfaces read Field;
+    /// author-drawn and Markdown editors keep their transparent native views.
+    func testTextareaThemeBackgroundAndRemoval() throws {
+        _ = NSApplication.shared
+        defer { ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]])) }
+        ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["Field": [[204, 255, 204, 255], [0, 51, 0, 255]]]]]))
+        let session = ExactApp.shared.makeSession(label: "textarea-theme")
+        defer { session.destroy() }
+        let node = NodeView(id: 1, kind: "textarea", presenter: session.presenter)
+        node.frame = NSRect(x: 0, y: 0, width: 240, height: 100)
+        node.applyProps(set: ["value": "Keep this text"], clear: [])
+        node.applyStyle([:])
+        let editor = try XCTUnwrap(node.textArea)
+        let scroll = try XCTUnwrap(node.textAreaScroll)
+        editor.setSelectedRange(NSRange(location: 5, length: 4))
+        let inset = editor.textContainerInset
+        for (name, rgb) in [(NSAppearance.Name.aqua, [204.0, 255, 204]), (.darkAqua, [0.0, 51, 0])] {
+            let appearance = try XCTUnwrap(NSAppearance(named: name))
+            appearance.performAsCurrentDrawingAppearance {
+                for color in [editor.backgroundColor, scroll.backgroundColor] {
+                    let channels = color.usingColorSpace(.sRGB)!
+                    for (got, want) in zip([channels.redComponent, channels.greenComponent, channels.blueComponent], rgb) {
+                        XCTAssertEqual(got, want / 255, accuracy: 0.001, name.rawValue)
+                    }
+                }
+            }
+        }
+        XCTAssertTrue(editor.drawsBackground)
+        XCTAssertTrue(scroll.drawsBackground)
+        XCTAssertEqual(scroll.borderType, .bezelBorder)
+        ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]]))
+        node.applyStyle([:])
+        XCTAssertEqual(editor.backgroundColor, NSTextView().backgroundColor)
+        XCTAssertEqual(scroll.backgroundColor, NSScrollView().backgroundColor)
+        XCTAssertEqual(editor.string, "Keep this text")
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 5, length: 4))
+        XCTAssertEqual(editor.textContainerInset, inset)
+        ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["Field": [255, 0, 0, 255]]]]))
+        node.applyStyle(["appearance": .string("none"), "background_color": .array([.number(0), .number(0), .number(255), .number(255)])])
+        XCTAssertFalse(editor.drawsBackground)
+        XCTAssertFalse(scroll.drawsBackground)
+        node.applyProps(set: ["markup": "markdown"], clear: [])
+        node.applyStyle([:])
+        XCTAssertFalse(editor.drawsBackground)
+        XCTAssertFalse(scroll.drawsBackground)
+    }
+
     /// LLP 1104 D6: AppKit asks only the first responder for a ring, so a
     /// bare field (the field editor is first responder) and any textarea
     /// (its text view sits in a clip view) show Exact's ring; checked by
@@ -260,6 +307,43 @@ final class NativeFieldsMacTests: XCTestCase {
             XCTAssertFalse(node.fieldFocused)
         }
     }
+    /// LLP 1104 D6: `outline: none` takes every ring off a focused field,
+    /// Exact's and AppKit's, native or bare, single-line or not, while the
+    /// field still takes the focus; unset, the ring is back at once.
+    func testOutlineNoneDrawsNoRingOnAFocusedField() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "exact-field-outline")
+        defer { session.destroy() }
+        func ring(_ node: NodeView) -> CALayer? { node.layer?.sublayers?.first { $0.name == "exact.fieldFocus" } }
+        for kind in ["textarea", "input"] {
+            for bare in [false, true] {
+                let what = "\(bare ? "bare" : "native") \(kind)"
+                let node = NodeView(id: 1, kind: kind, presenter: session.presenter)
+                node.frame = NSRect(x: 0, y: 0, width: 240, height: kind == "input" ? 40 : 100)
+                node.wantsLayer = true
+                let kept: NodeStyle = bare ? ["appearance": .string("none")] : [:]
+                var quiet = kept
+                quiet["outline_style"] = .string("none")
+                node.applyStyle(quiet)
+                let editor: NSView = try XCTUnwrap(node.textArea ?? node.field)
+                let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                defer { window.close() }
+                window.contentView = node
+                XCTAssertTrue(window.makeFirstResponder(editor), "\(what) takes the focus")
+                XCTAssertNil(ring(node), "\(what): no Exact ring above the editor")
+                XCTAssertFalse(node.fieldFocused, "\(what): no Exact ring on its border")
+                XCTAssertEqual(editor.focusRingType, .none, "\(what): no AppKit ring")
+                XCTAssertEqual(node.textAreaScroll?.focusRingType ?? .none, .none, "\(what): no ring on the scroll view")
+                node.applyStyle(kept)
+                XCTAssertEqual(ring(node) != nil || node.fieldFocused || editor.focusRingType == .default, true, "\(what) keeps a ring without it")
+                XCTAssertNotEqual(editor.focusRingType, .none)
+                node.applyStyle(quiet)
+                XCTAssertNil(ring(node))
+                XCTAssertFalse(node.fieldFocused)
+            }
+        }
+    }
     func testBareFieldsRingFollowsTheWholeAuthoredBoxAndClearsOnBlur() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "bare-field-ring")
@@ -284,6 +368,101 @@ final class NativeFieldsMacTests: XCTestCase {
         }
     }
 
+    /// LLP 1115.000 D7.9: the focus ring leaves a border the author wrote
+    /// alone, as a native control with a border of its own keeps it under
+    /// AppKit's ring. A bare field's border was repainted two points wide
+    /// in the focus colour, and a textarea's covered by a ring over it.
+    /// Now a field with a written border takes no ring of Exact's (AppKit's
+    /// exterior one is asked for around its box), and a textarea's ring is
+    /// outside its box; a border nobody wrote is still the ring's to take.
+    func testTheFocusRingLeavesAnAuthoredBorderAlone() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "authored-border-ring")
+        defer { session.destroy() }
+        let red: BatchValue = [204, 0, 0, 255]
+        var bordered: NodeStyle = ["appearance": .string("none"), "border_width": .number(2), "border_radius": .number(8)]
+        for side in ["top", "right", "bottom", "left"] { bordered["border_color_" + side] = red }
+        var written = bordered
+        written["written"] = .array(["border_width", "border_color_top"].map { .string($0) })
+        func ring(_ node: NodeView) -> CALayer? { node.layer?.sublayers?.first { $0.name == "exact.fieldFocus" } }
+        /// The colour on the node's left border, half way down.
+        func border(_ node: NodeView) throws -> NSColor {
+            let rep = try XCTUnwrap(Capture.picture(of: node))
+            let scale = CGFloat(rep.pixelsWide) / rep.size.width
+            return try XCTUnwrap(rep.colorAt(x: Int(1 * scale), y: Int(node.bounds.midY * scale))?.usingColorSpace(.sRGB))
+        }
+        func isRed(_ c: NSColor) -> Bool { c.redComponent > 0.6 && c.greenComponent < 0.25 && c.blueComponent < 0.25 }
+        for (style, authored) in [(written, true), (bordered, false)] {
+            let what = authored ? "a border its author wrote" : "a border nobody wrote"
+            // A bare field.
+            let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+            node.frame = NSRect(x: 0, y: 0, width: 240, height: 40)
+            node.wantsLayer = true
+            node.applyProps(set: ["value": "Field"], clear: [])
+            node.applyStyle(style)
+            XCTAssertEqual(node.bordersItself, authored, what)
+            let field = try XCTUnwrap(node.field)
+            let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = node
+            XCTAssertTrue(isRed(try border(node)), "\(what): red before the focus")
+            XCTAssertTrue(window.makeFirstResponder(field))
+            XCTAssertEqual(node.fieldFocused, !authored, "\(what): \(authored ? "no ring of Exact's on it" : "Exact's ring takes it")")
+            let focused = try border(node)
+            XCTAssertEqual(isRed(focused), authored, "\(what), focused: \(focused)")
+            // AppKit's own ring is asked for either way, around the node's box.
+            XCTAssertEqual(field.focusRingType, .exterior)
+            XCTAssertEqual(field.focusRingMaskBounds, field.convert(node.bounds, from: node))
+            // The author writing it, or taking it back, while the field has the focus.
+            node.applyStyle(authored ? bordered : written)
+            XCTAssertEqual(node.fieldFocused, authored)
+            XCTAssertEqual(isRed(try border(node)), !authored)
+            window.makeFirstResponder(nil)
+            XCTAssertFalse(node.fieldFocused)
+
+            // A bare textarea: Exact's ring stays, outside the box.
+            let area = NodeView(id: 2, kind: "textarea", presenter: session.presenter)
+            area.frame = NSRect(x: 0, y: 0, width: 240, height: 100)
+            area.wantsLayer = true
+            area.applyStyle(style)
+            let areaWindow = NSWindow(contentRect: area.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+            areaWindow.isReleasedWhenClosed = false
+            defer { areaWindow.close() }
+            areaWindow.contentView = area
+            XCTAssertTrue(areaWindow.makeFirstResponder(try XCTUnwrap(area.textArea)))
+            let r = try XCTUnwrap(ring(area), "\(what): a textarea shows Exact's ring")
+            if authored {
+                XCTAssertEqual(r.frame, area.bounds.insetBy(dx: -3, dy: -3), "outside the box, where AppKit's ring is")
+                XCTAssertEqual(r.borderWidth, 3)
+                XCTAssertEqual(r.cornerRadius, 11, "around its corners")
+                XCTAssertTrue(isRed(try border(area)), "and the border under it is the author's")
+                // A node that clips its box cannot show a ring outside it: inside the border, then.
+                area.layer?.masksToBounds = true
+                area.showFieldFocus(true)
+                XCTAssertEqual(ring(area)?.frame, area.bounds.insetBy(dx: 2, dy: 2))
+            } else {
+                XCTAssertEqual(r.frame, area.bounds, "on the box")
+                XCTAssertEqual(r.borderWidth, 2)
+            }
+        }
+        // A pressable box with a border: its ring is AppKit's exterior one, and the border was never touched.
+        let button = NodeView(id: 3, kind: "view", presenter: session.presenter)
+        button.frame = NSRect(x: 0, y: 0, width: 120, height: 40)
+        button.wantsLayer = true
+        button.handlers = ["press"]
+        var look = written
+        look["appearance"] = nil
+        button.applyStyle(look)
+        let window = NSWindow(contentRect: button.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = button
+        button.focusVisible = true
+        XCTAssertEqual(button.focusRingMaskBounds, button.bounds, "AppKit's ring is asked for around the box")
+        XCTAssertTrue(isRed(try border(button)), "and the border stays the author's")
+    }
+
     func testFontEnvironmentAndNewFontMissNeverPresentProvisionalGeometry() throws {
         let dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("../../target/a2-control-test-" + UUID().uuidString).standardizedFileURL
@@ -301,7 +480,7 @@ final class NativeFieldsMacTests: XCTestCase {
               input testId="bare" appearance="none" value="Inherited"
               button testId="more" press=show
                 text "More"
-              when expanded
+              if expanded
                 input testId="new-font" font-size=31 value="New font"
 
         """
@@ -334,5 +513,44 @@ final class NativeFieldsMacTests: XCTestCase {
         XCTAssertEqual(session.fieldChrome.presentedProvisional, 0)
     }
 
+
+    /// LLP 1104 D3: an authored `::placeholder` colour is the placeholder's
+    /// ink, its own alpha kept, on a native field, a bare one and a
+    /// textarea; without the row each keeps AppKit's.
+    func testAnAuthoredPlaceholderColourIsThePlaceholdersInk() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "authored-placeholder")
+        defer { session.destroy() }
+        let green: BatchValue = .array([.number(0), .number(128), .number(0), .number(128)])
+        func isGreen(_ color: NSColor?, _ why: String) throws {
+            let c = try XCTUnwrap(color?.usingColorSpace(.sRGB), why)
+            for (got, want) in zip([c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent], [0, 128.0 / 255, 0, 128.0 / 255]) {
+                XCTAssertEqual(got, want, accuracy: 0.01, why)
+            }
+        }
+        let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+        node.frame = NSRect(x: 0, y: 0, width: 240, height: 30)
+        node.applyProps(set: ["placeholder": "Search"], clear: [])
+        let field = try XCTUnwrap(node.field)
+        func ink() -> NSColor? { field.placeholderAttributedString?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor }
+        XCTAssertEqual(ink(), .placeholderTextColor)
+        node.applyStyle(["placeholder_color": green])
+        try isGreen(ink(), "a native field")
+        node.applyProps(set: ["disabled": "true"], clear: [])
+        try isGreen(ink(), "a disabled native field")
+        node.applyStyle(["appearance": .string("none"), "placeholder_color": green])
+        try isGreen(ink(), "a bare field")
+        node.applyStyle([:])
+        XCTAssertEqual(ink(), .placeholderTextColor, "no row: AppKit's again")
+        let area = NodeView(id: 2, kind: "textarea", presenter: session.presenter)
+        area.frame = NSRect(x: 0, y: 0, width: 240, height: 80)
+        area.makeTextArea()
+        area.applyProps(set: ["placeholder": "Notes"], clear: [])
+        let text = try XCTUnwrap(area.textArea as? TextArea)
+        area.applyStyle(["placeholder_color": green])
+        try isGreen(text.placeholderColor, "a textarea")
+        area.applyStyle([:])
+        XCTAssertNil(text.placeholderColor, "no row: AppKit's again")
+    }
 }
 #endif

@@ -133,7 +133,8 @@ extension NodeView {
             if let presenter, presenter.views[id] === self, [.changed, .ended].contains(gesture.state) { presenter.panRelease(id, 0, 0) }
             gesture.isEnabled = false; gesture.isEnabled = true; return
         }
-        let p = (gesture as? ContactLayoutPan)?.displacement(in: presenter.viewport) ?? gesture.translation(in: presenter.viewport)
+        let port = presenter.port(of: self)
+        let p = (gesture as? ContactLayoutPan)?.displacement(in: port) ?? gesture.translation(in: port)
         if gesture.state == .began { layoutPanOrigin = .zero }
         if [.began, .changed, .ended].contains(gesture.state) {
             let dx = p.x - layoutPanOrigin.x, dy = p.y - layoutPanOrigin.y
@@ -143,7 +144,7 @@ extension NodeView {
         // UIKit measures the release (LLP 1057.001 §3); its action sees
         // .cancelled or .failed only after .began.
         if gesture.state == .ended {
-            let v = gesture.velocity(in: presenter.viewport)
+            let v = gesture.velocity(in: port)
             presenter.panRelease(id, Double(v.x), Double(v.y))
         } else if [.cancelled, .failed].contains(gesture.state) {
             // UIKit took the contact (a system gesture, a scroll view's pan):

@@ -1,9 +1,31 @@
 // Synthetic conformance plan (review b5-b 3, 4): a `contextmenu` is heard by
 // the nearest node that declares it, not its ancestors too, and a field's
-// own edit menu is the browser's (no handler runs there); a `wheel` reaches a
-// disabled box (`disabled` means nothing on a div) and not a disabled button.
+// own edit menu is the browser's (no handler runs there); a control's input
+// has none, so its node hears it and its node's popover opens (#487); a
+// `wheel` reaches a disabled box (`disabled` means nothing on a div) and not
+// a disabled button.
 component Menus
   state heard = ""
+  state toggles = ""
+  action show(k: string)
+    if k == "ArrowDown"
+      showPopover("actions", source="trigger")
+      focus("first")
+  action hide
+    hidePopover("actions")
+  action flip
+    togglePopover("actions", source="trigger")
+  action twice
+    showPopover("actions", source="trigger")
+    showPopover("actions", source="trigger")
+  action roundtrip
+    showPopover("actions")
+    hidePopover("actions")
+  action missing
+    showPopover("absent")
+    hidePopover("trigger")
+  action toggled(e: ToggleEvent)
+    toggles = `${toggles}${e.oldState}>${e.newState};`
   action outer
     heard = `${heard}outer;`
   action inner
@@ -15,8 +37,21 @@ component Menus
   view
     column testId="root" contextmenu=outer gap=4 padding=8
       text heard testId="heard"
-      row testId="row" tabindex=0 contextmenu=inner padding=8 background-color="#ddd"
+      row testId="row" tabindex=0 contextmenu=inner padding=8 gap=8 background-color="#ddd"
         text "row"
+        input type="checkbox" aria-label="Check" testId="check"
+      row testId="held" contextPopover="pop" padding=8
+        input type="checkbox" aria-label="Other" testId="other"
+      column id="pop" popover="auto" testId="pop" padding=8
+        text "Popover"
       textarea testId="area" value="" height=40
       box testId="pad" disabled=true wheel=spun width=120 height=40 background-color="#bbb"
       button "Off" testId="off" disabled=true wheel=pressed
+      text toggles testId="toggles"
+      button "Actions" id="trigger" testId="trigger" key=show press=flip
+      button "Twice" testId="twice" press=twice
+      button "Round trip" testId="roundtrip" press=roundtrip
+      button "Missing" testId="missing" press=missing
+      button "Outside" testId="outside"
+      column id="actions" testId="actions" popover="auto" toggle=toggled position-area="bottom span-right" padding=8
+        button "Done" id="first" testId="first" press=hide

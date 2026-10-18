@@ -10,7 +10,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Change, SqliteStorage } from './web.ts';
+import type { MutationOp, QueryOp } from './snapback.ts';
 
+const binary = process.env.SNAPBACK4_BIN ?? resolve(import.meta.dir, `../../node_modules/snapback4-${process.platform}-${process.arch}/snapback4${process.platform === 'win32' ? '.exe' : ''}`);
 const SCHEMA = `
 use identity
 table messages:
@@ -83,6 +85,10 @@ table members:
 mutation join(role: enum('member', 'lead')):
   return insert members { person: viewer, role }
 
+query leads():
+  require exists members[person = viewer, role = 'lead'] else NOT_LEAD
+  return members first 5 by .id
+
 mutation approve(body: text <=50):
   require exists members[person = viewer, role = 'lead'] else NOT_LEAD
   row = insert messages { author: viewer, body, at: now }
@@ -105,6 +111,36 @@ mutation close(t: tickets):
   row = tickets[t] ! else NOT_FOUND
   update tickets[row.id] { status: 'closed' }
   return null
+
+table photos:
+  owner: principal
+  photo: image <=1000000
+  read <- .owner = viewer
+  insert <- .owner = viewer
+  update <- deny
+  delete <- .owner = viewer
+  sync to .owner last 100 by .id
+
+mutation addPhoto(photo: image <=1000000):
+  return insert photos { owner: viewer, photo }
+
+table documents:
+  owner: principal
+  attachment: file <=1000000
+  read <- .owner = viewer
+  insert <- .owner = viewer
+  update <- deny
+  delete <- .owner = viewer
+  sync to .owner last 100 by .id
+
+mutation addDocument(attachment: file <=1000000):
+  return insert documents { owner: viewer, attachment }
+
+query documents():
+  return documents first 100 by .id
+
+query myDocuments():
+  return documents[owner = viewer] last 100 by .id
 `;
 
 const scratch = mkdtempSync(join(tmpdir(), 'exact-snapback4-ts-'));
@@ -123,14 +159,20 @@ beforeAll(async () => {
   const project = join(scratch, 'server');
   mkdirSync(join(project, 'snapback'), { recursive: true });
   writeFileSync(join(project, 'snapback/schema.q'), SCHEMA);
-  const binary = process.env.SNAPBACK4_BIN ?? resolve(import.meta.dir, '../../node_modules/snapback4-darwin-arm64/snapback4');
-  server = spawn(binary, ['dev', '--port', '0', '--memory', '--no-watch'], { cwd: project, stdio: ['ignore', 'pipe', 'ignore'] });
+  server = spawn(binary, ['dev', '--port', '0', '--memory', '--no-watch'], { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] });
   origin = await new Promise<string>((done, fail) => {
     const lines = createInterface({ input: server.stdout! });
     lines.on('line', line => { if (/^http:\/\/127\.0\.0\.1:\d+$/.test(line.trim())) done(line.trim()); });
-    server.on('exit', code => fail(new Error(`snapback4 dev exited ${code}`)));
+    let diagnostic = '';
+    server.stderr!.on('data', chunk => {
+      diagnostic += String(chunk);
+      const ready = /SNAPBACK4_READY .*url=(http:\/\/127\.0\.0\.1:\d+)/.exec(diagnostic);
+      if (ready) done(ready[1]);
+    });
+    server.on('error', fail);
+    server.on('exit', code => fail(new Error(`snapback4 dev exited ${code}: ${diagnostic}`)));
   });
-}, 600_000);
+}, 30_000);
 
 afterAll(() => {
   server?.kill();
@@ -220,6 +262,19 @@ test('two web devices sync, send, keep offline writes across a reopen, refuse an
   await expect(open('bob', bobDir, 'http://127.0.0.1:9')).rejects.toThrow(/another app, origin, or viewer/);
   await alice.close();
 }, 60_000);
+
+test('an app with an unrelated native hatch can explicitly select the web device', async () => {
+  let calls = 0;
+  const native = { available: true, call() { calls++; throw new Error('camera is not Snapback'); } };
+  const db = await Snapback.open({app: 'test', name: 'camera', origin, viewer: 'dev:alice',
+    headers: () => ({'x-snapback-persona': 'alice'}), storage: storage(join(scratch, 'camera')),
+    native, device: 'web', wasm: `file://${wasm}`});
+  try {
+    expect(await db.sync()).toEqual({ok: true});
+    expect(Array.isArray((await db.read('inbox', {}, Date.now())).data)).toBe(true);
+    expect(calls).toBe(0);
+  } finally { await db.close(); }
+});
 
 test('offline writes survive a reopen and send later; refusals withdraw; the poll sees others', async () => {
   const carolDir = join(scratch, 'carol');
@@ -346,6 +401,88 @@ test('a failed save after the server answered keeps the answer and never resends
   expect(rows.filter(r => r.body === 'answered, then the disk failed').map(r => r.pending === true)).toEqual([false]);
   await kim.close();
 }, 60_000);
+
+test('a sync after a write settles it while other sources sync at once; send is all three; refusals reach failure(x)', async () => {
+  const { failureCode, failureReason } = await import('../../host/web-js/shape.js');
+  const { refused } = await import('./snapback.ts');
+  const db = await open('nell', join(scratch, 'nell'));
+  expect(await db.sync()).toEqual({ ok: true });
+  // Three resources syncing and reading over and over, on a slow link.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    await new Promise(r => setTimeout(r, Math.random() * 15));
+    return realFetch(input as never, init);
+  }) as typeof fetch;
+  let stop = false;
+  const sources = [0, 1, 2].map(async () => {
+    while (!stop) { await db.sync(); await db.read('inbox', {}, Date.now()); await new Promise(r => setTimeout(r, Math.random() * 10)); }
+  });
+  try {
+    for (let i = 0; i < 6; i++) {
+      // write admits only: asked at once, its fate is pending.
+      const written = await db.write('send', { body: `busy ${i}` }, Date.now());
+      expect((await db.outcome(written.id)).state).toBe('pending');
+      // A round asked for after the write sends it, whatever runs meanwhile.
+      expect(await db.sync()).toEqual({ ok: true });
+      expect((await db.outcome(written.id)).state).toBe('sent');
+    }
+    const sent = await db.send<{ id: string }>('send', { body: 'in one call' }, Date.now());
+    expect([sent.state, sent.round]).toEqual(['sent', { ok: true }]);
+    expect(typeof sent.result?.id).toBe('string');
+    // The server's refusal, with the mutation's own code.
+    const empty = await db.send('send', { body: '' }, Date.now());
+    expect([empty.state, empty.why?.code]).toEqual(['failed', 'EMPTY']);
+  } finally { stop = true; await Promise.all(sources); globalThis.fetch = realFetch; }
+  // Offline, send keeps the write and says why it is still pending.
+  globalThis.fetch = (async () => { throw new TypeError('offline'); }) as unknown as typeof fetch;
+  try {
+    const kept = await db.send('send', { body: 'later' }, Date.now());
+    expect([kept.state, kept.round?.offline]).toEqual(['pending', true]);
+  } finally { globalThis.fetch = realFetch; }
+  expect((await db.send('send', { body: 'now' }, Date.now())).state).toBe('sent');
+  expect((await db.status()).queued).toEqual([]);
+
+  // Generated handles (snapback/generated/api.ts's `api`) go where a name goes, typed by their `Query`/`Mutation`.
+  const api = {
+    inbox: { kind: 'query', name: 'inbox', runs: 'device', rowKey: 'id' } as QueryOp<Record<string, never>, { id: string; body: string; pending?: boolean }[]>,
+    send: { kind: 'mutation', name: 'send', predicts: 'never' } as MutationOp<{ body: string }, { id: string }>,
+  };
+  const typed = await db.send(api.send, { body: 'by handle' }, Date.now());
+  expect([typed.state, typeof typed.result?.id]).toEqual(['sent', 'string']);
+  const byHandle = await db.read(api.inbox, {}, Date.now());
+  expect(byHandle.data?.some(row => row.id === typed.result?.id && row.body === 'by handle')).toBe(true);
+  expect((await db.readAll(api.inbox, {}, Date.now())).map(row => row.id)).toEqual(byHandle.data!.map(row => row.id));
+  expect((await db.write(api.send, { body: 'admitted by handle' }, Date.now())).state).toBe('pending');
+  await db.sync();
+
+  // A query's `require … else CODE`, thrown as the driver throws it: the
+  // code is failure(x).reason, under the closed code `error`; the message
+  // stays suitable for rendering directly.
+  const read = await db.read('leads', {}, Date.now());
+  expect(read.denied?.code).toBe('NOT_LEAD');
+  const error = refused(read.denied!);
+  expect([error.message, (error as { code?: string }).code, failureCode(error), failureReason(error)]).toEqual([read.denied!.message, 'NOT_LEAD', 'error', 'NOT_LEAD']);
+  await expect(db.readAll('leads', {}, Date.now())).rejects.toMatchObject({ reason: 'NOT_LEAD' });
+  const optional = await db.readOptional('leads', {}, Date.now(), ['NOT_LEAD']);
+  expect(optional.data).toBeNull();
+  expect(optional.complete).toBe(false);
+  expect(optional.denied?.code).toBe('NOT_LEAD');
+  await expect(db.readOptional('leads', {}, Date.now(), [])).rejects.toMatchObject({reason: 'NOT_LEAD'});
+  expect(Array.isArray((await db.readOptional(api.inbox, {}, Date.now(), [])).data)).toBe(true);
+  // Unreached is `offline`, as a lost fetch is; its reason is still its code.
+  const lost = refused({ code: 'E_OFFLINE', message: 'not reached' });
+  expect([failureCode(lost), failureReason(lost)]).toEqual(['offline', 'E_OFFLINE']);
+  // Natively Error.prototype is frozen, so `name` is defined, not assigned.
+  const frozen = Object.getOwnPropertyDescriptor(Error.prototype, 'name')!;
+  Object.defineProperty(Error.prototype, 'name', { ...frozen, writable: false });
+  try { expect(failureCode(refused({ code: 'E_OFFLINE', message: 'not reached' }))).toBe('offline'); }
+  finally { Object.defineProperty(Error.prototype, 'name', frozen); }
+  const never = await open('olive', join(scratch, 'olive'), 'http://127.0.0.1:9');
+  const unreached = await never.read('inbox', {}, Date.now()).catch(e => e as Error);
+  expect([(unreached as Error & {code: string}).code, failureCode(unreached)]).toEqual(['E_OFFLINE', 'offline']);
+  await never.close();
+  await db.close();
+}, 120_000);
 
 test('a closed client refuses every call; closing twice is harmless', async () => {
   const lou = await open('lou', join(scratch, 'lou'));
@@ -483,7 +620,7 @@ test('sources share a page\'s partition: concurrent opens, rounds that wait thei
   expect((await b.outcome(written.id)).state).toBe('sent');
 
   // A partition belongs to one viewer: another needs its own name.
-  await expect(openErin('frank')).rejects.toThrow(/E_PARTITION_VIEWER/);
+  await expect(openErin('frank')).rejects.toMatchObject({code: 'E_PARTITION_VIEWER'});
 
   // Closing one client leaves the partition to the other; the last lets it go.
   await a.close();
@@ -520,7 +657,8 @@ test('a query over an online only table is the server\'s to answer, and says so 
     const unreached = await gina.read('myDrafts', {}, Date.now());
     expect(unreached.data).toBeUndefined();
     expect(unreached.denied?.code).toBe('E_OFFLINE');
-    await expect(gina.readAll('myDrafts', {}, Date.now())).rejects.toThrow(/E_OFFLINE/);
+    await expect(gina.readAll('myDrafts', {}, Date.now())).rejects.toMatchObject({code: 'E_OFFLINE'});
+    await expect(gina.readOptional('myDrafts', {}, Date.now(), ['E_OFFLINE'])).rejects.toMatchObject({code: 'E_OFFLINE'});
     expect(Array.isArray((await gina.read('inbox', {}, Date.now())).data)).toBe(true);
   });
   await gina.close();
@@ -529,8 +667,8 @@ test('a query over an online only table is the server\'s to answer, and says so 
 test('a partition that has never synced, offline, refuses reads and writes with E_OFFLINE', async () => {
   const ivy = await open('ivy', join(scratch, 'ivy'));
   await offline(async () => {
-    await expect(ivy.read('inbox', {}, Date.now())).rejects.toThrow(/E_OFFLINE/);
-    await expect(ivy.write('send', { body: 'too soon' }, Date.now())).rejects.toThrow(/E_OFFLINE/);
+    await expect(ivy.read('inbox', {}, Date.now())).rejects.toMatchObject({code: 'E_OFFLINE'});
+    await expect(ivy.write('send', { body: 'too soon' }, Date.now())).rejects.toMatchObject({code: 'E_OFFLINE'});
   });
   // Back online, the next read opens it.
   expect((await ivy.read('inbox', {}, Date.now())).data).toBeDefined();
@@ -560,10 +698,15 @@ test('a read the device cannot vouch for asks the server; offline it says so', a
     const first = await jo.read<{ body: string }[]>('oldest', {}, Date.now());
     expect(first.server).toBe(true);
     expect(first.data!.length).toBe(5);
+    const whole = await jo.readAll<{ body: string }>('oldest', {}, Date.now());
+    expect([whole.length, whole.complete, whole.offline]).toEqual([5, true, false]);
     await offline(async () => {
       const partial = await jo.read<{ body: string }[]>('oldest', {}, Date.now());
       expect(partial.offline).toBe(true);
       expect(partial.complete).not.toBe(true);
+      // readAll keeps what each page said: these rows are not all of them.
+      const rows = await jo.readAll<{ body: string }>('oldest', {}, Date.now());
+      expect([rows.complete, rows.offline]).toEqual([false, true]);
     });
   } else {
     // The device vouched for it (complete coverage): then it must be the truth.
@@ -666,28 +809,29 @@ test('a round its answer could not finish is cancelled by the next round, so the
   await device.close?.();
 }, 60_000);
 
-test('the README\'s persona switch waits for the other persona\'s write in flight before closing its partition', async () => {
-  // The guestbook's `using`, as the README has it.
-  const readme = (await Bun.file(resolve(import.meta.dir, '../README.md')).text());
-  const source = readme.slice(readme.indexOf('// One partition open at a time'), readme.indexOf('type Row = { id: string; author: string;'));
-  const js = new Bun.Transpiler({ loader: 'ts' }).transformSync(`${source}\nexport { using };`).replace(/^export \{ using \};?\s*$/m, '');
-  const using = new Function('Snapback', 'appId', 'origin', `${js}\nreturn using;`)(Snapback, 'test.exact.snapback4', origin) as
-    <T>(persona: string, storage: unknown, native: unknown, work: (db: InstanceType<typeof Snapback>) => Promise<T>) => Promise<T>;
+test('Snapback.switcher waits for the other persona\'s write in flight before closing its partition', async () => {
+  const personas = Snapback.switcher((persona: string) => ({ app: 'test.exact.snapback4', name: `inbox-${persona}`, origin,
+    viewer: `dev:${persona}`, headers: () => ({ 'x-snapback-persona': persona }), wasm: `file://${wasm}` }));
   // A native module: one partition at a time, refusing a second open.
   const { webDevice } = await import('./web.ts');
   const page = storage(join(scratch, 'switch'));
   let open: Awaited<ReturnType<typeof webDevice>> | undefined;
+  const opens: string[] = [];
+  let failOpen = false;
   const native = { call: async (request: Record<string, unknown>) => {
     if (request.op === 'open') {
       if (open) throw new Error('close the current Snapback4 partition before opening another');
+      if (failOpen) { failOpen = false; throw new Error('storage unavailable'); }
       open = await webDevice(page, 'test.exact.snapback4', String(request.path), `file://${wasm}`);
+      opens.push(String(request.path));
     }
     if (!open) throw new Error('Snapback4 partition is not open');
     const answer = await open.call(request as never);
     if (request.op === 'close') { await open.close?.(); open = undefined; }
     return answer;
   } };
-  expect(await using('alice', page, native, db => db.sync())).toEqual({ ok: true });
+  expect(await personas.use('alice', page, native, db => db.sync())).toEqual({ ok: true });
+  expect(personas.key).toBe('alice');
   // Alice's write is on the network when the app switches to Bob.
   const realFetch = globalThis.fetch;
   let release!: () => void;
@@ -697,18 +841,88 @@ test('the README\'s persona switch waits for the other persona\'s write in fligh
     return realFetch(input as never, init);
   }) as typeof fetch;
   try {
-    const posting = using('alice', page, native, async db => {
+    const posting = personas.use('alice', page, native, async db => {
       const written = await db.write('send', { body: 'switched' }, Date.now());
       await db.sync();
       return (await db.outcome(written.id)).state;
     });
     await new Promise(r => setTimeout(r, 50));
-    const bob = using('bob', page, native, db => db.sync());
+    const bob = personas.use('bob', page, native, db => db.sync());
+    // And back to Alice before Bob has even opened: each waits its turn.
+    const again = personas.use('alice', page, native, async db => (await db.read<{ body: string }[]>('inbox', {}, Date.now())).data?.map(row => row.body));
     release();
     expect(await posting).toBe('sent');
     expect(await bob).toEqual({ ok: true });
+    expect(await again).toContain('switched');
   } finally { globalThis.fetch = realFetch; }
-  await using('bob', page, native, db => db.close());
+  expect(opens.map(path => path.replace(/^.*\//, ''))).toEqual(['inbox-alice.sqlite', 'inbox-bob.sqlite', 'inbox-alice.sqlite']);
+  // An open that fails rejects that call only; the next is tried afresh.
+  failOpen = true;
+  expect(await personas.use('bob', page, native, db => db.sync()).catch(error => (error as Error).message)).toBe('storage unavailable');
+  expect(personas.key).toBe(null);
+  expect(await personas.use('bob', page, native, db => db.sync())).toEqual({ ok: true });
+  await personas.close();
+  expect(open).toBeUndefined();
+  expect(personas.key).toBe(null);
+}, 60_000);
+
+test('upload sends bytes to /assets and download writes the asset to an app file, under the row\'s read rule', async () => {
+  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+  const files = new Map<string, Uint8Array>();
+  const withFiles = (persona: string, dir: string, at = origin) => Snapback.open({
+    app: 'test.exact.snapback4', name: `photos-${persona}`, origin: at + '/', viewer: `dev:${persona}`,
+    headers: () => ({ 'x-snapback-persona': persona }), wasm: `file://${wasm}`,
+    storage: { ...storage(dir), fs: { async writeFile(path: string, data: Uint8Array) { files.set(path, data); } } },
+  });
+  const alice = await withFiles('alice', join(scratch, 'photos-alice'));
+  const sent = await alice.upload(png);
+  if (!sent.ok) throw new Error(sent.why.message);
+  expect([sent.asset.type, sent.asset.bytes, sent.asset.width, sent.asset.height]).toEqual(['image/png', png.byteLength, 1, 1]);
+  const refused = await alice.upload(new TextEncoder().encode('not a picture'));
+  expect(refused.ok ? null : refused.why.code).toBe('E_ASSET_TYPE');
+  // Placed by a mutation, read back as its row's facts, then fetched as the row's reader.
+  const placed = await alice.send('addPhoto', { photo: { id: sent.asset.id } }, Date.now());
+  expect(placed.state).toBe('sent');
+  const shown = await alice.download(sent.asset.id);
+  expect(shown).toEqual({ ok: true, path: `app:/cache/snapback4-photos-alice-${sent.asset.id}.png`, type: 'image/png', bytes: png.byteLength });
+  expect([...files.get(`app:/cache/snapback4-photos-alice-${sent.asset.id}.png`)!]).toEqual([...png]);
+  expect((await alice.download(sent.asset.id, 'app:/tmp/one.png')).ok).toBe(true);
+  const pdf = new TextEncoder().encode('%PDF-1.4\nExact attachment\n%%EOF');
+  const uploaded = await alice.upload(pdf, { file: { type: 'application/pdf', name: 'review notes.pdf' } });
+  if (!uploaded.ok) throw new Error(uploaded.why.message);
+  expect(uploaded.asset).toMatchObject({ type: 'application/pdf', bytes: pdf.byteLength, name: 'review notes.pdf' });
+  expect((await alice.send('addDocument', { attachment: { id: uploaded.asset.id } }, Date.now())).state).toBe('sent');
+  const rows = await alice.read<{ attachment: { id: string; name: string; type: string } }[]>('documents', {}, Date.now());
+  expect(rows.data?.[0].attachment).toMatchObject({ id: uploaded.asset.id, name: 'review notes.pdf', type: 'application/pdf' });
+  const downloaded = await alice.download(uploaded.asset.id);
+  expect(downloaded).toEqual({ ok: true, path: `app:/cache/snapback4-photos-alice-${uploaded.asset.id}-review notes.pdf`, name: 'review notes.pdf', type: 'application/pdf', bytes: pdf.byteLength });
+  if (downloaded.ok) expect(files.get(downloaded.path)).toEqual(pdf);
+  // Another viewer cannot read the row, so the bytes are not there for them.
+  const bob = await withFiles('bob', join(scratch, 'photos-bob'));
+  const hidden = await bob.download(sent.asset.id);
+  expect(hidden.ok ? null : hidden.why.code).toBe('E_ASSET_UNKNOWN');
+  await bob.close();
+  await alice.close();
+  // Unreached: offline, and nothing kept.
+  const away = await withFiles('alice', join(scratch, 'photos-away'), 'http://127.0.0.1:9');
+  const lost = await away.upload(png);
+  expect(lost.ok ? null : lost.why.code).toBe('E_OFFLINE');
+  await away.close();
+}, 60_000);
+
+test('fresh uses the live reset door, empties rows, and seeds the next test', async () => {
+  const { resetBackends } = await import('../../scripts/agent-test.mjs');
+  const first = await open('alice', join(scratch, 'fresh-first'));
+  expect((await first.send('send', { body: 'before reset' }, Date.now())).state).toBe('sent');
+  await first.close();
+  await resetBackends([origin]);
+  const empty = await open('alice', join(scratch, 'fresh-empty'));
+  expect((await empty.read('inbox', {}, Date.now())).data).toEqual([]);
+  await empty.close();
+  await resetBackends([origin], [{ table: 'messages', row: { id: 'seed-note', author: 'dev:alice', body: 'seeded', at: Date.now() } }]);
+  const seeded = await open('alice', join(scratch, 'fresh-seeded'));
+  expect((await seeded.read<{ body: string }[]>('inbox', {}, Date.now())).data?.map(row => row.body)).toEqual(['seeded']);
+  await seeded.close();
 }, 60_000);
 
 test('at bake (a native module that is not available) open refuses with code bake and calls nothing', async () => {
@@ -721,3 +935,417 @@ test('at bake (a native module that is not available) open refuses with code bak
   expect((refused as { code?: string; kind?: string }).kind).toBe('Unavailable');
   expect(calls).toEqual([]);
 }, 60_000);
+
+test('device guest sessions persist and bind a partition after public auth discovery', async () => {
+  const values = new Map<string, string>();
+  const store = {get: (key: string) => values.get(key) ?? null, set: (key: string, value: string) => {values.set(key, value);}, forget: (key: string) => {values.delete(key);}};
+  const options = {app: 'test.exact.guest', name: 'guest', origin, storage: storage(join(scratch, 'guest-device')),
+    auth: {store, key: 'session', now: Date.now()}, wasm: `file://${wasm}`};
+  const db = await Snapback.open(options);
+  try {
+    expect(await db.authConfig()).toMatchObject({guests: true, password: true, development: true});
+    expect(db.session).toBeNull();
+    const entered = await db.guest();
+    expect(entered).toMatchObject({ok: true, session: {kind: 'guest'}});
+    expect(await db.read('inbox', {}, Date.now())).toMatchObject({data: expect.any(Array)});
+    expect(db.isOpen).toBe(true);
+    const sibling = await Snapback.open(options);
+    expect(sibling.session?.principal).toBe(db.session?.principal);
+    await sibling.close();
+    await expect(db.guest()).rejects.toMatchObject({code: 'E_AUTH'});
+    await expect(db.signup('guest-upgrade@example.com', 'correct-horse-battery-staple')).rejects.toMatchObject({code: 'E_AUTH'});
+    await expect(db.login('guest-upgrade@example.com', 'correct-horse-battery-staple')).rejects.toMatchObject({code: 'E_AUTH'});
+    await db.logout();
+    expect(store.get('session')).toBeNull();
+    expect(await db.signup('guest-upgrade@example.com', 'correct-horse-battery-staple')).toMatchObject({ok: true, session: {principal: expect.stringMatching(/^user:/)}});
+    await db.logout();
+    expect(await db.login('guest-upgrade@example.com', 'correct-horse-battery-staple')).toMatchObject({ok: true, session: {principal: expect.stringMatching(/^user:/)}});
+    await db.logout();
+  } finally {await db.close();}
+});
+
+test('public device auth discovery preserves expired storage and fences an external account change', async () => {
+  const values = new Map<string, string>();
+  const store = {get: (key: string) => values.get(key) ?? null, set: (key: string, value: string) => {values.set(key, value);}, forget: (key: string) => {values.delete(key);}};
+  const expired = JSON.stringify({principal: 'guest:old', kind: 'guest', token: 'old', expiresAt: 5});
+  const config = {guests: true, password: true, development: false};
+  const originalFetch = globalThis.fetch;
+  let externalChange = false;
+  const headers: {auth: string | null; persona: string | null}[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    const sent = new Headers(init?.headers);
+    headers.push({auth: sent.get('authorization'), persona: sent.get('x-snapback-persona')});
+    await Promise.resolve();
+    if (externalChange) store.set('session', 'external replacement');
+    return Response.json(config);
+  }) as typeof fetch;
+  const db = await Snapback.open({app: 'test.exact.guest', name: 'discovery', origin: 'http://discovery.test',
+    storage: storage(join(scratch, 'discovery')), auth: {store, key: 'session', now: 10}, wasm: `file://${wasm}`,
+    headers: () => ({Authorization: 'Bearer supplied', 'X-Snapback-Persona': 'alice'})});
+  try {
+    store.set('session', expired);
+    expect(await db.authConfig()).toEqual(config);
+    expect(store.get('session')).toBe(expired);
+    expect(headers[0]).toEqual({auth: null, persona: null});
+    externalChange = true;
+    await expect(db.authConfig()).rejects.toMatchObject({code: 'E_STALE'});
+    expect(store.get('session')).toBe('external replacement');
+  } finally {globalThis.fetch = originalFetch; await db.close();}
+});
+
+test('password accounts on serve: signup, reopen, refresh, login, logout and isolated safe partitions', async () => {
+  const project = join(scratch, 'password-server'), deployed = join(project, 'production');
+  mkdirSync(join(project, 'snapback'), { recursive: true });
+  writeFileSync(join(project, 'snapback/schema.q'), SCHEMA.replace('use identity', 'use identity password'));
+  const release = spawnSync(binary, ['deploy', deployed], { cwd: project, encoding: 'utf8' });
+  if (release.status !== 0) throw new Error(`deploy: ${release.stderr}`);
+  const serve = spawn(binary, ['serve', deployed, '--port', '0'], { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    const url = await new Promise<string>((done, fail) => {
+      let output = '';
+      for (const stream of [serve.stdout!, serve.stderr!]) stream.on('data', chunk => {
+        output += String(chunk);
+        const ready = /SNAPBACK4_READY .*url=(http:\/\/127\.0\.0\.1:\d+)/.exec(output) ?? /^(http:\/\/127\.0\.0\.1:\d+)$/m.exec(output);
+        if (ready) done(ready[1]);
+      });
+      serve.on('error', fail);
+      serve.on('exit', code => fail(new Error(`serve exited ${code}: ${output}`)));
+    });
+    const secretsPath = join(scratch, 'password-secrets.sqlite');
+    let secrets = new Database(secretsPath);
+    secrets.run('CREATE TABLE secrets (key TEXT PRIMARY KEY, value TEXT)');
+    const store = {
+      get: (key: string) => (secrets.query('SELECT value FROM secrets WHERE key=?').get(key) as { value: string } | null)?.value ?? null,
+      set: (key: string, value: string) => { secrets.run('INSERT OR REPLACE INTO secrets VALUES (?, ?)', [key, value]); },
+      forget: (key: string) => { secrets.run('DELETE FROM secrets WHERE key=?', [key]); },
+    };
+    const page = storage(join(scratch, 'password-device'));
+    const options = { app: 'test.exact.password', name: 'account', origin: url, storage: page,
+      auth: { store, key: 'session', now: Date.now() }, wasm: `file://${wasm}` };
+    let db = await Snapback.open(options);
+    expect(db.session).toBeNull();
+    await expect(db.read('inbox', {}, Date.now())).rejects.toMatchObject({code: 'E_AUTH'});
+    const signed = await db.signup('alice@example.com', 'correct-horse-battery-staple');
+    if (!signed.ok) throw new Error(JSON.stringify(signed.why));
+    const principal = signed.session.principal, token = signed.session.token;
+    expect(principal.startsWith('user:')).toBe(true);
+    expect(Snapback.partitionName(principal)).toMatch(/^[a-z0-9-]+$/);
+    expect((await db.send('send', { body: 'password hello' }, Date.now())).state).toBe('sent');
+    const name = db.options.name;
+    await db.close();
+    secrets.close(); secrets = new Database(secretsPath);
+    // A new store and a new driver restore the durable session and partition.
+    db = await Snapback.open({ ...options, auth: { ...options.auth, now: Date.now() } });
+    expect(db.session?.principal).toBe(principal);
+    expect(db.options.name).toBe(name);
+    expect((await db.read<{ author: string }[]>('inbox', {}, Date.now())).data?.some(row => row.author === principal)).toBe(true);
+    const renewed = await Promise.all([db.refreshSession(Date.now()), db.refreshSession(Date.now())]);
+    expect(renewed.every(r => r.ok)).toBe(true);
+    expect(db.session?.token).not.toBe(token);
+    const old = await fetch(`${url}/q/inbox`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: '{"args":{}}' });
+    expect((await old.json() as { denied: { code: string } }).denied.code).toBe('E_AUTH');
+    const latestToken = db.session!.token;
+    expect(await db.logout()).toEqual({ ok: true });
+    expect(store.get('session')).toBeNull();
+    expect(db.session).toBeNull();
+    const revoked = await fetch(`${url}/q/inbox`, { method: 'POST', headers: { authorization: `Bearer ${latestToken}`, 'content-type': 'application/json' }, body: '{"args":{}}' });
+    expect((await revoked.json() as { denied: { code: string } }).denied.code).toBe('E_AUTH');
+    expect((await db.login('alice@example.com', 'wrong-password')).ok).toBe(false);
+    expect(db.session).toBeNull();
+    expect((await db.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    expect(db.options.name).toBe(name);
+    const held = db.session!;
+    await db.close();
+    // Contract time triggers refresh just before expiry; it never reads Date.now().
+    db = await Snapback.open({ ...options, auth: { ...options.auth, now: held.expiresAt - 30_000 } });
+    expect(db.session?.token).not.toBe(held.token);
+    // Offline sign-out forgets the local token regardless of revocation.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => { throw new TypeError('offline'); }) as typeof fetch;
+    try { expect(await db.logout()).toEqual({ ok: false, offline: true }); } finally { globalThis.fetch = realFetch; }
+    expect(store.get('session')).toBeNull();
+    expect((await db.signup('bob@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    expect(db.options.name).not.toBe(name);
+    expect((await db.send('send', { body: 'bob hello' }, Date.now())).state).toBe('sent');
+    await db.logout();
+    expect((await db.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    expect((await db.send('draft', { body: 'Alice private' }, Date.now())).state).toBe('sent');
+    // A request already carrying the old token cannot erase a refresh's replacement.
+    for (const [path, request] of [
+      ['/q/myDrafts', () => db.read('myDrafts', {}, Date.now())],
+      ['/sync', () => db.sync()],
+    ] as const) {
+      let enter!: () => void, release!: () => void;
+      const entered = new Promise<void>(done => { enter = done; });
+      const held = new Promise<void>(done => { release = done; });
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).endsWith(path)) { enter(); await held; }
+        return realFetch(input as never, init);
+      }) as typeof fetch;
+      try {
+        const pending = request();
+        await entered;
+        const renewed = await db.refreshSession(Date.now());
+        if (!renewed.ok) throw new Error(renewed.denied.code);
+        release();
+        expect((await pending).denied?.code).toBe('E_AUTH');
+        expect(db.session?.token).toBe(renewed.session.token);
+      } finally { release(); globalThis.fetch = realFetch; }
+      expect(await db.sync()).toEqual({ ok: true });
+    }
+    const staleAlice = await Snapback.open({ ...options, auth: { ...options.auth, now: Date.now() } });
+    let enter!: () => void, enterSync!: () => void, release!: () => void;
+    const entered = new Promise<void>(done => { enter = done; });
+    const syncEntered = new Promise<void>(done => { enterSync = done; });
+    const heldReply = new Promise<void>(done => { release = done; });
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const response = await realFetch(input as never, init);
+      if (String(input).endsWith('/q/myDrafts')) { enter(); await heldReply; }
+      if (String(input).endsWith('/sync')) { enterSync(); await heldReply; }
+      return response;
+    }) as typeof fetch;
+    const reading = db.read<{ body: string }[]>('myDrafts', {}, Date.now()).catch(error => error);
+    try {
+      await entered;
+      const syncing = db.sync().catch(error => error);
+      await syncEntered;
+      const queuedSync = db.sync().catch(error => error);
+      await db.logout();
+      expect((await db.login('bob@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+      await expect(staleAlice.download('not-even-fetched')).rejects.toMatchObject({code: 'E_AUTH'});
+      await expect(staleAlice.upload(new Uint8Array([1]))).rejects.toMatchObject({code: 'E_AUTH'});
+      release();
+      expect((await reading as { code: string }).code).toBe('E_STALE');
+      expect((await syncing as { code: string }).code).toBe('E_STALE');
+      expect((await queuedSync as { code: string }).code).toBe('E_STALE');
+    } finally { release(); globalThis.fetch = realFetch; }
+    await staleAlice.close();
+    // A revoked session, including one kept across a backend reset, is forgotten.
+    await realFetch(`${url}/auth/logout`, { method: 'POST', headers: { authorization: `Bearer ${db.session!.token}` } });
+    expect((await db.sync()).denied?.code).toBe('E_AUTH');
+    expect(db.session).toBeNull();
+    expect(store.get('session')).toBeNull();
+    await db.logout(); await db.close();
+    store.set('session', JSON.stringify({ ...held, expiresAt: Date.now() - 1 }));
+    db = await Snapback.open({ ...options, auth: { ...options.auth, now: Date.now() } });
+    expect(db.session).toBeNull();
+    expect(store.get('session')).toBeNull();
+    await db.close();
+    store.set('session', '{broken');
+    db = await Snapback.open({ ...options, auth: { ...options.auth, now: Date.now() } });
+    expect(db.session).toBeNull();
+    expect(store.get('session')).toBeNull();
+    await db.close();
+    // The native module has one open partition, even when several sources share it.
+    const { webDevice } = await import('./web.ts');
+    let nativeDevice: Awaited<ReturnType<typeof webDevice>> | undefined;
+    const native = { call: async (request: Record<string, unknown>) => {
+      if (request.op === 'open') {
+        if (nativeDevice) throw new Error('close the current Snapback4 partition before opening another');
+        nativeDevice = await webDevice(page, options.app, String(request.path), `file://${wasm}`);
+      }
+      if (!nativeDevice) throw new Error('no native partition');
+      const answer = await nativeDevice.call(request as never);
+      if (request.op === 'close') { await nativeDevice.close?.(); nativeDevice = undefined; }
+      return answer;
+    } };
+    const nativeOptions = { ...options, name: 'native-account', native, auth: { store, key: 'native-session', now: Date.now() } };
+    const owner = await Snapback.open(nativeOptions);
+    expect((await owner.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    const oldHandle = await Snapback.open(nativeOptions);
+    await owner.logout();
+    expect(nativeDevice).toBeUndefined();
+    expect(oldHandle.usable).toBe(false);
+    expect((await owner.login('bob@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    await oldHandle.close();                            // must not close Bob's current native device
+    expect((await owner.send('send', { body: 'native Bob' }, Date.now())).state).toBe('sent');
+    await owner.logout();
+    expect((await owner.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    const refusedHandle = await Snapback.open(nativeOptions);
+    await realFetch(`${url}/auth/logout`, { method: 'POST', headers: { authorization: `Bearer ${owner.session!.token}` } });
+    expect((await owner.sync()).denied?.code).toBe('E_AUTH');
+    expect((await owner.login('bob@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    expect(refusedHandle.usable).toBe(false);
+    await refusedHandle.close();
+    expect((await owner.send('send', { body: 'native recovery' }, Date.now())).state).toBe('sent');
+    await owner.logout(); await owner.close();
+    expect(nativeDevice).toBeUndefined();
+    // An auth source opened before sign-in owns no partition; a data source
+    // signs in later, and a third source uses manually supplied credentials.
+    const fromAnswer = () => ({ ...nativeOptions,
+      native: { call: (request: Record<string, unknown>) => native.call(request) },
+      auth: { ...nativeOptions.auth, store: {
+        get: (key: string) => store.get(key), set: (key: string, value: string) => store.set(key, value),
+        forget: (key: string) => store.forget(key),
+      } },
+    });
+    const authOnly = await Snapback.open(fromAnswer());
+    expect(authOnly.session).toBeNull();
+    const signedIn = await Snapback.open(fromAnswer());
+    expect((await signedIn.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    const authenticatedSibling = await Snapback.open(fromAnswer());
+    const aliceSession = signedIn.session!;
+    const headersSibling = await Snapback.open({ ...fromAnswer(), auth: undefined,
+      name: signedIn.options.name, viewer: aliceSession.principal,
+      headers: () => ({ authorization: `Bearer ${aliceSession.token}` }) });
+    const privatePdf = new TextEncoder().encode('%PDF-1.4\nPrivate native document\n%%EOF');
+    const privateAsset = await signedIn.upload(privatePdf, { file: { type: 'application/pdf', name: 'native-private.pdf' } });
+    if (!privateAsset.ok) throw new Error(privateAsset.why.code);
+    expect((await signedIn.send('addDocument', { attachment: { id: privateAsset.asset.id } }, Date.now())).state).toBe('sent');
+    const cached = await headersSibling.read<{ attachment: { id: string } }[]>('myDocuments', {}, Date.now());
+    expect(cached.server).not.toBe(true);
+    expect(cached.data?.some(row => row.attachment.id === privateAsset.asset.id)).toBe(true);
+    expect(authOnly.isOpen).toBe(false);
+    expect(await authOnly.logout()).toEqual({ ok: true });
+    expect(store.get('native-session')).toBeNull();
+    expect(nativeDevice).toBeUndefined();
+    expect(authenticatedSibling.usable).toBe(false);
+    expect(headersSibling.usable).toBe(false);
+    await expect(headersSibling.read('myDocuments', {}, Date.now())).rejects.toMatchObject({code: 'E_STALE'});
+    await expect(authenticatedSibling.read('myDocuments', {}, Date.now())).rejects.toMatchObject({code: 'E_AUTH'});
+    // Same-account login must create a new partition owner, not revive siblings.
+    expect((await authOnly.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    await expect(authenticatedSibling.read('myDocuments', {}, Date.now())).rejects.toMatchObject({code: 'E_STALE'});
+    await signedIn.close(); await authenticatedSibling.close(); await headersSibling.close();
+    expect((await authOnly.send('send', { body: 'unbound logout recovered' }, Date.now())).state).toBe('sent');
+    await authOnly.logout(); await authOnly.close();
+    expect(nativeDevice).toBeUndefined();
+    secrets.close();
+    const mixed = Snapback.switcher((viewer: string) => ({ app: 'test.exact.password', origin: url,
+      viewer, wasm: `file://${wasm}`, headers: () => ({ authorization: `Bearer ${held.token}`, 'x-snapback-persona': undefined }) }));
+    expect(await mixed.use(principal, page, null, async client => client.options.name)).toBe(Snapback.partitionName(principal));
+    await mixed.close();
+    await expect(Snapback.open({ app: 'test', name: principal, origin: url, viewer: principal, storage: page })).rejects.toThrow(principal);
+  } finally { serve.kill(); await new Promise<void>(done => serve.exitCode === null ? serve.once('exit', () => done()) : done()); }
+}, 60_000);
+
+test('web identity and headers are available before any partition is open and agree with embedded bytes', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { WebSnapback } = await import('./generated/device.ts');
+  const device = new WebSnapback('identity-probe', '[]');
+  try {
+    const identity = JSON.parse(device.call(JSON.stringify({op: 'engine_info'}))).ok;
+    const headers = JSON.parse(device.call(JSON.stringify({op: 'engine_headers'}))).ok;
+    const sections = WebAssembly.Module.customSections(new WebAssembly.Module(readFileSync(wasm)), 'snapback4.engine');
+    expect(sections.length).toBe(1);
+    expect(identity).toEqual(JSON.parse(new TextDecoder().decode(sections[0])));
+    expect(JSON.parse(headers['x-snapback-device'])).toEqual(identity);
+  } finally { device.free(); }
+});
+
+test('durable upload custody survives offline close, lost upload replies and placement retry', async () => {
+  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+  const path = 'app:/tmp/picked/photo.png', files = new Map([[path,png]]);
+  const dir=join(scratch,'durable-upload'), realFetch=globalThis.fetch;
+  const selected={kind:'mutation', name:'addPhoto'} as MutationOp<{photo:{id:string}}, {id:string}>;
+  const openUpload=()=>Snapback.open({app:'test.exact.snapback4',name:'durable-upload',origin,viewer:'dev:alice',
+    headers:()=>({'x-snapback-persona':'alice'}),wasm:`file://${wasm}`, storage:{...storage(dir),fs:{
+      async readFile(path:string) { const bytes=files.get(path); if(!bytes) throw new Error('removed picked file'); return bytes; },
+      async writeFile(path:string,bytes:Uint8Array) { files.set(path,bytes); },
+    }}});
+  let db=await openUpload(), asset='', uploads=0, placements=0;
+  try {
+    expect(await db.sync()).toEqual({ok:true});
+    globalThis.fetch=(async (url,init)=>{
+      if(String(url).startsWith(origin)) throw new Error('offline');
+      return realFetch(url,init);
+    }) as typeof fetch;
+    const admitted=await db.uploadAndPlace(selected,{},path,Date.now(),{argument:'photo',id:'durable-photo'});
+    expect(admitted.state).toBe('pending');
+    expect(await db.uploads()).toMatchObject([{id:admitted.id,state:'queued'}]);
+    files.delete(path); // Durable custody must no longer depend on the picker path.
+    expect((await db.sync()).offline).toBe(true);
+    await db.close();
+    globalThis.fetch=realFetch;
+    db=await openUpload();
+    let dropUpload=true, dropPlacement=true;
+    globalThis.fetch=(async (url,init)=>{
+      const response=await realFetch(url,init);
+      if(String(url).startsWith(origin+'/assets?intent=')) {
+        uploads++; asset=(await response.clone().json()).asset.id;
+        if(dropUpload) {dropUpload=false; throw new Error('upload reply lost after commit');}
+      }
+      if(String(url)===origin+'/m/addPhoto') {
+        placements++;
+        if(dropPlacement) {dropPlacement=false; throw new Error('placement reply lost after commit');}
+      }
+      return response;
+    }) as typeof fetch;
+    expect((await db.sync()).offline).toBe(true);
+    expect((await db.uploads())[0]).toMatchObject({state:'uploading'});
+    await db.close(); db=await openUpload();
+    expect((await db.sync()).offline).toBe(true); // Same upload id, then a lost placement response.
+    expect((await db.uploads())[0]).toMatchObject({state:'placing'});
+    await db.close(); db=await openUpload();
+    expect(await db.sync()).toEqual({ok:true});
+    expect((await db.outcome(admitted.id)).state).toBe('sent');
+    expect(await db.uploads()).toEqual([]);
+    expect(uploads).toBe(2);
+    expect(placements).toBeLessThanOrEqual(2);
+    const shown=await db.download(asset);
+    expect(shown.ok).toBe(true);
+    if(shown.ok) expect(files.get(shown.path)).toEqual(png);
+    files.set(path,png);
+    expect((await db.uploadAndPlace(selected,{},path,Date.now(),{argument:'photo',id:'durable-photo'})).state).toBe('sent');
+    // Retained terminal ownership prevents different input reusing this key.
+    files.set(path,Uint8Array.of(1,2,3));
+    await expect(db.uploadAndPlace(selected,{},path,Date.now(),{argument:'photo',id:'durable-photo'})).rejects.toThrow(/E_WRITE_ID_REUSE/);
+    expect(uploads).toBe(2);
+  } finally {globalThis.fetch=realFetch;await db.close();}
+},60_000);
+
+test('a pre-program placing refusal finishes its server pin before local custody retires',async()=>{
+  const png=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='),c=>c.charCodeAt(0));
+  const realFetch=globalThis.fetch,dir=join(scratch,'upload-finish');
+  const openUpload=()=>Snapback.open({app:'test.exact.snapback4',name:'finish',origin,viewer:'dev:alice',
+    headers:()=>({'x-snapback-persona':'alice'}),wasm:`file://${wasm}`,storage:{...storage(dir),fs:{async readFile(){return png;},async writeFile(){}}}});
+  let db=await openUpload(),finish=0,drop=true;
+  try {
+    expect(await db.sync()).toEqual({ok:true});
+    const intent=await db.uploadAndPlace({kind:'mutation',name:'addPhoto'} as MutationOp<{photo:{id:string}},null>,{},'app:/tmp/picked/photo.png',Date.now(),{argument:'photo'});
+    globalThis.fetch=(async(url,init)=>{
+      if(String(url)===origin+'/m/addPhoto') return Response.json({denied:{code:'E_INPUT',family:'input',message:'placing arguments refused',retryable:false}},{status:400});
+      const response=await realFetch(url,init);
+      if(String(url).includes('/finish?')) {finish++;if(drop){drop=false;throw new Error('finish reply lost after commit');}}
+      return response;
+    }) as typeof fetch;
+    expect((await db.sync()).offline).toBe(true);
+    expect((await db.uploads())[0]).toMatchObject({id:intent.id,state:'placing'});
+    await db.close();db=await openUpload();
+    expect(await db.sync()).toEqual({ok:true});
+    expect(await db.outcome(intent.id)).toMatchObject({state:'failed',why:{code:'E_INPUT'}});
+    expect(await db.uploads()).toEqual([]);
+    expect(finish).toBe(2);
+    const status=await(await realFetch(origin+'/dev/status')).json() as {storeId:string};
+    const inventory=await(await realFetch(origin+'/assets/intents?store_id='+encodeURIComponent(status.storeId),{headers:{'x-snapback-persona':'alice'}})).json() as {intents:unknown[]};
+    expect(inventory.intents).toEqual([]);
+  } finally {globalThis.fetch=realFetch;await db.close();}
+},60_000);
+
+test('blocked uploads do not starve ordinary writes and cancellation survives a lost acknowledgement',async()=>{
+  const realFetch=globalThis.fetch,dir=join(scratch,'upload-cancel');
+  const openUpload=()=>Snapback.open({app:'test.exact.snapback4',name:'cancel',origin,viewer:'dev:alice',
+    headers:()=>({'x-snapback-persona':'alice'}),wasm:`file://${wasm}`,storage:{...storage(dir),fs:{async readFile(){return Uint8Array.of(1,2,3);},async writeFile(){}}}});
+  let db=await openUpload(),cancels=0,drop=true;
+  try {
+    expect(await db.sync()).toEqual({ok:true});
+    const intent=await db.uploadAndPlace({kind:'mutation',name:'addPhoto'} as MutationOp<{photo:{id:string}},null>,{},'app:/tmp/bad.png',Date.now(),{argument:'photo'});
+    expect((await db.sync()).denied?.code).toBe('E_ASSET_TYPE');
+    const ordinary=await db.write('send',{body:'independent of bad image'},Date.now());
+    expect((await db.sync()).denied?.code).toBe('E_ASSET_TYPE');
+    expect((await db.outcome(ordinary.id)).state).toBe('sent');
+    expect((await db.uploads())[0]).toMatchObject({id:intent.id,state:'blocked'});
+    await db.discardUpload(intent.id);
+    globalThis.fetch=(async(url,init)=>{
+      const response=await realFetch(url,init);
+      if(String(url).includes('/cancel?')) {cancels++;if(drop){drop=false;throw new Error('cancel reply lost after commit');}}
+      return response;
+    }) as typeof fetch;
+    expect((await db.sync()).offline).toBe(true);
+    expect((await db.uploads())[0]).toMatchObject({id:intent.id,state:'cancelling'});
+    await db.close();db=await openUpload();
+    expect(await db.sync()).toEqual({ok:true});
+    expect(await db.outcome(intent.id)).toMatchObject({state:'failed',why:{code:'E_UPLOAD_CANCELLED'}});
+    expect(await db.uploads()).toEqual([]);expect(cancels).toBe(2);
+  } finally {globalThis.fetch=realFetch;await db.close();}
+},60_000);

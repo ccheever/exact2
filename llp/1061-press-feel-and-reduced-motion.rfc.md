@@ -13,6 +13,11 @@
 - The press is kept under reduced motion. A native button's highlight isn't skipped under Reduce Motion, and a shrink under the finger is feedback, not motion.
 
 
+**Ruled (Charlie, 2026-10-17, on a review panel of Astra, Grok and Fable, all for it):**
+an author's own pressed look is admitted as host-owned paint rows in the press family,
+not as an `:active` selector: `-exact-press-opacity`, `-exact-press-background-color` and
+`-exact-press-color`. D7 records it.
+
 > **Spelling (2026-10-06):** `press-scale` is spelled `-exact-press-scale` since [LLP 1081](1081-names-exact-invents.rfc.md). This document keeps the spelling it was written with, as the record.
 
 ## Summary
@@ -57,6 +62,10 @@ presses: one with a `press` handler. *Rejected:* an `active` pseudo-state
 block in `style` (a selector system for one property); a `transition` on the
 existing `scale` row driven by a runner state (a round trip per touch-down,
 and it would fight any authored `scale`).
+
+> **Amended by LLP 1115 (2026-10-10).** The row's default is still no scale, but a custom
+> pressable that declares no press feedback dims while held on iOS, as a hand-built UIKit
+> control does. LLP 1115.000 D6 proposes the platform's response on the Mac and the web too.
 
 **D2 — On Apple the host owns the press, folded into the engine's transform.**
 `NodeView.pressed` (already the tap's own state) drives a `PressFeedback`: a
@@ -194,6 +203,81 @@ moves it per frame, and no app asked. The runner reads a string ending in
 bake, TypeScript and receipt handling for two booleans); an engine-level
 reduced-motion switch (`DEFERRED`).
 
+**D7 — The author's pressed paint is three more rows in the press family**
+(ruled 2026-10-17). `-exact-press-opacity` (bit 212, `f32`, default 1: a share
+of the node's own opacity, 0 to 1), `-exact-press-background-color` (bit 213)
+and `-exact-press-color` (bit 214), colours as any colour row takes them
+(tokens, roles, `light-dark()`); none inherited, none a keyframe or
+`transition` target. A hand-built UIKit control writes its highlighted look
+(`setTitleColor(_:for: .highlighted)`, a cell's `selectedBackgroundView`), and a
+React Native port writes `pressed && styles.dim`; until now the only way to
+say either was a `pressed` state set from `pointerdown` and `pointerup`, a
+runner round trip per touch that also replaced the platform's press with
+nothing until it answered.
+
+- **No selector.** CSS says this as an `:active` rule. Contract has no
+  selectors, and `:active` matches every pressed ancestor too, where the press
+  is the innermost pressable's (D3, UIKit's rule).
+- **The press state the host already tracks.** The same bit that drives
+  `-exact-press-scale` and the platform's dim: inside the unpressed box, let
+  go on sliding off, a cancel or a pan, again on sliding back; the scale's
+  ease (D2) in and back, held for a quick tap until it has eased in, and at
+  once under the agent's clock, so a screenshot between `tap X down` and
+  `tap up` is deterministic. It composes with the scale.
+- **Paint only.** The opacity is a share of whatever the node's own is; the
+  background stands in for the node's own; the colour reaches the subtree as
+  CSS's `color` does (a descendant with a colour of its own keeps it). Any
+  other `-exact-press-` name is refused, naming these (`lower-unknown-attr`),
+  as is an opacity outside 0 to 1 (`lower-attr-value`) and any of them on a
+  native button, which draws its own (`lower-button-style-attr`). A press that
+  changes layout is app state.
+- **Author over platform.** Any of the three, 1 included, replaces the
+  platform's unsaid press as `-exact-press-scale` does (LLP 1115.000 D6): no
+  dim on iOS or the web, no AppKit darkening, no cell highlight on a list's
+  row (D16). Unsaid, the press stays the platform's.
+
+Hosts: **Apple** (`PressPaint.swift`) adds an additive Core Animation on
+`opacity`, as the dim is, and stands the colours in the views' styles for
+the keys they replace, keeping the engine's values for the release
+(`pressPainted`: an engine style mid-press passes through it, and what the
+press shows is read again from it: a new press colour reaches the views it
+coloured and new ones holding the node's colour, a view that comes to write
+its own takes back what is below it, and the dim follows the press opacity
+and the node's presented opacity); the change cross-fades (`CATransition`, the scale's curve). The
+colour goes to the descendants that write none of their own and hold the
+pressed node's. A release takes back what the press showed even when the
+style dropped the look while held; the Mac's window resigning key ends a
+press, as AppKit then delivers its up to no view. A cleared row crosses as
+no row. **Gap:** a row of a native Mac list (`NSTableView`, LLP 1115.000
+D16) shows the table's own selection on a press, not the row's pressed
+paint: the table tracks the row's click (its selection, first responder,
+double-click), and driving the row's press from that tracking is owed
+(`QUEUE.md`).
+**Web**, both targets: custom properties on the element's own style, which
+the input glue shows by D3's rule, released also when the window, the tab
+or the page goes and when a move says the button is up, a key's press too.
+The shell's important rules paint them while the glue marks the press, from
+the properties read live and from what the glue animates: the press's
+progress and the node's look beneath, which the glue reads with the paint
+off whenever the press turns, the node's style or class changes or the
+scheme flips, so the release eases back to the node's look as it is then.
+The node's transitions are left alone, and a transition is above every
+declaration in the cascade: one the node has running on a painted property
+at the press shows above the paint until it ends, and one it has on a
+painted property times the paint's move to a look that changed while held
+(a re-read is a style change like any other). A property cleared while held stops
+showing, and the shell's dim, when it then applies, is the press alone; the
+cell row's wash yields to them. **Linux** (and Android and Windows,
+which paint through its presenter): a press eases one progress, from which
+the presenter shows the scale and the paint, the colours mixed as CSS
+interpolates them; under the agent's clock a contact's press lands at
+once. A paragraph's inline runs on Apple keep the colour their
+own rows carry; elsewhere they take the press colour as `color` reaches them.
+The rows are not in Lean's semantics, which evaluate no presentation
+attribute (`semantics/README.md`).
+*Rejected:* an `:active` or pressed block in `style` (a selector system for
+one state); a runner-held `pressed` slot (the round trip this replaces).
+
 ## What an app does with it
 
 Every duration an app authors can collapse on one derive:
@@ -249,6 +333,26 @@ reduced-motion app writes the condition where the motion is.
   simulator (whose screenshot is dark), and the web's press then showed
   nothing; a quick tap on a card in the simulator's scroll view still opens
   it.
+
+- 2026-10-17 (D7): `motion_feel.rs` (the rows from literals and an
+  expression, the refusals) and two reject fixtures; `css.rs` (the
+  properties), `host/web/tests/press.test.mjs` in headless Chrome (the
+  innermost press only, part way at 20 ms, the subtree's colour and a text
+  keeping its own, off and back, composing with the scale, no dim under a
+  colour alone, a cell row's wash replaced, at once under the agent's
+  clock), conformance `press-paint` (the wasm and JS targets equal at each
+  held step); `PressPaintTests` on an iOS 27.0 simulator and macOS; Linux
+  `press_paint_tests.rs` (the ground half-blue over white at 120 ms, red text
+  where the colour is inherited, none where written). Driven on a copy of
+  euxy on an iPhone 17 simulator under `--touch platform`, with a read
+  inside the touch (`tap X drag 0 0 hold 400 during "clock +250 real"
+  "screenshot …"`; a read before `tap up` sees no press there, and UIKit
+  delivers the touch about 160 ms after it begins): its Patterns row with
+  `-exact-press-opacity=0.6` in place of its `pointerdown`/`pointerup` state
+  showed at 0.6 while held, over the swipe container's red ground, so the
+  faithful port of that row's pressed `background-color` is
+  `-exact-press-background-color` on the button, which showed its
+  `eu.surface2`; the tempo button's 0.65 showed its text at 0.65.
 
 ## Known gaps
 

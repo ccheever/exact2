@@ -1,0 +1,15 @@
+// Inline client rectangles: an empty run, a small run in a tall line, a wrapped run
+// (InlineFrameMacTests, InlineFrameIOSTests). Compiled by build.mjs --test.
+component App
+  view
+    column padding=24 gap=12
+      text width=260 font-size=16 font-family="Arial" line-height="20px" testId="empty-paragraph"
+        text "Hi" testId="before"
+        text "" id="empty" testId="empty"
+        text " there"
+      text width=260 font-size=16 font-family="Arial" line-height="60px" testId="mixed-paragraph"
+        text "link" font-size=12 id="small" testId="small"
+        text "BIG" font-size=48
+      text width=40 font-size=16 font-family="Arial" line-height="20px" testId="wrap-paragraph"
+        text "Hi"
+        text " there" id="wrap" testId="wrap"

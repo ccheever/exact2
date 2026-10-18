@@ -115,6 +115,344 @@ fn a_computed_part_composes_one_animation() {
 }
 
 #[test]
+fn attribute_lengths_refuse_deferred_units_and_functions() {
+    let attrs = [
+        ("line", "x1"),
+        ("line", "y1"),
+        ("line", "x2"),
+        ("line", "y2"),
+        ("linearGradient", "x1"),
+        ("linearGradient", "y1"),
+        ("linearGradient", "x2"),
+        ("linearGradient", "y2"),
+        ("radialGradient", "fx"),
+        ("radialGradient", "fy"),
+        ("radialGradient", "fr"),
+        ("marker", "markerWidth"),
+        ("marker", "markerHeight"),
+        ("marker", "refX"),
+        ("marker", "refY"),
+        ("text", "x"),
+        ("text", "y"),
+        ("text", "dx"),
+        ("text", "dy"),
+        ("tspan", "x"),
+        ("tspan", "y"),
+        ("tspan", "dx"),
+        ("tspan", "dy"),
+    ];
+    let source = |tag: &str, attr: &str, value: &str| {
+        let child = format!("{tag} {attr}={value}");
+        let child = if tag == "tspan" {
+            format!("text\n        {child}")
+        } else {
+            child
+        };
+        format!("component A\n  state n = 2\n  state on = true\n  view\n    svg\n      {child}\n")
+    };
+    for (tag, attr) in attrs {
+        for unit in [
+            "em", "rem", "ex", "ch", "vw", "vh", "vi", "vb", "vmin", "vmax", "svw", "svh", "svmin",
+            "svmax", "lvw", "lvh", "lvmin", "lvmax", "dvw", "dvh", "dvmin", "dvmax", "lh", "rlh",
+            "q", "REM",
+        ] {
+            let value = if matches!(tag, "text" | "tspan") {
+                format!("\"10px, 20% 2{unit}\"")
+            } else {
+                format!("\"2{unit}\"")
+            };
+            let error = refused(&source(tag, attr, &value));
+            for expected in [
+                "lower-svg-length",
+                "refused (LLP 1055.000 D4)",
+                unit,
+                attr,
+                "px",
+                "%",
+            ] {
+                assert!(
+                    error.contains(expected),
+                    "{tag} {attr}: missing {expected}: {error}"
+                );
+            }
+        }
+        for (value, name) in [
+            ("\"calc(10px + 2%)\"", "calc()"),
+            ("\"env(safe-area-inset-top)\"", "env()"),
+            ("\"var(--position)\"", "var()"),
+            ("`${n}em`", "em"),
+            ("`10px, ${n}vh`", "vh"),
+            ("`calc(${n}px + 1px)`", "calc()"),
+            ("(on ? \"2rem\" : \"1px\")", "rem"),
+        ] {
+            let error = refused(&source(tag, attr, value));
+            assert!(
+                error.contains("lower-svg-length") && error.contains(name),
+                "{error}"
+            );
+        }
+        for value in [
+            "2",
+            "\"2\"",
+            "\"2px\"",
+            "\"2in\"",
+            "\"2cm\"",
+            "\"2mm\"",
+            "\"2pt\"",
+            "\"2pc\"",
+            "\"20%\"",
+            "\"1e2PX\"",
+            "\"-1E-2pt\"",
+            "n",
+            "`${n}px`",
+            "`${n}%`",
+        ] {
+            let src = source(tag, attr, value);
+            contract::compile(&src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        }
+        if matches!(tag, "text" | "tspan") {
+            contract::compile(&source(tag, attr, "\"1px, -2.5% 3e2mm\"")).unwrap();
+        }
+    }
+    let src = "component A\n  view\n    svg\n      rect x=\"2em\" y=\"3vh\" width=\"calc(10px + 2%)\"\n      marker orient=\"auto-start-reverse\"\n      linearGradient\n        stop offset=\"2em\"\n      filter\n        feOffset dx=\"2em\" dy=\"calc(1px + 2%)\"\n";
+    contract::compile(src).unwrap();
+}
+
+#[test]
+fn attribute_lengths_keep_split_tokens() {
+    let mut failures = Vec::new();
+    for (value, expected) in [
+        ("`1e${n}px`", "1e2px"),
+        ("`2e${n}`", "2e2"),
+        ("`2E${n}`", "2E2"),
+        ("`${n}e${n}px`", "2e2px"),
+        ("`${n}p${suffix}`", "2px"),
+        ("`${n}p${on ? \"x\" : \"x\"}`", "2px"),
+        ("`${on ? \"2p\" : \"3p\"}x`", "2px"),
+        ("`2p${\"x\"}`", "2px"),
+        ("`${\"2p\"}x`", "2px"),
+        ("`2p${suffix}`", "2px"),
+        ("`${prefix}x`", "2px"),
+        ("(\"2p\" + \"x\")", "2px"),
+        ("(\"2\" + \"p\" + \"x\")", "2px"),
+    ] {
+        let src = format!("component A\n  state on = true\n  state n = 2\n  state prefix = \"2p\"\n  state suffix = \"x\"\n  view\n    svg\n      line testId=\"line\" x1={value}\n");
+        if let Err(e) = contract::compile(&src) {
+            failures.push(format!("{value}: {e}"));
+            continue;
+        }
+        let r = boot(&src);
+        let k = r.kernel();
+        let line = k.node_by_key(k.find_by_test_id("line")[0]).unwrap();
+        assert_eq!(line.props.str(PropId::X1), Some(expected));
+        assert!(exact_kernel::svg::Length::parse(expected).is_some());
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn attribute_lengths_check_match_arms() {
+    for value in [
+        "match choice { case some(v) => \"2em\", case none => \"0\" }",
+        "match choice { case some(v) => \"0\", case none => \"2ex\" }",
+    ] {
+        let src = format!("component A\n  state choice: option<number> = some(1)\n  view\n    svg\n      line x1=({value})\n");
+        assert!(refused(&src).contains("lower-svg-length"));
+    }
+}
+
+#[test]
+fn attribute_lengths_check_shared_derive_bodies() {
+    let src = "component A\n  state suffix = \"px\"\n  view\n    svg\n      Child(suffix=suffix)\ncomponent Child\n  props\n    suffix: string\n  derive unit = suffix\n  derive twice = (unit == unit ? \"2em\" : \"1px\")\n  view\n    line x1=twice\n";
+    assert!(refused(src).contains("lower-svg-length"));
+}
+
+#[test]
+fn attribute_lengths_check_concatenated_literals() {
+    let mut failures = Vec::new();
+    for value in [
+        "(\"2\" + \"em\")",
+        "(\"2e\" + \"m\")",
+        "(\"2\" + \"e\" + \"x\")",
+        "(\"cal\" + \"c(1px)\")",
+        "`2e${\"m\"}`",
+        "`${\"2e\"}x`",
+    ] {
+        let src = format!("component A\n  view\n    svg\n      line x1={value}\n");
+        match contract::compile(&src) {
+            Ok(_) => failures.push(format!("compiled: {value}")),
+            Err(e) => assert!(e.to_string().contains("lower-svg-length"), "{value}: {e}"),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn attribute_lengths_preserve_marker_keywords() {
+    let mut failures = Vec::new();
+    for (attr, words) in [
+        ("refX", ["left", "center", "right"]),
+        ("refY", ["top", "center", "bottom"]),
+    ] {
+        for word in words {
+            for value in [
+                format!("\"{word}\""),
+                format!("(\"\" + (on ? \"{word}\" : \"{word}\"))"),
+                format!("`${{on ? \"{word}\" : \"{word}\"}}`"),
+            ] {
+                let src = format!("component A\n  state on = true\n  view\n    svg\n      marker {attr}={value}\n");
+                if let Err(e) = contract::compile(&src) {
+                    failures.push(format!("{attr}={value}: {e}"));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn attribute_lengths_check_choices_with_literal_neighbors() {
+    let mut failures = Vec::new();
+    for (tag, attr, value, unit) in [
+        ("line", "x1", "`${on ? \"2e\" : \"2c\"}m`", "em"),
+        ("line", "x1", "`${on ? \"2em\" : \"1px\"} `", "em"),
+        ("line", "x1", "((on ? \"2em\" : \"1px\") + \" \")", "em"),
+        ("text", "x", "`${on ? \"2em\" : \"1px\"} 10px`", "em"),
+        ("text", "x", "`${on ? \"1px\" : \"2em\"},10px`", "em"),
+        (
+            "line",
+            "x1",
+            "`${match choice { case some(v) => \"2e\", case none => \"2c\" }}m`",
+            "em",
+        ),
+        ("line", "x1", "`2em${n}`", "em"),
+        ("line", "x1", "`2em${n}px`", "em"),
+        ("line", "x1", "`${on ? \"cal\" : \"cal\"}c(1px)`", "calc()"),
+    ] {
+        let src = format!("component A\n  state on = true\n  state n = \"\"\n  state choice: option<number> = some(1)\n  view\n    svg\n      {tag} {attr}={value}\n");
+        match contract::compile(&src) {
+            Ok(_) => failures.push(format!("compiled: {value}")),
+            Err(e) if e.id == "lower-svg-length" && e.message.contains(&format!("`{unit}`")) => {}
+            Err(e) => failures.push(format!("{value}: {e}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn attribute_lengths_keep_marker_keywords_with_empty_neighbors() {
+    let mut failures = Vec::new();
+    for (attr, a, b) in [("refX", "left", "right"), ("refY", "top", "bottom")] {
+        for value in [
+            format!("(on ? \"{a} \" : \"{b} \")"),
+            format!("((on ? \"{a} \" : \"{b} \") + \"\")"),
+            format!("(\"\" + (on ? \" {a}\" : \" {b}\"))"),
+            format!("`${{on ? \"{a}\" : \"{b}\"}} `"),
+        ] {
+            let src = format!(
+                "component A\n  state on = true\n  view\n    svg\n      marker {attr}={value}\n"
+            );
+            if let Err(e) = contract::compile(&src) {
+                failures.push(format!("{attr}={value}: {e}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn attribute_lengths_check_shared_derive_values() {
+    let src = "component A\n  view\n    svg\n      Child()\ncomponent Child\n  derive len = \"2em\"\n  derive pick = (len == len ? len : \"0\")\n  view\n    line x1=pick\n";
+    assert!(refused(src).contains("lower-svg-length"));
+}
+
+#[test]
+fn attribute_lengths_keep_shared_derive_context() {
+    for (len, pick, value) in [
+        ("2p", "(len == len ? len : \"3p\")", "`${pick}x`"),
+        ("em", "(len == len ? \"2px\" : \"1px\")", "pick"),
+    ] {
+        let src = format!("component A\n  view\n    svg\n      Child()\ncomponent Child\n  derive len = \"{len}\"\n  derive pick = {pick}\n  view\n    line testId=\"line\" x1={value}\n");
+        let r = boot(&src);
+        let k = r.kernel();
+        let line = k.node_by_key(k.find_by_test_id("line")[0]).unwrap();
+        assert_eq!(line.props.str(PropId::X1), Some("2px"));
+    }
+}
+
+#[test]
+fn attribute_lengths_bound_shared_derive_work() {
+    let mut failures = Vec::new();
+    for choices in [true, false] {
+        let mut source = String::from("component A\n  state on = true\n  view\n    svg\n      Child(on=on)\ncomponent Child\n  props\n    on: bool\n");
+        source.push_str(if choices {
+            "  derive d0 = \"1px\"\n"
+        } else {
+            "  derive d0 = \"\"\n"
+        });
+        for i in 1..=30 {
+            let prev = i - 1;
+            let value = if choices {
+                format!("(on ? d{prev} : d{prev})")
+            } else {
+                format!("(d{prev} + d{prev})")
+            };
+            source.push_str(&format!("  derive d{i} = {value}\n"));
+        }
+        source.push_str("  view\n    line x1=d30\n");
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = contract::compile(&source)
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+            let _ = send.send(result);
+        });
+        match receive.recv_timeout(std::time::Duration::from_secs(2)) {
+            Ok(Ok(())) => {}
+            result => failures.push(format!("choices={choices}: {result:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn attribute_lengths_keep_marker_keywords_with_unknown_padding() {
+    let mut failures = Vec::new();
+    for (attr, a, b) in [("refX", "left", "right"), ("refY", "top", "bottom")] {
+        for value in [
+            format!("`${{on ? \"{a}\" : \"{b}\"}} ${{padding}}`"),
+            format!("`${{padding}} ${{on ? \"{a}\" : \"{b}\"}}`"),
+            format!("`${{padding}} ${{on ? \"{a}\" : \"{b}\"}} ${{padding}}`"),
+        ] {
+            let src = format!("component A\n  state on = true\n  state padding = \"\"\n  view\n    svg\n      marker {attr}={value}\n");
+            if let Err(e) = contract::compile(&src) {
+                failures.push(format!("{attr}={value}: {e}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn attribute_lengths_refuse_finished_bare_exponents() {
+    let mut failures = Vec::new();
+    for unit in ["e", "E"] {
+        assert!(exact_kernel::svg::Length::parse(&format!("2{unit}")).is_none());
+        for child in [
+            format!("line x1=\"2{unit}\""),
+            format!("text x=\"2{unit}, 4px\""),
+        ] {
+            let src = format!("component A\n  view\n    svg\n      {child}\n");
+            match contract::compile(&src) {
+                Ok(_) => failures.push(format!("compiled: {child}")),
+                Err(e) => assert!(e.id == "lower-svg-length", "{child}: {e}"),
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn refusals_are_named() {
     let svg = |body: &str| {
         format!("component A\n  state n = 0\n  action go\n    n = 1\n  view\n    svg width=10 height=10\n      {body}\n")
@@ -431,4 +769,130 @@ fn d_transitions_and_all_covers_it() {
         "keyframes morph\n  from d=\"M0 0 L5 5\"\n  to d=\"M0 0 L9 9\"\ncomponent A\n  view\n    svg width=10 height=10\n      path d=\"M0 0 L5 5\" animation=\"morph 1s\"\n"
     )
     .contains("lower-"));
+}
+
+#[test]
+fn box_transforms_are_refused_inline_and_through_classes() {
+    let mut failures = Vec::new();
+    for element in [
+        "view",
+        "box",
+        "column",
+        "row",
+        "text",
+        "image",
+        "input",
+        "textarea",
+        "button aria-label=\"Move\"",
+        "paint-surface",
+    ] {
+        for attr in [
+            "transform=\"scale(0.8)\"",
+            "transform=\"translate(0px, 25px)\"",
+            "transform=matrix",
+            "transform=(small ? \"scale(0.8)\" : \"none\")",
+            "transform=\"none\"",
+            "class=Scaled",
+            "class=Shifted",
+            "class=(small ? Scaled : Shifted)",
+            "class=(small ? Scaled : Empty)",
+        ] {
+            let src = format!(
+                r#"style Scaled
+  transform="scale(0.8)"
+style Shifted
+  transform="translate(0px, 25px)"
+style Empty
+  opacity=1
+component App
+  state matrix = "scale(0.8)"
+  state small = true
+  view
+    {element} {attr}
+"#
+            );
+            match contract::compile(&src) {
+                Ok(_) => failures.push(format!("compiled: {element} {attr}")),
+                Err(e) => {
+                    for expected in [
+                        "lower-attr-tag",
+                        "`transform`",
+                        "deferred",
+                        "LLP 1055.000 D5",
+                        "`translate`",
+                        "`rotate`",
+                        "`scale`",
+                        "translate=\"0px 25px\"",
+                        "scale=0.8",
+                    ] {
+                        if !e.to_string().contains(expected) {
+                            failures.push(format!("{element} {attr}: missing {expected}: {e}"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let html_in_svg = r#"component App
+  view
+    svg
+      foreignObject width=100 height=100
+        text "HTML text" transform="scale(0.8)"
+"#;
+    match contract::compile(html_in_svg) {
+        Ok(_) => failures.push("compiled a box inside foreignObject".into()),
+        Err(e) if e.id == "lower-attr-tag" && e.message.contains("deferred") => {}
+        Err(e) => failures.push(e.to_string()),
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn svg_transforms_keep_static_dynamic_and_class_rows() {
+    let mut r = boot(
+        r#"style Shifted
+  transform="translate(0px, 25px)"
+style Scaled
+  transform="scale(0.8)"
+component App
+  state matrix = "scale(0.8)"
+  state small = true
+  action change
+    matrix = "translate(0px, 25px)"
+    small = false
+  view
+    svg testId="root" transform="scale(0.8)"
+      svg testId="nested" class=Shifted
+      g testId="group" class=(small ? Scaled : Shifted)
+        rect testId="shape" transform=matrix width=10 height=10
+        text testId="text" transform="translate(0px, 25px)"
+          tspan "SVG text" testId="span" transform=matrix
+      foreignObject testId="foreign" transform="scale(0.8)" width=10 height=10
+        text "HTML text"
+"#,
+    );
+    let matrix = |r: &Runner<NoData>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .style
+            .transform
+            .matrix()
+    };
+    let scaled = [0.8, 0.0, 0.0, 0.8, 0.0, 0.0];
+    let shifted = [1.0, 0.0, 0.0, 1.0, 0.0, 25.0];
+    for id in ["root", "group", "shape", "span", "foreign"] {
+        assert_eq!(matrix(&r, id), scaled, "{id}");
+    }
+    for id in ["nested", "text"] {
+        assert_eq!(matrix(&r, id), shifted, "{id}");
+    }
+    r.act("change", vec![]).unwrap();
+    for id in ["group", "shape", "span"] {
+        assert_eq!(matrix(&r, id), shifted, "{id}");
+    }
+    contract::compile(
+        "component App\n  view\n    box translate=\"0px 25px\" rotate=15 scale=0.8\n",
+    )
+    .unwrap();
 }

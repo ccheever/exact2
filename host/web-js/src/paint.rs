@@ -166,6 +166,7 @@ pub fn needed(plan: &Plan, parts: &[Option<exact_web::host::template::Parts>]) -
 
 /// The attribute and its value expression, with `v` the binding's value.
 /// The tests are own_from's value tests, in the row's authored vocabulary.
+#[allow(clippy::field_reassign_with_default)]
 pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, String)> {
     let bits = |value: String| Some((format!("data-exact-f-{}-{}", b.kind as u8, b.id), value));
     let flag = |bit: u32, test: &str| bits(format!("({test})?{bit}:0"));
@@ -176,7 +177,7 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
                 "(String(v??\"bordered\").endsWith(\"glass\")?{GLASS}:0)|(![\"bordered\",\"gray\"].includes(String(v??\"bordered\"))?{DIM}:0)")),
             PropId::Disabled if kind == NodeType::Control => flag(DISABLED, "v===true"),
             PropId::ImageSource if kind == NodeType::Image => flag(POLICY, "v!=null&&String(v).startsWith(\"symbol:\")"),
-            PropId::BackgroundMaterial => flag(POLICY, "v!=null"),
+            PropId::BackgroundMaterial => flag(POLICY, "v!=null&&v!==\"none\""),
             PropId::NavigationPresentation => flag(POLICY, "v===\"modal\""),
             PropId::SemanticTag => flag(OUTSIDE, "v===\"dialog\""),
             PropId::Popover => flag(OUTSIDE, "v!=null"),
@@ -201,7 +202,9 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
                 .chain(["all", "border-color"])
                 .filter_map(|name| {
                     let transition = exact_motion::Transitions::parse(name).ok()?;
-                    let mut style = StyleProps { transition, ..Default::default() };
+                    // This row is behind DerefMut; it cannot be a StyleProps initializer.
+                    let mut style = StyleProps::default();
+                    style.transition = transition;
                     style.mask.set(StyleId::Transition);
                     Some((name, own(&style).policy))
                 })
@@ -242,7 +245,28 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
                 ),
             );
         }
-        StyleId::Opacity => "v!=null&&Number(v)<1",
+        // A number token's name (LLP 1121 D7) stands for its value: one that
+        // varies may be below 1; a name no token has is unset, 1.
+        StyleId::Opacity => {
+            let tokens: Vec<String> = plan
+                .theme
+                .iter()
+                .filter(|r| r.kind == 2)
+                .map(|r| {
+                    let value = if r.slices.len > 0 { "0" } else { plan.str(r.value).trim() };
+                    format!("{}:{value}", serde_json::to_string(plan.str(r.name)).unwrap())
+                })
+                .collect();
+            let test = if tokens.is_empty() {
+                "v!=null&&Number(v)<1".to_string()
+            } else {
+                format!(
+                    "v!=null&&(typeof v===\"string\"&&isNaN(v)?({{{}}}[v.trim()]??1)<1:Number(v)<1)",
+                    tokens.join(",")
+                )
+            };
+            return flag(STACK, &test);
+        }
         StyleId::PressScale => "v!=null&&Number(v)!==1",
         StyleId::Perspective => "v!=null&&parseFloat(v)>0",
         StyleId::Translate

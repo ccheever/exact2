@@ -14,14 +14,18 @@ extension Presenter {
     /// The frontmost shown `aria-modal` view, the most recently made of
     /// those shown: while one is up only shortcuts inside it are heard.
     var shortcutModal: NodeView? {
-        chrome.ids("accessibilityModal").sorted().compactMap { views[$0] }
+        #if os(iOS) || os(tvOS)
+        // A dialog in its sheet is modal with nothing written (LLP 1115.000 D11.5).
+        if let dialog = menus.sheets.topDialog { return dialog }
+        #endif
+        return chrome.ids("accessibilityModal").sorted().compactMap { views[$0] }
             .last { $0.props["accessibilityModal"] == "true" && $0.accessibilityVisible }
     }
 
     /// Whether `node`'s shortcut may take `key` (the web's name) with the
     /// modifiers `held` (`KeyCodes.held`), the focus being `focus`.
     func shortcutAdmits(_ node: NodeView, key: String, held: String, focus: NodeView?) -> Bool {
-        if let modal = shortcutModal, node !== modal, !node.isDescendant(of: modal) { return false }
+        if let modal = shortcutModal, !logicallyWithin(node, modal) { return false }
         if held.isEmpty, key == "Enter" || key == " " || key == "Space", let focus, focus !== node,
            focus.isButton || focus.handlers.contains("press") { return false }
         return true

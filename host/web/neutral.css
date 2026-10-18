@@ -1,0 +1,292 @@
+  /* The neutral look (LLP 1115.000 D4 part B): what the web draws where the author says nothing, the same in every
+     browser and on every operating system. A web build takes this sheet after the shell's browser resets
+     (host/web/look.mjs). The browser keeps its system font, the reader's text size and the focus ring.
+     Like the shell's, every rule is `:where()` or sits under one #exact-root, so the author's rows win.
+
+     The rules the look follows:
+     - Colour is the role table's neutral column (kernel/tables/schema.json): greys with no hue, text that reads at
+       4.5:1 on every ground. A line that marks a control's edge reads at 3:1 (`--exact-line`); a line that only
+       divides is `-exact-separator`. The accent is the browser's own hue at a lightness that reads as text on the
+       page (an author's `accent-color` is drawn as written); ink on the accent is white or black, whichever reads.
+     - Shape: 8 px corners on a control, 12 px on a surface that floats or groups, 4 px on a mark.
+     - Size: a control is 36 px tall at the body size under a fine pointer and 44 px under a coarse one; a
+       checkbox, a radio and a switch are the line's height (20 px), 24 px under a coarse pointer.
+     - Elevation has three steps: a bar or a card is flat, with a 1 px line; a menu or popover is raised, a line and
+       a short shadow; a dialog or a sheet's card is modal, a line and a long shadow over a 40% scrim.
+     - Emphasis is a fill, never a weight: filled, tinted, gray, bordered (the unsaid button, an outline), plain.
+     - A state adds one thing: hover a wash of the control's ink (`-exact-quaternary-fill`, where a pointer hovers),
+       pressed a stronger one, keyboard focus the browser's own ring, disabled the grey ink (`GrayText`'s), invalid
+       the red line, selected the accent or a raised chip.
+
+     Every length and ratio below is a row of the schema's `metrics`, in its neutral column: the kernel sizes a control
+     by those rows, and a host that paints its own controls (the Linux desktop, Windows) draws from them (LLP 1115.000
+     D17). host/web/tests/neutral-look.test.mjs holds this sheet to the table, so a number changes there and here
+     together.
+
+     The roles this sheet and the shell's name (the neutral column's pairs, which the same test holds
+     to the table), and the look's own few values. */
+  :root { --exact-label: light-dark(#000000ff, #ffffffff); --exact-field-text: light-dark(#000000ff, #ffffffff); --exact-secondary-label: light-dark(#474747ff, #bdbdbdff); --exact-placeholder: light-dark(#5c5c5cff, #a3a3a3ff); --exact-separator: light-dark(#0000001f, #ffffff29); --exact-background: light-dark(#ffffffff, #121212ff); --exact-secondary-background: light-dark(#f5f5f5ff, #1e1e1eff); --exact-grouped-background: light-dark(#f5f5f5ff, #121212ff); --exact-secondary-grouped-background: light-dark(#ffffffff, #1e1e1eff); --exact-fill: light-dark(#00000024, #ffffff29); --exact-secondary-fill: light-dark(#0000001a, #ffffff1f); --exact-tertiary-fill: light-dark(#00000012, #ffffff17); --exact-quaternary-fill: light-dark(#0000000a, #ffffff0f); --exact-system-red: light-dark(#c90f1aff, #fe7367ff);
+    --exact-gray-text: light-dark(#707070ff, #929292ff); --exact-line: color-mix(in srgb, var(--exact-label) 45%, transparent); --exact-raised: 0 0 0 1px var(--exact-separator), 0 4px 12px rgb(0 0 0 / .12); --exact-modal: 0 0 0 1px var(--exact-separator), 0 16px 48px rgb(0 0 0 / .24); --exact-scrim: rgb(0 0 0 / .4); }
+  /* The accent: the browser's own (`AccentColor`), kept to a lightness at which it reads at 4.5:1 as text on the page
+     in each scheme (0.53 in light, 0.72 in dark, the neutral column's own two). An author's `accent-color` is the
+     nearer `--exact-accent`, on its node, and is drawn as written. */
+  @supports (color: oklch(from AccentColor l c h)) { :root { --exact-accent: light-dark(oklch(from AccentColor min(l, .53) c h), oklch(from AccentColor max(l, .72) c h)); accent-color: var(--exact-accent); } }
+  /* The page and its text: one ground in every browser, where each engine's dark `Canvas` is its own. */
+  html { background-color: var(--exact-background); color: var(--exact-label); }
+
+  /* Buttons. One box: 36 px (44 under a coarse pointer) in every engine, so a line's height is said (`normal` is each
+     engine's own, 18 px or 20 for the system font), a 1 px edge every style keeps so they line up, no dimmed face
+     while pressed. `bordered` and the unsaid button are an outline in the label's ink; `gray` a neutral fill; `filled`
+     the accent under the ink that reads on it; `tinted` and `plain` the accent as ink. `destructive` is the red as the
+     button's accent, so an outline or a grey button takes red ink. */
+  #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; }
+  #exact-root button[data-button-style]:has(> img:only-child):not([navigationPresentation="modal"] > header button[aria-label]) { padding-inline: .5em; }
+  @media (pointer: coarse) { #exact-root button[data-button-style] { min-height: 44px; min-width: 44px; } }
+  /* The floor and the padding are the look's, and a size the author wrote is the author's (LLP 1115: what is written
+     wins). In CSS a minimum outranks a size, and a border box is never narrower than its padding, so the host names a
+     written `width` or `height` (`data-exact-said`, D2's bit) and on that axis the look steps aside: the minimum is
+     CSS's own again and the label is centred in the box that was written, which is the box the kernel lays out. */
+  #exact-root button[data-button-style][data-exact-said~="height"] { min-height: auto; padding-block: 0; }
+  #exact-root button[data-button-style][data-exact-said~="width"] { min-width: auto; padding-inline: 0; }
+  #exact-root button[data-button-style][data-pressed] > * { opacity: 1; }
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background-color: transparent; color: var(--exact-label); }
+  #exact-root button[data-button-style="bordered"] { border-color: var(--exact-line); }
+  #exact-root button[data-button-style="gray"] { background-color: var(--exact-secondary-fill); }
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"])[data-destructive="true"] { color: var(--exact-accent); }
+  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]) { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); }
+  @supports (color: lab(from red l a b)) {
+    #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { color: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); }
+  }
+  /* Hover and pressed: a wash of the button's own ink over its fill, as an image, so the fill beneath is whatever
+     the style or the accent made it. */
+  @media (hover: hover) {
+    #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: transparent; background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
+    #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"], :disabled):hover { background-color: var(--exact-secondary-fill); }
+    #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"]):not(:disabled):hover { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
+    #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); background-image: linear-gradient(color-mix(in srgb, currentColor 8%, transparent) 0 0); }
+    #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
+  }
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
+  #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"])[data-pressed] { background-color: var(--exact-secondary-fill); }
+  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"])[data-pressed] { background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
+  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor 16%, transparent) 0 0); }
+  #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor 22%, transparent) 0 0); }
+  /* Disabled, in every style (LLP 1116.005 D8): the grey ink, and the neutral fill where the style filled with the
+     accent; an outline fades to a divider. */
+  #exact-root button[data-button-style]:disabled { color: var(--exact-gray-text); background-image: none; }
+  #exact-root button[data-button-style="bordered"]:disabled { border-color: var(--exact-separator); }
+  #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style="tinted"], [data-button-style="bordered-tinted"]):disabled { background-color: var(--exact-tertiary-fill); }
+
+  /* An author's `:hover` look (LLP 1121 D8) sets this to `none` on its node: it replaces the wash. Each pressable
+     starts unset, so a look's `none` reaches none inside it. */
+  :where(#exact-root :is(button, a[data-view][href], [data-exact-on~="press"])) { --exact-hover-wash: initial; }
+  /* The unsaid hover (LLP 1115.000 D6): a custom `button`, a link or a box with a `press` shows a wash where a
+     pointer hovers, as an image, so it lies over a fill the author gave the box. Only the innermost pressable; not a
+     native control, which has its own, nor a pressable covering the window, nor a link in running text or one that
+     is text (they underline, below). */
+  @media (hover: hover) {
+    #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(var(--exact-quaternary-fill) 0 0)); }
+    /* A button its author filled (LLP 1129 D1): the filled button's hover, a wash of its own ink, which shows over any fill. */
+    #exact-root :is(button, a[data-view][href], [data-exact-on~="press"])[data-exact-said~="background-color"]:hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0)); }
+    /* A grouped list's row starts at its text: the wash reaches the card's edge before it. */
+    #exact-root [data-liststyle] > section > div > :is(button, a[href], [data-exact-on~="press"]):hover:not(:disabled, [data-native], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { box-shadow: -64px 0 0 var(--exact-quaternary-fill); }
+  }
+  /* A link in running text, or a block link that is text, underlines under the pointer and the keyboard's focus. A
+     list's row that is a link is a row (below): it washes and is not underlined. */
+  #exact-root [data-exact-text] a[data-view][href]:is(:hover, :focus-visible), #exact-root a[data-view][href]:not([role], [data-button-style], [data-listrows] > *, [data-listrows] > [data-listitemkey] > *):not(:has(> :not([data-exact-text], img))):is(:hover, :focus-visible) { text-decoration: underline; }
+
+  /* A list's rows (LLP 1115.000 D16): the children of a `list` whose rows go down the page and whose author left its
+     appearance unsaid (`data-listrows`, Contract's mark; a windowed list's rows are in their wrappers). Under each row
+     but the last, one line that only divides, drawn inside the row's own box so it takes no room; none beside a row
+     whose author wrote its own top or bottom edge, `none` included (`data-exact-said`, D2's bit: the author's
+     separator wins, and so does the author's "no separator here"). A box-shadow the author wrote on a row is the
+     author's the same way.
+     Something pressable in a row answers as the look's controls do, with a wash over whatever ground it has and
+     never the dim the shell gives a pressable that is no row: the hover's (above, and here for a row that is a link
+     of text) and a stronger one while it is held. An authored press replaces it, as it replaces the dim. The
+     keyboard's ring is drawn inside the row, where the list's own clip cannot cut it. */
+  #exact-root [data-listrows] > :not(:last-child, [aria-hidden="true"], [data-exact-said~="border-bottom"], [data-listitemkey]:has(> [data-exact-said~="border-bottom"]), :has(+ [data-exact-said~="border-top"]), :has(+ [data-listitemkey] > [data-exact-said~="border-top"])) { box-shadow: inset 0 -1px 0 var(--exact-separator); }
+  @media (hover: hover) {
+    #exact-root :where([data-listrows], [data-listrows] > [data-listitemkey]) > a[data-view][href]:hover:not([data-button-style], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(var(--exact-quaternary-fill) 0 0)); }
+  }
+  #exact-root [data-listrows] :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"], [data-exact-surface], [data-exact-text] a, :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):is(:active, [data-pressed]))) { background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
+  #exact-root [data-listrows] :is(button:not([data-native]), a[data-view][href], [data-exact-on~="press"]):focus-visible { outline-offset: -2px; }
+
+  /* Fields and `select`: 36 px in every engine (a said line height again), the control's line, the field's own ground
+     and ink (the page's `color` does not tint a surface the host paints; the node's own, inline or its class's,
+     still wins; the ground and ink are the design's Field and FieldText where it overrides them, LLP 1121 D9). */
+  #exact-root input[data-native], #exact-root :is(textarea, .exact-decoration-editor)[data-native], #exact-root select:not([multiple]), #exact-root input[data-exact-field] { border-color: var(--exact-line); background-color: var(--exact-field, var(--exact-secondary-grouped-background)); color: var(--exact-field-text); }
+  #exact-root input[data-native], #exact-root :is(textarea, .exact-decoration-editor)[data-native] { padding: .4375em .75em; line-height: 1.25; }
+  #exact-root input[data-exact-field] { height: 2.25em; }
+  #exact-root :is(input, textarea)::placeholder { color: var(--exact-placeholder-color, var(--exact-placeholder)); opacity: 1; }
+  @media (pointer: coarse) { #exact-root input[data-native] { padding-block: .6875em; } #exact-root input[data-exact-field] { height: 44px; } #exact-root select:not([multiple]) { line-height: 2.625; } }
+  #exact-root input[data-native]:disabled, #exact-root :is(textarea, .exact-decoration-editor)[data-native]:is(:disabled, [disabled]), #exact-root select:not([multiple]):disabled, #exact-root input[data-exact-field]:disabled { color: var(--exact-gray-text); background-color: var(--exact-field, var(--exact-secondary-background)); border-color: var(--exact-separator); }
+  /* The select's caret, in the secondary label's ink, at the inline end. */
+  #exact-root select:not([multiple]) { background-image: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%), linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%); }
+
+  /* Checkbox, radio, range and file, drawn (D4.9): the line's height, in the accent, where the node's appearance is
+     the platform's (`data-exact-control`, which the host writes under this look; `appearance="none"` hands the box
+     to the author, unmarked). A checked mark is the accent under the ink that reads on it. */
+  #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]) { appearance: none; box-sizing: border-box; width: 1.25em; height: 1.25em; border: 1px solid var(--exact-line); border-radius: 4px; background-color: var(--exact-secondary-grouped-background); }
+  #exact-root input[data-exact-control][type="radio"] { border-radius: 50%; }
+  #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"])::before { content: ""; display: block; width: 100%; height: 100%; }
+  #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]):checked { border-color: transparent; background-color: var(--exact-accent, AccentColor); color: #fff; }
+  @supports (color: lab(from red l a b)) { #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]):checked { color: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); } }
+  #exact-root input[data-exact-control][type="checkbox"]:checked::before { background-color: currentColor; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% 100% no-repeat; }
+  #exact-root input[data-exact-control][type="radio"]:checked::before { background: radial-gradient(circle closest-side, currentColor 38%, #0000 42%); }
+  @media (hover: hover) { #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]):enabled:not(:checked):hover { border-color: var(--exact-label); } }
+  #exact-root input[data-exact-control]:disabled, #exact-root input[data-exact-switch]:disabled { opacity: .5; }
+  @media (pointer: coarse) { #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]) { width: 1.5em; height: 1.5em; } }
+  /* A range: a 4 px track in the control's line, the thumb in the accent. No engine but Firefox marks the part
+     before the thumb, so none is drawn. */
+  #exact-root input[data-exact-control][type="range"] { appearance: none; height: 1.25em; background: none; }
+  #exact-root input[data-exact-control][type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background-color: var(--exact-line); }
+  #exact-root input[data-exact-control][type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background-color: var(--exact-line); }
+  #exact-root input[data-exact-control][type="range"]::-webkit-slider-thumb { appearance: none; box-sizing: border-box; width: 1.25em; height: 1.25em; margin-top: calc(2px - .625em); border: 2px solid var(--exact-secondary-grouped-background); border-radius: 50%; background-color: var(--exact-accent, AccentColor); }
+  #exact-root input[data-exact-control][type="range"]::-moz-range-thumb { box-sizing: border-box; width: 1.25em; height: 1.25em; border: 2px solid var(--exact-secondary-grouped-background); border-radius: 50%; background-color: var(--exact-accent, AccentColor); }
+  /* A file field keeps the browser's words; its button is the outline button. */
+  #exact-root input[data-exact-control][type="file"] { color: var(--exact-secondary-label); }
+  #exact-root input[data-exact-control][type="file"]::file-selector-button { box-sizing: border-box; min-height: 2.25em; margin-inline-end: .75em; padding: .375em 1em; border: 1px solid var(--exact-line); border-radius: 8px; background-color: transparent; color: var(--exact-label); font: inherit; font-weight: 500; }
+  @media (hover: hover) { #exact-root input[data-exact-control][type="file"]:enabled::file-selector-button:hover { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); } }
+  @media (pointer: coarse) { #exact-root input[data-exact-control][type="file"]::file-selector-button { min-height: 44px; } }
+
+  /* The switch, drawn in every browser (one that styles its own would not match the rest): a 36 by 20 track, the
+     control's line off and the accent on, and a thumb in the ink that reads on each, at the inline start until on. */
+  #exact-root input[data-exact-switch] { appearance: none; display: inline-block; vertical-align: top; padding: 0 !important; border-radius: 1em; color: var(--exact-background); }
+  #exact-root input[data-exact-switch]::before { content: ""; display: block; width: 2.25em; height: 1.25em; border-radius: 1em; background: radial-gradient(circle closest-side, currentColor 76%, #0000 82%) 0 0 / 1.25em 1.25em no-repeat var(--exact-line); transition: background-position .15s, background-color .15s; }
+  #exact-root input[data-exact-switch]:disabled::before { opacity: 1; }
+  #exact-root input[data-exact-switch]:dir(rtl)::before { background-position: 1em 0; }
+  #exact-root input[data-exact-switch]:checked { color: #fff; }
+  @supports (color: lab(from red l a b)) { #exact-root input[data-exact-switch]:checked { color: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); } }
+  #exact-root input[data-exact-switch]:checked::before { background-color: var(--exact-accent, AccentColor); background-position: 1em 0; }
+  #exact-root input[data-exact-switch]:checked:dir(rtl)::before { background-position: 0 0; }
+  @media (prefers-reduced-motion: reduce) { #exact-root input[data-exact-switch]::before { transition: none; } }
+
+  /* The spinner is not the text's ink around it (LLP 1115 D4): its node's own `color`, written, is the author's
+     (`data-exact-said`, D2's bit); else an authored accent (--exact-accent-said, LLP 1121 D9): written beside an
+     authored `accent-color` (css.rs), or on an element that writes --exact-accent inline (the JS target's bound and
+     live rows, not `auto`'s AccentColor nor inherit/unset) or takes a mode's (modes.rs), or the design's AccentColor
+     at :root; not the page's own accent, which :root keeps in
+     --exact-accent); else the secondary label's ink. */
+  #exact-root [style*="--exact-accent:"]:not([style*="--exact-accent: AccentColor;"], [style*="--exact-accent: inherit;"], [style*="--exact-accent: unset;"]) { --exact-accent-said: var(--exact-accent); }
+  [data-exact-progress]:not([data-exact-said~="color"])::before { background: conic-gradient(transparent 10%, var(--exact-accent-said, var(--exact-secondary-label))); }
+  @media (forced-colors: active) { #exact-root [data-exact-progress]::before { background: none; } }
+
+  /* A segmented control (a content `tablist` of native tabs, a `radiogroup` of native radios): a track the width of
+     its segments, the chosen one a chip of the page's ground. A segment takes its own title's width, as a control's
+     size is the platform's (a `flex: 1` on it shares out what room the track is given beyond that, and no longer
+     splits a track that hugs its titles into equal parts too narrow for the longest). */
+  :where(#exact-root [role="tablist"]:has(> button[data-button-style][role="tab"]):not(:has(> [aria-controls])), #exact-root [role="radiogroup"]:has(> button[data-button-style][role="radio"])) { width: fit-content; max-width: 100%; box-sizing: border-box; background-color: var(--exact-tertiary-fill); border-radius: 8px; padding: 3px; }
+  #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { min-height: calc(2.25em - 6px); border-color: transparent; border-radius: 6px; padding: .25em .75em; }
+  #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { flex-basis: auto !important; }
+  #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: var(--exact-secondary-label); }
+  #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(var(--exact-background), var(--exact-fill)); box-shadow: 0 1px 2px rgb(0 0 0 / .16); }
+  #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: var(--exact-label); }
+  @media (hover: hover) { #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled:hover { color: var(--exact-label); } }
+  @media (pointer: coarse) { #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { min-height: 38px; } }
+
+  /* The root tab bar, narrow: a bar of the page's ground under a 1 px line, each tab its symbol over its label, the
+     selected one in the accent. */
+  :where(#exact-root [role="tablist"]:has(> [role="tab"][aria-controls])) { background-color: var(--exact-background); box-shadow: none; border-top: 1px solid var(--exact-separator); }
+  #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { min-height: 3.5rem; border: none; padding: .375rem .5rem; font-size: .75rem; --exact-button-leading-areas: "image" "space" "title"; --exact-button-columns: minmax(var(--exact-button-title-min, min-content), auto); --exact-button-space: var(--exact-button-row-space); --exact-button-space-width: 0px; --exact-button-space-height: 2px; justify-items: center; }
+  #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) > img { width: 1.375rem; height: 1.375rem; }
+  #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: var(--exact-secondary-label); }
+  #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled[aria-selected="true"] { color: var(--exact-accent, AccentColor); }
+  @media (hover: hover) { #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled:not([aria-selected="true"]):hover { color: var(--exact-label); background-image: none; } }
+  /* Wide, the sidebar: the raised ground beside a 1 px line, rows of a symbol and a label in the label's ink, the
+     selected one on a neutral fill. */
+  #exact-root [data-exact-sidebar] > [role="tablist"] { background-color: var(--exact-secondary-background); box-shadow: none; border-top: none; border-inline-end: 1px solid var(--exact-separator); }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { min-height: 2.25rem; font-size: inherit; --exact-button-leading-areas: "image space title"; --exact-button-columns: auto auto minmax(var(--exact-button-title-min, min-content), auto); --exact-button-space: var(--exact-button-column-space); --exact-button-space-width: 10px; --exact-button-space-height: 0px; justify-items: start; }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) > img { width: 1.125em; height: 1.125em; color: inherit !important; }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: var(--exact-secondary-label); }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"])[aria-selected="true"] { background-color: var(--exact-tertiary-fill); }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled[aria-selected="true"] { color: var(--exact-label); }
+  @media (hover: hover) { #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):not([aria-selected="true"]):hover { background-color: var(--exact-quaternary-fill); } }
+  /* A split's list column: a 1 px line at its inline end, the shown row on the neutral fill. */
+  #exact-root [data-exact-split="list"] { box-shadow: none; border-inline-end: 1px solid var(--exact-separator); }
+  #exact-root [data-exact-split="list"] [data-exact-split-row] { background-color: var(--exact-tertiary-fill); box-shadow: -64px 0 0 var(--exact-tertiary-fill); background-image: none; }
+
+  /* A route's `header` is a plain bar: the page's ground, opaque, over a 1 px line, in the label's ink whatever the
+     page's `color` (its own, written, wins). Its title is the route's heading at its level's size; nothing collapses.
+     A button nobody styled is the bar's: no outline, and the Back button the bar draws is one of them. */
+  :where(#exact-root [navigationkey] > header) { background-color: var(--exact-background); backdrop-filter: none; box-shadow: none; border-bottom: 1px solid var(--exact-separator); color: var(--exact-label); }
+  #exact-root [navigationkey] > header button[data-button-style="bordered"]:not([role="tab"], [role="radio"]) { border-color: transparent; }
+  #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; color: var(--exact-label); font-weight: 500; cursor: default; --exact-back-press: 1; }
+  #exact-root [navigationkey] > header::part(back):focus-visible { outline: revert; outline-offset: 2px; }
+  #exact-root [navigationkey] > header::part(back):active { background-color: var(--exact-tertiary-fill); }
+  @media (hover: hover) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } }
+  @media (pointer: coarse) { #exact-root [navigationkey] > header::part(back) { min-height: 44px; } }
+
+  /* LLP 1116.009 D4: a sheet's bar centres its title, as UIKit's does, whatever flanks it (a Cancel, a Save, both,
+     neither); a page's title stays leading. The title's auto side margins share the bar's free space on either side of
+     it, so it never overlaps a neighbour or loses a word to one: it is centred between them, on the bar's own centre
+     when they are as wide as each other. A title that fills the space is centred in its own text. Unsaid only, as every
+     rule here: a header with its own `justify-content` flows its own items (the host says so, `data-exact-said`), and a
+     margin or `flex` the author gave the title wins, a row of its own. The heading names are the subject so this ties
+     the shell's heading reset (`margin: 0`) and wins by coming after it. */
+  :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"])) > :is(h1, h2, h3, h4, h5, h6),
+  :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"]) > [role="heading"]) { margin-inline: auto; text-align: center; }
+  /* LLP 1116.020 D2: a sheet's button whose face is only a symbol says its name instead, padded as a word is (above):
+     iOS draws a Cancel's xmark and a Save's checkmark, and a web dialog's buttons are words. */
+  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))) > img { display: none; }
+  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source]))))::after { content: attr(aria-label); }
+
+  /* A dialog is a modal surface. An alert reads as a page does, its title and message at the start. Its actions share
+     the row equally in the order written, a title too long for its share taking a row of its own, and a destructive
+     one has its red in its edge as well as its ink. (Graded blind against small buttons at the row's end on
+     2026-10-12: 17 judgments to 1 for this row, LLP 1115.000 D4.) */
+  :where(#exact-root dialog) { border: none; border-radius: 12px; background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); box-shadow: var(--exact-modal); }
+  :where(#exact-root dialog)::backdrop { background-color: var(--exact-scrim); }
+  :where(#exact-root dialog[role="alertdialog"]) { width: min(26rem, calc(100vw - 32px)); padding: 24px; gap: 8px 12px; text-align: start; }
+  :where(#exact-root dialog[role="alertdialog"][aria-label])::before { font-size: 1.125em; }
+  :where(#exact-root dialog[role="alertdialog"] > :not(button)) { font-size: 1em; color: var(--exact-secondary-label); }
+  :where(#exact-root dialog[role="alertdialog"] > :not(button):has(+ button)) { margin-bottom: 16px; }
+  #exact-root dialog[role="alertdialog"] > button { min-width: min-content; }
+  #exact-root dialog[role="alertdialog"] > button[data-button-style="bordered"][data-destructive="true"]:enabled { border-color: var(--exact-accent); }
+
+  /* A popover is a raised surface, and opens at its invoker: under it, from its inline start, and where that does not
+     fit, the other way. A menu's rows are rows: the label's ink (red when destructive), a wash under the pointer. A
+     context menu opens at the pointer (the runtimes leave it there, `--exact-context-x`, `-y`). An alert written as a
+     popover has no invoker to open at and stays centred. */
+  :where(#exact-root [popover]) { border: none; border-radius: 12px; padding: 0; background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); box-shadow: var(--exact-raised); }
+  :where(#exact-root [popover][role="menu"]) { box-sizing: border-box; min-width: 11rem; max-width: min(20rem, calc(100vw - 16px)); padding: 4px; }
+  @supports (position-area: block-end) {
+    :where(#exact-root [popover]:not([role="alertdialog"])) { inset: auto; margin: 4px 0; position-area: block-end span-inline-end; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; }
+    :where(#exact-root [popover][style*="--exact-context-x"]) { margin: 0; position-area: none; left: var(--exact-context-x); top: var(--exact-context-y); position-try-fallbacks: --exact-context-start, --exact-context-up, --exact-context-up-start; }
+  }
+  @position-try --exact-context-start { left: auto; right: calc(100% - var(--exact-context-x)); }
+  @position-try --exact-context-up { top: auto; bottom: calc(100% - var(--exact-context-y)); }
+  @position-try --exact-context-up-start { left: auto; right: calc(100% - var(--exact-context-x)); top: auto; bottom: calc(100% - var(--exact-context-y)); }
+  #exact-root [role="menu"] button[data-button-style] { min-height: 2em; border: none; border-radius: 8px; padding: .25em .625em; background-color: transparent; color: var(--exact-label); font-weight: 400; justify-content: start; text-align: start; --exact-button-space-width: .5em; }
+  #exact-root [role="menu"] button[data-button-style][data-destructive="true"] { color: var(--exact-accent); }
+  #exact-root [role="menu"] button[data-button-style]:disabled { color: var(--exact-gray-text); }
+  #exact-root [role="menu"] button[data-button-style]:focus-visible { outline-offset: -2px; }
+  #exact-root [role="menu"] button[data-button-style][data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-fill) 0 0); }
+  @media (hover: hover) { #exact-root [role="menu"] button[data-button-style]:enabled:hover { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); } }
+  @media (pointer: coarse) { #exact-root [role="menu"] button[data-button-style] { min-height: 44px; } }
+
+  /* A modal route is a sheet (D4.8): the page's ground, full-bleed in a narrow window; in a wide one (900 px, the
+     navigation glue's `WIDE`) a card over a scrim, as tall as its content up to the window. The layout is the
+     platform's, as the sidebar's and the split's are; a colour the author wrote still wins. The card says it is
+     above its siblings (`z-index`): WebKit paints a sidebar that scrolls over the scrim otherwise. */
+  :where(#exact-root [navigationPresentation="modal"]) { color: var(--exact-label); }
+  /* Every browser uses the same sheet ground; an authored ground still wins. */
+  #exact-root [navigationPresentation="modal"] { background-color: var(--exact-background); }
+  @media (min-width: 900px) {
+    #exact-root [navigationPresentation="modal"] { position: fixed !important; inset: 0 !important; margin: auto !important; box-sizing: border-box !important; width: min(35rem, calc(100vw - 64px)) !important; height: fit-content !important; max-height: min(45rem, calc(100vh - 64px)) !important; z-index: 1; border-radius: 12px; overflow: clip; box-shadow: var(--exact-modal), 0 0 0 100vmax var(--exact-scrim); }
+    #exact-root [data-exact-covered]::after { content: none; }
+  }
+
+  /* A grouped list: the grouped ground under cards with 12 px corners. Its sheet is the compiler's (LLP 1084), whose
+     ground and corners are iOS's literals until its surfaces are roles (LLP 1115.000 D3.1), so these two outrank it;
+     a ground the author wrote on the list stays (`data-exact-said`). A card is the sheet's own node. */
+  #exact-root [data-liststyle]:not([data-exact-said~="background-color"]) { background-color: var(--exact-grouped-background) !important; }
+  #exact-root [data-liststyle="plain"]:not([data-exact-said~="background-color"]) { background-color: var(--exact-background) !important; }
+  #exact-root [data-liststyle="inset-grouped"] > section > div { border-radius: 12px !important; }
+
+  /* Forced colours: the drawn marks would lose their fills, so each is the browser's own again. */
+  @media (forced-colors: active) {
+    #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"], [type="range"]), #exact-root input[data-exact-switch] { appearance: auto; width: auto; height: auto; border: revert; border-radius: 0; background: revert; }
+    #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"])::before, #exact-root input[data-exact-switch]::before { content: none; }
+    :where(#exact-root [popover]), :where(#exact-root dialog), :where(#exact-root [navigationPresentation="modal"]) { border: 1px solid; }
+  }

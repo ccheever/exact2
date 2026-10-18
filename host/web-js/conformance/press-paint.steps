@@ -1,0 +1,9 @@
+# Held: the node shows its pressed paint (the agent's clock lands it at
+# once); lifted: the press runs and the paint goes. The second button scales
+# and dims together, by a bound opacity that changes with each press.
+down painted
+up
+down both
+up
+down both
+up

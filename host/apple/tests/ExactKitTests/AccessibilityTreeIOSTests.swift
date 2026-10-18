@@ -40,6 +40,33 @@ final class AccessibilityTreeIOSTests: XCTestCase {
     private func elements(_ ax: [String: Any]) -> [[String: Any]] { ax["elements"] as? [[String: Any]] ?? [] }
     private func element(_ ax: [String: Any], _ testId: String) -> [String: Any]? { elements(ax).first { $0["testId"] as? String == testId } }
 
+    /// LLP 1115.000 D11.6: a `link` is a link to VoiceOver. The tag lowers
+    /// to a pressable whose role is `link`, and iOS called every pressable a
+    /// button: only a plain box with `role="link"` got the link trait.
+    func testALinkIsALinkToVoiceOver() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "button", "props": ["testId": "link", "accessibilityRole": "link", "href": "https://example.com/", "accessibilityLabel": "Example"]],
+            ["op": "create", "id": 7, "kind": "button", "handlers": ["press"], "props": ["testId": "pressed-link", "accessibilityRole": "link", "accessibilityLabel": "Open"]],
+            ["op": "children", "id": 4, "ids": [5, 6, 7]],
+            ["op": "frame", "id": 6, "x": 110.0, "y": 0.0, "w": 100.0, "h": 40.0],
+            ["op": "frame", "id": 7, "x": 220.0, "y": 0.0, "w": 100.0, "h": 40.0],
+        ]))
+        p.syncAccessibility()
+        for id: UInt32 in [6, 7] {
+            let link = try XCTUnwrap(p.views[id])
+            XCTAssertTrue(link.accessibilityTraits.contains(.link), "a link element is a link")
+            XCTAssertFalse(link.accessibilityTraits.contains(.button), "and not also a button")
+        }
+        XCTAssertTrue(try XCTUnwrap(p.views[2]).accessibilityTraits.contains(.button), "a button is a button")
+        XCTAssertFalse(try XCTUnwrap(p.views[2]).accessibilityTraits.contains(.link))
+        XCTAssertEqual(element(p.axElements(roots: [p.viewport]), "link")?["role"] as? String, "link", "`tree --ax` reads it as UIKit says it")
+        // The role taken away, it is a button again.
+        p.apply(wireBatch([["op": "props", "id": 7, "set": [:], "clear": ["accessibilityRole"]]]))
+        XCTAssertTrue(try XCTUnwrap(p.views[7]).accessibilityTraits.contains(.button))
+        XCTAssertFalse(try XCTUnwrap(p.views[7]).accessibilityTraits.contains(.link))
+    }
+
     func testElementsAreUIKitsAnswersJoinedToTheirViews() throws {
         let p = try fixture()
         let ax = p.axElements(roots: [p.viewport])
@@ -297,7 +324,8 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertEqual([text["id"] as? UInt32, text["via"] as? String] as [AnyHashable?], [4, "owner"])
         // The named button is an element, so UIKit never descends into it: the field is not walked there.
         p.views[2]?.isAccessibilityElement = false
-        guard Presenter.axRuntimeLoaded else { return } // a field is an element only with UIKit's accessibility runtime
+        // A field is an element only with UIKit's accessibility runtime.
+        guard Presenter.axRuntimeLoaded else { throw missing("accessibility", "UIKit's accessibility runtime is not loaded") }
         let secure = try XCTUnwrap(elements(p.axElements(roots: [p.viewport])).first { $0["role"] as? String == "textbox" })
         XCTAssertNil(secure["value"])
         XCTAssertEqual((secure["states"] as? [String: Any])?["protected"] as? Bool, true)

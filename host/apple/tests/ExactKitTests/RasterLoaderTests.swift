@@ -264,6 +264,60 @@ final class RasterLoaderTests: XCTestCase {
         XCTAssertEqual(revalidated.count, 2)
         XCTAssertTrue(revalidated.last?.lowercased().contains("if-none-match: \"raster-v1\"") == true)
     }
+
+    /// A stored image that is stale within its `stale-while-revalidate`
+    /// window is shown at once and refreshed behind, once while a refresh
+    /// is in flight (RFC 5861); `must-revalidate` waits on the network.
+    func testHTTPImagesShowStaleWhileRevalidating() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try png(root, "image.png", width: 24, height: 32, identity: 4)
+        let bytes = try Data(contentsOf: root.appendingPathComponent("image.png"))
+        let server = try CachingRasterHTTP(body: bytes)
+        defer { server.stop() }
+        let resolver = AssetResolver(root: root)
+        // A path of its own each run: the response cache outlives the test
+        let run = UUID().uuidString
+        func open(_ path: String) throws -> TimeInterval {
+            let start = Date()
+            let input = try RasterInput.open("http://127.0.0.1:\(server.port)/\(path)?\(run)", resolver: resolver)
+            XCTAssertEqual(try input.bytes(), bytes)
+            return Date().timeIntervalSince(start)
+        }
+        func requests(_ path: String) -> [String] { server.requests.filter { $0.hasPrefix("GET /\(path)?\(run) ") } }
+        _ = try open("swr")
+        Thread.sleep(forTimeInterval: 1.1) // past max-age=0 by the Date header's whole seconds
+        XCTAssertLessThan(try open("swr"), 1, "shown from the store, not after the held refresh")
+        XCTAssertLessThan(try open("swr"), 1)
+        let deadline = Date().addingTimeInterval(5)
+        while requests("swr").count < 2, Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+        server.refresh.signal()
+        Thread.sleep(forTimeInterval: 0.5) // a second refresh, had one started, would follow the first
+        XCTAssertEqual(requests("swr").count, 2, "one refresh while one is in flight")
+        XCTAssertTrue(requests("swr").last?.lowercased().contains("if-none-match: \"raster-v1\"") == true)
+        for path in ["swr-must", "swr-vary", "swr-old"] { _ = try open(path) }
+        Thread.sleep(forTimeInterval: 1.1)
+        XCTAssertGreaterThan(try open("swr-must"), 1.4, "must-revalidate waits on the network")
+        XCTAssertGreaterThan(try open("swr-vary"), 1.4, "a lookup without request headers cannot match a Vary")
+        XCTAssertGreaterThan(try open("swr-old"), 1.4, "an Age past the window waits")
+        // Sent 30 s after its origin's Date with Age 30: 31 s old, inside a
+        // 40 s window (the two bounds overlap; they do not add)
+        _ = try open("swr-aged")
+        Thread.sleep(forTimeInterval: 1.1)
+        XCTAssertLessThan(try open("swr-aged"), 1, "within the window by the larger of Date and Age")
+        // Age 30 from a Date only 20 s back, in a 31 s window: two seconds
+        // after it arrived it is 32 s old, past the window
+        _ = try open("swr-skew")
+        Thread.sleep(forTimeInterval: 2)
+        XCTAssertGreaterThan(try open("swr-skew"), 1.4, "the time since it arrived adds to its Age")
+        Thread.sleep(forTimeInterval: 0.1)
+        XCTAssertGreaterThan(try open("swr-skew"), 1.4, "and so does the 1.5 s its last response took")
+        // An hour-old asctime Date, which is not read: its age is unknown
+        _ = try open("swr-asctime")
+        Thread.sleep(forTimeInterval: 1.1)
+        XCTAssertGreaterThan(try open("swr-asctime"), 1.4, "a Date it cannot read is never young")
+    }
     /// A `data:` source opens as a page's `<img>` takes it, to its bound
     /// (LLP 1011 §2): base64, forgiving whitespace and escapes, or percent-encoded.
     func testDataURLsOpenWithinTheirBound() throws {
@@ -722,6 +776,7 @@ private final class CachingRasterHTTP: @unchecked Sendable {
     private var seen: [String] = []
     private let body: Data
     let port: UInt16
+    let refresh = DispatchSemaphore(value: 0)
     var requests: [String] { lock.lock(); defer { lock.unlock() }; return seen }
     init(body: Data) throws {
         self.body = body
@@ -761,13 +816,27 @@ private final class CachingRasterHTTP: @unchecked Sendable {
         }
         let text = String(decoding: request, as: UTF8.self)
         lock.lock(); seen.append(text); lock.unlock()
-        let validate = text.hasPrefix("GET /revalidate ")
+        let validate = text.hasPrefix("GET /revalidate ") || text.hasPrefix("GET /swr")
         let notModified = validate && text.lowercased().contains("if-none-match: \"raster-v1\"")
-        let policy = text.hasPrefix("GET /no-store ") ? "no-store" : validate ? "max-age=0, must-revalidate" : "public, max-age=3600"
+        // A refresh behind a stale image waits for the test to release it;
+        // `must-revalidate`'s is slow
+        if notModified, text.hasPrefix("GET /swr?") { _ = refresh.wait(timeout: .now() + 10) }
+        let waits = ["must", "vary", "old", "aged", "skew", "asctime"].contains { text.hasPrefix("GET /swr-\($0)?") }
+        if notModified, waits { Thread.sleep(forTimeInterval: 1.5) }
+        let policy = text.hasPrefix("GET /no-store ") ? "no-store"
+            : text.hasPrefix("GET /swr-must?") ? "max-age=0, must-revalidate, stale-while-revalidate=60"
+            : text.hasPrefix("GET /swr-aged?") ? "max-age=0, stale-while-revalidate=40"
+            : text.hasPrefix("GET /swr-skew?") ? "max-age=0, stale-while-revalidate=31"
+            : text.hasPrefix("GET /swr") ? "max-age=0, stale-while-revalidate=60"
+            : validate ? "max-age=0, must-revalidate" : "public, max-age=3600"
         let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX")
         date.timeZone = TimeZone(secondsFromGMT: 0); date.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
         let payload = notModified ? Data() : body
-        let header = "HTTP/1.1 \(notModified ? "304 Not Modified" : "200 OK")\r\nDate: \(date.string(from: Date()))\r\nCache-Control: \(policy)\r\nETag: \"raster-v1\"\r\nContent-Type: image/png\r\nContent-Length: \(payload.count)\r\nConnection: close\r\n\r\n"
+        let extra = text.hasPrefix("GET /swr-vary?") ? "Vary: Accept-Language\r\n" : text.hasPrefix("GET /swr-old?") ? "Age: 120\r\n" : text.hasPrefix("GET /swr-aged?") || text.hasPrefix("GET /swr-skew?") ? "Age: 30\r\n" : ""
+        let asctime = DateFormatter(); asctime.locale = Locale(identifier: "en_US_POSIX")
+        asctime.timeZone = TimeZone(secondsFromGMT: 0); asctime.dateFormat = "EEE MMM d HH:mm:ss yyyy"
+        let stamp = text.hasPrefix("GET /swr-asctime?") ? asctime.string(from: Date().addingTimeInterval(-3600)) : date.string(from: Date().addingTimeInterval(text.hasPrefix("GET /swr-aged?") ? -30 : text.hasPrefix("GET /swr-skew?") ? -20 : 0))
+        let header = "HTTP/1.1 \(notModified ? "304 Not Modified" : "200 OK")\r\nDate: \(stamp)\r\nCache-Control: \(policy)\r\n\(extra)ETag: \"raster-v1\"\r\nContent-Type: image/png\r\nContent-Length: \(payload.count)\r\nConnection: close\r\n\r\n"
         let response = Data(header.utf8) + payload
         response.withUnsafeBytes { bytes in
             var offset = 0

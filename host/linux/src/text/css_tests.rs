@@ -21,6 +21,22 @@ fn spec(text: &str, white_space: WhiteSpace) -> Spec {
 }
 
 #[test]
+fn empty_text_has_no_line_box() {
+    let mut e = engine(INTER, "Inter");
+    for white_space in [WhiteSpace::Normal, WhiteSpace::PreWrap, WhiteSpace::Pre] {
+        let s = spec("", white_space);
+        for width in [
+            AxisOffer::MinContent,
+            AxisOffer::MaxContent,
+            AxisOffer::Definite(0.0),
+            AxisOffer::Definite(200.0),
+        ] {
+            assert_eq!(e.measure(&s, width), TextMetrics::default());
+        }
+    }
+}
+
+#[test]
 fn normal_and_nowrap_collapse_as_the_browser_renders() {
     let mut e = engine(INTER, "Inter");
     let clean = e.measure(&spec("a b c", WhiteSpace::Normal), AxisOffer::MaxContent);

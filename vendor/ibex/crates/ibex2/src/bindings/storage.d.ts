@@ -12,10 +12,10 @@ export interface FileSystem {
     readonly temporary: "app:/tmp";
   };
   readFile(path: string): Promise<ArrayBuffer>;
-  writeFile(path: string, data: ArrayBuffer | Uint8Array): Promise<void>;
+  writeFile(path: string, data: ArrayBuffer | Uint8Array, options?: WriteOptions): Promise<void>;
   /** Atomic replacement visibility; not a power-loss durability guarantee. */
-  atomicWriteFile(path: string, data: ArrayBuffer | Uint8Array): Promise<void>;
-  appendFile(path: string, data: ArrayBuffer | Uint8Array): Promise<void>;
+  atomicWriteFile(path: string, data: ArrayBuffer | Uint8Array, options?: WriteOptions): Promise<void>;
+  appendFile(path: string, data: ArrayBuffer | Uint8Array, options?: WriteOptions): Promise<void>;
   readdir(path: string): Promise<string[]>;
   mkdir(path: string): Promise<void>;
   rm(path: string): Promise<void>;
@@ -23,15 +23,34 @@ export interface FileSystem {
   rename(from: string, to: string): Promise<void>;
   copyFile(from: string, to: string): Promise<void>;
   realpath(path: string): Promise<string>;
-  /** Exact patch 9 (exact2 LLP 1069.002 A1): decode the image at `from`,
-   * scale it to fit `maxDimension` and encode a JPEG of at most `maxBytes`
-   * at `to`, searching quality as Bluesky's composer does. Orientation is
-   * applied and no metadata is written. Needs `fs.read` on `from` and
-   * `fs.write` on `to`, both `app:/` paths. Rejects with a `TypeError` for a
-   * bad option, else with `code` `unsupported` (no codec on this host),
-   * `undecodable`, `too-large` (over 64 MiB or 64 Mi pixels), `unfit`
-   * (nothing fits) or `timeout` (20 s), or a filesystem code. */
+  /** Exact patch 9 (exact2 LLP 1069.002 A1), the app interface: decode the
+   * image at `from`, scale it to fit `maxDimension` and encode a JPEG of at
+   * most `maxBytes` at `to`, searching quality as Bluesky's composer does.
+   * Orientation is applied and no metadata is written. Needs `fs.read` on
+   * `from` and `fs.write` on `to`, both `app:/` paths. Rejects with a
+   * `TypeError` for a bad option, else with `code` `unsupported` (no codec
+   * on this host), `undecodable`, `too-large` (over 64 MiB, 64 Mi pixels,
+   * or more decoding memory than the host allows), `unfit` (nothing fits) or
+   * `timeout` (20 s), or a filesystem code. */
   compressImage(from: string, to: string, options: CompressImageOptions): Promise<CompressedImage>;
+  /** Exact patch 14 (exact2 LLP 1069.010.000 D1), the app interface: this
+   * answer depends on the `doc:/` path, and the host asks it again when the
+   * file, a folder's own entries or, with `recursive`, its subtree change on
+   * disk, by any process. Call it inside an answer; it carries no value, so
+   * the answer reads again. Needs `fs.read` on the path. */
+  watch(path: string, options?: WatchOptions): void;
+}
+
+export interface WatchOptions {
+  /** The whole subtree, not only a folder's own entries. */
+  readonly recursive?: boolean;
+}
+
+export interface WriteOptions {
+  /** Exact patch 14 (exact2 LLP 1069.010.000 D2a): on a `doc:/` path, the
+   * stat last read. The write is refused with `code` `ECHANGED`, writing
+   * nothing, when the file's `modifiedMs` or `size` is no longer this. */
+  readonly expect?: Pick<FileStat, "modifiedMs" | "size">;
 }
 
 export interface CompressImageOptions {

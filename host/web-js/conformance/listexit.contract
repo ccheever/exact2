@@ -25,7 +25,7 @@ style Row
   height=56 box-sizing="border-box" padding-left=12 display="flex" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
 
 component ListExit
-  resource coins = coins(0) as shape list<Coin>
+  resource coins = coins(0) as shape Coin[]
   state a = ""
   state b = ""
   action drop
@@ -40,6 +40,6 @@ component ListExit
         button press=far testId="far"
           text "far"
       list virtualized=true estimated-item-height=56 testId="rows" flex=1 min-height=0 width="100%" overflow-x="hidden"
-        each c in filter(coins, c => c.id != a and c.id != b) key=c.id
+        for c in coins.filter(c => c.id != a and c.id != b) key=c.id
           row testId=`row-${c.id}` class=Row
             text c.name font-size=14

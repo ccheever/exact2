@@ -1,26 +1,21 @@
 //! LLP 1017 P6: named styles, proven on the kernel's rows after boot.
-
 use exact_kernel::{Color, Dimension, Kernel, WhiteSpace};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Runner};
 use std::path::Path;
-
 #[derive(Default)]
 struct NoData;
-
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(source.into()))
     }
 }
-
 fn corpus(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../corpus")
         .join(name);
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
-
 #[test]
 fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     let plan = contract::compile(&corpus("styles.contract")).unwrap();
@@ -66,7 +61,6 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     assert_eq!(style_of("calc").width, Dimension::Calc(100.0, -89.0));
     assert_eq!(tight.white_space, WhiteSpace::Nowrap);
 }
-
 #[test]
 fn a_class_chooses_between_two_styles_by_state() {
     let plan = contract::compile(&corpus("styles.contract")).unwrap();
@@ -106,7 +100,6 @@ fn a_class_chooses_between_two_styles_by_state() {
     assert_eq!(again.opacity, 0.5);
     assert_eq!(again.padding_top, Dimension::Points(0.0));
 }
-
 #[test]
 fn a_style_is_refused_with_the_css_name_for_an_old_spelling() {
     let src =
@@ -115,7 +108,6 @@ fn a_style_is_refused_with_the_css_name_for_an_old_spelling() {
     assert_eq!(e.id, "lower-unknown-attr");
     assert!(e.message.contains("`border-radius`"), "{e}");
 }
-
 #[test]
 fn attribute_typos_suggest_only_unambiguous_accepted_spellings() {
     for (typo, correct, value) in [
@@ -167,18 +159,17 @@ fn attribute_typos_suggest_only_unambiguous_accepted_spellings() {
     let error = contract::compile("component App\n  view\n    view tesId=\"x\"\n").unwrap_err();
     assert!(error.message.contains("did you mean `testId`"), "{error}");
 }
-
 #[test]
 fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
     use exact_kernel::StyleId;
     for (attr, row, invalid) in [
         ("align-items", StyleId::AlignItems, "middle"),
         ("display", StyleId::Display, "flexbox"),
-        ("overflow", StyleId::OverflowX, "clip"),
+        ("overflow", StyleId::OverflowX, "truncate"),
         ("object-fit", StyleId::ObjectFit, "stretch"),
         ("font-style", StyleId::FontStyle, "slanted"),
         ("position", StyleId::PositionType, "fixed"),
-        ("border-style", StyleId::BorderStyleTop, "dashed"),
+        ("border-style", StyleId::BorderStyleTop, "double"),
         ("align-self", StyleId::AlignSelf, "middle"),
         (
             "overscroll-behavior",
@@ -260,7 +251,6 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         "narrow authoring rule remains authoritative"
     );
 }
-
 #[test]
 fn nowrap_and_tabular_nums_reach_the_kernel_and_other_numeric_keywords_are_refused_by_name() {
     // @ref LLP 1053 §0 G4, G5
@@ -302,7 +292,20 @@ fn nowrap_and_tabular_nums_reach_the_kernel_and_other_numeric_keywords_are_refus
         "{error}"
     );
 }
-
+#[test]
+fn text_wrap_balance_shorthand_and_longhand_reach_the_kernel() {
+    let source = "component App\n  view\n    column text-wrap=\"balance\"\n      text \"Settle every thread in this section and keep the newest one open\" testId=\"balanced\"\n      text \"Plain\" text-wrap-style=\"auto\" testId=\"auto\"\n";
+    let r = boot(source);
+    let row = exact_kernel::StyleId::TextWrapStyle;
+    for (id, expected) in [("balanced", "balance"), ("auto", "auto")] {
+        let node = r
+            .kernel()
+            .node_by_key(r.kernel().find_by_test_id(id)[0])
+            .unwrap();
+        let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
+        assert_eq!(style.get(row), exact_kernel::RowValue::Enum(expected));
+    }
+}
 #[test]
 fn auto_enum_literals_in_branches_keep_dimension_refusals_separate() {
     let source = "component App\n  state chosen = true\n  view\n    view testId=\"target\" align-self=(chosen ? \"auto\" : \"center\") width=\"auto\"\n";
@@ -492,10 +495,6 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
     assert_eq!(style_of(&r, "c").background_image.gradient(), None);
     for (value, says) in [
         (
-            "repeating-linear-gradient(#000, #fff 10%)",
-            "repeating-linear-gradient() is not implemented",
-        ),
-        (
             "repeating-conic-gradient(#000, #fff)",
             "repeating-conic-gradient() is not implemented",
         ),
@@ -506,7 +505,7 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
         ),
         ("linear-gradient(red, blurple)", "a stop's colour is"),
         (
-            "linear-gradient(#000 10px, #fff)",
+            "linear-gradient(#000 10, #fff)",
             "a stop's position is a percentage",
         ),
     ] {
@@ -520,16 +519,24 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
     // A computed value's own text (studio diary R15: a grid the web painted
     // and the Mac dropped): the function it names is refused on every target.
     let e = refused(
-        "background-image=`repeating-linear-gradient(0deg, #0001 0 1px, transparent 1px ${10}px)`",
+        "background-image=`repeating-radial-gradient(#0001 0 1px, transparent 1px ${10}px)`",
     );
     assert_eq!(e.id, "lower-attr-value", "{e}");
     assert!(
         e.message
-            .contains("repeating-linear-gradient() is not implemented"),
+            .contains("repeating-radial-gradient() is not implemented"),
         "{e}"
     );
     let e = refused("mask-image=(true ? `url(${\"a\"}.png)` : \"none\")");
     assert!(e.message.contains("image as a background"), "{e}");
+    let hatch = boot("component App\n  state stop = 5.657\n  view\n    view testId=\"hatch\" background-image=`repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px ${stop}px)`\n");
+    assert!(
+        style_of(&hatch, "hatch")
+            .background_image
+            .gradient()
+            .unwrap()
+            .repeating
+    );
     let fine = boot("component App\n  state stop = 40\n  view\n    view background-image=`linear-gradient(#000, #fff ${stop}%)` testId=\"a\"\n");
     assert!(style_of(&fine, "a").background_image.gradient().is_some());
 }
@@ -555,7 +562,7 @@ fn backdrop_saturation_is_admitted_alone_and_beside_blur() {
 fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refused_by_name() {
     // @ref LLP 1053 G5; LLP 1053.000 D1 — a dynamic value takes the same
     // grammar at run time as a literal at compile time.
-    let source = "component App\n  state blur = 8\n  state saturation = 1.14\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + toString(blur) + \"px) saturate(\" + toString(saturation) + \" )\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
+    let source = "component App\n  state blur = 8\n  state saturation = 1.14\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + blur.toString() + \"px) saturate(\" + saturation.toString() + \" )\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
     let plan = contract::compile(source).unwrap();
     let r = Runner::boot(
         plan,
@@ -591,29 +598,6 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
         assert_eq!(error.id, "lower-attr-value");
         assert!(error.message.contains(named), "{error}");
     }
-    // @ref LLP 1053.000 D4 — every platform material by name; others refused.
-    for name in [
-        "ultra-thin",
-        "chrome-dark",
-        "prominent",
-        "sidebar",
-        "hud-window",
-        "glass-clear",
-    ] {
-        contract::compile(&format!(
-            "component App\n  view\n    box backgroundMaterial=\"{name}\"\n"
-        ))
-        .unwrap();
-    }
-    let error =
-        contract::compile("component App\n  view\n    box backgroundMaterial=\"frosted\"\n")
-            .unwrap_err();
-    assert!(
-        error
-            .message
-            .contains("`backgroundMaterial=\"frosted\"` is not a material; materials: ultra-thin,"),
-        "{error}"
-    );
 }
 
 /// LLP 1053.000.000.000 D1: `glassGroup="auto"`, alone or in a choice with
@@ -997,7 +981,7 @@ component App
       box class=Panel left=20 top=80 width=200 height=200
         row testId="branch" gap=10
           box contextTarget="bubble" width=100 height=40
-          when shown
+          if shown
             box testId="side" width=40 height=40
               box testId="side-absolute" position="absolute" right=0 bottom=0 width=5 height=5
         box testId="trailing" width=70 height=20
@@ -1050,13 +1034,13 @@ fn repeated_context_branches_contain_descendants_in_every_instance() {
     for virtualized in ["", "virtualized=true"] {
         let source = format!(
             r#"component App
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   view
     column
       box id="bubble" height=10
       box position="absolute" width=200 height=200
         list height=100 {virtualized}
-          each x in rows key=x
+          for x in rows key=x
             box testId=`row-${{x}}` width=100 height=30
               box contextTarget="bubble" width=20 height=10
               box testId=`absolute-${{x}}` position="absolute" right=0 bottom=0 width=5 height=5
@@ -1286,6 +1270,22 @@ fn a_css_width_transition_names_the_engine_limit_not_a_syntax_error() {
         e.message.contains("opacity") && e.message.contains("border-color"),
         "{e}"
     );
+    // Each layout property's refusal leads with the row that animates it
+    // (LLP 1063 D6), and every example it gives compiles; an inset's needs a
+    // positioned box, so it is not a no-op on a static one.
+    for p in "width min-width margin flex-basis gap right left top bottom".split(' ') {
+        let m = refused(&format!("transition=\"{p} 200ms ease\"")).message;
+        assert!(
+            m.find("-exact-layout-transition") < m.find("opacity"),
+            "{m}"
+        );
+        let examples: Vec<&str> = m.split('`').filter(|s| s.starts_with("box ")).collect();
+        assert_eq!(examples.len(), 1, "{m}");
+        let inset = matches!(p, "right" | "left" | "top" | "bottom");
+        assert_eq!(examples[0].contains("position=\"absolute\""), inset, "{m}");
+        let app = format!("component App\n  state small = false\n  view\n    box position=\"relative\" height=200\n      {}\n", examples[0]);
+        contract::compile(&app).unwrap_or_else(|e| panic!("{p}: {e}"));
+    }
     assert!(!e.message.contains("not a CSS"), "{e}");
     let malformed = refused("transition=\"opacity 20ms gibberish\"");
     assert!(malformed.message.contains("invalid transition components"));
@@ -1399,7 +1399,7 @@ fn css_native_interaction_gaps_are_named_precisely() {
     for (name, value, reason) in [
         ("resize", "vertical", "user-controlled box geometry"),
         ("user-select", "all", "selection ownership"),
-        ("border", "1px dashed red", "native painters"),
+        ("border", "1px double red", "native painters"),
         ("text-decoration", "underline wavy", "native text painters"),
     ] {
         let source = format!("component App\n  view\n    text \"x\" {name}=\"{value}\"\n");
@@ -1448,6 +1448,18 @@ fn both_decoration_lines_are_written_as_css_in_either_order() {
     let e = refused("text-decoration=\"underline-line-through\"");
     assert!(
         e.message.contains("is spelled `underline line-through`"),
+        "{e}"
+    );
+}
+
+/// App farm wave 1: CSS's `background` shorthand names the longhand Contract takes.
+#[test]
+fn the_background_shorthand_names_background_color() {
+    let e = refused("background=\"#eee\" width=1 height=1");
+    assert!(
+        e.message.contains(
+            "CSS's `background` shorthand is not taken here: a colour is `background-color`"
+        ),
         "{e}"
     );
 }

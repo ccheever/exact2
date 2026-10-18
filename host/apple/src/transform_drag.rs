@@ -19,7 +19,7 @@ use super::{Batch, Host, HostError};
 use exact_kernel::{motion::motion_node, Kernel, NodeKey, TransformDragBinding, ViewId};
 use exact_motion::{Engine, HoldEnd, Property, TransformHold};
 use exact_runner::{DataSource, Event, Timed};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_RUNTIME: AtomicU64 = AtomicU64::new(1);
@@ -49,6 +49,7 @@ struct Active {
 pub(super) struct TransformDrags {
     runtime: u64,
     owner: Option<NodeKey>,
+    reported_targets: BTreeSet<NodeKey>,
     pub(super) mapping_pending: bool,
     handles: BTreeMap<ViewId, Handle>,
     // Existing Translate serial is the key, not a second pair serial/registry.
@@ -67,6 +68,7 @@ impl TransformDrags {
         Ok(Self {
             runtime,
             owner: None,
+            reported_targets: BTreeSet::new(),
             mapping_pending: false,
             handles: BTreeMap::new(),
             pairs: BTreeMap::new(),
@@ -417,19 +419,38 @@ impl<D: DataSource> Host<D> {
             .retain(|_, h| kernel.node_by_key(h.key).is_some());
         let mut first = None;
         let mut current_valid = false;
+        let mut valid = BTreeMap::new();
         for h in self.transform_drags.handles.values() {
             if !h.geometry_handler || !h.release_handler {
                 continue;
             }
             if let Some(b) = kernel.transform_drag_binding(h.key) {
+                valid.insert(
+                    b.target,
+                    kernel.node_by_key(b.target).expect("valid target").id,
+                );
                 first.get_or_insert(b.target);
                 current_valid |= self.transform_drags.owner == Some(b.target);
             }
         }
         // Keep one eligible owner across sibling handle removal; never steal a
-        // live owner for a second target. No retained history or per-frame scan.
+        // live owner for a second target.
         if !current_valid {
             self.transform_drags.owner = first;
+        }
+        // Forget a report when the target loses its last valid binding.
+        self.transform_drags
+            .reported_targets
+            .retain(|target| valid.contains_key(target));
+        if let Some(owner) = self.transform_drags.owner {
+            let owner_view = valid[&owner];
+            for (target, view) in valid {
+                if target != owner && self.transform_drags.reported_targets.insert(target) {
+                    self.log(&format!(
+                        "transformDragFor: target view #{view} passed over for owner view #{owner_view}; one owner (first valid, never stolen; LLP 1071)"
+                    ));
+                }
+            }
         }
     }
 
@@ -501,10 +522,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn transform_refused(&self) -> String {
-        format!(
-            "{{\"accepted\":false,\"batch\":{}}}",
-            self.refused(Batch::new(), None)
-        )
+        format!("{{\"accepted\":false,\"batch\":{}}}", self.refused(None))
     }
 
     fn transform_stale(&mut self) -> String {

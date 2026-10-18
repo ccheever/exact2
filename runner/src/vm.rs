@@ -9,6 +9,11 @@
 //! trusted. There is no closure, no heap of the VM's own, no ambient read that
 //! is not an operand: `performanceNow()` reads the clock the runner passes in.
 
+mod list_call;
+mod prepared;
+use list_call::list_call;
+pub(crate) use prepared::Prepared;
+
 use crate::machine::{self, Host, Kind, Machine, Num, Val};
 pub use crate::machine::{Instruction, Trap};
 use crate::stdlib;
@@ -51,16 +56,16 @@ pub const MAX_LIST_STEPS: u32 = 1 << 16;
 const REMEMBERED: u64 = 64;
 
 /// An instance's own slots — the values of the `state` a child component
-/// declared, one set per keyed row or shown `when`/`match` arm (LLP 1017
+/// declared, one set per keyed row or shown `if`/`match` arm (LLP 1017
 /// P4c) — shared by the instance and every frame that reaches it, so a
 /// read during an update and a write applied after an action's commit see
 /// one storage.
 pub type RowSlots = Rc<RefCell<BTreeMap<u32, Value>>>;
 
-/// One instance scope: what an `each` row or a `match` arm binds.
+/// One instance scope: what a `for` row or a `match` arm binds.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Frame {
-    /// The `each` item, when this scope is a keyed row.
+    /// The `for` item, when this scope is a keyed row.
     pub item: Option<Value>,
     /// The row's position in its list, from 0 (LLP 1062 D8).
     pub index: Option<usize>,
@@ -123,6 +128,8 @@ pub struct Env<'a> {
     pub failed_why: &'a [Option<crate::failure::Failure>],
     /// Whether each mutation has a request in flight.
     pub pending_mutations: &'a [bool],
+    /// Latest mutation failure; cleared by a new send or assignment.
+    pub failed_mutations: &'a [Option<crate::failure::Failure>],
     /// Store dependence of settled derives, for bake provenance propagation.
     pub store_dependent_derives: &'a [bool],
     /// Store dependence of settled resources, for bake provenance propagation.
@@ -136,72 +143,6 @@ fn step(steps: &mut u32, n: usize, pc: usize) -> Result<(), Trap> {
         return Err(Trap::IterationLimit { pc });
     }
     Ok(())
-}
-
-/// `concat`, `split`, and `slice`, `includes` and `indexOf` over a list
-/// (LLP 1088 §9.1), on this evaluation's budget as `join` is: the list steps
-/// first — one per item `concat`, `slice` and `split` keep, one per item
-/// `includes` and `indexOf` scan up to the match — then a list they build
-/// measured as `Opcode::List` measures one (LLP 1090 D3). `None` for
-/// `slice`, `includes` and `indexOf` over text.
-fn list_call(
-    f: Stdlib,
-    args: &[Value],
-    steps: &mut u32,
-    extents: &mut Extents,
-    pc: usize,
-) -> Result<Option<Value>, Trap> {
-    let mismatch = Trap::TypeMismatch {
-        pc,
-        op: Opcode::Call,
-    };
-    if f == Stdlib::Split {
-        let (Some(s), Some(sep)) = (args[0].as_str(), args[1].as_str()) else {
-            return Err(mismatch);
-        };
-        step(steps, crate::strings::pieces(s, sep), pc)?;
-        let built: Vec<Value> = (crate::strings::split(s, sep).iter())
-            .map(|p| Value::str(p))
-            .collect();
-        let e = extents.built(&built, pc)?;
-        let v = Value::list(built);
-        extents.remember(&v, e);
-        return Ok(Some(v));
-    }
-    let items = match (f, args.first()) {
-        (
-            Stdlib::Concat | Stdlib::Slice | Stdlib::Includes | Stdlib::IndexOf,
-            Some(Value::List(items)),
-        ) => items,
-        (Stdlib::Concat, _) => return Err(mismatch),
-        _ => return Ok(None),
-    };
-    let built = match (f, args.get(1), args.get(2)) {
-        (Stdlib::Concat, Some(Value::List(more)), _) => {
-            step(steps, items.len() + more.len(), pc)?;
-            crate::lists::concat(items, more)
-        }
-        (Stdlib::Slice, Some(Value::Number(a)), Some(Value::Number(b))) => {
-            let kept = crate::lists::slice(items, *a, *b);
-            step(steps, kept.len(), pc)?;
-            kept.to_vec()
-        }
-        (Stdlib::Includes, Some(x), _) => {
-            let at = crate::lists::position(items, x);
-            step(steps, at.map_or(items.len(), |i| i + 1), pc)?;
-            return Ok(Some(Value::Bool(at.is_some())));
-        }
-        (Stdlib::IndexOf, Some(x), _) => {
-            let at = crate::lists::index_of(items, x);
-            step(steps, at.map_or(items.len(), |i| i + 1), pc)?;
-            return Ok(Some(Value::Number(at.map_or(-1.0, |i| i as f64))));
-        }
-        _ => return Err(mismatch),
-    };
-    let e = extents.built(&built, pc)?;
-    let v = Value::list(built);
-    extents.remember(&v, e);
-    Ok(Some(v))
 }
 
 /// A value's expanded extent: its values (a shared one counted once per
@@ -420,22 +361,174 @@ pub fn is_literal(code: &[u8]) -> bool {
 /// Evaluate `code` in `env`. `allowed_writes` bounds `StoreSlot`; an action
 /// passes its `writes` range, an expression passes nothing.
 ///
-/// The loop is [`machine::run`], over [`Value`] and this environment.
+/// The interpreter is [`machine::run`], over [`Value`] and this environment.
+/// An initial row-field read is fused before the remaining instructions run.
 pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcome, Trap> {
+    eval_reusing(code, env, allowed_writes, &mut Scratch::default())
+}
+
+/// Allocation storage shared by evaluations in one tree update. Values
+/// never survive an evaluation, including one that traps inside a callback.
+pub(crate) struct Scratch {
+    machine: Machine<Value, Extent>,
+    extents: Extents,
+}
+
+impl Default for Scratch {
+    fn default() -> Self {
+        let mut machine = Machine::new();
+        machine.stack = Vec::with_capacity(16);
+        Self {
+            machine,
+            extents: Extents::default(),
+        }
+    }
+}
+
+pub(crate) fn eval_reusing(
+    code: &[u8],
+    env: &Env<'_>,
+    allowed_writes: &[u32],
+    scratch: &mut Scratch,
+) -> Result<Outcome, Trap> {
+    if let Some(value) = prepare_projection(code, env, scratch)? {
+        return Ok(Outcome {
+            value,
+            ..Outcome::default()
+        });
+    }
+    eval_machine(code, env, allowed_writes, scratch)
+}
+
+/// A binding consumes only the result, with no slot writes admitted.
+/// Complete projections need no temporary effect vectors in an `Outcome`.
+#[inline]
+pub(crate) fn eval_value_reusing(
+    code: &[u8],
+    env: &Env<'_>,
+    scratch: &mut Scratch,
+) -> Result<Value, Trap> {
+    if let Some(value) = prepare_projection(code, env, scratch)? {
+        return Ok(value);
+    }
+    Ok(eval_machine(code, env, &[], scratch)?.value)
+}
+
+#[inline]
+fn prepare_projection(
+    code: &[u8],
+    env: &Env<'_>,
+    scratch: &mut Scratch,
+) -> Result<Option<Value>, Trap> {
+    if let Some(value) = field_projection(code, env) {
+        let value = value?;
+        if code.get(6..) == Some(&[Opcode::Return as u8]) {
+            return Ok(Some(value));
+        }
+        if let Some(value) = projected_string_default(code, env, &value) {
+            return Ok(Some(value));
+        }
+        // Preserve byte offsets for every jump and trap in the remaining body.
+        scratch.machine.stack.push(value);
+        scratch.machine.pos = 6;
+    }
+    Ok(None)
+}
+
+// A projected string passed to `s == literal ? replacement : s`, with the
+// parameter bound once. Recognize the complete body, including both jump
+// targets and the local's lifetime; every other body uses the interpreter.
+fn projected_string_default(code: &[u8], env: &Env<'_>, value: &Value) -> Option<Value> {
+    if !value.is_str() {
+        return None;
+    }
+    let (literal, replacement) = prepared::string_default(code)?;
+    let literal = literal as usize;
+    let literal = env.strings.get(literal)?;
+    if !literal.is_str() {
+        return None;
+    }
+    if value == literal {
+        env.strings.get(replacement as usize).cloned()
+    } else {
+        Some(value.clone())
+    }
+}
+
+// The general interpreter remains the oracle for a projected row field.
+fn eval_machine(
+    code: &[u8],
+    env: &Env<'_>,
+    allowed_writes: &[u32],
+    scratch: &mut Scratch,
+) -> Result<Outcome, Trap> {
     let mut run = Run {
         env,
         code,
         allowed_writes,
         cursor: Reader::new(code),
         out: Outcome::default(),
-        extents: Extents::default(),
+        extents: std::mem::take(&mut scratch.extents),
         steps: 0,
     };
-    let mut m = Machine::new();
-    m.stack = Vec::with_capacity(16);
-    run.out.value = machine::run(&mut run, &mut m)?;
+    let value = machine::run(&mut run, &mut scratch.machine);
+    scratch.machine.pos = 0;
+    scratch.machine.stack.clear();
+    scratch.machine.locals.clear();
+    scratch.machine.callbacks.clear();
+    run.extents.0.clear();
+    scratch.extents = run.extents;
+    run.out.value = value?;
     Ok(run.out)
 }
+
+/// Read an initial row field without cloning its enclosing record. The rest
+/// of the expression still runs on the interpreter with its original offsets.
+fn field_projection(code: &[u8], env: &Env<'_>) -> Option<Result<Value, Trap>> {
+    let &[load, dl, dh, field, il, ih] = code.get(..6)? else {
+        return None;
+    };
+    if (load != Opcode::LoadItem as u8 && load != Opcode::LoadBound as u8)
+        || field != Opcode::Field as u8
+    {
+        return None;
+    }
+    let depth = u16::from_le_bytes([dl, dh]);
+    let index = u16::from_le_bytes([il, ih]);
+    Some((|| {
+        let frame = frame_at(env.frames, depth as usize, 0)?;
+        let value = if load == Opcode::LoadItem as u8 {
+            &frame.item
+        } else {
+            &frame.bound
+        };
+        let value = value.as_ref().ok_or(Trap::BadScope { pc: 0, depth })?;
+        match value {
+            Value::Record(fields) => fields
+                .get(index as usize)
+                .cloned()
+                .ok_or(Trap::BadField { pc: 3, index }),
+            _ => Err(Trap::TypeMismatch {
+                pc: 3,
+                op: Opcode::Field,
+            }),
+        }
+    })())
+}
+
+fn frame_at(frames: &[Frame], depth: usize, pc: usize) -> Result<&Frame, Trap> {
+    frames
+        .len()
+        .checked_sub(depth + 1)
+        .and_then(|i| frames.get(i))
+        .ok_or(Trap::BadScope {
+            pc,
+            depth: depth as u16,
+        })
+}
+
+#[cfg(test)]
+mod projection_tests;
 
 /// The runner's value, as the machine sees it.
 impl Val for Value {
@@ -505,7 +598,7 @@ impl Val for Value {
 
     #[inline]
     fn str_eq(a: &Value, b: &Value) -> bool {
-        Value::same_str(a, b) || a.as_str() == b.as_str()
+        a == b
     }
 
     fn str_cmp(op: Num, a: &Value, b: &Value) -> bool {
@@ -641,16 +734,11 @@ impl Host<Value> for Run<'_, '_> {
 
     fn load_frame(&self, op: Opcode, depth: u64, pc: usize) -> Result<Value, Trap> {
         let depth = depth as usize;
-        let frames = self.env.frames;
         let bad = Trap::BadScope {
             pc,
             depth: depth as u16,
         };
-        let frame = frames
-            .len()
-            .checked_sub(depth + 1)
-            .and_then(|i| frames.get(i))
-            .ok_or(bad.clone())?;
+        let frame = frame_at(self.env.frames, depth, pc)?;
         match op {
             Opcode::LoadIndex => frame.index.map(|index| Value::Number(index as f64)),
             Opcode::LoadItem => frame.item.clone(),
@@ -674,15 +762,17 @@ impl Host<Value> for Run<'_, '_> {
     }
 
     // @ref LLP 1109 D3 — `failure(x)`: known once settled, as `failed(x)`;
-    // the `Failure` record is `{ code, message }` by position.
+    // the `Failure` record is `{ code, message, reason }` by position.
     fn resource_failure(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
         if !self.resource_flag(Opcode::FailedResource, i, pc)? {
             return Ok(Value::Option(None));
         }
         let why = self.env.failed_why.get(i as usize).and_then(Option::as_ref);
-        let (code, message) = why.map_or(("error", "it failed"), |w| (w.code.name(), &w.message));
+        let (code, message, reason) = why.map_or(("error", "it failed", ""), |w| {
+            (w.exposed_code(), w.message.as_str(), w.reason.as_str())
+        });
         let record = Value::Record(
-            [Value::str(code), Value::str(message)]
+            [Value::str(code), Value::str(message), Value::str(reason)]
                 .into_iter()
                 .collect(),
         );
@@ -690,6 +780,36 @@ impl Host<Value> for Run<'_, '_> {
     }
 
     #[inline]
+    fn mutation_failed(&self, i: u64) -> bool {
+        self.env
+            .failed_mutations
+            .get(i as usize)
+            .is_some_and(Option::is_some)
+    }
+
+    fn mutation_failure(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
+        let Some(why) = self
+            .env
+            .failed_mutations
+            .get(i as usize)
+            .and_then(Option::as_ref)
+        else {
+            return Ok(Value::Option(None));
+        };
+        self.some(
+            Value::Record(
+                [
+                    Value::str(why.exposed_code()),
+                    Value::str(&why.message),
+                    Value::str(&why.reason),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            pc,
+        )
+    }
+
     fn pending_mutation(&self, i: u64) -> bool {
         self.env
             .pending_mutations
@@ -870,6 +990,10 @@ mod tests {
     use exact_plan::builder::PlanBuilder;
 
     fn run(body: Asm) -> Result<Outcome, Trap> {
+        run_reusing(body, &mut Scratch::default())
+    }
+
+    fn run_reusing(body: Asm, scratch: &mut Scratch) -> Result<Outcome, Trap> {
         let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
         let code = b.code(body);
         let plan = b.finish().unwrap();
@@ -891,10 +1015,53 @@ mod tests {
             failed_resources: &[],
             failed_why: &[],
             pending_mutations: &[],
+            failed_mutations: &[],
             store_dependent_derives: &[],
             store_dependent_resources: &[],
         };
-        eval(plan.code(code), &env, &[])
+        eval_reusing(plan.code(code), &env, &[], scratch)
+    }
+
+    #[test]
+    fn reused_storage_does_not_carry_locals_stacks_or_failed_callbacks() {
+        let mut scratch = Scratch::default();
+        for _ in 0..100 {
+            let mut local = Asm::new();
+            local.number(2.0).bind_local().number(7.0);
+            assert_eq!(
+                run_reusing(local, &mut scratch).unwrap().value,
+                Value::Number(7.0)
+            );
+            let mut read = Asm::new();
+            read.load_local(0);
+            assert!(matches!(
+                run_reusing(read, &mut scratch),
+                Err(Trap::BadScope { .. })
+            ));
+            let mut pop = Asm::new();
+            pop.simple(Opcode::Pop);
+            assert!(matches!(
+                run_reusing(pop, &mut scratch),
+                Err(Trap::StackUnderflow { .. })
+            ));
+            let mut callback = Asm::new();
+            let end = callback.label();
+            ones(&mut callback, 2)
+                .each_item(Opcode::Map, end)
+                .number(1.0)
+                .simple(Opcode::Return)
+                .place(end);
+            assert!(matches!(
+                run_reusing(callback, &mut scratch),
+                Err(Trap::Malformed { .. })
+            ));
+            let mut valid = Asm::new();
+            valid.number(41.0).number(1.0).simple(Opcode::Add);
+            assert_eq!(
+                run_reusing(valid, &mut scratch).unwrap().value,
+                Value::Number(42.0)
+            );
+        }
     }
 
     /// `x` on the stack becomes `[x, x]`, `times` times, through a local.
@@ -996,6 +1163,7 @@ mod tests {
             failed_resources: &[],
             failed_why: &[],
             pending_mutations: &[],
+            failed_mutations: &[],
             store_dependent_derives: &[],
             store_dependent_resources: &[],
         };
@@ -1218,6 +1386,7 @@ mod tests {
                 failed_resources: &[],
                 failed_why: &[],
                 pending_mutations: &[],
+                failed_mutations: &[],
                 store_dependent_derives: &[],
                 store_dependent_resources: &[],
             };

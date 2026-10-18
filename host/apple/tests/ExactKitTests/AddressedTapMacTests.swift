@@ -49,6 +49,7 @@ final class AddressedTapMacTests: XCTestCase {
 
     private func rows() -> (Agent, () -> [UInt32]) {
         _ = NSApplication.shared
+        clicksArriveAsInTheKeyWindow() // the agent's own rule, which a test's process does not have (LLP 1115.000 D7.9)
         let session = ExactApp.shared.makeSession(label: "addressed-tap-mac")
         self.session = session
         let p = session.presenter
@@ -109,6 +110,34 @@ final class AddressedTapMacTests: XCTestCase {
         let second = agent.tap(wire)
         XCTAssertNil(second["error"], "\(second)")
         XCTAssertEqual(presses(), [32], "the second run, at a point in it: \(second)")
+    }
+
+    func testAFieldOrACheckboxTakesTheClickAndPressesNoAncestor() throws {
+        let (agent, presses) = rows(), p = try XCTUnwrap(session?.presenter), win = try XCTUnwrap(window)
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "input", "props": ["value": "draft"]],
+            ["op": "create", "id": 21, "kind": "control", "props": ["type": "checkbox"]],
+            ["op": "create", "id": 22, "kind": "control", "props": ["type": "button"]],
+            ["op": "create", "id": 23, "kind": "text", "props": ["text": "Beside the controls"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [20, 21, 22, 23]],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 400, "h": 400],
+        ] + (20...23).map { ["op": "frame", "id": $0, "x": 20, "y": ($0 - 20) * 60 + 20, "w": 240, "h": 40] }))
+        p.viewport.layoutSubtreeIfNeeded()
+        for id: UInt32 in [20, 21] {
+            let node = try XCTUnwrap(p.views[id])
+            let point = node.convert(NSPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil)
+            if case .control(let owner)? = agent.pressReach(node, at: point, in: win) {
+                XCTAssertTrue(owner === node)
+            } else { XCTFail("the addressed walk must stop at native control \(id)") }
+            let tap = agent.tap(["id": Int(id)])
+            XCTAssertNil(tap["error"], "\(tap)")
+            XCTAssertEqual(presses(), [], "the native click must not press the ancestor")
+            if let field = node.field { XCTAssertTrue(field.currentEditor() === win.firstResponder) }
+        }
+        // A native button's click presses the nearest handler, as a person's does.
+        XCTAssertNil(agent.tap(["id": 22])["error"])
+        XCTAssertNil(agent.tap(["id": 23])["error"])
+        XCTAssertEqual(presses(), [2, 2])
     }
 }
 #endif

@@ -36,6 +36,7 @@ enum Pending {
 /// host worker. On the web the dedicated request is executed by browser storage.
 pub struct Storage<D> {
     source: D,
+    document_owner: u64,
     directories: Option<Directories>,
     active: bool,
     effects: bool,
@@ -45,12 +46,18 @@ pub struct Storage<D> {
     /// A scripted drive (`EXACT_AGENT=1`): storage is the scratch store it
     /// names, else none.
     agent: bool,
+    /// Lines for the journal beside the source's own: the first write such a
+    /// drive refuses, as a TypeScript source's prelude says it (LLP 1102 §3.17).
+    logs: Vec<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    told_agent: bool,
 }
 impl<D> Storage<D> {
     /// Wrap a source without creating storage or starting any thread.
     pub fn new(source: D) -> Self {
         Self {
             source,
+            document_owner: 0,
             directories: None,
             active: false,
             effects: false,
@@ -58,6 +65,9 @@ impl<D> Storage<D> {
             pending: BTreeMap::new(),
             alive: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
             agent: std::env::var("EXACT_AGENT").as_deref() == Ok("1"),
+            logs: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            told_agent: false,
         }
     }
 }
@@ -143,6 +153,22 @@ fn unavailable(s: impl Into<String>) -> DataError {
     DataError::Unavailable(s.into())
 }
 impl<D: DataSource> DataSource for Storage<D> {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.source.prepare_snapshot(module, deadline)
+    }
+    fn take_storage_changed(&mut self) -> bool {
+        self.source.take_storage_changed()
+    }
+
+    fn set_document_owner(&mut self, owner: u64) {
+        self.document_owner = owner;
+        self.source.set_document_owner(owner);
+    }
+
     fn preload(&self) -> Result<bool, DataError> {
         self.source.preload()
     }
@@ -257,6 +283,7 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
         let mut next = Self::new(self.source.replacement(plan, receipt, module)?);
         next.directories = self.directories.clone();
+        next.document_owner = self.document_owner;
         next.agent = self.agent;
         Ok(next)
     }
@@ -365,7 +392,9 @@ impl<D: DataSource> DataSource for Storage<D> {
     }
 
     fn take_logs(&mut self) -> Vec<String> {
-        self.source.take_logs()
+        let mut lines = std::mem::take(&mut self.logs);
+        lines.extend(self.source.take_logs());
+        lines
     }
 
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
@@ -377,9 +406,17 @@ impl<D: DataSource> DataSource for Storage<D> {
             #[cfg(not(target_arch = "wasm32"))]
             Pending::Storage(payload, grants) => {
                 let paths = self.directories.clone();
+                let owner = self.document_owner;
                 let alive = self.alive.clone();
                 let refused =
                     paths.is_none() && self.agent && !native::independent_storage(&payload);
+                if refused && !self.told_agent {
+                    self.told_agent = true;
+                    self.logs.push(format!(
+                        "storage refused (agent): {}",
+                        native::AGENT_REFUSAL
+                    ));
+                }
                 Some(Box::new(move || {
                     if !alive.load(std::sync::atomic::Ordering::Acquire) {
                         return Outcome::Failed {
@@ -390,7 +427,7 @@ impl<D: DataSource> DataSource for Storage<D> {
                     if refused {
                         return native::agent_refusal();
                     }
-                    native::run(paths.as_ref(), &grants, &payload)
+                    native::run(paths.as_ref(), &grants, &payload, owner)
                 }))
             }
         }

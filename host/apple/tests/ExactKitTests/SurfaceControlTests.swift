@@ -4,6 +4,7 @@ import AppKit
 import UIKit
 #endif
 import XCTest
+import CryptoKit
 @testable import ExactKit
 @testable import ExactSurfaces
 
@@ -14,6 +15,27 @@ private var replacements = 0
 var controlEvents: [[String: Any]] = []
 private var boundObjects: [NSDictionary] = []
 final class SurfaceControlTests: XCTestCase {
+    func testArchivedGpuFrameworksKeepTheBakedDigestAndDevelopmentDylibPath() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for (artifact, name) in [("", "ExactGpu"), ("title-sky", "ExactGpu_title_sky")] {
+            let loose = directory.appendingPathComponent(GpuModule.loadName(artifact: artifact)).path
+            XCTAssertEqual(GpuModule.embeddedPath(directory: directory.path, artifact: artifact), loose)
+            let framework = directory.appendingPathComponent("\(name).framework")
+            try FileManager.default.createDirectory(at: framework, withIntermediateDirectories: true)
+            let binary = framework.appendingPathComponent(name), bytes = Data("signed GPU product".utf8)
+            try bytes.write(to: binary)
+            let path = GpuModule.embeddedPath(directory: directory.path, artifact: artifact)
+            XCTAssertEqual(path, binary.path)
+            let card: [String: Any] = ["app": "test.app", "cohort": "cohort",
+                "sha256": SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()]
+            let embedded: [String: Any] = artifact.isEmpty ? ["gpu": card] : ["gpuModules": [artifact: card]]
+            let compat: [String: Any] = ["id": "cohort", "inputs": ["app": "test.app"], "embedded": embedded]
+            XCTAssertNil(GpuModule.verify(path: path, compat: compat, artifact: artifact))
+            try Data("changed after bake".utf8).write(to: binary)
+            XCTAssertTrue(try XCTUnwrap(GpuModule.verify(path: path, compat: compat, artifact: artifact)).message.contains("digest mismatch"))
+        }
+    }
     override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     func fixture() -> (ExactSession, NodeView, NodeView) {
         #if os(macOS)
@@ -99,6 +121,7 @@ final class SurfaceControlTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
     func testR15PointerButtonReturnsSpaceToCanvasAndKeyboardKeepsFocus() {
+        keyboardNavigation(true) // Tab reaches the button below (LLP 1115.000 D7.2)
         let (s, canvas, button) = fixture(); defer { s.destroy() }
         button.props.removeValue(forKey:"action"); button.handlers.insert("press")
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
@@ -150,19 +173,25 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertTrue(controlEvents.contains { $0["code"] as? String == "KeyX" && $0["down"] as? Bool == true })
         withExtendedLifetime(window) {}
     }
-    func testDetachedKeyboardButtonReturnsEnterAndSpaceToOriginalCanvas() {
-        for (characters,keyCode): (String,UInt16) in [("\r",36),(" ",49)] {
+    /// Space presses the focused button (LLP 1115.000 D7.3), and the press
+    /// that removes it hands the keys back to its canvas; Return presses no
+    /// merely focused button, so it stays.
+    func testDetachedKeyboardButtonReturnsSpaceToOriginalCanvasAndReturnPressesNothing() {
+        for (characters,keyCode,presses): (String,UInt16,Bool) in [("\r",36,false),(" ",49,true)] {
             let (s, canvas, button) = fixture()
             button.props.removeValue(forKey:"action"); button.handlers.insert("press")
             let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
             window.contentView=s.presenter.viewport
             XCTAssertTrue(window.makeFirstResponder(button))
+            var pressed=0
             s.presenter.onPress = { _ in
+                pressed+=1
                 s.presenter.apply(wireBatch([["op":"destroy","id":Int(button.id)]]))
             }
             let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:characters,charactersIgnoringModifiers:characters,isARepeat:false,keyCode:keyCode)!
             window.sendEvent(event)
-            XCTAssertTrue(window.firstResponder === canvas)
+            XCTAssertEqual(pressed,presses ? 1 : 0)
+            XCTAssertTrue(window.firstResponder === (presses ? canvas : button))
             s.destroy(); withExtendedLifetime(window) {}
         }
     }
@@ -179,8 +208,8 @@ final class SurfaceControlTests: XCTestCase {
                 s.presenter.apply(wireBatch([["op":"destroy","id":Int(button.id)]]))
                 XCTAssertTrue(window.makeFirstResponder(explicit))
             }
-            let enter=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:"\r",charactersIgnoringModifiers:"\r",isARepeat:false,keyCode:36)!
-            window.sendEvent(enter)
+            let space=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:" ",charactersIgnoringModifiers:" ",isARepeat:false,keyCode:49)!
+            window.sendEvent(space)
             XCTAssertTrue(window.firstResponder === explicit)
             withExtendedLifetime((window,canvas)) {}
         }
@@ -370,9 +399,12 @@ final class SurfaceControlTests: XCTestCase {
         let (s,_,_) = fixture(); defer { s.destroy() }
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:200,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
         window.contentView=s.presenter.viewport
-        let agent=s.agentInstance; agent.contact=CGPoint(x:50,y:50)
+        let agent=s.agentInstance
+        let down=agent.contact("down",["id":100,"x":50.0,"y":50.0])
+        XCTAssertEqual(down["delivery"] as? String,"platform"); XCTAssertNotNil(agent.contact)
         let reply=agent.contact("cancel",[:])
         XCTAssertEqual(reply["delivery"] as? String,"platform"); XCTAssertNil(agent.contact)
+        XCTAssertNil(agent.contactWindow)
         withExtendedLifetime(window) {}
     }
     #else

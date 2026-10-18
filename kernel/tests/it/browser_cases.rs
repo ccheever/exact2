@@ -11,7 +11,7 @@ use exact_kernel::{
 };
 use std::collections::BTreeMap;
 
-pub(crate) type Rows = Vec<(StyleId, StyleValue)>;
+pub(crate) type Rows = Vec<(StyleId, StyleValue<'static>)>;
 
 pub(crate) fn props(rows: &Rows) -> StyleProps {
     let mut p = StyleProps::default();
@@ -62,6 +62,7 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "align-self" => &[AlignSelf],
             "flex-grow" => &[FlexGrow],
             "flex-shrink" => &[FlexShrink],
+            "flex-basis" => &[FlexBasis],
             "overflow" => &[OverflowX, OverflowY],
             "padding" => &[PaddingTop, PaddingRight, PaddingBottom, PaddingLeft],
             "padding-left" => &[PaddingLeft],
@@ -213,6 +214,44 @@ pub(crate) fn mismatches(case: &str, k: &Kernel, expected: &[(u32, [f32; 4])]) -
 
 fn empty(parent: u32, ids: &[u32]) -> Vec<(u32, u32, Rows)> {
     ids.iter().map(|id| (*id, parent, vec![])).collect()
+}
+
+/// Chrome 155, 2026-10-11: a 100×40 content box with 5px padding,
+/// mixed 1/2/4/3px sides and a 10px radius is 112×55 because the
+/// `none` left side uses zero width; its child's origin is (5, 6).
+#[test]
+fn patterned_border_widths_follow_chrome_layout() {
+    let box_rows = vec![
+        (Width, n(100.0)),
+        (Height, n(40.0)),
+        (PaddingTop, n(5.0)),
+        (PaddingRight, n(5.0)),
+        (PaddingBottom, n(5.0)),
+        (PaddingLeft, n(5.0)),
+        (BorderWidthTop, n(1.0)),
+        (BorderWidthRight, n(2.0)),
+        (BorderWidthBottom, n(4.0)),
+        (BorderWidthLeft, n(3.0)),
+        (BorderStyleTop, t("dotted")),
+        (BorderStyleRight, t("dashed")),
+        (BorderStyleBottom, t("solid")),
+        (BorderStyleLeft, t("none")),
+        (BorderRadiusTopLeft, n(10.0)),
+        (BorderRadiusTopRight, n(10.0)),
+        (BorderRadiusBottomRight, n(10.0)),
+        (BorderRadiusBottomLeft, n(10.0)),
+    ];
+    let k = lay_out(
+        StyleProps::default(),
+        vec![(2, 1, box_rows), (3, 2, css_rows("width:20px;height:10px"))],
+        &[],
+    );
+    let failures = mismatches(
+        "mixed patterned sides",
+        &k,
+        &[(2, [0.0, 0.0, 112.0, 55.0]), (3, [5.0, 6.0, 20.0, 10.0])],
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// A 400px-wide `display: grid` with these rows and track lists.
@@ -595,6 +634,60 @@ fn calc_of_a_percentage_and_a_length_resolves_against_the_containing_block() {
         ],
     );
     assert!(bad.is_empty(), "{bad:#?}");
+}
+
+#[test]
+fn measured_leaves_resolve_calc_against_the_containing_block() {
+    let ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::ScrollView,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&css_rows("width:100%;height:100%"))),
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::TextInput,
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(props(&css_rows(
+                "appearance:none;width:calc(100% - 48px);margin-top:8px;margin-right:24px;margin-bottom:8px;margin-left:24px;padding-top:14px;padding-right:18px;padding-bottom:14px;padding-left:18px;min-height:52px;box-sizing:border-box",
+            ))),
+        },
+        Op::CreateView {
+            id: 3,
+            node_type: NodeType::Text,
+        },
+        Op::SetStyle {
+            id: 3,
+            patch: Box::new(props(&css_rows("width:calc(50% + 10px)"))),
+        },
+        Op::SetProp {
+            id: 3,
+            prop: PropId::Text,
+            value: "Measured text".into(),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 3],
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    for (viewport, input_width, text_width) in [(402.0, 354.0, 211.0), (390.0, 342.0, 205.0)] {
+        let mut k = kernel();
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, Offer::definite(viewport, 874.0))
+            .unwrap();
+        let input = k.node(2).unwrap().frame;
+        assert_eq!(
+            (input.x, input.y, input.width, input.height),
+            (24.0, 8.0, input_width, 52.0)
+        );
+        assert_eq!(k.node(3).unwrap().frame.width, text_width);
+    }
 }
 
 /// Lays out a 400px-wide block holding `nodes` (`(id, parent, rows)`),

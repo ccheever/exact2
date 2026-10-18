@@ -97,11 +97,38 @@ function createGeometry(root) {
   // passed over — less what is not the app's own: a leaving node, the host's
   // drag ghost and anything else outside the root. The runner's kernel walk
   // answers the same natively.
-  const point = (x, y) => document.elementsFromPoint(x, y)
-    .find(el => el !== root && root.contains(el) && !el.closest('[data-exiting]')) ?? null;
+  const points = (x, y) => document.elementsFromPoint(x, y)
+    .filter(el => el !== root && root.contains(el) && !el.closest('[data-exiting]'));
+  const point = (x, y) => points(x, y)[0] ?? null;
+  const namedPoints = (x, y) => {
+    const hits = points(x, y), seen = new Set();
+    return hits.flatMap(el => {
+      let named = el;
+      if (!named.id) {
+        named = el.closest('[id]:not([id=""])');
+        if (!named || hits.includes(named)) return [];
+        const box = named.getBoundingClientRect();
+        if (x >= box.left && x < box.right && y >= box.top && y < box.bottom) return [];
+      }
+      if (named === root || seen.has(named)) return [];
+      seen.add(named);
+      return [named.id];
+    });
+  };
 
   return {
-    point,
+    point, points, namedPoints,
+    range(el, start, end, out) {
+      if (!el?.isConnected || !root.contains(el) || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') return 0;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start > end || end > (el.value?.length ?? 0)) return 0;
+      let box = el.exactDecorations?.rangeFrame(start, end);
+      if (!el.exactDecorations && typeof el.createValueRange === 'function') {
+        try { const range = el.createValueRange(start, end); box = range.getBoundingClientRect(); range.disconnect(); } catch { return 0; }
+      }
+      if (!box) return 0;
+      out.set([box.x, box.y, box.width, box.height]);
+      return ANSWERED | (el.exactDecorations?.applied?.provisional ? PROVISIONAL : 0);
+    },
     read(op, el, out) {
       if (!el?.isConnected || !root.contains(el)) return 0;
       const box = frame(el);

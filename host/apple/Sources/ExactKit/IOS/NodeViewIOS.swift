@@ -14,6 +14,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The kernel's id; a parked view takes a new row's and a new incarnation (`NodePool`, LLP 1068 §4.9).
     package var id: UInt32
     var incarnation = NodePool.issue()
+    /// Bumped where a touch's press contact here is cancelled for good
+    /// (moved, out of the window, disabled, made inert): a captured agent
+    /// press (`PressPath`) ends there too, even if the change is undone.
+    var pressEpoch: UInt64 = 0
     // Twice the kernel rank; transients never overwrite the authored answer.
     var rank: Int64 = 0
     var paintLifted = false
@@ -27,21 +31,39 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The rarely set fields (`NodeExtrasIOS.swift`); nil until one is set.
     var extras: NodeExtras?
     package override class var layerClass: AnyClass { NodeLayer.self }
-    /// The box is `draw(_:)`'s to paint: Core Animation cannot say it
-    /// (`applyBoxLayer`).
+    /// The box is `draw(_:)`'s to paint: Core Animation cannot say it (`applyBoxLayer`).
     var boxDrawn = false
     /// A uniform border under the children, where they can reach it.
     var boxBorder: CALayer?
-    var textRasterKey: TextRasterKey? { didSet { textRasterWhole = textRasterKey.map { $0.clip == nil } ?? false } }
+    /// A paragraph's specs, a third of what a view would otherwise hold
+    /// inline (`TextSpecs`); nil for a node that never had text.
+    private var specs: TextSpecs?
+    var textRasterKey: TextRasterKey? {
+        get { specs?.rasterKey }
+        set {
+            if newValue != nil || specs != nil { (specs ?? makeSpecs()).rasterKey = newValue }
+            textRasterWhole = newValue.map { $0.clip == nil } ?? false
+        }
+    }
     /// The key is set and paints the whole paragraph (not a band of it).
     private(set) var textRasterWhole = false
     var textRaster: CGImage?
     var textRasterLayer: CALayer?
     var textRasterFrame = CGRect.zero
+    /// The words and style `textRaster` paints, which the paragraph's may
+    /// have left behind since (`invalidateText` keeps the old pixels up).
+    var textRasterSpec: Spec? {
+        get { specs?.rasterSpec }
+        set { if newValue != nil || specs != nil { (specs ?? makeSpecs()).rasterSpec = newValue } }
+    }
     var textRasterScale: CGFloat = 1
     var textRasterReady = false
     var textRasterFailed = false
-    var cachedTextSpec: Spec?
+    var cachedTextSpec: Spec? {
+        get { specs?.cached }
+        set { if newValue != nil || specs != nil { (specs ?? makeSpecs()).cached = newValue } }
+    }
+    private func makeSpecs() -> TextSpecs { let made = TextSpecs(); specs = made; return made }
     var textLayoutValid = false
     var flowShapes: [TextFlowShape] = []
     var columnRecord: ColumnRecord?  // LLP 1093 D7: fragments or columns
@@ -67,7 +89,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // projection that means it hides again on its next pass.
             let css = style["display"]?.string == "none"
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
-            super.isHidden = hostHidden || css
+            let hidden = hostHidden || css
+            let changed = super.isHidden != hidden
+            super.isHidden = hidden
+            if changed, scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
         }
     }
     package var handlers: Set<String> = [] {
@@ -77,7 +102,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             updateLayoutPan()
             updateMaterial()
             updateRefresh()
-            if handlers.contains("scroll") { needScroll() }
+            if handlers.contains("scroll") || handlers.contains("scrollend") { needScroll() }
             #if !os(tvOS)
             if handlers.contains("hover"), hoverRecognizer == nil {
                 let g = UIHoverGestureRecognizer(target: self, action: #selector(hovering(_:)))
@@ -175,15 +200,38 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if CanvasInputs.owns(touch.view) { return false }
         if gestureRecognizer === swipeRecognizer, gestureRecognizer.numberOfTouches == 0 { swipeDownX = touch.location(in: window).x }
         if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
-        // A nested editor owns its selection gestures, including read-only
-        // text. A containing bubble's reply/Tapback recognizers must yield.
+        #if os(iOS)
+        if gestureRecognizer === contextRecognizer {
+            guard presenter?.menus.eligible(self, contextMenu: true) == true else { return false }
+            if let hit = touch.view as? NodeView, let source = hit.contextMenuSource, source !== self { return false }
+        }
+        #endif
+        if hitsNativeEditor(touch.view) { return false }
         var hit = touch.view
         while let current = hit, current !== self {
-            if current is UITextView || current is UITextField { return false }
             if (gestureRecognizer === heightRecognizer || gestureRecognizer === transformRecognizer || gestureRecognizer === transformContact?.pinch), current is UIScrollView { return false }
             hit = current.superview
         }
         return true
+    }
+    /// A nested editor owns its selection gestures, including read-only
+    /// text. Plain gestures and native context menus use the same boundary.
+    func hitsNativeEditor(_ view: UIView?) -> Bool { Self.nativeEditor(view, below: self) }
+    /// Whether `view` is in a native editor's view below `boundary`, which
+    /// owns its selection gestures.
+    static func nativeEditor(_ view: UIView?, below boundary: UIView) -> Bool {
+        var hit = view
+        while let current = hit, current !== boundary {
+            if current is UITextView || current is UITextField { return true }
+            hit = current.superview
+        }
+        return false
+    }
+    /// Whether a touch on `view` is native input's, which an ancestor's
+    /// long press or double tap never takes, below `boundary`: a canvas that
+    /// takes its own touches (`CanvasInputs`), or a native editor.
+    static func nativeInputOwns(_ view: UIView?, below boundary: UIView) -> Bool {
+        CanvasInputs.owns(view) || nativeEditor(view, below: boundary)
     }
     func updateContextGestures() {
         if handlers.contains("contextmenu"), contextRecognizer == nil {
@@ -213,7 +261,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         syncPointerRecognizer()
     }
     @objc func openContext(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began, !disabled else { return }
+        guard gesture.state == .began, !formDisabled else { return }
         // Where the press is, as a touch's `PointerEvent` (studio diary R22).
         let point = gesture.location(in: self), box = contentBox()
         let client = presenter?.client(gesture.location(in: nil)) ?? .zero
@@ -235,13 +283,20 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
     weak package var presenter: Presenter?
-    /// The scroll view a capability module sees (LLP 1047.001 D4).
-    package var scrollView: UIScrollView? { scroll }
-    package var scrollsVertically: Bool { scroll?.scrollsY ?? true }
+    /// The actual scroll port; a native list supplies its collection view.
+    /// `scroll` remains the plain scroller that holds authored children.
+    package var scrollView: UIScrollView? { extras?.nativeScrollView ?? scroll }
+    package var scrollsVertically: Bool { ["scroll", "auto"].contains(style["overflow_y"]?.string ?? "") }
+    var groupedOwner = false
+    package var ownsScrollDelegate: Bool {
+        guard let sv = scrollView else { return false }
+        return sv.delegate === (extras?.nativeScrollView == nil ? self : extras?.nativeScrollDelegate)
+    }
     package var scroll: ScrollView? {
         didSet {
-            if scroll == nil { presenter?.scrollers.remove(id) }
+            if scrollView == nil { presenter?.scrollers.remove(id) }
             else { presenter?.scrollers.insert(id) }
+            if scroll !== oldValue && extras?.nativeScrollView == nil { presenter?.keyboardToolbars.backendChanged() }
         }
     }
     /// A scroll container's content extent (the `content` op), before the
@@ -259,7 +314,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
     /// Off the accessibility tree: projected away, inert, or `aria-hidden`.
-    private var hidesAccessibility: Bool {
+    var hidesAccessibility: Bool {
         placementHidden || props["inert"] == "true" || props["accessibilityElementsHidden"] == "true"
     }
     /// An image node's picture, once loaded (decoded off the main thread),
@@ -274,32 +329,53 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var imageSource: String?
     var loadGeneration = 0
     package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
-    /// The focus came from a touch's press (PointerIOS, NativeButtonsIOS),
-    /// focus WebKit never gives a button on a tap: a button holding it does
-    /// not keep a later autofocus off (Accessibility). Tab and `focus(id)`
-    /// clear it (PresenterIOS); UIKit handing the focus back when the view
-    /// moves (into a presented sheet) keeps it.
-    package var focusedByTouch = false
-    /// The focus a touch's press takes (PointerIOS, NativeButtonsIOS, the
-    /// agent's tap), marked before `becomeFirstResponder` runs: its `focus`
-    /// handler can mount an autofocus field, whose pass must see the mark.
+    /// A surface control's focus from its touch (SurfaceInput), which the
+    /// author did not ask for: it does not keep a later autofocus off
+    /// (Accessibility). Tab and `focus(id)` clear it (`chooseFocus`).
+    package var focusedBySurfaceTouch = false
+    /// Marked before `becomeFirstResponder` runs: its `focus` handler can
+    /// mount an autofocus field, whose pass must see the mark.
     @discardableResult
-    func takeTouchFocus() -> Bool {
-        focusedByTouch = true
+    func takeSurfaceTouchFocus() -> Bool {
+        focusedBySurfaceTouch = true
         if becomeFirstResponder() { return true }
-        focusedByTouch = false
+        focusedBySurfaceTouch = false
         return false
     }
-    var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
+    /// The press's feedback (LLP 1061 D2) and the author's pressed paint
+    /// (D7), made at a node's first press: most nodes are never pressed, and
+    /// inline the two were 200 of a node's 1,336 bytes, a 1,536-byte block
+    /// where without them it takes one of 1,280.
+    private final class Pressing {
+        var feedback = PressFeedback()
+        var paint = PressPaint()
+    }
+    private var pressing: Pressing?
+    private var pressingMade: Pressing {
+        if let pressing { return pressing }
+        let made = Pressing()
+        pressing = made
+        return made
+    }
+    var press: PressFeedback {
+        get { pressing?.feedback ?? PressFeedback() }
+        set { if pressing != nil || !newValue.atRest { pressingMade.feedback = newValue } }
+        _modify { let made = pressingMade; yield &made.feedback }
+    }
+    var pressPaint: PressPaint {
+        get { pressing?.paint ?? PressPaint() }
+        set { if pressing != nil || !newValue.atRest { pressingMade.paint = newValue } }
+        _modify { let made = pressingMade; yield &made.paint }
+    }
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
-    package var inert: Bool {
-        var ancestor: UIView? = self
-        while let view = ancestor {
-            if (view as? NodeView)?.props["inert"] == "true" { return true }
-            ancestor = view.superview
-        }
-        return false
+    package var inert: Bool { presenter?.modals.inertBehind(self) == true || authoredInert }
+    /// Inert by an `inert` attribute at or above it, whatever is presented:
+    /// what an event bubbling out of a presentation still reaches.
+    package var authoredInert: Bool {
+        // Its logical ancestors, a presented route's included (LLP 1123 D2)
+        (presenter?.logicalAncestry(of: self) ?? sequence(first: self as UIView, next: \.superview))
+            .contains { ($0 as? NodeView)?.props["inert"] == "true" }
     }
     /// Images loaded since launch (smoke reporting).
     /// The session's text engine (LLP 1031 D12: the catalog is the session's).
@@ -314,15 +390,34 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// A hidden element is not exposed. Children stay in the tree: this is
     /// not `accessibilityElementsHidden`, which would hide them too.
     package override var isAccessibilityElement: Bool {
-        get { accessibilityExposed && super.isAccessibilityElement }
+        get {
+            guard kind == "native" else { return accessibilityExposed && super.isAccessibilityElement }
+            // A native module's box (LLP 1024): the module's own elements
+            // when its view has some; else the box, named by the Contract.
+            return accessibilityExposed && (super.isAccessibilityElement || authoredLabel != nil) && presenter?.session?.natives.speaksForItself(self) != true
+        }
         set { super.isAccessibilityElement = newValue }
     }
-    package override var canBecomeFirstResponder: Bool { !formDisabled && !inert && !cssVisibilityHidden && !isHidden && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents)) }
+    /// A native module's box whose view has elements of its own, named by
+    /// the Contract (`aria-label`): VoiceOver says the name entering them.
+    package override var accessibilityContainerType: UIAccessibilityContainerType {
+        get {
+            guard kind == "native", authoredLabel != nil, presenter?.session?.natives.speaksForItself(self) == true else { return super.accessibilityContainerType }
+            return .semanticGroup
+        }
+        set { super.accessibilityContainerType = newValue }
+    }
+    /// It hears focus, blur, keys or clipboard events (`focusEvents`), names a tabindex, or is a canvas taking input
+    private var asksForFocus: Bool { explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents) }
+    /// A tap focuses only a node that asked for focus: UIKit's buttons never become first responder from a
+    /// touch, though Tab and `focus(id)` reach them
+    var focusesOnPress: Bool { canBecomeFirstResponder && asksForFocus }
+    package override var canBecomeFirstResponder: Bool { !formDisabled && !inert && !cssVisibilityHidden && !isHidden && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || asksForFocus) }
     package override func becomeFirstResponder() -> Bool {
         guard !formDisabled, !inert, !cssVisibilityHidden else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged() }
-        if ok, handlers.contains("focus"), presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)
+        if ok, presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)
         return ok
     }
     package override func resignFirstResponder() -> Bool {
@@ -330,9 +425,18 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if ok { showFocusRing(false) }
         if ok { presenter?.collections.pinsChanged() }
         if ok && !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
-        if ok, handlers.contains("blur"), presenter?.menus.focus.quiet != true { presenter?.blur(id) }
+        if ok, presenter?.menus.focus.quiet != true { presenter?.blur(id) }
         return ok
     }
+    #if os(iOS)
+    /// A focused node is not text entry, as the view's shortcut focus is not
+    /// (ExactViewIOS): a menu that reloads its responder's input views (a
+    /// `select`'s) raised the software keyboard over its options once a
+    /// press had left a button focused (polls, LLP 1116 D2). A canvas
+    /// taking input keeps the system's.
+    private static let noKeyboard = UIView(frame: .zero)
+    package override var inputView: UIView? { isFirstResponder && canvases?.wantsInput(id) != true ? Self.noKeyboard : nil }
+    #endif
     /// A hardware keyboard's Tab and Shift-Tab move the focus through the
     /// sequential order, as macOS's key-view loop does (`Presenter.moveFocus`);
     /// Enter and Space then press (`pressesBegan`). UIKit gives text inputs a
@@ -385,7 +489,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let held = presses.first?.key.map { KeyCodes.held($0.modifierFlags) } ?? ""
         if !formDisabled, isFirstResponder, let key = presses.first?.key, let name, hardwareKey(key, down: true) || presenter?.controls.radioKey(self, name, held: held) == true { return }
         if inputCanvas?.canvasInput?.presses(presses, down: true, source: self) == true { return }
-        if !disabled, handlers.contains("press") || defaultLink != nil, let name, name == "Enter" || (name == " " && props["href"] == nil && UIDevice.current.userInterfaceIdiom != .tv) { presenter?.press(id); return }
+        if let name, activateKey(name) { return }
         super.pressesBegan(presses, with: event)
     }
     package override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -410,36 +514,26 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         set { super.accessibilityElements = newValue }
     }
     /// A text field's Enter as a key (its characters are its `input`, the
-    /// Enter commits its `change`); the editing goes on, as on the web.
-    package func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { !disabled && !inert }
+    /// Enter commits its `change`), then what Return does (`textFieldShouldReturn`).
+    package func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { applyPadBar(); return !disabled && !inert }
     package func textViewShouldBeginEditing(_ textView: UITextView) -> Bool { !disabled && !inert }
 
-    package func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-        guard !disabled, !inert, props["editable"] != "false" else { return false }
-        if props["emojiPicker"] == "true" {
-            if EmojiSelection.accepts(string) { presenter?.typed(id, string, input: handlers.contains("input")) }
-            return false
-        }
-        return TextInputLimit.allows(textField.text ?? "", range: range, replacement: string, props: props)
-    }
-
     package func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        guard !disabled else { return false }
+        presenter?.focusAsked = nil
+        guard !disabled, !inert else { return false }
         // The software keyboard's Return is a key the handlers hear first (a
         // hardware one's they heard in `pressesBegan`); prevented, it neither
         // commits nor submits.
         if (textField as? TextField)?.heard != "Enter", presenter?.keyDown(at: self, "Enter") == true { return false }
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
-        // Enter in an input with a `submit` handler is the web's implicit submission.
+        // Return runs the field's `submit`, then puts the keyboard away, as
+        // a hand-built field's delegate resigns it (LLP 1115.000 D9.2),
+        // unless that action focused this field again: "add another" keeps
+        // the keyboard and never lets go of it on the way. Next moves to the
+        // next field instead, and from the last one puts the keyboard away.
         if handlers.contains("submit") { presenter?.submit(id) }
-        // The key does what its label says (LLP 1115 wave 1): Next moves to
-        // the next field (or, at the last, puts the keyboard away); Done,
-        // Go, Search and Send put the keyboard away.
-        switch props["enterKeyHint"] {
-        case "next": if presenter?.moveFocus(backward: false, fields: true) != true { textField.resignFirstResponder() }
-        case "done", "go", "search", "send": textField.resignFirstResponder()
-        default: break
-        }
+        if props["enterKeyHint"] == "next", presenter?.focusNextField(after: self) == true { return false }
+        if presenter?.focusAsked !== self, textField.isFirstResponder { textField.resignFirstResponder() }
         return false
     }
 
@@ -487,21 +581,23 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func updateSymbol() {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
         isAccessibilityElement = false
-        let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize)
-        let weights: [UIImage.SymbolWeight] = [.ultraLight, .thin, .light, .regular, .medium, .semibold, .bold, .heavy, .black]
-        let index = min(8, max(0, Int((number("font_weight", 400) / 100).rounded()) - 1))
-        let key = "\(source):\(name):\(points):\(index):\(symbolLookKey)"
+        let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
+        let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)"
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
-            image = name.isEmpty ? nil : symbolImage(name, symbolConfiguration(UIImage.SymbolConfiguration(pointSize: points > 0 ? points : 1, weight: weights[index])))
+            image = name.isEmpty ? nil : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
             symbolFound = image != nil; if points <= 0 { image = nil }
             if name.isEmpty, !source.hasPrefix("symbol:sf/"), symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") { symbolRefusal = nil }
             let leaf = symbolView ?? UIImageView()
             if symbolView == nil { symbolView = leaf; addSubview(leaf) }
-            showSymbol(image, on: leaf); leaf.isAccessibilityElement = false; leaf.isUserInteractionEnabled = false
-            presenter?.queueIntrinsicSize(self, generation: generation, (image?.size ?? (points > 0 ? CGSize(width: points, height: points) : nil)))
+            // What the image says is its node's (`aria-label`), never the
+            // name UIKit gives the symbol, which a cell gathering its
+            // children's words would read ("checkmark.circle" is "selected").
+            showSymbol(image, on: leaf); leaf.isAccessibilityElement = false; leaf.accessibilityElementsHidden = true; leaf.isUserInteractionEnabled = false
+            // The symbol's size when the kernel's measurer could not say
+            presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
         symbolView?.tintColor = symbolTint // `nil` inherits UIKit's live tint
         if let leaf = symbolView { applySymbolEffect(leaf) }
@@ -509,17 +605,19 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     func layoutSymbol() {
         guard let leaf = symbolView else { return }
-        let uniform = number("border_width")
-        let content = bounds.insetBy(left: number("border_width_left", uniform) + number("padding_left"), top: number("border_width_top", uniform) + number("padding_top"), right: number("border_width_right", uniform) + number("padding_right"), bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+        let content = contentBox()
         leaf.frame = content; leaf.clipsToBounds = true
         switch style["object_fit"]?.string ?? "fill" {
-        case "contain": leaf.contentMode = .scaleAspectFit
         case "cover": leaf.contentMode = .scaleAspectFill
         case "none": leaf.contentMode = .center
         case "scale-down":
             let size = image?.size ?? .zero
             leaf.contentMode = size.width <= content.width && size.height <= content.height ? .center : .scaleAspectFit
-        default: leaf.contentMode = .scaleToFill
+        // `contain`, and `fill`: a symbol is a vector glyph, which keeps its
+        // aspect in a box of another shape as an SVG's default
+        // `preserveAspectRatio` (`xMidYMid meet`) keeps it, and as the web
+        // host's symbol mask draws it (LLP 1011 §4).
+        default: leaf.contentMode = .scaleAspectFit
         }
         // A square box clips nothing the content box does not.
         if cornerRadii(in: bounds).allSatisfy({ $0 == 0 }) { if leaf.layer.mask != nil { leaf.layer.mask = nil }; return }
@@ -530,6 +628,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        holdGone() // out of the map: a hold on it is let go (HeldState.swift)
+        cancelPressContact()
         let previousTransform = transformHold; transformHold = nil
         DispatchQueue.main.async { previousTransform?.cancel() }
         let previousHeight = heightHold; heightHold = nil
@@ -559,23 +659,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
-        registerForTraitChanges(SystemColor.traits) { (node: NodeView, _: UITraitCollection) in // platform colours follow contrast and level too (LLP 1095 D5)
-            // A control's accent, a tablist's tint and a grouped list's
-            // switches resolve per appearance in their projections.
-            if node.kind == "control" || node.kind == "list" || node.props["accessibilityRole"] == "tablist" {
-                node.presenter?.requestProjectionSync()
-            }
-            node.paragraphOwner.invalidateText()
-            node.paragraphOwner.setNeedsDisplay()
-            node.applyStyle(node.style)
-            // Its paint motion resolves in its own appearance (LLP 1062 D4),
-            // a `color-scheme` above it included (LLP 1034 §8).
-            node.presenter?.session?.noteAppearance(node)
-            // An `svg`'s paints are resolved into its scene's layers.
-            node.presenter?.svg.reappear(node.id, dark: node.drawsDark, clock: node.presenter?.session?.clock)
-            node.presenter?.requestTextPublication()
-            if let presenter = node.presenter, node.superview === presenter.root { presenter.paintCanvas() }
-        }
         // The box's background is the layer's (`applyBoxLayer`), never
         // UIView's: UIKit would reapply its own on a trait change.
         isOpaque = false
@@ -590,31 +673,62 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             overlay = o
         }
         if kind == "textarea" { makeTextArea() }
-        if kind == "input" {
-            let f = TextField(frame: .zero)
-            f.owner = self
-            f.borderStyle = .none
-            f.backgroundColor = .clear
-            f.delegate = self
-            f.addTarget(self, action: #selector(fieldChanged), for: .editingChanged)
-            addSubview(f)
-            field = f
-        }
+        if kind == "input" { if presenter.fieldsWaiting.contains(id) { fieldWaits = true } else { makeField() } }
         presenter.leaves.embed(self) // a video's player, an iframe's web view, a module's box (LLP 1068 §5.1)
     }
     required init?(coder: NSCoder) { nil }
 
+    /// Platform colours follow contrast and level too (LLP 1095 D5). UIKit
+    /// keeps a registry of about 700 bytes for each view that registers for
+    /// trait changes; this override hears the same changes for none.
+    @available(iOS, deprecated: 17.0)
+    @available(tvOS, deprecated: 17.0)
+    package override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        guard let previous, SystemColor.resolvesDifferently(previous, traitCollection) else { return }
+        // A control's accent, a tablist's tint and a grouped list's
+        // switches resolve per appearance in their projections.
+        if kind == "control" || kind == "list" || ["tablist", "radiogroup"].contains(props["accessibilityRole"] ?? "") {
+            presenter?.requestProjectionSync()
+        }
+        paragraphOwner.invalidateText()
+        paragraphOwner.setNeedsDisplay()
+        applyStyle(style)
+        presenter?.flats.appearanceChanged(id)
+        // Its paint motion resolves in its own appearance (LLP 1062 D4),
+        // a `color-scheme` above it included (LLP 1034 §8).
+        presenter?.session?.noteAppearance(self)
+        // An `svg`'s paints are resolved into its scene's layers.
+        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint)
+        presenter?.requestTextPublication()
+        if let presenter, superview === presenter.root { presenter.paintCanvas() }
+    }
+
     package override func didMoveToWindow() {
         super.didMoveToWindow()
+        if window == nil { pressEpoch &+= 1 }
+        if window == nil, pressContact?.routesBubbledPress == true { cancelPressContact() }
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
-        if window != nil { presenter?.flushPendingFocus() }
+        if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush() }
+        if window == nil, textRaster != nil { DispatchQueue.main.async { [weak self] in self?.dropTextRasterOffWindow() } }
+    }
+    /// Still off every window a turn later (a tab not shown, a covered
+    /// route, a parked row; not a view moved within a batch), its text lets
+    /// go of its pixels, as Core Animation lets go of a backing store there.
+    /// `display` paints them again when it is back: at once where it shows.
+    private func dropTextRasterOffWindow() {
+        guard window == nil, textRaster != nil else { return }
+        dropTextRaster()
+        layer.setNeedsDisplay()
     }
 
     /// Glass content participates in UIKit's interactive effect. Other
     /// materials remain background siblings of the authored children. A
     /// glass group is innermost (`GlassGroup.swift`).
     package var container: UIView { glassGroupView?.contentView ?? baseContainer }
+    /// Where layout put this box and where it is drawn (`PixelGridIOS.swift`).
+    package var grid: GridPlace?
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
@@ -639,42 +753,62 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The end the reader was following moved during their interaction:
     /// settle there when it ends, as a browser's scroll anchoring does.
     package func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { followEndIfOwed() }
+        guard scrollView === self.scrollView else { return }
+        // A follow of the end that animates ends with its animation.
+        if !decelerate, !followEndIfOwed() { endScroll() }
     }
-    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { followEndIfOwed() }
+    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { if scrollView === self.scrollView, !followEndIfOwed() { scrollMayHaveEnded(scrollView) } }
     package func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        guard scrollView === self.scrollView else { return }
         followingEndAnimated = false
         // A smooth correction's driver ends its own motion (`OffsetDriver`);
         // a UIKit animation's end is not its end.
         if let c = presenter?.collections, c.offsetDrivers[id] != nil || c.startOwed.contains(id) { return }
         presenter?.collections.animationEnded(id, atTarget: endedAtTarget(scrollView))
+        scrollMayHaveEnded(scrollView)
     }
-    private func followEndIfOwed() {
-        guard followsEndAfterInteraction, let sv = scroll else { return }
+    /// Whether it started an animation.
+    @discardableResult private func followEndIfOwed() -> Bool {
+        guard followsEndAfterInteraction, let sv = scrollView else { return false }
         followsEndAfterInteraction = false
         let maximum = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
-        if sv.contentOffset.y >= maximum - 80 { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: maximum), animated: true) }
         anchoredScrollTop = maximum
+        guard sv.contentOffset.y >= maximum - 80, abs(sv.contentOffset.y - maximum) > 0.5 else { return false }
+        sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: maximum), animated: true)
+        return true
     }
 
     package func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        presenter?.elementScrolls.userScrolled(scrollView) // its own scroller, or a grouped list's collection
+        guard scrollView === self.scrollView else { return }
         followingEndAnimated = false
         presenter?.collections.animationEnded(id, dragging: true)
         presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil
+        #if os(iOS)
+        if swipeOwner { presenter?.swipeActions.painted.began(self) }
+        #endif
     }
 
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
     package func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === self.scrollView else { return }
         let post = Presenter.signposts.beginInterval("scrolled")
         defer { Presenter.signposts.endInterval("scrolled", post) }
-        presenter?.onScrolled?(id, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
+        // The kernel's authored frames already include this content room.
+        // Keep the physical UI inset basis, but do not count native padding twice.
+        let room = extras?.nativeScrollContentInsets ?? .zero
+        presenter?.onScrolled?(id, Double(scrollView.contentOffset.x + room.left), Double(scrollView.contentOffset.y + room.top))
         presenter?.stickies.scrolled(id); presenter?.collections.changed(id, user: true)
+        #if os(iOS)
+        if swipeOwner, scrollView.isTracking { presenter?.swipeActions.painted.scrolled(self) }
+        #endif
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
         presenter?.reaimFixedGradients()
         presenter?.scrollPump.scrolled(self)
         repaintThrough()
+        scrollEndMoved(scrollView)
         // User scrolling is already a coherent position. Deliver before the
         // frame paints so authored scroll-linked geometry cannot lag a frame.
         // Layout-generated offsets still coalesce after the batch completes.
@@ -683,19 +817,21 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             sendScrollEvent()
         } else { queueScrollEvent() }
     }
-    private func sendScrollEvent() {
-        guard handlers.contains("scroll"), let sv = scroll, case let point = sv.contentOffset,
-              point != lastScrollEvent, presenter?.views[id] === self,
-              hasScrollLayoutBox else { return }
-        lastScrollEvent = point
+    func sendScrollEvent() {
+        guard handlers.contains("scroll"), let sv = scrollView,
+              presenter?.views[id] === self, hasScrollLayoutBox else { return }
+        let point = sv.contentOffset, top = scrollTopInset(sv)
+        guard point != lastScrollEvent.offset || top != lastScrollEvent.topInset else { return }
+        lastScrollEvent = (point, top)
         dispatchingScrollEvent = true
         defer { dispatchingScrollEvent = false }
-        // CSS's extents (`ScrollEvent`): the port inside the insets, and the
+        // CSS's extents (`ScrollEvent`): the port inside UI insets (native
+        // padding and footer room remain content), and the
         // port plus the range UIKit clamps a settled offset to, so at the
         // end `scrollHeight - scrollTop - clientHeight` is 0 (chat F4).
-        let inset = sv.adjustedContentInset, top = scrollTopInset(sv)
-        let port = CGSize(width: max(0, sv.bounds.width - inset.left - inset.right),
-                          height: max(0, sv.bounds.height - inset.top - inset.bottom))
+        let inset = sv.adjustedContentInset, viewportInset = scrollPortInsets(sv)
+        let port = CGSize(width: max(0, sv.bounds.width - viewportInset.left - viewportInset.right),
+                          height: max(0, sv.bounds.height - viewportInset.top - viewportInset.bottom))
         let range = CGSize(width: max(0, sv.contentSize.width + inset.right - sv.bounds.width),
                            height: max(0, sv.contentSize.height + inset.bottom - sv.bounds.height + top))
         presenter?.scroll(id, [point.x, point.y + top, port.width + range.width, port.height + range.height,
@@ -812,11 +948,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // that sets `auto` again is still a target.
             if passesThrough { return nil }
             guard bounds.contains(point) else { return nil }
+            if kind == "native", presenter?.session?.natives.declined(self, at: point, with: event) == true { return nil }
+            if event?.type == .touches, isParagraph { touchedText() } // selectable text takes its interaction for this touch
             // Interactive glass (a pressable glass box) answers a finger
             // itself, swelling and lighting under it, only for touches that
             // reach its effect view. Its content view is the target; the
-            // touch climbs the responder chain to this node, whose press is
-            // unchanged.
+            // touch climbs the responder chain to this node, whose press is unchanged.
             if event?.type == .touches, materialInteractive, Materials.glass(materialKind),
                let contentView = materialView?.contentView {
                 return contentView
@@ -865,22 +1002,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
     package func color(_ key: String, _ fallback: UIColor) -> UIColor { cgColor(key).map { UIColor(cgColor: $0) } ?? fallback }
+    /// CSS `::placeholder { color }` (LLP 1104 D3); nil, the platform's.
+    var placeholderColor: UIColor? { cgColor("placeholder_color").map { UIColor(cgColor: $0) } }
     func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
     package func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
         return fallback
-    }
-
-    /// The input's content box: padding and border sit on the node, the
-    /// field is the text inside — CSS's rule, so a placeholder lines up
-    /// with a native one.
-    func contentBox() -> CGRect {
-        let uniform = number("border_width")
-        return bounds.insetBy(
-            left: number("border_width_left", uniform) + number("padding_left"),
-            top: number("border_width_top", uniform) + number("padding_top"),
-            right: number("border_width_right", uniform) + number("padding_right"),
-            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
     }
 
     func applyPlaceholder(_ f: UITextField) {
@@ -891,9 +1018,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             f.placeholder = nil
             return
         }
-        // D3: UIKit's semantic placeholder colour on a native field. The
-        // explicitly bare editor preserves its existing authored ink rule.
-        let ink = isNativeTextControl ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
+        // UIKit's placeholder colour, which follows Increase Contrast: on a
+        // native field (D3), and on a bare one whose `color` is not its own
+        // (LLP 1115 §2, "inherited is unsaid": a grouped list's row gives
+        // its field the label colour). A bare field that writes its own
+        // colour mutes that ink.
+        // An authored `::placeholder` colour wins, its alpha its own (LLP 1104 D3).
+        let ink = placeholderColor ?? (isNativeTextControl || ownColor("text_color") == nil ? ThemeRoles.color("placeholder", in: self, or: UIColor.placeholderText) : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30))
         f.attributedPlaceholder = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -912,129 +1043,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         return true
     }
 
-    func captureScrollPosition() {
-        beforeLayoutScroll = scroll?.contentOffset
-        followedScroll = nil
-        readingAnchors.removeAll(keepingCapacity: true)
-        scrollAnchor = nil
-        guard props["scrollFollowEnd"] == "true", let sv = scroll else {
-            activeReadingAnchor = nil; anchoredScrollTop = nil; retainedScrollTop = nil
-            if let sv = scroll { captureScrollAnchor(sv) }
-            return
-        }
-        let maximum = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
-        // A retained route can gain height when another route hides the keyboard.
-        // That clamp is not the reader choosing the end. Keep its intended offset
-        // until the returning viewport can fit it, or the reader scrolls again.
-        if anchoredScrollTop != sv.contentOffset.y { retainedScrollTop = nil }
-        // An animated follow of the end (below) is still the end, mid-flight.
-        followedScroll = (retainedScrollTop ?? sv.contentOffset.y,
-                          (retainedScrollTop == nil && sv.contentOffset.y >= maximum - 1) || followingEndAnimated)
-        guard let followedScroll, !followedScroll.end, followedScroll.top > -sv.adjustedContentInset.top else { return }
-        // A scroll by the reader invalidates the prior choice. Anchoring's
-        // own adjustment does not: keep the same surviving row across batches.
-        if anchoredScrollTop == sv.contentOffset.y, let node = activeReadingAnchor,
-           presenter?.views[node.id] === node, node.isDescendant(of: sv), !node.isHidden {
-            let rect = node.convert(node.bounds, to: sv)
-            if rect.width > 0, rect.height > 0, rect.intersects(sv.bounds) { readingAnchors.append((node, rect.minY)) }
-        }
-        // Prefer the first fully visible box; descend into a partially visible
-        // one. This keeps a message stable when rows above it change height.
-        // Coordinates are in the scroll view's content space, not the window.
-        func anchors(in view: UIView) {
-            for case let node as NodeView in view.subviews where !node.isHidden {
-                let rect = node.convert(node.bounds, to: sv)
-                guard rect.width > 0, rect.height > 0, rect.intersects(sv.bounds) else { continue }
-                if !sv.bounds.contains(rect) { anchors(in: node.container) }
-                readingAnchors.append((node, rect.minY))
-            }
-        }
-        // Keep later visible candidates too: a deleted anchor cannot hold the
-        // reader's position, but the next surviving message still can.
-        anchors(in: sv)
-    }
-    func restoreScrollPosition() {
-        defer { followedScroll = nil; readingAnchors.removeAll(keepingCapacity: true); scrollAnchor = nil }
-        guard props["scrollFollowEnd"] == "true", let sv = scroll else {
-            if let sv = scroll { restoreScrollAnchor(sv) }
-            return
-        }
-        let minimum = -sv.adjustedContentInset.top
-        let maximum = max(minimum, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
-        let prior = followedScroll ?? (top: maximum, end: true)
-        var top = prior.top
-        activeReadingAnchor = nil
-        if !prior.end, let anchor = readingAnchors.first(where: {
-            presenter?.views[$0.node.id] === $0.node && $0.node.isDescendant(of: sv) &&
-                !$0.node.isHidden && $0.node.bounds.height > 0
-        }) {
-            activeReadingAnchor = anchor.node
-            top += anchor.node.convert(anchor.node.bounds, to: sv).minY - anchor.y
-        }
-        let y = Self.followedTop(current: sv.contentOffset.y, minimum: minimum, maximum: maximum, end: prior.end, top: top,
-                                 moving: sv.isTracking || sv.isDragging || sv.isDecelerating)
-        let inactive = window == nil || presenter?.navigation.isInactiveRoute(containing: self) == true
-        retainedScrollTop = !prior.end && top > maximum && (inactive || retainedScrollTop != nil) ? top : nil
-        // While the reader's finger is down or the fling is running, an
-        // absolute write would cut the pan, the deceleration or the rubber
-        // band (a batch every 250 ms yanked a bottom overscroll back to the
-        // end, mid-drag). Follow the end once the interaction is over, and
-        // keep a surviving row in place by moving the offset by its shift
-        // only, without clamping, as UIKit's own contentOffsetAdjustment does.
-        if sv.isTracking || sv.isDecelerating {
-            if prior.end { followsEndAfterInteraction = true }
-            else if top != prior.top { sv.contentOffset.y += top - prior.top }
-            anchoredScrollTop = sv.contentOffset.y
-            return
-        }
-        if sv.contentOffset.y != y {
-            // `scroll-behavior: smooth`: an end that moved down (a message
-            // appended) is followed with UIKit's scroll animation, as a
-            // smooth `scrollTop` write is; a shrink or a jump up lands at once.
-            let animate = prior.end && y > sv.contentOffset.y && style["scroll_behavior"]?.string == "smooth" && !ExactEnv.agentFreezes && window != nil
-            followingEndAnimated = animate
-            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: animate)
-        }
-        // UIKit quantizes the assigned offset. Compare its actual stored value
-        // next time so that rounding cannot masquerade as a reader's scroll.
-        anchoredScrollTop = sv.contentOffset.y
-    }
-
-
-    func applyPendingScroll() {
-        defer { pendingScrollTop = nil; pendingScrollLeft = nil }
-        guard let sv = scroll else { return }
-        // An authored position takes over from a smooth correction.
-        if (pendingScrollTop != nil || pendingScrollLeft != nil), presenter?.collections.animating.contains(id) == true {
-            presenter?.collections.stopAnimation(id)
-        }
-        if pendingScrollTop != nil { retainedScrollTop = nil }
-        guard hasScrollLayoutBox else {
-            if hiddenScroll == nil { hiddenScroll = beforeLayoutScroll ?? .zero }
-            return
-        }
-        let i = sv.adjustedContentInset
-        if let saved = hiddenScroll {
-            hiddenScroll = nil
-            let target = CGPoint(
-                x: min(max(saved.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)),
-                y: min(max(saved.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)))
-            if sv.contentOffset != target { sv.setContentOffset(target, animated: false) }
-        }
-        guard pendingScrollTop != nil || pendingScrollLeft != nil else { return }
-        // A collapsing title's scroller (LLP 1075.003 Stage 3): CSS counts
-        // from the bar's bottom, and its end is where the title rests
-        // collapsed (UIKit moves the offset by what the title gives up).
-        let inset = scrollTopInset(sv), slack = scrollOrigin > 0 ? max(0, i.top - scrollCollapsed) : 0
-        let y = pendingScrollTop.map { CGFloat($0) - inset == sv.contentOffset.y ? sv.contentOffset.y : min(max(CGFloat($0) - inset, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height - slack)) } ?? sv.contentOffset.y
-        let x = pendingScrollLeft.map { CGFloat($0) == sv.contentOffset.x ? sv.contentOffset.x : min(max(CGFloat($0), -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)) } ?? sv.contentOffset.x
-        let target = CGPoint(x: x, y: y)
-        // `scroll-behavior: smooth` (CSS) animates a prop write, never a
-        // reader's own scroll. Under the agent's frozen clock it lands at once
-        // (as a modal presents, LLP 1035.003 D5), so `layout` reads the target.
-        let smooth = style["scroll_behavior"]?.string == "smooth" && !ExactEnv.agentFreezes
-        if sv.contentOffset != target { sv.setContentOffset(target, animated: smooth) }
-    }
     var materialView: UIVisualEffectView? {
         get { extras?.materialView }
         set {
@@ -1050,7 +1058,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let interactive = Materials.glass(kind) && handlers.contains("press") && !disabled
         if materialKind != (supported ? kind : nil) {
             let children = container.subviews.compactMap { $0 as? NodeView }
-            materialView?.removeFromSuperview()
+            let old = materialView
             materialView = nil
             materialKind = nil
             if supported {
@@ -1062,7 +1070,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
                 materialView = effect
                 materialKind = kind
             }
-            for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
+            // The children move before the old effect goes, so they never
+            // leave the window: UIKit cancels the touches of a view that
+            // does, and a press held inside would end at the swap (euxy's
+            // dice, whose charge turned the capsule's glass off).
+            GlassGroups.moving(in: self) {
+                for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
+                old?.removeFromSuperview()
+            }
             presenter?.flats.containerChanged(id)
         }
         guard let materialView else { rehomeMaterialChildren(); return }
@@ -1084,14 +1099,17 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
         if style["mask_image"] != nil { applyBoxMask() }
     }
-    var nativeFieldContent: CGRect?
+    var kernelContentBox: CGRect?
+    /// The padding layout resolved and sent with `kernelContentBox`: top,
+    /// right, bottom, left (`nil` on a native button's unsaid side).
+    var kernelPadding: [CGFloat?]?
     var pendingScrollLeft: Double? {
         get { extras?.pendingScrollLeft }
-        set { if newValue != nil || extras != nil { more.pendingScrollLeft = newValue }; presenter?.pendingScrolls.insert(id) }
+        set { if newValue != nil || extras != nil { more.pendingScrollLeft = newValue; more.pendingScrollTransfer = false }; presenter?.pendingScrolls.insert(id) }
     }
     var pendingScrollTop: Double? {
         get { extras?.pendingScrollTop }
-        set { if newValue != nil || extras != nil { more.pendingScrollTop = newValue }; presenter?.pendingScrolls.insert(id) }
+        set { if newValue != nil || extras != nil { more.pendingScrollTop = newValue; more.pendingScrollTransfer = false }; presenter?.pendingScrolls.insert(id) }
     }
     func applyProps(set: [String: String], clear: [String]) {
         if clear.contains("action") { cancelSurfaceControls() }
@@ -1104,6 +1122,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         for k in clear { next.removeValue(forKey: k) }
         for (k, v) in set { next[k] = v }
         props = next
+        #if os(iOS)
+        let nativeList = kind == "list" && next["listStyle"] != nil
+        if groupedOwner != nativeList { groupedOwner = nativeList; syncScroll() }
+        #endif
+        if disabled { pressEpoch &+= 1; cancelPressContact() }
+        if props["inert"] == "true" { cancelPressContactsInSubtree() }
         swipeOwner = props["swipeContent"] != nil
         if set["symbolEffectValue"] != nil { updateSymbol() }
         if (pendingScrollLeft ?? 0) != 0 || (pendingScrollTop ?? 0) != 0 { needScroll() }
@@ -1116,54 +1140,16 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         updateKeyboardDismissal()
         updateMaterial()
         applyTextArea()
-        if let f = field {
-            f.tintColor = props["emojiPicker"] == "true" ? .clear : nil
-            if (set["emojiPicker"] != nil || clear.contains("emojiPicker")), f.isFirstResponder { f.reloadInputViews() }
-            if let v = props["value"] { writeValue(v, into: f) }
-            applyPlaceholder(f); applyFieldName(f)
-            // The web's `type` and `inputmode`, as UIKit spells them.
-            let type = props["type"] ?? "text"
-            f.isSecureTextEntry = type == "password"
-            // `autocomplete` names the field to AutoFill over what `type` implies (LLP 1102 §3.6).
-            let content = Autofill.contentType(props["autocomplete"], fallback: type == "password" ? .password : type == "email" ? .emailAddress : nil)
-            let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking || f.smartQuotesType != inputSmartQuotes || f.smartDashesType != inputSmartDashes || f.textContentType != content
-            f.textContentType = content
-            f.autocapitalizationType = inputCapitalization
-            f.autocorrectionType = inputCorrection
-            f.spellCheckingType = inputSpellChecking
-            f.smartQuotesType = inputSmartQuotes
-            f.smartDashesType = inputSmartDashes
-            if traitsChanged, f.isFirstResponder { f.reloadInputViews() }
-            switch props["inputMode"] ?? type {
-            case "email": f.keyboardType = .emailAddress
-            case "numeric": f.keyboardType = .numberPad
-            case "decimal", "number": f.keyboardType = .decimalPad
-            case "tel": f.keyboardType = .phonePad
-            case "url": f.keyboardType = .URL
-            case "search": f.keyboardType = .webSearch
-            default: f.keyboardType = .default
-            }
-            // HTML's `enterkeyhint` labels the return key (feed F25); UIKit
-            // has no `previous`, which keeps the default.
-            switch props["enterKeyHint"] {
-            case "done": f.returnKeyType = .done
-            case "go": f.returnKeyType = .go
-            case "next": f.returnKeyType = .next
-            case "search": f.returnKeyType = .search
-            case "send": f.returnKeyType = .send
-            case "enter", "previous": f.returnKeyType = .default
-            default: f.returnKeyType = handlers.contains("submit") ? .go : .default
-            }
-            f.isEnabled = !disabled
-            if isNativeTextControl { styleNativeField() }
-        }
-        if disabled { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
+        if let f = field { applyField(f, set: set, clear: clear) }
+        if disabled || ariaUnavailable { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
         updateTextAccessibility()
         if actsAsButton {
             isAccessibilityElement = true
-            accessibilityTraits.insert(kind == "view" && props["accessibilityRole"] == "link" ? .link : .button)
+            // A `link`, pressable or a box with the role, is a link to VoiceOver, never also a button (LLP 1115.000 D11.6).
+            let link = props["accessibilityRole"] == "link"
+            accessibilityTraits.insert(link ? .link : .button); accessibilityTraits.remove(link ? .button : .link)
             if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
             setAccessibilityToggle(pressedState)
             if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
@@ -1174,6 +1160,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // `role="img"` (an svg's) is one labelled image, as on the web (habits F16).
             isAccessibilityElement = authoredLabel != nil
             if authoredLabel != nil { accessibilityTraits.insert(.image) } else { accessibilityTraits.remove(.image) }
+        } else if rangeRole != nil {
+            // A range role is one element and its value (LLP 1116 D8).
+            isAccessibilityElement = true
+            accessibilityValue = rangeValueText
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil {
@@ -1219,43 +1209,36 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark)
     }
 
+    /// Inside `GlassGroups.moving`: a container comes or goes under the
+    /// same authored parent, which is no reparenting.
+    static var containerMoves = 0
     package override func didMoveToSuperview() {
+        if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true) }
         super.didMoveToSuperview()
         paintOrderMoved()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }
     }
-    func updateKeyboardDismissal() {
-        switch props["keyboardDismissMode"] {
-        case "interactive": scroll?.keyboardDismissMode = .interactive
-        case "on-drag": scroll?.keyboardDismissMode = .onDrag
-        default: scroll?.keyboardDismissMode = .none
-        }
-    }
     func applyStyle(_ s: NodeStyle) {
-        defer { video?.update(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
+        defer { video?.update(); layoutContent(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
         let origin = style["transform_origin"]
         let old = style
         style = s
         if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
+        if old["accent_color"] != s["accent_color"] { applyAccentTint() }
         updateSymbol(); syncDynamicRange(from: old)
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
         applyBoxMask()
         applyFilter()
         updateMaterial()
         syncVibrancy()
+        presenter?.accent.restyled(self)
         syncScroll()
         applyAffordances()
         styleTextArea()
-        field?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
-        if let f = field, let t = text {
-            f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
-            f.textColor = color("text_color", SystemColor.canvasText)
-            applyPlaceholder(f)
-            styleNativeField()
-        }
+        applyFieldStyle()
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
         setNeedsDisplay()
@@ -1264,36 +1247,40 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Scrolling and clipping come from the effective overflow the host
     /// wrote in (never from the node's kind): `scroll` on an axis makes a
     /// scroll container that scrolls that axis; `hidden` clips.
-    /// Whether the style clips the children (`overflow: hidden`); a waiting
+    /// Whether the style clips the children (`overflow: hidden` or `clip`); a waiting
     /// scroll clips as its scroll view would. Without a clip box, it is the
     /// layer's `masksToBounds` (`syncScroll`; a landing flight, `FlightsIOS`).
     var overflowClips: Bool {
         let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
-        return ox == "hidden" || oy == "hidden" || scrollDormant
+        return ["hidden", "clip"].contains(ox) || ["hidden", "clip"].contains(oy) || scrollDormant
     }
 
     func syncScroll() {
         let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
         let scrolls = (ox == "scroll" || ox == "auto") || (oy == "scroll" || oy == "auto")
         if scrolls { syncClipBox(false) }
-        if scrolls && scroll == nil && !scrollWaits {
+        if scrolls && scroll == nil && !scrollWaits && !groupedOwner {
             let sv = ScrollView(frame: bounds)
             sv.backgroundColor = .clear
             sv.contentInsetAdjustmentBehavior = .never
             sv.delegate = self
             sv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             GlassGroups.moving(in: self) {
-                for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
+                // In the window first, as `syncClipBox` says.
+                let children = subviews.filter { $0 is NodeView }
                 addSubview(sv)
+                for child in children { sv.addSubview(child) }
             }
             scroll = sv
             scrollWritten = nil
             updateRefresh()
+            presenter?.navigation.scrollBackendChanged(self)
         }
-        if !scrolls, let sv = scroll {
+        if !scrolls || groupedOwner, let sv = scroll {
+            if groupedOwner { retainScrollPosition(from: sv) }
             // Neither axis scrolls any more: the children come back out.
             GlassGroups.moving(in: self) {
-                for child in sv.subviews where child is NodeView { child.removeFromSuperview(); addSubview(child) }
+                for child in sv.subviews where child is NodeView { addSubview(child) }
                 sv.removeFromSuperview()
             }
             scroll = nil
@@ -1306,7 +1293,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // (LLP 1075.003 §3.5): written when what the style says changes.
         let snap = style["scroll_snap_type"]?.string == "x mandatory"
         let indicators = (style["scrollbar_width"]?.string ?? "auto") != "none"
-        if let sv = scroll, scrollWritten != "\(snap)|\(ox)|\(oy)|\(indicators)" {
+        if let sv = scrollView, scrollWritten != "\(snap)|\(ox)|\(oy)|\(indicators)" {
             scrollWritten = "\(snap)|\(ox)|\(oy)|\(indicators)"
             sv.decelerationRate = snap ? .fast : .normal
             sv.showsHorizontalScrollIndicator = (ox == "scroll" || ox == "auto") && indicators
@@ -1336,10 +1323,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// recognizers, and its registration with the window.
     var swipeOwner = false { didSet { if oldValue && !swipeOwner { syncScroll() } } }
     private(set) var scrollNeeded = false
-    var scrollWaits: Bool { swipeOwner && !scrollNeeded && !handlers.contains("scroll") }
+    var scrollWaits: Bool { swipeOwner && !scrollNeeded && !handlers.contains("scroll") && !handlers.contains("scrollend") }
     /// The node's overflow scrolls, and its scroll view is still waiting.
     var scrollDormant: Bool {
-        scroll == nil && (["scroll", "auto"].contains(style["overflow_x"]?.string ?? "") || ["scroll", "auto"].contains(style["overflow_y"]?.string ?? ""))
+        !groupedOwner && scrollView == nil && (["scroll", "auto"].contains(style["overflow_x"]?.string ?? "") || ["scroll", "auto"].contains(style["overflow_y"]?.string ?? ""))
     }
 
     func needScroll() {
@@ -1350,10 +1337,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     /// The scroll container's content size: the kernel's extent on an axis
     /// that scrolls, the box on one that does not (so UIKit cannot pan it
-    /// there), never less than the box.
+    /// there), never less than the box (or the port UIKit's insets leave, `scrollFloor`).
     func fitScroll() {
         guard let sv = scroll else { return }
-        let size = CGSize(width: sv.scrollsX ? max(content.width, sv.bounds.width) : sv.bounds.width, height: sv.scrollsY ? max(content.height, sv.bounds.height) : sv.bounds.height)
+        // Ending where its last edge is drawn, from this box's place on the
+        // pixel grid, so the furthest offset is a whole pixel and reaches it (`PixelGridIOS.swift`).
+        let s = presenter?.gridScale ?? 1, o = grid?.origin ?? .zero
+        let size = CGSize(width: sv.scrollsX ? max(PixelGrid.length(content.width, from: o, vertical: false, scale: s), sv.bounds.width) : sv.bounds.width,
+                          height: sv.scrollsY ? max(PixelGrid.length(content.height, from: o, vertical: true, scale: s), scrollFloor(sv)) : sv.bounds.height)
         if sv.contentSize != size { sv.contentSize = size }
         // Forced bounce on a carousel's computed y traps Mac wheel input; one travels a quarter of its width or lays a
         // row (itself, or a child wider than the port), and a page a few points too wide keeps its bounce.
@@ -1379,6 +1370,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if kind == "native" { presenter?.session?.natives.laidOut(self) }
         layoutTextArea()
         layoutSymbol()
+        layoutContent()
     }
 
     /// The reduced radii; the layer fast path additionally requires circles.
@@ -1418,7 +1410,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             let top = color("border_color_top", .clear)
             let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
             let radii = BorderPaint.radii(style, in: bounds)
-            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
+            let styles = ["top", "right", "bottom", "left"].map { style["border_style_" + $0]?.string ?? "solid" }
+            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, styles: styles, shape: CornerShape(style["corner_shape"]))
         }
         if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
@@ -1427,11 +1420,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // natural size, `scale-down` the smaller of none and contain;
             // an unknown value is the initial `fill`.
             let fit = style["object_fit"]?.string ?? "fill"
-            let content = bounds.insetBy(
-                left: number("border_width_left", uniform) + number("padding_left"),
-                top: number("border_width_top", uniform) + number("padding_top"),
-                right: number("border_width_right", uniform) + number("padding_right"),
-                bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+            let content = contentBox()
             let object = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
             let rect = bitmap.displayRect(object)
             ctx.saveGState()
@@ -1443,7 +1432,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             RasterGeometry.draw(ctx, AnimatedRasters.shared.frame(for: self) ?? bitmap.image, in: CGRect(origin: .zero, size: rect.size), tint: channels("tint_color").map { TextEngine.color($0).cgColor })
             ctx.restoreGState()
         }
-        if isParagraph {
+        if isParagraph, rollsNumerals, let engine = text {
+            dropTextRaster()
+            NumeralLink.installed?.show(self, attributed: engine.attributed(paragraphSpec()), box: contentBox(),
+                                        align: paragraphSpec().align, mode: style["content_transition"]?.string ?? "numeric")
+        } else if isParagraph {
+            NumeralLink.installed?.hide(self)
             if canRasterText {
                 presenter?.textRasters.ensure(self, urgent: presenter?.textIsVisible(self) == true)
             } else if !textRasterFailed { dropTextRaster() }

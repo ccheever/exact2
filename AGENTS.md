@@ -4,8 +4,9 @@
 new <path>` and read `docs/start-here.md`: it is the only required reading (LLP 1115 D7). The
 rest (`docs/contract-for-agents.md`, `docs/agent-pitfalls.md`, `docs/contract-grammar.md`,
 `docs/reference.md`) is lookup only, by the section its table names: do not read the long
-guides front to back. `contract vocab <name>` answers for any tag or property, and
-`apps/shelf` is the recipe app to grep.
+guides front to back. `docs/recipes/` answers the common questions in one short file each,
+`contract vocab <name>` answers for any tag or property, every `bun exact.mjs <verb>
+--help` names its flags, and `apps/shelf` is a whole app to grep.
 
 Read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
 `llp/1000-exact2-root.explainer.md` is the map. `docs/agent-pitfalls.md` lists verified
@@ -35,33 +36,76 @@ platform's: a `color` a bar button only inherits from the page leaves UIKit's ti
 writing apps should therefore say less — structure (a header's heading and buttons, a
 `tablist`, an `alertdialog`) and leave colours, fonts and metrics to the platform.
 
+## Numeric typography
+
+On graphical hosts, use tabular digits for numeric columns and values that change
+in place. Use default spacing for prose, ordinary labels and static standalone
+statistics. Apply it to numeric text, keeping the platform font. See the
+[guidance and limits](docs/contract-for-agents.md#tabular-numbers).
+
+## Writing
+
+For all prose: comments, commit messages, guides, LLPs, issues and PR text.
+
+- Write with clarity of mind. A reader should understand it on first reading and find
+  nothing ambiguous.
+- Say what the reader needs to know about the topic and nothing more. Do not recount
+  history or keep a diary; an alternative not chosen earns a line when it explains the
+  choice.
+- Cite sources where they help: standard specifications, and host platform API
+  documentation and guidelines.
+- Comments should communicate information that cannot be easily inferred from the code.
+  Judiciously omit or remove comments or parts of comments that do not clearly explain
+  anything that is not already communicated by the code, though take care not to delete
+  comments with meaningful marginal value.
+
 ## Working here
 
 - Tooling runs on Bun (pinned in `package.json`); `bun install --frozen-lockfile`.
   Rolldown remains the app bundler. Node and npm are not required.
 - The web artifacts (`app.wasm`, the Markdown editor, text flow) build with a pinned
   nightly (`WEB_TOOLCHAIN` in `scripts/app.mjs`) that builds std for size; everything
-  else is `rust-toolchain.toml`'s stable, which the five checks use. `build.mjs`
+  else is `rust-toolchain.toml`'s stable, which the six checks use. `build.mjs`
   names the install commands when the nightly or its `rust-src` is missing.
 
 - `kernel/tables/schema.json` is the one declaration authority; `kernel/build.rs`
   generates from it. Edit the table, never generated code.
 - Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `bun scripts/caps.mjs`.
 - Writing or changing a test: read `docs/testing.md` (waits, isolation, coverage, measuring).
-- The five checks: `cargo build --all-targets --keep-going` ·
-  `cargo test --lib --bins --tests --no-fail-fast` · `cargo clippy --all-targets
+- The six checks: `cargo build --all-targets --keep-going` ·
+  `cargo test --tests --no-fail-fast` · `cargo clippy --all-targets
   --keep-going -- -D warnings` and `cargo fmt --all -- --check` (run both) ·
-  `bun scripts/caps.mjs` · `bun scripts/boot.mjs`. The flags keep Cargo from
-  stopping at the first failing crate or test binary. Cargo's scope is the root
-  `default-members`; the async lane (`bun scripts/async.mjs`, per commit on
-  origin/main) runs the same with `--workspace` plus the `async lane:` ignored tests,
+  `bun scripts/caps.mjs` · `bun scripts/boot.mjs` · `cargo check --workspace
+  --all-targets --keep-going`. The flags keep Cargo from
+  stopping at the first failing crate or test binary. The first three's scope is the root
+  `default-members`. The sixth (Charlie, 2026-10-12) compiles every crate and target
+  of the workspace and runs none of their tests: on 2026-10-11 six things outside
+  `default-members` were broken on origin/main while the five were green, and it
+  catches the ones that did not compile (`exact-web-js`, `exact-linux`'s tests). It
+  needs the pinned Bun first on PATH (or named by `BUN`): app crates' build scripts
+  run Bun, and under an older one each fails with "Bun … is older than …". It shares
+  no compiled crate with the build, so it costs its whole time again: on an 18-core
+  Mac, 2 to 5 s with nothing changed, 45 to 90 s after a touched kernel line
+  (the build: 7 to 13 s), 2.4 min cold. The async lane (`bun scripts/async.mjs`, per commit on
+  origin/main) runs the first three with `--workspace`, which covers the sixth, plus the `async lane:` ignored tests,
   the web JS target's conformance run (`host/web-js/conform.mjs --strict`) and its
   Chrome-oracle Firefox/WebKit steps (`conform-firefox`, `conform-webkit`),
-  the UIKit XCTests for commits under `host/apple` (`build.mjs --test --ios`), the
-  Contract semantics (`semantics/README.md`: the Lean proofs, then `contract-difftest`
-  running the runner against the Lean semantics over `semantics/corpus` and a fixed
-  random sweep), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
-  the platforms that ride on another host's code: tvOS on the UIKit presenter. Building
+  the separate game workspace's locked tests, the UIKit XCTests, touch smoke and
+  the tvOS compile
+  when a coalesced range changes anything outside `llp/`, `issues/`, `rules/`,
+  `docs/`, `QUEUE.md`, and `*.md` paths
+  (`build.mjs --test --ios`; `build.mjs --tvos --no-install`, which builds and signs
+  the Apple TV bundle and asks for no simulator), the
+  Contract semantics (`semantics/README.md`: the Lean proofs, the extracted VM's, and
+  `contract-difftest` running the runner and the web JS target against the Lean
+  semantics; each skipped when its inputs are those of a run that passed,
+  `scripts/async-inputs.mjs`), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
+  the platforms that ride on another host's code: tvOS on the UIKit presenter
+  (installed on an Apple TV simulator, which that machine must have),
+  plus cross-target Cargo checks of the Linux host with every Linux app (`-p '*-linux'`)
+  and the Windows host with Windows Desk. Tier 2 needs both Rust cross targets,
+  Zig (C and C++) and the pinned Linux Hermes bundle on this Mac. These checks qualify
+  compilation, not native window, KMS, or input behavior. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple
   crates are rlibs to Cargo, and the archive an app links is built only by
@@ -93,7 +137,8 @@ writing apps should therefore say less — structure (a header's heading and but
   (`--long` adds the macOS build and boot, and the loop's own budgets: the
   warm gate, touch one line, test what you changed). macOS: `bun host/apple/build.mjs --run`;
   iOS: `bun host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);
-  tvOS: `bun host/apple/build.mjs --tvos --run` (an Apple TV simulator; LLP 1008 §9);
+  tvOS: `bun host/apple/build.mjs --tvos --run` (an Apple TV simulator; LLP 1008 §9;
+  `--tvos --no-install` compiles it with none, which is what to run after a change to Swift it shares with iOS);
   `--device --run` on a connected iPhone (signed with a team profile on this Mac);
   `--host` also builds the sample host (LLP 1031 D10), the native app that embeds two
   sessions, which `bun scripts/smoke.mjs host` drives and `scripts/agent.mjs host
@@ -112,8 +157,8 @@ writing apps should therefore say less — structure (a header's heading and but
   cargo build are `async lane:`, and its Swift is the XCTests). The
   others (`exact-web-js`, `exact-web-capabilities`, `exact-linux`, `exact-windows`,
   `exact-render`, …), `js/`, `gpu/` and most apps are
-  not tested by it (one is compiled when a member depends on it, and its tests still do
-  not run), and the async lane reports them only after the push. When you touch one, or
+  not tested by it (the sixth check compiles them, their tests too, and runs none),
+  and the async lane reports a failing test only after the push. When you touch one, or
   what its tests read, run its tests before landing: `cargo test -p exact-linux --lib
   --tests --no-fail-fast`, or `--bins` for a bin-only crate such as `exact-web-js`.
   Advice, not a check.
@@ -141,7 +186,7 @@ writing apps should therefore say less — structure (a header's heading and but
   and `print`, `screenshot` read its screen (`print --all` the scrollback, `document`
   the whole laid-out document). Develop it in `host-dev`: a debug build lays out a long
   document hundreds of times slower. `exact-terminal` is in `default-members`
-  (`tests/screen.rs` drives inline mode through the emulator); `harness-data` is not,
+  (`tests/it/screen.rs` drives inline mode through the emulator); `harness-data` is not,
   so when you touch the harness run `cargo test -p harness-data`.
   `examples/replay.rs` replays a recorded session through the same emulator.
   The LLP reader is the other terminal app (LLP 1101.004): `cargo build --profile
@@ -156,6 +201,11 @@ writing apps should therefore say less — structure (a header's heading and but
   opens its update store at launch and checks after first pixel
   (`EXACT_UPDATE_ORIGIN=<url>` points a dev build at a directory `serve.mjs` serves;
   `state.delivery` shows what it did).
+  `bun scripts/push.mjs <app> [--watch]` publishes an edit to installed release binaries
+  as a signed update in about a second, from the stream a deploy or a production build
+  started; `deploy.activate: "immediate"` applies it while the app is open. A channel's
+  origin `"appdrop"` is AppDrop's, named after the signing key: no account, no server.
+  Moving a stream to a new origin, pass `--seq-above` the old origin's seq.
 - `QUEUE.md` is what would make sense to do next. Add a line when you find something
   worth doing; delete it when it lands. It decides nothing.
 - Each worktree builds into its own `target/`: never symlink or share another
@@ -176,3 +226,7 @@ writing apps should therefore say less — structure (a header's heading and but
 - Optional capability is a separate artifact loaded on demand (the GPU module) or another
   executor (the browser, for motion on the web) — never a cargo feature on a core crate.
   Each crate depends on strictly less than the one above it; there is no build matrix.
+
+Snapback4 consumers use published `snapback4@0.4.29` and the matching immutable
+Rust revision in `snapback4/Cargo.toml`; rebuild an app’s device with
+`bun exact.mjs snapback --rebuild` after changing these pins.

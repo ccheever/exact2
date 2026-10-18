@@ -3,11 +3,44 @@
 //! handler call sites, action bodies, then the view.
 
 use super::{
-    checks::{check_view, infer_owned_state_initializers},
+    checks::{self, check_view, infer_owned_state_initializers},
     err, infer, record_source, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
-use contract_syntax::{Component, Expr, Node, Owner, Span, TemplatePart};
+use crate::calls::CAPTURE;
+use contract_syntax::inline::calls::shown;
+use contract_syntax::{Component, Expr, Node, Owner, Span, Stmt, TemplatePart};
 use std::{collections::BTreeMap, sync::Arc};
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static SCOPE_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[test]
+fn action_checks_reuse_declarations_and_observe_prior_writes() {
+    let mut source = String::from("component App\n  state first = none\n  state second = none\n");
+    for i in 0..32 {
+        source.push_str(&format!(
+            "  action set{i}(n: number)\n    first = some(n)\n"
+        ));
+    }
+    source.push_str("  action copy\n    second = first\n  view\n    text \"ok\"\n");
+    let file = contract_syntax::parse(&source).unwrap();
+    let c = &file.components[0];
+    let mut sink = Sink::default();
+    SCOPE_BUILDS.with(|count| count.set(0));
+    let ct = check_component(c, &Types::default(), None, &mut sink);
+    assert!(sink.errors.is_empty(), "{:?}", sink.errors);
+    assert_eq!(ct.slots, vec![Ty::Option(Box::new(Ty::Number)); 2]);
+    // Call-parameter refinement still has one scope per action; body checks
+    // and slot probes must not rebuild all declarations for each action too.
+    let builds = SCOPE_BUILDS.with(|count| count.get());
+    assert!(
+        builds < c.actions.len() * 2,
+        "{builds} declaration scopes for {} actions",
+        c.actions.len()
+    );
+}
 
 /// Check one component, recording each refusal in `sink` and carrying on
 /// with `?` wherever a type could not be found, so one run reports every
@@ -167,8 +200,25 @@ pub(crate) fn check_component(
     }
     // Everything must now type; re-infer derives strictly to surface errors.
     let scope = types.component_scope(c, &ct);
-    for (i, d) in c.derives.iter().enumerate() {
-        match infer(&d.expr, &scope, shapes) {
+    let results: Vec<_> = c
+        .derives
+        .iter()
+        .map(|d| infer(&d.expr, &scope, shapes))
+        .collect();
+    // A derive left incomplete because one it reads was refused is refused
+    // with it, not reported again as a cycle (`derive bill = Number(text)`,
+    // then `derive total = bill + tip`).
+    let reads = derive_reads(c);
+    let mut refused: Vec<bool> = results.iter().map(Result::is_err).collect();
+    for &i in &order {
+        if matches!(&results[i], Ok(t) if !t.is_complete()) && reads[i].iter().any(|&d| refused[d])
+        {
+            refused[i] = true;
+        }
+    }
+    for ((i, d), result) in c.derives.iter().enumerate().zip(results) {
+        match result {
+            Ok(t) if !t.is_complete() && refused[i] => {}
             // What types only incompletely depends on itself; what fails to
             // type is refused for that reason alone.
             // An `[]` nothing pairs with a typed list is the one leaf that
@@ -177,7 +227,7 @@ pub(crate) fn check_component(
                 Some(span) => TypeError {
                     id: "type-cannot-infer",
                     message: format!(
-                        "cannot infer what `[]` holds in `{}`: pair it with a typed arm (`match`/`?:`) or write it where a `list<T>` is declared",
+                        "cannot infer what `[]` holds in `{}`: pair it with a typed arm (`match`/`?:`) or write it where a `T[]` is declared",
                         d.name
                     ),
                     span,
@@ -209,9 +259,27 @@ pub(crate) fn check_component(
     // Row initializers have just resolved the lifted child slots. Curried
     // action-prop arguments must see those types too, not the earlier scope.
     let scope = types.component_scope(c, &ct);
-    sink.keep_unit(refine_params_from_view(&c.view, &scope, c, &mut ct, shapes));
+    let mut miscounted = Vec::new();
+    sink.keep_unit(refine_params_from_view(
+        &c.view,
+        &scope,
+        c,
+        &mut ct,
+        shapes,
+        &mut miscounted,
+    ));
     // Then the calls in action bodies (LLP 1089 D8), before any body is checked.
     crate::calls::refine(c, &mut ct, types);
+    share_captures(c, &mut ct);
+    // A handler whose payload does not fit its action, which it left with
+    // a parameter untyped: its arity refusal, at the handler, before any
+    // body reads that parameter. Analysis gives it when every parameter is
+    // typed, and never runs after this stage refuses.
+    for (ai, e) in &miscounted {
+        if !ct.actions[*ai].iter().all(Ty::is_complete) {
+            sink.push(e.clone());
+        }
+    }
     // Action bodies: writes refine slots; assignments must unify. Two
     // rounds, so a `send` whose argument is a state a later action writes
     // (`state q = none`, typed by `q = some(s)`) records the written type
@@ -220,8 +288,8 @@ pub(crate) fn check_component(
     for round in 0..2 {
         let mut scratch = Sink::default();
         let report = if round == 0 { &mut scratch } else { &mut *sink };
+        let mut scope = types.component_scope(c, &ct);
         for (ai, a) in c.actions.iter().enumerate() {
-            let mut scope = types.component_scope(c, &ct);
             scope.push(
                 a.params
                     .iter()
@@ -239,6 +307,8 @@ pub(crate) fn check_component(
             // A lifted child action is `name#N` (LLP 1017 P4c).
             let lifted = a.name.contains('#');
             crate::actions::check_body(&a.body, &scope, lifted, c, &mut ct, shapes, report);
+            scope.pop();
+            scope.retype_slots(c, &ct);
         }
     }
     // The seam's signatures (LLP 1027 D2): every resource's arguments against
@@ -345,11 +415,24 @@ pub(crate) fn check_component(
             });
         }
     }
+    let mut said = Vec::new();
     for (ai, a) in c.actions.iter().enumerate() {
+        // Said at its handler, above.
+        if miscounted.iter().any(|(i, _)| *i == ai) {
+            continue;
+        }
         for (i, p) in a.params.iter().enumerate() {
-            if !ct.actions[ai][i].is_complete() {
-                sink.push(TypeError { id: "type-cannot-infer", message: format!("cannot infer the type of parameter `{}`; write `{}: <type>` or call the action from a handler", p.name, p.name), span: p.span });
+            if ct.actions[ai][i].is_complete() || said.contains(&p.name) {
+                continue;
             }
+            if p.name.starts_with(CAPTURE) {
+                // Hidden: what an action prop was curried with (LLP 1089
+                // D7), said once, at that prop's binding.
+                said.push(p.name.clone());
+                sink.push(untyped_capture(c, &p.name, p.span));
+                continue;
+            }
+            sink.push(TypeError { id: "type-cannot-infer", message: format!("cannot infer the type of parameter `{}`; write `{}: <type>` or call the action from a handler", p.name, p.name), span: p.span });
         }
     }
     // A child's `provide` section and the view type. The expanded root's
@@ -363,6 +446,7 @@ pub(crate) fn check_component(
     }
     check_view(&c.view, &scope, shapes, sink);
     super::tasks::check_tasks(c, &scope, shapes, sink);
+    super::tasks::sequences::check(c, owners.is_some(), &scope, shapes, sink);
     ct
 }
 
@@ -376,6 +460,17 @@ impl Scope {
     /// Change the type of the bottom frame's `index`th name in place.
     pub(crate) fn retype(&mut self, index: usize, ty: Ty) {
         Arc::make_mut(&mut self.frames[0]).names[index].2 = ty;
+    }
+
+    // Only slots can change while checking a body. Refresh between bodies,
+    // where a fresh component scope would have observed the preceding writes.
+    fn retype_slots(&mut self, c: &Component, ct: &ComponentTypes) {
+        let first = c.props.len() + c.injects.len();
+        for (i, ty) in ct.slots.iter().enumerate() {
+            if &self.frames[0].names[first + i].2 != ty {
+                self.retype(first + i, ty.clone());
+            }
+        }
     }
 }
 
@@ -412,8 +507,8 @@ fn settle_derives(c: &Component, ct: &mut ComponentTypes, types: &Types, order: 
 fn probe_writes(c: &Component, ct: &mut ComponentTypes, types: &Types) -> bool {
     let mut probe = ct.clone();
     let mut scratch = Sink::default();
+    let mut scope = types.component_scope(c, &probe);
     for (ai, a) in c.actions.iter().enumerate() {
-        let mut scope = types.component_scope(c, &probe);
         scope.push(
             a.params
                 .iter()
@@ -438,6 +533,8 @@ fn probe_writes(c: &Component, ct: &mut ComponentTypes, types: &Types) -> bool {
             &types.shapes,
             &mut scratch,
         );
+        scope.pop();
+        scope.retype_slots(c, &probe);
     }
     let changed = probe.slots != ct.slots;
     ct.slots = probe.slots;
@@ -450,6 +547,7 @@ fn refine_params_from_view(
     c: &Component,
     ct: &mut ComponentTypes,
     shapes: &Shapes,
+    miscounted: &mut Vec<(usize, TypeError)>,
 ) -> Result<(), TypeError> {
     for n in nodes {
         match n {
@@ -467,7 +565,8 @@ fn refine_params_from_view(
                 // A text field's `select` is HTML's, its selection the
                 // `InputEvent` (x2apps codeedit #2); the Markdown editor's
                 // carries its formats.
-                let field = contract_syntax::payload_control(tag, attrs) == Some("field");
+                let payload_control = contract_syntax::payload_control(tag, attrs);
+                let field = payload_control == Some("field");
                 // A file input's `change` carries the picked files (LLP
                 // 1069.002 D3); its `cancel`, nothing.
                 let file = control == Some("file");
@@ -492,12 +591,16 @@ fn refine_params_from_view(
                             | "hover"
                             | "focus"
                             | "blur"
+                            | "focusin"
+                            | "focusout"
                             | "key"
+                            | "keycapture"
                             | "keyup"
                             | "submit"
                             | "load"
                             | "message"
                             | "contextmenu"
+                            | "delete"
                             | "dblclick"
                             | "pointerdown"
                             | "pointerup"
@@ -506,7 +609,9 @@ fn refine_params_from_view(
                             | "cut"
                             | "paste"
                             | "selectionchange"
+                            | "beforeinput"
                             | "beforeunload"
+                            | "midimessage"
                             | "wheel"
                             | "drop"
                             | "swiperight"
@@ -514,7 +619,13 @@ fn refine_params_from_view(
                             | "reachstart"
                             | "reachend"
                             | "scroll"
+                            | "scrollend"
+                            | "pan"
                             | "panrelease"
+                            | "heightrelease"
+                            | "transformgeometry"
+                            | "transformrelease"
+                            | "reorderdrop"
                             | "loadedmetadata"
                             | "durationchange"
                             | "fullscreenchange"
@@ -538,7 +649,10 @@ fn refine_params_from_view(
                             | "stop"
                             | "navigate"
                             | "cancel"
+                            | "close"
+                            | "toggle"
                             | "resize"
+                            | "intersect"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
@@ -549,6 +663,27 @@ fn refine_params_from_view(
                             for (i, arg) in args.iter().enumerate() {
                                 if i < ct.actions[ai].len() {
                                     let t = infer(arg, scope, shapes)?;
+                                    if ct.actions[ai][i].contains_enum()
+                                        && !checks::accepts_expr(
+                                            &ct.actions[ai][i],
+                                            arg,
+                                            &t,
+                                            scope,
+                                            shapes,
+                                        )
+                                    {
+                                        return err(
+                                            "type-argument",
+                                            format!(
+                                                "`{name}` expects `{}`, given `{t}`",
+                                                ct.actions[ai][i]
+                                            ),
+                                            arg.span(),
+                                        );
+                                    }
+                                    if ct.actions[ai][i].contains_enum() {
+                                        continue;
+                                    }
                                     if let Some(u) = ct.actions[ai][i].unify(&t) {
                                         ct.actions[ai][i] = u;
                                     }
@@ -584,17 +719,23 @@ fn refine_params_from_view(
                                 "change" | "input" if file => {
                                     vec![Ty::List(Box::new(Ty::Record("Picked".into())))]
                                 }
-                                "change" | "input" | "key" | "keyup" | "message" | "navigate"
-                                | "error" => {
+                                "change" | "input" | "key" | "keycapture" | "keyup" | "message"
+                                | "navigate" | "error" => {
                                     vec![Ty::String]
                                 }
                                 "timeupdate" | "durationchange" => vec![Ty::Number],
                                 "hover" | "fullscreenchange" => vec![Ty::Bool],
                                 "select" if field => vec![Ty::Record("InputEvent".into())],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
-                                "scroll" | "panrelease" | "resize" => {
+                                // A drag's numbers and a drop's keys, as
+                                // analysis's `handler_arity` counts them
+                                // (LLP 1057 §1.1).
+                                "scroll" | "pan" | "panrelease" | "heightrelease" | "resize" => {
                                     vec![Ty::Number, Ty::Number]
                                 }
+                                "transformgeometry" => vec![Ty::Number; 4],
+                                "transformrelease" => vec![Ty::Number; 6],
+                                "reorderdrop" => vec![Ty::String, Ty::Option(Box::new(Ty::String))],
                                 _ => vec![],
                             };
                             // Then the event's record, when the action
@@ -602,7 +743,11 @@ fn refine_params_from_view(
                             // of its type or none: another type there is an
                             // argument left unbound, analysis's arity
                             // refusal (`handler_accepts`).
-                            if let Some(record) = crate::event_record(&a.name) {
+                            if let Some(record) = if a.name == "selectionchange" && field {
+                                Some("InputEvent")
+                            } else {
+                                crate::event_record(&a.name)
+                            } {
                                 let n = args.len() + payload.len() + 1;
                                 let fits = ct.actions[ai].len() == n
                                     && match &ct.actions[ai][n - 1] {
@@ -614,18 +759,75 @@ fn refine_params_from_view(
                                     payload.push(Ty::Record(record.into()));
                                 }
                             }
+                            // The payload types the last parameters. When
+                            // their count is off, it may land on the wrong
+                            // ones (a `reorderdrop` action's third, not a
+                            // `ReorderEvent`): a clash there is no type
+                            // mistake but analysis's arity refusal, which
+                            // spells what fits. This stage says it for an
+                            // action the miscount leaves untyped
+                            // (`check_component`), as analysis never runs
+                            // then. A bound `type` leaves the payload
+                            // unknown, its count too.
+                            let counted = args.len() + payload.len() == ct.actions[ai].len();
+                            let unknown = payload.is_empty()
+                                && bound_type
+                                && matches!(a.name.as_str(), "change" | "input");
+                            if !counted && !unknown && !miscounted.iter().any(|(i, _)| *i == ai) {
+                                let params: Vec<(String, Ty)> = (c.actions[ai].params.iter())
+                                    .map(|p| p.name.clone())
+                                    .zip(ct.actions[ai].iter().cloned())
+                                    .collect();
+                                let arg_types: Vec<Option<Ty>> =
+                                    args.iter().map(|x| infer(x, scope, shapes).ok()).collect();
+                                let message = crate::handler_arity_message(
+                                    &a.name,
+                                    payload_control,
+                                    name,
+                                    args,
+                                    &params,
+                                    &arg_types,
+                                );
+                                let (id, span) = ("analyze-handler-arity", a.span);
+                                miscounted.push((ai, TypeError { id, message, span }));
+                            }
                             let start = ct.actions[ai].len().saturating_sub(payload.len());
                             for (offset, ty) in payload.into_iter().enumerate() {
                                 let last = start + offset;
                                 if args.len() < ct.actions[ai].len() && last < ct.actions[ai].len()
                                 {
                                     let declared = ct.actions[ai][last].clone();
-                                    let Some(unified) = declared.unify(&ty) else {
+                                    let Some(unified) = declared.unify(&ty).filter(|_| {
+                                        !declared.contains_enum()
+                                            || checks::can_unify(&declared, &ty)
+                                    }) else {
+                                        if !counted {
+                                            continue;
+                                        }
+                                        // LLP 1116.018: a repair that only
+                                        // retyped the parameter dropped the
+                                        // guard on a radio's deselection.
+                                        let param = &c.actions[ai].params[last].name;
+                                        let keep = match (&ty, &declared) {
+                                            (Ty::String, Ty::Number) => format!(
+                                                ", and read the number with `match parseNumber({param})`"
+                                            ),
+                                            // A radio's `change` fires only as it
+                                            // becomes checked (HTML), so a guard on
+                                            // being on is already kept.
+                                            (Ty::String, Ty::Bool) if payload_control == Some("radio") => format!(
+                                                " (it is the radio's `value`): a radio's `change` runs only when it becomes checked, so it needs no `if {param}`"
+                                            ),
+                                            (Ty::Bool, _) => format!(
+                                                ": whether the control is now on, so `if {param}` keeps a guard on a deselection"
+                                            ),
+                                            _ => String::new(),
+                                        };
                                         return err(
                                             "type-handler-payload",
                                             format!(
-                                                "`{}=` supplies `{ty}` to parameter `{}`, declared `{declared}`",
-                                                a.name, c.actions[ai].params[last].name
+                                                "declare `{param}: {ty}` in `{}`{keep}: `{}=` passes its captured arguments, then its payload, a `{ty}`, which lands on `{param}`, declared `{declared}`",
+                                                c.actions[ai].name, a.name
                                             ),
                                             a.span,
                                         );
@@ -636,10 +838,10 @@ fn refine_params_from_view(
                         }
                     }
                 }
-                refine_params_from_view(children, scope, c, ct, shapes)?;
+                refine_params_from_view(children, scope, c, ct, shapes, miscounted)?;
             }
             Node::Use { args, children, .. } => {
-                refine_params_from_view(children, scope, c, ct, shapes)?;
+                refine_params_from_view(children, scope, c, ct, shapes, miscounted)?;
                 for a in args {
                     let _ = a;
                 }
@@ -647,8 +849,8 @@ fn refine_params_from_view(
             Node::When {
                 then, otherwise, ..
             } => {
-                refine_params_from_view(then, scope, c, ct, shapes)?;
-                refine_params_from_view(otherwise, scope, c, ct, shapes)?;
+                refine_params_from_view(then, scope, c, ct, shapes, miscounted)?;
+                refine_params_from_view(otherwise, scope, c, ct, shapes, miscounted)?;
             }
             Node::Each {
                 var,
@@ -660,7 +862,7 @@ fn refine_params_from_view(
                 if let Ok(Ty::List(item)) = infer(list, scope, shapes) {
                     let mut inner = scope.clone();
                     inner.push_each(var, index.as_deref(), *item);
-                    refine_params_from_view(body, &inner, c, ct, shapes)?;
+                    refine_params_from_view(body, &inner, c, ct, shapes, miscounted)?;
                 }
             }
             Node::Match {
@@ -672,66 +874,150 @@ fn refine_params_from_view(
                 if let Ok(Ty::Option(item)) = infer(subject, scope, shapes) {
                     let mut inner = scope.clone();
                     inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                    refine_params_from_view(&some.1, &inner, c, ct, shapes)?;
+                    refine_params_from_view(&some.1, &inner, c, ct, shapes, miscounted)?;
                 }
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                refine_params_from_view(none, &none_scope, c, ct, shapes)?;
+                refine_params_from_view(none, &none_scope, c, ct, shapes, miscounted)?;
             }
         }
     }
     Ok(())
 }
 
-/// Derive indices, each after the derives its expression names (a cycle is
-/// left in declaration order; the fixpoint refuses it).
-fn derive_order(c: &Component) -> Vec<usize> {
-    fn names<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
-        use contract_syntax::TemplatePart;
-        match e {
-            Expr::Ident(n, _) => out.push(n),
-            Expr::Call(n, args, _) => {
-                out.push(n);
-                args.iter().for_each(|a| names(a, out));
+/// Every lifted action of one use takes the same hidden captures, of the
+/// same values (LLP 1089 D7): one that a handler or a call types gives its
+/// type to the others, a sibling nothing binds included.
+fn share_captures(c: &Component, ct: &mut ComponentTypes) {
+    let mut typed: BTreeMap<&str, Ty> = BTreeMap::new();
+    for (a, params) in c.actions.iter().zip(&ct.actions) {
+        for (p, t) in a.params.iter().zip(params) {
+            if p.name.starts_with(CAPTURE) && t.is_complete() {
+                typed.entry(&p.name).or_insert_with(|| t.clone());
             }
-            Expr::Some(x, _)
-            | Expr::Unary(_, x, _)
-            | Expr::Member(x, _, _)
-            | Expr::NamedArg(_, x, _)
-            | Expr::Typed(x, _, _) => names(x, out),
-            Expr::Binary(_, a, b, _) => {
-                names(a, out);
-                names(b, out);
-            }
-            Expr::Ternary(a, b, x, _) => {
-                names(a, out);
-                names(b, out);
-                names(x, out);
-            }
-            Expr::Match {
-                subject,
-                some,
-                none,
-                ..
-            } => {
-                names(subject, out);
-                names(some, out);
-                names(none, out);
-            }
-            Expr::Let { value, body, .. } => {
-                names(value, out);
-                names(body, out);
-            }
-            Expr::Arrow { body, .. } => names(body, out),
-            Expr::Template(parts, _) => parts.iter().for_each(|p| {
-                if let TemplatePart::Expr(x) = p {
-                    names(x, out)
-                }
-            }),
-            Expr::List(items, _) => items.iter().for_each(|x| names(x, out)),
-            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
         }
     }
+    for (a, params) in c.actions.iter().zip(&mut ct.actions) {
+        for (p, t) in a.params.iter().zip(params) {
+            if let Some(u) = typed.get(p.name.as_str()).and_then(|known| t.unify(known)) {
+                *t = u;
+            }
+        }
+    }
+}
+
+/// The refusal of a hidden capture nothing typed: no action of its use is
+/// bound or called. It names the prop's binding (`tell=note`) and the
+/// action that calls the prop, never the capture, which no author wrote.
+fn untyped_capture(c: &Component, capture: &str, declared: Span) -> TypeError {
+    let found = (c.actions.iter()).find_map(|a| Some((a, handed_on(&a.body, capture)?)));
+    let message = match found {
+        Some((a, (callee, _))) => {
+            let (caller, callee) = (shown(&a.name), shown(callee));
+            format!("cannot infer the type of what `{callee}` carries from this binding into `{caller}`, which calls it: bind `{caller}` to a handler or call it from one")
+        }
+        None => "cannot infer the type of what this action prop was curried with: bind the action that calls it to a handler or call it from one".into(),
+    };
+    let span = found.map_or(declared, |(_, (_, binding))| binding);
+    TypeError {
+        id: "type-cannot-infer",
+        message,
+        span,
+    }
+}
+
+/// The call in `body` that hands `capture` on, as its callee and the
+/// binding of the prop it calls through.
+fn handed_on<'b>(body: &'b [Stmt], capture: &str) -> Option<(&'b str, Span)> {
+    body.iter().find_map(|s| match s {
+        Stmt::Call {
+            action,
+            args,
+            binding,
+            body,
+            ..
+        } => binding
+            .filter(|_| (args.iter()).any(|x| matches!(x, Expr::Ident(n, _) if n == capture)))
+            .map(|at| (action.as_str(), at))
+            .or_else(|| handed_on(body, capture)),
+        Stmt::If {
+            then, otherwise, ..
+        } => handed_on(then, capture).or_else(|| handed_on(otherwise, capture)),
+        Stmt::Match { some, none, .. } => {
+            handed_on(&some.1, capture).or_else(|| handed_on(none, capture))
+        }
+        _ => None,
+    })
+}
+
+/// Derive indices, each after the derives its expression names (a cycle is
+/// left in declaration order; the fixpoint refuses it).
+/// The derives each derive reads, by index.
+fn derive_reads(c: &Component) -> Vec<Vec<usize>> {
+    let index: BTreeMap<&str, usize> = c
+        .derives
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (d.name.as_str(), i))
+        .collect();
+    c.derives
+        .iter()
+        .map(|d| {
+            let mut out = Vec::new();
+            names(&d.expr, &mut out);
+            out.iter().filter_map(|n| index.get(n).copied()).collect()
+        })
+        .collect()
+}
+
+fn names<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
+    use contract_syntax::TemplatePart;
+    match e {
+        Expr::Ident(n, _) => out.push(n),
+        Expr::Call(n, args, _) => {
+            out.push(n);
+            args.iter().for_each(|a| names(a, out));
+        }
+        Expr::Some(x, _)
+        | Expr::Unary(_, x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _) => names(x, out),
+        Expr::Binary(_, a, b, _) => {
+            names(a, out);
+            names(b, out);
+        }
+        Expr::Ternary(a, b, x, _) => {
+            names(a, out);
+            names(b, out);
+            names(x, out);
+        }
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            names(subject, out);
+            names(some, out);
+            names(none, out);
+        }
+        Expr::Let { value, body, .. } => {
+            names(value, out);
+            names(body, out);
+        }
+        Expr::Arrow { body, .. } => names(body, out),
+        Expr::Template(parts, _) => parts.iter().for_each(|p| {
+            if let TemplatePart::Expr(x) = p {
+                names(x, out)
+            }
+        }),
+        Expr::List(items, _) => items.iter().for_each(|x| names(x, out)),
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+    }
+}
+
+fn derive_order(c: &Component) -> Vec<usize> {
     fn visit(i: usize, reads: &[Vec<usize>], seen: &mut [bool], order: &mut Vec<usize>) {
         if std::mem::replace(&mut seen[i], true) {
             return;
@@ -741,21 +1027,7 @@ fn derive_order(c: &Component) -> Vec<usize> {
         }
         order.push(i);
     }
-    let index: BTreeMap<&str, usize> = c
-        .derives
-        .iter()
-        .enumerate()
-        .map(|(i, d)| (d.name.as_str(), i))
-        .collect();
-    let reads: Vec<Vec<usize>> = c
-        .derives
-        .iter()
-        .map(|d| {
-            let mut out = Vec::new();
-            names(&d.expr, &mut out);
-            out.iter().filter_map(|n| index.get(n).copied()).collect()
-        })
-        .collect();
+    let reads = derive_reads(c);
     let (mut seen, mut order) = (vec![false; c.derives.len()], Vec::new());
     for i in 0..c.derives.len() {
         visit(i, &reads, &mut seen, &mut order);
@@ -764,7 +1036,7 @@ fn derive_order(c: &Component) -> Vec<usize> {
 }
 
 /// The first `[]` in `e`, whose element type nothing fixed when `e` typed
-/// as a `list<?>`.
+/// as a `?[]`.
 fn empty_list_in(e: &Expr) -> Option<Span> {
     match e {
         Expr::List(items, span) if items.is_empty() => Some(*span),
@@ -843,7 +1115,7 @@ pub(crate) fn initializer_scope(
     let message = if c.resources.iter().any(|r| r.name == name) {
         let path = member_path(&c.states[i].expr, &name).unwrap_or_else(|| shown.to_string());
         format!(
-            "`{shown}` is a resource; {reads}. Derive it from `{shown}`, or keep per-row state in a component used inside `each … in {path}`"
+            "`{shown}` is a resource; {reads}. Derive it from `{shown}`, or keep per-row state in a component used inside `for … in {path}`"
         )
     } else if c.derives.iter().any(|d| d.name == name) {
         format!(

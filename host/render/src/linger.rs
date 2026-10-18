@@ -14,7 +14,8 @@
 //! connection for a worker just freed — for as long as it kept sending; a
 //! worker closing its last connection was held the same way while it
 //! counted as free. One thread waits on all of them at once (`poll`)
-//! instead, and nothing it does is seen by a client: the answer and the end
+//! instead (`WSAPoll` on Windows), and nothing it does is seen by a client:
+//! the answer and the end
 //! of the stream have gone before a socket reaches it.
 //!
 //! What it holds is bounded: each socket for [`HOLD`] from its hand-off,
@@ -25,11 +26,22 @@
 
 use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
+#[cfg(windows)]
+use std::net::TcpListener;
 use std::net::{Shutdown, TcpStream};
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(windows)]
+use std::os::windows::io::AsRawSocket;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+type WakeStream = UnixStream;
+#[cfg(windows)]
+type WakeStream = TcpStream;
 
 /// How long a closing socket is held for its peer to close.
 const HOLD: Duration = Duration::from_secs(2);
@@ -89,7 +101,7 @@ struct Inbox {
 
 /// Hands connections to the closing thread.
 #[derive(Clone)]
-pub(crate) struct Closer(Arc<(Mutex<Inbox>, UnixStream)>);
+pub(crate) struct Closer(Arc<(Mutex<Inbox>, WakeStream)>);
 
 impl Closer {
     /// Close `stream`, whose answer is written: the server's half now, the
@@ -133,10 +145,47 @@ impl Closer {
 }
 
 /// Wake the thread from its `poll`: one byte, while none is already there.
-fn wake_thread(inbox: &mut Inbox, mut wake: &UnixStream) {
-    if !inbox.woken {
-        inbox.woken = wake.write(&[0]).is_ok();
+fn wake_thread(inbox: &mut Inbox, mut wake: impl Write) {
+    if inbox.woken {
+        return;
     }
+    loop {
+        match wake.write(&[0]) {
+            Ok(n) => {
+                inbox.woken = n > 0;
+                return;
+            }
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
+            Err(_) => return,
+        }
+    }
+}
+
+/// Consume the byte for a pending wake. A successful TCP write can precede
+/// readability, so WouldBlock or Interrupted leaves the notification pending.
+fn consume_wake(inbox: &mut Inbox, mut woken: impl Read) -> std::io::Result<()> {
+    if !inbox.woken {
+        return Ok(());
+    }
+    match woken.read(&mut [0u8; 8]) {
+        Ok(0) => {
+            return Err(std::io::Error::new(
+                ErrorKind::UnexpectedEof,
+                "the linger wake socket closed",
+            ));
+        }
+        Ok(_) => inbox.woken = false,
+        Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) => {}
+        Err(e) => return Err(e),
+    }
+    Ok(())
+}
+
+/// Mark a failed wake channel and take every socket not yet taken by the
+/// closing thread. The caller drops them after releasing the inbox lock.
+fn fail_wake(inbox: &mut Inbox) -> VecDeque<Held> {
+    inbox.gone = true;
+    std::mem::take(&mut inbox.arrived)
 }
 
 /// The closing thread, for as long as its server runs.
@@ -147,7 +196,7 @@ pub(crate) struct Linger {
 
 impl Linger {
     pub(crate) fn start() -> std::io::Result<Linger> {
-        let (wake, woken) = UnixStream::pair()?;
+        let (wake, woken) = wake_pair()?;
         wake.set_nonblocking(true)?;
         woken.set_nonblocking(true)?;
         let inbox = Inbox {
@@ -189,16 +238,35 @@ impl Drop for Linger {
     }
 }
 
-fn run(inbox: &Mutex<Inbox>, mut woken: &UnixStream) {
+#[cfg(unix)]
+fn wake_pair() -> std::io::Result<(WakeStream, WakeStream)> {
+    UnixStream::pair()
+}
+
+#[cfg(windows)]
+fn wake_pair() -> std::io::Result<(WakeStream, WakeStream)> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+    let wake = TcpStream::connect(listener.local_addr()?)?;
+    let (woken, _) = listener.accept()?;
+    Ok((wake, woken))
+}
+
+fn run(inbox: &Mutex<Inbox>, woken: &WakeStream) {
     let mut held = VecDeque::new();
     let mut fds = Vec::new();
     loop {
         {
             let mut inbox = inbox.lock().unwrap();
-            if inbox.woken {
-                // The lock orders this with the write: one byte is there.
-                let _ = woken.read(&mut [0u8; 8]);
-                inbox.woken = false;
+            if let Err(e) = consume_wake(&mut inbox, woken) {
+                // The internal wake channel cannot recover. End instead of
+                // polling a failed socket forever, and make future hand-offs
+                // drop their sockets. Release queued sockets outside the lock;
+                // `held` drops when the thread returns.
+                let arrived = fail_wake(&mut inbox);
+                drop(inbox);
+                drop(arrived);
+                eprintln!("render: close wake: {e}");
+                return;
             }
             for new in inbox.arrived.drain(..) {
                 admit(&mut held, new, HELD);
@@ -215,17 +283,44 @@ fn run(inbox: &Mutex<Inbox>, mut woken: &UnixStream) {
             let left = oldest.until.saturating_duration_since(now).as_millis();
             left as libc::c_int + 1
         });
+        #[cfg(unix)]
         let listen = |fd| libc::pollfd {
             fd,
             events: libc::POLLIN,
             revents: 0,
         };
+        #[cfg(windows)]
+        let listen = |fd| windows_sys::Win32::Networking::WinSock::WSAPOLLFD {
+            fd,
+            events: windows_sys::Win32::Networking::WinSock::POLLIN,
+            revents: 0,
+        };
         fds.clear();
-        fds.push(listen(woken.as_raw_fd()));
-        fds.extend(held.iter().map(|held| listen(held.stream.as_raw_fd())));
+        #[cfg(unix)]
+        {
+            fds.push(listen(woken.as_raw_fd()));
+            fds.extend(held.iter().map(|held| listen(held.stream.as_raw_fd())));
+        }
+        #[cfg(windows)]
+        {
+            fds.push(listen(woken.as_raw_socket() as _));
+            fds.extend(
+                held.iter()
+                    .map(|held| listen(held.stream.as_raw_socket() as _)),
+            );
+        }
         // SAFETY: `fds` is a live array of `fds.len()` entries, and each
         // names a socket this thread keeps open across the call.
+        #[cfg(unix)]
         let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, wait) };
+        #[cfg(windows)]
+        let ready = unsafe {
+            windows_sys::Win32::Networking::WinSock::WSAPoll(
+                fds.as_mut_ptr(),
+                fds.len() as u32,
+                wait,
+            )
+        };
         if ready < 0 {
             // Interrupted, or out of memory: the holds still run out.
             std::thread::sleep(Duration::from_millis(10));
@@ -250,6 +345,127 @@ mod tests {
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, _) = listener.accept().unwrap();
         (server, client)
+    }
+
+    #[test]
+    fn a_delayed_wake_stays_pending_until_its_byte_is_consumed() {
+        struct DelayedWake {
+            delivered: usize,
+            writes: usize,
+            interrupt: bool,
+        }
+        impl Read for DelayedWake {
+            fn read(&mut self, into: &mut [u8]) -> std::io::Result<usize> {
+                if self.delivered == 0 {
+                    return Err(std::io::Error::from(ErrorKind::WouldBlock));
+                }
+                self.delivered -= 1;
+                into[0] = 0;
+                Ok(1)
+            }
+        }
+        impl Write for DelayedWake {
+            fn write(&mut self, from: &[u8]) -> std::io::Result<usize> {
+                if self.interrupt {
+                    self.interrupt = false;
+                    return Err(std::io::Error::from(ErrorKind::Interrupted));
+                }
+                self.writes += 1;
+                Ok(from.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut inbox = Inbox {
+            arrived: VecDeque::new(),
+            woken: false,
+            finish: false,
+            gone: false,
+        };
+        let mut wake = DelayedWake {
+            delivered: 0,
+            writes: 0,
+            interrupt: true,
+        };
+        // An interrupted write is retried; its accepted notification is
+        // coalesced while delivery is delayed.
+        wake_thread(&mut inbox, &mut wake);
+        assert!(inbox.woken);
+        assert_eq!(wake.writes, 1);
+        consume_wake(&mut inbox, &mut wake).unwrap();
+        assert!(inbox.woken, "delivery is still pending");
+        wake_thread(&mut inbox, &mut wake);
+        assert_eq!(wake.writes, 1, "pending notifications coalesce");
+
+        wake.delivered = 1;
+        consume_wake(&mut inbox, &mut wake).unwrap();
+        assert!(!inbox.woken, "the delivered byte was consumed");
+
+        // A later, independent notification starts the same pending cycle;
+        // its poll may block until this second byte becomes readable.
+        wake_thread(&mut inbox, &mut wake);
+        assert!(inbox.woken);
+        assert_eq!(wake.writes, 2);
+        consume_wake(&mut inbox, &mut wake).unwrap();
+        assert!(inbox.woken, "the second delivery is also pending");
+        wake.delivered = 1;
+        consume_wake(&mut inbox, &mut wake).unwrap();
+        assert!(!inbox.woken);
+
+        inbox.woken = true;
+        let (server, mut client) = pair();
+        server.set_nonblocking(true).unwrap();
+        inbox.arrived.push_back(Held {
+            stream: server,
+            until: Instant::now() + HOLD,
+            read: 0,
+        });
+        let mut ended = &[][..];
+        let error = consume_wake(&mut inbox, &mut ended).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+        assert!(inbox.woken, "EOF did not masquerade as consumption");
+
+        let arrived = fail_wake(&mut inbox);
+        assert!(inbox.gone);
+        assert!(inbox.arrived.is_empty());
+        assert_eq!(arrived.len(), 1);
+        drop(arrived);
+        client.set_read_timeout(Some(BOUND)).unwrap();
+        assert_eq!(client.read(&mut [0u8; 1]).unwrap(), 0);
+    }
+
+    #[test]
+    fn the_wake_channel_is_empty_between_notifications() {
+        let (wake, mut woken) = wake_pair().unwrap();
+        wake.set_nonblocking(true).unwrap();
+        woken.set_nonblocking(true).unwrap();
+        let mut inbox = Inbox {
+            arrived: VecDeque::new(),
+            woken: false,
+            finish: false,
+            gone: false,
+        };
+
+        for _ in 0..2 {
+            wake_thread(&mut inbox, &wake);
+            assert!(inbox.woken);
+            let until = Instant::now() + BOUND;
+            while inbox.woken {
+                consume_wake(&mut inbox, &mut woken).unwrap();
+                assert!(Instant::now() < until, "wake byte was never readable");
+                std::thread::yield_now();
+            }
+            loop {
+                match woken.read(&mut [0u8; 1]) {
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+                    Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                    result => panic!("a stale wake remained after consumption: {result:?}"),
+                }
+            }
+        }
     }
 
     #[test]

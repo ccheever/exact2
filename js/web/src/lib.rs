@@ -77,6 +77,20 @@ fn pairs(pairs: &[(String, String)]) -> Json {
     )
 }
 
+/// A module's store snapshot as the realm reads it: text, as `Store::get`
+/// reads it, so a value that is not text is absent there as it is here.
+fn store_pairs(pairs: &[(String, Vec<u8>)]) -> Json {
+    Json::Array(
+        pairs
+            .iter()
+            .filter_map(|(k, v)| {
+                let text = std::str::from_utf8(v).ok()?;
+                Some(Json::Array(vec![k.as_str().into(), text.into()]))
+            })
+            .collect(),
+    )
+}
+
 /// Whether a `waiting` key names a target: `[null, …]` is a caller's that
 /// named none, which only that caller can let go.
 fn targeted(key: &str) -> bool {
@@ -221,7 +235,7 @@ impl Module {
             ("target", target),
             ("source", source.into()),
             ("args", Json::Array(args)),
-            ("store", pairs(&snapshot)),
+            ("store", store_pairs(&snapshot)),
             ("grants", grants),
         ]);
         let response = match outcome {
@@ -253,7 +267,7 @@ impl Module {
                             ))
                         }
                         Outcome::Response(response) => response.body,
-                        Outcome::Message(_) => {
+                        Outcome::Message(_) | Outcome::Closed { .. } => {
                             return Err(unavailable(
                                 "a stream message supplied to JavaScript checkpoint",
                             ))
@@ -333,6 +347,7 @@ impl Module {
                 _ => exact_runner::failure::FailureCode::seam_error(
                     response["failure"].as_str(),
                     message,
+                    response["reason"].as_str(),
                 ),
             });
         }
@@ -386,7 +401,11 @@ impl Module {
                 .unwrap_or_else(|| json::decode(&Json::Null, result));
             Answer::Now(value.map_err(|e| {
                 let why = format!("`{source}` answered outside its shape: {e}");
-                DataError::Failed(exact_runner::failure::FailureCode::Shape, why)
+                DataError::Failed(
+                    exact_runner::failure::FailureCode::Shape,
+                    why,
+                    String::new(),
+                )
             })?)
         } else {
             return Err(unavailable("browser module returned no answer tag"));
@@ -425,6 +444,9 @@ fn outcome_json(outcome: Outcome) -> Result<Json, DataError> {
                 ("coalesced", m.coalesced.into()),
             ]),
         )]),
+        // The web's wasm host keeps every socket listening (LLP 1016.000 D7):
+        // no two-way socket ends here.
+        Outcome::Closed { .. } => return Err(unavailable("a socket close supplied to fetch")),
     })
 }
 
@@ -463,7 +485,7 @@ impl DataSource for Module {
                 | DataError::UnknownSource(e)
                 | DataError::Interface(e)
                 | DataError::DeferredAtBake(e)
-                | DataError::Failed(_, e),
+                | DataError::Failed(_, e, _),
             ) => exact_runner::DrawReply {
                 error: Some(e),
                 ..Default::default()
@@ -536,6 +558,7 @@ impl DataSource for Module {
                         DataError::Failed(
                             exact_runner::failure::FailureCode::Shape,
                             format!("`{source}`'s overlay is outside its shape: {e}"),
+                            String::new(),
                         )
                     })?;
                 let keep = fields["keep"]
@@ -656,7 +679,7 @@ impl DataSource for Module {
             ("op", "dispatch".into()),
             ("id", self.id.into()),
             ("token", token.into()),
-            ("store", pairs(&snapshot)),
+            ("store", store_pairs(&snapshot)),
             ("grants", grants),
         ]))
         .and_then(|bytes| json::parse(&bytes).map_err(|e| unavailable(e.to_string())))
@@ -844,6 +867,24 @@ impl DataSource for Module {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The realm reads a secret as `Store::get` does: a value that is not
+    /// text is absent, never a replacement character.
+    #[test]
+    fn a_secret_that_is_not_text_is_absent_in_the_realm() {
+        let pairs = store_pairs(&[
+            ("token".into(), vec![0xff]),
+            ("name".into(), b"ada".to_vec()),
+        ]);
+        assert_eq!(
+            pairs,
+            Json::Array(vec![Json::Array(vec!["name".into(), "ada".into()])])
+        );
+        assert_eq!(
+            Store::new("secret.keep token", [("token".to_string(), vec![0xff])]).get("token"),
+            None
+        );
+    }
 
     #[test]
     fn two_targets_asking_one_source_with_equal_arguments_keep_their_own_turns() {
@@ -1058,6 +1099,7 @@ mod tests {
                 Err(DataError::Failed(
                     exact_runner::failure::FailureCode::Shape,
                     "`source` answered outside its shape: expected a number, got null".into(),
+                    String::new(),
                 )),
             ),
         ] {

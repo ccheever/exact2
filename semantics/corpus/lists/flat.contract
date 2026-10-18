@@ -1,0 +1,35 @@
+// `xs.flat()` (LLP 1017.003 §Refused, 2026-10-17): JavaScript's
+// `Array.prototype.flat()` at depth 1, a list of lists' items in order;
+// `xs.map(f).flat()` is `flatMap`.
+shape Lane
+  name: string
+  hits: number[]
+
+component App
+  state lanes = [Lane(name="kick", hits=[0, 4]), Lane(name="snare", hits=[]), Lane(name="hat", hits=[2, 6, 10])]
+  state words = [["a", "b"], [], ["c"]]
+  derive all = lanes.map(l => l.hits).flat()
+  derive names = lanes.map(l => [l.name, l.name]).flat().join(" ")
+  derive deep = [[[1], [2]], [[3]]].flat().flat()
+  derive empty = [].flat().length
+  action add(word: string)
+    words = words.concat([[word, word]])
+  action clear
+    lanes = []
+  view
+    column
+      text all.join(",") testId="all"
+      text words.flat().join("") testId="words"
+      text `${deep.join(",")} ${empty} ${[[0], [1, 2]].flat().length}` testId="edges"
+      button "add" press=add("z") testId="add"
+      button "clear" press=clear testId="clear"
+
+test "one level, in order"
+  expect text "all" == "0,4,2,6,10"
+  expect state names == "kick kick snare snare hat hat"
+  expect text "words" == "abc"
+  expect text "edges" == "1,2,3 0 3"
+  tap "add"
+  expect text "words" == "abczz"
+  tap "clear"
+  expect text "all" == ""

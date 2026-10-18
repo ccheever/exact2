@@ -1,0 +1,47 @@
+// A test that depends on the day pins `epoch` and `time-zone`; none waits in real time.
+test "an empty month says what to do; Save waits for a title and an amount, saying which"
+  expect tree missing "by-category"
+  tap "empty-add"
+  clock settle
+  expect disabled "save"
+  expect text "save-hint" == "Enter a title."
+  type "title" "Noodle Bar"
+  expect text "save-hint" == "Enter an amount, like 12.50."
+  type "amount" "12.5.0"
+  expect disabled "save"
+  type "amount" "12.50"
+  expect enabled "save"
+  expect text "save-hint" == ""
+
+test "a saved expense is kept, with its day, across a relaunch"
+  epoch "2026-03-14T18:00:00Z"
+  time-zone "America/Los_Angeles"
+  tap "add-expense"
+  clock settle
+  type "title" "Noodle Bar"
+  type "amount" "31"
+  type "category" "dining"
+  tap "save"
+  clock data
+  clock settle
+  expect state detail == "$769.00 left of $800.00"
+  expect state summary.recent.0 .day == "2026-03-14"
+  reload
+  expect state summary.recent.0 .title == "Noodle Bar"
+  expect state summary.categories.1 .spent == 3100
+
+test "an entry made after midnight, before the minute's tick, is the new day's; a wide window has two columns"
+  size 1100x800
+  epoch "2026-03-15T06:59:50Z"
+  time-zone "America/Los_Angeles"
+  clock +40000
+  tap "add-expense"
+  clock settle
+  type "title" "Corner Market"
+  type "amount" "23.40"
+  tap "save"
+  clock data
+  clock settle
+  expect state summary.recent.0 .day == "2026-03-15"
+  expect tree has "recent"
+  expect tree has "by-category"

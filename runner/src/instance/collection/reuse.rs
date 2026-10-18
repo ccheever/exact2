@@ -136,7 +136,7 @@ impl Reuse {
 /// Retiring rows a travelling list keeps mounted for the rows it needs next.
 pub(super) const HOLD: usize = 4;
 
-/// Which way an item would likely steer its row's `when` and `match` arms:
+/// Which way an item would likely steer its row's `if` and `match` arms:
 /// per field, whether an option is present, a flag set, a list empty.
 fn steer(item: Option<&Value>) -> u64 {
     let Some(Value::Record(fields)) = item else {
@@ -312,7 +312,7 @@ impl Collection {
                 slots.borrow_mut().insert(i as u32, value);
             }
         }
-        row.slots = slots;
+        row.slots = Some(slots);
         row.key = self.keys[position].clone();
         row.dup = self.dups.get(&position).copied().unwrap_or(0);
         if row.dup > 0 {
@@ -325,9 +325,11 @@ impl Collection {
         // Every binding of the row, evaluated against the new item: what a
         // create emits, less what the row already shows.
         let full = std::mem::replace(&mut u.full, true);
+        let around = std::mem::replace(&mut u.theme, self.around.clone());
         let body = &u.sites.deps.bodies[self.region.0 as usize];
         let updated = update_row(u, row, frames, !0, body);
         u.full = full;
+        u.theme = around;
         updated?;
         views::rekey(u, mounted.wrapper, text);
         mounted.position = position;

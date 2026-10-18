@@ -117,12 +117,80 @@ fn logical(name: &str) -> Option<String> {
     })
 }
 
+/// What is written for a React Native style name that has no one CSS name.
+pub(crate) fn react_native(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "paddingHorizontal" => "; React Native's `paddingHorizontal` is `padding-left` and `padding-right` here, or `padding=\"<vertical> <horizontal>\"`",
+        "paddingVertical" => "; React Native's `paddingVertical` is `padding-top` and `padding-bottom` here, or `padding=\"<vertical> <horizontal>\"`",
+        "marginHorizontal" => "; React Native's `marginHorizontal` is `margin-left` and `margin-right` here, or `margin=\"<vertical> <horizontal>\"`",
+        "marginVertical" => "; React Native's `marginVertical` is `margin-top` and `margin-bottom` here, or `margin=\"<vertical> <horizontal>\"`",
+        "shadowColor" | "shadowOpacity" | "shadowRadius" | "shadowOffset" | "elevation" => {
+            "; React Native's shadow is one `box-shadow=\"<x>px <y>px <2 × shadowRadius>px <shadowColor at shadowOpacity>\"` here"
+        }
+        "selectable" => "; selectable text is `user-select=\"text\"` here",
+        _ => return None,
+    })
+}
+
+/// The edit for HTML's `style=`: a node's own look is its attributes, and a
+/// look nodes share is a `style` block named by `class=`. CSS declarations
+/// (`"padding: 8px; color: red"`) are written back as the attributes.
+fn style_hint(value: &contract_syntax::Expr) -> String {
+    let shared = "a look nodes share is a `style Name` block in the file, named with `class=Name`";
+    let contract_syntax::Expr::Str(text, _) = value else {
+        return format!("; a node's look is its attributes (`padding=8 color=\"-exact-secondary-label\"`), and {shared}");
+    };
+    let declarations: Option<Vec<String>> = text
+        .split(';')
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(|d| {
+            let (name, value) = d.split_once(':')?;
+            // A string literal of the value: CSS's runs of whitespace as one
+            // space, which mean the same, and every other control character,
+            // a quote and a backslash escaped.
+            let value: String = value.split_whitespace().collect::<Vec<_>>().join(" ");
+            let value: String = value
+                .chars()
+                .map(|c| match c {
+                    '\\' | '"' => format!("\\{c}"),
+                    c if c.is_control() => format!("\\u{{{:x}}}", c as u32),
+                    c => c.to_string(),
+                })
+                .collect();
+            Some(format!("{}=\"{value}\"", name.trim()))
+        })
+        .collect();
+    match declarations {
+        Some(attrs) if !attrs.is_empty() => format!(
+            "; write the declarations as attributes, `{}`: a node's look is its attributes, and {shared}",
+            attrs.join(" ")
+        ),
+        _ if text.trim().starts_with(|c: char| c.is_ascii_alphabetic())
+            && text.trim().chars().all(|c| c.is_ascii_alphanumeric() || c == '_') =>
+        {
+            format!(
+                "; write `class={}`: {shared}, and a node's own look is its attributes",
+                text.trim()
+            )
+        }
+        _ => format!("; {shared}, and a node's own look is its attributes"),
+    }
+}
+
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
+        None if crate::fields::placeholder_hint(&a.name).is_some() => {
+            crate::fields::placeholder_hint(&a.name).unwrap_or_default()
+        }
         Some(new @ ("press" | "change" | "input")) => format!(
             "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
             a.name
         ),
+        // CSS's own shorthand, not a nickname: Contract takes the longhand (app farm wave 1, about twelve builds).
+        Some(new @ "background-color") if a.name == "background" => {
+            format!("; CSS's `background` shorthand is not taken here: a colour is `{new}` (LLP 1017 §8.1)")
+        }
         Some(new) => format!(
             "; `{}` is spelled `{new}` here, the web's name (LLP 1017 §8.1)",
             a.name
@@ -134,14 +202,35 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
                 fragmentation(&a.name).unwrap_or_default()
             )
         }
+        None if react_native(&a.name).is_some() => {
+            react_native(&a.name).unwrap_or_default().into()
+        }
         None if logical(&a.name).is_some() => format!(
             "; CSS's logical `{}` is not admitted: write {}",
             a.name,
             logical(&a.name).unwrap_or_default()
         ),
+        None if tag == "dialog" && a.name == "open" => {
+            ": in HTML, `open` alone shows a dialog non-modally, which Exact does not support. For a \
+             modal, give the dialog an `id` and call `showModal(\"id\")` in an action, or put \
+             `commandfor=\"id\" command=\"show-modal\"` on a button; close it with `close(\"id\")` \
+             or `commandfor=\"id\" command=\"close\"`. A dialog that state holds open is not \
+             available yet"
+                .into()
+        }
+        // @ref LLP 1061 D7: no selectors, so no pressed block of any row;
+        // what the host can change under a finger, with no layout, is named.
+        None if a.name.starts_with("-exact-press-") => {
+            "; a pressed look is paint only, never layout: `-exact-press-opacity`, \
+             `-exact-press-background-color`, `-exact-press-color` and `-exact-press-scale` \
+             (and `-exact-press-haptic`), which the host shows while a pointer holds the node"
+                .into()
+        }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }
+        // The euxy port wrote `style=` for a declared style.
+        None if a.name == "style" => style_hint(&a.value),
         None if a.name.starts_with("aria-") => {
             let carried: Vec<&str> = ARIA
                 .iter()
@@ -178,6 +267,10 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
 /// rows. The driver runs this when an earlier pass refused, so a misspelled
 /// tag or a bad colour is reported in the same run as a type error.
 pub fn lint(file: &File) -> Vec<LowerError> {
+    // A theme's names are colours (LLP 1095 D4); the lint asks only whether a
+    // row's value is one, so each stands for any.
+    crate::theme::bind_axes(file);
+    let _theme = crate::theme::lint_scope(file);
     fn walk(nodes: &[Node], errors: &mut Vec<LowerError>) {
         for n in nodes {
             match n {
@@ -193,10 +286,10 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     } else {
                         let coerced = svg::coerce_lengths(tag, false, attrs);
                         let attrs = coerced.as_deref().unwrap_or(attrs);
-                        for a in attrs
-                            .iter()
-                            .filter(|a| a.name != "class" && !native::leftover(tag, a))
-                        {
+                        // `delete=` is lowering's, a list row's swipe (`swipe_rows.rs`).
+                        for a in attrs.iter().filter(|a| {
+                            a.name != "class" && a.name != "delete" && !native::leftover(tag, a)
+                        }) {
                             if let Some(e) = native::refused(tag, a) {
                                 errors.push(e);
                                 continue;
@@ -205,13 +298,22 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 errors.extend(dataset::refused(a));
                                 continue;
                             }
-                            let checked = match tags::attr_valued(&a.name, &a.value) {
+                            let check = |a: &contract_syntax::Attr| match tags::attr_valued(
+                                &a.name, &a.value,
+                            ) {
                                 None => Err(unknown_attr(tag, a)),
                                 // A family is resolved against declared fonts.
                                 Some(tags::AttrTarget::Styles(rows))
                                     if rows != [StyleId::FontFamily] =>
                                 {
-                                    values::check_style_value(a, rows, &Ty::Unknown, &[])
+                                    values::check_style_value(
+                                        a,
+                                        rows,
+                                        &Ty::Unknown,
+                                        &[],
+                                        &Default::default(),
+                                        &Default::default(),
+                                    )
                                 }
                                 // The shorthand's parts, as lowering checks them: `flex="none"`
                                 // was refused here as a grow number beside another error
@@ -228,15 +330,43 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                                 &[row],
                                                 &Ty::Unknown,
                                                 &[],
+                                                &Default::default(),
+                                                &Default::default(),
                                             )
                                         })
+                                }
+                                // A type token's longhands are its own (stage 6 C).
+                                Some(tags::AttrTarget::Shorthand)
+                                    if a.name == "font"
+                                        && matches!(&a.value, contract_syntax::Expr::Str(t, _)
+                                            if crate::theme::measure_values(t).is_some()) =>
+                                {
+                                    Ok(())
                                 }
                                 Some(tags::AttrTarget::Shorthand) => {
                                     super::shorthands::component(&a.value, &a.name, 0).map(|_| ())
                                 }
                                 Some(_) => Ok(()),
                             };
-                            errors.extend(checked.err());
+                            // An expression over a token is folded by the
+                            // build (a synthetic token, LLP 1121 D3), not here,
+                            // in a choice's arm as in a whole value; the other
+                            // arms are checked here.
+                            let folded = |t: &str| {
+                                t.contains('(')
+                                    && crate::theme::words(t).any(exact_kernel::style::theme::names)
+                            };
+                            let mut leaves = Vec::new();
+                            crate::theme::literal_leaves(&a.value, &mut leaves);
+                            if leaves.iter().any(|(t, _)| folded(t)) {
+                                for (t, span) in leaves.into_iter().filter(|(t, _)| !folded(t)) {
+                                    let value = contract_syntax::Expr::Str(t, span);
+                                    let leaf = contract_syntax::Attr { value, ..a.clone() };
+                                    errors.extend(check(&leaf).err());
+                                }
+                            } else {
+                                errors.extend(check(a).err());
+                            }
                         }
                     }
                     walk(children, errors);
@@ -262,5 +392,10 @@ pub fn lint(file: &File) -> Vec<LowerError> {
         walk(&c.view, &mut errors);
     }
     errors.truncate(MAX_REFUSALS);
+    // A param by its full name, never its token's (LLP 1121 D15).
+    let params = crate::params::tokens(file);
+    for e in &mut errors {
+        e.message = crate::params::shown(&e.message, &params);
+    }
     errors
 }

@@ -31,7 +31,12 @@ extension ControlHost {
 
     func configureValue(_ control: UIControl, _ owner: NodeView, accent: UIColor?) {
         #if !os(tvOS)
-        if let slider = control as? UISlider { configureRange(slider, owner, accent: accent); return }
+        if let slider = control as? RangeSlider {
+            // The accent is the slider's tint, which draws its filled track as a default slider's: grey behind a modal
+            assign(slider, \.tintColor, accent)
+            configureRange(slider, owner)
+            return
+        }
         if let picker = control as? UIDatePicker { configureDate(picker, owner, accent: accent); return }
         #endif
         guard let button = control as? UIButton else { return }
@@ -92,7 +97,10 @@ extension ControlHost {
     /// HTML sizes a select to its widest option, whichever is shown (D3).
     func naturalSize(_ control: UIControl, _ owner: NodeView) -> CGSize {
         #if !os(tvOS)
-        // A slider has no natural width; Chrome's range is 129 wide.
+        // A slider has no width of its own: it is as wide as its node, which
+        // the plan makes `width: 100%` (LLP 1115.000 D10.2). 129 is the
+        // range's intrinsic width on every host (`ControlKind::default_size`):
+        // what the node falls back to where that has nothing to resolve against.
         if control is UISlider { return CGSize(width: 129, height: ceil(control.intrinsicContentSize.height)) }
         // A compact date picker sizes by Auto Layout, not before it lays out.
         if control is UIDatePicker {
@@ -111,6 +119,14 @@ extension ControlHost {
         }
         return size == .zero ? button.intrinsicContentSize : CGSize(width: ceil(size.width), height: ceil(size.height))
     }
+
+    #if os(iOS)
+    /// The select's height at `width`, its shown title wrapped there (a
+    /// frame-sized button's Auto Layout fitting answers its one-line size).
+    func selectHeight(_ button: UIButton, width: CGFloat) -> CGFloat {
+        ceil(button.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)).height)
+    }
+    #endif
 
     /// A choice from the menu: `input` then `change`. The bound value is
     /// shown when it changes, as the web build's select: an action that
@@ -156,7 +172,7 @@ extension ControlHost {
     /// The agent's `type <id> <value>` (D9): the choice a menu would make.
     func type(_ node: NodeView, _ value: String) -> [String: Any]? {
         #if !os(tvOS)
-        if let slider = controls[node.id] as? UISlider {
+        if let slider = controls[node.id] as? RangeSlider {
             guard slider.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
             return typeRange(slider, node, value)
         }

@@ -1,0 +1,13 @@
+tamber inert
+
+dials
+  accent: color = #1083fe
+  shade: color = #333
+  tint: color = #1083fe
+  roundness: number = 1  in 0..2
+  gap: length = 8px  in 0px..24px
+
+theme
+  brand = accent
+  hidden = light-dark(#fff, light-dark(shade, #000))
+  refused.probe = light-dark(#000, light-dark(oklch(from tint l c h), #fff))

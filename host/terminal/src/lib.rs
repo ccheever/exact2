@@ -25,6 +25,8 @@
 #![deny(missing_docs)]
 
 pub mod cli;
+mod collection;
+pub mod color;
 pub mod grid;
 pub mod host;
 pub mod image;
@@ -35,3 +37,4 @@ pub mod pointer;
 mod requests;
 pub mod term;
 pub mod vt;
+mod zone;

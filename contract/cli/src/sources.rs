@@ -23,6 +23,13 @@ pub(crate) struct Sources {
     pub(crate) packages: Vec<Package>,
     /// Every `package.json` a resolution read, refused or not.
     pub(crate) consulted: Vec<PathBuf>,
+    /// Each source's text as compiled, its SHA-256 (hex), by source id: the
+    /// source map says them, so a reader knows a file has not moved since
+    /// (LLP 1122 D5, D6's fail-closed rule).
+    pub(crate) digests: Vec<String>,
+    /// The literals a motion token was written into, or that a component's
+    /// argument names one in (LLP 1121 D3): what `uses` reports for one.
+    pub(crate) motion: Vec<contract_lower::motion::Site>,
 }
 
 /// One name a `use` brought: where it is written, and the declaration it
@@ -37,6 +44,11 @@ impl Sources {
     /// first `(captured, original)` pair whose captured directory holds it
     /// (a bake's stage, and each package mirrored into the stage's
     /// `node_modules`, listed first; LLP 1091 D10).
+    /// Each source's path, by source id.
+    pub(crate) fn paths(&self) -> &[PathBuf] {
+        &self.paths
+    }
+
     pub(crate) fn relocate(&mut self, moves: &[(PathBuf, PathBuf)]) -> Result<(), String> {
         let moves = moves
             .iter()
@@ -77,6 +89,14 @@ impl Sources {
         Ok(())
     }
 
+    /// Every source's path and the SHA-256 of its text as compiled.
+    pub(crate) fn digested(&self) -> impl Iterator<Item = (&Path, &str)> + '_ {
+        self.paths
+            .iter()
+            .map(PathBuf::as_path)
+            .zip(self.digests.iter().map(String::as_str))
+    }
+
     pub(crate) fn path(&self, span: contract_syntax::Span) -> &Path {
         &self.paths[span.source_id as usize]
     }
@@ -104,9 +124,11 @@ pub(crate) fn load(
         sources: Sources {
             paths: vec![path.to_path_buf()],
             origins: vec![Origin::App],
+            digests: vec![digest(src)],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
+            motion: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -114,6 +136,7 @@ pub(crate) fn load(
         fixes: Vec::new(),
         proposed: Vec::new(),
         declared: Vec::new(),
+        motion: Vec::new(),
     };
     let resolve = |sources: &Sources, all: Vec<CompileError>| {
         all.into_iter()
@@ -123,10 +146,262 @@ pub(crate) fn load(
     if let Err(all) = loader.load_source(&root_key, src, 0) {
         return Err(resolve(&loader.sources, all));
     }
+    // Each component's `param.` names, as their tokens (LLP 1121 D15),
+    // before anything reads a row.
+    let mut refused: Vec<CompileError> = Vec::new();
+    for unit in &mut loader.units {
+        refused.extend(
+            contract_lower::params::rewrite(&mut unit.file)
+                .into_iter()
+                .map(CompileError::from),
+        );
+        // Read by a row, before a motion param is written into it.
+        refused.extend(
+            contract_lower::params::unused(&unit.file)
+                .into_iter()
+                .map(CompileError::from),
+        );
+    }
+    let params: Vec<_> = loader
+        .units
+        .iter()
+        .flat_map(|u| contract_lower::params::tokens(&u.file))
+        .collect();
+    refused.extend(
+        contract_lower::params::collisions(&params)
+            .into_iter()
+            .map(CompileError::from),
+    );
+    if !refused.is_empty() {
+        return Err(resolve(&loader.sources, refused));
+    }
+    // The design, read before scoping: its motion tokens, and the params of
+    // those kinds, are written into the views first (`contract_lower::motion`).
+    let design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
+    // The design's components that aren't Contract, named and checked as
+    // Contract params are (D15).
+    if let Some(d) = &design {
+        let (designed, mut refused) = contract_lower::params::design_tokens(d);
+        let all: Vec<_> = params.iter().chain(&designed).cloned().collect();
+        refused.extend(contract_lower::params::collisions(&all));
+        if !refused.is_empty() {
+            return Err(resolve(
+                &loader.sources,
+                refused.into_iter().map(CompileError::from).collect(),
+            ));
+        }
+    }
+    let identities: Vec<String> = loader
+        .units
+        .iter()
+        .flat_map(|u| contract_lower::params::identities(&u.file))
+        .collect();
+    loader.motion = contract_lower::motion::tokens(
+        design.as_ref().map(|d| d.text.as_str()),
+        &params,
+        &identities,
+    );
     match loader.scope() {
-        Ok(file) => Ok((file, loader.sources)),
+        Ok(mut file) => {
+            file.design = design;
+            Ok((file, loader.sources))
+        }
         Err(all) => Err(resolve(&loader.sources, all)),
     }
+}
+
+/// A source's file as a component's identity names it (LLP 1121 D15),
+/// from where the file is alone, never the route a `use` reached it by: a
+/// file in a package (the nearest directory above it, below the app's own,
+/// whose `package.json` has a name: under `node_modules`, linked from
+/// elsewhere, or vendored) under the package's name, else the file relative
+/// to the app's directory.
+fn home(path: &Path, origin: &Origin, app_root: &Path) -> String {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let app = app_root
+        .canonicalize()
+        .unwrap_or_else(|_| app_root.to_path_buf());
+    let relative = |root: &Path| {
+        path.strip_prefix(root)
+            .ok()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+    };
+    let named = |root: &Path| {
+        std::fs::read_to_string(root.join("package.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|m| m["name"].as_str().map(str::to_string))
+    };
+    for dir in path.ancestors().skip(1) {
+        // The app's own directory and those above it are no package of it.
+        if app.starts_with(dir) {
+            break;
+        }
+        if let (Some(name), Some(rest)) = (named(dir), relative(dir)) {
+            return format!("{name}/{rest}");
+        }
+    }
+    if let Some(rest) = relative(&app) {
+        return rest;
+    }
+    match origin {
+        Origin::Builtin => path.to_string_lossy().into_owned(),
+        // Outside the app, in no named package: by its place from the app
+        // (`../libs/a/index.contract`), never its file name alone.
+        _ => {
+            let (a, p): (Vec<_>, Vec<_>) =
+                (app.components().collect(), path.components().collect());
+            let common = a.iter().zip(&p).take_while(|(x, y)| x == y).count();
+            let up = std::iter::repeat_n("..".to_string(), a.len() - common);
+            let down = p[common..]
+                .iter()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned());
+            up.chain(down).collect::<Vec<_>>().join("/")
+        }
+    }
+}
+
+/// Where the app's design is (LLP 1121 D2): the file `app.json`'s
+/// `"tamber"` names, else `app.tamber` beside the app's `app.contract`.
+pub fn design_path(root: &Path) -> Option<PathBuf> {
+    let dir = root.parent()?;
+    let named = std::fs::read_to_string(dir.join("app.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|app| app.get("tamber")?.as_str().map(|p| dir.join(p)));
+    named.or_else(|| {
+        let beside = dir.join("app.tamber");
+        (root.file_name()? == "app.contract" && beside.is_file()).then_some(beside)
+    })
+}
+
+std::thread_local! {
+    /// A scrub's design text (LLP 1121 stage 4, commit 6), compiled in
+    /// place of the file's while [`with_design_text`] runs.
+    static DESIGN_TEXT: std::cell::RefCell<Option<(PathBuf, String)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+std::thread_local! {
+    /// The design server's planned `.contract` texts (LLP 1121 stage 8 D),
+    /// compiled in place of the files' while [`with_contract_texts`] runs.
+    static CONTRACT_TEXT: std::cell::RefCell<Vec<(PathBuf, String)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Run `f` with each `(path, text)` read as that Contract source, written
+/// to no file: a write the server checks before it commits.
+pub fn with_contract_texts<R>(texts: Vec<(PathBuf, String)>, f: impl FnOnce() -> R) -> R {
+    /// Puts the texts before back however `f` ends, a panic included.
+    struct Restore(Vec<(PathBuf, String)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let before = std::mem::take(&mut self.0);
+            CONTRACT_TEXT.with(|t| *t.borrow_mut() = before);
+        }
+    }
+    let keyed = texts
+        .into_iter()
+        .map(|(p, t)| (p.canonicalize().unwrap_or(p), t))
+        .collect();
+    let _restore = Restore(CONTRACT_TEXT.with(|t| t.replace(keyed)));
+    f()
+}
+
+/// The text the server planned for Contract source `path`, if any.
+pub(crate) fn contract_text(path: &Path) -> Option<String> {
+    let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    CONTRACT_TEXT.with(|t| {
+        t.borrow()
+            .iter()
+            .find(|(p, _)| *p == key)
+            .map(|(_, s)| s.clone())
+    })
+}
+
+/// Run `f` with `text` read as the design at `path`, written to no file:
+/// a scrub's preview, which the dev loop compiles and never publishes.
+pub fn with_design_text<R>(path: &Path, text: String, f: impl FnOnce() -> R) -> R {
+    /// Puts the text before back however `f` ends, a panic included.
+    struct Restore(Option<(PathBuf, String)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let before = self.0.take();
+            DESIGN_TEXT.with(|t| *t.borrow_mut() = before);
+        }
+    }
+    let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let _restore = Restore(DESIGN_TEXT.with(|t| t.replace(Some((key, text)))));
+    f()
+}
+
+/// The app's design, read (LLP 1121 D2), and a source of its own, so a
+/// refusal in it names it.
+fn design(
+    root: &Path,
+    sources: &mut Sources,
+) -> Result<Option<contract_syntax::DesignSource>, CompileError> {
+    let Some(path) = design_path(root) else {
+        return Ok(None);
+    };
+    let key = path.canonicalize().unwrap_or_else(|_| path.clone());
+    let scrubbed = DESIGN_TEXT.with(|t| {
+        t.borrow()
+            .as_ref()
+            .and_then(|(p, text)| (*p == key).then(|| text.clone()))
+    });
+    let read = scrubbed.map_or_else(|| std::fs::read_to_string(&path), Ok);
+    let text = read.map_err(|e| CompileError {
+        pass: "use",
+        id: "tamber-unreadable".into(),
+        message: format!("the app's design `{}`: {e}", path.display()),
+        span: Span::default(),
+        file: Some(path.clone().into()),
+        related: Box::new([]),
+    })?;
+    sources.paths.push(path.clone());
+    sources.origins.push(Origin::App);
+    sources.digests.push(digest(&text));
+    let home = root
+        .parent()
+        .and_then(|dir| path.strip_prefix(dir).ok())
+        .map_or_else(
+            || {
+                path.file_name()
+                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+            },
+            |p| p.to_string_lossy().replace('\\', "/"),
+        );
+    Ok(Some(contract_syntax::DesignSource {
+        path: path.display().to_string(),
+        home,
+        text,
+        source_id: (sources.paths.len() - 1) as u32,
+        bindable: code_beside(root),
+    }))
+}
+
+/// @ref LLP 1121 D7 — whether the app at `root` (its `app.contract`) has code
+/// beside it that can name a design token outside its views: a TypeScript
+/// data module (`app.ts`), a Rust data crate (`data/Cargo.toml`), or native
+/// modules or hatches its `app.json` declares. The driver's half of
+/// `contract_lower::names_tokens_outside_views`.
+pub fn code_beside(root: &Path) -> bool {
+    let dir = root.parent().unwrap_or(Path::new("."));
+    if dir.join("app.ts").is_file() || dir.join("data/Cargo.toml").is_file() {
+        return true;
+    }
+    let manifest = std::fs::read_to_string(dir.join("app.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+    manifest.is_some_and(|m| {
+        let declared = |key: &str| match &m[key] {
+            serde_json::Value::Array(a) => !a.is_empty(),
+            serde_json::Value::Object(o) => !o.is_empty(),
+            _ => false,
+        };
+        declared("modules") || declared("hatches")
+    })
 }
 
 /// The `use` lines each file of the program rooted at `path` lacks (LLP
@@ -143,9 +418,11 @@ pub(crate) fn use_fixes(
         sources: Sources {
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
+            digests: vec![digest(src)],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
+            motion: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -153,6 +430,7 @@ pub(crate) fn use_fixes(
         fixes: Vec::new(),
         proposed: Vec::new(),
         declared: Vec::new(),
+        motion: Vec::new(),
     };
     let resolve = |sources: &Sources, all: Vec<CompileError>| {
         all.into_iter()
@@ -208,7 +486,8 @@ pub struct SourceGraph {
     /// Every package reached, by each name it was reached by.
     pub packages: Vec<Package>,
     /// Every `package.json` resolution read, including one whose `exports`
-    /// then refused: what a fix would edit.
+    /// then refused: what a fix would edit; and an icon's SVG the build
+    /// looked for and did not find (LLP 1121 D10).
     pub consulted: Vec<PathBuf>,
     /// The loader's refusals; empty when every source loaded and scoped.
     pub errors: Vec<CompileError>,
@@ -221,9 +500,11 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         sources: Sources {
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
+            digests: vec![digest(src)],
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
+            motion: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -231,8 +512,20 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         fixes: Vec::new(),
         proposed: Vec::new(),
         declared: Vec::new(),
+        motion: Vec::new(),
     };
-    let errors = match loader.load_source(&root_key, src, 0) {
+    let loaded = loader.load_source(&root_key, src, 0);
+    // The components' params (LLP 1121 D15), named as the build names them
+    // (an icon param naming another): an icon param's SVG is read too.
+    for unit in &mut loader.units {
+        let _ = contract_lower::params::rewrite(&mut unit.file);
+    }
+    let params: Vec<_> = loader
+        .units
+        .iter()
+        .flat_map(|u| contract_lower::params::tokens(&u.file))
+        .collect();
+    let errors = match loaded {
         Err(all) => all,
         Ok(()) => loader.scope().err().unwrap_or_default(),
     };
@@ -240,7 +533,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         .into_iter()
         .map(|e| loader.sources.resolve(e))
         .collect();
-    let sources = loader
+    let mut sources: Vec<Source> = loader
         .sources
         .paths
         .iter()
@@ -250,10 +543,58 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             origin: origin.clone(),
         })
         .collect();
+    // The app's design is a source too: a capture copies it, a watcher
+    // watches it (LLP 1121 D2).
+    let design = design_path(&root_key);
+    // An icon token's SVG too, which the build reads (LLP 1121 D10).
+    let text = match design
+        .as_ref()
+        .and_then(|d| std::fs::read_to_string(d).ok())
+    {
+        Some(text) => Some(text),
+        None => (!params.is_empty()).then(|| "tamber app\n".to_string()),
+    };
+    let icons: Vec<PathBuf> = text
+        .and_then(|text| exact_tamber::parse(&text).ok())
+        .and_then(|mut d| {
+            let identities: Vec<String> = loader
+                .units
+                .iter()
+                .flat_map(|u| contract_lower::params::identities(&u.file))
+                .collect();
+            contract_lower::params::add_to(&mut d, &params, &identities);
+            exact_tamber::check_design(d, &contract_lower::tamber_vocab()).ok()
+        })
+        .map(|folding| {
+            let assets = root_key.parent().unwrap_or(Path::new(".")).join("assets");
+            folding
+                .icons
+                .iter()
+                .filter_map(|i| i.svg.as_ref().map(|f| assets.join(f)))
+                .collect()
+        })
+        .unwrap_or_default();
+    // One not there yet is looked for, as a hidden import is, so making it
+    // rebuilds.
+    let (icons, missing): (Vec<PathBuf>, Vec<PathBuf>) =
+        icons.into_iter().partition(|p| p.is_file());
+    sources.extend(design.map(|path| Source {
+        path,
+        origin: Origin::App,
+    }));
+    sources.extend(icons.into_iter().map(|path| Source {
+        path,
+        origin: Origin::App,
+    }));
     SourceGraph {
         sources,
         packages: loader.sources.packages,
-        consulted: loader.sources.consulted,
+        consulted: loader
+            .sources
+            .consulted
+            .into_iter()
+            .chain(missing)
+            .collect(),
         errors,
     }
 }
@@ -280,6 +621,9 @@ struct Loader<'a> {
     /// Each unit's declarations as written, before renaming, for §21's
     /// fixes to judge what a `use` would bring.
     declared: Vec<Vec<(Kind, String)>>,
+    /// The app's duration and easing tokens (LLP 1121 D3), written into the
+    /// motion rows before scoping.
+    motion: Vec<(String, String)>,
 }
 impl Loader<'_> {
     /// Parse `src` as unit `source_id`, then every file its uses name, depth
@@ -291,8 +635,18 @@ impl Loader<'_> {
         source_id: u32,
     ) -> Result<(), Vec<CompileError>> {
         // Every syntax refusal in this file, not only its first.
-        let file = contract_syntax::parse_source_all(src, source_id)
+        let mut file = contract_syntax::parse_source_all(src, source_id)
             .map_err(|all| all.into_iter().map(CompileError::from).collect::<Vec<_>>())?;
+        // Each component's identity, its file relative to its root and its
+        // name (LLP 1121 D15): what its params are named by.
+        let home = home(
+            path,
+            &self.sources.origins[source_id as usize],
+            self.app_root,
+        );
+        for c in &mut file.components {
+            c.params.identity = Some(format!("{home}#{}", c.name));
+        }
         contract_analyze::check_routes_root(&file, self.active.len() == 1)
             .map_err(|e| vec![CompileError::from(e)])?;
         let uses = file.uses.clone();
@@ -344,17 +698,20 @@ impl Loader<'_> {
                 None => {
                     let used_src = match resolved.builtin {
                         Some(text) => text.to_owned(),
-                        None => std::fs::read_to_string(&key).map_err(|e| {
-                            vec![use_error(
-                                "contract-use-unreadable",
-                                format!("{}: {}: {e}", described(u), key.display()),
-                                u,
-                            )]
-                        })?,
+                        None => contract_text(&key)
+                            .map_or_else(|| std::fs::read_to_string(&key), Ok)
+                            .map_err(|e| {
+                                vec![use_error(
+                                    "contract-use-unreadable",
+                                    format!("{}: {}: {e}", described(u), key.display()),
+                                    u,
+                                )]
+                            })?,
                     };
                     let used = self.sources.paths.len();
                     self.sources.paths.push(key.clone());
                     self.sources.origins.push(resolved.origin);
+                    self.sources.digests.push(digest(&used_src));
                     self.active.push(key.clone());
                     self.load_source(&key, &used_src, used as u32)?;
                     self.active.pop();
@@ -373,6 +730,7 @@ impl Loader<'_> {
     fn scope(&mut self) -> Result<File, Vec<CompileError>> {
         if self.units.len() == 1 {
             let mut file = self.units.pop().unwrap().file;
+            self.sources.motion = contract_lower::motion::substitute(&mut file, &self.motion);
             contract_syntax::resolve_clock_timelines(&mut file).map_err(|e| vec![e.into()])?;
             file.uses.clear();
             return Ok(file);
@@ -417,6 +775,14 @@ impl Loader<'_> {
                 })
             })
             .collect();
+        // @ref LLP 1121 D3 — the design's duration and easing tokens are
+        // written into each motion row before scoping reads an animation's
+        // keyframes name (the root's design, the app's).
+        let motion = std::mem::take(&mut self.motion);
+        for unit in self.units.iter_mut() {
+            let sites = contract_lower::motion::substitute(&mut unit.file, &motion);
+            self.sources.motion.extend(sites);
+        }
         for (index, unit) in self.units.iter_mut().enumerate() {
             let mut scope = scopes[index].take().expect("every unit is scoped");
             scope.elsewhere = elsewhere
@@ -437,6 +803,14 @@ impl Loader<'_> {
                         .is_some_and(|to| scope.shapes.contains(to))
                 })
                 .collect();
+            let mut aliases: Vec<_> = scope
+                .names
+                .iter()
+                .filter(|((kind, _), _)| *kind == Kind::Decoration)
+                .map(|((_, alias), target)| (alias.clone(), target.clone()))
+                .collect();
+            aliases.sort();
+            unit.file.decoration_scopes.insert(index as u32, aliases);
             rescope(&mut unit.file, &scope).map_err(|e| vec![e.into()])?;
             // Refusals that are no `use` line's to fix, reported with the rest.
             refused.extend(scope.refused.take().into_iter().map(CompileError::from));
@@ -805,10 +1179,19 @@ impl Loader<'_> {
             sounds,
             shapes: all!(shapes),
             styles: all!(styles),
+            decorations: all!(decorations),
+            decoration_scopes: files
+                .iter_mut()
+                .flat_map(|file| std::mem::take(&mut file.decoration_scopes))
+                .collect(),
             keyframes: all!(keyframes),
             timelines: all!(timelines),
             // CSS `@color-profile`s are global by name too (LLP 1100 D3).
             color_profiles: all!(color_profiles),
+            // The app's theme is its root file's (LLP 1095 D4).
+            theme: files[0].theme.take(),
+            // The design is the app's, read beside its root (`design`).
+            design: None,
             fns: all!(fns),
             components: all!(components),
         }
@@ -836,6 +1219,11 @@ fn declarations(file: &File) -> impl Iterator<Item = (Kind, &str)> {
         .chain(file.shapes.iter().map(|s| (Kind::Call, &*s.name)))
         .chain(file.fns.iter().map(|f| (Kind::Call, &*f.name)))
         .chain(file.styles.iter().map(|s| (Kind::Style, &*s.name)))
+        .chain(
+            file.decorations
+                .iter()
+                .map(|s| (Kind::Decoration, &*s.name)),
+        )
         .chain(file.keyframes.iter().map(|k| (Kind::Keyframes, &*k.name)))
         .chain(file.timelines.iter().map(|t| (Kind::Timeline, &*t.name)))
 }
@@ -857,6 +1245,7 @@ fn unknown(u: &UseDecl, n: &UseName, from: &Scope) -> CompileError {
         (Kind::Component, "components"),
         (Kind::Call, "shapes and functions"),
         (Kind::Style, "styles"),
+        (Kind::Decoration, "decorations"),
         (Kind::Keyframes, "keyframes"),
         (Kind::Timeline, "timelines"),
     ] {
@@ -899,4 +1288,13 @@ fn name_error(id: &str, message: String, span: Span) -> CompileError {
 
 fn use_error(id: &str, message: String, u: &UseDecl) -> CompileError {
     name_error(id, message, u.span)
+}
+
+/// The SHA-256 of a source's text, hex.
+fn digest(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }

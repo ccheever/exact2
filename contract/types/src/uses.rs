@@ -211,7 +211,13 @@ fn walk_use(
                         continue;
                     }
                     let t = infer(&arg.value, scope, &types.shapes)?;
-                    if !checks::can_unify(&t, &target_t.props[i]) {
+                    if !checks::accepts_expr(
+                        &target_t.props[i],
+                        &arg.value,
+                        &t,
+                        scope,
+                        &types.shapes,
+                    ) {
                         return err(
                             "type-prop",
                             format!("`{}` expects `{}`, given `{t}`", p.name, target_t.props[i]),
@@ -246,7 +252,7 @@ fn walk_use(
                 let Ty::List(item) = lt else {
                     return err(
                         "type-each-list",
-                        format!("`each` needs a list, given `{lt}`"),
+                        format!("`for` needs a list, given `{lt}`"),
                         list.span(),
                     );
                 };

@@ -116,6 +116,38 @@ final class SystemColorIOSTests: XCTestCase {
         XCTAssertEqual(node.channels("background_color"), channels(.systemGreen, traits))
     }
 
+    /// LLP 1116.001 D2: an authored `accent-color` is its subtree's tint, so
+    /// a row naming the tint beneath it (an `exact:content` bar's fill) is
+    /// the accent, and one beside it keeps the window's.
+    func testAnAuthoredAccentIsItsSubtreesTint() throws {
+        let p = Presenter()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+        window.overrideUserInterfaceStyle = .light
+        window.tintColor = .systemBlue
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        let tint: [String: Any] = ["sys": "@tint", "c": [[0, 122, 255, 255], [10, 132, 255, 255]]]
+        let teal: [Any] = [[48, 176, 199, 255], [64, 200, 224, 255]]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view", "style": ["accent_color": teal]],
+            ["op": "create", "id": 3, "kind": "view", "style": ["background_color": tint]],
+            ["op": "create", "id": 4, "kind": "view", "style": ["background_color": tint]],
+            ["op": "children", "id": 1, "ids": [2, 4]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 100.0],
+        ]))
+        let fill = try XCTUnwrap(p.views[3]), beside = try XCTUnwrap(p.views[4])
+        fill.updateTraitsIfNeeded()
+        for (dark, want) in [(false, [48.0, 176, 199, 255]), (true, [64.0, 200, 224, 255])] {
+            let got = try XCTUnwrap(fill.channels("background_color", dark: dark))
+            XCTAssertEqual(got.count, 4)
+            for (g, w) in zip(got, want) { XCTAssertEqual(g, w, accuracy: 0.5, "dark: \(dark)") }
+        }
+        XCTAssertEqual(beside.channels("background_color"), channels(.systemBlue, beside.traitCollection))
+    }
+
     /// The view's own tint reaches a plain text run, its shadow, a box
     /// shadow and a palette symbol, and a tint change rebuilds the glyph.
     func testEveryResolverTakesTheViewsTint() throws {

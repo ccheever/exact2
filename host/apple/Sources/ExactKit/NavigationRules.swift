@@ -7,6 +7,7 @@
 // (recognition, progress, cancellation, animation).
 //
 // @ref LLP 1035.001 §3; LLP 1008 §9
+import CExact
 import Foundation
 
 enum NavigationRules {
@@ -23,6 +24,16 @@ enum NavigationRules {
     static func stack(routeKeys: [String], selected: String) -> Range<Int>? {
         guard let index = routeKeys.firstIndex(of: selected) else { return nil }
         return 0..<(index + 1)
+    }
+
+    /// D1, when the root's key matches no route: the stack is left alone,
+    /// less the routes that have left the tree. The deepest route of the
+    /// stack last shown (`shown`, its keys through its selected route) that
+    /// is still declared in one of the stacks is the selected one, so a
+    /// closed sheet or a popped screen never leaves the route beneath it
+    /// covered. `nil` when none is (nothing shown yet): nothing changes.
+    static func survivor(of shown: [String], declared: [[String]]) -> String? {
+        shown.last { key in declared.contains { $0.contains(key) } }
     }
 
     /// D4: presentation boundaries split the selected prefix into retained
@@ -97,6 +108,39 @@ enum NavigationRules {
         return hearsNavigate ? .navigate(location) : .pop
     }
 
+    /// What a route shows of the platform's navigation bar.
+    enum Bar: Equatable {
+        /// The route's `header`, projected: its heading the title, its
+        /// buttons the items, and the system Back when it is pushed.
+        case header
+        /// The system Back alone, with no title: a pushed route with no bar
+        /// of its own, as a screen a hand-built app pushes with nothing set.
+        case back
+        /// No bar: UIKit's is hidden while the route is on top.
+        case hidden
+    }
+
+    /// LLP 1115.000 D5.2, D5.3: the bar is decided route by route, never
+    /// once for a stack, and Back is always there. A route that says
+    /// `navigationBar="none"` has no bar (a full-bleed screen; the edge
+    /// swipe still pops it): no bar is something the author says, never
+    /// inferred from a missing header or an authored Back control. A route
+    /// whose `header` is the bar's (`header`: its first child, shown,
+    /// holding one heading) shows that. Any other pushed route shows the
+    /// system Back alone, where the platform's bar has a Back button
+    /// (`backButton`; tvOS's has none, its Back is the remote's Menu). The
+    /// first route of a stack, with nothing to go back to and no such
+    /// header, has nothing to show.
+    /// The rule itself is the kernel's (`exact_kernel::Bar::of`), which
+    /// the Android host reads too (LLP 1115.001 D11).
+    static func bar(asked: String?, header: Bool, pushed: Bool, backButton: Bool = true) -> Bar {
+        switch exact_route_bar((asked == "none" ? 1 : 0) | (header ? 2 : 0) | (pushed ? 4 : 0) | (backButton ? 8 : 0)) {
+        case 0: return .header
+        case 1: return .back
+        default: return .hidden
+        }
+    }
+
     /// D1: whether an interactive pop may begin at all — a stack to pop, no
     /// transition in flight, no sheet, a way back (`back`), and no
     /// context preview anywhere in the session.
@@ -129,18 +173,6 @@ enum NavigationRules {
         closedby == "none"
     }
 
-    /// D4: geometry deferred behind a sheet replays as a batch would apply
-    /// it — every frame before any content size, node ids ascending.
-    static func replayOrder(deferred: [UInt32: Set<String>]) -> [(id: UInt32, kind: String)] {
-        var out: [(id: UInt32, kind: String)] = []
-        for kind in ["frame", "content"] {
-            for id in deferred.keys.sorted() where deferred[id]?.contains(kind) == true {
-                out.append((id, kind))
-            }
-        }
-        return out
-    }
-
     /// D5: a keyboard notification is a session's business only when one of
     /// its own editors is editing, or it still holds an inset from a show it
     /// applied; another session's keyboard in the same window is not.
@@ -153,27 +185,6 @@ enum NavigationRules {
     /// transition outside a sheet — never to a sheet's vertical dismissal.
     static func freezesViewport(modalActive: Bool, changing: Bool, initiallyInteractive: Bool) -> Bool {
         !modalActive && changing && initiallyInteractive
-    }
-
-    /// D5: a stack change waits a turn when it arrives in a batch that put
-    /// the keyboard away (shown, with no editor of the session's left): the
-    /// viewport's growth is applied after the batch, and a transition begun
-    /// before it keeps the routes at the keyboard's height to its end. Under
-    /// the agent nothing animates, so nothing waits.
-    static func waitsForKeyboardViewport(applying: Bool, keyboardShown: Bool, editing: Bool,
-                                         agentFreezes: Bool, stackChanges: Bool) -> Bool {
-        applying && keyboardShown && !editing && !agentFreezes && stackChanges
-    }
-
-    /// A presentation's background view, back in the home it left: its
-    /// frame then, grown or shrunk on each flexible axis by what its home
-    /// did meanwhile, as autoresizing would have done had it stayed.
-    static func restoredFrame(_ frame: CGRect, homeThen: CGSize, homeNow: CGSize,
-                              flexibleWidth: Bool, flexibleHeight: Bool) -> CGRect {
-        var out = frame
-        if flexibleWidth { out.size.width = max(0, out.width + homeNow.width - homeThen.width) }
-        if flexibleHeight { out.size.height = max(0, out.height + homeNow.height - homeThen.height) }
-        return out
     }
 
     /// D3 (as it stands): why a `focus(id)` command cannot be delivered now,

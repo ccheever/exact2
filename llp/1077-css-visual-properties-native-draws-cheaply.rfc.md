@@ -106,7 +106,7 @@ LLP 1064 D1 refused all three. This admits CSS's full `box-shadow` grammar excep
 
 ### D5. `conic-gradient()` and stacked layers
 
-This widens LLP 1066's grammar. Admitted: `conic-gradient([from <angle>]? [at <position>]?, <stops>)` with 1066's stop rules, and a comma list of up to four layers mixing all three functions, painted with the first layer on top as in CSS. Still refused: `repeating-*`, `url()`, colour hints, and everything else 1066 refuses.
+This widens LLP 1066's grammar. Admitted: `conic-gradient([from <angle>]? [at <position>]?, <stops>)` with 1066's stop rules, and a comma list of up to four layers mixing all three functions, painted with the first layer on top as in CSS. LLP 1066’s 2026-10-12 amendment admits repeating linear gradients and px stop positions, including for masks. Still refused: repeating radial/conic gradients, `url()`, colour hints, and everything else 1066 refuses.
 
 - **Web:** native.
 - **iOS:** one `CAGradientLayer` per layer, with type `.conic` for a conic gradient. A box that `draw(_:)` paints (LLP 1066 D6) draws a conic gradient per pixel with Core Graphics, as `Canvas2DPaint.swift`'s `drawConic` does today.
@@ -281,7 +281,7 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
 - **D10–D12 (symbols).** `symbol-rendering` (monochrome, hierarchical in the tint, palette, multicolor) and `symbol-palette` build the symbol's configuration on UIKit and AppKit. `symbol-value` is its variable value. `symbol-effect` runs pulse, variable-color, scale, and (on 18/15) breathe and rotate while set. It plays bounce, and wiggle on 18/15, each time `symbolEffectValue` changes. `replace` is the platform's replace transition.
 - **D13 (system colours).** `-apple-system-label`, `-secondary-label`, `-tertiary-label`, `-quaternary-label`, `-separator` and `-fill` are colours on every host: `light-dark()` pairs of UIKit's own values, parsed wherever a colour is.
 - **D14 (haptics).** `press-haptic` plays at touch-down, host-owned as `press-scale` is. `haptic("success" | "warning" | "error" | "selection" | "impact-…")` plays from app logic. iOS uses the feedback generators, macOS `NSHapticFeedbackManager`, the web `navigator.vibrate` where it exists, and Linux nothing.
-- **D15 (numerals).** `content-transition: numeric` (or `numeric-countdown`) rolls a paragraph's raster when its text changes, unless Reduce Motion is on. The whole line rolls, not each digit.
+- **D15 (numerals).** `content-transition: numeric` (or `numeric-countdown`) rolls a paragraph's raster when its text changes, unless Reduce Motion is on. The whole line rolls, not each digit. Since LLP 1115.003 D3 (2026-10-16), iOS and tvOS roll each glyph: the `numerals` capability, linked by use, draws the paragraph with SwiftUI's `Text` and `.numericText`, blur and stagger included, and rolls up or down as the number moved (`numeric-countdown` always down); the whole-line push remains only where the capability is not linked. The Android and Linux hosts roll each glyph in the painter (`host/linux/src/paint/numerals.rs`, 2026-10-16) with SwiftUI's motion as filmed on iOS 27: a changed glyph comes down from above as the old one sinks when the number rose (the other way when it fell, and always for `numeric-countdown`), each a 50 ms beat after the changed glyph to its left, on the same 0.4 s spring, while a glyph that stays slides to its new place. Glyphs pair by place from the right within each number, where SwiftUI pairs from the left. Android blurs the moving glyphs as SwiftUI does (the recorder's `BLUR` op, a `BlurMaskFilter` on the reader's glyphs); Linux draws them sharp. The web changes the number in place; its roll is owed.
 - **D16 (scroll edge).** `scroll-edge-effect` sets a scroll container's four `UIScrollEdgeEffect`s on iOS 26.
 - **D17 (pointer hover).** `hover-effect` adds a `UIPointerInteraction` with the highlight, lift or hover style.
 - **D18 (Smart Invert).** `smart-invert` sets `accessibilityIgnoresInvertColors`, which `auto` sets on images, video and canvases.
@@ -303,7 +303,7 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
     - drawn text (the non-raster path)
     - vibrancy inside glass
     - per-run vibrancy (one effect per run's colour)
-- **D15 per-digit roll.** The raster is one picture, so the whole line rolls.
+- **D15 per-digit roll** on the web, and on Apple where the `numerals` capability is not linked: there the raster is one picture, so the whole line rolls.
 - **Felt and pointed on a device.** Haptics (D14), the scroll edge (D16) and the pointer (D17) are not observable in the simulator's screenshots.
 - **Web stand-ins** for the symbol effects.
 

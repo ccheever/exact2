@@ -111,14 +111,14 @@ fn imports_nested_instances_and_slot_fills_keep_their_own_source_files() {
         r#"use Panel from "./ui/panel.contract"
 use Counter from "./ui/counter.contract"
 component App
-  resource entries = entries() as shape list<string>
+  resource entries = entries() as shape string[]
   view
     column testId="root"
       Panel()
         text "from caller" testId="slot"
         Counter(label="slot-counter")
       Counter(label="outside")
-      each entry in entries key=entry
+      for entry in entries key=entry
         Counter(label=entry)
 "#,
     );
@@ -262,7 +262,7 @@ fn source_snapshot_and_final_baked_bytes_determine_the_map() {
     let app = App::new("snapshot");
     let path = app.write("app.contract", "invalid on disk\n");
     let source = r#"component App
-  resource entries = entries() as shape list<string>
+  resource entries = entries() as shape string[]
   view
     text "snapshot"
 "#;
@@ -374,4 +374,87 @@ fn map_write_failure_is_named_and_does_not_replace_the_previous_plan() {
         .file_name()
         .to_string_lossy()
         .ends_with(".tmp")));
+}
+
+#[test]
+fn the_map_says_each_source_and_the_digest_of_its_text_as_compiled() {
+    use sha2::{Digest, Sha256};
+    let hex = |text: &str| -> String {
+        Sha256::digest(text.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    };
+    let app = App::new("digests");
+    let root_text =
+        "use Child from \"./child.contract\"\ncomponent App\n  view\n    column\n      Child()\n";
+    let child_text = "component Child\n  view\n    text \"child\" testId=\"child\"\n";
+    let root = app.write("app.contract", root_text);
+    let child = app.write("child.contract", child_text);
+    let design_text = "tamber digests\n\ntheme\n  ink = #101010\n";
+    let design = app.write("app.tamber", design_text);
+    let (_, json) = app.compile();
+    let sources: Vec<(String, String)> = json["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (
+                s["file"].as_str().unwrap().to_string(),
+                s["sha256"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    let of = |path: &std::path::Path| {
+        sources
+            .iter()
+            .find(|(f, _)| std::path::Path::new(f) == path)
+            .map(|(_, d)| d.clone())
+    };
+    assert_eq!(of(&root), Some(hex(root_text)));
+    assert_eq!(of(&child), Some(hex(child_text)));
+    assert_eq!(of(&design), Some(hex(design_text)));
+}
+
+/// @ref LLP 1121 D8 — an `:active` row lowers to the press paint, and the
+/// map names its `:active` line (the class's or the node's), not the
+/// lowered row's node.
+#[test]
+fn an_active_row_keeps_its_own_location() {
+    let app = App::new("active");
+    app.write(
+        "app.contract",
+        r##"style Card
+  :active
+    color = "#ff0000"
+component App
+  state n = 0
+  action go
+    n = n + 1
+  view
+    column class=Card press=go testId="card"
+      :active
+        background-color = "#0000ff"
+        opacity = 0.5
+      text "c"
+"##,
+    );
+    let (plan, map) = app.compile();
+    let runner = boot(plan);
+    let rows = at(&runner, &map, "card")["bindings"].as_array().unwrap();
+    let row = |name: &str| {
+        rows.iter()
+            .find(|r| r["row"] == name)
+            .unwrap_or_else(|| panic!("{name}: {rows:?}"))
+    };
+    for (name, line, origin) in [
+        ("press_background_color", 11, "own"),
+        ("press_opacity_to", 12, "own"),
+        ("press_color", 3, "class:Card"),
+    ] {
+        assert_eq!(row(name)["state"], "active", "{name}");
+        assert_eq!(row(name)["at"]["line"], line, "{name}");
+        assert_eq!(row(name)["origin"], origin, "{name}");
+    }
+    assert!(row("display").get("state").is_none());
 }

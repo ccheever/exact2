@@ -26,13 +26,17 @@ fn scale() -> f64 {
 }
 
 impl<D: DataSource> Host<D> {
-    /// The limits for this device: WebKit's iOS area on iOS, a quarter of
+    /// The limits for this device: WebKit's iOS area on iOS, tvOS and watchOS, a quarter of
     /// physical memory everywhere (LLP 1056 D4, r3).
     pub(crate) fn canvas_limits(&mut self) {
         let memory = MEMORY.load(Ordering::Relaxed);
         self.runner.set_canvas_limits(exact_runner::Limits::native(
             memory,
-            cfg!(any(target_os = "ios", target_os = "tvos")),
+            cfg!(any(
+                target_os = "ios",
+                target_os = "tvos",
+                target_os = "watchos"
+            )),
         ));
     }
 
@@ -48,8 +52,18 @@ impl<D: DataSource> Host<D> {
             return;
         }
         self.runner.layout_canvases(scale());
-        let held = &self.canvas_held;
-        batch.canvas_owed(self.runner.canvas_owed(&|v| !held.contains(&v)));
+        self.canvas_owed_onto(batch);
+    }
+
+    /// Where draws are deferred, whether one is owed now, on every batch:
+    /// the presenter takes the last batch's word for it, and a turn that
+    /// ran no canvas work (a list's report inside its window, a draw's own
+    /// turn, a tick) must not say "none" while a new canvas waits.
+    pub(crate) fn canvas_owed_onto(&self, batch: &mut Batch) {
+        if self.canvas_deferred {
+            let held = &self.canvas_held;
+            batch.canvas_owed(self.runner.canvas_owed(&|v| !held.contains(&v)));
+        }
     }
 
     /// Where draws are deferred, a turn of canvas work alone: geometry, due
@@ -77,38 +91,7 @@ impl<D: DataSource> Host<D> {
         self.runner.draw_canvases(&|v| !held.contains(&v));
         let lists = self.runner.take_canvas_lists();
         for c in &lists {
-            let (content, radii) = self.runner.kernel().node(c.view).map_or(
-                ((0.0, 0.0, 0.0, 0.0), [(0.0, 0.0); 4]),
-                |n| {
-                    let b = exact_kernel::svg::scene::content_box(&n);
-                    let s = n.style;
-                    // The content edge's curve: each radius less the inset
-                    // (CSS Backgrounds 3 §5.2), clipping the bitmap as the
-                    // web clips replaced content.
-                    let inset = b.0.max(b.1);
-                    let radii = [
-                        s.border_radius_top_left,
-                        s.border_radius_top_right,
-                        s.border_radius_bottom_right,
-                        s.border_radius_bottom_left,
-                    ]
-                    .map(|r| {
-                        let length = |basis| match r {
-                            exact_kernel::Dimension::Points(x) => x,
-                            exact_kernel::Dimension::Percent(p) => basis * p / 100.0,
-                            exact_kernel::Dimension::Calc(p, x) => basis * p / 100.0 + x,
-                            _ => 0.0,
-                        };
-                        let f = n.frame;
-                        (
-                            (length(f.width) - inset).max(0.0),
-                            (length(f.height) - inset).max(0.0),
-                        )
-                    });
-                    (b, radii)
-                },
-            );
-            batch.canvas2d(c, content, radii);
+            batch.canvas2d(c);
         }
         if !lists.is_empty() {
             // The last two batches' lists stay alive: the presenter's reader

@@ -93,9 +93,13 @@ fn text(f: Stdlib, args: &[Value]) -> Result<Option<Value>, CallError> {
         // The case tables through `text-transform`'s link, which a web
         // artifact holds only when its plan uses them (LLP 1047 D6 refuses
         // one that does not at boot); unlinked, a trap.
-        Stdlib::ToLowerCase => {
-            let lower = exact_kernel::linked_lowercase().ok_or(CallError::TypeMismatch)?;
-            let out = lower(s(0)?, MAX_STRING).ok_or(CallError::StringTooLong)?;
+        Stdlib::ToLowerCase | Stdlib::ToUpperCase => {
+            let map = match f {
+                Stdlib::ToLowerCase => exact_kernel::linked_lowercase(),
+                _ => exact_kernel::linked_uppercase(),
+            };
+            let map = map.ok_or(CallError::TypeMismatch)?;
+            let out = map(s(0)?, MAX_STRING).ok_or(CallError::StringTooLong)?;
             if out == s(0)? {
                 args[0].clone()
             } else {
@@ -120,9 +124,12 @@ fn call_value(
         // @ref LLP 1051.000 D1/D2 — an action's reads, through the linked
         // geometry. The compiler admits them nowhere else, and a host refuses
         // a plan that reads geometry it doesn't link (LLP 1047 D6).
-        Stdlib::Frame | Stdlib::Measure | Stdlib::ElementFromPoint => {
-            return geometry?.read(plan, f, args)
-        }
+        Stdlib::Frame
+        | Stdlib::RangeFrame
+        | Stdlib::Measure
+        | Stdlib::ElementFromPoint
+        | Stdlib::ElementsFromPoint
+        | Stdlib::QuerySelectorAll => return geometry?.read(plan, f, args),
         // @ref LLP 1038 D3/D9 — pure verbs and typed reads over the plan shapes.
         Stdlib::Open
         | Stdlib::Push
@@ -179,9 +186,11 @@ fn call_value(
             _ => return None,
         },
         // @ref LLP 1054.000.003 D8 — the linked capability, or a trap.
-        Stdlib::FormatDate | Stdlib::FormatNumber | Stdlib::ToFixed | Stdlib::FormatDecimal => {
-            return format?(f, args)
-        }
+        Stdlib::FormatDate
+        | Stdlib::FormatNumber
+        | Stdlib::ToFixed
+        | Stdlib::FormatDecimal
+        | Stdlib::FormatDay => return format?(f, args),
         Stdlib::Length => Value::Number(match args.first()? {
             Value::List(items) => items.len() as f64,
             // The web's String.length (and `maxlength`): UTF-16 code units.
@@ -222,11 +231,21 @@ fn call_value(
         },
         // @ref LLP 1017.003 D5 — opcodes with a callback body, never a
         // call; `join` is the VM's, which bounds the string it makes, and so
-        // are `concat` and `split` (LLP 1088 §9.1), which build a list.
-        Stdlib::Map | Stdlib::Filter | Stdlib::Join | Stdlib::Concat | Stdlib::Split => {
-            return None
-        }
+        // are `concat`, `split`, `range` and `flat` (LLP 1088 §9.1), which build a list.
+        Stdlib::Map
+        | Stdlib::Filter
+        | Stdlib::Join
+        | Stdlib::Concat
+        | Stdlib::Split
+        | Stdlib::Sum
+        | Stdlib::SortBy
+        | Stdlib::Range
+        | Stdlib::Flat => return None,
         Stdlib::Floor => Value::Number(num(0)?.floor()),
+        // `Math.sin` and `Math.cos` through the pinned `libm`, so every
+        // native target computes the same bits (LLP 1003 §7).
+        Stdlib::Sin => Value::Number(exact_motion::math::sin(num(0)?)),
+        Stdlib::Cos => Value::Number(exact_motion::math::cos(num(0)?)),
         // @ref LLP 1102 §3.1, §3.2, §3.4 — `Math.ceil`, `Math.round`, a strict
         // `Number()`, and an age's calendar count.
         Stdlib::Ceil => Value::Number(num(0)?.ceil()),
@@ -244,10 +263,10 @@ fn call_value(
                     Value::some(Value::Number(n as f64))
                 })
         }
-        Stdlib::Max => Value::Number(num(0)?.max(num(1)?)),
-        Stdlib::Min => Value::Number(num(0)?.min(num(1)?)),
+        Stdlib::Max => Value::Number(js_max(num(0)?, num(1)?)),
+        Stdlib::Min => Value::Number(js_min(num(0)?, num(1)?)),
         Stdlib::T => unreachable!("interpolation is bounded by call"),
-        Stdlib::Slice | Stdlib::ReplaceAll | Stdlib::ToLowerCase => {
+        Stdlib::Slice | Stdlib::ReplaceAll | Stdlib::ToLowerCase | Stdlib::ToUpperCase => {
             unreachable!("strings are bounded by call")
         }
     })
@@ -399,6 +418,31 @@ pub fn js_round(x: f64) -> f64 {
         -0.0
     } else {
         r
+    }
+}
+
+/// `Math.max` of two numbers (ECMA-262 §21.3.2.24): NaN when either is NaN,
+/// and +0 above -0. Not `f64::max`, which returns the other operand of a NaN.
+pub fn js_max(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if a > b || a == b && a.is_sign_positive() {
+        // Equal and nonzero, they are the same double; of two zeros, +0.
+        a
+    } else {
+        b
+    }
+}
+
+/// `Math.min` of two numbers (ECMA-262 §21.3.2.25): NaN when either is NaN,
+/// and -0 below +0. Not `f64::min`, which returns the other operand of a NaN.
+pub fn js_min(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if a < b || a == b && a.is_sign_negative() {
+        a
+    } else {
+        b
     }
 }
 
@@ -1019,6 +1063,21 @@ mod tests {
             assert_eq!(js_round(x).to_bits(), f64::to_bits(want), "round({x})");
         }
         assert!(js_round(f64::NAN).is_nan());
+        let (nan, inf) = (f64::NAN, f64::INFINITY);
+        for (a, b, max, min) in [
+            (3.0, 7.0, 7.0, 3.0),
+            (0.0, -0.0, 0.0, -0.0),
+            (-0.0, 0.0, 0.0, -0.0),
+            (-0.0, -0.0, -0.0, -0.0),
+            (inf, 5.0, inf, 5.0),
+            (-inf, 5.0, 5.0, -inf),
+            (nan, 1.0, nan, nan),
+            (1.0, nan, nan, nan),
+            (nan, inf, nan, nan),
+        ] {
+            assert_eq!(bits(Some(js_max(a, b))), bits(Some(max)), "max({a}, {b})");
+            assert_eq!(bits(Some(js_min(a, b))), bits(Some(min)), "min({a}, {b})");
+        }
         for (from, to, years, months) in [
             ("1990-06-15", "2026-06-14", Some(35), Some(431)),
             ("1990-06-15", "2026-06-15", Some(36), Some(432)),

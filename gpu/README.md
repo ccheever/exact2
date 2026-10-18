@@ -10,3 +10,29 @@ loading; there is no compatibility shim. See LLP 1009 and LLP 1014.000.
 
 GPU tests use `exact_gpu::fixture::device_or_skip`: only `no adapter:` skips;
 request-device, configuration, validation, and device-loss errors fail.
+
+Windows rendered modules also export `gpu_window_frame` and `gpu_window_detach`;
+rebuild the host and module together. A full-window canvas can present directly
+from its module-owned GPU, composing premultiplied RGBA UI layers below and above
+the game. The HWND and HINSTANCE remain valid until detach or module unload.
+No GPU device or texture object crosses the DLL boundary. Transformed, clipped,
+multiple-canvas and backdrop-dependent layouts use ordinary capture instead.
+Canvas ID zero presents the complete CPU UI frame after the game is unmounted,
+so menus continue through the same swapchain instead of switching back to GDI.
+The final flags argument uses bit 0 for changed UI and bit 1 for a solid underlay.
+With bit 1 set, the below pointer holds only four premultiplied RGBA bytes;
+otherwise it holds the full pixel buffer. The above pointer always holds `len`
+bytes. A solid underlay is cleared on the GPU without a CPU pixel upload.
+The final two arguments, `above_top` and `above_bottom`, bound all nontransparent
+overlay pixels in device rows (end exclusive). Unknown bounds use the whole
+height. The uploader compares the union of current and previous bounds, so
+moving or removing UI also clears its old pixels. Rebuild both host and module
+for this signature.
+Capture reuses its render target and staging buffer until size, format or device
+changes. The Windows host follows the current monitor's refresh rate.
+
+For native performance measurements, set `EXACT_AGENT_WINDOW_FRAMES` (1–10000)
+and optionally `EXACT_AGENT_WINDOW_TAP` to a launch button's test ID.
+`EXACT_AGENT_WINDOW_FULLSCREEN=1` uses borderless fullscreen;
+`EXACT_AGENT_WINDOW_UNPACED=1` removes pacing to measure rendering capacity.
+These switches require a bounded development run and are stripped in production.

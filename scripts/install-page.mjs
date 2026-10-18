@@ -63,7 +63,8 @@ export function installRoute(route) {
 
 function methodsFor(manifest, platform) {
   const config = manifest.install?.[platform];
-  const methods = config?.methods ?? (platform === 'web' ? [{ kind: 'browser', url: manifest.start_url ?? '/' }] : []);
+  const appdrop = manifest.deploy?.appdrop?.url;
+  const methods = config?.methods ?? (platform === 'web' ? [{ kind: 'browser', url: manifest.start_url ?? '/' }] : platform === 'ios' && appdrop ? [{ kind: 'direct', url: appdrop, label: 'Install with AppDrop', description: 'Opens AppDrop on your iPhone, which installs the app with your Apple ID.' }] : []);
   return methods.map((m, i) => ({ ...m, order: i, recommended: config?.recommended === m.kind }))
     .sort((a, b) => Number(b.recommended) - Number(a.recommended) || a.order - b.order);
 }

@@ -80,7 +80,7 @@ The browser coalesces samples into one action per animation frame. Native hosts
 commit each delivered recognized sample. `touch-action="none"` on the orbs keeps
 the page scroll gesture outside their hit areas.
 
-The scene source is `sceneGeometry(scene, elapsedMs, width) -> list<Part>`.
+The scene source is `sceneGeometry(scene, elapsedMs, width) -> Part[]`.
 Its input is app time advanced by `every(16, step)`; scene selection resets app
 time, pause freezes it. Geometry is independent of query history. Six discs use
 fixed 16 ms steps and elastic impulses. A smooth 60-second cycle traverses a

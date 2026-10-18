@@ -8,6 +8,33 @@ import CExact
 final class TextCSSTests: XCTestCase {
     let engine = TextEngine(resolve: { _ in nil })
 
+    func testRuntimeInstalledFamiliesSelectTheirOwnFacesAndWidths() throws {
+        guard !TextEngine.installedFaces("Arial").isEmpty,
+              !TextEngine.installedFaces("Menlo").isEmpty else { throw missing("fonts", "Arial or Menlo unavailable") }
+        let engine = TextEngine(resolve: { _ in nil })
+        let arial = Array("Arial".utf8), menlo = Array("Menlo".utf8)
+        arial.withUnsafeBufferPointer { a in
+            menlo.withUnsafeBufferPointer { m in
+                var rows = [ExactFontFace(), ExactFontFace()]
+                rows[0].family = a.baseAddress; rows[0].family_len = a.count; rows[0].stack = 8
+                rows[1].family = m.baseAddress; rows[1].family_len = m.count; rows[1].stack = 9
+                rows.withUnsafeMutableBufferPointer { buffer in
+                    var catalog = ExactFontCatalog()
+                    catalog.faces = UnsafePointer(buffer.baseAddress); catalog.count = buffer.count
+                    withUnsafePointer(to: &catalog) { engine.install($0) }
+                }
+            }
+        }
+        let a = engine.font(size: 20, weight: 400, family: 8, italic: false) as CTFont
+        let m = engine.font(size: 20, weight: 400, family: 9, italic: false) as CTFont
+        XCTAssertEqual(CTFontCopyFamilyName(a) as String, "Arial")
+        XCTAssertEqual(CTFontCopyFamilyName(m) as String, "Menlo")
+        let text = "The quick brown fox 0123456789"
+        let width = { (font: CTFont) in CTLineGetTypographicBounds(
+            CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font])), nil, nil, nil) }
+        XCTAssertNotEqual(width(a), width(m))
+    }
+
     func testHTMLMaxlengthCountsUTF16AndAllowsDeletingAnAuthoredLongValue() {
         let props = ["maxlength": "3"]
         XCTAssertEqual(TextInputLimit.prefix("a😀b", props: props), "a😀")
@@ -256,4 +283,19 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(node.inlineLink(at: hit), "https://example.com")
     }
     #endif
+
+    /// A clamp's last line wider than its box, one word longer than the
+    /// line, ends in "…" as UILabel's tail truncation does (notes at the
+    /// largest text size, round 22: "Packing" ran over the row's time);
+    /// layout keeps the word's width, as CSS measures it.
+    func testLineClampTruncatesAWordLongerThanItsLastLine() {
+        let clamped = Spec(runs: [run("Packing")], align: 0, lineClamp: 1, color: [0, 0, 0, 255])
+        let natural = engine.paragraph(clamped, width: .infinity).width
+        let p = engine.paragraph(clamped, width: natural / 2)
+        XCTAssertNotNil(p.clampedRange)
+        XCTAssertLessThanOrEqual(CTLineGetTypographicBounds(p.lines[0], nil, nil, nil), Double(natural / 2) + 0.5)
+        XCTAssertEqual(p.width, natural, accuracy: 1.0 / 64)
+        // One that fits takes no ellipsis.
+        XCTAssertNil(engine.paragraph(clamped, width: natural + 1).clampedRange)
+    }
 }

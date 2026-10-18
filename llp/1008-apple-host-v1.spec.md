@@ -124,14 +124,18 @@ The Swift side is CoreText and nothing else. A **`Paragraph`** is a
 width-specific snapshot — the wrapped `CTLine`s from a `CTTypesetter`, each
 line's baseline from the top, and its layout dimensions — cached by `(spec,
 width)`. An authored line height retains the fractional sum of its line boxes,
-including empty and clamped paragraphs. Intrinsic width and `normal` paragraph
-height retain their existing whole-point ceiling: changing those measurements
+including clamped paragraphs. Empty text has no line box, so its intrinsic height is zero.
+Intrinsic width and `normal` paragraph height retain their existing whole-point
+ceiling: changing those measurements
 requires a separate wrapping/host-parity comparison. The measure callback answers
 from the paragraph, and `NodeView.draw` paints those same lines: one `CTLineDraw`
 per line, flush by alignment inside the CSS content box. Borders and padding
 are excluded from the wrapping width and added to the painted origin; the
 paragraph cache keys that content width, even when its outer frame is unchanged.
-AppKit selection and link hits use the same origin and alignment. The padded
+AppKit selection and link hits use the same origin and alignment. Inline
+`frame()` reads and agent `layout` use the union of the run's fragments on
+AppKit and UIKit, through the paragraph's viewport conversion (LLP 1051.000
+D1). Collapsed whitespace at a soft wrap contributes no width to that union. The padded
 paragraph/container comparison, padding mutation and recreation, and Messages
 quoted replies and empty results are recorded in `/tmp/messages-text-padding/`.
 Painting still snaps baselines to the logical point
@@ -300,7 +304,9 @@ the same rows as `input`. Contract lowers it to `TextInput` with the existing
 `semanticTag="textarea"`, emitted as a real `<textarea>` on the web. The
 HTML `readonly` lowers to the inverse of the existing `editable` prop,
 keeping the text selectable while refusing edits. The app gives this bounded
-editor its width and height; rich text is outside this control.
+editor its width and height. LLP 1114.007 admits named decorations over its plain
+string, including inline and block styling, hidden source and atomic chips;
+a rich value type remains outside this control.
 UIKit textarea line spacing uses the authored `line-height` through paragraph
 minimum/maximum heights; clearing it restores TextKit's natural spacing. Storage
 and typing attributes update in place, preserving text and selection. TextKit's
@@ -340,10 +346,13 @@ to the new extent. Browser/iOS/macOS fixtures cover both axes, manual scrolling,
 self/ancestor hiding and content shrinkage while hidden.
 An `input` node carries an `NSTextField`; a `scroll`/`list` node an
 `NSScrollView` whose flipped document view holds the children and takes the
-`content` size. A new leading child is inserted before existing Exact-only
-siblings, preserving their mounts; containers with native decorations retain
-their existing ordering path. Child updates use an identity set for membership
-and compare each retained child's current position directly. Frames are set from `frame` ops; `present` ops set an
+`content` size. Child updates use an identity set for membership, mount only
+new children, and sort retained siblings in place without detaching their
+responders. A flight slot takes its lifted child's place in the authored order.
+Native decorations stay below the authored children, and exit ghosts keep
+their slots among live and flying children. Window overlays live outside
+these child containers.
+Frames are set from `frame` ops; `present` ops set an
 affine transform about the bounds' center (translate · rotate · scale) and
 `alphaValue`. A press is a mouse-down and -up inside the bounds on a node
 with a `press` handler; an input's `controlTextDidChange` is a `change`. The
@@ -998,6 +1007,9 @@ re-sent by the batch that changes the insets. `layout` reports the insets
 given as `env` (LLP 1012 §1) — zero when the viewport is the safe area, as
 `env()` is zero on a page without the meta.
 
+> **Amended by LLP 1115 D2.** Where the root sets none it is the platform's background
+> (`systemBackground` on iOS, `windowBackgroundColor` on the Mac), never a fixed white.
+
 The standalone macOS adapter also applies the current `viewport-fit` when it
 installs its window callback: mounting the view can already have booted the
 embedded plan. Every successful session boot re-sends the view's insets,
@@ -1059,6 +1071,16 @@ runtime already believes them applied. The deferred change retains the keyboard'
 animation duration and curve; it is independent of the removed view's lifetime.
 The Messages forwarding-cancel/Back drive verifies the inbox's painted search
 position returns to its original full-height position.
+**`resizes-content` is iOS's default (2026-10-10, LLP 1116 D2).** A hand-built
+app keeps a focused field and the content under it above the keyboard (UIKit's
+keyboard layout guide, SwiftUI's keyboard safe area); the web's default left the
+fields under it covered and panned the whole page, header and all, so the bake-off
+graders marked it down. A root without `interactive-widget` now has the
+`resizes-content` reading above (`Presenter.keyboardPolicy`; the agent's
+`state.keyboard.policy` reports it); `interactive-widget="resizes-visual"` is the
+opt-out to the inset reading, and `overlays-content` stays as below. The web keeps
+the browser's default.
+
 **`interactive-widget="overlays-content"` and the keyboard toolbar
 (2026-10-03, §9.1).** CSS's third value: the keyboard covers the viewport and
 nothing is resized. Its consumer, the Signal Clone app (an outside app,
@@ -1178,7 +1200,31 @@ at the screen's scale in the standard (8-bit sRGB) range — a wide-color
 screen would otherwise yield a 16-bit PNG — and sees Metal. By default it
 captures the session viewport. `window: true` captures the containing UIWindow,
 including native confirmations and other embedded sessions; separate system
-windows such as the keyboard are outside that capture. This distinction landed
+windows such as the keyboard are outside that capture. On a simulator the
+driver then takes a window capture's pixels from the display (`simctl io …
+screenshot`, `devices.mjs` `withDisplay`), as a device screenshot has them:
+`drawHierarchy` draws Liquid Glass and the other backdrop materials only
+roughly (a tab bar's glass left the rows under it legible, an alert's the list
+behind it), and the keyboard is another process's. Nothing of the display is
+read unless the reply said the app was in front (active, its scene in front,
+its window key), and nothing is taken unless the app, asked again after the
+reads (`{"op":"screenshot","probe":true}`), still is, at the same epoch,
+incarnation and clock. The display is read three times, the third 400 ms after
+the second, so a caret's blink cannot fall in all three, and it is taken whole
+only when the three agree below the status bar, UIKit's motion had settled, and
+the display matches the app's drawing at the plain points the reply names
+(`opaque`: a 16-point grid less the status bar, the bottom safe area, the
+keyboard and every glass, blur, portal or filtered layer that draws), to within
+2 levels in each 5x5-pixel patch the app drew in one colour: there the two
+matched exactly on euxy's screens, and a notification banner's frosted
+material over the page was 3 or 4 levels off it. A launch and such a capture hold the
+simulator's display lock (`simulatorDisplay`), so another drive's app does not
+come to the front between them. Otherwise the picture stays the app's, with
+the status bar's rows and the keyboard's band taken only where all three reads
+agree on them, and the reply's `pixels: "app"` and `pixelsWhy` say why. The
+status bar's rows stay the app's unless asked for (`window status`); `window
+app` asks for the app's own drawing, as does a capture that strikes through
+header nodes the bar leaves out. This distinction landed
 with LLP 1021 D2's confirmation integration (2026-09-10). The driver's `ios` carrier (`scripts/agent.mjs`
 `openIOS`) installs the bundle, launches it with `simctl launch --console
 --terminate-running-process` and keeps that attached for the app's stdout

@@ -6,8 +6,8 @@ shape Item
   id: string
 
 component App
-  resource items = items() as shape list<Item>
-  derive bad = 1 / (length(items) - length(items))
+  resource items = items() as shape Item[]
+  derive bad = 1 / (items.length - items.length)
   view
     text `${bad}` testId="bad"
 

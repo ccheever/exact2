@@ -1,4 +1,4 @@
-# RealWorld against the hosted API: tags, an article (Markdown), history, a failed sign-in.
+# RealWorld against its generated API (conformance/net.mjs): tags, an article (Markdown), history, a failed sign-in (by Enter, then the button).
 tap open-how-to-learn-javascript-efficiently
 back 1
 wheel brand 1400
@@ -9,6 +9,7 @@ tap brand
 tap nav-login
 type email nobody@example.invalid
 type password wrong-password
+type password key Enter
 tap submit
 back 1
 tap nav-register

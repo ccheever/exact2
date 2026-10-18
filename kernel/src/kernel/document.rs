@@ -45,6 +45,11 @@ impl Kernel {
         ops: &[Op],
         language: Option<(&str, crate::Direction)>,
     ) -> Result<CommitReceipt, KernelError> {
+        if self.document_commit.is_some() {
+            return Err(KernelError::DocumentCommit(
+                "a document commit is already active",
+            ));
+        }
         if self.detached {
             return Ok(CommitReceipt {
                 batch,
@@ -74,13 +79,118 @@ impl Kernel {
         if changed_language {
             self.measurer.set_language(&self.arena.document_language);
         }
+        Ok(self.publish_document_commit(receipt))
+    }
+
+    /// Begin one logical commit, resolving computed styles without publishing
+    /// a receipt, epoch, region observation or timeline bindings. Callers may
+    /// read computed nodes between phases, but must finish before presenting or
+    /// laying out the tree. A rejected initial validation changes nothing.
+    /// Only one commit may be active; ordinary apply calls are refused meanwhile.
+    pub fn begin_document_commit(
+        &mut self,
+        root_id: u32,
+        batch: u64,
+        ops: &[Op],
+        language: Option<(&str, crate::Direction)>,
+    ) -> Result<(), KernelError> {
+        if self.document_commit.is_some() {
+            return Err(KernelError::DocumentCommit(
+                "a document commit is already active",
+            ));
+        }
+        let mut commit = Box::new(txn::DocumentCommit::new(batch, root_id, self.epoch + 1));
+        self.apply_document_phase(ops, language, &mut commit)?;
+        self.document_commit = Some(commit);
+        Ok(())
+    }
+
+    /// Apply another phase and resolve its computed styles, preserving lifecycle
+    /// identity from earlier phases. Each phase validates before its own writes.
+    /// Any phase failure makes this commit unfinishable: earlier phases remain
+    /// applied and no rollback is promised. The owner must poison its runner and
+    /// reset/re-snapshot rather than present or continue the partial tree.
+    pub fn continue_document_commit(&mut self, ops: &[Op]) -> Result<(), KernelError> {
+        let mut commit = self
+            .document_commit
+            .take()
+            .ok_or(KernelError::DocumentCommit("no document commit is active"))?;
+        let result = if commit.failed {
+            Err(KernelError::DocumentCommit(
+                "the active document commit failed; reset required",
+            ))
+        } else {
+            self.apply_document_phase(ops, None, &mut commit)
+        };
+        commit.failed |= result.is_err();
+        self.document_commit = Some(commit);
+        result
+    }
+
+    /// Finalize lifecycle facts once and publish one logical receipt and epoch.
+    /// No intermediate phase enters receipt history, region observation or
+    /// timeline resolution. Detached kernels retain their ordinary empty-receipt
+    /// behavior, including unchanged epoch and no retained receipt history.
+    pub fn finish_document_commit(&mut self) -> Result<CommitReceipt, KernelError> {
+        let commit = self
+            .document_commit
+            .as_ref()
+            .ok_or(KernelError::DocumentCommit("no document commit is active"))?;
+        if commit.failed {
+            return Err(KernelError::DocumentCommit(
+                "the active document commit failed; reset required",
+            ));
+        }
+        let commit = self
+            .document_commit
+            .take()
+            .expect("active commit checked above");
+        let mut receipt = txn::finish_document(&self.arena, *commit);
+        if self.detached {
+            receipt.epoch = self.epoch;
+            return Ok(receipt);
+        }
+        Ok(self.publish_document_commit(receipt))
+    }
+
+    fn apply_document_phase(
+        &mut self,
+        ops: &[Op],
+        language: Option<(&str, crate::Direction)>,
+        commit: &mut txn::DocumentCommit,
+    ) -> Result<(), KernelError> {
+        if self.detached {
+            return Ok(());
+        }
+        let changed_language =
+            language.is_some_and(|(lang, _)| lang != self.arena.document_language);
+        let mut unmirrored = Unmirrored;
+        txn::continue_document(
+            Target {
+                arena: &mut self.arena,
+                layout: match self.layout.as_deref_mut() {
+                    Some(layout) => layout,
+                    None => &mut unmirrored,
+                },
+                selectors: &mut self.selectors,
+            },
+            ops,
+            language,
+            commit,
+        )?;
+        if changed_language {
+            self.measurer.set_language(&self.arena.document_language);
+        }
+        Ok(())
+    }
+
+    fn publish_document_commit(&mut self, mut receipt: CommitReceipt) -> CommitReceipt {
         let changed = !receipt.created.is_empty()
             || !receipt.destroyed.is_empty()
             || !receipt.touched.is_empty();
         if changed {
-            self.epoch = next_epoch;
+            self.epoch = receipt.epoch;
         }
-        let mut receipt = receipt;
         receipt.epoch = self.epoch;
         // @ref LLP 1057.003 D4 — timeline names resolve against the tree
         // this commit left.
@@ -95,7 +205,10 @@ impl Kernel {
         {
             self.region = None;
         }
-        self.receipts.push_back(receipt.clone());
-        Ok(receipt)
+        self.receipts.push_back(RetainedReceipt::new(&receipt));
+        if changed {
+            self.wide_changed();
+        }
+        receipt
     }
 }

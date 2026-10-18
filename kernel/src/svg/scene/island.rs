@@ -46,18 +46,6 @@ pub struct Pattern {
     pub items: Vec<Item>,
 }
 
-/// A region coordinate: a fraction of the box under `objectBoundingBox`
-/// (a number or a percentage), else a length against the viewport axis.
-fn coord(d: Option<Dimension>, default: f32, obb: bool, basis: f32) -> f32 {
-    match d {
-        Some(Dimension::Points(v)) => v,
-        Some(Dimension::Percent(p)) if obb => p / 100.0,
-        Some(Dimension::Percent(p)) => p / 100.0 * basis,
-        _ if obb => default,
-        _ => default * basis,
-    }
-}
-
 /// `(x, y, w, h)` mapped by the box under `objectBoundingBox`.
 fn in_box(r: (f32, f32, f32, f32), b: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
     (b.0 + r.0 * b.2, b.1 + r.1 * b.3, r.2 * b.2, r.3 * b.3)
@@ -94,6 +82,7 @@ impl Resolver<'_, '_> {
         let content_obb = mask.props.str(PropId::MaskContentUnits) == Some("objectBoundingBox");
         let rows = |s: StyleId| mask.style.mask.has(s);
         let at = |s: StyleId, d: Dimension| rows(s).then_some(d);
+        let coord = |d, default, obb, basis| vp.coord(d, default, if obb { 1.0 } else { basis });
         let raw = (
             coord(at(StyleId::X, mask.style.x), -0.1, obb, vp.width),
             coord(at(StyleId::Y, mask.style.y), -0.1, obb, vp.height),
@@ -115,7 +104,7 @@ impl Resolver<'_, '_> {
             (true, Some(b)) => [b.2, 0.0, 0.0, b.3, b.0, b.1],
             (true, None) => return Some(empty),
         };
-        let inherited = mask.computed_style(StyleMask::INHERITED);
+        let inherited = mask.arena.computed_rows(mask.slot, StyleMask::INHERITED);
         let mut mstyle = mask.style.clone();
         mstyle.copy_rows(&inherited, StyleMask::INHERITED.minus(mask.style.mask));
         // Two elements naming one mask are two instances: salt the keys.
@@ -175,6 +164,7 @@ impl Resolver<'_, '_> {
         let row = |s: StyleId| chain.iter().find(|n| n.style.mask.has(s));
         let obb = prop(PropId::PatternUnits) != Some("userSpaceOnUse");
         let content_obb = prop(PropId::PatternContentUnits) == Some("objectBoundingBox");
+        let coord = |d, default, obb, basis| vp.coord(d, default, if obb { 1.0 } else { basis });
         let raw = (
             coord(row(StyleId::X).map(|n| n.style.x), 0.0, obb, vp.width),
             coord(row(StyleId::Y).map(|n| n.style.y), 0.0, obb, vp.height),
@@ -229,12 +219,15 @@ impl Resolver<'_, '_> {
         let transform = prop(PropId::PatternTransform)
             .and_then(TransformList::parse)
             .map_or(tf::IDENTITY, |t| t.matrix());
-        let inherited = holder.computed_style(StyleMask::INHERITED);
+        let inherited = holder
+            .arena
+            .computed_rows(holder.slot, StyleMask::INHERITED);
         let style = cascade(holder, &inherited);
         let inner = match vb {
             Some(b) => Viewport {
                 width: b.width,
                 height: b.height,
+                ..vp
             },
             None => vp,
         };

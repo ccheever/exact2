@@ -15,6 +15,8 @@ pub struct Carried {
     pub keeps_answers: bool,
     /// Slot name → value.
     pub slots: Vec<(String, Value)>,
+    /// Tab panels' state (LLP 1075.003 §9.14): (panel `id`, slot name, value).
+    pub panels: crate::instance::tabs::CarriedPanels,
     /// Resource name → (source name, arguments, value).
     pub resources: Vec<(String, String, Vec<Value>, Value)>,
     /// (Resource name, source name) pairs whose answer depends on the store.
@@ -22,13 +24,16 @@ pub struct Carried {
     /// The clock, milliseconds.
     pub now_ms: f64,
     /// The store's kept values (LLP 1018): what the host has persisted.
-    pub store: Vec<(String, String)>,
+    pub store: Vec<(String, Vec<u8>)>,
     /// Each queue's waiting sends, by mutation name: never carried, only
     /// said once the new runner boots (LLP 1092 D4).
     pub forgot_waiting: Vec<(String, usize)>,
     /// The driver's fetch faults as they are (LLP 1103 D3, `Faults::spec`),
     /// so a replacement neither revives a spent fault nor loses an armed one.
     pub faults: Option<String>,
+    /// The window's app modes, (axis, value) (LLP 1121 D5): an app's
+    /// `setMode` or the agent's `prefer mode` outlives a reload.
+    pub modes: Vec<(String, String)>,
 }
 
 #[cfg(test)]
@@ -287,7 +292,7 @@ mod tests {
             assert!(carried
                 .store
                 .iter()
-                .any(|(name, value)| name == "token" && value == "stored answer"));
+                .any(|(name, value)| name == "token" && value == b"stored answer"));
         }
     }
 }

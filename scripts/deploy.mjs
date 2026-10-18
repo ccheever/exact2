@@ -53,18 +53,17 @@ import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildRust, publishedSignature, rustBundle, rustPackage, tieredNative } from './rust.mjs';
-import { cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, removePrivateTree, shaderWatchRoots } from './app.mjs';
+import { assertOwnTarget, cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, shaderWatchRoots } from './app.mjs';
 import { gameShells } from "../game/app/shells.mjs";
-import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
-import { filesystemLock } from './filesystem.mjs';
-import { listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
-
+import { appdropPlan, renderAppdrop, runAppdrop } from './deploy-appdrop.mjs';
+import { blobPath, channelOrigin, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
+import { filesystemLock, removePrivateTree } from './filesystem.mjs';
+import { entryPlans, listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const PLATFORMS = ['web', 'ios', 'macos', 'linux'];
 /** The platforms that hold an update store and so a stream, when the manifest names none (`deploy.store`, `deploy.binaries`). The web is the origin row: a fresh load is current. */
 const STREAM_PLATFORMS = ['ios', 'macos', 'linux'];
 const USAGE = 'usage: bun scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>] [--only bundle|origin] [--platform <web|ios|macos|linux>]... [--snapshot <sha>] [--dirty] [--release <id>] [--keys <dir>] [--json] [--yes]\n       bun scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]';
-
 // ------------------------------------------------------------------ arguments
 
 function parseArgs(argv) {
@@ -190,9 +189,27 @@ function cargoDependencyRoots(app, exactRoot) {
  * repository, captured beside the app's so a relative link still reaches it.
  * A registry package is not: the captured bun.lock pins its bytes, and the
  * materialized install restores exactly those. */
-function contractSources(appDir, exactRoot) {
-  const result = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'sources', resolve(appDir, 'app.contract')], {
-    cwd: exactRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+const contractCompilers = new Map();
+export function contractCompiler(exactRoot) {
+  const root = canonicalPath(exactRoot);
+  const target = resolve(root, process.env.CARGO_TARGET_DIR ?? 'target');
+  assertOwnTarget(target, root);
+  const key = JSON.stringify([root, target, process.env.CARGO_BUILD_TARGET ?? null]);
+  if (contractCompilers.has(key)) return contractCompilers.get(key);
+  const result = spawnSync('cargo', ['build', '--locked', '--offline', '-q', '--manifest-path', resolve(root, 'Cargo.toml'), '-p', 'contract', '--bin', 'contract', '--message-format=json-render-diagnostics'], {
+    cwd: root, env: { ...process.env, CARGO_TARGET_DIR: target }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.status !== 0) refuse(`${root}: could not build the Contract compiler: ${(result.stderr || result.error?.message || '').trim()}`);
+  const artifacts = result.stdout.split('\n').filter(Boolean).map(line => JSON.parse(line));
+  const binary = artifacts.find(message => message.reason === 'compiler-artifact' && message.target.name === 'contract' && message.target.kind.includes('bin'))?.executable;
+  if (!binary) refuse(`${root}: Cargo did not report the Contract compiler executable`);
+  contractCompilers.set(key, binary);
+  return binary;
+}
+
+function contractSources(appDir, exactRoot, env = process.env, compiler = contractCompiler(exactRoot)) {
+  const result = spawnSync(compiler, ['sources', resolve(appDir, 'app.contract')], {
+    cwd: exactRoot, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   });
   let graph;
   try { graph = JSON.parse(result.stdout); }
@@ -225,7 +242,7 @@ export function assertCapturedContractSources(graph, sourceRoot) {
   }
 }
 
-function contractPackageRoots(app, exactRoot) {
+function contractPackageRoots(app, exactRoot, compiler) {
   // A library installed by an absolute `file:` path or a `link:` would be
   // reinstalled from the live tree after capture: only a relative `file:`
   // path moves with the snapshot.
@@ -239,7 +256,7 @@ function contractPackageRoots(app, exactRoot) {
   }
   const owned = new Set([repoTop(app.dir, 'app source'), repoTop(exactRoot, 'Exact source')]);
   const repos = new Set();
-  for (const pkg of contractSources(app.dir, exactRoot).packages) {
+  for (const pkg of contractSources(app.dir, exactRoot, process.env, compiler).packages) {
     if (installedContractPackage(app.dir, pkg.root)) continue;
     const repo = repoTop(pkg.root, `Contract package ${pkg.name}`);
     if (!owned.has(repo)) repos.add(repo);
@@ -367,6 +384,7 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
  * they are under a precise generated-output root. */
 export function snapshotOf(app, opts, exactRoot = ROOT) {
   app.prepare?.(true);
+  const compiler = opts.compiler ? resolve(opts.compiler) : contractCompiler(exactRoot);
   const sourceRoots = [
     { role: 'app', cwd: canonicalPath(app.dir) },
     { role: 'exact2', cwd: canonicalPath(exactRoot) },
@@ -395,7 +413,7 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
   };
   discover(sourceRoots);
   discover(cargoDependencyRoots(app, exactRoot));
-  discover(contractPackageRoots(app, exactRoot));
+  discover(contractPackageRoots(app, exactRoot, compiler));
   const sourceList = [...repos.values()].map((source) => ({ ...source,
     roles: [...source.roles].sort() }));
   const common = commonParent(sourceList.map((source) => source.repo));
@@ -419,7 +437,8 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
     if (opts.snapshot && !id.startsWith(opts.snapshot.toLowerCase())) refuse(`the source snapshot is ${id}, not --snapshot ${opts.snapshot}: the dry run and its --yes must name the same complete source set (LLP 1030.000 D3)`);
     const sources = captured.map(({ repo, roles, commit, workingSha256, changes: sourceChanges }) => ({ repo, roles, commit, workingSha256, changes: sourceChanges }));
     const snapshot = { id, commit: sources[0].commit, dirty: changes.length > 0, changes, repo: sources[0].repo, sources };
-    snapshotCaptures.set(snapshot, { sources: captured, common, captureRoot, stagedSourceRoot,
+    snapshotCaptures.set(snapshot, { sources: captured, common, captureRoot, stagedSourceRoot, compiler,
+      compilerTarget: resolve(exactRoot, process.env.CARGO_TARGET_DIR ?? 'target'),
       appDir: canonicalPath(app.dir), appWorkspace: canonicalPath(app.workspace ?? app.dir), exactRoot: canonicalPath(exactRoot) });
     return snapshot;
   } catch (error) {
@@ -571,7 +590,7 @@ export function materializeSnapshot(snapshot, run, app, cache = null) {
   }
   // Every Contract file the bake will read is in the captured tree: an
   // installed library that still leads outside it is live bytes (LLP 1091 D10).
-  assertCapturedContractSources(contractSources(dir, ROOT), sourceRoot);
+  assertCapturedContractSources(contractSources(dir, exactRoot, sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: capture.compilerTarget }), capture.compiler), sourceRoot);
   return {
     exactRoot, sourceRoot,
     // Identity and policy are deliberately not copied from the launcher's
@@ -738,6 +757,7 @@ export function streamHead({ app, bundle, stream, seq, release, sunset = null })
     stream: { app: app.id, channel: stream.channel, compatibilityId: stream.compatibilityId, seq },
     release,
   };
+  Object.assign(head, entryPlans(head.assets));
   if (sunset) head.sunset = sunset.store ? { message: sunset.message, store: sunset.store } : { message: sunset.message };
   return head;
 }
@@ -827,6 +847,7 @@ export function inspectHead(found, app, stream) {
       fileCard(asset, asset.name);
     }
     portableAssetNames((head.assets ?? []).map((asset) => asset.name));
+    if (head.plans !== undefined && canonicalJson(head.plans) !== canonicalJson(entryPlans(head.assets ?? []).plans ?? {})) throw new Error("the envelope's plans must index its authenticated plan assets");
     if (head.sunset !== undefined) {
       if (!head.sunset || typeof head.sunset !== 'object' || Array.isArray(head.sunset)) throw new Error('the sunset card is not an object');
       if (typeof head.sunset.message !== 'string') throw new Error('the sunset card has no message');
@@ -894,7 +915,11 @@ async function authenticatedReleaseFloor(origin, app, stream) {
  * clients already hold for another bundle. Repairing an unusable head uses
  * the history alone; if none exists, overwriting would guess at the clients'
  * rollback floor and is refused. */
-async function nextSeq(origin, app, stream, admission, at) {
+async function nextSeq(origin, app, stream, admission, at, above = 0) {
+  return Math.max(above + 1, await nextOriginSeq(origin, app, stream, admission, at));
+}
+
+async function nextOriginSeq(origin, app, stream, admission, at) {
   const history = await authenticatedReleaseFloor(origin, app, stream);
   let floor;
   if (admission?.usable) floor = Math.max(admission.seq, history.floor ?? 0);
@@ -1072,7 +1097,7 @@ export function renderTable(table) {
       : row.changes.map((c) => `${c.name} ${c.change}${c.note ? ` (${c.note})` : ''}`).join(', ');
     out.push(line('', detail, `bundle seq ${row.seq}`));
   }
-  const binaries = table.rows.filter((r) => r.action === 'binary');
+  const binaries = table.rows.filter((r) => r.action === 'binary' && !(r.kind === 'binary' && r.platform === 'ios' && table.appdrop));
   if (binaries.length) out.push(`binary needed: ${binaries.map((r) => `${r.platform ?? '?'} ${r.compatibilityId.slice(0, 8)}`).join(', ')} — a later verb (LLP 1030.000 §6); independently safe bundle rows still publish`);
   out.push(...renderReach(table.reach));
   return out.join('\n');
@@ -1106,8 +1131,9 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
     const changes = admission?.usable
       ? changesAgainst(bundle, admission.head)
       : current ? [{ name: 'exact.json', change: 'repair', note: admission.problem }] : changesAgainst(bundle, null);
-    if (admission?.usable && !changes.length) return { ...row, action: 'current', seq: admission.seq, note: 'the head is admissible and already names this bundle (published meanwhile)' };
-    const seq = await nextSeq(origin, app, stream, admission, `the locked head at ${origin.describe()}/${base}/exact.json`);
+    if (admission?.usable && !changes.length && admission.seq > (opts.seqAbove ?? 0)) return { ...row, action: 'current', seq: admission.seq, note: 'the head is admissible and already names this bundle (published meanwhile)' };
+    // `seqAbove`: a stream moving to a new origin starts above every seq its clients accepted from the old one.
+    const seq = await nextSeq(origin, app, stream, admission, `the locked head at ${origin.describe()}/${base}/exact.json`, opts.seqAbove ?? 0);
     let written = 0;
     for (const file of files) {
       if (await origin.put(blobPath(file.sha256), file.bytes, { immutable: true }) === 'written') written++;
@@ -1288,10 +1314,12 @@ async function deployCaptured(opts, capsule) {
   const release = capsule.release;
   const channel = opts.channel ?? channelOf(app.manifest);
   if (channel === 'blobs' || !/^[A-Za-z0-9._-]+$/.test(channel)) refuse(`the channel ${JSON.stringify(channel)} cannot name a directory under .exact/`);
-  const originSpec = opts.origin ?? app.manifest.deploy?.channels?.[channel] ?? app.origin;
+  const originSpec = opts.origin ?? channelOrigin(app.manifest, channel) ?? app.origin;
   if (!originSpec) refuse(`no origin for the channel ${channel}: pass --origin <dir|url> or name deploy.channels.${channel} in app.json`);
   const origin = openOrigin(originSpec);
-  const wantOrigin = opts.only !== 'bundle' && (!opts.platform.length || opts.platform.includes('web'));
+  // An origin that holds only update streams (AppDrop) publishes no web root.
+  if (origin.servesWeb === false && (opts.only === 'origin' || opts.platform.includes('web'))) refuse(`${origin.describe()} holds update streams, not a web app: publish the web root to another origin`);
+  const wantOrigin = origin.servesWeb !== false && opts.only !== 'bundle' && (!opts.platform.length || opts.platform.includes('web'));
   const platforms = opts.only === 'origin' ? [] : nativePlatforms(app.manifest).filter((p) => !opts.platform.length || opts.platform.includes(p));
   if (!wantOrigin && !platforms.length) refuse(`nothing to classify: ${opts.only ? `--only ${opts.only}` : ''} ${opts.platform.length ? `--platform ${opts.platform.join(',')}` : ''} leaves no row`);
   const log = (text) => process.stderr.write(`${text}\n`);
@@ -1300,6 +1328,7 @@ async function deployCaptured(opts, capsule) {
   if (opts.yes && !origin.writable) refuse(`${origin.describe()} is an https origin, read-only in v1: point --origin at the directory the host serves (an object-store adapter with a conditional put is owed)`);
   const signer = opts.yes && platforms.length ? loadSigner(app, opts.keys) : null;
   if (signer) log(`signing as ${signer.keyId} (${signer.path})`);
+  if (signer) origin.useSigner?.(signer);
 
   log(`snapshot ${snapshot.id}${snapshot.sources.length > 1 ? ` (${snapshot.sources.map((source) => `${source.roles.join('+')} ${source.commit.slice(0, 7)}`).join(', ')})` : ''}${snapshot.dirty ? ' + uncommitted changes (--dirty)' : ''}; baking into ${run}`);
   const web = bake(app, run, exactRoot, sourceRoot);
@@ -1334,7 +1363,8 @@ async function deployCaptured(opts, capsule) {
   log(`compatibility ids: ${Object.entries(compat).map(([p, c]) => `${p} ${c.id}`).join(', ')}`);
 
   const table = await classify({ app, opts, origin, channel, snapshot, release, web: webRoot, bundle, compat, builds, platforms, wantOrigin });
-  if (!opts.json) console.log(renderTable(table));
+  table.appdrop = appdropPlan(app, table, builds);
+  if (!opts.json) console.log(renderTable(table) + (table.appdrop ? `\n${renderAppdrop(table.appdrop)}` : ''));
 
   if (!opts.yes) {
     if (opts.json) console.log(JSON.stringify(table));
@@ -1356,6 +1386,7 @@ async function deployCaptured(opts, capsule) {
     }
     const name = `${row.platform ?? '?'} ${row.kind} ${row.compatibilityId.slice(0, 8)}`;
     if (row.action === 'unavailable') { failed.push({ platform: row.platform, compatibilityId: row.compatibilityId, error: row.reason }); log(`  ${name}: unavailable — ${row.reason}`); continue; }
+    if (row.kind === 'binary' && row.platform === 'ios' && table.appdrop) continue; // its carrier is AppDrop, after the streams
     if (row.action === 'binary') { refused.push({ platform: row.platform, compatibilityId: row.compatibilityId, reason: row.reason }); log(`  ${name}: refused — ${row.reason}`); continue; }
     try {
       const result = await publishStream({ origin, row, bundle: bundle.platforms?.[row.platform] ?? bundle, compat: row.receipt?.compat ?? compat[row.platform], app, signer, release, snapshot: table.snapshot, opts, log, build:builds[row.platform] });
@@ -1366,11 +1397,12 @@ async function deployCaptured(opts, capsule) {
       log(`  ${name}: failed — ${e.message}; ${e.headOutcomeUnknown ? 'the head outcome is unknown and must be inspected' : "this release's head is not visible"}`);
     }
   }
+  if (table.appdrop) await runAppdrop({ table, published, failed, origin, app, channel, release, exactRoot, run, live: capsule.app.live, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target }), latestRecord, log });
   const outcome = { ...table, dryRun: false, published, refused, failed };
   if (opts.json) console.log(JSON.stringify(outcome));
   else {
     const heads = published.filter((p) => p.kind === 'stream' && p.action === 'published');
-    console.log(`published ${release}: ${heads.length} head${heads.length === 1 ? '' : 's'}${published.some((p) => p.kind === 'origin' && p.action === 'published') ? ', the web root' : ''}${refused.length ? `; ${refused.length} refused (binary)` : ''}${failed.length ? `; ${failed.length} FAILED` : ''}`);
+    console.log(`published ${release}: ${heads.length} head${heads.length === 1 ? '' : 's'}${published.some((p) => p.kind === 'origin' && p.action === 'published') ? ', the web root' : ''}${published.some((p) => p.kind === 'appdrop' && p.action === 'published') ? ', an AppDrop version' : ''}${refused.length ? `; ${refused.length} refused (binary)` : ''}${failed.length ? `; ${failed.length} FAILED` : ''}`);
   }
   return failed.length ? 1 : 0;
 }
@@ -1419,7 +1451,7 @@ function launch(locatedApp, opts, cache = {}) {
       version: 1, snapshot, release, run, sourceRoot: materialized.sourceRoot,
       exactRoot: materialized.exactRoot,
       app: {
-        name: locatedApp.name, dir: materialized.app.dir,
+        name: locatedApp.name, dir: materialized.app.dir, live: canonicalPath(locatedApp.dir),
         workspace: materialized.app.workspace, target: materialized.app.target,
         external: canonicalPath(locatedApp.workspace) !== canonicalPath(ROOT),
       },

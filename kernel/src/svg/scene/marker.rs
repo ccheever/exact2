@@ -301,7 +301,9 @@ impl Resolver<'_, '_> {
         if self.uses.contains(&(marker.id as u64)) || self.uses.len() > 16 {
             return None;
         }
-        let inherited = marker.computed_style(StyleMask::INHERITED);
+        let inherited = marker
+            .arena
+            .computed_rows(marker.slot, StyleMask::INHERITED);
         let mut mstyle = marker.style.clone();
         mstyle.copy_rows(&inherited, StyleMask::INHERITED.minus(marker.style.mask));
         let clip = mstyle.overflow_x != Overflow::Visible || mstyle.overflow_y != Overflow::Visible;
@@ -309,10 +311,12 @@ impl Resolver<'_, '_> {
             Some(b) => Viewport {
                 width: b.width,
                 height: b.height,
+                ..vp
             },
             None => Viewport {
                 width: w,
                 height: h,
+                ..vp
             },
         };
         let at = tf::mul(ctm, place);

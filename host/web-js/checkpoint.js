@@ -1,3 +1,4 @@
+import { inertAncestor } from './navigation.js';
 import { carryRouter, clock, launchLocation, res, sig } from './rt.js';
 import { offerAll } from './focus.js';
 
@@ -43,10 +44,16 @@ function dev() {
 
 /** A root slot carried by authored name and full declared shape. */
 export function devSignal(name, initial, type, declared, router = false) {
-  const cp = dev(), kept = cp?.slots?.find(s => s[0] === name);
+  // The launch locale must reach newly added initializers before language().
+  const cp = dev(), kept = name === '#locale' ? null : cp?.slots?.find(s => s[0] === name);
   const value = kept && (router || shape(kept[1], declared)) ? (router ? carryRouter(decode(kept[2]), launchLocation()) : decode(kept[2])) : initial;
-  const out = sig(value, type, type === "s" ? name : undefined); out.n.devName = name; out.n.devType = declared; return out;
+  const out = sig(value, type, type === "s" ? name : undefined); out.n.devName = name; out.n.devType = declared;
+  if (name.includes('@')) { Panels.live.add(out); Panels.used.add(name); }
+  return out;
 }
+/** A tab panel's state, `slot@panel`, made when the panel is built (emit's `owned`; LLP 1075.003 §9.14): the capture
+ * (dev.mjs) takes each live one, and what the last reload carried for a panel not built since. */
+const Panels = globalThis.__exactDevPanels = { live: new Set(), used: new Set(), left: () => (dev()?.slots ?? []).filter(s => s[0].includes('@') && !Panels.used.has(s[0])) };
 
 /** A settled resource carried only for the same source, arguments and type. */
 export function devResource(name, source, args, initial, initialArgs, type, placeholder, declared, elseRow = false) {
@@ -71,6 +78,6 @@ export function prepareDev() {
     const children = e => [...(e?.children ?? [])].filter(x => x.hasAttribute('data-carry-type') || x.hasAttribute('data-listitemkey'));
     let el = document.getElementById('exact-root');
     for (const at of cp.focus.path) el = children(el)[at];
-    if (el?.getAttribute('data-carry-type') === cp.focus.type && el.getClientRects().length && !el.matches(':disabled') && !el.closest('[inert]')) focus.call(el, { preventScroll: true });
+    if (el?.getAttribute('data-carry-type') === cp.focus.type && el.getClientRects().length && !el.matches(':disabled') && !inertAncestor(el)) focus.call(el, { preventScroll: true });
   };
 }

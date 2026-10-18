@@ -337,6 +337,7 @@ fn sky_and_far_object_converge_in_height_fog() {
             density: 0.02,
             height_falloff: 0.1,
             color: custom.then_some(color),
+            linear: None,
         });
         let p = render(&gpu, &mut r, &texture, &f);
         p.save(&format!("fog-horizon-custom-{custom}"));
@@ -488,6 +489,7 @@ fn fog_camera_crosses_exponent_clamp() {
             density,
             height_falloff: 0.1,
             color: Some([0.5; 3]),
+            linear: None,
         });
         let a = (-0.1 * f64::from(start)).clamp(-40.0, 40.0).exp();
         let b = (-0.1 * f64::from(end)).clamp(-40.0, 40.0).exp();
@@ -609,4 +611,40 @@ fn grazing_receivers_remain_occluded() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn pcf_soft_normal_bias_is_metres_independent_of_cascade_extent() {
+    let Some(gpu) = gpu() else { return };
+    let (mut r, mut f, _) = shadow_scene(&gpu, 5.);
+    let texture = target(&gpu, (512, 512), wgpu::TextureFormat::Rgba8Unorm);
+    let probe = Vec3::new(0.78, 0., -4.9);
+    f.sun.as_mut().unwrap().shadows = None;
+    let lit = at_world(&render(&gpu, &mut r, &texture, &f), &f, probe);
+    for cascades in [1, 3] {
+        for distance in [30., 60.] {
+            let mut settings = Shadows {
+                cascades,
+                distance,
+                filter: exact_game_render::ShadowFilter::PcfSoft {
+                    depth_bias: 0.0004,
+                    normal_bias: 0.,
+                },
+                ..Default::default()
+            };
+            f.sun.as_mut().unwrap().shadows = Some(settings);
+            let dark = at_world(&render(&gpu, &mut r, &texture, &f), &f, probe);
+            settings.filter = exact_game_render::ShadowFilter::PcfSoft {
+                depth_bias: 0.0004,
+                normal_bias: 1.1,
+            };
+            f.sun.as_mut().unwrap().shadows = Some(settings);
+            let lifted = at_world(&render(&gpu, &mut r, &texture, &f), &f, probe);
+            assert!(lit > dark + 40, "fixture shadow: {lit}/{dark}");
+            assert!(
+                lit.abs_diff(lifted) <= 2,
+                "{cascades} cascades, {distance} m: {lit}/{dark}/{lifted}"
+            );
+        }
+    }
 }

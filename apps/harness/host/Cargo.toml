@@ -12,7 +12,12 @@ publish = false
 [[bin]]
 name = "harness"
 path = "src/main.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-terminal = { path = "../../../host/terminal" }
 harness-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }

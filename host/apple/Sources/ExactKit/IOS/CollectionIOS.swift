@@ -41,7 +41,8 @@ extension CollectionHost {
     /// port and measured sizes run along x, its cross along y.
     package func geometry(_ id: UInt32) -> CollectionFacts? {
         guard let node = presenter?.views[id], let scroll = node.scroll, !hidden(node) else { return nil }
-        let bounds = scroll.bounds, insets = scroll.adjustedContentInset
+        // Layout's box, not the one drawn on the pixel grid (`PixelGridIOS.swift`): the runner lays rows to it.
+        let bounds = node.layoutBounds, insets = scroll.adjustedContentInset
         let content = node.contentBox()
         let portWidth = max(0, bounds.width - insets.left - insets.right)
         let portHeight = max(0, bounds.height - insets.top - insets.bottom)
@@ -52,33 +53,53 @@ extension CollectionHost {
         let at = (animating.contains(id) ? owedTargets[id] ?? animationTargets[id] : nil) ?? scroll.contentOffset
         let measured = entries[id]?.snapshot.rows.first.flatMap { crossSize($0.view, horizontal: horizontal) }.map { CGFloat($0) }
         if horizontal {
-            let available = max(0, portHeight - content.minY - (node.bounds.height - content.maxY))
+            let available = max(0, portHeight - content.minY - (node.layoutBounds.height - content.maxY))
             let cross = measured ?? available
             guard cross.isFinite else { return nil }
+            let start = max(0, node.padding("left")), end = max(0, node.padding("right"))
             // From the first item: negative in the padding before it, down
             // to that padding (LLP 1010 §6.9).
-            return CollectionFacts(offset: Double(max(-node.number("padding_left"), at.x + insets.left - content.minX)),
+            return CollectionFacts(offset: Double(max(-start, at.x + insets.left - content.minX)),
                 portMain: Double(portWidth), portCross: Double(portHeight), cross: Double(cross),
-                measurements: [], focus: nil, interaction: nil,
-                padding: [Double(node.number("padding_left")), Double(node.number("padding_right"))])
+                measurements: [], focus: nil, interaction: nil, paddingStart: Double(start), paddingEnd: Double(end))
         }
-        let available = max(0, portWidth - content.minX - (node.bounds.width - content.maxX))
+        let available = max(0, portWidth - content.minX - (node.layoutBounds.width - content.maxX))
         let width = measured ?? available
         guard width.isFinite else { return nil }
-        return CollectionFacts(offset: Double(max(-node.number("padding_top"), at.y + insets.top - content.minY)),
+        let start = max(0, node.padding("top")), end = max(0, node.padding("bottom"))
+        return CollectionFacts(offset: Double(max(-start, at.y + insets.top - content.minY)),
             portMain: Double(portHeight), portCross: Double(portWidth), cross: Double(width),
-            measurements: [], focus: nil, interaction: nil,
-            padding: [Double(node.number("padding_top")), Double(node.number("padding_bottom"))])
+            measurements: [], focus: nil, interaction: nil, paddingStart: Double(start), paddingEnd: Double(end))
+    }
+    /// The insets UIKit adjusts the list's port by, at its start edges. A
+    /// safe area its frame changed reaches the scroll view in a layout
+    /// pass, which is taken now, inside the batch that moved it.
+    func portInsets(_ id: UInt32) -> [Double]? {
+        guard let node = presenter?.views[id], let scroll = node.scroll else { return nil }
+        node.layoutIfNeeded()
+        return [Double(scroll.adjustedContentInset.top), Double(scroll.adjustedContentInset.left)]
+    }
+    /// The port back at `top` (`geometry`'s offset), within what it can
+    /// reach, unless the reader or a smooth correction is moving it.
+    func keepStart(_ id: UInt32, at top: Double) {
+        guard let node = presenter?.views[id], let scroll = node.scroll, !animating.contains(id),
+              !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating else { return }
+        let content = node.contentBox(), i = scroll.adjustedContentInset
+        var target = scroll.contentOffset
+        if entries[id]?.snapshot.horizontal ?? false { target.x = CGFloat(top) + content.minX - i.left }
+        else { target.y = CGFloat(top) + content.minY - i.top }
+        target = Self.reachable(target, in: scroll)
+        if scroll.contentOffset != target { scroll.setContentOffset(target, animated: false) }
     }
     /// A row wrapper's size across the list: a vertical list's row width,
     /// a row list's item height.
     func crossSize(_ id: UInt32, horizontal: Bool) -> Double? {
-        presenter?.views[id].map { Double(horizontal ? $0.bounds.height : $0.bounds.width) }
+        presenter?.views[id].map { Double(horizontal ? $0.layoutBounds.height : $0.layoutBounds.width) }
     }
     /// A row wrapper's size along the list, what the index measures.
     func size(_ id: UInt32, horizontal: Bool) -> Double? {
         guard let node = presenter?.views[id], !hidden(node) else { return nil }
-        return Double(horizontal ? node.bounds.width : node.bounds.height)
+        return Double(horizontal ? node.layoutBounds.width : node.layoutBounds.height)
     }
     /// An anchor's correction (`CollectionCursor.takeShift`): the offset
     /// moves by `delta` from `start` (where the batch began) in the layout
@@ -129,12 +150,12 @@ extension CollectionHost {
     private func fit(_ node: NodeView, _ scroll: UIScrollView, extent: Double) {
         let content = node.contentBox()
         if entries[node.id]?.snapshot.horizontal ?? false {
-            let right = node.bounds.width - content.maxX
-            let width = max(scroll.bounds.width, max(CGFloat(extent) + content.minX + right, node.content.width))
+            let right = node.layoutBounds.width - content.maxX
+            let width = max(scroll.bounds.width, PixelGrid.length(max(CGFloat(extent) + content.minX + right, node.content.width), from: node.grid?.origin ?? .zero, vertical: false, scale: presenter?.gridScale ?? 1))
             if scroll.contentSize.width != width { scroll.contentSize.width = width }
         } else {
-            let bottom = node.bounds.height - content.maxY
-            let height = max(scroll.bounds.height, max(CGFloat(extent) + content.minY + bottom, node.content.height))
+            let bottom = node.layoutBounds.height - content.maxY
+            let height = max(node.scrollFloor(scroll), PixelGrid.length(max(CGFloat(extent) + content.minY + bottom, node.content.height), from: node.grid?.origin ?? .zero, vertical: true, scale: presenter?.gridScale ?? 1))
             if scroll.contentSize.height != height { scroll.contentSize.height = height }
         }
     }
@@ -328,6 +349,18 @@ extension CollectionHost {
         }
         return shortfall > 0 ? UInt32(min(64, (shortfall / mean).rounded(.up))) : 0
     }
+    /// Pins the row under a finger in `port`, the viewport or a presentation's
+    /// mount (LLP 1123 D2), so a list's window keeps it for the contact.
+    @discardableResult
+    func watchContacts(in port: UIView) -> UIGestureRecognizer {
+        let recognizer = CollectionContact(target: nil, action: nil)
+        recognizer.collections = self
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        port.addGestureRecognizer(recognizer)
+        return recognizer
+    }
     func focusedView() -> UInt32? {
         presenter?.views.values.first(where: {
             $0.isFirstResponder || $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true
@@ -335,12 +368,7 @@ extension CollectionHost {
     }
     func startTracking() {
         guard let viewport = presenter?.viewport else { return }
-        let recognizer = CollectionContact(target: nil, action: nil)
-        recognizer.collections = self
-        recognizer.cancelsTouchesInView = false
-        recognizer.delaysTouchesBegan = false
-        recognizer.delaysTouchesEnded = false
-        viewport.addGestureRecognizer(recognizer)
+        let recognizer = watchContacts(in: viewport)
         let observer = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main) { [weak self] _ in self?.releaseInteractionLater() }
         stopTracking = { [weak viewport] in

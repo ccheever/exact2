@@ -128,7 +128,7 @@ final class GlassGroupIOSTests: XCTestCase {
         let inner = try XCTUnwrap(p.views[4]), outer = try XCTUnwrap(p.views[2])
         let slot = try XCTUnwrap(inner.glassSlot, "a glass found in a group gets a slot")
         XCTAssertTrue(inner.materialView?.superview === slot.contentView)
-        XCTAssertNil(slot.effect, "joined")
+        XCTAssertFalse(slot.isolates, "joined")
         XCTAssertNotNil(outer.glassSlot)
         func isolated(_ node: NodeView) -> [String] {
             var native: [String: Any] = [:]
@@ -140,25 +140,25 @@ final class GlassGroupIOSTests: XCTestCase {
             p.apply(wireBatch([["op": "present", "id": id, "property": "opacity", "x": opacity, "y": 0.0, "w": 0.0, "h": 0.0]]))
         }
         present(3, 0.5)
-        XCTAssertTrue(slot.effect is UIGlassContainerEffect, "an ancestor fades")
+        XCTAssertTrue(slot.isolates, "an ancestor fades")
         XCTAssertEqual(isolated(inner), ["opacity"])
-        XCTAssertNil(outer.glassSlot?.effect, "its neighbour stays joined")
+        XCTAssertFalse(outer.glassSlot?.isolates ?? false, "its neighbour stays joined")
         present(3, 1)
-        XCTAssertNil(slot.effect)
+        XCTAssertFalse(slot.isolates)
         present(4, 0.3)
-        XCTAssertNotNil(slot.effect, "its own opacity")
+        XCTAssertTrue(slot.isolates, "its own opacity")
         present(4, 1)
         p.apply(wireBatch([["op": "style", "id": 3, "style": ["overflow_x": "hidden", "overflow_y": "hidden", "text_color": [0, 0, 0, 255]]]]))
         XCTAssertEqual(isolated(inner), ["clip"])
         p.apply(wireBatch([["op": "style", "id": 3, "style": ["text_color": [0, 0, 0, 255]]]]))
-        XCTAssertNil(slot.effect)
+        XCTAssertFalse(slot.isolates)
         // Its own clip does not isolate it: its bounds hold its glass.
         p.apply(wireBatch([["op": "style", "id": 4, "style": ["border_radius": 20.0, "overflow_x": "hidden", "overflow_y": "hidden", "text_color": [0, 0, 0, 255]]]]))
         XCTAssertEqual(isolated(inner), [])
         // Out of every group, a slot holds no container.
         present(3, 0.5)
         p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["glassGroup"]]]))
-        XCTAssertNil(slot.effect)
+        XCTAssertFalse(slot.isolates)
         // The batch's reorder keeps the slot, not the glass in it, at the back.
         XCTAssertTrue(inner.subviews.first === slot && inner.materialView?.superview === slot.contentView)
     }
@@ -212,8 +212,8 @@ final class GlassGroupIOSTests: XCTestCase {
                ["op": "present", "id": 2, "property": "opacity", "x": 0.5, "y": 0.0, "w": 0.0, "h": 0.0],
                ["op": "style", "id": 4, "style": ["overflow_x": "hidden", "overflow_y": "hidden", "text_color": [0, 0, 0, 255]]]])
         let outer = try XCTUnwrap(p.views[3]), inner = try XCTUnwrap(p.views[5])
-        XCTAssertNotNil(outer.glassSlot?.effect, "the outer glass's path fades")
-        XCTAssertNotNil(inner.glassSlot?.effect, "the inner glass's path to the outer's container clips")
+        XCTAssertTrue(outer.glassSlot?.isolates ?? false, "the outer glass's path fades")
+        XCTAssertTrue(inner.glassSlot?.isolates ?? false, "the inner glass's path to the outer's container clips")
         var native: [String: Any] = [:]
         inner.glassAgentFields(&native)
         XCTAssertEqual(native["glassGroupOf"] as? String, "#1", "its group, past the isolation")
@@ -236,6 +236,50 @@ final class GlassGroupIOSTests: XCTestCase {
         XCTAssertFalse(leafLayer(in: group))
         p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["glassGroup"]]]))
         XCTAssertTrue(leafLayer(in: group), "and back")
+    }
+
+    /// A view leaving the window has its touches cancelled by UIKit. euxy's
+    /// capsule turned its glass off while the dice inside it were held, and
+    /// the swap ended the hold: a material, a glass group, a clip box or a scroll that
+    /// comes or goes moves the children with no moment out of the window.
+    func testChildrenStayInTheWindowWhileTheirContainerChanges() throws {
+        let p = presenter(box(1, ["backgroundMaterial": "glass"], w: 200) + box(2)
+            + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let box1 = try XCTUnwrap(p.views[1]), child = try XCTUnwrap(p.views[2])
+        let probe = WindowProbe()
+        child.addSubview(probe)
+        func check(_ step: String) {
+            XCTAssertEqual(probe.departures, 0, step)
+            XCTAssertTrue(child.superview === box1.container, step)
+        }
+        check("glass")
+        for set in [["backgroundMaterial": "none"], ["backgroundMaterial": "glass-clear"], ["backgroundMaterial": "glass"]] {
+            p.apply(wireBatch([["op": "props", "id": 1, "set": set, "clear": []]]))
+            check("\(set)")
+        }
+        p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["backgroundMaterial"]]]))
+        check("no material")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["glassGroup": "8"], "clear": []]]))
+        check("a glass group")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["glassGroup"]]]))
+        check("no glass group")
+        let plain: [String: Any] = ["border_radius": 20.0, "text_color": [0, 0, 0, 255]]
+        let clipped = plain.merging(["overflow_x": "hidden", "overflow_y": "hidden",
+                                     "box_shadow": [["o": [0.0, 2.0], "b": 4.0, "s": 0, "c": [0, 0, 0, 128]]]]) { $1 }
+        for (style, step) in [(clipped, "a clip box"), (plain, "no clip box"), (plain.merging(["overflow_y": "scroll"]) { $1 }, "a scroll"), (plain, "no scroll")] {
+            p.apply(wireBatch([["op": "style", "id": 1, "style": style]]))
+            check(step)
+        }
+        XCTAssertNotNil(probe.window)
+    }
+}
+
+/// Counts the times it leaves the window.
+private final class WindowProbe: UIView {
+    var departures = 0
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil { departures += 1 }
     }
 }
 #endif

@@ -12,9 +12,9 @@ use crate::tree::{
 };
 use crate::tree::{LayoutFlexboxContainer, LayoutPartialTreeExt, NodeId};
 use crate::compute::common::absolute::AbsolutePass;
-use crate::compute::ratio::{sizes_through_ratio, transfer_into_unsized};
+use crate::compute::ratio::{sizes_through_ratio, transfer_into_unsized, Ratio};
 use crate::util::debug::debug_log;
-use crate::util::sys::{f32_max, f32_min, new_vec_with_capacity, Vec};
+use crate::util::sys::{f32_max, f32_min, floor, new_vec_with_capacity, Vec};
 use crate::util::MaybeMath;
 use crate::util::{MaybeResolve, ResolveOrZero};
 use crate::{BoxGenerationMode, BoxSizing, Dimension, Direction, RequestedAxis};
@@ -97,6 +97,8 @@ struct FlexItem {
     target_size: Size<f32>,
     /// The size that this item wants to be, plus any padding and border
     outer_target_size: Size<f32>,
+    /// Whether stretching changed the cross size at browser layout-unit precision
+    cross_size_was_stretched: bool,
 
     /// The position of the bottom edge of this item
     baseline: f32,
@@ -259,11 +261,18 @@ pub fn compute_flexbox_layout(
         Size::NONE
     };
 
-    // If both min and max in a given axis are set and max <= min then this determines the size in that axis
-    let min_max_definite_size = min_size.zip_map(max_size, |min, max| match (min, max) {
+    // EXACT PATCH 43: height bounds must not size an unresolved intrinsic width.
+    // Width bounds still size height, including in a flex column's content probe.
+    // A block parent's intrinsic width probe uses InherentSize for its child.
+    let mut min_max_definite_size = min_size.zip_map(max_size, |min, max| match (min, max) {
         (Some(min), Some(max)) if max <= min => Some(min),
         _ => None,
     });
+    if known_dimensions.or(clamped_style_size).or(min_max_definite_size).width.is_none()
+        && (inputs.sizing_mode == SizingMode::ContentSize || !inputs.available_space.width.is_definite())
+    {
+        min_max_definite_size.height = None;
+    }
 
     // The size of the container should be floored by the padding and border
     let styled_based_known_dimensions =
@@ -293,13 +302,25 @@ pub fn compute_flexbox_layout(
     }
 
     debug_log!("FLEX:", dbg:style.flex_direction());
-    drop(style);
 
-    // Normalize the definiteness flags: they only apply to dimensions which were passed in as known
-    // by the parent. Dimensions resolved from the node's own style are always definite.
-    let known_dimensions_are_definite = inputs
+    // Parent flags apply only to supplied dimensions. Resolved preferred sizes are definite.
+    let mut known_dimensions_are_definite = inputs
         .known_dimensions_are_definite
         .zip_map(known_dimensions, |is_definite, known_dimension| is_definite || known_dimension.is_none());
+    // EXACT PATCH 44: height bounds and an absolute row's measured, capped
+    // auto height supply a used cross size, not a definite flex basis input.
+    // Authored sizes, ratios and opposing insets still supply definite heights.
+    let measured_absolute_height = style.position() == Position::Absolute
+        && style_size.height.is_none()
+        && style.aspect_ratio().is_none()
+        && max_size.height.is_some()
+        && (style.inset().top.is_auto() || style.inset().bottom.is_auto());
+    if style.flex_direction().is_row()
+        && (measured_absolute_height || (known_dimensions.height.is_none() && clamped_style_size.height.is_none()))
+    {
+        known_dimensions_are_definite.height = false;
+    }
+    drop(style);
 
     let mut output = compute_preliminary(
         tree,
@@ -403,7 +424,39 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
             .main(constants.dir)
             .maybe_resolve(inner_container_size, |val, basis| tree.calc(val, basis))
             .unwrap_or(0.0);
+        drop(style);
         constants.gap.set_main(constants.dir, new_gap);
+
+        // EXACT PATCH 47: max-content width uses the unwrapped sum, but its
+        // clamped inner width governs line breaks for both measured height and
+        // final frames. A max-content root need not receive another layout pass.
+        // https://www.w3.org/TR/css-flexbox-1/#main-sizing
+        // EXACT PATCH 48: min-content width can fit several flex bases, or be
+        // narrower than the maximum used for initial line collection. It also
+        // needs fresh flex bases and line breaks at the resolved width before
+        // measuring height. A base measured under MinContent can be smaller
+        // than its content-based size once the container width is known.
+        let rewrap = constants.is_row
+            && constants.is_wrap
+            && (available_space.width == AvailableSpace::MinContent
+                || (available_space.width == AvailableSpace::MaxContent && constants.max_size.width.is_some()));
+        #[cfg(feature = "flexbox_balance")]
+        let rewrap = rewrap && !constants.is_balance;
+        if rewrap {
+            drop(flex_lines);
+            if available_space.width == AvailableSpace::MinContent {
+                let known_dimensions = known_dimensions.with_main(
+                    constants.dir, Some(constants.container_size.main(constants.dir)),
+                );
+                drop(flex_items);
+                return compute_preliminary(tree, node, LayoutInput { known_dimensions, ..inputs });
+            }
+            flex_lines = collect_flex_lines(
+                &constants,
+                Size { width: AvailableSpace::Definite(inner_container_size), ..available_space },
+                &mut flex_items,
+            );
+        }
     }
 
     // 6. Resolve the flexible lengths of all the flex items to find their used main size.
@@ -794,16 +847,18 @@ fn generate_anonymous_flex_items(
                 .max_size()
                 .maybe_resolve(percent_resolution_size, |val, basis| tree.calc(val, basis))
                 .maybe_add(box_sizing_adjustment);
-            let (size, _, _) = sizes_through_ratio(
-                &child_style,
-                pb_sum,
-                child_style
-                    .size()
-                    .maybe_resolve(percent_resolution_size, |val, basis| tree.calc(val, basis))
-                    .maybe_add(box_sizing_adjustment),
-                min_size,
-                max_size,
-            );
+            let given = child_style
+                .size()
+                .maybe_resolve(percent_resolution_size, |val, basis| tree.calc(val, basis))
+                .maybe_add(box_sizing_adjustment);
+            let (mut size, _, _) = sizes_through_ratio(&child_style, pb_sum, given, min_size, max_size);
+            // EXACT PATCH 37: a replaced item's automatic cross size follows
+            // its flexed main size (§9.4), not its preferred main size. Keeping
+            // the derived cross size also feeds that preferred size back into
+            // the content minimum, preventing shrinking (§4.5).
+            if child_style.is_compressible_replaced() {
+                size.set_cross(constants.dir, given.cross(constants.dir));
+            }
             FlexItem {
                 node: child,
                 order: index as u32,
@@ -852,6 +907,7 @@ fn generate_anonymous_flex_items(
                 hypothetical_outer_size: Size::zero(),
                 target_size: Size::zero(),
                 outer_target_size: Size::zero(),
+                cross_size_was_stretched: false,
                 content_flex_fraction: 0.0,
 
                 baseline: 0.0,
@@ -937,6 +993,8 @@ fn determine_flex_base_size(
 
     for child in flex_items.iter_mut() {
         let child_style = tree.get_flexbox_child_style(child.node);
+        let ratio = Ratio::of(&child_style, (child.padding + child.border).sum_axes());
+        let replaced_ratio = ratio.filter(|_| child_style.is_compressible_replaced());
 
         // Parent size for child sizing
         let cross_axis_parent_size = constants.node_inner_size.cross(dir);
@@ -948,8 +1006,8 @@ fn determine_flex_base_size(
         let cross_axis_margin_sum = child.margin.cross_axis_sum(dir);
         // EXACT PATCH 12: never into a dimension the item sizes itself.
         let sized = child.size_style.map(|d| !d.is_auto());
-        let transferred_min_size = transfer_into_unsized(child.min_size, child.aspect_ratio, sized);
-        let transferred_max_size = transfer_into_unsized(child.max_size, child.aspect_ratio, sized);
+        let transferred_min_size = transfer_into_unsized(child.min_size, ratio, sized);
+        let transferred_max_size = transfer_into_unsized(child.max_size, ratio, sized);
         let child_min_cross = transferred_min_size.cross(dir).maybe_add(cross_axis_margin_sum);
         let child_max_cross = transferred_max_size.cross(dir).maybe_add(cross_axis_margin_sum);
 
@@ -1148,9 +1206,9 @@ fn determine_flex_base_size(
             // is calculated by transferring that cross size through the aspect ratio (case B
             // above), and is therefore definite.
             if child_cross_size_is_definite {
-                if let (Some(ratio), Some(cross)) = (child.aspect_ratio, child_known_dimensions.cross(dir)) {
+                if let (Some(ratio), Some(cross)) = (ratio, child_known_dimensions.cross(dir)) {
                     child.flex_basis_is_definite = true;
-                    break 'flex_basis if dir.is_row() { cross * ratio } else { cross / ratio };
+                    break 'flex_basis if dir.is_row() { ratio.width(cross) } else { ratio.height(cross) };
                 }
             }
 
@@ -1221,16 +1279,48 @@ fn determine_flex_base_size(
                     .with_cross(dir, cross_axis_available_space.maybe_sub(cross_axis_margin_sum));
 
                 debug_log!("COMPUTE CHILD MIN SIZE:");
-                let known = known_for_probe(tree);
+                // EXACT PATCH 37: measure the content suggestion independently
+                // of the transferred suggestion; a replaced item takes their
+                // smaller value (CSS Flexbox §4.5).
+                // A definite stretch is already the used cross size, so it
+                // still sizes the content probe (CSS Flexbox §9.8).
+                let definite_stretch = child.size.cross(dir).is_none() && child_cross_size_is_definite;
+                let known = if replaced_ratio.is_some() && !definite_stretch {
+                    Size::NONE
+                } else {
+                    known_for_probe(tree)
+                };
+                // EXACT PATCH 38: ContentSize ignores the item's preferred
+                // width, but percentage padding still needs the container's
+                // inline size (CSS Flexbox §4.2).
+                let parent = if replaced_ratio.is_some() {
+                    Size { width: constants.node_inner_size.width, ..child_parent_size }
+                } else {
+                    child_parent_size
+                };
                 tree.measure_child_size(
                     child.node,
                     known,
-                    child_parent_size,
+                    parent,
                     child_available_space,
                     SizingMode::ContentSize,
                     dir.main_axis(),
                     Line::FALSE,
                 )
+            };
+
+            let min_content_main_size = if let Some(ratio) = replaced_ratio {
+                let transfer = |cross| if dir.is_row() { ratio.width(cross) } else { ratio.height(cross) };
+                let content = min_content_main_size.maybe_clamp(
+                    child.min_size.cross(dir).map(transfer),
+                    child.max_size.cross(dir).map(transfer),
+                );
+                let transferred = child.size.cross(dir)
+                    .maybe_clamp(child.min_size.cross(dir), child.max_size.cross(dir))
+                    .map(transfer);
+                content.maybe_min(transferred)
+            } else {
+                min_content_main_size
             };
 
             // 4.5. Automatic Minimum Size of Flex Items
@@ -1288,6 +1378,15 @@ fn collect_flex_lines<'a>(
         lines
     } else {
         let main_axis_available_space = match constants.max_size.main(constants.dir) {
+            // EXACT PATCH 47: max-content row width is measured without wrapping;
+            // compute_preliminary then wraps at the clamped width to size height
+            // and place items, including when there is no later layout pass.
+            // Columns still wrap at max-height: MaxContent also represents the
+            // indefinite height offered by ordinary block layout.
+            // https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes
+            Some(_) if constants.is_row && available_space.width == AvailableSpace::MaxContent => {
+                AvailableSpace::MaxContent
+            }
             Some(max_size) => AvailableSpace::Definite({
                 let available = available_space.main(constants.dir).into_option().unwrap_or(max_size);
                 // If the container's main size is not definite then it is at most the max main size,
@@ -1331,11 +1430,13 @@ fn collect_flex_lines<'a>(
                         .iter()
                         .enumerate()
                         .find(|&(idx, child)| {
-                            // Gaps only occur between items (not before the first one or after the last one)
-                            // So first item in the line does not contribute a gap to the line length
-                            let gap_contribution = if idx == 0 { 0.0 } else { main_axis_gap };
-                            line_length += child.hypothetical_outer_size.main(constants.dir) + gap_contribution;
-                            line_length > main_axis_available_space && idx != 0
+                            // EXACT PATCH 47: sum items and gaps separately, as intrinsic sizing does.
+                            // Interleaving fractional gaps can round a fitting line above its limit.
+                            line_length += child.hypothetical_outer_size.main(constants.dir);
+                            let gap_sum = sum_axis_gaps(main_axis_gap, idx + 1);
+                            // Allow 1/1024px of f32 roundoff at the fit boundary: sixteen times
+                            // smaller than Chrome's 1/64px layout unit, independent of container size.
+                            line_length + gap_sum - main_axis_available_space > 1.0 / 1024.0 && idx != 0
                         })
                         .map(|(idx, _)| idx)
                         .unwrap_or(flex_items.len());
@@ -1455,16 +1556,31 @@ fn determine_container_main_size(
     let dir = constants.dir;
     let main_content_box_inset = constants.content_box_inset.main_axis_sum(constants.dir);
 
+    // EXACT PATCH 33: an item's length is its flex base size clamped by its
+    // min *and* max main size, as an intrinsic contribution below is. Floored
+    // by the minimum alone, a leaf's length was its whole content (a leaf's
+    // base size is measured without its max-height), and a column in definite
+    // space was as tall as that content. The clamp can now go below the
+    // padding and border, so the inner size is floored there before the
+    // margin is added (patch 14's order), or a margin was lost to the floor.
+    let item_main_length = |child: &FlexItem| {
+        let padding_border_sum = (child.padding + child.border).main_axis_sum(dir);
+        // EXACT PATCH 46: use the minimum that flexing enforces, including
+        // the content-based automatic minimum (CSS Flexbox §4.5).
+        child.flex_basis
+            .maybe_clamp(Some(child.resolved_minimum_main_size), child.max_size.main(dir))
+            .max(padding_border_sum)
+            + child.margin.main_axis_sum(dir)
+    };
+
+    let is_wrapping_row = constants.is_row && constants.is_wrap;
+    #[cfg(feature = "flexbox_balance")]
+    let is_wrapping_row = is_wrapping_row && !constants.is_balance;
+
     let outer_main_size: f32 = constants.node_outer_size.main(constants.dir).unwrap_or_else(|| {
         match available_space.main(dir) {
             AvailableSpace::Definite(main_axis_available_space) => {
                 let main_axis_gap = constants.gap.main(constants.dir);
-                let item_main_length = |child: &FlexItem| {
-                    let padding_border_sum = (child.padding + child.border).main_axis_sum(constants.dir);
-                    (child.flex_basis.maybe_max(child.min_size.main(constants.dir))
-                        + child.margin.main_axis_sum(constants.dir))
-                    .max(padding_border_sum)
-                };
                 let longest_line_length: f32 = lines
                     .iter()
                     .map(|line| {
@@ -1511,27 +1627,41 @@ fn determine_container_main_size(
                     return f32_max(size, f32_min(max_content_size, main_axis_available_space));
                 }
 
-                if lines.len() > 1 {
+                // EXACT PATCH 45: a column's auto height follows its longest line;
+                // definite available space limits wrapping, not the used height.
+                // Rows retain the available-width floor for fit-content sizing.
+                // https://www.w3.org/TR/css-flexbox-1/#algo-main-container
+                if constants.is_row && lines.len() > 1 {
                     f32_max(size, main_axis_available_space)
                 } else {
                     size
                 }
+            }
+            AvailableSpace::MinContent if is_wrapping_row => {
+                // EXACT PATCH 48: a wrapping row takes its widest item's intrinsic
+                // contribution, including contents when its automatic minimum is zero.
+                // Chrome 151 uses the preferred width and min/max but neither flex-basis
+                // clamp here, even for inflexible items or scroll containers (§9.9.1.3).
+                // https://www.w3.org/TR/css-flexbox-1/#intrinsic-item-contributions
+                lines.iter().flat_map(|line| line.items.iter()).map(|item| {
+                    let width = tree.measure_child_size(
+                        item.node,
+                        Size::NONE,
+                        constants.node_inner_size,
+                        available_space.maybe_sub(item.margin.sum_axes()),
+                        SizingMode::InherentSize,
+                        dir.main_axis(),
+                        Line::FALSE,
+                    );
+                    width.max(item.resolved_minimum_main_size) + item.margin.horizontal_axis_sum()
+                }).fold(0.0, f32_max) + main_content_box_inset
             }
             AvailableSpace::MinContent if constants.is_wrap => {
                 let longest_line_length: f32 = lines
                     .iter()
                     .map(|line| {
                         let line_main_axis_gap = sum_axis_gaps(constants.gap.main(constants.dir), line.items.len());
-                        let total_target_size = line
-                            .items
-                            .iter()
-                            .map(|child| {
-                                let padding_border_sum = (child.padding + child.border).main_axis_sum(constants.dir);
-                                (child.flex_basis.maybe_max(child.min_size.main(constants.dir))
-                                    + child.margin.main_axis_sum(constants.dir))
-                                .max(padding_border_sum)
-                            })
-                            .sum::<f32>();
+                        let total_target_size = line.items.iter().map(item_main_length).sum::<f32>();
                         total_target_size + line_main_axis_gap
                     })
                     .max_by(|a, b| a.total_cmp(b))
@@ -1569,18 +1699,37 @@ fn determine_container_main_size(
                         let max_main_size =
                             style_max.maybe_min(flex_basis_max).or(flex_basis_max).unwrap_or(f32::INFINITY);
 
+                        // EXACT PATCH 33: the flex base size clamps a size first and the
+                        // min and max main size last (§9.9.1), so an item that may not
+                        // shrink below a base size past its max-height (`flex-shrink: 0`)
+                        // contributes its max-height. Where the two ranges overlap this is
+                        // the clamp to `min_main_size..max_main_size`; where they do not,
+                        // that clamp gave the base size.
+                        let clamp = |size: f32| {
+                            size.maybe_min(flex_basis_max)
+                                .maybe_max(flex_basis_min)
+                                .maybe_min(style_max)
+                                .max(item.resolved_minimum_main_size)
+                        };
+
                         let content_contribution = match (min_main_size, style_preferred, max_main_size) {
                             // If the clamping values are such that max <= min, then we can avoid the expensive step of computing the content size
                             // as we know that the clamping values will override it anyway
                             (min, Some(pref), max) if max <= min || max <= pref => {
-                                pref.min(max).max(min) + item.margin.main_axis_sum(constants.dir)
+                                clamp(pref) + item.margin.main_axis_sum(constants.dir)
                             }
-                            (min, _, max) if max <= min => min + item.margin.main_axis_sum(constants.dir),
+                            // EXACT PATCH 33: the clamps meet, so any size clamps to the answer.
+                            (min, _, max) if max <= min => clamp(min) + item.margin.main_axis_sum(constants.dir),
 
                             // Else compute the min- or -max content size and apply the full formula for computing the
                             // min- or max- content contribution
+                            // EXACT PATCH 33: clamped as the other contributions are, and
+                            // floored by the padding and border the base size already was.
                             _ if item.is_scroll_container() => {
-                                item.flex_basis + item.margin.main_axis_sum(constants.dir)
+                                let item_pb_main = item.padding.main_axis_sum(constants.dir)
+                                    + item.border.main_axis_sum(constants.dir);
+                                item.flex_basis.maybe_clamp(style_min, style_max).max(item_pb_main)
+                                    + item.margin.main_axis_sum(constants.dir)
                             }
 
                             // If the item has a definite preferred main size then that is its content
@@ -1624,7 +1773,16 @@ fn determine_container_main_size(
                                 // Known dimensions for child sizing
                                 let child_known_dimensions = {
                                     let mut ckd = item.size.with_main(dir, None);
-                                    if item.align_self == AlignSelf::STRETCH && ckd.cross(dir).is_none() {
+                                    // EXACT PATCH 41: intrinsic contributions can transfer a stretch
+                                    // only from a definite single-line cross size, without auto margins.
+                                    if item.align_self == AlignSelf::STRETCH
+                                        && !constants.is_wrap
+                                        && constants.has_definite_cross_size
+                                        && cross_axis_parent_size.is_some()
+                                        && !item.margin_is_auto.cross_start(dir)
+                                        && !item.margin_is_auto.cross_end(dir)
+                                        && ckd.cross(dir).is_none()
+                                    {
                                         ckd.set_cross(
                                             dir,
                                             cross_axis_available_space
@@ -1650,10 +1808,13 @@ fn determine_container_main_size(
 
                                 // A known cross size is transferred through the item's aspect-ratio
                                 // and floors the measured content size
-                                let transferred_main_size = item
-                                    .aspect_ratio
+                                let ratio = Ratio::of(
+                                    &tree.get_flexbox_child_style(item.node),
+                                    (item.padding + item.border).sum_axes(),
+                                );
+                                let transferred_main_size = ratio
                                     .zip(child_known_dimensions.cross(dir))
-                                    .map(|(ratio, cross)| if constants.is_row { cross * ratio } else { cross / ratio });
+                                    .map(|(ratio, cross)| if constants.is_row { ratio.width(cross) } else { ratio.height(cross) });
 
                                 // EXACT PATCH 14: the inner content size; the margin is added after
                                 // the clamp below, as for any outer size.
@@ -1972,10 +2133,11 @@ fn determine_hypothetical_cross_size(
         // https://github.com/w3c/csswg-drafts/issues/10997
         // EXACT PATCH 12: never into a dimension the item sizes itself.
         let sized = child.size_style.map(|d| !d.is_auto());
+        let ratio = Ratio::of(&tree.get_flexbox_child_style(child.node), (child.padding + child.border).sum_axes());
         let transferred_min_cross =
-            transfer_into_unsized(child.min_size, child.aspect_ratio, sized).cross(constants.dir);
+            transfer_into_unsized(child.min_size, ratio, sized).cross(constants.dir);
         let transferred_max_cross =
-            transfer_into_unsized(child.max_size, child.aspect_ratio, sized).cross(constants.dir);
+            transfer_into_unsized(child.max_size, ratio, sized).cross(constants.dir);
 
         let child_cross = child
             .size
@@ -2281,10 +2443,40 @@ fn determine_used_cross_size(
                         .maybe_resolve(constants.node_inner_size, |val, basis| tree.calc(val, basis))
                         .maybe_add(box_sizing_adjustment);
 
-                    (line_cross_size - child.margin.cross_axis_sum(constants.dir)).maybe_clamp(
-                        child.min_size.cross(constants.dir),
+                    // EXACT PATCH 50: keep the ratio's automatic inline minimum
+                    // for intrinsic measurement, but a column's final stretched
+                    // width only obeys authored width bounds (Flexbox §9.4).
+                    let min_cross_size = if constants.is_column && child_style.min_size().width.is_auto() {
+                        None
+                    } else {
+                        child.min_size.cross(constants.dir)
+                    };
+                    let cross_size = (line_cross_size - child.margin.cross_axis_sum(constants.dir)).maybe_clamp(
+                        min_cross_size,
                         max_size_ignoring_aspect_ratio.cross(constants.dir),
-                    )
+                    );
+                    // EXACT PATCH 49: compare before reversing inset and margin
+                    // additions when the item's measured outer size fills the
+                    // line. Otherwise that round trip can cross a layout-unit
+                    // boundary. Item bounds still apply to the comparison.
+                    let hypothetical_cross = child.hypothetical_inner_size.cross(constants.dir);
+                    let inset = constants.content_box_inset.cross_axis_sum(constants.dir);
+                    let comparison_cross = if line_cross_size + inset
+                        == child.hypothetical_outer_size.cross(constants.dir) + inset
+                    {
+                        hypothetical_cross.maybe_clamp(
+                            min_cross_size,
+                            max_size_ignoring_aspect_ratio.cross(constants.dir),
+                        )
+                    } else {
+                        cross_size
+                    };
+                    // Blink's LayoutUnit(float) truncates each positive size to
+                    // 1/64px. Rounding their difference misclassifies bounds
+                    // that resolve to the same unit as the natural height.
+                    child.cross_size_was_stretched =
+                        floor(comparison_cross * 64.0) != floor(hypothetical_cross * 64.0);
+                    cross_size
                 } else {
                     child.hypothetical_inner_size.cross(constants.dir)
                 },
@@ -2598,7 +2790,13 @@ fn calculate_flex_item(
     let node_inner_size = constants.node_inner_size;
     let direction = constants.dir;
     let layout_direction = constants.layout_direction;
-    let item_known_dimension_definiteness = item_known_dimension_definiteness(constants, item);
+    let mut item_known_dimension_definiteness = item_known_dimension_definiteness(constants, item);
+    // EXACT PATCH 49: a changed stretch size is definite for percentages
+    // (Flexbox §9.4). An unchanged content-grown ratio height keeps patch 12's
+    // preferred percentage basis.
+    if item.cross_size_was_stretched {
+        item_known_dimension_definiteness.set_cross(direction, true);
+    }
     let layout_output = tree.compute_child_layout(
         item.node,
         LayoutInput {
@@ -3486,5 +3684,541 @@ mod balance {
                 );
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "taffy_tree", feature = "grid"))]
+mod intrinsic_tests {
+    use crate::geometry::{Line, Size};
+    use crate::prelude::*;
+    use crate::tree::{LayoutPartialTreeExt, SizingMode};
+    use crate::Overflow;
+
+    // Chrome 151.0.7922.34, 2026-10-18: stretch supplies the percentage basis
+    // when it changes the ratio item's height; content growth alone does not.
+    #[test]
+    fn stretched_ratio_percentage_height_uses_the_final_cross_size() {
+        let mut failures = Vec::new();
+        for (name, height, minimum, maximum, align, content, item_height, percentage_height) in [
+            ("capped", auto(), auto(), length(30.0), AlignSelf::STRETCH, false, 30.0, 30.0),
+            ("definite", length(30.0), auto(), auto(), AlignSelf::STRETCH, false, 30.0, 30.0),
+            ("start", auto(), auto(), length(30.0), AlignSelf::FLEX_START, false, 50.0, 50.0),
+            ("content growth", auto(), auto(), auto(), AlignSelf::STRETCH, true, 130.0, 50.0),
+            ("capped content", auto(), auto(), length(100.0), AlignSelf::STRETCH, true, 100.0, 100.0),
+            ("unchanged cap", auto(), auto(), length(130.0), AlignSelf::STRETCH, true, 130.0, 50.0),
+            ("definite content", length(130.0), auto(), auto(), AlignSelf::STRETCH, true, 130.0, 130.0),
+            ("minimum", auto(), length(80.0), auto(), AlignSelf::STRETCH, false, 80.0, 80.0),
+        ] {
+            let mut tree = TaffyTree::<()>::new();
+            let percentage = tree.new_leaf(Style {
+                display: Display::Block,
+                size: Size { width: length(20.0), height: percent(1.0) },
+                ..Default::default()
+            }).unwrap();
+            let mut children = vec![percentage];
+            if content {
+                children.push(tree.new_leaf(Style {
+                    display: Display::Block,
+                    size: Size { width: length(20.0), height: length(80.0) },
+                    ..Default::default()
+                }).unwrap());
+            }
+            let item = tree.new_with_children(Style {
+                display: Display::Block,
+                size: Size { width: length(100.0), height: auto() },
+                aspect_ratio: Some(2.0),
+                align_self: Some(align),
+                ..Default::default()
+            }, &children).unwrap();
+            let row = tree.new_with_children(Style {
+                size: Size { width: length(100.0), height },
+                min_size: Size { width: auto(), height: minimum },
+                max_size: Size { width: auto(), height: maximum },
+                ..Default::default()
+            }, &[item]).unwrap();
+            let root = tree.new_with_children(Style {
+                display: Display::Block,
+                size: Size { width: length(800.0), height: length(600.0) },
+                ..Default::default()
+            }, &[row]).unwrap();
+            tree.compute_layout(root, Size {
+                width: AvailableSpace::Definite(800.0), height: AvailableSpace::Definite(600.0),
+            }).unwrap();
+            for (node, width, height, y) in [
+                (item, 100.0, item_height, 0.0),
+                (percentage, 20.0, percentage_height, 0.0),
+            ].into_iter().chain(content.then(|| (children[1], 20.0, 80.0, percentage_height))) {
+                let layout = tree.layout(node).unwrap();
+                let frame = [layout.location.x, layout.location.y, layout.size.width, layout.size.height];
+                let expected = [0.0, y, width, height];
+                if frame != expected {
+                    failures.push(format!("{name}; {node:?}: {frame:?}, Chrome {expected:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn fractional_cross_margins_do_not_make_content_growth_a_stretch() {
+        let mut failures = Vec::new();
+        for (name, top, bottom, row_min, row_max, item_max, item_height, percentage_height) in [
+            ("top", 200.0, 0.0, auto(), auto(), auto(), 110.1, 50.0),
+            ("bottom", 0.0, 200.0, auto(), auto(), auto(), 110.1, 50.0),
+            ("split", 100.25, 99.75, auto(), auto(), auto(), 110.1, 50.0),
+            ("fractional", 200.125, 20.25, auto(), auto(), auto(), 110.1, 50.0),
+            ("negative", -100.0, 0.0, auto(), auto(), auto(), 110.1, 50.0),
+            ("negative stretch", -200.0, 0.0, auto(), auto(), auto(), 200.0, 200.0),
+            ("maximum cancels stretch", 200.0, 0.0, length(400.0), auto(), length(110.1), 110.1, 50.0),
+            ("unchanged cap", 200.0, 0.0, auto(), length(310.1), auto(), 110.1, 50.0),
+            ("smaller cap", 200.0, 0.0, auto(), length(300.0), auto(), 100.0, 100.0),
+            ("larger minimum", 200.0, 0.0, length(320.0), auto(), auto(), 120.0, 120.0),
+        ] {
+            let mut tree = TaffyTree::<()>::new();
+            tree.disable_rounding();
+            let percentage = tree.new_leaf(Style {
+                display: Display::Block,
+                size: Size { width: length(20.0), height: percent(1.0) },
+                ..Default::default()
+            }).unwrap();
+            let following = tree.new_leaf(Style {
+                display: Display::Block,
+                size: Size { width: length(20.0), height: length(60.1) },
+                ..Default::default()
+            }).unwrap();
+            let item = tree.new_with_children(Style {
+                display: Display::Block,
+                size: Size { width: length(100.0), height: auto() },
+                max_size: Size { width: auto(), height: item_max },
+                margin: crate::geometry::Rect { top: length(top), bottom: length(bottom), ..zero() },
+                aspect_ratio: Some(2.0),
+                ..Default::default()
+            }, &[percentage, following]).unwrap();
+            let row = tree.new_with_children(Style {
+                size: Size { width: length(100.0), height: auto() },
+                min_size: Size { width: auto(), height: row_min },
+                max_size: Size { width: auto(), height: row_max },
+                ..Default::default()
+            }, &[item]).unwrap();
+            tree.compute_layout(row, Size {
+                width: AvailableSpace::Definite(800.0), height: AvailableSpace::Definite(600.0),
+            }).unwrap();
+            for (node, y, width, height) in [
+                (item, top, 100.0, item_height),
+                (percentage, 0.0, 20.0, percentage_height),
+                (following, percentage_height, 20.0, 60.1),
+            ] {
+                let layout = tree.layout(node).unwrap();
+                let frame = [layout.location.x, layout.location.y, layout.size.width, layout.size.height];
+                let expected = [0.0, y, width, height];
+                if frame.iter().zip(expected).any(|(actual, expected)| (actual - expected).abs() > 0.01) {
+                    failures.push(format!("{name}; {node:?}: {frame:?}, expected {expected:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // Chrome 151.0.7922.34, 2026-10-18: a 100px-wide ratio item containing
+    // a percentage child followed by a 60.1px child. Container insets must
+    // not turn its natural height into a definite percentage basis.
+    #[test]
+    fn container_insets_do_not_make_content_growth_a_stretch() {
+        let mut failures = Vec::new();
+        for position in [Position::Relative, Position::Absolute] {
+            for (name, padding, border, minimum, maximum, item_max, following_height, percentage_height) in [
+                ("unit boundary", 200.3, 0.0, auto(), length(400.0), auto(), 60.125, 50.0),
+                ("padding", 200.0, 0.0, auto(), length(400.0), auto(), 60.1, 50.0),
+                ("border", 0.0, 100.0, auto(), length(400.0), auto(), 60.1, 50.0),
+                ("padding and border", 100.0, 100.0, auto(), length(400.0), auto(), 60.1, 50.0),
+                ("subunit cap", 200.0, 0.0, auto(), length(110.095), auto(), 60.1, 50.0),
+                ("fractional cap", 200.0, 0.0, auto(), length(110.09), auto(), 60.1, 110.078125),
+                ("same unit minimum 110.102", 200.0, 0.0, length(110.102), length(400.0), auto(), 60.1, 50.0),
+                ("same unit minimum 110.108", 200.0, 0.0, length(110.108), length(400.0), auto(), 60.1, 50.0),
+                ("same unit minimum 110.109", 200.0, 0.0, length(110.109), length(400.0), auto(), 60.1, 50.0),
+                ("unit shrink", 200.0, 0.0, auto(), length(110.078125), auto(), 60.1, 110.078125),
+                ("unit grow", 200.0, 0.0, length(110.109375), length(400.0), auto(), 60.1, 110.109375),
+                ("maximum cancels stretch", 200.0, 0.0, length(120.0), length(400.0), length(110.1), 60.1, 50.0),
+            ] {
+                let mut tree = TaffyTree::<()>::new();
+                tree.disable_rounding();
+                let percentage = tree.new_leaf(Style {
+                    display: Display::Block,
+                    size: Size { width: length(20.0), height: percent(1.0) },
+                    ..Default::default()
+                }).unwrap();
+                let following = tree.new_leaf(Style {
+                    display: Display::Block,
+                    size: Size { width: length(20.0), height: length(following_height) },
+                    ..Default::default()
+                }).unwrap();
+                let item = tree.new_with_children(Style {
+                    display: Display::Block,
+                    size: Size { width: length(100.0), height: auto() },
+                    max_size: Size { width: auto(), height: item_max },
+                    aspect_ratio: Some(2.0),
+                    ..Default::default()
+                }, &[percentage, following]).unwrap();
+                let row = tree.new_with_children(Style {
+                    position,
+                    box_sizing: BoxSizing::ContentBox,
+                    size: Size { width: length(100.0), height: auto() },
+                    min_size: Size { width: auto(), height: minimum },
+                    max_size: Size { width: auto(), height: maximum },
+                    padding: crate::geometry::Rect { top: length(padding), ..zero() },
+                    border: crate::geometry::Rect { top: length(border), bottom: length(border), ..zero() },
+                    ..Default::default()
+                }, &[item]).unwrap();
+                let root = tree.new_with_children(Style {
+                    display: Display::Block,
+                    size: Size { width: length(800.0), height: length(600.0) },
+                    ..Default::default()
+                }, &[row]).unwrap();
+                tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+                let height = tree.layout(percentage).unwrap().size.height;
+                let following_y = tree.layout(following).unwrap().location.y;
+                if [height, following_y].into_iter().any(|value| {
+                    crate::util::sys::floor(value * 64.0) != percentage_height * 64.0
+                }) {
+                    failures.push(format!(
+                        "{position:?} {name}: percentage {height}, following y {following_y}; Chrome {percentage_height}",
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // Chrome 151.0.7922.34, 2026-10-18: rows inside width:min-content wrappers.
+    #[test]
+    fn wrapping_min_content_width_uses_contents_independently_of_flex_basis() {
+        let mut failures = Vec::new();
+        for (name, content, preferred, shrink, minimum, overflow, wrap, width, item_width, reverse_x) in [
+            ("zero minimum", 100.0, auto(), 0.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 100.0, 60.0, 40.0),
+            ("hidden overflow", 100.0, auto(), 0.0, auto(), Overflow::Hidden, FlexWrap::Wrap, 100.0, 60.0, 40.0),
+            ("shrinkable", 100.0, auto(), 1.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 100.0, 60.0, 40.0),
+            ("automatic minimum", 100.0, auto(), 0.0, auto(), Overflow::Visible, FlexWrap::Wrap, 100.0, 100.0, 0.0),
+            ("preferred width", 100.0, length(60.0), 0.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 60.0, 60.0, 0.0),
+            ("narrow contents rigid", 20.0, auto(), 0.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 20.0, 60.0, -40.0),
+            ("narrow contents shrinkable", 20.0, auto(), 1.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 20.0, 20.0, 0.0),
+            ("preferred width narrow contents", 20.0, length(60.0), 0.0, length(0.0), Overflow::Visible, FlexWrap::Wrap, 60.0, 60.0, 0.0),
+            ("nowrap", 100.0, auto(), 0.0, length(0.0), Overflow::Visible, FlexWrap::NoWrap, 180.0, 60.0, 120.0),
+        ] {
+            for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
+                let mut tree = TaffyTree::<()>::new();
+                let items: Vec<_> = (0..3).map(|_| {
+                    let child = tree.new_leaf(Style {
+                        size: Size { width: length(content), height: length(10.0) },
+                        ..Default::default()
+                    }).unwrap();
+                    tree.new_with_children(Style {
+                        display: Display::Block,
+                        size: Size { width: preferred, height: length(100.0) },
+                        min_size: Size { width: minimum, height: auto() },
+                        flex_basis: if preferred.is_auto() { length(60.0) } else { auto() },
+                        flex_shrink: shrink,
+                        overflow: crate::geometry::Point { x: overflow, y: overflow },
+                        ..Default::default()
+                    }, &[child]).unwrap()
+                }).collect();
+                let row = tree.new_with_children(Style {
+                    flex_direction: direction,
+                    flex_wrap: wrap,
+                    align_content: Some(AlignContent::FLEX_START),
+                    ..Default::default()
+                }, &items).unwrap();
+                let available = Size { width: AvailableSpace::MinContent, height: AvailableSpace::MaxContent };
+                let expected = Size { width, height: if wrap == FlexWrap::NoWrap { 100.0 } else { 300.0 } };
+                for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                    tree.mark_dirty(row).unwrap();
+                    let size = tree.as_layout_tree().measure_child_size_both(
+                        row, Size::NONE, Size::NONE, available, mode, Line::FALSE,
+                    );
+                    if size != expected {
+                        failures.push(format!("{name}; {direction:?}; {mode:?}: {size:?}, Chrome {expected:?}"));
+                    }
+                }
+                tree.mark_dirty(row).unwrap();
+                tree.compute_layout(row, available).unwrap();
+                let size = tree.layout(row).unwrap().size;
+                if size != expected {
+                    failures.push(format!("{name}; {direction:?}; layout: {size:?}, Chrome {expected:?}"));
+                }
+                for (index, item) in items.into_iter().enumerate() {
+                    let layout = tree.layout(item).unwrap();
+                    let x = if direction == FlexDirection::RowReverse { reverse_x } else { 0.0 };
+                    let (x, y) = if wrap == FlexWrap::NoWrap {
+                        (x + index as f32 * if direction == FlexDirection::RowReverse { -60.0 } else { 60.0 }, 0.0)
+                    } else {
+                        (x, index as f32 * 100.0)
+                    };
+                    let got = [layout.location.x, layout.location.y, layout.size.width, layout.size.height];
+                    let want = [x, y, item_width, 100.0];
+                    if got != want {
+                        failures.push(format!("{name}; {direction:?}; item {index}: {got:?}, Chrome {want:?}"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // Chrome 151.0.7922.34, 2026-10-18: width:min-content wrappers. The
+    // intrinsic width can fit several bases, or be smaller than a maximum
+    // that initially put several items on one line.
+    #[test]
+    fn min_content_rows_wrap_at_their_resolved_width() {
+        let mut failures = Vec::new();
+        for (content, basis, maximum, width, height, xs, reverse_xs, ys) in [
+            (200.0, 60.0, auto(), 200.0, 100.0, [0.0, 60.0, 120.0], [140.0, 80.0, 20.0], [0.0; 3]),
+            (100.0, 0.0, auto(), 100.0, 100.0, [0.0; 3], [100.0; 3], [0.0; 3]),
+            (100.0, 60.0, length(400.0), 100.0, 300.0, [0.0; 3], [40.0; 3], [0.0, 100.0, 200.0]),
+            (100.0, 60.0, length(90.0), 90.0, 300.0, [0.0; 3], [30.0; 3], [0.0, 100.0, 200.0]),
+        ] {
+            for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
+                let mut tree = TaffyTree::<()>::new();
+                let items: Vec<_> = (0..3).map(|_| {
+                    let child = tree.new_leaf(Style {
+                        size: Size { width: length(content), height: length(10.0) },
+                        ..Default::default()
+                    }).unwrap();
+                    tree.new_with_children(Style {
+                        display: Display::Block,
+                        size: Size { width: auto(), height: length(100.0) },
+                        min_size: Size { width: length(0.0), height: auto() },
+                        flex_basis: length(basis),
+                        flex_shrink: 0.0,
+                        ..Default::default()
+                    }, &[child]).unwrap()
+                }).collect();
+                let row = tree.new_with_children(Style {
+                    flex_direction: direction,
+                    flex_wrap: FlexWrap::Wrap,
+                    max_size: Size { width: maximum, height: auto() },
+                    align_content: Some(AlignContent::FLEX_START),
+                    ..Default::default()
+                }, &items).unwrap();
+                let available = Size { width: AvailableSpace::MinContent, height: AvailableSpace::MaxContent };
+                let expected = Size { width, height };
+                for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                    tree.mark_dirty(row).unwrap();
+                    let size = tree.as_layout_tree().measure_child_size_both(
+                        row, Size::NONE, Size::NONE, available, mode, Line::FALSE,
+                    );
+                    if size != expected {
+                        failures.push(format!("content {content}; basis {basis}; {direction:?}; {mode:?}: {size:?}, Chrome {expected:?}"));
+                    }
+                }
+                tree.mark_dirty(row).unwrap();
+                tree.compute_layout(row, available).unwrap();
+                let size = tree.layout(row).unwrap().size;
+                if size != expected {
+                    failures.push(format!("content {content}; basis {basis}; {direction:?}; layout: {size:?}, Chrome {expected:?}"));
+                }
+                let xs = if direction == FlexDirection::RowReverse { reverse_xs } else { xs };
+                for (index, item) in items.into_iter().enumerate() {
+                    let layout = tree.layout(item).unwrap();
+                    let got = [layout.location.x, layout.location.y, layout.size.width, layout.size.height];
+                    let want = [xs[index], ys[index], basis, 100.0];
+                    if got != want {
+                        failures.push(format!("content {content}; basis {basis}; {direction:?}; item {index}: {got:?}, Chrome {want:?}"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // Chrome 151.0.7922.34, 2026-10-18: width:min-content wrappers around a
+    // 100px item followed by two items whose nested rows contain 40px boxes.
+    #[test]
+    fn min_content_rows_remeasure_content_dependent_bases() {
+        let mut failures = Vec::new();
+        for (name, block, basis, preferred, maximum, item_width, height) in [
+            ("nested auto", false, auto(), auto(), auto(), 80.0, 300.0),
+            ("block auto", true, auto(), auto(), auto(), 80.0, 300.0),
+            ("definite basis", false, length(40.0), auto(), auto(), 40.0, 200.0),
+            ("capped auto", false, auto(), auto(), length(60.0), 60.0, 300.0),
+            ("percentage width", false, auto(), percent(0.5), auto(), 50.0, 200.0),
+        ] {
+            for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
+                let mut tree = TaffyTree::<()>::new();
+                let first = tree.new_leaf(Style {
+                    size: Size { width: length(100.0), height: length(100.0) },
+                    ..Default::default()
+                }).unwrap();
+                let mut items = vec![first];
+                for _ in 0..2 {
+                    let mut children: Vec<_> = (0..2).map(|_| tree.new_leaf(Style {
+                        size: Size { width: length(40.0), height: length(10.0) },
+                        ..Default::default()
+                    }).unwrap()).collect();
+                    if block {
+                        children = vec![tree.new_with_children(Style {
+                            flex_wrap: FlexWrap::Wrap,
+                            align_content: Some(AlignContent::FLEX_START),
+                            ..Default::default()
+                        }, &children).unwrap()];
+                    }
+                    items.push(tree.new_with_children(Style {
+                        display: if block { Display::Block } else { Display::Flex },
+                        size: Size { width: preferred, height: length(100.0) },
+                        min_size: Size { width: length(0.0), height: auto() },
+                        max_size: Size { width: maximum, height: auto() },
+                        flex_basis: basis,
+                        flex_wrap: FlexWrap::Wrap,
+                        align_content: Some(AlignContent::FLEX_START),
+                        ..Default::default()
+                    }, &children).unwrap());
+                }
+                let row = tree.new_with_children(Style {
+                    flex_direction: direction,
+                    flex_wrap: FlexWrap::Wrap,
+                    align_content: Some(AlignContent::FLEX_START),
+                    ..Default::default()
+                }, &items).unwrap();
+                let available = Size { width: AvailableSpace::MinContent, height: AvailableSpace::MaxContent };
+                let expected = Size { width: 100.0, height };
+                for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                    tree.mark_dirty(row).unwrap();
+                    let size = tree.as_layout_tree().measure_child_size_both(
+                        row, Size::NONE, Size::NONE, available, mode, Line::FALSE,
+                    );
+                    if size != expected {
+                        failures.push(format!("{name}; {direction:?}; {mode:?}: {size:?}, Chrome {expected:?}"));
+                    }
+                }
+                tree.mark_dirty(row).unwrap();
+                tree.compute_layout(row, available).unwrap();
+                let size = tree.layout(row).unwrap().size;
+                if size != expected {
+                    failures.push(format!("{name}; {direction:?}; layout: {size:?}, Chrome {expected:?}"));
+                }
+                for (index, item) in items.into_iter().enumerate() {
+                    let layout = tree.layout(item).unwrap();
+                    let (x, y, width) = match index {
+                        0 => (0.0, 0.0, 100.0),
+                        _ if height == 300.0 => (0.0, index as f32 * 100.0, item_width),
+                        _ => ((index - 1) as f32 * item_width, 100.0, item_width),
+                    };
+                    let x = if direction == FlexDirection::RowReverse { 100.0 - x - width } else { x };
+                    let got = [layout.location.x, layout.location.y, layout.size.width, layout.size.height];
+                    let want = [x, y, width, 100.0];
+                    if got != want {
+                        failures.push(format!("{name}; {direction:?}; item {index}: {got:?}, Chrome {want:?}"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // Chrome 151.0.7922.34, 2026-10-18: rows inside width:max-content wrappers.
+    #[test]
+    fn capped_max_content_rows_measure_their_wrapped_height() {
+        let mut failures = Vec::new();
+        for (width, gap, maximum, expected) in [
+            (60.0, 0.0, 100.0, Size { width: 100.0, height: 90.0 }),
+            (100.0, 0.0, 100.0, Size { width: 100.0, height: 90.0 }),
+            (60.1, 0.1, 300.0, Size { width: 180.5, height: 30.0 }),
+            (60.1, 0.1, 150.0, Size { width: 150.0, height: 60.0 }),
+            (73.33, 0.1, 300.0, Size { width: 220.19, height: 30.0 }),
+            (73.33, 0.1, 150.0, Size { width: 150.0, height: 60.0 }),
+            (60.2, 0.2, 120.6, Size { width: 120.6, height: 60.0 }),
+            (60.4, 0.1, 181.4, Size { width: 181.4, height: 30.0 }),
+            (60.4, 0.125, 181.4, Size { width: 181.4, height: 60.0 }),
+        ] {
+            for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
+                for wrap in [FlexWrap::Wrap, FlexWrap::WrapReverse] {
+                    let mut tree = TaffyTree::<()>::new();
+                    let items: Vec<_> = (0..3).map(|_| tree.new_leaf(Style {
+                        size: Size { width: length(width), height: length(30.0) },
+                        flex_shrink: 0.0,
+                        ..Default::default()
+                    }).unwrap()).collect();
+                    let row = tree.new_with_children(Style {
+                        flex_direction: direction,
+                        flex_wrap: wrap,
+                        align_content: Some(AlignContent::FLEX_START),
+                        max_size: Size { width: length(maximum), height: auto() },
+                        gap: Size { width: length(gap), height: length(0.0) },
+                        ..Default::default()
+                    }, &items).unwrap();
+                    for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                        tree.mark_dirty(row).unwrap();
+                        let size = tree.as_layout_tree().measure_child_size_both(
+                            row, Size::NONE, Size::NONE, Size::MAX_CONTENT, mode, Line::FALSE,
+                        );
+                        if (size.width - expected.width).abs() > 0.001 || size.height != expected.height {
+                            failures.push(format!("{width}; gap {gap}; max {maximum}; {direction:?}; {wrap:?}; {mode:?}: {size:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // Chrome 151.0.7922.34, 2026-10-18: a max-content grid item with a
+    // bounded width sizes its percentage-width square before its height.
+    #[test]
+    fn bounded_column_width_sizes_content_and_max_content_grid_height() {
+        let mut failures = Vec::new();
+        for (direction, maximum) in [
+            (FlexDirection::Column, 200.0),
+            (FlexDirection::Column, 100.0),
+            (FlexDirection::ColumnReverse, 200.0),
+        ] {
+            let mut tree = TaffyTree::<()>::new();
+            let square = tree.new_leaf(Style {
+                size: Size { width: percent(1.0), height: auto() },
+                aspect_ratio: Some(1.0),
+                ..Default::default()
+            }).unwrap();
+            let column = tree.new_with_children(Style {
+                display: Display::Flex,
+                flex_direction: direction,
+                size: Size { width: Dimension::max_content(), height: Dimension::max_content() },
+                min_size: Size { width: length(200.0), height: auto() },
+                max_size: Size { width: length(maximum), height: auto() },
+                justify_self: Some(AlignSelf::START),
+                align_self: Some(AlignSelf::START),
+                ..Default::default()
+            }, &[square]).unwrap();
+            for mode in [SizingMode::ContentSize, SizingMode::InherentSize] {
+                tree.mark_dirty(column).unwrap();
+                let measured = tree.as_layout_tree().measure_child_size_both(
+                    column,
+                    Size::NONE,
+                    Size { width: Some(800.0), height: Some(600.0) },
+                    Size::MAX_CONTENT,
+                    mode,
+                    Line::FALSE,
+                );
+                if measured != (Size { width: 200.0, height: 200.0 }) {
+                    failures.push(format!("{direction:?}; max-width:{maximum}; {mode:?}: {measured:?}"));
+                }
+            }
+            tree.mark_dirty(column).unwrap();
+            let grid = tree.new_with_children(Style {
+                display: Display::Grid,
+                size: Size { width: length(800.0), height: auto() },
+                grid_template_columns: vec![length(800.0)],
+                grid_template_rows: vec![max_content()],
+                ..Default::default()
+            }, &[column]).unwrap();
+            tree.compute_layout(grid, Size {
+                width: AvailableSpace::Definite(800.0), height: AvailableSpace::Definite(600.0),
+            }).unwrap();
+            let frames: Vec<_> = [grid, column, square].into_iter().map(|node| {
+                let layout = tree.layout(node).unwrap();
+                [layout.location.x, layout.location.y, layout.size.width, layout.size.height]
+            }).collect();
+            let chrome = [[0.0, 0.0, 800.0, 200.0], [0.0, 0.0, 200.0, 200.0], [0.0, 0.0, 200.0, 200.0]];
+            if frames != chrome {
+                failures.push(format!("{direction:?}; max-width:{maximum}; grid: {frames:?}, Chrome {chrome:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }

@@ -17,6 +17,7 @@ impl<D: DataSource> Host<D> {
             crate::host::PlanBytes::Copied(plan),
             data,
             measurer,
+            crate::host::LaunchLayout::NONE,
             exact_runner::Viewport::sized(width as f64, height as f64),
             None,
             Vec::new(),
@@ -28,6 +29,7 @@ impl<D: DataSource> Host<D> {
             false,
             Some(registration),
             crate::link::Links::ALL,
+            None,
             |_| Ok(()),
         )?;
         host.commit_boot();
@@ -187,6 +189,7 @@ impl<D: DataSource> Host<D> {
             crate::host::PlanBytes::Copied(plan),
             data,
             measurer,
+            crate::host::LaunchLayout::NONE,
             exact_runner::Viewport::sized(width as f64, height as f64),
             None,
             Vec::new(),
@@ -199,6 +202,7 @@ impl<D: DataSource> Host<D> {
             Some(registration),
             Some(limits),
             crate::link::Links::ALL,
+            None,
             |_| Ok(()),
         )?;
         host.commit_boot();
@@ -536,7 +540,8 @@ impl<D: DataSource> Host<D> {
                 .ok_or("native current node missing")?;
             let parent = live.parent.and_then(|id| kernel.node(id)).map(|p| p.frame);
             n.mirror.frame = Some(relative(projected.frame, parent));
-            n.mirror.field_content = live.field_content_rect();
+            n.mirror.field_content = published_content_box(&live, kernel);
+            n.mirror.field_cell = live.is_cell_field();
             if style::effective_overflow(&live) != (Overflow::Visible, Overflow::Visible) {
                 // Preserve the ordinary native overflow computation while current;
                 // it cannot run against live B for an old selected A.
@@ -649,8 +654,13 @@ impl<D: DataSource> Host<D> {
             }
             if self.layout_withheld
                 || old.map(|m| m.field_content).unwrap_or(None) != node.mirror.field_content
+                || old.is_some_and(|m| m.field_cell != node.mirror.field_cell)
             {
-                staged.field_content(node.header.id, node.mirror.field_content);
+                staged.field_content(
+                    node.header.id,
+                    node.mirror.field_content,
+                    node.mirror.field_cell,
+                );
             }
             if self.layout_withheld || old.is_none_or(|m| m.content != node.mirror.content) {
                 if let Some((w, h)) = node.mirror.content {

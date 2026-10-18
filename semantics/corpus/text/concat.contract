@@ -5,7 +5,7 @@ component App
   state n = 3
   state flag = true
   derive cat = a + b
-  derive catNum = a + toString(n)
+  derive catNum = a + n.toString()
   derive tpl = `${a}-${b}-${n}-${flag}`
   derive nested = `<${`[${a}]`}>`
   derive dollar = `$${n}.00`

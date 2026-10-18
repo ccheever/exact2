@@ -21,11 +21,11 @@ extension NodeView {
         let clip = backgroundClip
         if clip == "text" { return nil }
         guard clip == "padding-box" || clip == "content-box" else { return border }
-        let uniform = number("border_width")
-        var inset = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
-        if clip == "content-box" {
-            inset = zip(inset, ["top", "right", "bottom", "left"].map { number("padding_" + $0) }).map { $0 + $1 }
-        }
+        // Clips to the content box layout sent, as content is placed, or inside the border the style paints
+        let uniform = number("border_width"), content = contentBox()
+        let inset = clip == "content-box"
+            ? [content.minY - bounds.minY, bounds.maxX - content.maxX, bounds.maxY - content.maxY, content.minX - bounds.minX]
+            : ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
         let inner = CGRect(x: inset[3], y: inset[0], width: max(0, bounds.width - inset[1] - inset[3]),
                            height: max(0, bounds.height - inset[0] - inset[2]))
         let outer = BorderPaint.reduced(BorderPaint.radii(style, in: bounds), in: bounds)
@@ -41,8 +41,10 @@ extension NodeView {
     /// clip's outline.
     func paintBackground(_ ctx: CGContext, border: CGPath, color: Bool) {
         guard let clip = backgroundOutline(border) else { return }
-        if color, let c = cgColor("background_color"), c.alpha > 0 {
+        let authored = cgColor("background_color")
+        if color, let c = authored ?? fieldGround, c.alpha > 0 {
             ctx.saveGState()
+            if authored == nil, let bezel = fieldOutline() { ctx.addPath(bezel); ctx.clip() }
             ctx.addPath(clip)
             ctx.setFillColor(c)
             ctx.fillPath()

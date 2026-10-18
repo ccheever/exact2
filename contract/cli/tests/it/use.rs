@@ -118,6 +118,35 @@ fn an_unknown_name_an_unreadable_file_and_a_cycle_are_refused_by_name() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The euxy port: `Port` here and an identical `PortRow` in a used file
+/// met `expects PortRow[], given Port[]` alone. A shape is its name; the
+/// refusal says so and keeps the shared one, and that edit compiles.
+#[test]
+fn two_shapes_with_the_same_fields_are_told_a_shape_is_its_name() {
+    let dir = temp_dir("nominal");
+    std::fs::write(
+        dir.join("lib.contract"),
+        "shape PortRow\n  name: string\n  on: bool\n\ncomponent PortList\n  props\n    rows: PortRow[]\n  view\n    column\n      for r in rows key=r.name\n        text r.name\n",
+    )
+    .unwrap();
+    let app = |shape: &str, uses: &str| {
+        format!("use PortList{uses} from \"./lib.contract\"\n{shape}component App\n  state ports = [{}(name=\"a\", on=true)]\n  view\n    PortList(rows=ports)\n", if shape.is_empty() { "PortRow" } else { "Port" })
+    };
+    std::fs::write(
+        dir.join("app.contract"),
+        app("shape Port\n  name: string\n  on: bool\n\n", ""),
+    )
+    .unwrap();
+    let e = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(
+        e.message,
+        "`rows` expects `PortRow[]`, given `Port[]`; `PortRow` and `Port` have the same fields, but a shape matches only itself, by name: write `PortRow` for `Port`, naming `PortRow` in the `use` of the file that declares it, and delete `shape Port`"
+    );
+    std::fs::write(dir.join("app.contract"), app("", ", PortRow")).unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e}"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_name_this_file_declares_and_uses_is_refused_and_as_renames_it() {
     let dir = temp_dir("dup");
@@ -231,7 +260,7 @@ fn two_files_of_the_same_names_load_together_and_each_reads_its_own() {
     .unwrap();
     std::fs::write(
         dir.join("app.contract"),
-        "use Button from \"./ui.contract\"\nshape Item\n  s: string\nfn clamp(x: number): number = x + 1\nstyle Pad\n  padding-top=20\nkeyframes pulse\n  to opacity=1\ncomponent App\n  view\n    column\n      Button()\n      Card()\ncomponent Card\n  view\n    column testId=\"app-card\" class=Pad width=clamp(1) animation=`pulse ${length(Item(s=\"x\").s)}s`\n",
+        "use Button from \"./ui.contract\"\nshape Item\n  s: string\nfn clamp(x: number): number = x + 1\nstyle Pad\n  padding-top=20\nkeyframes pulse\n  to opacity=1\ncomponent App\n  view\n    column\n      Button()\n      Card()\ncomponent Card\n  view\n    column testId=\"app-card\" class=Pad width=clamp(1) animation=`pulse ${Item(s=\"x\").s.length}s`\n",
     )
     .unwrap();
     let plan = contract::compile_path(&dir.join("app.contract")).unwrap();

@@ -22,7 +22,10 @@
 //! store)` returns the answer's value — or a `Promise` of it, when it awaited
 //! `fetch` — and throws for an error (an object with `kind` of
 //! `UnknownSource`, `BadArguments`, or `Unavailable` and a `message`; any
-//! other throw is `Unavailable`). `fetch(url, init)` is the web's, over the
+//! other throw is `Unavailable`). In a running session, an answer's own
+//! error becomes `Failed(Error, …)`: its resource fails or send ends unsent,
+//! while the asking commit stands (LLP 1027.000 D3). Bake and replacement
+//! validation still refuse it. `fetch(url, init)` is the web's, over the
 //! host's ticket path: the module describes, the host runs under the grants,
 //! the Promise resolves to a `Response` with `status`, `ok`, `headers`,
 //! `text()`, `json()`, `arrayBuffer()`. Liveness is the module's, as a
@@ -54,7 +57,10 @@ mod door;
 mod engine;
 mod native;
 mod paired;
+#[cfg(all(test, exact_js_engine))]
+mod phase_cost_tests;
 mod pure;
+mod socket;
 mod source;
 mod storage;
 mod turns;
@@ -102,8 +108,17 @@ pub const DEFAULT_BUDGET_MS: f64 = 100.0;
 /// The runtime's heap ceiling, unless the host says otherwise.
 pub const DEFAULT_MAX_HEAP: u32 = 64 << 20;
 
+/// Bytecode the binary holds, aligned so Hermes reads it in place (the shim
+/// copies a buffer that is not).
 #[cfg(exact_js_engine)]
-const PRELUDE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/prelude.hbc"));
+#[repr(C, align(16))]
+struct Aligned<B: ?Sized>(B);
+
+#[cfg(exact_js_engine)]
+static PRELUDE_BYTES: &Aligned<[u8]> =
+    &Aligned(*include_bytes!(concat!(env!("OUT_DIR"), "/prelude.hbc")));
+#[cfg(exact_js_engine)]
+const PRELUDE: &[u8] = &PRELUDE_BYTES.0;
 #[cfg(not(exact_js_engine))]
 const PRELUDE: &[u8] = &[];
 
@@ -159,6 +174,16 @@ const WAITING: u64 = u64::MAX - 1;
 struct HostState {
     store: Option<*mut Store>,
     requests: Vec<(u64, Request)>,
+    /// The socket operations the answer or mapper call being made handed
+    /// over (op 14), by the prelude's ticket for each socket's stream (LLP
+    /// 1016.000 D7).
+    socket_ops: Vec<(u64, exact_runner::SocketOp)>,
+    /// The socket operations a turn of an answer sent as it made them (op
+    /// 17; the amendment of 2026-10-18), by the same ticket.
+    answer_ops: Vec<(u64, exact_runner::SocketOp)>,
+    /// Each open socket's buffered bytes at the start of this turn, by the
+    /// prelude's ticket for its stream (op 15).
+    socket_buffered: Vec<(u64, u64)>,
     native: Option<Box<dyn NativeModule>>,
     /// The native module takes long calls off this thread (`native.later`).
     later: bool,
@@ -184,17 +209,22 @@ struct HostState {
     documents: bool,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
+    /// A replacement candidate must answer successfully before it can be installed.
+    validating: bool,
     /// The runtime's own journal lines since the last take (LLP 1097 D8).
     journal: Vec<String>,
     /// Delivering between answers (a background round, a let-go call's
     /// steps): there is no store, and storage is not refused as at bake.
     between_answers: bool,
+    storage_changed: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
 /// engine that runs it once loaded.
 pub struct Module {
-    bytecode: Vec<u8>,
+    bytecode: Arc<[u8]>,
+    snapshot: bool,
+    snapshot_deadline: Option<Instant>,
     app_id: String,
     grants: String,
     revision: std::sync::OnceLock<String>, // the bytecode's SHA-256, when first asked
@@ -209,8 +239,10 @@ pub struct Module {
     /// Where the host sends `native.later` requests; shared with an instance
     /// built from this template, which fills it on its owner.
     native_slot: exact_runner::Native,
-    /// The bound plan, kept so an owner thread can bind its own instance.
+    /// The bound plan, kept so an owner thread can bind its own instance;
+    /// none when placed on main (`keeps_plan`), whose engine is this one.
     plan: Option<Plan>,
+    keeps_plan: bool,
     sigs: HashMap<String, Sig>,
     parked: Vec<(Key, Parked)>,
     /// Each dispatched waiter's flag, by its call: set when the call is let
@@ -228,6 +260,7 @@ pub struct Module {
     max_heap: u32,
     /// How long a storage step is waited for (tests shorten it).
     storage_wait: std::time::Duration,
+    document_owner: u64,
     logs: Vec<String>,
     overruns: u32,
     /// The Canvas 2D roster the bake read (LLP 1056 D1), known before the
@@ -266,12 +299,18 @@ impl Module {
     /// beside the bytecode, cross-checked against the module's own exports
     /// at [`Module::load`]. Under the agent (`EXACT_AGENT=1`) its `crypto`
     /// draws the agent's repeatable stream (LLP 1069.005 D2b).
-    pub fn new(bytecode: Vec<u8>, app_id: impl Into<String>, grants: impl Into<String>) -> Module {
+    pub fn new(
+        bytecode: impl Into<Arc<[u8]>>,
+        app_id: impl Into<String>,
+        grants: impl Into<String>,
+    ) -> Module {
         let grants = grants.into();
         let auth_callback = exact_runner::auth::carrier_callback(&grants, None);
         let module = Module {
             revision: std::sync::OnceLock::new(),
-            bytecode,
+            bytecode: bytecode.into(),
+            snapshot: false,
+            snapshot_deadline: None,
             app_id: app_id.into(),
             grants,
             engine: None,
@@ -285,6 +324,7 @@ impl Module {
             native_factory: None,
             native_slot: Default::default(),
             plan: None,
+            keeps_plan: true,
             sigs: HashMap::new(),
             parked: Vec::new(),
             retired: std::collections::HashMap::new(),
@@ -294,6 +334,7 @@ impl Module {
             budget_ms: DEFAULT_BUDGET_MS,
             max_heap: DEFAULT_MAX_HEAP,
             storage_wait: storage::WAIT,
+            document_owner: 0,
             logs: Vec::new(),
             overruns: 0,
             canvas_surfaces: Vec::new(),
@@ -338,7 +379,11 @@ impl Module {
     /// is; `Worker` builds an instance of it on a host-owned thread at
     /// activation, from what this one knows, and this one stays as the
     /// template. The engine never crosses a thread.
-    pub fn placed(self, placement: Placement) -> Placed<Module> {
+    pub fn placed(mut self, placement: Placement) -> Placed<Module> {
+        self.keeps_plan = placement == Placement::Worker;
+        if !self.keeps_plan {
+            self.plan = None;
+        }
         Placed::built(self, placement, Module::build)
     }
 
@@ -354,6 +399,7 @@ impl Module {
         let plan = template.plan.as_ref().map(Plan::encode);
         let budget_ms = template.budget_ms;
         let max_heap = template.max_heap;
+        let document_owner = template.document_owner;
         let agent_seed = template.agent_seed;
         let watch = template.watch.clone();
         let native_slot = template.native_slot.clone();
@@ -371,6 +417,7 @@ impl Module {
             }
             module.set_budget_ms(budget_ms);
             module.set_max_heap(max_heap);
+            module.set_document_owner(document_owner);
             if let Some(paths) = directories {
                 module.configure_storage(paths.data, paths.cache, paths.temporary)?;
             }
@@ -465,13 +512,27 @@ impl Module {
         self.load_engine_with_prelude(PRELUDE)
     }
 
-    fn load_engine_with_prelude(&mut self, prelude: &[u8]) -> Result<Watched, String> {
+    fn load_engine_with_prelude(&mut self, prelude: &'static [u8]) -> Result<Watched, String> {
         let io = exact_runner::io_grants(&self.grants);
+        // Stage 1 permits file reads, not file/SQLite writes or document handles.
+        // Identity still checks the full baked grants; only endowment narrows.
+        let io = if self.snapshot {
+            io.lines()
+                .filter(|line| line.starts_with("fs.read app:/"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            io
+        };
         self.host.documents = storage::reaches_documents(&io);
         // The bindings Context must precede the engine and outlive its
         // adapter. Module declares `engine` before `storage`, and unload takes
         // the engine first, preserving that order on every path.
-        self.storage = Some(storage::Session::open(&io, self.storage_wait)?);
+        self.storage = Some(storage::Session::open(
+            &io,
+            self.storage_wait,
+            self.document_owner,
+        )?);
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
         let bytes: engine::BytesFn = crypto::bytes_door;
@@ -487,7 +548,7 @@ impl Module {
         // application code too.
         let mut engine = Watched::new(engine, self.watch.clone());
         engine
-            .load(prelude)
+            .load_static(prelude)
             .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
         if self.main_thread {
             engine
@@ -522,7 +583,7 @@ impl Module {
             self.storage
                 .as_ref()
                 .expect("Context was created")
-                .configure(paths)?;
+                .configure(paths, self.snapshot)?;
         }
         if self.directories.is_some() || (self.host.documents && !self.host.baking) {
             engine.install_storage()?;
@@ -539,7 +600,7 @@ impl Module {
             .harden()
             .map_err(|e| format!("exact-js: hardening failed: {e}"))?;
         engine
-            .load(&self.bytecode)
+            .load_shared(self.bytecode.clone())
             .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
         let abi = engine.string("abi")?;
         if !abi_supported(&abi) {
@@ -558,7 +619,9 @@ impl Module {
         // A dev restart or a reload replaces the module: what it started
         // and did not await is finished first, within a second (LLP 1097
         // D10). A worker's answers waited for theirs.
-        self.finish_background(std::time::Duration::from_secs(1));
+        if !self.snapshot {
+            self.finish_background(std::time::Duration::from_secs(1));
+        }
         if let Some(mut engine) = self.engine.take() {
             self.logs.extend(engine.take_log());
         }
@@ -686,6 +749,7 @@ impl Module {
                 return Step::Done(Err(DataError::Failed(
                     FailureCode::Shape,
                     format!("`{source}` answered outside its shape: {error}"),
+                    String::new(),
                 )));
             }
             value = from_json(reply.get("value").unwrap_or(&Json::Null), &sig.result);
@@ -694,7 +758,7 @@ impl Module {
         match num("tag") {
             Some(0) => Step::Done(value.map_err(|e| {
                 let why = format!("`{source}` answered outside its shape: {e}");
-                DataError::Failed(FailureCode::Shape, why)
+                DataError::Failed(FailureCode::Shape, why, String::new())
             })),
             Some(1) => match (num("call"), num("ticket")) {
                 (Some(call), Some(0)) if reply.get("waiting") == Some(&Json::Bool(true)) => {
@@ -726,6 +790,7 @@ impl Module {
                     _ => FailureCode::seam_error(
                         reply.get("failure").and_then(Json::as_str),
                         message,
+                        reply.get("reason").and_then(Json::as_str),
                     ),
                 }))
             }
@@ -761,6 +826,8 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
+        let refuses = self.host.baking || self.host.validating;
+        let session = store.is_some() && !refuses;
         // No answer waits for another to begin (LLP 1097 D4.5): answers
         // interleave at their awaits, as two async calls do on the web, and
         // storage keeps the order it was issued in (the prelude's queue).
@@ -784,12 +851,29 @@ impl Module {
         let args_text = Json::Array(json_args).to_string();
         // A new answer's JavaScript may settle what another answer awaits.
         self.progress += 1;
-        self.host.store = store.map(|s| s as *mut Store);
+        let mut store = store;
+        self.host.store = store.as_mut().map(|s| &mut **s as *mut Store);
+        self.host.socket_ops.clear();
+        self.host.answer_ops.clear();
+        if let Some(store) = store.as_deref() {
+            self.host.socket_buffered = socket::snapshot(&self.streams, store);
+        }
+        // A mutation's synchronous source may send on a socket (D7), and so
+        // may a resource's answer and a mutation's after its source (the
+        // amendment of 2026-10-18); a call for no target sends nothing.
+        let mutation = match target {
+            Some(Target::Mutation(_)) if session => "mutation",
+            Some(Target::Resource(_)) if session => "answer",
+            _ => "",
+        };
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             let text = engine
-                .call("__exact_call", [source, &args_text, ""])
+                .call("__exact_call", [source, &args_text, mutation])
                 .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
             let mut reply = Module::decode_reply(sig, engine, source, &text)?;
             if reply.fields.get("tag").and_then(Json::as_u64) == Some(3) {
@@ -812,9 +896,30 @@ impl Module {
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > self.budget_ms {
+        if result.is_err() || took_ms > budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
+        // What the turn sent as an answer goes whatever it answers (the
+        // amendment of 2026-10-18); a mutation's staged socket operations
+        // ride only an answer given now (D7).
+        let answer_ops = std::mem::take(&mut self.host.answer_ops);
+        if let (Some(store), false) = (store.as_deref_mut(), answer_ops.is_empty()) {
+            self.stage_answer(store, source, answer_ops);
+        }
+        let socket_ops = std::mem::take(&mut self.host.socket_ops);
+        let result = match (result, store) {
+            (Ok(Step::Done(Ok(v))), Some(store)) if !socket_ops.is_empty() => {
+                match self.stage_sockets(store, socket_ops) {
+                    Ok(()) => Ok(Step::Done(Ok(v))),
+                    Err(why) => Ok(Step::Done(Err(DataError::Failed(
+                        FailureCode::Error,
+                        why,
+                        String::new(),
+                    )))),
+                }
+            }
+            (result, _) => result,
+        };
         if result.is_err() && self.watch.take() {
             // After the store is cleared, so a let-go step is not this
             // answer's write (LLP 1097; a934686a0).
@@ -823,17 +928,25 @@ impl Module {
                 "`{source}` was interrupted"
             )));
         }
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             self.overruns += 1;
             self.finish_let_go();
             return Err(DataError::Unavailable(format!(
                 "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         let answer = match result {
             Err(e) => Err(e),
-            Ok(Step::Done(r)) => r.map(Answer::Now),
+            // The web learns a rejection after the input commits. Native
+            // answers fail the same target (LLP 1027.000 D3).
+            Ok(Step::Done(r)) => r.map(Answer::Now).map_err(|e| match e {
+                DataError::Unavailable(m) | DataError::BadArguments(m) if session => {
+                    DataError::Failed(FailureCode::Error, m, String::new())
+                }
+                DataError::Failed(_, m, _) if refuses => DataError::Unavailable(m),
+                e => e,
+            }),
             Ok(Step::Pending { call, ticket }) => {
                 let request = if ticket == 0 || ticket == WAITING {
                     Request::continuation(call)
@@ -937,6 +1050,9 @@ impl Module {
         }
         let payload = serde_json::json!({ "answer": json(answer, &sig.result)?, "writes": list });
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let engine = self.engine.as_mut().expect("checked above");
         let text = engine
             .call(
@@ -945,10 +1061,10 @@ impl Module {
             )
             .map_err(|e| DataError::Unavailable(format!("`{source}`'s overlay threw: {e}")))?;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             return Err(DataError::Unavailable(format!(
                 "`{source}`'s overlay took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         let reply: Json = serde_json::from_str(&text)
@@ -965,6 +1081,7 @@ impl Module {
                     DataError::Failed(
                         FailureCode::Shape,
                         format!("`{source}`'s overlay is outside its shape: {e}"),
+                        String::new(),
                     )
                 }),
             Some(4) => Ok(None),
@@ -1017,7 +1134,12 @@ impl Module {
         }
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
+        self.host.answer_ops.clear();
+        self.host.socket_buffered = socket::snapshot(&self.streams, store);
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             if ticket == WAITING {
@@ -1055,8 +1177,13 @@ impl Module {
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
+        // What this turn of an answer sent (D7, the amendment of 2026-10-18).
+        let answer_ops = std::mem::take(&mut self.host.answer_ops);
+        if !answer_ops.is_empty() {
+            self.stage_answer(store, source, answer_ops);
+        }
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > self.budget_ms {
+        if result.is_err() || took_ms > budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
         if result.is_err() && self.watch.take() {
@@ -1065,12 +1192,12 @@ impl Module {
                 "`{source}` was interrupted"
             )));
         }
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             self.overruns += 1;
             self.finish_let_go();
             return Err(DataError::Unavailable(format!(
                 "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         let answer = match result {
@@ -1135,8 +1262,14 @@ impl Module {
         let ended = !matches!(outcome, Outcome::Message(_));
         self.progress += 1;
         let outcome_text = outcome_to_json(&outcome).to_string();
+        self.host.socket_buffered = socket::snapshot(&self.streams, store);
+        self.host.socket_ops.clear();
+        self.host.answer_ops.clear();
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
+        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
+            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
+        });
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked by resume");
             let text = engine
@@ -1150,22 +1283,39 @@ impl Module {
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
+        // The replies the mapper staged answering this frame (LLP 1016.000
+        // D7), staged on the store however the call ended: the runner sends
+        // them with this frame's commit, or journals them refused.
+        // A socket no resource owns (a mutation's stream) takes none.
+        let ops = std::mem::take(&mut self.host.socket_ops);
+        let staged = self.stage_sockets(store, ops);
+        if let Err(why) = &staged {
+            (self.logs).push(format!(
+                "mapper `{source}` failed: {why}; socket frames were refused"
+            ));
+        }
+        let result = match staged {
+            Err(why) if matches!(result, Ok(Step::Done(Ok(_)))) => Ok(Step::Done(Err(
+                DataError::Failed(FailureCode::Error, why, String::new()),
+            ))),
+            _ => result,
+        };
         if ended {
             self.streams.remove(at);
             self.forget_calls(vec![call]);
         }
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > self.budget_ms {
+        if result.is_err() || took_ms > budget_ms {
             self.engine
                 .as_mut()
                 .expect("checked by resume")
                 .clear_reply();
         }
-        if took_ms > self.budget_ms {
+        if took_ms > budget_ms {
             self.overruns += 1;
             return Err(DataError::Unavailable(format!(
                 "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                self.budget_ms
+                budget_ms
             )));
         }
         match result? {
@@ -1204,5 +1354,53 @@ mod bootstrap_tests {
         assert!(error.contains("refusing to harden"), "{error}");
         assert!(error.contains("abort hooks global"), "{error}");
         assert!(error.contains("__exact_ibex2_abort_hooks"), "{error}");
+    }
+
+    #[test]
+    fn hardening_refuses_abort_hooks_a_proxy_get_trap_hides() {
+        let mut module = Module::new(
+            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+            "test.pure",
+            "",
+        );
+        let error = match module.load_engine_with_prelude(include_bytes!(concat!(
+            env!("OUT_DIR"),
+            "/prelude-with-hidden-abort-hook.hbc"
+        ))) {
+            Ok(_) => panic!("abort hooks behind a Proxy must refuse hardening"),
+            Err(error) => error,
+        };
+        assert!(error.contains("refusing to harden"), "{error}");
+        assert!(error.contains("still reachable"), "{error}");
+    }
+
+    // What the freeze leaves open after a bootstrap that hides a payload
+    // behind a Proxy's `get` trap, another behind a symbol it makes
+    // Reflect.ownKeys skip, and plants a property on Object.prototype
+    // (js/tests/fixtures/harden-probe.js).
+    #[test]
+    fn hardening_freezes_what_descriptors_reach() {
+        let mut module = Module::new(
+            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+            "test.pure",
+            "",
+        );
+        let mut engine = module
+            .load_engine_with_prelude(include_bytes!(concat!(
+                env!("OUT_DIR"),
+                "/prelude-with-harden-probe.hbc"
+            )))
+            .expect("the probe prelude hardens");
+        let report: serde_json::Value =
+            serde_json::from_str(&engine.call("__exact_probe", ["", "", ""]).unwrap()).unwrap();
+        assert_eq!(report["open"], 0, "{report}");
+        assert!(report["objects"].as_u64().unwrap() > 800, "{report}");
+        assert_eq!(report["payload"], true, "{report}");
+        // Published under a symbol after bootstrap made Reflect.ownKeys list
+        // only names.
+        assert_eq!(report["symbolic"], true, "{report}");
+        // The week tables, built after hardening, take a name planted on the
+        // frozen Object.prototype.
+        assert_eq!(report["firstDay"], 7, "{report}");
     }
 }

@@ -27,7 +27,7 @@ impl Executor {
     ) -> Self {
         let wake = wake.map(|(f, ctx)| (f, ctx as usize));
         Self {
-            core: core::Core::start(
+            core: core::Core::start_switched(
                 bindings,
                 grants,
                 Box::new(move || {
@@ -85,6 +85,17 @@ impl Executor {
     pub fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync> {
         self.core.waker()
     }
+    /// Send a mutation's or mapper call's socket batch whose commit stood
+    /// (LLP 1016.000 D7):
+    /// all of it, in order, or none. Each socket's frames sent and bytes
+    /// buffered, for [`exact_runner::Runner::socket_published`].
+    pub fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
+        self.core.socket(batch)
+    }
+    /// Each open socket's buffered bytes, by its stream ticket, live.
+    pub fn socket_reader(&self) -> exact_runner::SocketReader {
+        self.core.socket_reader()
+    }
 }
 
 /// What the bridge asks of the I/O executor (LLP 1047.001): the executor's
@@ -111,6 +122,10 @@ pub trait Io {
     fn notify(&self);
     /// [`Executor::waker`].
     fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync>;
+    /// [`Executor::socket`].
+    fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String>;
+    /// [`Executor::socket_reader`].
+    fn socket_reader(&self) -> exact_runner::SocketReader;
 }
 
 impl Io for Executor {
@@ -143,6 +158,12 @@ impl Io for Executor {
     }
     fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync> {
         Executor::waker(self)
+    }
+    fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
+        Executor::socket(self, batch)
+    }
+    fn socket_reader(&self) -> exact_runner::SocketReader {
+        Executor::socket_reader(self)
     }
 }
 

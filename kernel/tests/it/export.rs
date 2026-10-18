@@ -19,6 +19,7 @@ fn kernel() -> Kernel {
     leaf.mask.set(StyleId::FontSize);
     leaf.opacity = 0.5;
     leaf.mask.set(StyleId::Opacity);
+    leaf.written.set(StyleId::TextColor);
     let mut k = Kernel::with_monospace();
     k.apply(
         0,
@@ -177,6 +178,8 @@ fn envelope_round_trips_rows_styles_and_props() {
     );
     assert!(snap.styles[0].mask.has(StyleId::BackgroundColor));
     assert_eq!(snap.styles[1].opacity, 0.5);
+    assert!(snap.styles[1].written.has(StyleId::TextColor));
+    assert!(!snap.styles[1].mask.has(StyleId::TextColor));
     assert_eq!(snap.styles[2].mask, exact_kernel::StyleMask::EMPTY);
 
     assert_eq!(snap.props[1].str(PropId::Text), Some("hi"));
@@ -299,6 +302,15 @@ fn malformed_envelope_scalars_and_topology_are_refused_exactly() {
     let mut reserved = bytes.clone();
     reserved[32] = 1;
     assert_eq!(export::decode(&reserved), Err(DecodeError::ReservedFlags));
+
+    // A version 1 envelope, whose styles had no written mask (LLP 1115.000
+    // D2), is refused by its version and never read as a short style.
+    let mut old = bytes.clone();
+    old[4..6].copy_from_slice(&1u16.to_le_bytes());
+    assert_eq!(
+        export::decode(&old),
+        Err(DecodeError::UnsupportedRevision(1))
+    );
 
     let mut header = bytes.clone();
     header[6..8].copy_from_slice(&48u16.to_le_bytes());

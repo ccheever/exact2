@@ -17,6 +17,7 @@ pub const FIELDS: &[&str] = &[
     "prefersColorScheme",
     "colorGamut",
     "dynamicRange",
+    "displayMode",
     "devicePosture",
     "horizontalViewportSegments",
     "verticalViewportSegments",
@@ -188,6 +189,60 @@ pub struct Preferences {
     /// `dynamic-range: high` (Media Queries 5 §6.5; LLP 1100 D9).
     /// `video-dynamic-range` is the same on every host Exact has.
     pub high_dynamic_range: bool,
+    /// The window's presentation, CSS's `display-mode` media feature.
+    pub display_mode: DisplayMode,
+    /// Bold Text is on (LLP 1115.000 D12.3): no media feature, the
+    /// kernel's, which weights the system font (`Kernel::set_bold_text`).
+    pub bold_text: bool,
+}
+
+/// CSS's `display-mode`, including the Window Controls Overlay extension.
+/// Native windows default to `standalone`; the web reports its media query.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum DisplayMode {
+    /// `standalone`.
+    #[default]
+    Standalone = 0,
+    /// `browser`.
+    Browser = 1,
+    /// `fullscreen`.
+    Fullscreen = 2,
+    /// `minimal-ui`.
+    MinimalUi = 3,
+    /// `window-controls-overlay`.
+    WindowControlsOverlay = 4,
+    /// `picture-in-picture`.
+    PictureInPicture = 5,
+    /// `tabbed`.
+    Tabbed = 6,
+}
+
+impl DisplayMode {
+    /// CSS's keyword, in the media fact wire's order (bits 11–13).
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Self::Standalone => "standalone",
+            Self::Browser => "browser",
+            Self::Fullscreen => "fullscreen",
+            Self::MinimalUi => "minimal-ui",
+            Self::WindowControlsOverlay => "window-controls-overlay",
+            Self::PictureInPicture => "picture-in-picture",
+            Self::Tabbed => "tabbed",
+        }
+    }
+
+    fn from_bits(bits: u32) -> Self {
+        match (bits >> 11) & 7 {
+            1 => Self::Browser,
+            2 => Self::Fullscreen,
+            3 => Self::MinimalUi,
+            4 => Self::WindowControlsOverlay,
+            5 => Self::PictureInPicture,
+            6 => Self::Tabbed,
+            _ => Self::Standalone,
+        }
+    }
 }
 
 /// CSS's `pointer` values (Media Queries 4 §7.1): a mouse is `fine`, a
@@ -295,13 +350,16 @@ impl Preferences {
         hover: Hover::Hover,
         gamut: Gamut::Srgb,
         high_dynamic_range: false,
+        display_mode: DisplayMode::Standalone,
+        bold_text: false,
     };
 
     /// The hosts' wire form: bit 0 reduced motion, bit 1 reduced
     /// transparency, bit 2 contrast `more`, bit 3 contrast `less` (both is
     /// `custom`), bit 4 a dark system scheme, bit 5 pointer `coarse`, bit 6
     /// pointer `none` (over bit 5), bit 7 hover `none`, bits 8–9 the gamut
-    /// (0 sRGB, 1 P3, 2 rec2020), bit 10 a high dynamic range; other bits
+    /// (0 sRGB, 1 P3, 2 rec2020), bit 10 a high dynamic range, bits 11–13
+    /// the [`DisplayMode`] discriminant, bit 14 Bold Text; other bits
     /// are ignored. Zero is a mouse's `fine` and `hover`.
     pub fn from_bits(bits: u32) -> Self {
         Self {
@@ -330,6 +388,8 @@ impl Preferences {
                 _ => Gamut::Srgb,
             },
             high_dynamic_range: bits & 1024 != 0,
+            display_mode: DisplayMode::from_bits(bits),
+            bold_text: bits & (1 << 14) != 0,
         }
     }
 
@@ -357,6 +417,8 @@ impl Preferences {
                 Gamut::Rec2020 => 2,
             } << 8)
             | (u32::from(self.high_dynamic_range) << 10)
+            | ((self.display_mode as u32) << 11)
+            | (u32::from(self.bold_text) << 14)
     }
 
     /// `"light"` or `"dark"`, CSS's words for the system's scheme.
@@ -417,6 +479,7 @@ impl Viewport {
             } else {
                 "standard"
             })),
+            "displayMode" => Some(Value::str(self.preferences.display_mode.keyword())),
             "devicePosture" => Some(Value::str(self.fold.posture.keyword())),
             "horizontalViewportSegments" => Some(Value::Number(f64::from(self.fold.cols))),
             "verticalViewportSegments" => Some(Value::Number(f64::from(self.fold.rows))),
@@ -511,6 +574,32 @@ mod tests {
     }
 
     #[test]
+    fn display_mode_is_a_viewport_fact_with_a_native_default() {
+        assert_eq!(
+            Viewport::default().field("displayMode"),
+            Some(Value::str("standalone"))
+        );
+        assert!(FIELDS.contains(&"displayMode"));
+        for (code, name) in [
+            (0, "standalone"),
+            (1, "browser"),
+            (2, "fullscreen"),
+            (3, "minimal-ui"),
+            (4, "window-controls-overlay"),
+            (5, "picture-in-picture"),
+            (6, "tabbed"),
+        ] {
+            let preferences = Preferences::from_bits(code << 11);
+            let viewport = Viewport {
+                preferences,
+                ..Viewport::default()
+            };
+            assert_eq!(viewport.field("displayMode"), Some(Value::str(name)));
+            assert_eq!(preferences.bits(), code << 11);
+        }
+    }
+
+    #[test]
     fn bits_round_trip() {
         assert_eq!(Preferences::from_bits(0), Preferences::NONE);
         for bits in 0..32 {
@@ -524,6 +613,9 @@ mod tests {
         for bits in [0, 256, 512, 1024, 256 | 1024] {
             assert_eq!(Preferences::from_bits(bits).bits(), bits);
         }
+        // LLP 1115.000 D12.3: Bold Text.
+        assert!(Preferences::from_bits(1 << 14).bold_text);
+        assert_eq!(Preferences::from_bits(1 << 14 | 16).bits(), 1 << 14 | 16);
         let v = |bits| Viewport {
             preferences: Preferences::from_bits(bits),
             ..Viewport::default()

@@ -1,0 +1,31 @@
+# Code review: LLP 1122 T2 step 1 (the canvas, hello.page, framing), round 2, 2026-10-16 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via the Codex CLI, reasoning effort max, read-only sandbox, a throwaway worktree at `10b70a9bb` (commit `47a9b3607` and its round-1 fixes).
+- **Method:** one brief (sha256 `17436dbaf6680c5ace7c67ec1c0884e1cfeb800bb6dc2165fcf4d560a5ad67e2`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** request changes (4 medium, 2 low).
+- **Disposition:** taken: the sandbox drops `allow-popups-to-escape-sandbox`, so a popup the guest opens is sandboxed too and cannot navigate the tool (an OAuth popup that needs a normal window is the open-in-a-tab link's); the canvas never frames the tool's own origin (`pageOf`); `tamber tool --via` is validated before any reuse, and a running tool is reused only when it forwards to the same server run as the --via target (the same `epoch`), so the identical --via is reused (a dev loop on port 80, or a standalone `tamber serve`, alike) and another target or a standalone tool is refused; `frameOnlyByTool` takes a head's headers in every form writeHead does (object, flat list, pairs), moves them to the response's own, keeps a policy already there beside FRAME_ANCESTORS (both are enforced, so it only narrows) and removes X-Frame-Options; the tool on port 7740 left tamber-server.test.mjs (the async lane runs it beside design-tool.test.mjs): the --via page, reuse and refusals are in design-tool.test.mjs; the stub's foreign-host case reloads after setting the page, and the tool's own origin is refused; the real-server drive checks the tablet size too and that the framed page opened its dev stream. Not tested: the sandbox and the link's href as rendered (the agent's tree carries neither; the built plan is checked for the sandbox).
+
+---
+
+1. **Medium — The canvas can share the tool’s origin, defeating the sandbox.** [apps/design-tool/app.ts:86](/tmp/rv-dt-t2a-r2/apps/design-tool/app.ts:86) accepts `http://127.0.0.1:7740`. Start an app’s dev loop on port 7740, then run `tamber tool --via http://127.0.0.1:7740`: the reuse branch succeeds before reaching the same-origin refusal. The resulting iframe has both `allow-scripts` and `allow-same-origin`, so guest code can access the tool’s DOM and remove its sandbox. [HTML explicitly documents this escape](https://html.spec.whatwg.org/multipage/iframe-embed-object.html#attr-iframe-sandbox).
+   **Fix:** reject the tool’s canonical origin in `pageOf`, and validate `--via` before either reuse or startup.
+
+2. **Medium — The header helper misses supported ways of supplying headers.** [scripts/tamber-server.mjs:782](/tmp/rv-dt-t2a-r2/scripts/tamber-server.mjs:782) excludes arrays, so `writeHead(200, ['Content-Type', 'text/html'])` sends HTML without the policy. Arrays are a [supported `writeHead` overload](https://nodejs.org/api/http.html#responsewriteheadstatuscode-statusmessage-headers). Separately, pre-setting any CSP makes `hasHeader` skip enforcement: `setHeader('Content-Security-Policy', "default-src 'self'")` followed by an HTML response leaves framing unrestricted. The unit test covers neither case. Current route implementations use object headers, so these are helper gaps rather than another demonstrated route omission.
+   **Fix:** inspect the effective headers across both overloads and stored headers, then enforce `frame-ancestors` while preserving unrelated CSP directives. Add both regression cases.
+
+3. **Medium — `--via` can reject reuse of the exact upstream it previously accepted.** [scripts/tamber-server.mjs:849](/tmp/rv-dt-t2a-r2/scripts/tamber-server.mjs:849) compares the requested endpoint with the canvas URL. A fresh `tamber tool --via <standalone-server>` succeeds—the existing integration test uses this arrangement—but repeating the identical command fails because the forwarded `page` is null. A direct dev loop on port 80 also fails: its advertised page includes `:80`, whereas `URL.origin` removes it.
+   **Fix:** identify the forwarding target independently of `page`, or compare the validated upstream’s server identity/epoch with the running tool’s upstream. Normalize origins and test successful identical-`--via` reuse.
+
+4. **Medium — The new integration test introduces a fixed-port race in the async lane.** [scripts/tamber-server.test.mjs:410](/tmp/rv-dt-t2a-r2/scripts/tamber-server.test.mjs:410) now starts a tool on port 7740. [scripts/async.mjs:135](/tmp/rv-dt-t2a-r2/scripts/async.mjs:135) runs this file alongside `scripts/design-tool.test.mjs`, whose tests also own that port. When they overlap, one tool finds the other fixture’s design and refuses startup, causing an unrelated test failure.
+   **Fix:** move these `--via` assertions into the existing design-tool suite, or serialize the files that own the tool port.
+
+5. **Low — The foreign-host rejection test never loads its foreign-host hello.** [apps/design-tool/app.test.contract:428](/tmp/rv-dt-t2a-r2/apps/design-tool/app.test.contract:428) changes the stub after the runner has settled the initial resources. That endpoint publishes no event; saving the name does not refresh `hello`; `clock data` fires no timer. Consequently, the assertions observe the previous null page and can pass with host validation removed.
+   **Fix:** reload immediately after setting `http://example.com:8765`, as the subsequent cases already do.
+
+6. **Low — The real-server drive still does not establish several claimed behaviors.** [scripts/design-tool.test.mjs:668](/tmp/rv-dt-t2a-r2/scripts/design-tool.test.mjs:668) verifies the iframe’s URL and two sizes, but checks only the link’s node type and the sandbox string’s presence in `app.plan`. A wrong link destination, missing sandbox in the rendered DOM, or a failed guest load can still pass. Tablet dimensions also remain unverified.
+   **Fix:** assert the rendered sandbox and link `href`/`target`, verify successful guest rendering, and check the tablet dimensions.
+
+By inspection, the existing HTML routes—including HEAD responses and forwarded HTML—now reach the wrapper. The retained `'self'` rationale is sound, and production serving is unchanged. No builds or tests were run, and no files were changed.
+
+**Verdict: Request changes.**

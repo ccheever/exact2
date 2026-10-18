@@ -13,8 +13,8 @@ component App
   state stationId = none
   state query = ""
   derive selected = match stationId { case some(id) => id, case none => "mv" }
-  resource board = departures(selected) as shape list<Departure>
-  derive count = length(board)
+  resource board = departures(selected) as shape Departure[]
+  derive count = board.length
 
   action selectStation(id)
     stationId = some(id)
@@ -28,8 +28,8 @@ component App
   view
     column gap=16 testId="main"
       text `${count} trains` font-size=24 font-weight=700
-      when query == "" and count > 0
-        each d in board key=d.id
+      if query == "" and count > 0
+        for d in board key=d.id
           Row(dep=d, press=selectStation)
       else
         text "searching"
@@ -270,11 +270,11 @@ fn if_when_and_their_explicit_else_need_non_empty_blocks() {
             4,
         ),
         (
-            "component A\n  view\n    when true\n    text \"always\"\n",
+            "component A\n  view\n    if true\n    text \"always\"\n",
             3,
         ),
         (
-            "component A\n  view\n    when true\n      text \"then\"\n    else\n    text \"always\"\n",
+            "component A\n  view\n    if true\n      text \"then\"\n    else\n    text \"always\"\n",
             3,
         ),
     ];
@@ -301,7 +301,7 @@ fn rejections_carry_stable_ids_and_spans() {
             2,
         ),
         (
-            "component A\n  view\n    when x\n      text \"a\"\n   text \"b\"\n",
+            "component A\n  view\n    if x\n      text \"a\"\n   text \"b\"\n",
             "syntax-bad-dedent",
             5,
         ),
@@ -513,6 +513,31 @@ fn template_text_decodes_the_escapes_a_string_does_and_escaped_interpolation_is_
     assert_eq!(text(r"`a\${x}`"), "a${x}");
     assert_eq!(text(r"`a\tb\nc`"), "a\tb\nc");
     assert_eq!(text(r#"`\`\\\"\$`"#), "`\\\"$");
+    // A code point, as JavaScript and Swift write it (the euxy port's
+    // non-breaking hyphen), in a template and a string alike.
+    assert_eq!(
+        text(r"`a\u{2011}b\u2011\u{1F600}`"),
+        "a\u{2011}b\u{2011}\u{1F600}"
+    );
+    let file = parse("component A\n  view\n    text \"x\\u{2011}y\\u00e9\"\n").unwrap();
+    let Node::Element { positional, .. } = &file.components[0].view[0] else {
+        panic!()
+    };
+    assert!(
+        matches!(&positional[0], Expr::Str(s, _) if s == "x\u{2011}y\u{e9}"),
+        "{positional:?}"
+    );
+    for (bad, says) in [
+        (r"\u{}", "`\\u` takes a code point in hex"),
+        (r"\u{1234567}", "`\\u` takes a code point in hex"),
+        (r"\u12", "`\\u` takes a code point in hex"),
+        (r"\u{D800}", "`\\u{D800}` is no Unicode character"),
+        (r"\u{110000}", "`\\u{110000}` is no Unicode character"),
+    ] {
+        let e = parse(&format!("component A\n  view\n    text \"{bad}\"\n")).unwrap_err();
+        assert_eq!(e.id, "syntax-bad-escape", "{bad}: {e:?}");
+        assert!(e.message.starts_with(says), "{bad}: {}", e.message);
+    }
     // `\\` before `${` is an escaped backslash; the interpolation still runs.
     let p = parts(r"`a\\${x}\`b`");
     assert!(
@@ -528,7 +553,7 @@ fn template_text_decodes_the_escapes_a_string_does_and_escaped_interpolation_is_
     let e = parse("component A\n  view\n    text `ok \\q`\n").unwrap_err();
     assert_eq!(e.id, "syntax-bad-escape", "{e:?}");
     assert_eq!((e.span.line, e.span.col), (3, 14), "{e:?}");
-    let accepted = r#"a string accepts \n \t \" \\ \` \$"#;
+    let accepted = r#"a string accepts \n \t \" \\ \` \$ and \u{…}, a Unicode code point in hex (`\u{2011}`, `\u2011`)"#;
     assert_eq!(e.message, format!("unknown escape `\\q`; {accepted}"));
     // A string's refusal names the escapes it accepts too.
     let e = parse("component A\n  view\n    text \"a\\rb\"\n").unwrap_err();
@@ -559,6 +584,12 @@ fn a_mutations_clauses_may_continue_on_indented_lines() {
     assert_eq!(edited.then.as_ref().map(|t| &*t.0), Some("followEdit"));
     assert!(saved.queue);
     assert_eq!(saved.refreshes.len(), 2);
+    let err = parse(
+        "component A\n  mutation m as shape Ok refreshes board feed\n  view\n    text \"a\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(err.id, "syntax-expected-newline");
+    assert!(err.message.contains("refreshes board, feed"), "{err:?}");
     assert_eq!(saved.then.as_ref().map(|t| &*t.0), Some("reload"));
     assert_eq!(a.states[0].name, "n");
     // Out of order, the continued line is named.
@@ -566,4 +597,132 @@ fn a_mutations_clauses_may_continue_on_indented_lines() {
     let err = parse(src).unwrap_err();
     assert_eq!(err.id, "syntax-expected", "{}", err.message);
     assert!(err.message.contains("in that order"), "{}", err.message);
+}
+
+/// Round 12 (LLP 1116.010 D3): a `-` against a number, straight after an
+/// attribute's `=`, is the negative literal, the number it is as `40` is.
+#[test]
+fn a_negative_number_after_an_attributes_equals_is_a_number_literal() {
+    fn value(attrs: &str, name: &str) -> Expr {
+        let src = format!("component A\n  view\n    input {attrs}\n");
+        let file = parse(&src).unwrap_or_else(|e| panic!("{attrs}: {e:?}"));
+        let Node::Element { attrs, .. } = &file.components[0].view[0] else {
+            panic!()
+        };
+        attrs.iter().find(|a| a.name == name).unwrap().value.clone()
+    }
+    for (written, want) in [
+        ("min=-40", -40.0),
+        ("step=-1", -1.0),
+        ("margin-top=-8", -8.0),
+        ("min=-0.5", -0.5),
+        ("min=-1e300", -1e300),
+        ("min=-2.5E-3", -2.5e-3),
+        ("min=-999999999999999", -999_999_999_999_999.0),
+    ] {
+        let name = written.split('=').next().unwrap();
+        assert!(
+            matches!(value(written, name), Expr::Number(n, _) if n == want),
+            "{written}: {:?}",
+            value(written, name)
+        );
+    }
+    // Its span covers the sign too, and a continued attribute line reads it alike.
+    let Expr::Number(_, at) = value("min=-40", "min") else {
+        panic!()
+    };
+    assert_eq!((at.col, at.end_col), (15, 18));
+    let file =
+        parse("component A\n  view\n    input type=\"number\"\n      min=-40 max=40\n").unwrap();
+    let Node::Element { attrs, .. } = &file.components[0].view[0] else {
+        panic!()
+    };
+    assert!(matches!(attrs[1].value, Expr::Number(n, _) if n == -40.0));
+    assert!(matches!(attrs[2].value, Expr::Number(n, _) if n == 40.0));
+    // The positive literal, its exponent forms among them, is unchanged.
+    for (written, want) in [("min=40", 40.0), ("min=1e3", 1000.0), ("min=4e+2", 400.0)] {
+        let name = written.split('=').next().unwrap();
+        assert!(
+            matches!(value(written, name), Expr::Number(n, _) if n == want),
+            "{written}"
+        );
+    }
+    // A unit written against it is still the unquoted length it was, negative or not.
+    for written in ["margin-top=-8px", "margin-top=8px", "min=2em"] {
+        let e = parse(&format!("component A\n  view\n    input {written}\n")).unwrap_err();
+        assert_eq!(e.id, "syntax-unquoted-length", "{written}");
+    }
+    // An exponent that overflows is no number.
+    let e = parse("component A\n  view\n    input min=-1e999\n").unwrap_err();
+    assert_eq!(e.id, "syntax-bad-number");
+}
+
+/// What the negative literal leaves alone: subtraction, a negation of
+/// something that is not a lone number, and a vendor-prefixed name.
+#[test]
+fn the_negative_literal_leaves_subtraction_negation_and_exact_names_alone() {
+    fn value(attrs: &str, name: &str) -> Expr {
+        let src =
+            format!("component A\n  state a = 5\n  state b = 3\n  view\n    column {attrs}\n");
+        let file = parse(&src).unwrap_or_else(|e| panic!("{attrs}: {e:?}"));
+        let Node::Element { attrs, .. } = &file.components[0].view[0] else {
+            panic!()
+        };
+        attrs.iter().find(|a| a.name == name).unwrap().value.clone()
+    }
+    // `a - b`, spaced, is a subtraction, and a literal's sign is not read from the left.
+    assert!(matches!(
+        value("gap=a - b", "gap"),
+        Expr::Binary(BinOp::Sub, ..)
+    ));
+    assert!(matches!(
+        value("gap=a - 1", "gap"),
+        Expr::Binary(BinOp::Sub, ..)
+    ));
+    assert!(matches!(
+        value("gap=8 - 1", "gap"),
+        Expr::Binary(BinOp::Sub, ..)
+    ));
+    assert!(matches!(
+        value("gap=a -1", "gap"),
+        Expr::Binary(BinOp::Sub, ..)
+    ));
+    // A negation of a name, of a group or inside a larger expression stays one.
+    for written in ["gap=-a", "gap=-(1 + 2)", "gap=-8 + a", "gap=-8 * 2"] {
+        let name = written.split('=').next().unwrap();
+        assert!(
+            !matches!(value(written, name), Expr::Number(..)),
+            "{written}: {:?}",
+            value(written, name)
+        );
+    }
+    // The formatter's spelling of a negation, `- 8`, and a parenthesized `-(8)`, are the literal too.
+    for written in ["gap=- 8", "gap=-(8)"] {
+        assert!(
+            matches!(value(written, "gap"), Expr::Number(n, _) if n == -8.0),
+            "{written}"
+        );
+    }
+    // A negative inside an expression is the unary it was, in a choice as anywhere.
+    let Expr::Ternary(_, yes, no, _) = value("gap=(a > b ? -8 : 8)", "gap") else {
+        panic!()
+    };
+    assert!(matches!(*yes, Expr::Unary(..)));
+    assert!(matches!(*no, Expr::Number(n, _) if n == 8.0));
+    // `-exact-…` is one name where it is a name, and a string where it is a string.
+    let Node::Element { attrs, .. } = &parse(
+        "component A\n  view\n    image \"symbol:x\" -exact-tint-color=\"-exact-label\" font=\"-exact-title1\" gap=-8\n",
+    )
+    .unwrap()
+    .components[0]
+        .view[0]
+    else {
+        panic!()
+    };
+    assert_eq!(attrs[0].name, "-exact-tint-color");
+    assert!(matches!(&attrs[0].value, Expr::Str(s, _) if s == "-exact-label"));
+    assert!(matches!(&attrs[1].value, Expr::Str(s, _) if s == "-exact-title1"));
+    assert!(matches!(attrs[2].value, Expr::Number(n, _) if n == -8.0));
+    // `em` after a number's `e` is a unit, not an exponent.
+    assert!(parse("component A\n  view\n    image \"symbol:x\" width=\"2em\"\n").is_ok());
 }

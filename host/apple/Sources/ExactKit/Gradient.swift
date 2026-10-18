@@ -1,8 +1,9 @@
 // CSS `background-image` gradients (LLP 1066), shared by UIKit and AppKit.
 // The host's Rust side sends the shape and stops (`style.rs` gradient_json),
-// stops already expanded to mix as CSS's premultiplied ones do; placement
-// needs the box, so it is computed here — the kernel's
-// `Gradient::geometry` again, in the language that has the box.
+// stops already expanded to mix as CSS's premultiplied ones do. Length and
+// repeating stops cross as CSS and resolve through the kernel once the
+// presenter knows the box; percentage-only placement is computed here.
+import CExact
 import CoreGraphics
 import Foundation
 import QuartzCore
@@ -27,6 +28,8 @@ struct Gradient {
         case conic(CGPoint, CGFloat)
     }
 
+    private let css: String?
+    private let resolvedPlacement: Placement?
     let shape: Shape
     private let light: [CGFloat]
     private let dark: [CGFloat]?
@@ -37,8 +40,20 @@ struct Gradient {
     private func linear(dark: Bool) -> Bool { dark && self.dark != nil ? darkLinear : lightLinear }
 
     init?(_ value: BatchValue?) {
-        guard case .object(let o)? = value, let light = o["stops"]?.numbers,
-              light.count >= 10, light.count % 5 == 0 else { return nil }
+        guard case .object(let o)? = value else { return nil }
+        css = o["css"]?.string
+        if let css {
+            self.light = []; dark = nil; lightLinear = false; darkLinear = false
+            shape = .angle(180); resolvedPlacement = nil
+            guard !css.isEmpty else { return nil }
+            return
+        }
+        guard let light = o["stops"]?.numbers, light.count >= 10, light.count % 5 == 0 else { return nil }
+        if let p = o["line"]?.numbers, p.count == 4 {
+            resolvedPlacement = .axial(CGPoint(x: p[0], y: p[1]), CGPoint(x: p[2], y: p[3]))
+        } else if let p = o["ellipse"]?.numbers, p.count == 4 {
+            resolvedPlacement = .radial(CGPoint(x: p[0], y: p[1]), CGSize(width: p[2], height: p[3]))
+        } else { resolvedPlacement = nil }
         if let deg = o["linear"]?.number {
             shape = .angle(CGFloat(deg))
         } else if let c = o["corner"]?.numbers, c.count == 2 {
@@ -56,6 +71,22 @@ struct Gradient {
         darkLinear = o["darkSpace"]?.string == "srgb-linear"
     }
 
+    /// Resolve in the kernel after the presenter knows the gradient box.
+    private func resolved(in box: CGRect, dark: Bool) -> Gradient? {
+        guard let css else { return nil }
+        return Owner.shared.sync {
+            let input = Array(css.utf8), w = Float(box.width), h = Float(box.height)
+            let n = exact_gradient(input, input.count, w, h, dark ? 1 : 0, nil, 0)
+            guard n > 0 else { return nil }
+            var bytes = [UInt8](repeating: 0, count: n)
+            _ = exact_gradient(input, input.count, w, h, dark ? 1 : 0, &bytes, n)
+            return bytes.withUnsafeBufferPointer {
+                var reader = BatchReader(bytes: $0)
+                return (try? reader.value()).flatMap { Gradient($0) }
+            }
+        }
+    }
+
     /// A `background-image`'s layers (LLP 1077 D5): one gradient's object,
     /// or an array of them, the first on top.
     static func layers(_ value: BatchValue?) -> [Gradient] {
@@ -64,7 +95,7 @@ struct Gradient {
     }
 
     /// The gradient's alpha as pixels `size` points at `scale`, placed in
-    /// the whole picture: a conic mask (LLP 1077 D2, D5), which Core
+    /// the whole picture: a conic or repeating mask (LLP 1077 D2, D5), which Core
     /// Animation's gradient layer cannot say.
     func image(size: CGSize, scale: CGFloat, dark: Bool) -> CGImage? {
         let w = Int((size.width * scale).rounded(.up)), h = Int((size.height * scale).rounded(.up))
@@ -78,10 +109,12 @@ struct Gradient {
         return ctx.makeImage()
     }
 
-    /// Whether Core Animation's gradient layer can say it: a conic one is
-    /// drawn (its unit space would bend CSS's angles in a box that is not
-    /// square).
-    var isConic: Bool { if case .conic = shape { return true }; return false }
+    /// Conic geometry and repeated hard stops need the drawn painter;
+    /// Core Animation's single ramp quantizes a hatch's stop boundaries.
+    var needsDrawing: Bool {
+        if case .conic = shape { return true }
+        return css?.hasPrefix("repeating-linear-gradient(") == true
+    }
 
     /// Locations 0–1 and their sRGB colours under an appearance. `dense`
     /// samples each stretch between two hues sixteen times: Core Animation
@@ -89,6 +122,7 @@ struct Gradient {
     /// red into blue a mean 5.5/255 off, three hues 12), and short sRGB
     /// steps leave it nothing to disagree about.
     func stops(dark isDark: Bool, dense: Bool = false) -> ([CGFloat], [CGColor]) {
+        if css != nil { return resolved(in: CGRect(x: 0, y: 0, width: 100, height: 100), dark: isDark)?.stops(dark: isDark, dense: dense) ?? ([], []) }
         var s = isDark ? dark ?? light : light
         if linear(dark: isDark), let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) {
             var locations: [CGFloat] = [], colors: [CGColor] = []
@@ -120,6 +154,13 @@ struct Gradient {
 
     /// Where the gradient falls for a padding box `box` (CSS's gradient box).
     func placement(in box: CGRect) -> Placement {
+        if let resolvedPlacement {
+            switch resolvedPlacement {
+            case .axial(let a, let b): return .axial(CGPoint(x: a.x + box.minX, y: a.y + box.minY), CGPoint(x: b.x + box.minX, y: b.y + box.minY))
+            case .radial(let c, let r): return .radial(CGPoint(x: c.x + box.minX, y: c.y + box.minY), r)
+            case .conic: return resolvedPlacement
+            }
+        }
         let (w, h) = (max(box.width, 0), max(box.height, 0))
         switch shape {
         case .angle, .corner:
@@ -167,6 +208,7 @@ struct Gradient {
     /// Paint inside `clip` (the border box's rounded outline), placed in
     /// `box`: over whatever was drawn before, under what is drawn after.
     func paint(_ ctx: CGContext, clip: CGPath, box: CGRect, dark: Bool, limit: String? = nil) {
+        if let g = resolved(in: box, dark: dark) { g.paint(ctx, clip: clip, box: box, dark: dark, limit: limit); return }
         let place = placement(in: box)
         ctx.saveGState(); defer { ctx.restoreGState() }
         ctx.addPath(clip); ctx.clip()
@@ -178,6 +220,15 @@ struct Gradient {
             return
         }
         let (locations, colors) = stops(dark: dark)
+        if case .axial(let a, let b) = place {
+            let cuts = locations.indices.dropFirst().filter {
+                locations[$0] == locations[$0 - 1] && locations[$0] > locations[0] && locations[$0] < locations.last!
+            }
+            if !cuts.isEmpty {
+                paintAxialRuns(ctx, start: a, end: b, locations: locations, colors: colors, cuts: Array(cuts), dark: dark)
+                return
+            }
+        }
         guard let g = CGGradient(colorsSpace: CGColorSpace(name: linear(dark: dark) ? CGColorSpace.extendedLinearSRGB : CGColorSpace.sRGB), colors: colors as CFArray, locations: locations) else { return }
         switch place {
         case .axial(let a, let b):
@@ -187,6 +238,25 @@ struct Gradient {
             ctx.drawRadialGradient(g, startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: 1, options: [.drawsAfterEndLocation])
         case .conic:
             break
+        }
+    }
+
+    /// Core Graphics quantizes hard stops inside a ramp: an expanded hatch
+    /// alternates narrow and wide stripes. Give each continuous run its own
+    /// endpoints, where Core Graphics clips at the actual stop positions.
+    private func paintAxialRuns(_ ctx: CGContext, start a: CGPoint, end b: CGPoint, locations: [CGFloat], colors: [CGColor], cuts: [Int], dark: Bool) {
+        let edges = [0] + cuts + [locations.count]
+        let space = CGColorSpace(name: linear(dark: dark) ? CGColorSpace.extendedLinearSRGB : CGColorSpace.sRGB)
+        func point(_ t: CGFloat) -> CGPoint { CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t) }
+        for (first, end) in zip(edges, edges.dropFirst()) {
+            let low = locations[first], high = locations[end - 1]
+            guard high > low else { continue }
+            let positions = locations[first..<end].map { ($0 - low) / (high - low) }
+            guard let gradient = CGGradient(colorsSpace: space, colors: Array(colors[first..<end]) as CFArray, locations: positions) else { continue }
+            var options: CGGradientDrawingOptions = []
+            if first == 0 { options.insert(.drawsBeforeStartLocation) }
+            if end == locations.count { options.insert(.drawsAfterEndLocation) }
+            ctx.drawLinearGradient(gradient, start: point(low), end: point(high), options: options)
         }
     }
 
@@ -235,6 +305,7 @@ struct Gradient {
 
     /// A gradient layer covering `bounds`, placed in `box` (same space).
     func apply(_ layer: CAGradientLayer, bounds: CGRect, box: CGRect, dark: Bool, limit: String? = nil, stops made: ([CGFloat], [CGColor])? = nil) {
+        if let g = resolved(in: box, dark: dark) { g.apply(layer, bounds: bounds, box: box, dark: dark, limit: limit); return }
         let place = placement(in: box)
         var (locations, colors) = made ?? stops(dark: dark, dense: true)
         let unit = { (p: CGPoint) in
@@ -267,8 +338,8 @@ struct Gradient {
     }
 }
 
-/// A conic `mask-image`'s pixels as a layer's mask (LLP 1077 D5).
-final class ConicMaskLayer: CALayer {}
+/// A drawn `mask-image`'s pixels as a layer's mask (LLP 1077 D5).
+final class GradientImageMaskLayer: CALayer {}
 
 extension BatchValue {
     /// A gradient that carries a `light-dark()` stop: an appearance change
@@ -279,7 +350,7 @@ extension BatchValue {
     /// (`pd`, LLP 1095 D9).
     var isSchemeGradient: Bool {
         switch self {
-        case .object(let o): return o["dark"] != nil || o["pd"] != nil || o.values.contains { $0.isSchemeColor || $0.isSchemeGradient }
+        case .object(let o): return o["css"] != nil || o["dark"] != nil || o["pd"] != nil || o.values.contains { $0.isSchemeColor || $0.isSchemeGradient }
         case .array(let a): return a.contains { $0.isSchemeColor || $0.isSchemeGradient }
         default: return false
         }
@@ -316,9 +387,9 @@ extension NodeView {
     }
 
     /// Whether the background's gradients need `draw(_:)`: several layers,
-    /// or a conic one (LLP 1077 D5).
+    /// or a conic or repeating one (LLP 1077 D5, LLP 1066).
     var gradientDraws: Bool {
         let layers = Gradient.layers(style["background_image"])
-        return layers.count > 1 || layers.contains { $0.isConic }
+        return layers.count > 1 || layers.contains { $0.needsDrawing }
     }
 }

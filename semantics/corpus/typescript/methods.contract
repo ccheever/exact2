@@ -1,0 +1,283 @@
+// LLP 1116.016 D3. String and list methods, and `at` against `?? "NONE"`: each expected value is what the same TypeScript evaluates to under Bun, except where a comment names LLP 1116.016 D1's row.
+component App
+  derive c137 = "abc".slice(1 / 0)
+  derive c138 = "abc".slice(-1 / 0)
+  derive c139 = "😀x".slice(1)
+  derive c140 = "x😀".slice(0, 2)
+  derive c141 = "😀".length
+  derive c142 = "é".length
+  derive c143 = "é".length
+  derive c144 = "".length
+  derive c145 = "  a b  ".trim()
+  derive c146 = " a ".trim()
+  derive c147 = "﻿a\t\n".trim()
+  derive c148 = "​a".trim()
+  derive c154 = "abc".includes("")
+  derive c155 = "abc".includes("bc")
+  derive c156 = "abc".includes("C")
+  derive c157 = "abc".startsWith("")
+  derive c158 = "abc".startsWith("ab")
+  derive c159 = "abc".endsWith("c")
+  derive c160 = "abc".endsWith("")
+  derive c161 = "abc".indexOf("")
+  derive c162 = "abc".indexOf("c")
+  derive c163 = "abca".indexOf("a")
+  derive c164 = "abc".indexOf("z")
+  derive c165 = "😀a".indexOf("a")
+  derive c166 = "a,b,,c".split(",").join("|")
+  derive c167 = "abc".split("").join("|")
+  derive c168 = "".split(",").length
+  derive c169 = "a,b".split(",").length
+  derive c170 = "a, b".split(", ").join("|")
+  derive c171 = "😀".split("").length
+  derive c172 = "abc".split("abc").length
+  derive c173 = "aaa".replaceAll("a", "b")
+  derive c174 = "aaa".replaceAll("", "-")
+  derive c175 = "a$b".replaceAll("$", "$$")
+  derive c176 = "x".replaceAll("x", "$&$&")
+  derive c177 = "abc".replaceAll("b", "$'")
+  derive c178 = "abc".replaceAll("b", "$`")
+  derive c179 = "aXbX".replaceAll("X", "")
+  derive c180 = "aaaa".replaceAll("aa", "a")
+  derive c181 = encodeURIComponent("a b&ü😀")
+  derive c182 = encodeURIComponent("-_.!~*'()")
+  derive c183 = encodeURIComponent("")
+  derive c184 = encodeURIComponent("/?#[]@")
+  derive c185 = [1, 2, 3].slice(-1).length
+  derive c186 = [1, 2, 3].slice(1).join(",")
+  derive c187 = [1, 2, 3].indexOf(2)
+  derive c188 = [1, 2].includes(2)
+  derive c189 = [1, 2].includes(3)
+  derive c190 = [-0].includes(0)
+  derive c191 = [-0].indexOf(0)
+  derive c192 = [0].includes(-0)
+  derive c195 = ["a", "b"].indexOf("b")
+  derive c196 = [1, 2].concat([3]).length
+  derive c197 = [1, 2, 3].map((x, i) => x * i).length
+  derive c198 = [1, 2, 3].map((x, i) => `${x * i}`).join(",")
+  derive c199 = [1, 2, 3, 4].filter((x, i) => i % 2 == 0).length
+  derive c201 = ["a", "b"].join("")
+  derive c202 = ["a"].join("-")
+  derive c203 = ["a", "b", "c"].slice(-2).join("")
+  derive c204 = [1, 2, 3].length
+  derive c205 = [].length
+  derive c206 = [1.5, -0].map(x => `${x}`).join(",")
+  derive c207 = [3, 1, 2].filter(x => x > 1).map(x => x * 2).length
+  derive c208 = [1, 2, 3].slice(5).length
+  derive c209 = [1, 2, 3].slice(-1 / 0).length
+  derive c210 = ["b", "a"].concat(["c"]).join("")
+  derive c216 = match ["a", "b"].at(-1) { case some(x) => x, case none => "NONE" }
+  derive c217 = match ["a", "b"].at(2) { case some(x) => x, case none => "NONE" }
+  derive c218 = match ["a", "b"].at(0 / 0) { case some(x) => x, case none => "NONE" }
+  view
+    text "audit"
+
+test "'abc'.slice(1 / 0)"
+  expect state c137 == ""
+
+test "'abc'.slice(-1 / 0)"
+  expect state c138 == "abc"
+
+test "'😀x'.slice(1)"
+  // D1 row: a string is well-formed, so a lone surrogate is U+FFFD (LLP 1088 D2); TypeScript's is "\ude00x".
+  expect state c139 == "�x"
+
+test "'x😀'.slice(0, 2)"
+  // D1 row: a string is well-formed, so a lone surrogate is U+FFFD (LLP 1088 D2); TypeScript's is "x\ud83d".
+  expect state c140 == "x�"
+
+test "'😀'.length"
+  expect state c141 == 2
+
+test "'é'.length"
+  expect state c142 == 1
+
+test "'é'.length"
+  expect state c143 == 2
+
+test "''.length"
+  expect state c144 == 0
+
+test "'  a b  '.trim()"
+  expect state c145 == "a b"
+
+test "' a '.trim()"
+  expect state c146 == "a"
+
+test "'﻿a\t\n'.trim()"
+  expect state c147 == "a"
+
+test "'​a'.trim()"
+  expect state c148 == "​a"
+
+test "'abc'.includes('')"
+  expect state c154 == true
+
+test "'abc'.includes('bc')"
+  expect state c155 == true
+
+test "'abc'.includes('C')"
+  expect state c156 == false
+
+test "'abc'.startsWith('')"
+  expect state c157 == true
+
+test "'abc'.startsWith('ab')"
+  expect state c158 == true
+
+test "'abc'.endsWith('c')"
+  expect state c159 == true
+
+test "'abc'.endsWith('')"
+  expect state c160 == true
+
+test "'abc'.indexOf('')"
+  expect state c161 == 0
+
+test "'abc'.indexOf('c')"
+  expect state c162 == 2
+
+test "'abca'.indexOf('a')"
+  expect state c163 == 0
+
+test "'abc'.indexOf('z')"
+  expect state c164 == -1
+
+test "'😀a'.indexOf('a')"
+  expect state c165 == 2
+
+test "'a,b,,c'.split(',').join('|')"
+  expect state c166 == "a|b||c"
+
+test "'abc'.split('').join('|')"
+  expect state c167 == "a|b|c"
+
+test "''.split(',').length"
+  expect state c168 == 1
+
+test "'a,b'.split(',').length"
+  expect state c169 == 2
+
+test "'a, b'.split(', ').join('|')"
+  expect state c170 == "a|b"
+
+test "'😀'.split('').length"
+  expect state c171 == 2
+
+test "'abc'.split('abc').length"
+  expect state c172 == 2
+
+test "'aaa'.replaceAll('a', 'b')"
+  expect state c173 == "bbb"
+
+test "'aaa'.replaceAll('', '-')"
+  expect state c174 == "-a-a-a-"
+
+test "'a$b'.replaceAll('$', '$$')"
+  expect state c175 == "a$b"
+
+test "'x'.replaceAll('x', '$&$&')"
+  expect state c176 == "xx"
+
+test "'abc'.replaceAll('b', '$'')"
+  expect state c177 == "acc"
+
+test "'abc'.replaceAll('b', '$`')"
+  expect state c178 == "aac"
+
+test "'aXbX'.replaceAll('X', '')"
+  expect state c179 == "ab"
+
+test "'aaaa'.replaceAll('aa', 'a')"
+  expect state c180 == "aa"
+
+test "encodeURIComponent('a b&ü😀')"
+  expect state c181 == "a%20b%26%C3%BC%F0%9F%98%80"
+
+test "encodeURIComponent('-_.!~*'()')"
+  expect state c182 == "-_.!~*'()"
+
+test "encodeURIComponent('')"
+  expect state c183 == ""
+
+test "encodeURIComponent('/?#[]@')"
+  expect state c184 == "%2F%3F%23%5B%5D%40"
+
+test "[1, 2, 3].slice(-1).length"
+  expect state c185 == 1
+
+test "[1, 2, 3].slice(1).join(',')"
+  // TypeScript: [1, 2, 3].slice(1).map(String).join(",")
+  expect state c186 == "2,3"
+
+test "[1, 2, 3].indexOf(2)"
+  expect state c187 == 1
+
+test "[1, 2].includes(2)"
+  expect state c188 == true
+
+test "[1, 2].includes(3)"
+  expect state c189 == false
+
+test "[-0].includes(0)"
+  expect state c190 == true
+
+test "[-0].indexOf(0)"
+  expect state c191 == 0
+
+test "[0].includes(-0)"
+  expect state c192 == true
+
+test "['a', 'b'].indexOf('b')"
+  expect state c195 == 1
+
+test "[1, 2].concat([3]).length"
+  expect state c196 == 3
+
+test "[1, 2, 3].map((x, i) => x * i).length"
+  expect state c197 == 3
+
+test "[1, 2, 3].map((x, i) => `${x * i}`).join(',')"
+  expect state c198 == "0,2,6"
+
+test "[1, 2, 3, 4].filter((x, i) => i % 2 == 0).length"
+  expect state c199 == 2
+
+test "['a', 'b'].join('')"
+  expect state c201 == "ab"
+
+test "['a'].join('-')"
+  expect state c202 == "a"
+
+test "['a', 'b', 'c'].slice(-2).join('')"
+  expect state c203 == "bc"
+
+test "[1, 2, 3].length"
+  expect state c204 == 3
+
+test "[].length"
+  expect state c205 == 0
+
+test "[1.5, -0].map(x => `${x}`).join(',')"
+  expect state c206 == "1.5,0"
+
+test "[3, 1, 2].filter(x => x > 1).map(x => x * 2).length"
+  expect state c207 == 2
+
+test "[1, 2, 3].slice(5).length"
+  expect state c208 == 0
+
+test "[1, 2, 3].slice(-1 / 0).length"
+  expect state c209 == 3
+
+test "['b', 'a'].concat(['c']).join('')"
+  expect state c210 == "bac"
+
+test "match ['a', 'b'].at(-1) { case some(x) => x, case none => 'N"
+  expect state c216 == "b"
+
+test "match ['a', 'b'].at(2) { case some(x) => x, case none => 'NO"
+  expect state c217 == "NONE"
+
+test "match ['a', 'b'].at(0 / 0) { case some(x) => x, case none =>"
+  expect state c218 == "a"

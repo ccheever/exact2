@@ -1,13 +1,14 @@
 /-
 The roster's formatting and localization, as the runner computes them.
 
-`formatTime` is `runner/src/stdlib.rs`'s, `formatDate`, `formatNumber`,
+`formatTime` is `runner/src/stdlib.rs`'s, `formatDate`, `formatDay`, `formatNumber`,
 `toFixed` and `formatDecimal` the linked `format` capability's (`runner/src/format.rs`), `t` the
 strings tables' (`exact_plan::strings`: `Plan::localized` and `fill`).
 Each is transcribed: `en-US` at the fixed UTC offset the call names, the
 calendar by Hinnant's `civil_from_days` over integers, compact numbers
 from the shortest decimal digits Rust's `{}` prints (`shortestUp`: of two
-equally near shortest forms, the upper, where JavaScript takes the even).
+equally near shortest forms, the upper, where JavaScript takes the even),
+and decimal, currency and percent numbers from JavaScript's (`styled`).
 -/
 import Contract.Number
 
@@ -98,6 +99,54 @@ def compact (n : F64) : String :=
       | 1 => "K" | 2 => "M" | 3 => "B" | 4 => "T" | _ => ""
     (if n < 0 then "-" else "") ++ String.ofList body ++ suffix
 
+/-- The ISO 4217 codes `formatNumber(n, "currency", code)` takes, each with
+its `en-US` symbol and fraction digits (`format.rs`'s `CURRENCIES`). -/
+def currencies : List (String × String × Nat) :=
+  [("USD", "$", 2), ("EUR", "€", 2), ("GBP", "£", 2), ("JPY", "¥", 0), ("CNY", "CN¥", 2),
+   ("INR", "₹", 2), ("CAD", "CA$", 2), ("AUD", "A$", 2), ("NZD", "NZ$", 2), ("HKD", "HK$", 2),
+   ("SGD", "SGD", 2), ("CHF", "CHF", 2), ("SEK", "SEK", 2), ("NOK", "NOK", 2), ("DKK", "DKK", 2),
+   ("PLN", "PLN", 2), ("MXN", "MX$", 2), ("BRL", "R$", 2), ("KRW", "₩", 0), ("ZAR", "ZAR", 2),
+   ("TWD", "NT$", 2), ("ILS", "₪", 2), ("PHP", "₱", 2), ("VND", "₫", 0)]
+
+/-- `formatNumber(n, "decimal" | "currency" | "percent")` (LLP 1116 D8):
+`Intl.NumberFormat("en-US")`'s as `format.rs`'s `styled` computes it, from
+JavaScript's shortest digits `s × 10^q` of `|n|` (`Number.shortest`, the
+even of a tie, as ICU's are): the point moved `shift` places right (two for
+`percent`), cut to `max` fraction digits half away from zero, trailing
+zeros dropped down to `min` (`decimal` keeps at most three, `currency` its
+code's exactly, `percent` none), the integer part grouped by threes, a
+negative value (zero too) signed before the symbol, and a symbol that ends
+in a letter set apart by a no-break space; `""` for a non-finite value.
+`none` for a style or code the compiler would have refused. -/
+def styled (n : F64) (style code : String) : Option String :=
+  let spec : Option (String × Nat × Nat × Nat) :=
+    if style = "decimal" then .some ("", 0, 3, 0)
+    else if style = "percent" then .some ("", 0, 0, 2)
+    else if style = "currency" then
+      (currencies.find? (·.1 == code)).map fun (_, sym, d) => (sym, d, d, 0)
+    else .none
+  spec.map fun (sym, lo, hi, shift) =>
+    if !isFinite n then ""
+    else
+      -- `|n| × 10^(shift + hi)`, rounded half up: the kept digits.
+      let kept : Nat :=
+        if n == 0 then 0
+        else
+          let (s, q) := shortest (parts n)
+          let e : Int := q + (shift + hi : Nat)
+          if e ≥ 0 then s * 10 ^ e.toNat
+          else let d := 10 ^ (-e).toNat; (s + d / 2) / d
+      let ds := (toString kept).toList
+      let ds := zeros (hi + 1 - ds.length) ++ ds
+      let int := ds.take (ds.length - hi)
+      let frac := ds.drop (ds.length - hi)
+      let trimmed := (frac.reverse.dropWhile (· == '0')).reverse
+      let frac := frac.take (max trimmed.length lo)
+      let sym := if sym.toList.getLast?.any Char.isAlpha then sym ++ "\u00A0" else sym
+      (if signBit n then "-" else "") ++ sym ++ String.ofList (group int) ++
+        (if frac.isEmpty then "" else "." ++ String.ofList frac) ++
+        (if style = "percent" then "%" else "")
+
 /-- 0001-01-01T00:00 and 9999-12-31T23:59:59.999, in ms since the epoch. -/
 def firstWall : F64 := -(62135596800000 : F64)
 def lastWall : F64 := 253402300799999
@@ -172,6 +221,35 @@ def formatIsoDate (epoch offset : F64) : String :=
     let (year, month, day) := civil (floorInt (wall / 86400000))
     let pad (n w : Nat) : String := let s := toString n; String.ofList (zeros (w - s.length)) ++ s
     pad year.toNat 4 ++ "-" ++ pad month 2 ++ "-" ++ pad day 2
+
+def weekdays : List String :=
+  ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+/-- `formatDay(thenMs, nowMs, utcOffset, mode)` (LLP 1116.020 D8): `t`'s day
+counted from `n`'s in the offset's calendar days. `day` is `Today`,
+`Yesterday`, `Tomorrow` or the medium date; `day-time` adds ` at ` and the
+short time; `list` (any other mode: `Eval.formatting` passes only the three)
+is the short time today, `Yesterday`, the weekday two to six days back,
+else `M/D/YY`. `""` when either instant is invalid. -/
+def formatDay (t n offset : F64) (mode : String) : String :=
+  match wallMs t offset, wallMs n offset with
+  | .some wall, .some now =>
+    let days := floorInt (wall / 86400000)
+    let apart := days - floorInt (now / 86400000)
+    if mode == "list" then
+      if apart == 0 then formatTime t offset
+      else if apart == -1 then "Yesterday"
+      else if -6 ≤ apart && apart ≤ -2 then weekdays.getD (Int.emod (days + 4) 7).toNat ""
+      else
+        let (year, month, day) := civil days
+        let yy := (Int.emod year 100).toNat
+        toString month ++ "/" ++ toString day ++ "/" ++ toString (yy / 10) ++ toString (yy % 10)
+    else
+      let label :=
+        if apart == 0 then "Today" else if apart == -1 then "Yesterday"
+        else if apart == 1 then "Tomorrow" else formatDate t offset false
+      if mode == "day-time" then label ++ " at " ++ formatTime t offset else label
+  | _, _ => ""
 
 /-! ## Fixed decimals (LLP 1102 §3.2, decided (c)) -/
 

@@ -131,6 +131,7 @@ fn paint(p: &mut Painter, k: &Kernel) -> crate::paint::Frame {
             images: &BTreeMap::new(),
             focus: None,
             selection: None,
+            caret_upstream: false,
             pointer: None,
             controls: &BTreeMap::new(),
             chosen: &BTreeMap::new(),
@@ -143,8 +144,9 @@ fn paint(p: &mut Painter, k: &Kernel) -> crate::paint::Frame {
 #[test]
 fn unchanged_giant_and_sibling_typing_copy_hash_and_shape_no_giant_source() {
     let engine = TextEngine::shared();
-    let text = "word é\n".repeat(131072);
-    assert!(text.len() >= 1024 * 1024);
+    // Twice the giant bar: any whole-source copy, hash or shape is counted
+    let text = "word é\n".repeat(16384);
+    assert!(text.len() >= 2 * 65536);
     let mut k = tree(engine.clone(), &text);
     let mut p = Painter::new(engine.clone(), 1., Box::new(Raster::new()));
     let first = paint(&mut p, &k);
@@ -569,6 +571,7 @@ mod owned_spec {
             hang: false,
             mark: 0,
             href: String::new(),
+            bold_text: false,
         }
     }
     fn spec(text: &str) -> Spec {
@@ -579,8 +582,11 @@ mod owned_spec {
             line_clamp: 0,
             overflow_wrap: exact_kernel::OverflowWrap::Normal,
             white_space: exact_kernel::WhiteSpace::Normal,
+            text_wrap_style: exact_kernel::TextWrapStyle::Auto,
             direction: exact_kernel::Direction::Ltr,
             text_indent: 0.0,
+            text_box_trim: exact_kernel::TextBoxTrim::None,
+            text_box_edge: exact_kernel::TextBoxEdge::Auto,
         }
     }
     fn stamp_tree(text: &str) -> Kernel {

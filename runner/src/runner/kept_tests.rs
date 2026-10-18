@@ -1,5 +1,12 @@
 //! Persisted-answer identity and request context (LLP 1027.005 D3–D6).
 use super::*;
+
+#[path = "kept_identity_tests.rs"]
+mod identity;
+#[path = "kept_secrets_tests.rs"]
+mod secrets;
+#[path = "kept_time_tests.rs"]
+mod time;
 use crate::{Answer, Outcome, Request, Store};
 use exact_kernel::{Kernel, NodeType};
 use exact_plan::{asm::Asm, builder::PlanBuilder, Opcode, Plan, TypeKind, Value};
@@ -158,11 +165,11 @@ fn plan(context: u16, empty_call: bool) -> Plan {
     b.finish().unwrap()
 }
 
-fn entry(args: &[Value], value: &Value) -> Vec<(String, String)> {
+fn entry(args: &[Value], value: &Value) -> Vec<(String, Vec<u8>)> {
     vec![(kept::kept_name("answer"), kept::encode(args, value))]
 }
 
-fn boot(plan: Plan, source: Source, snapshot: Vec<(String, String)>) -> Runner<Source> {
+fn boot(plan: Plan, source: Source, snapshot: Vec<(String, Vec<u8>)>) -> Runner<Source> {
     Runner::boot_stored(
         plan,
         source,
@@ -233,7 +240,7 @@ fn seed_survives_two_context_changes_and_activation_asks_the_latest_full_argumen
     assert_eq!(state(&r).args, full("A", "200", 2.));
     assert_eq!(
         r.store.kept(&kept::kept_name("answer")),
-        Some(kept::encode(&[Value::str("A")], &Value::str("fresh")).as_str())
+        Some(kept::encode(&[Value::str("A")], &Value::str("fresh")).as_slice())
     );
     assert_eq!(answer_writes(&r), 1);
     assert!(r.data_ready().unwrap().is_none());
@@ -426,14 +433,14 @@ fn no_with_preserves_entry_bytes_and_requires_all_arguments_to_match() {
     r.data_ready().unwrap();
     assert_eq!(
         r.store.kept(&kept::kept_name("answer")),
-        Some(old_bytes.as_str())
+        Some(old_bytes.as_slice())
     );
     assert_eq!(answer_writes(&r), 0);
     r.act("minute", vec![Value::str("200")]).unwrap();
     assert_eq!(answer_writes(&r), 1);
     assert_eq!(
         r.store.kept(&kept::kept_name("answer")),
-        Some(kept::encode(&full("A", "200", 0.), &Value::str("kept")).as_str())
+        Some(kept::encode(&full("A", "200", 0.), &Value::str("kept")).as_slice())
     );
     let mismatch = boot(
         plan(0, false),
@@ -459,7 +466,7 @@ fn an_empty_call_keeps_one_answer_and_still_passes_all_context_to_the_source() {
     assert_eq!(r.data.asks, [vec![Value::str("200"), Value::Number(0.)]]);
     assert_eq!(
         r.store.kept(&kept::kept_name("answer")),
-        Some(kept::encode(&[], &Value::str("fresh")).as_str())
+        Some(kept::encode(&[], &Value::str("fresh")).as_slice())
     );
 }
 
@@ -471,7 +478,10 @@ fn damaged_wrong_length_wrong_identity_and_wrong_shape_entries_use_the_fallback(
         (full("A", "100", 0.), Value::str("kept")),
         (vec![Value::str("B")], Value::str("kept")),
         (vec![Value::str("A")], Value::Bool(true)),
-        (vec![Value::str("A")], Value::str(&"x".repeat(5000))),
+        (
+            vec![Value::str("A")],
+            Value::str(&"x".repeat(kept::MAX_KEPT_BYTES)),
+        ),
     ] {
         snapshots.push(entry(&args, &value));
     }
@@ -486,7 +496,7 @@ fn damaged_wrong_length_wrong_identity_and_wrong_shape_entries_use_the_fallback(
 #[test]
 fn the_kept_budget_counts_identity_and_value_but_not_context() {
     let mut r = seeded();
-    let large = Value::str(&"x".repeat(5000));
+    let large = Value::str(&"x".repeat(kept::MAX_KEPT_BYTES));
     r.act("minute", vec![large.clone()]).unwrap();
     r.data.ready = true;
     r.data_ready().unwrap();
@@ -496,18 +506,32 @@ fn the_kept_budget_counts_identity_and_value_but_not_context() {
         1,
         "large context is absent from the entry"
     );
+    let kept_answer = |r: &Runner<Source>| r.store.kept(&kept::kept_name("answer")).is_some();
+    assert!(kept_answer(&r));
     r.act("car", vec![large.clone()]).unwrap();
-    assert_eq!(
-        answer_writes(&r),
-        1,
-        "large identity exceeds the entry budget"
+    assert!(
+        !kept_answer(&r),
+        "large identity exceeds the entry budget, and the older answer is forgotten rather than shown stale"
     );
-    r.data.value = large;
+    assert_eq!(answer_writes(&r), 2, "the forgetting is a write");
     r.act("car", vec![Value::str("A")]).unwrap();
+    assert!(kept_answer(&r));
+    r.data.value = large;
+    r.act("car", vec![Value::str("B")]).unwrap();
+    assert!(!kept_answer(&r), "large answer exceeds the entry budget");
+    let said: Vec<&str> = r
+        .journal()
+        .filter(|l| l.contains("too big to keep:"))
+        .collect();
     assert_eq!(
-        answer_writes(&r),
+        said.len(),
         1,
-        "large answer exceeds the entry budget"
+        "an answer too big to keep is said once: {said:?}"
+    );
+    assert!(
+        said[0].contains("more than 262144 bytes (256 KiB)") && said[0].contains("under 256 KiB"),
+        "{}",
+        said[0]
     );
 }
 
@@ -669,6 +693,8 @@ fn the_runner_answers_exactly_the_plan_s_own_sources() {
         crate::page::SOURCE,
         crate::surface_record::SOURCE,
         crate::time::SOURCE,
+        crate::transport::SOURCE,
+        crate::midi::SOURCE,
     ];
     let mut listed = exact_plan::RUNNER_OWNED_SOURCES.to_vec();
     answered.sort_unstable();
@@ -690,4 +716,89 @@ fn a_kept_seed_failed_by_a_refused_activation_stays_failed_across_context() {
     assert_eq!(r.data.asks.len(), asks);
     assert!(r.failed_args[0].is_some());
     shows(&r, "kept");
+}
+
+#[test]
+fn a_refused_commit_does_not_forget_a_kept_answer() {
+    let mut r = seeded();
+    r.data.ready = true;
+    r.data_ready().unwrap();
+    let kept_answer = |r: &Runner<Source>| r.store.kept(&kept::kept_name("answer")).is_some();
+    assert!(kept_answer(&r));
+    r.data.value = Value::str(&"x".repeat(kept::MAX_KEPT_BYTES));
+    assert!(matches!(
+        r.act("refuse", vec![Value::str("B")]),
+        Err(RunnerError::Trap(_))
+    ));
+    assert!(
+        kept_answer(&r),
+        "the refused commit's forgetting is rolled back"
+    );
+    r.act("car", vec![Value::str("B")]).unwrap();
+    assert!(!kept_answer(&r), "a commit that stands forgets it");
+}
+
+#[test]
+fn a_refusal_after_boot_is_journaled_and_a_rolled_back_one_is_not() {
+    let refused = |r: &Runner<Source>| -> Vec<String> {
+        r.journal()
+            .filter(|l| l.contains("refused its kept answer"))
+            .map(str::to_string)
+            .collect()
+    };
+    let mut r = seeded();
+    // A refusal the trap undoes is not said; the seed stands.
+    assert!(r.act("refuse", vec![Value::str("B")]).is_err());
+    assert!(refused(&r).is_empty());
+    // An identity change that stands is, with the arguments it asks for.
+    r.act("car", vec![Value::str("C")]).unwrap();
+    let lines = refused(&r);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].ends_with(
+            "answer refused its kept answer: kept for [\"A\"], this launch asks for [\"C\"]"
+        ),
+        "{lines:?}"
+    );
+}
+
+/// Three store readers of one source, none with arguments.
+fn three() -> Plan {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    for name in ["a", "b", "c"] {
+        let r = b.resource(name, "answer", &[], string, Some(&Value::str("loading")));
+        b.set_resource_reader(r, true);
+        b.set_resource_initial_args(r, &[]);
+    }
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    b.finish().unwrap()
+}
+
+#[test]
+fn kept_answers_over_their_total_forget_the_longest_other() {
+    let source = Source {
+        value: Value::str(&"x".repeat(200 * 1024)),
+        ..Source::default()
+    };
+    let mut r = boot(three(), source, Vec::new());
+    r.data.ready = true;
+    r.data_ready().unwrap();
+    let kept: Vec<_> = ["a", "b", "c"]
+        .into_iter()
+        .filter(|n| r.store.kept(&kept::kept_name(n)).is_some())
+        .collect();
+    assert_eq!(kept, ["b", "c"], "the first kept is forgotten for the last");
+    let total: usize = r.store.kept_lengths().iter().map(|(_, n)| n).sum();
+    assert!(total <= kept::KEPT_TOTAL_BYTES, "{total}");
+    let said: Vec<_> = r
+        .journal()
+        .filter(|l| l.contains("kept answers are at most 512 KiB together"))
+        .collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("forgot `a`'s (204810 bytes) to keep `c`'s"),
+        "{}",
+        said[0]
+    );
 }

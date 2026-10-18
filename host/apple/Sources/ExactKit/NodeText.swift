@@ -12,10 +12,7 @@ extension NodeView {
     }
 
     func textRun(_ value: String) -> Run {
-        Run(text: value, size: CGFloat(Float(number("font_size", PageFacts.defaultRootFontSize))), weight: Int(number("font_weight", 400)),
-            family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic",
-            lineHeight: usedLineHeight, letterSpacing: CGFloat(Float(number("letter_spacing"))),
-            numeric: Int(number("font_variant_numeric")))
+        TextStyle.run(value, style: style, defaultSize: PageFacts.defaultRootFontSize)
     }
 
     var isParagraph: Bool { kind == "text" }
@@ -66,25 +63,23 @@ extension NodeView {
         #if os(macOS)
         textRasterPending = false
         #else
+        if let presenter, presenter.applying { presenter.changedText.insert(id) }
         presenter?.requestTextPublication()
         #endif
     }
 
     /// CSS start/end resolve from direction, for paragraphs and native editors.
     var textAlignmentCode: Int {
-        let rtl = style["direction"]?.string == "rtl"
-        switch style["text_align"]?.string {
-        case "left": return 0
-        case "center": return 1
-        case "right": return 2
-        case "justify": return 3
-        case "end": return rtl ? 0 : 2
-        default: return rtl ? 2 : 0
-        }
+        TextStyle.alignment(style)
     }
     func paragraphSpec() -> Spec {
         if let spec = cachedTextSpec { return spec }
-        let align = textAlignmentCode, rtl = style["direction"]?.string == "rtl"
+        #if os(macOS)
+        // In a table's selected row that AppKit draws emphasized, a role's ink is the selected item's (TableInkMac.swift).
+        let outer = SystemColor.selectedItem
+        SystemColor.selectedItem = inEmphasizedRow
+        defer { SystemColor.selectedItem = outer }
+        #endif
         var runs: [Run] = []
         // An inline run is not in the view hierarchy — its paragraph owns it
         // and it was removed from any superview — so it has no appearance of
@@ -96,7 +91,11 @@ extension NodeView {
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
-            runs = MarkdownLink.installed?.expand(source, base: textRun(""), color: textChannels("text_color", dark: night)) ?? [textRun(source)]
+            // Every piece is in the node's ink, or a share of it: one kind.
+            var base = textRun("")
+            base.fixedInk = style["text_color"]?.fixesInk == true
+            runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night),
+                                                  boldText: text?.boldTextSteps(base.family) == true) ?? [textRun(source)]
             if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
             // `currentcolor` in a shadow or stroke is each piece's own colour.
             let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
@@ -118,23 +117,9 @@ extension NodeView {
                 }
             }
         }
-        let whiteSpace = ["pre-wrap": 1, "nowrap": 2, "pre-line": 3, "pre": 4][style["white_space"]?.string ?? ""] ?? 0
-        // CSS collapses white space before shaping, as the measurer does in
-        // Rust with the same function (LLP 1053 G5); Markdown keeps its lines.
-        let source = whiteSpace == 1 || whiteSpace == 4 || props["markup"] == "markdown" ? SourceMap() : SourceMap.collapse(&runs, whiteSpace: whiteSpace)
-        let lineClamp = Int(number("line_clamp"))
-        // `text-overflow: ellipsis` applies to a box that clips its inline overflow.
-        let clips = (style["overflow_x"]?.string).map { $0 != "visible" } ?? false
-        var spec = Spec(runs: runs, align: align, lineClamp: lineClamp,
-                        color: textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast),
-                        overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: whiteSpace, strut: textRun(""))
-        spec.ellipsis = lineClamp == 0 && clips && style["text_overflow"]?.string == "ellipsis"
-        spec.source = source
-        spec.textIndent = CGFloat(Float(number("text_indent")))
-        spec.hyphens = ["none": 1, "auto": 2][style["hyphens"]?.string ?? ""] ?? 0
-        // The kernel's measurer hyphenates by the same document language.
-        if spec.hyphens == 2 { spec.language = presenter?.documentLanguage ?? "" }
-        spec.hyphenateAuto()
+        var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: textRun(""),
+                                  color: textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast),
+                                  language: presenter?.documentLanguage ?? "")
         // One shadow over the paragraph when its runs agree (LLP 1077 D3).
         spec.gatherShadows()
         cachedTextSpec = spec

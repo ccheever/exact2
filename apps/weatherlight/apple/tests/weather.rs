@@ -28,7 +28,7 @@ impl Weather {
         Self {
             module,
             plan,
-            store: Store::new(GRANTS, Vec::<(String, String)>::new()),
+            store: Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new()),
         }
     }
 

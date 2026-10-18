@@ -54,11 +54,13 @@ extension Agent {
         let vp = presenter.viewport
         var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)]]
         let scale = vp.window?.screen.scale ?? vp.traitCollection.displayScale
-        let report = AgreementReport(tolerance: 1 / max(scale, 1))
+        // A pixel, and the layout unit an edge is taken to before it is
+        // rounded to one (`PixelGridIOS.swift`).
+        let report = AgreementReport(tolerance: 1 / max(scale, 1) + 1.0 / 64)
         guard let kernel = kernelFrames() else { return ["error": "layout agree: the runner's frames are unreadable"] }
         guard let exactView = presenter.session?.view else { return ["error": "layout agree: the session has no view"] }
         if exactView.window == nil { report.incomplete("no-window") }
-        let roots = [(exactView as UIView, "ExactView")] + presenter.modals.inspectionRoots.map { ($0.view, $0.label) }
+        let roots = presenter.surfaces(includingRetiring: true).map { ($0.view, $0.label) }
         presenter.inspectAgreement(roots: roots, kernel: kernel, inFlight: nativeInFlight() || settle() != nil, report: report) { self.box($0) }
         if currentEpoch() != kernel.epoch { report.incomplete("spanned") }
         reply["agreement"] = report.json(limit: limit)
@@ -96,7 +98,7 @@ extension Presenter {
                                          o.glassGroupView?.contentView, o.glassSlot?.contentView]
             if containers.contains(where: { $0 === v }) { return true }
         }
-        return modals.inspectionRoots.contains { $0.view === v } || menus.inspectionOwns(v)
+        return surfaces(includingRetiring: true).contains { $0.view === v } || menus.inspectionOwns(v)
     }
 
     /// What accounts for `sub`, a subview of `parent` under node `owner`, by
@@ -118,10 +120,12 @@ extension Presenter {
             if Self.platformKinds.contains(o.kind) || o.props["hatch"] != nil { return ("platform", id) }
         }
         if menus.inspectionOwns(sub) { return ("menu", owner?.id) }
+        // A grouped list's background past the viewport's edge, beside it (LLP 1116.004 D2).
+        if owner == nil, groupedLists?.inspectionOwns(sub) == true { return ("grouped-list", nil) }
         if sub === viewport { return ("viewport", nil) }
         if sub === root { return ("document", nil) }
         if session?.view?.inspectionOwned.contains(where: { $0 === sub }) == true { return ("probe", nil) }
-        if modals.inspectionRoots.contains(where: { $0.owned.contains { $0 === sub } }) { return ("modal", nil) }
+        if surfaces(includingRetiring: true).contains(where: { $0.owned.contains { $0 === sub } }) { return ("modal", nil) }
         // A controller's root view: navigation stacks, tabs, a modal's
         // covered owner. Its interior is UIKit's; nodes in it are matched.
         if sub.next is UIViewController { return ("controller", nil) }
@@ -337,7 +341,6 @@ extension Presenter {
                 continue
             }
             guard seen[id] === v, v.window != nil else { report.skip("offWindow"); continue }
-            if modals.holdsGeometry(id) { report.skip("deferred"); continue }
             if v.placedAncestor != nil { report.skip("placed"); continue }
             if menus.projects(v) || swipeActions.projects(v) || groupedLists?.projects(v) == true { report.skip("projected"); continue }
             if navigation.controllers[id]?.node === v { report.skip("route"); continue }

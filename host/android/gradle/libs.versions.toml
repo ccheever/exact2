@@ -1,0 +1,24 @@
+# The pins of LLP 1115.001.001 D1: the Material version every painted component and every island is matched to,
+# the Android SDK level of the reference (the Pixels'), and the reference's renderer. The BOM resolves `material3`;
+# `material3` here is what it resolves to, and the reference module's `checkPins` fails when the two disagree.
+[versions]
+composeBom = "2026.09.00"
+material3 = "1.4.0"
+referenceSdk = "36"
+robolectric = "4.17"
+roborazzi = "1.76.0"
+junit = "4.13.2"
+# What the reference's test manifest resolves already, so the catalogue adds no version to the reference's graph.
+activity = "1.8.2"
+
+[libraries]
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+compose-material3 = { module = "androidx.compose.material3:material3" }
+compose-icons = { module = "androidx.compose.material:material-icons-core" }
+compose-activity = { module = "androidx.activity:activity-compose", version.ref = "activity" }
+compose-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
+compose-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+roborazzi = { module = "io.github.takahirom.roborazzi:roborazzi", version.ref = "roborazzi" }
+roborazzi-compose = { module = "io.github.takahirom.roborazzi:roborazzi-compose", version.ref = "roborazzi" }
+junit = { module = "junit:junit", version.ref = "junit" }

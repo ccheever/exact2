@@ -177,7 +177,7 @@ fn an_async_branch_is_adopted_from_the_same_checkpoint() {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contract/corpus/placeholder.contract"),
     )
     .unwrap();
-    let src = src.replace("      text post.title testId=\"title\"", "      when pending(post)\n        text \"Loading\"\n      else\n        column\n          text post.title testId=\"title\"");
+    let src = src.replace("      text post.title testId=\"title\"", "      if pending(post)\n        text \"Loading\"\n      else\n        column\n          text post.title testId=\"title\"");
     let plan = contract::compile(&src).unwrap();
     let rendered = render(
         &plan,
@@ -237,9 +237,18 @@ fn what_the_environment_does_not_hold_keeps_its_placeholder() {
             r.checkpoint
         );
     }
-    // Only the app's fetch grants reach the render.
+    // Only the app's fetch grants reach the render, and of those no
+    // scheme-wide line.
     let data = Anonymous::new(Blog::new(Post::Soon));
     assert_eq!(DataSource::grants(&data), "net.fetch https://blog.test/");
+    let data = Anonymous::new(Blog {
+        grants: "net.fetch https:\nnet.fetch https://blog.test/\nnet.fetch HTTP:\nnet.websocket ws:\nnet.fetch https://blog.test:".into(),
+        ..Blog::new(Post::Soon)
+    });
+    assert_eq!(
+        DataSource::grants(&data),
+        "net.fetch https://blog.test/\nnet.fetch https://blog.test:"
+    );
 }
 
 #[test]
@@ -466,9 +475,42 @@ fn a_page_is_the_shell_around_the_document() {
     let rest = html
         .replace(exact_render::capture(), "")
         .replace(" data-wasm=\"./app.wasm\"", "");
-    assert!(!rest.contains("app.wasm"));
-    assert!(!rest.contains("navigation.js"));
+    // Comments are prose, not fetches: a shell comment may name a module
+    // (this assertion once read them, and three comment rewordings followed).
+    let rest = strip_comments(&rest);
+    assert!(
+        !rest.contains("app.wasm"),
+        "an interaction page names app.wasm outside a comment, so something fetches it before intent"
+    );
+    assert!(
+        !rest.contains("navigation.js"),
+        "an interaction page names navigation.js outside a comment, so something fetches it before intent"
+    );
     a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(interaction);
+}
+
+/// The shell with its CSS (`/* … */`) and HTML (`<!-- … -->`) comments cut:
+/// what a name in prose must not be judged as.
+fn strip_comments(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while !rest.is_empty() {
+        let css = rest.find("/*");
+        let web = rest.find("<!--");
+        let (at, close) = match (css, web) {
+            (Some(c), Some(w)) if w < c => (w, "-->"),
+            (Some(c), _) => (c, "*/"),
+            (None, Some(w)) => (w, "-->"),
+            (None, None) => break,
+        };
+        out.push_str(&rest[..at]);
+        let after = &rest[at..];
+        rest = after
+            .find(close)
+            .map_or("", |end| &after[end + close.len()..]);
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The same document over the JavaScript runtime's shell (one render for

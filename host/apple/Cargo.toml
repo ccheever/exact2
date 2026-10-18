@@ -35,8 +35,11 @@ exact-runner = { path = "../../runner" }
 # default-features = false had turned off.
 ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket"] }
 
+serde_json = "1.0"
+
 [dev-dependencies]
 caltrain = { path = "../../apps/caltrain" }
 caltrain-data = { path = "../../apps/caltrain/data" }
 contract = { path = "../../contract/cli" }
-serde_json = "1.0"
+# A scripted socket transport names the URL type its trait takes.
+url = "2.5"

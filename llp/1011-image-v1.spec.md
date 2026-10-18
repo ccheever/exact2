@@ -173,7 +173,7 @@ servers (`serve`, `dev`, `smoke`, `metrics`) know `image/png`.
 For `symbol:` sources, the host supplies the schema's generic SVG path and
 `alt=""`, or the author's name when it has one (`accessibilityLabel`, written as `alt`); the glue uses a transparent SVG for intrinsic size and a CSS mask
 for the glyph. Computed font size/weight update the SVG; `tint-color` supplies
-the mask's colour. The mask follows the content box and `object-fit`. These
+the mask's colour. The mask follows the content box and `object-fit`; under `fill`, CSS's initial value, it is sized `contain`, keeping the symbol's aspect as the Apple hosts do (§4; amended 2026-10-16, Grok's review). These
 paths express the roles without copying Apple's artwork.
 
 **Tinted rasters (2026-09-26).** `host_css` (`host/web/src/element.rs`) gives
@@ -338,7 +338,12 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   with appearance. Intrinsic reports run on the next main-queue turn and require
   the original view identity and load generation, so a replaced source or retired
   node cannot receive them. `object-fit`, padding and rounded clipping apply to
-  the content box; symbols bypass the bitmap drawing path. `layout <node>` reports
+  the content box; symbols bypass the bitmap drawing path. Under `fill`, CSS's
+  initial `object-fit`, a symbol keeps its aspect, centred and scaled to fit
+  (`scaleAspectFit`, `scaleProportionallyUpOrDown`), as an SVG's default
+  `preserveAspectRatio` keeps it and as the web's symbol mask draws it (§3)
+  (amended 2026-10-16: stretched, a `chevron.right` in a 16 × 16 box drew
+  about 40% wider than its glyph, as the euxy port's list rows showed). `layout <node>` reports
   `native.symbol` with renderer class, source, resolved name, `found`, missing `reason`, intrinsic
   size and frame.
 - **Tinted rasters** (2026-09-26) use the one decoded bitmap the raster

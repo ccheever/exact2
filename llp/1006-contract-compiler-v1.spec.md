@@ -546,6 +546,10 @@ Before constructing a component scope, inference has allocated every declaration
 type entry, including unresolved derive and action parameter types. Scope construction
 copies bindings directly from that table into its owned snapshot, without first
 cloning the whole component type table and its unrelated data-source signatures.
+Each action-body pass and slot-write probe builds that declaration frame once,
+pushes and pops each action's parameters, and refreshes changed slot types between
+bodies. A body still reads the snapshot from its entry; later bodies see prior
+writes' inferred types. Call-parameter refinement keeps its declaration order.
 
 HTML `dialog` lowers to a View with `semanticTag="dialog"` and the absolute
 position default; `commandfor` and `command` are schema props, passed by their

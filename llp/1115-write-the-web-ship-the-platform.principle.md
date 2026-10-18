@@ -2,7 +2,7 @@
 
 **Type:** Principle
 **Status:** Active (Charlie Cheever, 2026-10-09: "write that up and write an LLP about it")
-**Systems:** All hosts (iOS, macOS, tvOS, Linux, Windows, web), the kernel's style defaults, the Contract compiler's lowering, the agent docs and `exact new`
+**Systems:** All hosts (iOS, macOS, tvOS, Android, Linux, Windows, web), the kernel's style defaults, the Contract compiler's lowering, the agent docs and `exact new`
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-09
 **Implementer:** Claude (Opus 5.5), waves 1–2 from 2026-10-09 (§6)
@@ -17,7 +17,14 @@ Precedence, for every value a host presents: **author > platform > CSS default.*
 settles a dispute: *would someone who knows the platform notice?* If so it is a **tell**, and
 the platform's answer wins. On iPhone the reference is a screen built by hand with UIKit or
 SwiftUI following Apple's Human Interface Guidelines, on the same iOS version (James's "no
-tells"); on the Mac, AppKit; each platform likewise. Not Chrome.
+tells"); on the Mac, a hand-built app on the same macOS, in AppKit or SwiftUI, chosen for each
+presentation (amended 2026-10-12, Charlie, LLP 1115.002 D1: it read "on the Mac, AppKit");
+each platform likewise. Not Chrome.
+
+> **Amended (Charlie, 2026-10-11; LLP 1115.000 D12.3).** A person's accessibility settings
+> come before the author where a hand-built app would apply them: Bold Text weights the
+> system font even under an authored weight. The order is the person's accessibility
+> settings, then the author, then the platform, then CSS's default.
 
 This replaces "the web is the standard" as the top rule. The web stays what the author writes
 (the vocabulary, the layout model) and where the author works (the dev loop); it stops being
@@ -52,8 +59,12 @@ user can see or feel that the author did not write is the platform's.
 
 **Inherited is unsaid.** A `color` the author set on the page and a button only inherits is not
 the button's colour: the bar item keeps UIKit's tint (d33eb49dd). The host's rule is: a value
-counts as written on a node when it differs from what the node would inherit from the node
-above it, or when the property does not inherit.
+counts as written on a node when its row carries the bit that says its author wrote it there
+(LLP 1115.000 D2): an attribute of the node or a row of its class, a platform colour and a
+value equal to its parent's included. An inherited value has no row on the child and so no
+bit, and a row the compiler implied (a sheet's, a heading's, a tag's own) is set and not
+written. Until 2026-10-11 hosts guessed this from the value: written when it differed from
+what the node would inherit.
 
 ## 3. Mechanism
 
@@ -62,8 +73,23 @@ resolves (`text_color` is `CanvasText`: `labelColor` on iOS, `textColor` on macO
 own on the web). This LLP extends it rather than inventing a second mechanism:
 
 - **Colours.** Every presentation colour default is a role, never a literal: page background
-  (`Canvas` → `systemBackground`/`windowBackgroundColor`), separators (`-exact-separator`),
-  links (`LinkText` → the tint on iOS), tint (`AccentColor`).
+  (`-exact-background` → `systemBackground`/`windowBackgroundColor`; `Canvas` is the
+  document's white, `textBackgroundColor` on the Mac, and is not what an unset page shows:
+  LLP 1115.000 D3.6), separators (`-exact-separator`), links (`LinkText` → the tint on iOS),
+  tint (`AccentColor`).
+  > **Amended by LLP 1116.000 D4 (2026-10-10).** The link role reached only a run with an
+  > `href` in its paragraph; a block `link` inherited, so a `tel:` or `mailto:` value was body
+  > text on the web. On the web a block `link` of text whose colour is unsaid is in the accent
+  > (`var(--exact-accent, AccentColor)`, `host/web/index.html`), as the plain button and the tab
+  > bar are and as `LinkText` is the tint on iOS, and every link shows the pointing hand. One
+  > holding a row or column, or given a `role` or a `buttonStyle`, is the author's row or
+  > button and still inherits; an inline run keeps `LinkText`; the native hosts are unchanged.
+  >
+  > **And by LLP 1115.000 D3.5 (2026-10-11).** The compiler gives such a block `link` the
+  > link role on every host (`contract/lower/src/tags.rs` `link_color`), so it is the tint on
+  > iOS and `linkColor` on the Mac as well, and `LinkText` on the web is the accent
+  > (`var(--exact-accent, AccentColor)`): one blue for links there. A terminal entry's block
+  > link is left as it was.
 - **Type.** The root font size is the platform's body size (iOS: Dynamic Type body, 17 at the
   default size; macOS: `NSFont.systemFontSize`, 13; the web: 16). Headings resolve to the
   platform's text styles by level (§5 D3).
@@ -71,6 +97,10 @@ own on the web). This LLP extends it rather than inventing a second mechanism:
   would be a tell (press feedback, keyboard dismissal, scroll-to-top, back navigation).
 - **The web host** keeps resolving roles to the browser's own values, so the web build still
   looks like a well-made web page, which is the web platform's native.
+  > **Amended by LLP 1116 D1 (2026-10-10).** The web host resolves roles to a designed default
+  > look that a web developer would not notice as unstyled (LLP 1116 §4): the browser's bare
+  > button, checkbox switch, plain header and bordered dialog are tells on the web, so the
+  > platform's answer there is a carefully built web app's.
 
 ## 4. What it costs
 
@@ -87,6 +117,10 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
 - **D2. Unset backgrounds are the platform's.** The window/viewport, launch view and sheet
   surfaces fall back to `systemBackground` (iOS) and `windowBackgroundColor` (macOS), never a
   fixed white. (Today a page with no background is white text on white in dark mode.)
+  > **Amended by LLP 1116.021 D7 (2026-10-17).** On iOS a sheet's surface is its route's own
+  > background where the route has one: a sheet whose scroll is a grouped list is on the
+  > grouped background (LLP 1116.007 D5), as a hand-built grouped sheet is, so no white band
+  > shows between it and a keyboard's bar. A route with none keeps `systemBackground`.
 - **D3. Type is the platform's.** The root font size is the platform body size (§3). Headings
   (`role="heading"`/`h1`–`h6`) get the platform's text styles by level, overridable by any
   authored `font-size`/`font-weight`. Bold Text is honoured.
@@ -105,12 +139,44 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   dismiss it on iOS with no invoker, show the `dialog` on the web and macOS; LLP 1021's "no title
   row" is superseded. macOS keeps its `NSMenu` chooser for invoker-opened alertdialog popovers
   (no `NSAlert` yet).
+  > **Amended by LLP 1115.000 D13.4 (2026-10-11).** "An alert has no outside" holds on every
+  > host now, not only where UIKit draws it: a `dialog` of the alert's shape implies
+  > `closedby="closerequest"`, where every `alertdialog` implied `any`, so the web's `dialog`
+  > and Android's are not dismissed by a tap outside either (the Mac's is `NSAlert` since
+  > LLP 1115.000 D7.6). An author's `closedby="any"` is the platform's dismissible form: an
+  > action sheet or popover on iOS, a light-dismiss dialog on the web, the painted dialog on
+  > the Mac, a Material dialog cancelled by a touch outside on Android. The shape rule is one
+  > function in the kernel (`kernel/src/confirmation.rs`), which lowering and each host read.
+  >
+  > **Extended (2026-10-15, the euxy port's rename prompt).** A prompt is the alert with a text
+  > field: one `input` row of an alert-shaped `alertdialog` counts with its text and is
+  > `UIAlertController`'s text field on iOS, `NSAlert`'s accessory field on the Mac, and the
+  > `dialog`'s field on a line of its own on the web, standing in for the authored `input`.
+  > Return, on every host: the field's key handlers first; a field with a `submit` then commits
+  > and runs it, and that is all; any other commits and presses the first action that is not
+  > destructive, whatever its style, nothing while that action is disabled. Lowering refuses a field in any
+  > other shape; Linux paints it as authored.
+  >
+  > **Amended (2026-10-16).** On iOS Return is the field delegate's, and the alert has no
+  > `preferredAction` unless its author gave one: a hand-built `UIAlertController` and React
+  > Native's `Alert.prompt` draw no action filled, so an unsaid prompt drew "Rename" as a tell. An
+  > alert's preferred action is the Mac's default button (LLP 1115.000 D7.3): its one
+  > `buttonStyle="filled"` action that is not destructive; on a prompt only when that is the action
+  > Return presses, so the bold action and Return's are always one.
 - **D7. Docs say less.** The agent guide, `exact new` and the recipe apps omit colours, fonts and
   control metrics; where colour is needed they name roles. A short starter guide is the only
   required reading.
 - **D8. Each platform's own conventions** (the Mac's Help and Edit menus, frame autosave,
   non-selectable UI labels, `NSSearchField`; Windows's IME and accessibility) are in scope on the
   same test.
+- **D9. The iOS dev menu is the exception** (Charlie, 2026-10-16). A release iOS build keeps it
+  by default, as a shipped page keeps its browser's developer tools: the build's info and
+  release notes are worth more to the people testing it than the gesture costs anyone else.
+  `EXACT_DEV_MENU=0` removes it, set when building (`ExactDevMenu` in `Info.plist`, which an
+  installed app needs: it is launched with no environment) or when launching. A release Mac
+  build ships its Develop menu hidden (LLP 1115.000 D7.8), since there it is a menu-bar item
+  every person sees and its chords take ⌘R and ⌘D: `defaults write <bundle id> ExactDevMenu
+  -bool YES` shows it, as Safari's settings show Safari's, unless the build said `0`.
 
 ## 6. Waves
 
@@ -163,6 +229,27 @@ from the recipe, a determinate `progress` (`UIProgressView`), a stepper (`UIStep
 app-wide tint (`accent-color` on the root reaches the tab bar and controls, but a bar
 button takes only its own `color`; LLP 1095 D4's `theme`), swipe actions and context menus on
 grouped-list rows, borderless fields in list cells, and a footer's colour.
+
+*Status (2026-10-11), after a second audit (LLP 1115.000).* Corrections to the record above,
+which read as "on every host" where it was iOS and the web:
+
+- **D5** (Back without an authored control) landed on iOS and the web. macOS, Linux and
+  Android do not call `host_back`; a pushed route on the Mac has no way back without one.
+- **D6**'s `showModal`/`close` landed on iOS, macOS and the web. The Linux host, and so
+  Android, refuses both and presents no dialog or popover.
+- **Press feedback for custom pressables** landed on iOS only.
+- **D3's root font size** landed on iOS, macOS and the web. Linux, Android and Windows show
+  16, and tvOS scales 16.
+- **Heading weights:** a title is bold since LLP 1116 D7, not "regular" as written above.
+- Of "Still open", four have landed: a determinate `progress` (LLP 1116 D8), an app-wide
+  tint (#440), swipe actions on grouped-list rows (LLP 1116.001 D1) and a footer's colour
+  (LLP 1116.003 D7).
+- Ten items of Appendix A are in neither list above. LLP 1115.000 §1 names them and gives
+  each a decision.
+
+What is left, on every host, is LLP 1115.000 (and LLP 1115.001 for Android). Since this
+note, LLP 1115.000's wave 1 has landed D5 and D6's alert on macOS, and LLP 1115.001's first
+slice has begun Android's; each document's "as built" says what holds.
 
 **Later, needs an owner.** A plain `button`'s default style on iOS (bordered → plain; changes
 every app), checkbox on iOS (switch or checkmark), plain-list separators and highlight, Mac

@@ -548,8 +548,9 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
     assert_eq!(r.quads.reallocations(), 0);
 }
 
+// The refusal is caught here rather than by `should_panic`, so a Mac without a GPU skips the
+// test instead of failing it for not panicking
 #[test]
-#[should_panic(expected = "particles must prepare before drawing")]
 fn r14_unprepared_particle_draw_names_the_refusal() {
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
@@ -566,7 +567,19 @@ fn r14_unprepared_particle_draw_names_the_refusal() {
         slot: 0,
         index: 0,
     });
-    r.quads.order::<false>(&gpu.device, &gpu.queue);
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        r.quads.order::<false>(&gpu.device, &gpu.queue)
+    }))
+    .expect_err("an unprepared particle draw is refused");
+    let message = refused
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| refused.downcast_ref::<&str>().copied())
+        .unwrap_or_default();
+    assert!(
+        message.contains("particles must prepare before drawing"),
+        "{message}"
+    );
 }
 
 #[test]

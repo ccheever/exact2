@@ -25,6 +25,11 @@ struct RegionRasterRequest: Sendable {
     let profile: NativeProfile
     let format: UInt32
     let background: [CGFloat]
+    /// A selection's fill, as four components. With four more, the colour
+    /// its glyphs are painted in over that fill (the Mac, LLP 1115.000 D7.9),
+    /// and with a ninth that is 1, a glyph whose colour its author fixed
+    /// keeps it (`Run.fixedInk`; the Mac's light appearance). With four, the
+    /// fill is under the ink and the ink is the text's own.
     let selectionColor: [CGFloat]
     var interaction: RegionPointRequest? = nil
     // The registered region surface keeps its 8 MiB contract. A reader can
@@ -71,7 +76,7 @@ struct RegionRasterRequest: Sendable {
               w.rounded() == w, h.rounded() == h,
               background.count == 4, (background[3] == 1 || background[3] == 0),
               background.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
-              selectionColor.count == 4,
+              [4, 8, 9].contains(selectionColor.count),
               selectionColor.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
               scroll.x.isFinite, scroll.y.isFinite, rows.count <= 64,
               pixelLimit > 0, pixelLimit <= Self.maximumPixelLimit,
@@ -268,26 +273,38 @@ final class RegionPaintIndex {
             ctx.translateBy(x: 0, y: CGFloat(request.height))
             ctx.scaleBy(x: CGFloat(request.scale), y: -CGFloat(request.scale))
             index.query(top: Double(request.scroll.y), bottom: Double(request.scroll.y + request.size.height)) { ids, _ in
-                // Ordinary renderer paints all selection before all ink.
-                for selected in [true, false] {
-                    if selected { ctx.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: request.selectionColor)!) }
+                // All selection before all ink; or, when the selected glyphs
+                // have a colour of their own, all ink and then each selection
+                // over it, its glyphs again in that colour.
+                let device = CGColorSpaceCreateDeviceRGB()
+                let fill = CGColor(colorSpace: device, components: Array(request.selectionColor.prefix(4)))!
+                let selectedInk = request.selectionColor.count >= 8 ? CGColor(colorSpace: device, components: Array(request.selectionColor[4..<8])) : nil
+                let keepsFixed = request.selectionColor.count == 9 && request.selectionColor[8] == 1
+                enum Pass { case fill, ink, selected }
+                for pass in selectedInk == nil ? [Pass.fill, .ink] : [.ink, .selected] {
+                    ctx.setFillColor(fill)
                     for ordinal in ids {
                         let p = Self.paragraph(Int(ordinal), starts: starts), i = Int(ordinal) - starts[p]
                         let layout = layouts[p], row = request.rows[p], line = layout.line(at: i)
                         let flush: CGFloat = layout.source.align == 1 ? 0.5 : layout.source.align == 2 ? 1 : 0
-                        let x = row.box.minX - request.scroll.x + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(row.box.width)))
+                        let x = row.box.minX - request.scroll.x + TextEngine.penOffset(line, flush: flush, room: Double(row.box.width), rtl: layout.source.direction == 1)
                         let y = row.box.minY - request.scroll.y + layout.baselines[i].rounded()
-                        if selected {
-                            let range = CTLineGetStringRange(line)
-                            let lo = max(row.selection.location, range.location)
-                            let hi = min(NSMaxRange(row.selection), range.location + range.length)
-                            if hi > lo {
-                                var a: CGFloat = 0, d: CGFloat = 0
-                                _ = CTLineGetTypographicBounds(line, &a, &d, nil)
-                                let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
-                                ctx.fill(CGRect(x: x + min(x0, x1), y: y - a, width: max(1, abs(x1 - x0)), height: a + d))
-                            }
-                        } else { TextLinePaint.draw(line, at: CGPoint(x: x, y: y), in: ctx) }
+                        if pass == .ink { TextLinePaint.draw(line, at: CGPoint(x: x, y: y), in: ctx); continue }
+                        let range = CTLineGetStringRange(line)
+                        let lo = max(row.selection.location, range.location)
+                        let hi = min(NSMaxRange(row.selection), range.location + range.length)
+                        guard hi > lo else { continue }
+                        var a: CGFloat = 0, d: CGFloat = 0
+                        _ = CTLineGetTypographicBounds(line, &a, &d, nil)
+                        let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
+                        let rect = CGRect(x: x + min(x0, x1), y: y - a, width: max(1, abs(x1 - x0)), height: a + d)
+                        guard pass == .selected, let selectedInk else { ctx.fill(rect); continue }
+                        ctx.saveGState()
+                        ctx.clip(to: rect)
+                        ctx.setFillColor(fill)
+                        ctx.fill(rect)
+                        TextLinePaint.draw(line, at: CGPoint(x: x, y: y), in: ctx, ink: selectedInk, keepsFixed: keepsFixed)
+                        ctx.restoreGState()
                     }
                 }
             }

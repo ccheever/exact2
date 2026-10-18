@@ -250,3 +250,23 @@ fn an_unread_response_does_not_hold_up_another_request() {
         peer.join().unwrap();
     }
 }
+
+#[test]
+fn portable_request_timeout_bounds_waiting_for_headers_and_body() {
+    for body in [false, true] {
+        let (url, peer) = server(move |mut socket| {
+            if body {
+                socket
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nx")
+                    .unwrap();
+            }
+            // The configured attempt timeout closes the stalled request.
+            assert_eq!(socket.read(&mut [0]).unwrap(), 0);
+        });
+        let mut request = Request::get(&url);
+        request.timeout = Some(Duration::from_millis(100));
+        let result = RustlsHttpTransport::new().send(&request);
+        assert!(result.is_err(), "stalled response unexpectedly completed");
+        peer.join().unwrap();
+    }
+}

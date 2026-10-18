@@ -1,0 +1,216 @@
+// Starter: a list that pushes a detail, a sheet to add, an alert to delete, kept in a file.
+// The items are app.ts's (app:/data/items.json). A phone pushes the detail; a wide window
+// shows the list beside it by itself, because a row draws the disclosure chevron
+// (`contract vocab navigationSplit`). A row deletes by swipe and opens a menu on a long press
+// (`contract vocab swipe`, `menu`): a swipe or the menu's Delete deletes at once, as Mail and
+// Notes do, and the detail's Delete asks first. A smaller app deletes what it doesn't need: the
+// delete (`askRemove`, `remove`, the dialog, the row's `delete=`, the menu's Delete), the
+// notes (the shape's field, the sheet's and the detail's sections), or the lock (the shape's `locked`, `setLock`, `flipLock`, the badge, the switch,
+// the menu's Lock and Delete's reason).
+// Compose as the platform does: a row pushes its detail, create and edit are sheets, a phone
+// gets one column and a wide window two (`responsive-columns`); not a form above one long list.
+// The bar's search field filters as you type (`contract vocab search`); an empty list, a failed
+// read and no match are each an `EmptyState` in the list's place. Save is disabled until valid;
+// Enter (Return on iOS) in the title saves, as a form does on the web (`submit=save`).
+use Badge, EmptyState from "exact:content"
+
+routes nav
+  items "/"
+    item "/item/:id"
+    add "/add"
+
+shape Item
+  id: string
+  title: string
+  notes: string
+  locked: bool
+
+shape Reply
+  ok: bool
+  error: string
+
+fn titleOf(items: Item[], id: string): string = match first(items.filter(i => i.id == id)) { case some(i) => i.title, case none => "" }
+fn found(items: Item[], id: string): bool = items.filter(i => i.id == id).length > 0
+fn matches(i: Item, q: string): bool = i.title.toLowerCase().includes(q.trim().toLowerCase()) or i.notes.toLowerCase().includes(q.trim().toLowerCase())
+
+component App
+  state query = ""
+  state draftTitle = ""
+  state draftNotes = ""
+  // The last Save's refusal, in red under the field until a Save succeeds.
+  state refusal = ""
+  // The row a long press opened the menu on, or the item the detail's Delete asks about.
+  state aimed = ""
+  resource lib = loadItems() as shape Item[] else empty()
+  mutation added as shape Reply refreshes lib then afterSave
+  mutation removed as shape Reply refreshes lib
+  mutation lockSaved as shape Reply refreshes lib
+  derive selected = match stack(nav).filter(e => e.name == "item").at(-1) { case some(e) => e.params.id, case none => "" }
+  derive aimedLocked = lib.filter(i => i.id == aimed and i.locked).length > 0
+  derive shown = lib.filter(i => matches(i, query))
+  derive saveError = match added { case some(r) => r.error, case none => "" }
+  // Why Save is disabled, under the field (not red: nothing is wrong yet).
+  derive saveHint = pending(added) ? "Saving…" : draftTitle.trim() == "" ? "Enter a title to save." : ""
+
+  action search(v: string)
+    query = v
+  action reload
+    refresh lib
+  action openAdd
+    draftTitle = ""
+    draftNotes = ""
+    refusal = ""
+    nav = push(nav, "/add")
+  action back
+    nav = back(nav)
+  // A row is a link to its item; the browser's Back, Forward and a deep link arrive here too.
+  // An item shown beside the list (a wide window) is replaced by the next one opened.
+  action follow(url: string)
+    nav = top(nav).name == "item" and url.startsWith("/item/") ? replace(nav, url) : go(nav, url)
+  action editTitle(v: string)
+    draftTitle = v
+  action editNotes(v: string)
+    draftNotes = v
+  action save
+    if draftTitle.trim() != "" and not pending(added)
+      send added = addItem(draftTitle.trim(), draftNotes.trim())
+  // The sheet closes only on an ok reply; a refusal keeps it open, saying why.
+  action afterSave
+    refusal = saveError
+    if saveError == "" and top(nav).name == "add"
+      nav = back(nav)
+  action setLock(id: string, on: bool)
+    send lockSaved = lockItem(id, on)
+  action aim(id: string)
+    aimed = id
+  action flipLock
+    send lockSaved = lockItem(aimed, not aimedLocked)
+  // The detail's Delete asks first: it is a loss the item's own screen confirms.
+  action askRemove(id: string)
+    aimed = id
+    showModal("remove")
+  // A row's swipe, its menu, or the alert's Delete; the detail closes if it showed this item.
+  action remove(id: string)
+    send removed = removeItem(id)
+    if selected == id
+      nav = back(nav)
+
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "items"
+          column navigationKey=`${e.id}` navigationScroll="items-list" position="absolute" inset=0
+            display="flex" flex-direction="column"
+            header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
+              text "Starter" role="heading" aria-level=1 flex=1
+              button press=openAdd aria-label="Add Item" testId="add-item"
+                image "symbol:add"
+              // The bar's search field (iOS: UIKit's search controller), filtering as you type.
+              input type="search" value=query input=search placeholder="Search" aria-label="Search Items"
+                testId="search" width="100%"
+            // In place of the list: a failed read, no items, no match. Before the file's first
+            // answer the list is blank, a moment too short for a spinner.
+            if failed(lib)
+              EmptyState(symbol="symbol:alert", title="Can’t Open Items", message="Something went wrong reading them.")
+                button press=reload testId="retry"
+                  text "Try Again"
+            else if lib.length == 0 and not pending(lib)
+              EmptyState(symbol="symbol:document", title="No Items", message="Items you add appear here.")
+                button press=openAdd testId="empty-add"
+                  text "Add Item"
+            else if shown.length == 0 and not pending(lib)
+              EmptyState(symbol="symbol:search", title=`No Results for “${query.trim()}”`, message="Check the spelling or try a new search.")
+            else
+              list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                section
+                  // A title over its notes; the chevron says the row pushes. It only navigates, so it is a link.
+                  // `delete=` is its swipe to delete (UIKit's on iOS), none while locked: the row still opens.
+                  // A swipe deletes at once, without asking, as iOS's own lists do.
+                  for it in shown key=it.id
+                    link href=path("item", it.id) delete=remove(it.id) disabled=it.locked contextmenu=aim(it.id)
+                      contextPopover="item-menu" testId=`item-${it.id}`
+                      column flex=1 min-width=0
+                        text it.title
+                        if it.notes != ""
+                          text it.notes line-clamp=1
+                      // A status is a badge, not coloured text: `some("-exact-system-orange")` for Full.
+                      if it.locked
+                        Badge(label="Locked", tint=none)
+                      image "symbol:forward-chevron"
+        if e.name == "item"
+          column navigationKey=`${e.id}` navigationScroll="item-detail" position="absolute" inset=0
+            display="flex" flex-direction="column"
+            header display="flex" align-items="center" padding="8px 16px"
+              text (found(lib, e.params.id) or pending(lib) ? titleOf(lib, e.params.id) : "Not Found") role="heading" aria-level=2 testId="detail-title"
+            // An id that names nothing (a stale link, /item/999) says so, once the list has loaded.
+            if found(lib, e.params.id) or pending(lib)
+              list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                for it in lib.filter(x => x.id == e.params.id) key=it.id
+                  ItemSections(item=it, setLock=setLock(it.id), askRemove=askRemove(it.id))
+            else
+              EmptyState(symbol="symbol:alert", title="No such item", message="It may have been deleted.")
+                button press=back buttonStyle="filled" testId="missing-back"
+                  text "Back to Items"
+        if e.name == "add"
+          column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
+            header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
+              button id="back" press=back aria-label="Cancel" testId="add-cancel"
+                image "symbol:close"
+              text "New Item" role="heading"
+              button press=save buttonStyle="bordered-prominent" aria-label="Save" testId="add-save"
+                disabled=(draftTitle.trim() == "" or pending(added))
+                image "symbol:checkmark"
+            list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              section
+                // Red is for a refusal, in the field's row under the field; why Save is disabled is the footer.
+                row
+                  column flex=1 min-width=0 gap=4
+                    input value=draftTitle input=editTitle placeholder="Title" aria-label="Title"
+                      autofocus=true submit=save aria-invalid=(refusal != "") testId="add-title"
+                    if refusal != ""
+                      text refusal font="-exact-footnote" color="-exact-system-red" testId="add-error"
+                footer
+                  text saveHint testId="add-hint"
+              section
+                header
+                  text "Notes"
+                row padding-top=8 padding-bottom=8
+                  textarea value=draftNotes input=editNotes placeholder="Optional" aria-label="Notes"
+                    rows=4 testId="add-notes" flex=1 min-width=0
+      // One long-press menu for every row, acting on `aimed` (iOS: a UIMenu over the row).
+      column id="item-menu" popover="auto" role="menu"
+        button press=flipLock popovertarget="item-menu" popovertargetaction="hide" testId="menu-lock"
+          image "symbol:lock"
+          text (aimedLocked ? "Unlock" : "Lock")
+        button press=remove(aimed) destructive=true disabled=aimedLocked popovertarget="item-menu"
+          popovertargetaction="hide" testId="menu-delete"
+          image "symbol:delete"
+          text "Delete"
+      dialog id="remove" role="alertdialog" aria-label="Delete Item?"
+        text "This can’t be undone."
+        button press=remove(aimed) destructive=true commandfor="remove" command="close" testId="remove-confirm"
+          text "Delete"
+        button commandfor="remove" command="close" testId="remove-cancel"
+          text "Cancel"
+
+// One item: its notes, its lock, and Delete, which asks first, or says why it can't.
+component ItemSections
+  props
+    item: Item
+    setLock: action
+    askRemove: action
+  view
+    section
+      header
+        text "Notes"
+      row padding-top=10 padding-bottom=10
+        text (item.notes == "" ? "No notes." : item.notes) flex=1 min-width=0
+          color=(item.notes == "" ? "-exact-secondary-label" : "-exact-label") testId="detail-notes"
+    section
+      row
+        text "Locked"
+        input type="checkbox" switch checked=item.locked change=setLock aria-label="Locked" testId="lock-item"
+      button press=askRemove destructive=true disabled=item.locked testId="delete-item"
+        text "Delete Item"
+      footer
+        text (item.locked ? "Unlock this item to delete it." : "") testId="delete-reason"

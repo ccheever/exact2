@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28 and 29 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 and 48 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -958,3 +958,576 @@ margin, every batch compared bit for bit (frames and scroll extents) with a
 rehydrated kernel; a feed of one kind lays out no row once its texts were
 seen; the same with the memo off. Every other layout test runs with it on
 for the lists it builds (`containment_tests`).
+
+## Patch 30: a multi-column container's resolved height bounds — Exact's
+
+The block algorithm, and the leaf algorithm for a multi-column text with no
+children, resolve `min-height` and `max-height` against the containing
+block's height only where Taffy holds it definite (an authored height, a
+stretched flex item, an absolute box with both insets). Patch 27's caller
+cuts the flow thread into columns by those bounds, and could only guess that
+definiteness from styles. `LayoutPartialTree::set_multicol_bounds` (default:
+nothing) receives a multi-column container's two bounds, border box, `None`
+where it has none, each time its final layout is computed (a measurement
+may resolve them against another basis, and a final layout taken from the
+cache writes none); `TaffyTree` keeps them (`multicol_bounds(node)`), the
+maximum raised to a larger minimum as the layout clamps the box (CSS 2
+§10.7), and a replay (patch 29) writes them as the recorded layout did. The
+block path reports them from `compute_block_layout`; the leaf path from the
+dispatch in `taffy_tree.rs`, through `leaf::height_bounds`, which resolves
+them as `compute_leaf_layout` does for its own size, in every sizing mode,
+as the block algorithm does: a flex item's final layout is a content-size
+one, handed a size the bounds already clamped, and its columns are still
+cut by them.
+**Held by** `kernel::tests::it::browser_columns::a_percentage_height_bound_caps_the_columns`
+(`max-height` in percent under an authored height and under a stretched flex
+item, against Chrome, and under a larger `min-height`),
+`a_paragraph_s_height_bound_caps_its_columns` (a text leaf's, alone and as a
+flex item, against Chrome) and
+`kernel::layout::memo_tests::a_replayed_row_s_columns_are_cut_by_its_recorded_height_bounds`
+(List rows replayed after the first).
+
+## Patch 31: allocate tree-owned layout caches when first used
+
+`NodeData` holds a pointer to a cache, allocated only when `Cache::store`
+keeps a result. A node that has never laid out carries no nine-entry cache:
+Exact's inline text runs are engine nodes, but their paragraph is measured
+as one box. Clearing a populated cache retains its allocation for reuse on
+later edits. Hidden-layout and collapsing-margin answers that the existing
+cache declines to store allocate nothing. Cache keys, eviction, invalidation,
+replay, and the public `Cache` type are unchanged.
+
+**Held by** `tree::cache::tests::lazy_storage_preserves_cache_answers_and_clear_state`
+(the same query/store/clear sequence against the existing cache, including
+axis, parent-height, sizing-mode, margin and hidden-layout differences) and
+`lazy_storage_allocates_only_for_a_cached_result_and_reuses_it` (misses,
+refused entries, invalidation, clone independence and allocation reuse).
+The kernel's layout, replay, reparenting and fresh-tree differential tests
+also run against this storage. The stale `Style` size assertions now include
+the vendored extension rows: 600 bytes with `String`, 568 with `Arc<str>` on
+the tested 64-bit host; this patch changes neither style layout nor its size.
+
+## Patch 32: release node contexts with their primary nodes
+
+`TaffyTree::remove` and `TaffyTree::clear` remove the matching
+`node_context_data` entries as well as the primary node slots. A secondary map
+owns its values independently, so leaving these entries behind retained Exact's
+measurement and flow vectors until physical slot reuse or tree destruction and
+allowed stale node keys to retrieve removed contexts. Focused drop-counter
+tests cover immediate and exactly-once destruction, replacement, physical slot
+reuse, stale-key absence, and preservation of an unrelated survivor context.
+
+## Patch 33: a flex item's length in its container's main size is clamped by its maximum — to upstream
+
+**Implementer:** Claude (Opus 5.5), 2026-10-12, for issue X86
+(`issues/closed/20261012-column-height-ignores-leaf-max-height.md`).
+
+`determine_container_main_size` sums the items' lengths for a container
+whose main size is automatic. Four of its sites let an item's flex base size
+past its `max_size`. The definite-available-space branch and the wrapping
+`MinContent` branch floored the base size by `min_size` alone. The intrinsic
+branch's scroll-container arm took the base size as it was. And its two
+shortcut arms, for an item that may not shrink (`flex-shrink: 0`), took the
+base size as a minimum, which outranked the maximum. A leaf's base size is
+measured under `SizingMode::ContentSize`, which drops its min and max
+(`compute_leaf_layout`), so it is the whole content. A column whose height is
+automatic, holding a text leaf at `max-height: 160px`, was therefore as tall
+as the whole text:
+
+- in definite space, whatever the leaf: a row's unstretched item when the row
+  has a definite height (the issue's cases A to C, whose probe row is the
+  window's height), and an absolutely positioned column (case D; a T3 Code
+  popover reached 16,000 pt while its textarea was laid out clamped);
+- under a max-content offer (an item of a row whose height is automatic, a
+  block's child), when the leaf is a scroll container (`overflow: hidden`)
+  or may not shrink. A textarea is not a scroll container in Taffy (the
+  kernel makes only a scroll view and a list scroll by default), so the
+  issue's case H, a textarea column in a block, held.
+
+A box clamps its own measured size, and under a max-content offer a leaf that
+neither scrolls nor refuses to shrink takes the measured arm, which clamps, so
+neither showed it. Chrome sizes the column from its items' clamped sizes in
+every case.
+
+The definite and wrapping branches and the scroll-container arm now clamp the
+base size by the item's min and max main sizes, floor the result at its
+padding and border, and add the margin last (patch 14's order: the clamp can
+go below the padding and border, and a floor taken after the margin lost it).
+The shortcut arms clamp by the flex base size first and by the min and max
+main size last (CSS Flexbox §9.9.1); where the two ranges overlap that is the
+combined clamp they used before. The same clamps give a row's min-content
+width when a leaf's unbroken word is wider than its `max-width`. Upstream
+main (`7d33901cc`, 2026-10-09) has the same sites.
+
+**Held by** `browser_flex::a_column_is_as_tall_as_its_items_clamped_by_max_height`
+(Chrome 155, plain HTML, 37 cases; 28 fail on the unpatched source): a row's
+column (the row's height automatic, then 300) holding a text leaf or an
+image, with margins, a negative margin, content- and border-box padding, a
+border-box `max-height` under its padding with and without a margin, two
+leaves and a gap; the absolutely positioned column, with a margin and a
+negative one; a `flex-shrink: 0` leaf in a row's column and in a block's,
+with a `height`, a `min-height` and a margin; a column in a block; a block,
+a row and a column holding a box as controls; and six rows of an unbroken
+word at `max-width: 130px`. On macOS the issue's probe lays out cases A to D
+at 132, 132, 130 and 132 pt (898, 434, 656 and 706 before), and a column
+holding a content-sized textarea typed past its maximum stays at the
+textarea's height.
+
+## Patch 34: invalidate row-layout memo after environment changes
+
+The row-layout memo exposes `forget_memo` so an environment change invalidates
+recordings whose calc handles keep the same identity but resolve differently.
+
+## Patch 35: allocate a node's rounded layout when rounding first writes it
+
+`NodeData::final_layout` is an `Option<Box<Layout>>`, written by
+`set_final_layout` (the rounding pass) and read as `Layout::new()` before it
+was. Exact lays out unrounded (`disable_rounding`), so every node carried a
+92-byte layout nothing wrote or read: 84 bytes a slot now, 91 KB of euxy's
+1,087 slots. Reads under rounding are unchanged.
+
+**Held by** `tree::taffy_tree::tests::make_sure_layout_location_is_top_left`
+(rounded layouts read after a layout; `TaffyTree::new` rounds) and
+`test_layout` (a layout read before any was written), and by the kernel's
+layout tests, which read the unrounded one.
+
+## Patch 36: compress cyclic replaced-element contributions in block layout
+
+A replaced block child with a cyclic percentage width or max-width contributes
+zero to its ancestor's min-content width, floored by its authored inline minimum
+and padding/border, with margins added (CSS Sizing 3 §5.2.1). Cyclic percentages
+in the minimum resolve against zero, preserving length terms in `calc()` and
+comparison functions. The contribution is computed before a definite height can
+transfer through the ratio. The child's own content size and final layout are
+unchanged. Chrome 151 also compresses `calc()` widths containing percentages to
+zero; the current specification instead resolves their percentage term against zero.
+
+**Held by** `browser_replaced::replaced_content_contributions_distinguish_items_from_descendants`:
+Chrome 151 frames for canvas, iframe, video, unsized SVG and loaded images, with
+width/max-width percentages, calc, minimum and fixed sizes, padding, border and
+margins. Direct flex items keep their own content minimum.
+`browser_replaced::minimum` holds percentage-containing minima and the padding/border
+floor under both box-sizing modes against Chrome 151 frames for the same five tags.
+
+## Patch 37: preserve replaced ratios through flexing and min/max constraints
+
+A replaced flex item's automatic cross size is derived from its used main size
+(CSS Flexbox §9.4). The preferred main size's derived cross size is not retained:
+it otherwise feeds back into the automatic minimum and survives after shrinking.
+The content suggestion is measured independently, clamped by cross-axis bounds
+through the ratio, and capped by the transferred and specified suggestions (§4.5).
+A definite stretch still sizes the content probe (§9.8).
+
+The leaf's CSS 2.1 §10.4 constraint table takes sizes and bounds in the box the
+ratio relates, then restores the inset. Natural ratios relate content sizes under
+either box-sizing; authored non-auto ratios follow box-sizing. Padding and border
+therefore stay fixed when a content-box ratio scales the natural dimensions.
+
+**Held by** `browser_replaced::constraints`: literal Chrome 151.0.7922.34 frames
+for canvas and loaded images, with metadata-free video controls, direct and nested
+flex items, row and column axes, automatic and zero minima, cross-axis constraints,
+padding under both box-sizing modes, and authored ratios. The existing
+`browser_replaced` cases retain definite stretching; `browser_replaced::minimum`
+retains patch 36's descendant contributions.
+
+## Patch 38: retain padding and transferred minima in replaced content probes
+
+A replaced flex item's content-size probe retains the container's inline size
+for percentage padding ([CSS Flexbox §4.2](https://www.w3.org/TR/css-flexbox-1/#item-margins)).
+ContentSize still ignores the preferred width. The automatic minimum includes
+the resolved padding as well as the natural content width.
+
+When the tentative ratio box has a zero dimension, the leaf constraint table
+uses the explicit ratio to transfer minima. A transferred minimum is capped by
+the destination's maximum, then its own minimum wins
+([CSS Sizing 4 §4.4](https://www.w3.org/TR/css-sizing-4/#aspect-ratio-size-transfers)).
+The inset is retained, so an unsized SVG's shrink-to-fit ancestor includes the
+width required by its minimum height and padding.
+
+**Held by** `browser_replaced::constraints::independent_content_minima_keep_percentage_padding`
+and `zero_content_minima_transfer_through_the_ratio`: literal Chrome 151.0.7922.34
+frames for canvas, loaded images, unsized SVG and metadata-free video. Cases cover
+both box-sizing modes, row and column axes, authored ratios, borders and a maximum
+that caps a transferred minimum.
+
+## Patch 39: retain the ratio's inset in flex sizing and intrinsic floors
+
+The definite-cross-size flex basis, intrinsic main-size contribution and min/max
+transfers into unsized axes use `Ratio::width` and `Ratio::height`.
+These conversions subtract the source-axis inset and restore the destination-axis
+inset for a content-box ratio. An authored border-box ratio uses zero inset.
+A padded canvas stretched to 100px tall therefore has a 180px flex basis:
+80px of content height at 2:1, plus 20px of horizontal padding.
+
+The kernel's intrinsic measurement of a replaced element without natural size
+also transfers the vertical padding/border floor through an authored border-box
+ratio. Its content height cannot become negative, so its automatic width must
+fit that floor before the leaf applies constraints. The floor can exceed an
+offered width or the percentage fallback; an explicitly given width still wins.
+Content-box ratios retain their zero content-size contribution.
+
+**Held by** `browser_replaced::constraints::intrinsic_padding_floors_preserve_the_replaced_ratio`
+and `flex_ratio_transfers_keep_padding_and_border`: literal Chrome 151.0.7922.34
+frames measured on 2026-10-18. Cases cover metadata-free videos in block flex
+items, stretched canvases, both flex axes and box-sizing modes, width and height
+maxima, asymmetric padding with borders, and authored and auto ratios.
+`intrinsic_flex_ratio_transfers_keep_padding_and_border` holds growing canvases
+inside a shrink-to-fit block, including column sizing and zero-grow controls.
+`unsized_ratio_padding_floors_survive_width_offers` holds video, iframe and SVG
+floors against narrow definite offers and cyclic percentage widths, including
+an offer wide enough to expose the full max-content contribution.
+
+## Patch 40: retain the definite height in absolute shrink-to-fit probes
+
+An absolute non-replaced box's intrinsic width probes receive its authored
+height, or the height between top and bottom insets, clamped by min/max and
+floored by padding and border. A flex row can then stretch its items and
+transfer their ratios when computing its intrinsic width. An automatic height
+with only min/max constraints is still passed as unknown.
+
+**Held by** `browser_replaced::constraints::absolute_flex_intrinsic_width_uses_the_clamped_definite_height`:
+literal Chrome 151.0.7922.34 frames measured on 2026-10-18 for two padded
+canvases in an absolute flex row. The 29 cases cover authored and between-insets
+heights, min/max clamping, a minimum above the maximum, a percentage height,
+an authored height overriding insets, growing and zero-grow items, authored
+border-box ratios, and automatic-height controls with only a maximum.
+The separate automatic-height constraint gaps are recorded in `QUEUE.md`.
+
+## Patch 41: restrict intrinsic flex stretching to eligible items
+
+An intrinsic main-size contribution uses the container's cross size for stretch
+only in a single-line container with a definite cross size and with neither
+cross-axis margin automatic. Otherwise the item contributes its content size
+without a transferred stretch. This applies both to an absolute flex container's
+width probe and to a flex container inside a shrink-to-fit block.
+
+**Held by** `browser_replaced::constraints::intrinsic_flex_stretch_requires_a_single_line_and_non_auto_cross_margins`:
+literal Chrome 151.0.7922.34 frames for top, bottom and paired auto margins,
+wrap and wrap-reverse, with controls for ordinary stretch, main-axis auto
+margins, non-stretch alignment and an authored item height, in both containers.
+`absolute_flex_height_resolves_against_an_auto_height_containing_block` holds
+percentage and calc heights and opposing insets against the containing block's
+used height, with automatic and zero item minima.
+
+## Patch 42: a recorded call is looked up among its own box's calls — Exact's
+
+**Implementer:** Claude (Opus 5.5), 2026-10-18, for
+`issues/closed/20261017-memo-recorder-repeats-quadratic.md`.
+
+Patch 29's `Recorder::repeats` asks whether the trace already holds a box's
+answer under an input, once for every answer a recorded layout takes from
+outside the computation (a measure, a cache hit). It scanned every call
+recorded so far, so recording a subtree of n boxes made O(n²) comparisons.
+`asked` now links each call to its box's call before it, and `last_asked`
+holds each box's last call by the trace's box index (dense: indices are
+given in order from 0), so a lookup compares that box's own few inputs and
+answers as before.
+
+**Held by** `tree::memo::tests::a_recorded_call_is_looked_up_among_its_own_boxs_calls`
+(2,000 boxes asked three questions each, twice: every answer is recorded
+once, and no lookup makes more than three comparisons; the scan made up to
+6,000 comparisons a lookup, 36,000,000 in all),
+`a_lookup_answers_as_a_scan_of_every_recorded_call_does` (20,000 recordings
+and lookups in a fixed pseudo-random order, each lookup checked against a
+scan of every recorded call), both run by hand (`cargo test --manifest-path
+vendor/taffy/Cargo.toml --lib tree::memo`; no lane runs taffy's unit tests),
+and the kernel's `layout::memo_tests`, which compare replayed layouts with
+fresh ones bit for bit.
+
+## Patch 43: keep height bounds indefinite during intrinsic flex sizing
+
+Equal or inverted width bounds remain known in both sizing modes so they can
+size a column's height. Height bounds do not supply a known height while the
+inline size is unresolved in `ContentSize` or an intrinsic width probe. The latter
+includes `InherentSize`, which a block parent uses to measure its children.
+This prevents premature stretch and ratio transfer during width measurement
+without discarding a column's bounded width during height measurement. Authored
+sizes and dimensions supplied by the caller remain intact, including the clamped
+final height an absolute box receives in `ContentSize`. Block and root size
+promotion are unchanged.
+
+**Held by** `browser_replaced::constraints::intrinsic_flex_height_bounds_do_not_make_auto_height_definite`:
+12 literal Chrome 151.0.7922.34 cases measured on 2026-10-18. Absolute flex rows
+and normal flex rows inside absolute blocks stay 640px wide with two 320px
+canvases, for equal and inverted height bounds and natural and authored
+border-box ratios. Their final height stays 100px. Normal rows in a definite
+800px parent keep 400px items. Floated rows were also measured at 640/320px in
+Chrome; the kernel has no float style row. Patches 40 and 41 retain their
+definite-height, auto-margin and wrapping controls.
+
+`intrinsic_flex_column_height_uses_bounded_width` holds 12 further Chrome cases:
+max-content grid rows sized by bounded columns with canvases and percentage-width
+squares, plus non-stretched flex-parent controls. Equal and inverted width bounds
+and `column-reverse` retain the width used for height measurement. Taffy's
+`bounded_column_width_sizes_content_and_max_content_grid_height` holds both sizing
+modes and grid items with `width:max-content;height:max-content`, whose keywords
+are not exposed by the kernel. The grid, column and square stay 200px tall at a
+bounded 200px width.
+
+## Patch 44: distinguish a flex row's used height from a definite height
+
+A flex row distinguishes a used height from a definite cross size at its own
+layout entry. An absolute row's automatic height with a maximum stays indefinite
+for flex basis sizing unless an authored size, ratio or opposing insets makes it
+definite. Equal or inverted height bounds likewise supply only a used height
+unless a preferred or caller-supplied height makes it definite. This uses the
+existing `known_dimensions_are_definite` input within flex layout; the absolute
+solver continues to supply definite used dimensions to blocks, grids and columns.
+
+Flex items therefore keep the main sizes determined before final cross-axis
+stretching, as [CSS Flexbox §9.4](https://www.w3.org/TR/css-flexbox-1/#cross-sizing)
+requires. An absolute auto-height row capped at 100px keeps its two padded
+canvases at 320px wide inside a 640px row; an authored 100px height still gives
+180px items inside a 360px row. No flex-grow-specific rule or saved basis is needed.
+
+**Held by** `browser_replaced::constraints::intrinsic_flex_height_bounds_do_not_make_auto_height_definite`:
+36 literal Chrome 151.0.7922.34 cases measured on 2026-10-18, including zero-grow
+and growing canvases, natural and authored border-box ratios, a maximum alone,
+equal and inverted bounds, absolute rows, rows inside absolute blocks and normal
+flow rows. The existing patch 40 and 41 cases retain authored and opposing-inset
+heights, wrapping and auto-margin controls; patch 43's column cases still pass.
+
+`browser_position::positioned_boxes_roots_and_ratios_match_chrome` also holds
+22 Chrome 151 cases for absolute column wrapping and clamped ratio percentage
+bases, including reversed directions, `wrap-reverse`, equal bounds, authored
+heights, minima and block/flex/grid controls. Patch 45 adds the maximum-only
+columns' container frames and the missing reversed-column cases.
+
+## Patch 45: size an automatic flex column height from its longest line
+
+`determine_container_main_size` applies the available-space floor to multiline
+rows only. A column's automatic height uses its longest line, including gaps,
+margins and the container's inset, then applies its height bounds. This follows
+[CSS Flexbox's automatic block sizing](https://www.w3.org/TR/css-flexbox-1/#algo-main-container).
+The absolute solver's definite offer still limits wrapping; it no longer raises
+a 60px line to a 100px maximum. Definite heights and row sizing keep their paths.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+34 full container/item frame cases measured in Chrome 151.0.7922.34 on
+2026-10-18, including 24 new cases. They cover absolute and normal-flow columns,
+both column directions, wrap-reverse, nowrap, equal and inverted height bounds,
+minimum and preferred heights, unequal lines with gaps, padding, and row and
+row-reverse controls in block and shrink-to-fit contexts. The maximum-only
+column is 300×60; reversed items start at y=0. Equal 100px bounds and nowrap
+retain a 100px height. The test had 17 frame mismatches before this patch.
+
+## Patch 46: include automatic item minima in flex line contributions
+
+`determine_container_main_size` clamps each flex basis by the resolved minimum
+that flexible-length resolution enforces, including the content-based automatic
+minimum from [CSS Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto).
+The maximum clamp, padding/border floor and final margin addition keep patch 33's
+order. The shared contribution sizes columns in definite available space and
+wrapping rows under a min-content constraint. Patch 45's row-only available-space
+floor remains intact.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+40 literal Chrome 151.0.7922.34 cases measured on 2026-10-18. Three column items
+with a 60px flex basis and 100px-tall contents give a 100px wrapping container;
+reversed items start at y=0. A nowrap column capped at 400px is 300px tall, and
+a wrapping row in an 80px offer keeps its 100px content minimum. Cases cover
+both directions and wrap-reverse, normal-flow controls, single-item and capped
+nowrap columns, item maxima, zero minima, scrollable overflow, padding, borders
+and positive and negative margins. The added cases had 100 frame mismatches
+before this patch. The nowrap and row defects also reproduce on origin/main
+before patch 45; its available-space floor masked the reported wrapping-column
+case.
+
+## Patch 47: measure a capped row's max-content width without wrapping
+
+`collect_flex_lines` preserves a row's `MaxContent` width constraint when it
+has a maximum. All items contribute to one line, as
+[CSS Flexbox §9.9.1](https://www.w3.org/TR/css-flexbox-1/#intrinsic-main-sizes)
+requires; the existing size clamp then applies the maximum. `compute_preliminary`
+recollects lines against the clamped inner width before resolving flexible lengths,
+measuring height and placing items. This also covers a root laid out directly
+under `MaxContent` and a both-axis size measurement, which need not receive a
+later definite-width pass. Line fitting sums item lengths and gaps separately,
+matching intrinsic width accumulation. Interleaving fractional gaps can round a
+line above its own max-content width or a maximum that should fit it exactly.
+The fit comparison also allows 1/1024px of rounding error: a sum can round above
+an independently represented width even with consistent accumulation. This
+fixed tolerance is sixteen times smaller than Chrome's 1/64px layout unit.
+Columns retain maximum-based wrapping:
+ordinary block layout also uses `MaxContent` for indefinite vertical space.
+Balanced wrapping is unchanged and remains disabled in the kernel.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+16 full container/item frame cases measured in Chrome 151.0.7922.34 on
+2026-10-18. Absolute rows and rows inside capped absolute blocks are 100×90
+with three 60×30 items; reversed items start at x=40. Controls cover normal
+flow, no maximum in a 100px containing block, nowrap, contents narrower than
+the maximum, and absolute and normal-flow columns in both directions. The
+added cases had 12 frame mismatches before this patch.
+
+`browser_position::max_content_roots_wrap_at_their_resolved_width` holds 14
+further Chrome cases under `Offer::MAX_CONTENT`: 60px and 100px items in both
+row directions and wrapping directions, gaps and padding in both box-sizing
+modes, and nowrap, below-maximum and column controls. The Chrome analog is a
+row inside a `width:max-content` wrapper; `float:left` wrappers give the same
+eight basic row frames. These were measured with the same Chrome version and
+date. Before recollecting lines, ten cases had 34 frame mismatches, including
+100×30 roots that should be 100×90. Taffy's
+`capped_max_content_rows_measure_their_wrapped_height` holds the eight basic
+cases in both sizing modes; all 16 measurements previously returned 30px height.
+
+Ten further root-frame cases and 40 measurements cover fractional widths and
+gaps in both row directions, with maxima above and below the unwrapped width.
+The root frames use the same Chrome version, date and `width:max-content`
+analog. Three 60.1px items with 0.1px gaps fit on one line below a 300px maximum;
+60.2px items with 0.2px gaps fit two per line under a 120.6px maximum. Before
+matching the accumulation order, these cases had ten frame mismatches and 16
+incorrect measured heights. The 73.33px controls cover two-decimal item widths.
+Chrome's 1/64px length quantization accounts for less than 0.05px frame
+drift in these fixtures; the size measurements check widths within 0.001px
+and heights exactly.
+
+Eight boundary root-frame cases cover three 60.4px items under `width:181.4px`
+and `max-width:181.4px`, in both row directions. With 0.1px gaps they occupy
+one line; 0.125px gaps still force wrapping. These use the same Chrome version,
+date and wrapper. Sixteen further measurements cover the maximum in both sizing
+and wrapping modes. Without the fit tolerance, the 0.1px cases had eight frame
+mismatches and eight measurements with 60px height instead of 30px.
+
+## Patch 48: measure a wrapping row's min-content contributions
+
+`determine_container_main_size` takes the largest outer intrinsic contribution
+of a wrapping row's items. It measures each item under `MinContent` with its
+preferred width and min/max constraints, including when `min-width:0` or hidden
+overflow makes the automatic minimum zero. Margins are added after sizing the
+border box. Columns, nowrap rows and balanced wrapping retain their paths.
+
+Chrome 151 applies neither flex-basis clamp in this calculation, unlike the
+algorithm in [CSS Flexbox §9.9.1.3](https://www.w3.org/TR/css-flexbox-1/#intrinsic-sizes).
+A 60px basis contributes 100px for 100px-wide contents and 20px for 20px-wide
+contents, even with `flex-grow:0;flex-shrink:0`. An authored `width:60px`
+contributes 60px in both cases. `InherentSize` measures these preferred widths
+and bounds through the item's own layout algorithm, without substituting its
+flex basis or suppressing a scroll container's contents.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+28 literal cases measured in Chrome 151.0.7922.34 on 2026-10-18, with full
+container, item and content frames. They cover both row directions, zero and
+automatic minima, hidden overflow, growable and shrinkable items, preferred
+widths, narrower contents, item bounds, padding, borders, positive and negative
+margins, and nowrap. Float wrappers in an 80px offer give the same frames.
+Before this patch the new cases had 56 frame mismatches. The reported absolute
+row is now 100×300 with 60×100 items; reversed items start at x=40.
+
+Taffy's `wrapping_min_content_width_uses_contents_independently_of_flex_basis`
+holds 18 direct `MinContent` layouts and 36 size measurements in both sizing
+modes, against rows in `width:min-content` wrappers measured in the same Chrome
+version. These include the 20px contribution that shrink-to-fit's available-width
+floor hides, and the resulting overflow or shrinking of the 60px items.
+
+`compute_preliminary` also lays out again at the resolved min-content width
+before measuring height or placing items. This refreshes content-dependent flex
+bases, percentage sizes and descendant wrapping under the known width. Taffy's
+`min_content_rows_wrap_at_their_resolved_width` holds eight further layouts and
+16 measurements: 200px contents whose three 60px bases fit on one line, zero
+bases, and 90px/400px container maxima, in both row directions. Without this
+step, six layouts and twelve measurements had incorrect heights; twelve item
+frames also differed from Chrome.
+
+`min_content_rows_remeasure_content_dependent_bases` in the kernel and Taffy
+holds ten further Chrome cases, measured with the same version and date: a
+100px item followed by two nested wrapping rows, each containing two 40px
+boxes. Their auto bases measure 40px under `MinContent` and 80px at the resolved
+width. The outer row is 100×300 with 80×100 nested items. Recollecting lines
+with the earlier bases incorrectly merged the last two items into one line.
+The cases include block wrappers, 60px item maxima, 50% preferred widths, a
+definite 40px basis control, and both row directions. Literal frames in
+`browser_position.tsv` hold the absolute shrink-to-fit path and direct
+`MinContent` root layouts; Taffy also checks both sizing modes. Before refreshing
+layout at the known width, these direct requests had 57 kernel frame mismatches
+and 34 Taffy size/frame mismatches. All absolute cases already agreed with Chrome.
+
+## Patch 49: resolve percentage heights against a changed final stretch size
+
+`calculate_flex_item` treats the final cross size as definite when stretching
+changes it from the hypothetical cross size. This supplies the used height to
+percentage children as [CSS Flexbox §9.4](https://www.w3.org/TR/css-flexbox-1/#algo-stretch)
+requires. Preliminary measurements retain patch 12's ratio rule. If content
+grows a ratio item without stretch changing its height, its percentage children
+still use the preferred ratio height.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+25 literal cases measured in Chrome 151.0.7922.34 on 2026-10-18, including full
+container, item and descendant frames. They cover absolute and normal rows,
+maxima and minima, definite heights, flex-start, columns, wrapping, reversed
+rows, padding, borders, taller siblings and content growth. Before this patch,
+12 frames differed: the reported 30px item gave its child 50px instead of 30px.
+An uncapped normal row's content-grown 130px item retains its 50px percentage
+basis, as does a row capped at that unchanged height.
+
+Taffy's `stretched_ratio_percentage_height_uses_the_final_cross_size` holds
+eight normal-flow layouts, including the capped failure and the content-growth
+control. Its percentage heights and following sibling positions failed before
+the final stretch size became definite.
+
+`determine_used_cross_size` compares the clamped and hypothetical cross sizes
+in 1/64px units, truncating each positive size as
+[Blink's `LayoutUnit(float)`](https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/platform/geometry/layout_unit.h)
+does. Rounding their difference incorrectly treats distinct lengths within the
+same unit as stretch. When the item's measured outer size already fills the
+line, compare with the same container insets added to both sides, preserving
+its hypothetical height before reversing inset and margin additions. Apply the
+item's bounds to that comparison too: an item maximum can cancel stretching.
+This changes definiteness only; layout geometry and intrinsic measurement stay
+unchanged.
+
+Fourteen fractional-margin cases and 44 container cases, measured in Chrome
+151.0.7922.34 on 2026-10-18, cover absolute and in-flow rows, padding, borders,
+box-sizing, nested containers, columns, bounds and layout-unit boundaries.
+Eight further cases cover fractional constraints in both flow modes. Chrome
+uses 110.078125px for a 110.09px maximum; minima of 110.102px, 110.108px and
+110.109px share the natural 110.09375px unit and retain a 50px percentage basis.
+The latter two minima gave the percentage child the full height before the
+correction: eight frame mismatches. These eight fixture cases compare literal
+frames in layout units because the kernel retains f32 geometry.
+
+Taffy's `fractional_cross_margins_do_not_make_content_growth_a_stretch` checks ten
+layouts without pixel rounding. `container_insets_do_not_make_content_growth_a_stretch`
+checks twenty-four more, including the fractional bounds, unit boundaries and
+an unchanged subunit cap. Four layouts failed before the per-size comparison.
+Both retain the ratio basis for content growth and the final size for stretch.
+
+## Patch 50: include the definite height in a ratio box's automatic width minimum
+
+`minimum_ratio_width` combines its content-only min-content measurement with
+the width transferred from the definite height, taking the larger before
+capping by `max-width` ([CSS Sizing 4 §5.1](https://www.w3.org/TR/css-sizing-4/#intrinsic),
+[Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto)). The height
+is clamped by its own min/max before transfer; `Ratio` preserves padding and
+border according to `box-sizing`. Replaced boxes, scroll containers and
+explicit width minima retain their existing paths.
+
+**Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
+27 literal cases measured in Chrome 151.0.7922.34 on 2026-10-18, prefixed
+`Chrome 151 ratio minimum`. Before the patch, 22 frames differed: the empty
+80px square shrank to 50px in a narrow row and to 0px in the absolute-block
+case. Coverage includes siblings, max-width, wider content, height bounds,
+padding and borders under both box-sizing modes, and the explicit-minimum,
+overflow, stretch and column controls. The shared minimum fixes the absolute
+case without a separate intrinsic-layout change.
+
+The final cross-size clamp omits the automatic inline minimum when a column
+stretches the item's width. That cross size takes the line width and authored
+bounds ([Flexbox §9.4](https://www.w3.org/TR/css-flexbox-1/#algo-stretch)).
+Intrinsic measurement retains the minimum so shrink-to-fit and wrapping
+columns account for wider content. Rows, non-stretched columns, block and
+grid keep their ratio minima.
+
+Twenty-six `Chrome 151 ratio column stretch` fixtures, measured with the same
+Chrome version and date, cover definite and automatic column heights,
+column-reverse, alignment overrides, margins, bounds, padding, wider content
+and wrapping, plus block and grid controls. Ten frames failed before the
+correction, including an 80×80 item where Chrome stretches it to 50×80. Six
+additional frames guard intrinsic measurement: omitting the minimum during
+setup narrowed wider-content columns from Chrome's 120px to 80px.
+
+## Cargo workspace boundary
+
+`Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
+Exact worktree does not attach this excluded path dependency to the enclosing
+checkout. This is an Exact integration patch to retain when updating.

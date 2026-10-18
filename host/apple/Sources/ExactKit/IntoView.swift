@@ -3,8 +3,7 @@
 // `focus("id")` names one. Every scroll container above it aligns it,
 // innermost first, then the page, as CSSOM View's "scroll an element into
 // view" does; each clamps to its own range. A list's row by key is the
-// runner's (LLP 1070.000). `behavior="smooth"` lands at once here, a
-// deviation the reference declares. The scrollers' observers tell the app
+// runner's (LLP 1070.000). The scrollers' observers tell the app
 // and a virtualized list's window, as a reader's scroll does.
 import CoreGraphics
 
@@ -26,6 +25,20 @@ enum IntoView {
             return t1 - size
         }
     }
+    static func animates(_ args: [Any]) -> Bool {
+        let behavior = args.count > 3 ? args[3] as? String : nil
+        return !ExactEnv.agentFreezes && !DisplayPreferences.reducedMotion
+            && behavior != "instant"
+    }
+    static func inset(_ rect: CGRect, style: [String: BatchValue], family: String, outward: Bool = false) -> CGRect {
+        let top = style["\(family)_top"]?.length(basis: rect.height) ?? 0
+        let bottom = style["\(family)_bottom"]?.length(basis: rect.height) ?? 0
+        let left = style["\(family)_left"]?.length(basis: rect.width) ?? 0
+        let right = style["\(family)_right"]?.length(basis: rect.width) ?? 0
+        let sign: CGFloat = outward ? -1 : 1
+        return CGRect(x: rect.minX + sign * left, y: rect.minY + sign * top,
+                      width: max(0, rect.width - sign * (left + right)), height: max(0, rect.height - sign * (top + bottom)))
+    }
     /// The options as the command carries them: block, inline, `none` the web's default.
     static func options(_ args: [Any]) -> (block: String, inline: String) {
         let text = { (i: Int) in args.count > i ? args[i] as? String : nil }
@@ -37,6 +50,13 @@ enum IntoView {
 import AppKit
 
 extension Presenter {
+    func cancelPageElementScroll(_ clip: NSClipView) {
+        guard pageElementAnimation != nil else { return }
+        pageElementAnimation = nil
+        let at = clip.bounds.origin
+        NSAnimationContext.runAnimationGroup({ context in context.duration = 0; clip.animator().setBoundsOrigin(at) })
+    }
+
     func scrollElementIntoView(_ args: [Any]) {
         guard let name = args.first as? String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
@@ -45,14 +65,48 @@ extension Presenter {
             return
         }
         let (block, inline) = IntoView.options(args)
+        var moves: [(NSClipView, NodeView?, NSPoint)] = []
+        var from: NSView = target
+        var frame = IntoView.inset(target.bounds, style: target.style, family: "scroll_margin", outward: true)
         for case let clip as NSClipView in sequence(first: target.superview, next: { $0?.superview }).compactMap({ $0 }) {
-            let frame = target.convert(target.bounds, to: clip), port = clip.bounds
+            frame = from.convert(frame, to: clip)
+            let owner = (clip.superview?.superview as? NodeView)
+            let port = IntoView.inset(clip.bounds, style: owner?.style ?? [:], family: "scroll_padding")
             let origin = NSPoint(
-                x: IntoView.aligned(inline, target: frame.minX, frame.maxX, port: port.minX, size: port.width),
-                y: IntoView.aligned(block, target: frame.minY, frame.maxY, port: port.minY, size: port.height))
-            let to = clip.constrainBoundsRect(NSRect(origin: origin, size: port.size)).origin
-            guard to != port.origin else { continue }
-            clip.scroll(to: to)
+                x: IntoView.aligned(inline, target: frame.minX, frame.maxX, port: port.minX, size: port.width) - (port.minX - clip.bounds.minX),
+                y: IntoView.aligned(block, target: frame.minY, frame.maxY, port: port.minY, size: port.height) - (port.minY - clip.bounds.minY))
+            let to = clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin
+            moves.append((clip, owner, to))
+            // Project the target at this clip's destination before aligning
+            // its parent. The animator has not moved either clip yet.
+            frame = frame.offsetBy(dx: clip.bounds.minX - to.x, dy: clip.bounds.minY - to.y)
+            from = clip
+        }
+        for (clip, owner, to) in moves {
+            if let owner { owner.cancelElementScroll() } else { cancelPageElementScroll(clip) }
+            guard to != clip.bounds.origin else { continue }
+            if IntoView.animates(args) {
+                let token = UUID()
+                if let owner {
+                    let end = owner.scrollEnd ?? ScrollEnd()
+                    owner.scrollEnd = end
+                    end.elementAnimation = token; end.hold()
+                    NSAnimationContext.runAnimationGroup({ _ in clip.animator().setBoundsOrigin(to) }, completionHandler: { [weak owner] in
+                        guard end.elementAnimation == token else { return }
+                        end.elementAnimation = nil
+                        owner?.endScroll()
+                    })
+                } else {
+                    pageElementAnimation = token
+                    NSAnimationContext.runAnimationGroup({ _ in clip.animator().setBoundsOrigin(to) }, completionHandler: { [weak self] in
+                        guard self?.pageElementAnimation == token else { return }
+                        self?.pageElementAnimation = nil
+                    })
+                }
+            } else {
+                NSAnimationContext.runAnimationGroup({ c in c.duration = 0; clip.animator().setBoundsOrigin(to) })
+                clip.scroll(to: to)
+            }
             (clip.superview as? NSScrollView)?.reflectScrolledClipView(clip)
         }
     }
@@ -60,25 +114,127 @@ extension Presenter {
 #elseif os(iOS) || os(tvOS)
 import UIKit
 
+/// `scrollIntoView` requests held until their targets can be scrolled to
+/// (UIKit's sheets mount a turn after the batch that made them; euxy's
+/// preselected icon was asked in that turn), and carried out once more when a
+/// presentation or navigation settles, after any focus it brought, which
+/// UIKit would otherwise scroll back to. One per HTML id, the latest; a
+/// request for another element leaves them be.
+final class ElementScrolls {
+    private struct Held {
+        weak var node: NodeView?
+        let incarnation: UInt64
+        let name: String
+        let args: [Any]
+    }
+    private var held: [Held] = []
+    private unowned let presenter: Presenter
+    init(_ presenter: Presenter) { self.presenter = presenter }
+
+    var names: [String] { held.map(\.name) }
+    func hold(_ node: NodeView, _ name: String, _ args: [Any]) {
+        drop(name)
+        held.append(Held(node: node, incarnation: node.incarnation, name: name, args: args))
+    }
+    func drop(_ name: String) { held.removeAll { $0.name == name } }
+    /// A closing sheet or dialog takes its requests with it.
+    func cancel(inside root: UIView) { held.removeAll { $0.node?.isDescendant(of: root) ?? true } }
+    func cancelAll() { held.removeAll() }
+    /// The person took a scroller: a request it would move is dropped and
+    /// stays dropped, so nothing scrolls it back once the gesture ends.
+    func userScrolled(_ scroll: UIScrollView) {
+        held.removeAll { entry in
+            guard let node = entry.node else { return true }
+            return node.isDescendant(of: scroll) || presenter.groupedLists?.scroller(for: node.id) === scroll
+        }
+    }
+
+    /// Carry out each request whose target can be scrolled to, outside a
+    /// batch; keep it while a presentation or navigation is settling. A
+    /// target replaced, recycled into another row, or on an inactive route
+    /// cancels its request.
+    func flush() {
+        guard !held.isEmpty, !presenter.applying else { return }
+        let settling = presenter.settlesElementScroll
+        for entry in held {
+            guard let node = entry.node, node.incarnation == entry.incarnation, presenter.views[node.id] === node,
+                  node.props["id"] == entry.name, !presenter.navigation.isInactiveRoute(containing: node) else {
+                drop(entry.name)
+                presenter.session?.log("scrollIntoView \"\(entry.name)\" cancelled: its target was replaced or left")
+                continue
+            }
+            guard presenter.canScrollIntoView(node) else { continue }
+            presenter.scrollIntoView(node, entry.args)
+            if !settling { drop(entry.name) }
+        }
+    }
+}
+
 extension Presenter {
+    var settlesElementScroll: Bool { navigation.defersFocus || modals.defersFocus }
+
+    /// Whether `target` is laid out where it can be scrolled to: in a
+    /// window, with a size. A row of a grouped list counts once its window
+    /// is there: its authored original is a hidden sibling of the native
+    /// collection, which projects the row (or, offscreen, scrolls to the
+    /// original's place).
+    func canScrollIntoView(_ target: NodeView) -> Bool {
+        guard target.window != nil else { return false }
+        return groupedLists?.scroller(for: target.id) != nil || target.bounds.width > 0 || target.bounds.height > 0
+    }
+
     func scrollElementIntoView(_ args: [Any]) {
         guard let name = args.first as? String,
-              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
-              target.window != nil else {
+              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else {
             session?.log("scrollIntoView \"\(args.first ?? "")\" refused: no live node with that id")
             return
         }
+        guard canScrollIntoView(target), !applying else {
+            elementScrolls.hold(target, name, args)
+            session?.log("scrollIntoView \"\(name)\" waits: its target is not laid out in a window yet")
+            return
+        }
+        scrollIntoView(target, args)
+        if settlesElementScroll { elementScrolls.hold(target, name, args) } else { elementScrolls.drop(name) }
+    }
+
+    func scrollIntoView(_ target: NodeView, _ args: [Any]) {
         let (block, inline) = IntoView.options(args)
-        for case let sv as UIScrollView in sequence(first: target.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
-            // The port is the bounds inside the insets (a bar's, the keyboard's).
-            let frame = target.convert(target.bounds, to: sv), inset = sv.adjustedContentInset
-            let port = sv.bounds.inset(by: inset)
-            let x = IntoView.aligned(inline, target: frame.minX, frame.maxX, port: port.minX, size: port.width) - inset.left
-            let y = IntoView.aligned(block, target: frame.minY, frame.maxY, port: port.minY, size: port.height) - inset.top
-            let maxX = max(-inset.left, sv.contentSize.width + inset.right - sv.bounds.width)
-            let maxY = max(-inset.top, sv.contentSize.height + inset.bottom - sv.bounds.height)
-            let to = CGPoint(x: min(max(x, -inset.left), maxX), y: min(max(y, -inset.top), maxY))
+        let grouped = groupedLists?.scroller(for: target.id).flatMap { scroll in
+            scroll.window === target.window && groupedLists?.projectedRect(for: target, in: scroll) != nil ? scroll : nil
+        }
+        var scrollers: [UIScrollView] = []
+        for view in sequence(first: target.superview, next: { $0?.superview }).compactMap({ $0 }) {
+            if let sv = view as? UIScrollView, sv.isScrollEnabled { scrollers.append(sv) }
+            // A standard cell's authored original is a sibling of the native
+            // collection. Insert that port at its owner, after any nested one.
+            if let grouped, view === grouped.superview, grouped.isScrollEnabled,
+               !scrollers.contains(where: { $0 === grouped }) { scrollers.append(grouped) }
+        }
+        for sv in scrollers {
+            let frame: CGRect
+            if let grouped, sv === grouped || grouped.isDescendant(of: sv),
+               let projected = groupedLists?.projectedRect(for: target, in: grouped) {
+                // Inner authored scrolls use the target's own box. The native
+                // row frame projects only into its collection and outer ports.
+                frame = grouped.convert(projected, to: sv)
+            } else {
+                frame = target.convert(target.bounds, to: sv)
+            }
+            // Content room belongs to the range; only UI insets (a bar or
+            // keyboard) obstruct the viewport used for CSS alignment.
+            let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
+            let inset = owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset
+            let port = IntoView.inset(sv.bounds.inset(by: inset), style: owner?.style ?? [:], family: "scroll_padding")
+            let area = IntoView.inset(frame, style: target.style, family: "scroll_margin", outward: true)
+            let x = IntoView.aligned(inline, target: area.minX, area.maxX, port: port.minX, size: port.width) - (port.minX - sv.bounds.minX)
+            let y = IntoView.aligned(block, target: area.minY, area.maxY, port: port.minY, size: port.height) - (port.minY - sv.bounds.minY)
+            let rangeInset = sv.adjustedContentInset
+            let maxX = max(-rangeInset.left, sv.contentSize.width + rangeInset.right - sv.bounds.width)
+            let maxY = max(-rangeInset.top, sv.contentSize.height + rangeInset.bottom - sv.bounds.height)
+            let to = CGPoint(x: min(max(x, -rangeInset.left), maxX), y: min(max(y, -rangeInset.top), maxY))
             guard to != sv.contentOffset else { continue }
+            // UIKit element jumps fall back to instant (LLP 1070.000 §14).
             sv.setContentOffset(to, animated: false)
         }
     }

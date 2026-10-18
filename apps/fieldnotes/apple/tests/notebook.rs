@@ -168,7 +168,7 @@ impl<D: DataSource> Notebook<D> {
         Self {
             module,
             plan,
-            store: Store::new(GRANTS, Vec::<(String, String)>::new()),
+            store: Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new()),
         }
     }
     fn call(&mut self, source: &str, args: Vec<Value>) -> Json {

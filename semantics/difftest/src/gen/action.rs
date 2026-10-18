@@ -1,7 +1,7 @@
 //! Action bodies: assignments (the same slot written twice, slots read
 //! after a write, which still sees the starting value), `let`, `if`/`else`,
-//! `match` on an option, `send`, the voice table's commands, and calls of
-//! the root's earlier actions
+//! `match` on an option, `send`, the voice table's commands, `sendMIDI`,
+//! and calls of the root's earlier actions
 //! (LLP 1089 D9: action *i* calls actions *j < i*, so no call cycles):
 //! anywhere among the statements, and in bodies that only call
 //! ([`Gen::dispatch`]). A program whose statement calls the compiler
@@ -145,23 +145,41 @@ impl Gen<'_> {
         }
     }
 
-    /// One of the voice table's commands (LLP 1096 D11): commands to the
-    /// semantics, compared as issued. The source is computed (a program here
-    /// declares no sound, and a literal must name one), so the runner drops
-    /// the voice; the gain is computed too, inside 0–1.
+    /// One of the voice table's commands (LLP 1096 D11) or a MIDI message
+    /// (LLP 1125 D7): commands to the semantics, compared as issued. The
+    /// source is computed (a program here declares no sound, and a literal
+    /// must name one), so the runner drops the voice; the gain and pan are
+    /// computed too, inside their ranges. A list of literal MIDI bytes is
+    /// held to MIDI 1.0 by the checker, so the note is computed through
+    /// `floor`, which keeps the list computed: the runner's queue drops a
+    /// malformed one after the command is issued.
     fn sound(&mut self, env: &Env, d: usize, pad: &str, out: &mut String) {
-        match self.rng.below(3) {
+        match self.rng.below(4) {
             0 => {
                 let src = self.expr(env, &Ty::Str, d, false);
                 let gain = self.expr(env, &Ty::Num, d, false);
+                let pan = self.expr(env, &Ty::Num, d, false);
                 out.push_str(&format!(
-                    "{pad}playSound(`${{{src}}}`, gain=min(1, max(0, {gain})))\n"
+                    "{pad}playSound(`${{{src}}}`, gain=min(1, max(0, {gain})), pan=min(1, max(-1, {pan})))\n"
                 ));
             }
             1 => out.push_str(&format!("{pad}stopSounds()\n")),
-            _ => {
+            2 => {
                 let group = self.expr(env, &Ty::Str, d, false);
                 out.push_str(&format!("{pad}stopSounds(group={group})\n"));
+            }
+            _ => {
+                let output = self.expr(env, &Ty::Str, d, false);
+                let note = self.expr(env, &Ty::Num, d, false);
+                let at = if self.rng.chance(1, 2) {
+                    let t = self.expr(env, &Ty::Num, d, false);
+                    format!(", at=performanceNow() + {t}")
+                } else {
+                    String::new()
+                };
+                out.push_str(&format!(
+                    "{pad}sendMIDI({output}, [144, floor({note}), 100]{at})\n"
+                ));
             }
         }
     }
@@ -259,7 +277,7 @@ impl Gen<'_> {
         let shown = self.show(&name, t);
         let reset = self.lit(t, true);
         out.push_str(&format!(
-            "{pad}let {name} = {e}\n{pad}{slot} = ((length({shown}) > {GROWTH_CAP}) ? {reset} : {name})\n"
+            "{pad}let {name} = {e}\n{pad}{slot} = ((({shown}).length > {GROWTH_CAP}) ? {reset} : {name})\n"
         ));
     }
 }

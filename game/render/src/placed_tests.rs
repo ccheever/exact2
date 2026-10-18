@@ -498,6 +498,7 @@ fn linux_placed_socket_redelivery_snaps_the_new_rig_history() {
     let mut p = Placements::default();
     p.child(0, "", None, [0., 0., 100., 50.]);
     p.feed(sim.world()).unwrap();
+    sim.run(17.);
     p.feed(sim.world()).unwrap();
     p.headless(Vec2::splat(200.), 0.5);
     assert!((p.children[0].plane.unwrap().center.x - 2.).abs() < 1e-5);

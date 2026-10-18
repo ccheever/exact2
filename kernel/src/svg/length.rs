@@ -4,7 +4,7 @@
 //! @ref LLP 1055.000 D4; SVG 2 §8.9 (units), CSS Values 4 §6.2 (absolute
 //! lengths at 96 px per inch)
 
-use crate::style::Dimension;
+use crate::style::{Dimension, Env};
 
 /// A length as authored: a number of user units, or a percentage.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -18,6 +18,18 @@ pub enum Length {
 impl Length {
     /// Zero user units.
     pub const ZERO: Length = Length::Units(0.0);
+
+    /// Absolute unit spellings and their scales in user units. The empty
+    /// spelling is unitless; percentages are parsed separately.
+    pub const ABSOLUTE_UNITS: &'static [(&'static str, f32)] = &[
+        ("", 1.0),
+        ("px", 1.0),
+        ("in", 96.0),
+        ("cm", 96.0 / 2.54),
+        ("mm", 96.0 / 25.4),
+        ("pt", 96.0 / 72.0),
+        ("pc", 16.0),
+    ];
 
     /// A number with an optional unit: none or `px` (user units), `in`,
     /// `cm`, `mm`, `pt`, `pc`, or `%`. `None` for anything else (`em`,
@@ -33,15 +45,9 @@ impl Length {
         // An exponent's `e` is part of the number; a unit starting with `e`
         // (`em`, `ex`) is not admitted, so `e` is only ever an exponent.
         let (n, unit) = t.split_at(split);
-        let scale = match unit.to_ascii_lowercase().as_str() {
-            "" | "px" => 1.0,
-            "in" => 96.0,
-            "cm" => 96.0 / 2.54,
-            "mm" => 96.0 / 25.4,
-            "pt" => 96.0 / 72.0,
-            "pc" => 16.0,
-            _ => return None,
-        };
+        let (_, scale) = Self::ABSOLUTE_UNITS
+            .iter()
+            .find(|(name, _)| unit.eq_ignore_ascii_case(name))?;
         number(n).map(|v| Length::Units(v * scale))
     }
 
@@ -74,14 +80,16 @@ fn number(text: &str) -> Option<f32> {
 /// The nearest SVG viewport's size in user units (SVG 2 §8.9): its view
 /// box's size when it has one, else its own width and height.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Viewport {
+pub struct Viewport<'a> {
+    /// The window environment for CSS lengths, independent of the SVG view box.
+    pub env: &'a Env,
     /// Width in user units.
     pub width: f32,
     /// Height in user units.
     pub height: f32,
 }
 
-impl Viewport {
+impl Viewport<'_> {
     /// The basis of a percentage that is neither horizontal nor vertical
     /// (`r`, `stroke-width`): the normalized diagonal √((w²+h²)/2).
     pub fn diagonal(&self) -> f32 {
@@ -90,27 +98,33 @@ impl Viewport {
 
     /// A dimension row on the horizontal axis (`x`, `cx`, `width`, `rx`).
     pub fn x(&self, d: Dimension) -> f32 {
-        resolve(d, self.width)
+        self.resolve(d, self.width).unwrap_or(0.0)
     }
 
     /// A dimension row on the vertical axis (`y`, `cy`, `height`, `ry`).
     pub fn y(&self, d: Dimension) -> f32 {
-        resolve(d, self.height)
+        self.resolve(d, self.height).unwrap_or(0.0)
     }
 
     /// A dimension row on the diagonal (`r`).
     pub fn d(&self, d: Dimension) -> f32 {
-        resolve(d, self.diagonal())
+        self.resolve(d, self.diagonal()).unwrap_or(0.0)
     }
-}
 
-/// A dimension in user units against `basis`; `auto` is zero.
-pub fn resolve(d: Dimension, basis: f32) -> f32 {
-    match d {
-        Dimension::Points(v) => v,
-        Dimension::Percent(p) => basis * p / 100.0,
-        Dimension::Calc(p, v) => basis * p / 100.0 + v,
-        _ => 0.0,
+    /// A coordinate, or its default fraction, in user or object bounding box units.
+    pub(super) fn coord(&self, d: Option<Dimension>, default: f32, basis: f32) -> f32 {
+        d.and_then(|d| self.resolve(d, basis))
+            .unwrap_or(default * basis)
+    }
+
+    /// A CSS length in user units, with percentages against the SVG basis.
+    /// `None` preserves `auto`, including an undefined environment length,
+    /// so the reader can apply the property's initial value.
+    pub fn resolve(&self, d: Dimension, basis: f32) -> Option<f32> {
+        match d.resolve(self.env) {
+            Dimension::Auto => None,
+            d => Some(d.at_basis(self.env, basis)),
+        }
     }
 }
 

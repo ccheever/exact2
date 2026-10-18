@@ -6,8 +6,8 @@ use exact_plan::{
     Plan, Value,
 };
 use exact_runner::{
-    Answer, DataError, DataSource, FailureKind, HttpScheduling, Outcome, Overlaid, Request,
-    Response, Store, SurfaceOutcome, SurfaceRequest, Write,
+    Answer, DataError, DataSource, FailureKind, HttpScheduling, Outcome, Overlaid, Redirect,
+    Request, Response, Store, SurfaceOutcome, SurfaceRequest, Write,
 };
 
 pub mod draw;
@@ -39,6 +39,28 @@ fn read_pairs(r: &mut Reader<'_>) -> Result<Vec<(String, String)>, String> {
     let n = r.count().map_err(error)?;
     (0..n)
         .map(|_| Ok((r.string().map_err(error)?, r.string().map_err(error)?)))
+        .collect()
+}
+// A store value is length-prefixed bytes, as a string is
+fn store_value(w: &mut Writer, value: &[u8]) {
+    w.u32(value.len() as u32);
+    w.bytes(value);
+}
+fn read_store_value(r: &mut Reader<'_>) -> Result<Vec<u8>, String> {
+    let n = r.count().map_err(error)?;
+    Ok(r.bytes(n).map_err(error)?.to_vec())
+}
+fn store_pairs(w: &mut Writer, data: &[(String, Vec<u8>)]) {
+    w.u32(data.len() as u32);
+    for (name, value) in data {
+        w.string(name);
+        store_value(w, value);
+    }
+}
+fn read_store_pairs(r: &mut Reader<'_>) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let n = r.count().map_err(error)?;
+    (0..n)
+        .map(|_| Ok((r.string().map_err(error)?, read_store_value(r)?)))
         .collect()
 }
 fn finish(w: Writer) -> Result<Vec<u8>, String> {
@@ -101,7 +123,7 @@ pub fn call_request(
         .into_iter()
         .filter(|(name, _)| !name.starts_with(Store::KEPT) && store.granted().contains(name))
         .collect::<Vec<_>>();
-    pairs(&mut w, &snapshot);
+    store_pairs(&mut w, &snapshot);
     if let Some(outcome) = outcome {
         encode_outcome(&mut w, outcome);
     }
@@ -191,6 +213,15 @@ fn encode_outcome(w: &mut Writer, outcome: &Outcome) {
             w.string(&m.data);
             w.u32(m.coalesced);
         }
+        // A Rust module's stream only listens (LLP 1016.000 D7): a two-way
+        // socket's end crosses as the listener's end, worded as natively.
+        Outcome::Closed { code, reason, .. } => {
+            w.u8(1);
+            w.string(&match reason.is_empty() {
+                true => format!("the socket closed ({code})"),
+                false => format!("the socket closed ({code}: {reason})"),
+            });
+        }
         Outcome::Failed { kind, message } => {
             w.u8(match kind {
                 FailureKind::Network => 1,
@@ -231,6 +262,7 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
             id: r.string().map_err(error)?,
             data: r.string().map_err(error)?,
             coalesced: r.u32().map_err(error)?,
+            binary: None,
         }));
     }
     let kind = match tag {
@@ -312,6 +344,14 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             w.u8(u8::from(r.grants.is_some()));
             w.string(r.grants.as_deref().unwrap_or(""));
         }
+        // The seam's HTTP kinds carry no redirect mode yet: a module asking
+        // for one is refused, never silently followed.
+        Ok(Answer::Later(r)) if r.redirect != Redirect::Follow => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "a redirect mode cannot cross the Rust module seam yet".into(),
+            )),
+        ),
         Ok(Answer::Later(r))
             if r.continuation.is_none() && r.surface.is_none() && r.storage.is_none() =>
         {
@@ -353,7 +393,7 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 DataError::Unavailable(s)
                 | DataError::Interface(s)
                 | DataError::DeferredAtBake(s)
-                | DataError::Failed(_, s) => (4, s),
+                | DataError::Failed(_, s, _) => (4, s),
             };
             w.u8(tag);
             w.string(&message);
@@ -366,8 +406,10 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
         0 => Ok(Answer::Now(Value::decode(r).map_err(error)?)),
         1 | 6 | 9 => Ok(Answer::Later(Request {
             stream: tag == 9,
+            socket: false,
             timeout_ms: None,
             body_from: None,
+            redirect: Redirect::Follow,
             http: if tag != 1 {
                 let limit = r.u32().map_err(error)?;
                 if limit == 0 || limit > 64 << 20 {
@@ -553,7 +595,7 @@ impl<D: DataSource> Session<D> {
                 let Value::List(args) = Value::decode(&mut r).map_err(error)? else {
                     return Err("arguments must be a list".into());
                 };
-                let mut store = Store::module_mirror(self.data.grants(), read_pairs(&mut r)?);
+                let mut store = Store::module_mirror(self.data.grants(), read_store_pairs(&mut r)?);
                 let outcome = if op == 4 {
                     Some(read_outcome(&mut r)?)
                 } else {
@@ -572,7 +614,7 @@ impl<D: DataSource> Session<D> {
                     w.string(&write.name);
                     w.u8(u8::from(write.value.is_some()));
                     if let Some(value) = write.value {
-                        w.string(&value);
+                        store_value(&mut w, &value);
                     }
                 }
                 encode_result(&mut w, result);

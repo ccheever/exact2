@@ -137,7 +137,7 @@ fn a_host_measurement_is_the_first_frame_and_wraps_at_each_width() {
     let request = answers.borrow().1.last().unwrap().clone();
     assert_eq!(request.face.subtitle.as_deref(), Some("A subtitle"));
     assert_eq!(request.face.symbol.as_deref(), Some("send"));
-    assert_eq!(request.button_style, "filled");
+    assert_eq!(request.button_style.as_deref(), Some("filled"));
     assert_eq!(k.provisional_layouts(), 0);
 }
 #[test]
@@ -192,7 +192,7 @@ fn unknown_keeps_default_then_host_intrinsic_size() {
     let frame = layout(&mut k);
     assert_eq!(
         (frame.width, frame.height),
-        ControlKind::Button.default_size()
+        ControlKind::Button.default_size(16.0)
     );
     k.set_intrinsic_size(2, Some((99.0, 44.0))).unwrap();
     let frame = layout(&mut k);
@@ -262,6 +262,14 @@ fn env(size: f32) -> Env {
 #[test]
 fn computed_rows_keep_authored_provenance_and_the_child_wins() {
     let mut k = tree(Box::new(MonospaceMeasurer::default()));
+    let check_runs = |k: &Kernel| {
+        let runs = k.node(2).unwrap().text_runs();
+        assert_eq!(runs.len(), 2);
+        for (run, id) in runs.iter().zip([3, 4]) {
+            assert_eq!(run.style, k.node(id).unwrap().text_style());
+        }
+    };
+    check_runs(&k);
     let s = k.button_face_style(2).unwrap();
     assert_eq!(s.title.font_size, 30.0, "web inherits page typography");
     assert!(
@@ -270,6 +278,7 @@ fn computed_rows_keep_authored_provenance_and_the_child_wins() {
     );
     assert_eq!(s.title.text_align, TextAlign::Center);
     k.set_env(env(17.0)).unwrap();
+    check_runs(&k);
     let s = k.button_face_style(2).unwrap();
     assert_eq!(s.title.font_size, 17.0, "Apple stops ancestor typography");
     assert_eq!(s.title.font_weight, 500);
@@ -314,6 +323,7 @@ fn computed_rows_keep_authored_provenance_and_the_child_wins() {
     assert_eq!(s.symbol.font_size, 32.0);
     assert_eq!(s.symbol.font_weight, 700);
     assert!(s.symbol.mask.has(StyleId::TintColor));
+    check_runs(&k);
     assert_eq!(s.image_gap, Some(4.0));
     assert_eq!(s.button.padding_top, Dimension::Points(20.0));
     assert!(s.button.mask.has(StyleId::BorderRadiusTopLeft));
@@ -369,7 +379,10 @@ fn changing_button_style_requests_layout_in_the_same_commit() {
         .unwrap();
     assert!(receipt.layout_invalidated);
     layout(&mut k);
-    assert_eq!(answers.borrow().1.last().unwrap().button_style, "plain");
+    assert_eq!(
+        answers.borrow().1.last().unwrap().button_style.as_deref(),
+        Some("plain")
+    );
     let receipt = k
         .apply(
             0,
@@ -382,7 +395,9 @@ fn changing_button_style_requests_layout_in_the_same_commit() {
         .unwrap();
     assert!(receipt.layout_invalidated);
     layout(&mut k);
-    assert_eq!(answers.borrow().1.last().unwrap().button_style, "bordered");
+    // With none written the kernel names none: what an unsaid button draws
+    // is each platform's default, which its host holds (LLP 1115.000 D15).
+    assert_eq!(answers.borrow().1.last().unwrap().button_style, None);
 }
 
 #[test]
@@ -638,6 +653,7 @@ fn clearing_control_size_and_authored_font_restore_the_platform_em_base() {
         &[Op::ClearStyle {
             id: 2,
             mask: StyleMask::of(StyleId::FontSize),
+            written: false,
         }],
     )
     .unwrap();
@@ -648,6 +664,7 @@ fn clearing_control_size_and_authored_font_restore_the_platform_em_base() {
         &[Op::ClearStyle {
             id: 2,
             mask: StyleMask::of(StyleId::ControlSize),
+            written: false,
         }],
     )
     .unwrap();

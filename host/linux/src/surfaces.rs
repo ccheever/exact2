@@ -19,14 +19,20 @@ use std::{
 #[cfg(target_os = "android")]
 #[path = "surfaces/android.rs"]
 mod android;
+#[cfg(any(target_os = "android", test))]
+mod retry;
 #[cfg(target_os = "android")]
-pub use android::buffer_frame;
+pub(crate) use android::acquire_fd;
+#[cfg(target_os = "android")]
+pub use android::{buffer_frame, window_ready};
 #[cfg(target_os = "android")]
 pub(crate) use android::{device_pending as gpu_device_pending, prepare as prepare_gpu};
 #[path = "surface_controls.rs"]
 pub(crate) mod controls;
 mod pixels;
 mod shaders;
+#[cfg(windows)]
+mod window;
 
 const LIMIT: usize = 256 * 1024 * 1024;
 type Read = unsafe extern "C" fn(u32) -> u32;
@@ -117,6 +123,7 @@ impl Abi {
                 "gpu_agent",
                 "gpu_input",
                 "gpu_wants_input",
+                "gpu_presentation_flags",
                 "gpu_published",
                 "gpu_assets",
                 "gpu_asset",
@@ -138,6 +145,12 @@ impl Abi {
                 crate::android::release_module_pages_too(*at as *const std::ffi::c_void);
             }
             if abi.rendered {
+                #[cfg(windows)]
+                for name in ["gpu_window_frame", "gpu_window_detach"] {
+                    abi.library
+                        .get::<*const ()>(name.as_bytes())
+                        .map_err(|e| format!("GPU ABI {name}: {e}"))?;
+                }
                 for name in ["gpu_load", "gpu_readback", "gpu_seekable", "gpu_lifecycle"] {
                     abi.library
                         .get::<*const ()>(name.as_bytes())
@@ -495,6 +508,10 @@ impl Canvas {
 }
 #[derive(Default)]
 pub(crate) struct Surfaces {
+    #[cfg(windows)]
+    window_layers: Option<window::Layers>,
+    #[cfg(windows)]
+    window_artifact: Option<String>,
     /// Each opened artifact by name, "" the primary; each is tried once.
     abis: BTreeMap<String, Abi>,
     attempted: BTreeSet<String>,
@@ -1100,6 +1117,12 @@ impl Surfaces {
             }
         }
     }
+    #[cfg(target_os = "android")]
+    pub(crate) fn opaque(&self, view: u32) -> bool {
+        self.canvases.get(&view).is_some_and(|c| unsafe {
+            self.abis[&c.artifact].symbol::<Read>(b"gpu_presentation_flags")(c.id) == 3
+        })
+    }
     pub(crate) fn wants_input(&self, view: u32) -> bool {
         self.canvases.get(&view).is_some_and(|c| unsafe {
             self.abis[&c.artifact].symbol::<Read>(b"gpu_wants_input")(c.id) != 0
@@ -1250,7 +1273,7 @@ impl<D: DataSource> Presenter<D> {
         self.surfaces.pointer = Some((view, x, y));
         // The agent's hover is a mouse with nothing held, as everywhere.
         let hover = phase == "move" && buttons & 1 == 0;
-        let kind = if self.surfaces.finger && !hover {
+        let kind = if (self.surfaces.finger || self.direct()) && !hover {
             "touch"
         } else {
             "mouse"
@@ -1264,6 +1287,9 @@ impl<D: DataSource> Presenter<D> {
     }
     pub(crate) fn agent_finger(&mut self, on: bool) {
         self.surfaces.finger = on;
+    }
+    pub(crate) fn contact_is_direct(&self) -> bool {
+        self.direct() || self.surfaces.finger
     }
     pub(crate) fn has_raw_motion(&self) -> bool {
         self.surfaces.motion.is_some()

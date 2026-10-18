@@ -26,6 +26,21 @@ impl DataSource for NoData {
 /// The declarations `items()` needs, ahead of a test's root.
 const ITEMS: &str = "shape Item\n  id: string\n\n";
 
+#[test]
+fn relaunch_is_a_host_command_without_arguments() {
+    let src = "component App\n  action restart\n    relaunch()\n  view\n    button press=restart\n      text \"Restart\"\n";
+    let mut r = boot(src);
+    r.act("restart", vec![]).unwrap();
+    let commands = r.take_commands();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].name, "relaunch");
+    assert!(commands[0].args.is_empty());
+    let error = contract::compile(&src.replace("relaunch()", "relaunch(1)"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("takes no arguments"), "{error}");
+}
+
 fn boot(src: &str) -> Runner<NoData> {
     let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
     Runner::boot(
@@ -45,7 +60,7 @@ fn text_of(r: &Runner<NoData>, id: &str) -> String {
         .props
         .iter()
         .find_map(|(p, v)| match v {
-            PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+            PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
             _ => None,
         })
         .unwrap()
@@ -66,7 +81,7 @@ const VIEWER: &str = r#"component App
     last = why
   view
     column
-      when open
+      if open
         Viewer(hide=dismiss)
       text `${closes} ${last} ${open}` testId="closes"
 
@@ -308,6 +323,28 @@ component Child
 }
 
 #[test]
+fn an_empty_list_or_none_argument_takes_the_parameters_type() {
+    let src = r#"shape Item
+  done: bool
+
+component App
+  state n = 0
+  action count(items: Item[], first: option<Item>)
+    n = items.filter(x => x.done).length + (match first { case some(i) => (i.done ? 1 : 0), case none => 10 })
+  action go
+    count([], none)
+  view
+    column
+      button press=go testId="go"
+        text "go"
+      text `${n}` testId="n"
+"#;
+    let mut r = boot(src);
+    press(&mut r, "go");
+    assert_eq!(text_of(&r, "n"), "10");
+}
+
+#[test]
 fn an_argument_must_be_a_name_the_child_has() {
     let src = r#"component App
   state secret = "root"
@@ -353,7 +390,7 @@ component Child
   state out = ""
   action go(length: number)
     let toString = length + 1
-    out = `${toString} ${toString(length)}`
+    out = `${toString} ${length.toString()}`
     done()
   view
     column
@@ -457,10 +494,10 @@ fn a_child_calls_its_own_action_in_a_row() {
     let src = &format!(
         "{ITEMS}{}",
         r#"component App
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(label=item.id)
 
 component Row
@@ -490,12 +527,12 @@ fn a_prop_called_from_a_same_component_callee_runs_the_owners_action_in_the_row(
         "{ITEMS}{}",
         r#"component App
   state picked = ""
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   action pick(id: string)
     picked = id
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(label=item.id, choose=pick(item.id))
       text picked testId="picked"
 
@@ -551,12 +588,12 @@ fn an_arrow_parameter_spelled_like_a_written_slot_is_not_a_stale_read() {
         r#"component App
   state count = 0
   state shown = ""
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   action reset
     count = 0
   action go
     reset()
-    shown = join(map(items, count => count.id), ",")
+    shown = items.map(count => count.id).join(",")
   view
     column
       button press=go testId="go"
@@ -604,14 +641,14 @@ fn curried_and_payload_arguments_are_passed_explicitly() {
         "{ITEMS}{}",
         r#"component App
   state seen = ""
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   action flip(id: string, checked: bool)
     seen = `${id} ${checked}`
   action toggled(id: string, checked: bool)
     flip(id, checked)
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(label=item.id, set=toggled(item.id))
       text seen testId="seen"
 
@@ -638,29 +675,56 @@ component Row
 
 #[test]
 fn an_untyped_helper_is_typed_by_its_calls() {
-    let src = r#"component App
+    for body in [
+        r#"    if k == "ArrowDown"
+      move(1, 0)
+    if k == "ArrowRight"
+      move(0, 1)"#,
+        r#"    if k == ""
+      let ignored = k
+    else
+      let dr = k == "ArrowDown" ? 1 : 0
+      let dc = k == "ArrowRight" ? 1 : 0
+      move(dr, dc)"#,
+        r#"    match some(k)
+      case some(key)
+        if key != ""
+          let dr = key == "ArrowDown" ? 1 : 0
+          let dc = key == "ArrowRight" ? 1 : 0
+          move(dr, dc)
+      case none
+        let ignored = k"#,
+        r#"    match (k == "" ? some(k) : none)
+      case some(key)
+        let ignored = key
+      case none
+        let dr = k == "ArrowDown" ? 1 : 0
+        let dc = k == "ArrowRight" ? 1 : 0
+        move(dr, dc)"#,
+    ] {
+        let src = format!(
+            r#"component App
   state r = 0
   state c = 0
   action move(dr, dc)
     r = r + dr
     c = c + dc
   action clipKey(k: string)
-    if k == "ArrowDown"
-      move(1, 0)
-    if k == "ArrowRight"
-      move(0, 1)
+{body}
   view
     column
       button press=clipKey("ArrowDown") testId="down"
         text "down"
       button press=clipKey("ArrowRight") testId="right"
         text "right"
-      text `${r} ${c}` testId="at"
-"#;
-    let mut r = boot(src);
-    press(&mut r, "down");
-    press(&mut r, "right");
-    assert_eq!(text_of(&r, "at"), "1 1");
+      text `${{r}} ${{c}}` testId="at"
+"#
+        );
+        let mut r = boot(&src);
+        press(&mut r, "down");
+        press(&mut r, "right");
+        assert_eq!(text_of(&r, "at"), "1 1", "{body}");
+    }
 }
 
 #[test]
@@ -1033,4 +1097,64 @@ component Child
       text "quit"
 "#;
     contract::compile(record).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// What an action prop was curried with is a hidden parameter of every
+/// lifted action of the use (D7). One action a handler binds types it for
+/// its siblings, one nothing binds included; when none is bound or called,
+/// the refusal names the prop's binding, never the capture.
+#[test]
+fn a_childs_hidden_capture_is_typed_by_any_bound_sibling_and_never_named() {
+    let src = r#"component App
+  view
+    column
+      Panel(title="Panel")
+
+component Panel
+  props
+    title: string
+  state last = ""
+  action note(label: string)
+    last = `${title} ${label}`
+  view
+    column
+      text last testId="last"
+      Leaf(label="a", tell=note)
+
+component Leaf
+  props
+    label: string
+    tell: action
+  state n = 0
+  action spare
+    tell("spare")
+  action idle
+    n = n + 1
+  action go
+    tell(label)
+  view
+    button "Go" press=go testId="go"
+"#;
+    let mut r = boot(src);
+    press(&mut r, "go");
+    assert_eq!(text_of(&r, "last"), "Panel a");
+    // Nothing binds or calls any of Leaf's actions: one refusal, at
+    // `tell=note`, naming the first action that calls `tell`.
+    let unbound = src.replace(" press=go", "");
+    let e = refused(&unbound);
+    assert_eq!(e.id, "type-cannot-infer", "{e}");
+    assert_eq!(
+        e.message,
+        "cannot infer the type of what `note` carries from this binding into `spare`, which calls it: bind `spare` to a handler or call it from one"
+    );
+    assert_eq!((e.span.line, e.span.col), (15, 23), "{e}");
+    let dir = std::env::temp_dir().join(format!("contract-capture-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(&path, &unbound).unwrap();
+    let all = contract::compile_path_all(&path, false)
+        .map(|_| ())
+        .expect_err("refused");
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(all.len(), 1, "{all:#?}");
 }

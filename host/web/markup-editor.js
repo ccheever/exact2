@@ -4,6 +4,8 @@
 // placement, deletion, pending formats, list Return, undo — is the shared
 // exact-markdown-editor crate, in markup-editor.wasm, fetched with this module
 // only when a Markdown textarea mounts.
+import { inertAncestor } from './navigation.js';
+
 const NONE = 0xffffffff, HANDLED = 1, SOURCE = 2, PLACE = 4;
 // beforeinput kinds, as `mde_before_input` numbers them; 0 runs natively.
 const KINDS = { historyUndo: 1, historyRedo: 2, formatBold: 3, formatItalic: 4, formatStrikeThrough: 5, insertParagraph: 7, insertLineBreak: 7,
@@ -13,7 +15,7 @@ const STYLES = [[1, 'md-b'], [2, 'md-i'], [4, 'md-c'], [8, 'md-s'], [16, 'md-a']
 const CSS = `
 .exact-markdown-editor { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; outline: none; caret-color: currentColor; cursor: text; }
 .exact-markdown-editor, .exact-markdown-editor * { position: relative; }
-.exact-markdown-editor.md-empty::before { content: attr(placeholder); position: absolute; pointer-events: none; color: light-dark(#3c3c4380, #ebebf580); }
+.exact-markdown-editor.md-empty::before { content: attr(placeholder); position: absolute; pointer-events: none; color: var(--exact-placeholder-color, light-dark(#3c3c4380, #ebebf580)); }
 .md-hide, .md-collapsed { display: none; }
 .md-b { font-weight: 700; } .md-i { font-style: italic; } .md-s { text-decoration: line-through; }
 .md-c { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .88em; background: light-dark(#0000000f, #ffffff14); border-radius: 4px; padding: 1px 3px; }
@@ -46,6 +48,37 @@ function put(s) {
   const at = wasm.mde_input(s.length), m = new Uint16Array(wasm.memory.buffer, at, s.length);
   for (let i = 0; i < s.length; i++) m[i] = s.charCodeAt(i);
   return s.length;
+}
+
+/** The generic decorated editor shares the kernel's UTF-16 reconciliation. */
+export function reconcileDecorations(record, current) {
+  const lists = ['spans', 'blocks', 'hidden', 'atoms'];
+  const ranges = [], entries = [];
+  for (const kind of lists) for (const item of record[kind] ?? []) {
+    entries.push({ kind, item });
+    ranges.push(item.start, item.end, +(kind === 'hidden' || kind === 'atoms'));
+    if (kind === 'hidden' && item.reveal) {
+      entries.push({ kind: 'reveal', item: item.reveal, owner: item });
+      ranges.push(item.reveal.start, item.reveal.end, 0);
+    }
+  }
+  put(record.value + current);
+  const at = wasm.mde_decoration_ranges(ranges.length);
+  new Uint32Array(wasm.memory.buffer, at, ranges.length).set(ranges);
+  const count = wasm.mde_reconcile_decorations(record.value.length, current.length);
+  const mapped = new Uint32Array(wasm.memory.buffer, wasm.mde_out(), count).slice();
+  const result = { provisional: record.value !== current, spans: [], blocks: [], hidden: [], atoms: [] };
+  const hidden = new Map();
+  for (let i = 0; i < mapped.length; i += 3) {
+    const { kind, item, owner } = entries[mapped[i]], range = { start: mapped[i + 1], end: mapped[i + 2] };
+    if (kind === 'reveal') { const run = hidden.get(owner); if (run) run.reveal = range; }
+    else {
+      const next = { ...item, ...range };
+      if (kind === 'hidden') { next.reveal = null; hidden.set(item, next); }
+      result[kind].push(next);
+    }
+  }
+  return result;
 }
 const text = n => utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_text(), n));
 
@@ -106,7 +139,7 @@ function installMarkupEditor(textarea, host) {
   let destroyed = false, composing = false, notifying = false, pointer = false, pendingValue, pendingSync = false;
   let nativeHidden = null;
   let tabIndex = el.getAttribute('tabindex');
-  const writable = () => !el.hasAttribute('disabled') && !el.hasAttribute('readonly') && !el.closest('[inert]');
+  const writable = () => !el.hasAttribute('disabled') && !el.hasAttribute('readonly') && !inertAncestor(el);
   const now = () => performance.now();
   const sel = () => [wasm.mde_sel(h, 0), wasm.mde_sel(h, 1)];
 
@@ -396,7 +429,7 @@ function installMarkupEditor(textarea, host) {
   el.addEventListener('compositionstart', () => { selectionChanged(); rememberNativeSelection(); composing = true; });
   el.addEventListener('compositionend', () => { composing = false; queueMicrotask(() => { reconcile(); flush(); }); });
   el.addEventListener('keydown', e => {
-    if (e.isComposing || destroyed) return;
+    if (e.isComposing || destroyed || e.defaultPrevented || e.exactStopped || e.$stopped) return;
     const mod = e.metaKey || e.ctrlKey, key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     let command = null;
     if (mod && !e.altKey) {

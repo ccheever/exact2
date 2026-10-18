@@ -3,6 +3,45 @@
 use super::*;
 
 impl DataSource for Module {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        if self.is_loaded() {
+            return Err(DataError::Unavailable(
+                "prepare snapshot before activation".into(),
+            ));
+        }
+        let module = module.ok_or_else(|| {
+            DataError::Unavailable("widget generation lacks TypeScript bytecode".into())
+        })?;
+        let admitted = Paired::module(
+            module.receipt,
+            module.bytecode,
+            Some((module.kind, module.plan)),
+            &self.app_id,
+            &self.grants,
+        )
+        .map_err(DataError::Unavailable)?;
+        self.bytecode = admitted.bytecode.clone();
+        self.snapshot_deadline = Some(deadline);
+        self.revision = Default::default();
+        self.snapshot = true;
+        self.native_factory = None;
+        self.native_slot = Default::default();
+        self.storage_wait = deadline.saturating_duration_since(std::time::Instant::now());
+        Ok(())
+    }
+
+    fn take_storage_changed(&mut self) -> bool {
+        std::mem::take(&mut self.host.storage_changed)
+    }
+
+    fn set_document_owner(&mut self, owner: u64) {
+        self.document_owner = owner;
+    }
+
     fn take_logs(&mut self) -> Vec<String> {
         self.journal_lines()
     }
@@ -124,6 +163,7 @@ impl DataSource for Module {
         // its disposable engine can only record ordinary host requests.
         self.unload();
         self.directories = None;
+        self.host.validating = true;
         self.activate()
     }
 
@@ -132,7 +172,10 @@ impl DataSource for Module {
             .map(|pair| {
                 let mut module = pair.module;
                 module.directories = self.directories.clone();
+                module.document_owner = self.document_owner;
                 module.native_factory = self.native_factory;
+                // It keeps the placement (`Placed::replacement`), not `placed`'s word.
+                module.keeps_plan = self.keeps_plan;
                 module
             })
             .map_err(DataError::Unavailable)
@@ -238,7 +281,9 @@ impl DataSource for Module {
 
     /// The seam's signatures, from the plan's `sources` table (LLP 1027 D2).
     fn bind(&mut self, plan: &Plan) {
-        self.plan = Some(plan.clone());
+        if self.keeps_plan {
+            self.plan = Some(plan.clone());
+        }
         self.sigs.clear();
         for row in &plan.sources {
             let start = row.params.start as usize;
@@ -308,7 +353,7 @@ impl DataSource for Module {
         // A resource whose answer the bake's storage refusal ended (an
         // uncaught `code: 'bake'`) is the device's to answer: that is
         // `DeferredAtBake` (aab190948), and the runner shows its placeholder.
-        // An error the source raises itself stays fatal, even after a
+        // At bake, an error the source raises itself stays fatal, even after a
         // refusal it caught (kanban2 #5).
         let answer = self.begin(Some(store), Some(target), source, args);
         self.refresh_background();

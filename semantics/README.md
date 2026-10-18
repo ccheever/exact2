@@ -7,12 +7,16 @@ tested against it, differentially and at random.
 |---|---|
 | `Contract/Syntax.lean` | The abstract syntax: a deep embedding of the expanded root component (every used component's declarations lifted into it), the file's shapes and `fn`s. A statement may call an action (`Stmt.call`, LLP 1089 D9): by name, with its whole argument list, never the body the Rust compiler expanded. |
 | `Contract/Binary64.lean` | Numbers: IEEE-754 binary64 as its bits (`F64`), every operation the exact result rounded once to nearest, ties to even, over `Nat`/`Int` — computable in the kernel. |
+| `Contract/Trig.lean` | `sin` and `cos`: libm 0.2.16's kernels and argument reduction, including large arguments, over the exact F64 operations. No hardware floats or external oracle. |
 | `Contract/Binary64Facts.lean` | That model proved: correct rounding, overflow, monotonicity, exactness (below). |
-| `Contract/Number.lean` | `max`/`min` with the runner's NaN and signed-zero rules, and JavaScript's `Number#toString` over exact rationals. |
+| `Contract/Number.lean` | `max`/`min` as JavaScript's `Math.max`/`Math.min` (NaN and signed zero included), and JavaScript's `Number#toString` over exact rationals. |
 | `Contract/Value.lean` | Values, structural equality as the runner's `compare::equal`, and the roster's string functions. |
-| `Contract/Format.lean` | The roster's formats (`formatTime`, `formatDate`, `formatNumber`) and `t(...)`'s strings tables, as the runner computes them. |
+| `Contract/Format.lean` | The roster's formats (`formatTime`, `formatDate`, `formatDay`, `formatNumber`) and `t(...)`'s strings tables, as the runner computes them. |
 | `Contract/Route.lean` | The router (LLP 1038): canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |
+| `Contract/Sort.lean` | `sortBy`'s order (LLP 1116.016 §5): a key per item (a number with NaN as +0, or a string's UTF-16 code units), core's `List.mergeSort` on the items decorated with their keys, ascending or descending. |
+| `Contract/SortFacts.lean` | That order proved: a strict total order on keys, and the sort's answer a permutation, sorted by key, stable (below). Kept apart from `Sort.lean`, which the VM model imports and the extracted VM builds at another Lean. |
 | `Contract/Eval.lean` | Operational semantics of expressions: the interpreter `eval`. |
+| `Contract/Tabs.lean` | Navigation tab eligibility and selection, shared by the flat and component interpreters. |
 | `Contract/Runtime.lean` | Operational semantics of programs: statements, actions as transactions, settlement of derives and resources, rendering with keyed rows, timers (gated by `when` and `key=`), queued sends, events. |
 | `Contract/Big.lean` | The same semantics as inductive big-step relations, with proofs that the interpreter is sound and complete for them and that they are deterministic. |
 | `Contract/Axiomatic.lean` | An axiomatic semantics: a Hoare logic for action bodies, proved sound against the operational semantics, plus the transaction laws (a refused action changes nothing, reads see the pre-state, the last write wins). |
@@ -57,8 +61,9 @@ embedding stale when it is added.
 **Differential testing.** For each case, `difftest` compiles the program to a
 plan and boots it on the runner, delivers the script's events, and prints a
 canonical observation after every step: the outcome, every root slot, derive
-and resource, the commands issued, and the text of every element with a
-`testId`. Then it emits the program with the Lean backend, and runs many cases
+and resource, the commands issued to a host (not `setMode`, which the
+runner takes and applies itself: `hostCommands`), and the text of every
+element with a `testId`. Then it emits the program with the Lean backend, and runs many cases
 in one generated Lean module whose `main` prints `Contract.Observe.run` for
 each. The two texts must match line for line. Data sources are a seeded oracle
 that answers any call with a value of the declared shape. The runner's
@@ -93,12 +98,52 @@ operand pair (random bits; edge values and their neighbours; pairs that
 cancel or sit a few exponents apart; integers around `2^53`; operands
 near overflow and underflow) and natural number, `+ - * / %`, `floor`,
 `max`, `min`, `trunc`, negation, a natural number as a double, `ceil`,
-`round` (JavaScript's `Math.round`), and `< <= ==`, as the runner computes
-them, compared by bits (every NaN one); and, for a numeral and two dates
+`round` (JavaScript's `Math.round`), `sin`, `cos`, `sum([a, b, -a])`, and
+`< <= ==`, as the runner computes them, compared by bits (every NaN one); and, for a numeral and two dates
 each case carries, `parseNumber` and `calendarDiff` in years and months
 (LLP 1102 §3.1, §3.4), the runner's `stdlib` against `Contract.Value`'s;
 and, at a random digit count each, `toFixed` and `formatDecimal` (§3.2),
 the `format` capability against `Contract.Format`'s.
+The trigonometric reference is `exact_motion::math`, the runner's pinned
+libm 0.2.16. Every run starts with both signs and the neighbours of zero,
+subnormals, tiny-input cutoffs, multiples of pi/2, argument-reduction
+cutoffs, large arguments through 1e300, the largest finite value, infinity
+and NaN. Random cases also sample pi/2 neighbourhoods. This checks the
+port's bits; it is not a proof that the port refines libm. JavaScript's
+`Math.sin` and `Math.cos` may differ in the last bits.
+
+`sum` folds binary64 addition left to right from +0; an empty list returns
++0. As with `includes`, the semantics omits the runner's list-budget limit
+(one list step per item), so a program exceeding that limit remains outside
+the comparison's resource-bound model. `flat` joins a list of lists one
+level, and `range(n)` lists 0 to n - 1: a count that is not a whole number
+at least 0 is a refusal, as the runner and the web runtime trap one, and a
+count past 65,536 is unsupported, outside the semantics, so no such list is
+built here.
+
+`sortBy(xs, x => key, direction)` (LLP 1116.016 §5) is `map`'s callback
+over the items, each key once, then `Contract.sortByKeys`: core's
+`List.mergeSort` on (item, key) pairs, numbers by `F64.key` with NaN read as
++0, strings by `Str.unitsLt`, equal keys kept in input order in both
+directions. The runner and the JS target run a written-out bottom-up merge
+sort instead; `SortFacts` proves what makes every stable sort by this order
+give one answer:
+
+- `sortByKeys_spec`: when `sortByKeys xs ks desc = .ok v`, the keys are
+  `ks.mapM sortKey = some keys` with `xs.length = keys.length`, and
+  `v = .list (ps.map Prod.fst)` for a list `ps` of (item, key) pairs with
+  `ps.Perm (xs.zip keys)` (a permutation), `ps.Pairwise (sortLe desc · ·)`
+  (sorted: no later key below an earlier one ascending, above it
+  descending), and every sublist of `xs.zip keys` whose keys are all equal
+  a sublist of `ps` (stable).
+- `sortByKeys_perm`: `sortByKeys xs ks desc = .ok (.list ys) → ys.Perm xs`.
+- `sortByKeys_ok`: keys of one kind (`OneKind`: all numbers or all strings),
+  one per item, always sort; with type soundness (`sortByKeys_good` in
+  `Soundness`), a well-typed `sortBy` never fails.
+
+Like `map`, the semantics omits the runner's list budget (one step an item,
+taken by the `Map` that computes the keys; the comparisons take none).
+
 `numbers` does the same for number printing.
 
 `types` runs the Lean checker (`Contract.check`) against the Rust one: every
@@ -110,7 +155,8 @@ the Lean checker must judge the same. A mutant the compiler refuses cannot
 pass `contract lean`, so its expansion is emitted with the types of the
 program it came from (`contract::lean::emit_checked`). Mutants touch only
 what the semantics evaluates (a view's presentation attributes are left
-alone). The embedding carries what the Rust checker judges at a use and
+alone) and what its checker judges (a host command's literal argument is
+not retyped: the command's signature is the Rust checker's). The embedding carries what the Rust checker judges at a use and
 at a source: every typed prop's and inject's argument is ascribed its
 declared type (`.typed`, from `contract_syntax::expand_typed`), and the
 program carries each data source's one signature (`Program.sources`), which
@@ -119,11 +165,16 @@ every resource and `send` must meet. A disagreement is kept under
 
 A divergence is kept under `target/difftest/failures/` (the program, the
 events, both observations); random failures have their scripts shrunk first.
-The async lane (`scripts/async.mjs`, step `semantics`) builds the Lean
-project, checks the proofs (the app proofs among them), checks the app
-embeddings are current, runs the corpus and a random sweep seeded by the
-commit, and checks component expansion over the corpus and 200 generated
-programs (`difftest expansion`, below).
+The async lane (`scripts/async.mjs`) runs this as four checks: `lean`
+builds the Lean project and checks the proofs (the app proofs among them);
+`vm-extract` checks the extracted VM (`vm-extract/README.md`); `difftest`
+checks the app embeddings are current and runs the corpus, the explored
+programs, a random sweep with fixed seeds, the lowering, number, type and
+expansion checks; `difftest-js` runs the web JS target (below). Each is
+skipped when its inputs are those of a run that passed: the binaries it
+runs, the Lean sources, every program and what compiling it reads, the
+tools and the environment (`scripts/async-inputs.mjs`). `difftest` runs
+with `DIFFTEST_CACHE=1`.
 
 ## Using it day to day
 
@@ -132,9 +183,10 @@ commands, and they say how to install it when it is missing (below,
 "Lean"). The first run builds the library (minutes, once per worktree);
 after that, Lean's observation of a case is kept under
 `target/difftest/cache/`, keyed by the case's embedding, oracle and
-events and by the semantics' sources, so a rerun only takes Lean time for
-what changed. Only `verify` and `quick` use the cache unless
-`DIFFTEST_CACHE=1`, and the async lane always runs Lean.
+events and by the semantics' sources and the harness that runs them
+(`leanrun.rs`), so a rerun only takes Lean time for what changed. Only
+`verify` and `quick` use the cache unless `DIFFTEST_CACHE=1`, which the
+async lane sets.
 
 **Writing an app.** `contract verify apps/<app>/app.contract` runs the
 app's `test` blocks (its own and those in `app.test.contract` beside it)
@@ -172,7 +224,7 @@ and the lowering check on 8, seeded by the base, so a branch's reruns are
 warm. Warm, it takes about 10 s. Cold, with the semantics changed so Lean
 reruns everything, it takes one to three minutes depending on load. It
 prints a command that reproduces each divergence. The async lane's
-`semantics` step is still the full run.
+`difftest` check is still the full run.
 
 ## The web JS target
 
@@ -192,7 +244,10 @@ cargo run -p contract-difftest -- random --seed 7 --count 2000 --js-only
 compiled by `exact-web-js` (the build's compiler), bundled with the runtime
 and run under Bun in a fresh VM context over the render DOM
 (`host/web-js/dom.js`) given event listeners, the clock the driver's
-(`advance`, as under the agent). Its sources answer synchronously from the
+(`advance`, as under the agent). It boots with the agent URL, so navigation
+tabs use the live runtime's deferred construction. It omits virtualized
+descendants by the collection attached to the element, including a list
+whose role is `tabpanel`. Its sources answer synchronously from the
 runner's oracle transcript, as the runner's do; the host's reserved sources
 (viewport, page, time…) answer what the runner answered at boot. A call the
 runner never made is noted (`# js: the oracle has no answer…`) and shows as
@@ -204,12 +259,23 @@ an element without one is refused, as the runner refuses (NoHandler), and so
 is a value a browser could not deliver (a select's unknown or disabled
 option, a checkbox's text, a date outside HTML's format or its bounds).
 
+The JS target's `sin` and `cos` are the browser's `Math.sin` and
+`Math.cos`, held to the runner's pinned libm by value, not by bits (LLP
+1003 §7); the semantics is held to the runner's bits. The driver replaces
+the two (`roster.js`'s `x_sin`, `x_cos`) with the runner's bits for each
+input: an input it has no answer for is answered by `Math` and reported,
+the harness computes it with `exact_motion::math`, and the case is driven
+again until it asks for none, so a chain of trig results is answered link
+by link. Only a drive that asked for nothing is scored; a case still
+asking after 32 drives is a driver error (`ERROR-JS`). Every other number is compared by its bits, so the comparison stays
+exact; `Math.sin` and `Math.cos` themselves are not what it checks.
+
 A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
 not a failure. A divergence prints `DIVERGE-JS` with whether the semantics
 agreed with the runner, and is kept under `target/difftest/failures/`
 (`*-js-*.{contract,events,rust.txt,js.txt}`); random ones are shrunk first.
-The async lane runs the corpus and the explored
-programs with `--js`, and a random sweep of 500 with `--js-only`.
+The async lane's `difftest-js` check runs the corpus and the explored
+programs, and a random sweep of 500, with `--js-only`.
 
 ## Verifying an app
 
@@ -309,7 +375,8 @@ as `contract/lower` does through `Scope` and emits its instruction choices:
 `match` through `JumpIfNone`/`Unwrap`/`BindLocal`, templates through
 `toString` and `Concat` (one `Str` when every part is literal), records with
 a base bound as a local, a `fn` expanded inline with its arguments as
-locals, `map`/`filter` with the callback inline after the opcode, blocks
+locals, `map`/`filter` with the callback inline after the opcode, `sortBy`
+as the list bound as a local, a `Map` of its key and a `Call sortBy`, blocks
 whose `let`s are dropped where the block ends, and a call of an action as
 the Rust compiler expands it (LLP 1089 D8): each argument bound as the next
 local, the callee's body in a scope of those locals and the component's
@@ -335,7 +402,8 @@ names resolved as the plan did (`lowerFx`), and returns at all exactly when
 compiler's fuel proving, for every construct, that its code takes the VM
 from the state before it to `eval`'s value on top (forward), and that a run
 through it that returns had a value (backward); `map`/`filter` by induction
-on the items through the VM's callback loop.
+on the items through the VM's callback loop, and `sortBy` (`case_sortBy`)
+by that loop over the bound list, then the call.
 
 **Translation validation.** `difftest lowering` checks the real pipeline:
 for each generated program it takes the plan `contract::compile` made, and
@@ -369,7 +437,7 @@ region, use and `children` node numbered within its component.
 
 **Its meaning** (`Contract.CompSem`) is given directly, not by expanding.
 A use is an *instance*, identified by its path from the root: every use,
-region arm (`when`/`match` arm, `each` row by key and duplicate count) and
+region arm (`if`/`match` arm, `for` row by key and duplicate count) and
 `children` node on the way. Its states live in a store under that path,
 initialized in the instance's frame the first time it renders, kept while
 it renders, dropped when a render leaves it out. Names are read in a
@@ -410,7 +478,9 @@ Rust's expansion (the flat embedding of the expansion the plan compiler
 makes, `contract::lean::lean_plain`: its uses' arguments not ascribed as
 `contract lean`'s are for the checker), declaration by declaration and node
 by node, types apart (a lifted type that differs is reported, not failed:
-a child's declarations carry the standalone checker's types); (b) the
+a child's declarations carry the standalone checker's types; a curried
+argument's hidden parameter, `?` in both expansions until the checker types
+it from its handler, need only be at least the expansion's, `Ty.le`); (b) the
 component-level semantics of the unexpanded file against the flat
 semantics of Rust's expansion over the case's script, the oracle the
 runner's transcript, every observation line compared but the slots the
@@ -422,7 +492,8 @@ component-level semantics keeps per instance. A disagreement is kept under
 
 - `ExpandSubst.subst_iff`: the expander's substitution commutes with
   evaluation. For an expression of the fragment (`Plain`: no
-  `pending`/`failed`, callbacks of at most two parameters, no binder named
+  `pending`/`failed`, no `sortBy` (not yet carried through these proofs;
+  `difftest expansion` checks it), callbacks of at most two parameters, no binder named
   like a call in its scope), a substitution whose replacements are
   callbacks of at most two parameters and never a callback, and no call
   head replaced: if every free name reads in the source environment what
@@ -473,7 +544,7 @@ is now a case in `corpus/components/` and a runner test in
 `contract/cli/tests/it/child_state_lifetime.rs`.
 
 1. A stateful child in a slot fill, the slot component showing `children`
-   under a `when`, kept its state across hide and show: the fill was
+   under an `if`, kept its state across hide and show: the fill was
    inlined before the slot component's view, so its uses were owned by the
    *use site's* region. The fill is now inlined at `children`, under the
    arms around it (`fill-state-when`).
@@ -481,7 +552,7 @@ is now a case in `corpus/components/` and a runner test in
    and region tags between the copies (the fill was inlined once and
    copied). Each `children` now inlines the fill afresh: its own instances,
    numbers and tags (`fill-twice`).
-3. A slot component repeating `children` per `each` row shared one
+3. A slot component repeating `children` per `for` row shared one
    instance across the rows, for the same reason; each row now owns its
    copy (`fill-per-row`).
 4. A child whose prop held a number that is not finite had all its actions
@@ -656,7 +727,7 @@ the host presents no frames (the harness never does): due at
 
 ## Formatting and localized text
 
-`formatTime`, `formatDate` and `formatNumber` (`Contract/Format.lean`) are
+`formatTime`, `formatDate`, `formatDay` and `formatNumber` (`Contract/Format.lean`) are
 the runner's (`runner/src/stdlib.rs`, `runner/src/format.rs`) transcribed:
 `en-US` at the fixed UTC offset the call names, the wall time truncated
 then shifted and held to years 1–9999 (else `""`), the calendar by
@@ -715,19 +786,78 @@ What it does not carry, as restrictions:
 - The component-level semantics (`Contract.CompSem`) refuses both, so
   `difftest expansion` writes and reads programs without them.
 
+## Persisted state (LLP 1116 D5)
+
+A root `state … persist` starts from the device's store: `Oracle.stored`,
+each persisted state's kept value by name, which `restore` (Runtime.lean)
+takes at boot where it `conforms` to the state's type, else the
+initializer's value stands. The store is part of the oracle because it is
+the device's, as every answer there is: `Reachable` quantifies over it, so
+every theorem holds whatever a device kept, and `SlotOrigin` gains the
+stored value of its type as a third origin of a persisted state's boot value
+(`restore_cases`, `restore_conforms`). Each step's observation adds a
+`store <name> <value>` line per persisted state after the slots: what the
+runner's store keeps for it, decoded (`Runner::persisted`), against the
+slot's value in the semantics, since after every commit that stands the
+store holds the slot's value. The oracle text carries the store as
+`stored <name> <value>` lines.
+
+A corpus test starts from an empty store, as an authored test does. Each
+corpus case whose program persists a state runs again as `<name> (stored)`
+on a store the oracle fills from its seed: per state nothing, a value of its
+type, or one of another kind (`Oracle::with_store`), with the case's events
+and no `expect`s. Random programs mark about a third of the root states of a
+persistable type `persist` (drawn apart from the program's own generator)
+and always run on a filled store. `--js` hands the JS target the same store
+as its `localStorage` (`persist.js`) and compares its `store` lines too.
+
+The store's text, its 16 KB bound, and the compiler's refusal of `persist`
+on other types (`type-persist-type`, `type-persist-child`) are the runner's
+and the compiler's: the semantics takes decoded values and any type.
+
 ## What the semantics leaves out
 
 Geometry reads (`frame(id)`, `measure(id)`: where layout put a node) are
 refused as unsupported rather than given a meaning: layout is out of
-scope. Routes are in (`Contract/Route.lean`, the `exact_route` crate and the
-runner's plan boundary transcribed): the router slot starts at the launch of
-`/`, as the harness boots the runner, and a commit that leaves it holding an
-invalid router is refused; the host's `navigate` event, which the harness
+scope. So are resources reading `exactTransport` and `exactMIDI` (LLP
+1125), which the runner answers from its transport and its MIDI ports and
+answers again as they play; the semantics models neither. `sendMIDI` and
+`requestMIDIAccess` are in, as commands. `toLowerCase` and `toUpperCase`
+(LLP 1088 D2) are typed but left out: their mappings are Unicode's case
+tables, which the semantics does not carry, and the generator writes
+neither. The corpus checks them against the values Bun gives
+(`corpus/typescript/lowercase.contract`, `uppercase.contract`), the runner
+and the web runtime agreeing. Routes are in
+(`Contract/Route.lean`, the `exact_route` crate and the runner's plan
+boundary transcribed): the router slot starts at the launch of `/`, as the
+harness boots the runner, and a commit that leaves it holding an invalid
+router is refused; the host's `navigate` event, which the harness
 does not deliver, is not modelled, nor a router carried across a reload, nor
 the change the runner publishes to a host after a commit. A refused verb
 answers its input, and the runner journals the refusal in its log, which no
-observation shows. The router slot is observed like any other root slot. Presentation attributes are carried in the embedding but not
-evaluated. Only a `text`'s text and an element's `testId` are observed, and nothing
+observation shows. The router slot is observed like any other root slot.
+
+Navigation tabs are in (`Contract/Tabs.lean`, LLP 1075.003 §9.14): a literal
+`role="tabpanel"` below a navigation root waits for its first selection.
+Selection opens panels until a route holds the root's key, preferring an
+`aria-selected` tab, then tab order; a panel no tab names opens at once.
+Visited panels retain their contents and state until removed. The expander
+puts a panel's contents in one arm, so component state initializes when
+that panel first opens; a virtualized panel keeps its `for` as the owner.
+Both interpreters leave an unopened panel's descendants out of the tree,
+so they cannot be observed or receive events. A prerendered page's host
+builds every panel from boot on (`Runner::build_every_tab`): the oracle's
+`everyTab` (`every-tab` in its text) opens every panel as it is made, and
+each corpus case with a `"tabpanel"` runs again as `<name> (prerendered)`
+on such a host, with its events and no `expect`s (the JS driver boots the
+agent's way, so the variant is outside the JS target). A reload, and the
+panel state it carries (`carry_panels`), are not modelled: the semantics
+has no reload.
+
+Presentation attributes are carried in the embedding but not evaluated,
+except the six attributes tab selection reads (`role`, `id`,
+`navigationKey`, `navigationBack`, `aria-controls`, `aria-selected`).
+Only a `text`'s text and an element's `testId` are observed, and nothing
 inside a virtualized `list`: the runner builds only the rows its window lays
 out, which is layout, so both sides leave a virtualized list's descendants
 out of the observation (the list's own line stays). The

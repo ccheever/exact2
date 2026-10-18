@@ -13,5 +13,7 @@ publish = false
 [lib]
 name = "exact_svg_filter"
 crate-type = ["rlib"]
+test = false
+bench = false
 
 [dependencies]

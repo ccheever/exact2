@@ -48,7 +48,7 @@ fn a_fn_is_a_pure_expression_over_its_parameters_expanded_where_called() {
         .props
         .iter()
         .find_map(|(id, v)| match v {
-            PropValue::Str(s) if id.name() == "text" => Some(s.clone()),
+            PropValue::Str(s) if id.name() == "text" => Some(s.to_string()),
             _ => None,
         });
     assert_eq!(text.as_deref(), Some("12"));
@@ -111,7 +111,7 @@ component Row
 #[test]
 fn an_initializer_calls_the_roster_and_fns_not_states_of_that_name() {
     for src in [
-        "component App\n  state length = length(\"abc\")\n  view\n    text `${length}`\n",
+        "component App\n  state length = \"abc\".length\n  view\n    text `${length}`\n",
         "fn twice(n: number): number = n * 2\ncomponent App\n  state twice = twice(2)\n  view\n    text `${twice}`\n",
         "fn twice(n: number): number = n * 2\ncomponent App\n  state n = twice(2)\n  state twice = 1\n  view\n    text `${n} ${twice}`\n",
     ] {

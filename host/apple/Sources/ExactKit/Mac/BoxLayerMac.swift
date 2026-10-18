@@ -70,7 +70,8 @@ extension NodeView {
         guard hasBoxPaint || clipsToBounds || clipBox != nil else { return p }
         // CGColors straight from the rows: an NSColor's `cgColor` is made
         // anew on each call, and this runs for every repaint.
-        p.fill = cgColor("background_color").flatMap { $0.alpha > 0 ? $0 : nil }
+        // In a sheet, the window's background is the sheet's own ground, which AppKit draws (SheetsMac.swift).
+        p.fill = standsOnSheetGround ? nil : cgColor("background_color").flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]
         p.widths = sides.map { number("border_width_" + $0, uniform) }
@@ -113,11 +114,12 @@ extension NodeView {
         // Square sides in one colour that differ only in width (a row's
         // `border-bottom` separator) are rectangles of one shape layer.
         let drawn = p.widths.indices.filter { p.widths[$0] > 0 }
+        let patterned = drawn.contains { ["dotted", "dashed"].contains(style["border_style_" + sides[$0]]?.string ?? "solid") }
         p.sideColor = drawn.first.map { p.colors[$0] }
-        p.edges = !p.oneBorder && !p.own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { p.colors[$0] == p.sideColor }
+        p.edges = !patterned && !p.oneBorder && !p.own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { p.colors[$0] == p.sideColor }
         // A layout transition's size shows the surface on its own layer.
         let away = surface != nil
-        p.drawn = !away && (!((p.oneBorder || p.edges) && p.oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (p.fill != nil || gradient || p.widths.contains { $0 > 0 })
+        p.drawn = !away && (patterned || !((p.oneBorder || p.edges) && p.oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (p.fill != nil || gradient || p.widths.contains { $0 > 0 })
         // A border over the children needs the backing layer's own radius,
         // and AppKit makes a backing layer's radius clip: where the node
         // does not clip, a rounded one draws.
@@ -239,7 +241,7 @@ extension NodeView {
     /// layer holds, with the box's one radius; a box `draw(_:)` paints
     /// paints its gradient there instead.
     private func applyGradientLayer(_ p: BoxPlan) {
-        guard let layer, layerBoxEligible, !(hasBoxPaint && p.drawn), surface == nil, !cssVisibilityHidden, let gradient = Gradient(style["background_image"]), !gradient.isConic else {
+        guard let layer, layerBoxEligible, !(hasBoxPaint && p.drawn), surface == nil, !cssVisibilityHidden, let gradient = Gradient(style["background_image"]), !gradient.needsDrawing else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil; return
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -272,12 +274,7 @@ extension NodeView {
     /// when no corner is rounded. `nil`: `draw(_:)` paints them.
     private var imagePlan: (shown: CGRect, unit: CGRect, radius: CGFloat, corners: CACornerMask)? {
         guard kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image else { return nil }
-        let uniform = number("border_width")
-        let content = bounds.insetBy(
-            left: number("border_width_left", uniform) + number("padding_left"),
-            top: number("border_width_top", uniform) + number("padding_top"),
-            right: number("border_width_right", uniform) + number("padding_right"),
-            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+        let content = contentBox()
         let object = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: style["object_fit"]?.string ?? "fill")
         let rect = bitmap.displayRect(object)
         let shown = object.intersection(content)

@@ -76,6 +76,41 @@ pub enum HttpScheduling {
     },
 }
 
+/// What a redirect response does: the Fetch standard's `redirect` option.
+/// Native transports follow it in Rust, re-checking the grant on every hop;
+/// `Manual` hands the 3xx back (its `Location` readable), `Error` fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Redirect {
+    /// Follow to the final response.
+    #[default]
+    Follow,
+    /// Return the redirect response itself.
+    Manual,
+    /// Fail the request on a redirect.
+    Error,
+}
+
+impl Redirect {
+    /// The mode `fetch` names (absent is `follow`), refusing any other word.
+    pub fn parse(name: Option<&str>) -> Result<Redirect, String> {
+        match name.unwrap_or("follow") {
+            "follow" => Ok(Redirect::Follow),
+            "manual" => Ok(Redirect::Manual),
+            "error" => Ok(Redirect::Error),
+            other => Err(format!("redirect: follow, manual or error, not {other}")),
+        }
+    }
+
+    /// Its name as `fetch` spells it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Redirect::Follow => "follow",
+            Redirect::Manual => "manual",
+            Redirect::Error => "error",
+        }
+    }
+}
+
 /// One host request, with ordered native execution unless explicitly opted in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
@@ -102,6 +137,11 @@ pub struct Request {
     /// message as an [`Outcome::Message`], and anything else ends it.
     /// Set by [`Answer::stream`].
     pub stream: bool,
+    /// A `ws:`/`wss:` stream whose resource owns a two-way socket (LLP
+    /// 1016.000 D7): `open`, every frame in order (binary too), never
+    /// coalesced, and a [`Outcome::Closed`] end; mutations send on it
+    /// ([`SocketSend`]). Unset, a socket only listens, as in D4.
+    pub socket: bool,
     /// A deadline for the whole exchange, in milliseconds: headers and body.
     /// The host cancels the request when it passes and replies
     /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
@@ -114,6 +154,8 @@ pub struct Request {
     /// then empty. Set by TypeScript's `fetch(url, {exactBodyFrom})` and
     /// [`Request::body_from`] (LLP 1108 D6 R2).
     pub body_from: Option<String>,
+    /// What a redirect response does (`fetch`'s `redirect`).
+    pub redirect: Redirect,
 }
 
 /// The largest file [`Request::body_from`] sends: 64 MiB.
@@ -148,8 +190,10 @@ impl Request {
             headers: Vec::new(),
             body,
             stream: false,
+            socket: false,
             timeout_ms: None,
             body_from: None,
+            redirect: Redirect::Follow,
         }
     }
 
@@ -202,8 +246,10 @@ impl Request {
             headers: Vec::new(),
             body: Vec::new(),
             stream: false,
+            socket: false,
             timeout_ms: None,
             body_from: None,
+            redirect: Redirect::Follow,
         }
     }
 
@@ -220,8 +266,10 @@ impl Request {
             headers: vec![("content-type".into(), "application/json".into())],
             body: json.as_bytes().to_vec(),
             stream: false,
+            socket: false,
             timeout_ms: None,
             body_from: None,
+            redirect: Redirect::Follow,
         }
     }
 
@@ -443,6 +491,86 @@ pub struct Message {
     /// taken them yet (LLP 1016.000 D4: display data coalesces to the
     /// newest). Non-zero is a gap a log re-asks across from its cursor.
     pub coalesced: u32,
+    /// A two-way socket's binary frame (LLP 1016.000 D7): its bytes, with
+    /// `data` empty. `None` for text and for every server-sent event.
+    pub binary: Option<Vec<u8>>,
+}
+
+/// One operation a mutation, or the socket's own mapper, stages on a
+/// resource's socket (LLP 1016.000 D7), published only once the commit
+/// that staged it stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SocketOp {
+    /// A text frame.
+    Text(String),
+    /// A binary frame.
+    Binary(Vec<u8>),
+    /// The closing handshake: 1000 or 3000–4999, and at most 123 bytes of reason.
+    Close {
+        /// The close code.
+        code: u16,
+        /// The close reason.
+        reason: String,
+    },
+}
+
+impl SocketOp {
+    /// The payload bytes it puts on the wire (a close's are its reason's).
+    pub fn size(&self) -> usize {
+        match self {
+            SocketOp::Text(text) => text.len(),
+            SocketOp::Binary(bytes) => bytes.len(),
+            SocketOp::Close { .. } => 0,
+        }
+    }
+
+    /// Its name in the journal: `send` or `close`.
+    pub fn name(&self) -> &'static str {
+        match self {
+            SocketOp::Close { .. } => "close",
+            _ => "send",
+        }
+    }
+}
+
+/// What staged a batch of socket operations (LLP 1016.000 D7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SocketOrigin {
+    /// A mutation's synchronous source, by the mutation's name.
+    Mutation(String),
+    /// A resource's mapper answering a frame of its own socket (its `open`
+    /// or a `message`), by the resource's name.
+    Mapper(String),
+    /// One turn of an answer in flight, by its resource's or mutation's
+    /// name (the amendment of 2026-10-18): sent once the commit that ran
+    /// the turn stands, whatever becomes of the answer.
+    Answer(String),
+}
+
+impl SocketOrigin {
+    /// Its words in the journal: `send <mutation>`, `mapper <resource>` or
+    /// `answer <resource>`.
+    pub fn words(&self) -> (&'static str, &str) {
+        match self {
+            SocketOrigin::Mutation(name) => ("send", name),
+            SocketOrigin::Mapper(name) => ("mapper", name),
+            SocketOrigin::Answer(name) => ("answer", name),
+        }
+    }
+}
+
+/// One mutation's, one mapper call's or one answer turn's socket
+/// operations, in the order its code made them, each addressed to the
+/// stream ticket of the resource that owns the socket. Taken by
+/// [`crate::Runner::take_socket_sends`] after the commit that staged them
+/// stands (an answer turn's, after the commit that ran the turn); the
+/// host checks the whole batch, then sends it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SocketSend {
+    /// What staged them.
+    pub origin: SocketOrigin,
+    /// (stream ticket, resource name, operation), in order.
+    pub ops: Vec<(u64, String, SocketOp)>,
 }
 
 /// A request's outcome: a response (any status), or no response at all.
@@ -457,6 +585,16 @@ pub enum Outcome {
     /// One message of a stream (LLP 1016.000 D1): the stream stays open.
     /// Every other outcome delivered to a stream's ticket ends it.
     Message(Message),
+    /// A two-way socket's end (LLP 1016.000 D7): the closing handshake's
+    /// code and reason, or 1006 when the connection dropped without one.
+    Closed {
+        /// The close code.
+        code: u16,
+        /// The close reason.
+        reason: String,
+        /// The closing handshake completed.
+        was_clean: bool,
+    },
     /// Nothing came back: the executor says why.
     Failed {
         /// The kind.
@@ -476,7 +614,14 @@ impl Outcome {
             Outcome::Message(m) if m.coalesced > 0 => {
                 text!("message, {} bytes, {} coalesced", m.data.len(), m.coalesced)
             }
-            Outcome::Message(m) => text!("message, {} bytes", m.data.len()),
+            Outcome::Message(m) => text!(
+                "message, {} bytes",
+                m.binary.as_ref().map_or(m.data.len(), Vec::len)
+            ),
+            Outcome::Closed { code, reason, .. } if reason.is_empty() => {
+                text!("socket closed ({})", code)
+            }
+            Outcome::Closed { code, reason, .. } => text!("socket closed ({}: {})", code, reason),
             Outcome::Failed { kind, message } => {
                 let cut = message
                     .char_indices()
@@ -853,7 +998,7 @@ mod tests {
             .contains("multiple host-work kinds"));
         assert_eq!(
             io_grants(
-                "fs.read app:/data\nsurface.read world\ndevice.microphone p\nsurface.write world\nauth.session https://x.test\nauth.callback a.b:/c"
+                "fs.read app:/data\nsurface.read world\ndevice.microphone p\nruntime.allow-jit Helpers/node/bin/node\nsurface.write world\nauth.session https://x.test\nauth.callback a.b:/c"
             ),
             "fs.read app:/data"
         );

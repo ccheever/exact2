@@ -1,6 +1,7 @@
 // The standalone Mac menu bar: standard application and window commands,
 // with app-declared shortcuts in File, Edit, View, Go and Settings by their
-// chords (ShortcutsMac.swift; studio diary R16). File — New Window ⌘N
+// chords (ShortcutsMac.swift; studio diary R16). Go — Back ⌘[ from a pushed
+// route (LLP 1115.000 D5.1, BackMac.swift). File — New Window ⌘N
 // exists under `launch_handler` `navigate-new` (LLP 1069.010 D4), Open… ⌘O
 // when the app declares documents it opens (LLP 1033);
 // Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
@@ -9,7 +10,9 @@
 // Transformations and Speech as AppKit's template has them; Help, with
 // AppKit's search field (LLP 1115 D8); Develop —
 // Reload ⌘R, Open Project… ⇧⌘O behind a document app, App Info… ⌘D —
-// unless EXACT_DEV_MENU=0. Native AppKit above the presenter, so it is
+// in a development build only (LLP 1115.000 D7.8: a release build has no
+// such menu and takes none of its chords; EXACT_DEV_MENU=0 or =1, at build
+// or launch, says otherwise for either). Native AppKit above the presenter, so it is
 // alive even when the plan is broken; reload re-fetches a live connection,
 // else restarts from the dev loop's plan when one is named (the watcher's
 // own path, state carried), else from the baked plan, fresh. Host
@@ -17,8 +20,12 @@
 // none of this.
 #if os(macOS)
 import AppKit
+import ExactCore
 
 final class DevMenuTarget: NSObject {
+    #if EXACT_WIDGET_GALLERY
+    @objc func widgets(_ sender: Any?) { WidgetGallery.show() }
+    #endif
     @objc func reload(_ sender: Any?) { DevMenu.reload() }
     @objc func info(_ sender: Any?) { DevMenu.showInfo() }
     @objc func saveTrace(_ sender: Any?) { DevMenu.saveTrace() }
@@ -88,7 +95,22 @@ final class RecentMenu: NSObject, NSMenuDelegate {
 public enum DevMenu {
     static let target = DevMenuTarget()
     static let editTarget = EditMenuTarget()
-    public static var enabled: Bool { ExactEnv.environment["EXACT_DEV_MENU"] != "0" }
+    static let goTarget = GoMenuTarget()
+    /// Whether a build has the Develop menu and its chords (LLP 1115.000
+    /// D7.8): a development build does, a release build does not, as a
+    /// shipped Mac app has no such menu. A release build is one baked with
+    /// production trust (its `compat.json`, which an app with no updater does
+    /// not record) or stamped `release` or `archive` by `build.mjs`
+    /// (`ExactBuildKind`: production trust, or `--distribution`, what
+    /// `exact release` signs). An unstamped host (a test's) is a
+    /// development one. `EXACT_DEV_MENU`, at build or launch, says otherwise
+    /// for either (`ExactEnv.devMenu`).
+    static func develops(kind: String?, production: Bool, override: Bool?) -> Bool {
+        override ?? (!production && (kind ?? "debug") == "debug")
+    }
+    /// This build's answer, read once.
+    public static let enabled = develops(kind: ExactEnv.appMetadata["ExactBuildKind"] as? String, production: ExactEnv.productionBake,
+                                         override: ExactEnv.devMenu)
     /// The session the menu reloads, describes and opens into: the key
     /// window's, which the adapter that owns the windows keeps current.
     nonisolated(unsafe) public static weak var session: ExactSession?
@@ -96,13 +118,26 @@ public enum DevMenu {
     /// plan file (`EXACT_DEV_PLAN`) or `EXACT_PLAN`, else the baked plan.
     nonisolated(unsafe) static var planPath: String?
 
+    nonisolated(unsafe) private static var widgetGenerationObserver: NSObjectProtocol?
     public static func install(session: ExactSession, planPath: String?) {
+        if widgetGenerationObserver == nil {
+            widgetGenerationObserver = NotificationCenter.default.addObserver(forName: Notification.Name("ExactWidgetGeneration"), object: nil, queue: .main) { _ in
+                guard let session = DevMenu.session else { return }
+                NSApp.mainMenu = makeMenu(shortcuts: session.presenter.shortcuts, documents: ExactDocuments.declared)
+            }
+        }
         DevMenu.session = session
         DevMenu.planPath = planPath
         NSApp.mainMenu = makeMenu(shortcuts: session.presenter.shortcuts, documents: ExactDocuments.declared)
     }
 
-    static func makeMenu(shortcuts: ShortcutHost, documents: Bool) -> NSMenu {
+    /// Each document's commands and root removal policy follow the key window.
+    public static func select(session: ExactSession) {
+        guard DevMenu.session !== session else { return }
+        install(session: session, planPath: planPath)
+    }
+
+    static func makeMenu(shortcuts: ShortcutHost, documents: Bool, develop: Bool = enabled) -> NSMenu {
         let bar = NSMenu()
         let appItem = NSMenuItem()
         bar.addItem(appItem)
@@ -176,20 +211,30 @@ public enum DevMenu {
         edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "").submenu = speech
         editItem.submenu = edit
         let view = ShortcutMenu(title: "View")
+        // Show Sidebar ⌃⌘S (LLP 1115.002 D3): the split view controller's
+        // own action, which names the item for what it will do. There only
+        // while the window's sidebar is the app's root tab bar (`ShortcutHost.sync`).
+        let sidebar = view.addItem(withTitle: "Show Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
+        sidebar.keyEquivalentModifierMask = [.command, .control]
+        sidebar.isHidden = true
         let fullScreen = view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         fullScreen.keyEquivalentModifierMask = [.command, .control]
         bar.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
         let go = ShortcutMenu(title: "Go")
+        // Back ⌘[, first, as Finder's and Safari's is (LLP 1115.000 D5.1):
+        // the way back from a pushed route in the key window. The app's own
+        // ⌘[ command stands in for it, and an app with no navigation has
+        // no Go menu (`ShortcutHost.sync`).
+        go.addItem(withTitle: "Back", action: #selector(GoMenuTarget.back(_:)), keyEquivalent: "[").target = goTarget
         bar.addItem(withTitle: "Go", action: nil, keyEquivalent: "").submenu = go
-        let window = NSMenu(title: "Window")
+        let window = ShortcutMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         window.addItem(.separator())
         window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         bar.addItem(withTitle: "Window", action: nil, keyEquivalent: "").submenu = window
         NSApp.windowsMenu = window
-        shortcuts.attach(file, application: appMenu, navigation: go, edit: edit, view: view)
-        if enabled {
+        if develop {
             let devItem = NSMenuItem()
             bar.addItem(devItem)
             let dev = NSMenu(title: "Develop")
@@ -198,6 +243,9 @@ public enum DevMenu {
             project.target = target
             if documents { project.keyEquivalentModifierMask = [.command, .shift] }
             dev.addItem(withTitle: "App Info…", action: #selector(DevMenuTarget.info(_:)), keyEquivalent: "d").target = target
+            #if EXACT_WIDGET_GALLERY
+            if WidgetGallery.available { dev.addItem(withTitle: "Widgets…", action: #selector(DevMenuTarget.widgets(_:)), keyEquivalent: "").target = target }
+            #endif
             // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
             let trace = dev.addItem(withTitle: "Save Trace", action: #selector(DevMenuTarget.saveTrace(_:)), keyEquivalent: "t")
             trace.keyEquivalentModifierMask = [.command, .option]
@@ -207,10 +255,11 @@ public enum DevMenu {
         // Help last, after Develop (LLP 1115 D8): AppKit puts its search
         // field at the top of the menu it is told is Help, and `showHelp:`
         // opens the app's help book, or says there is none.
-        let help = NSMenu(title: "Help")
+        let help = ShortcutMenu(title: "Help")
         help.addItem(withTitle: "\(ExactEnv.appName) Help", action: #selector(NSApplication.showHelp(_:)), keyEquivalent: "?")
         bar.addItem(withTitle: "Help", action: nil, keyEquivalent: "").submenu = help
         NSApp.helpMenu = help
+        shortcuts.attach(file, application: appMenu, navigation: go, edit: edit, view: view, window: window, help: help)
         return bar
     }
 
@@ -352,6 +401,7 @@ public enum DevMenu {
             lines.append("plan: baked")
         }
         lines.append("app dir: \(ExactApp.shared.assetRoot.path)")
+        if let failure = WidgetContainer.publicationFailure { lines.append("widget generation: \(failure)") }
         if let session {
             let size = session.presenter.viewportSize
             lines.append("session: \(session.label) · viewport: \(Int(size.width))×\(Int(size.height)) · \(session.viewCount) views")

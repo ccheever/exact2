@@ -32,7 +32,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     await run('bun', ['game/new.mjs', app]);
     // A game is the files its author writes; no manifest, lock or app.json. Outside
     // this checkout it gets an app's runner and notes too (LLP 1086).
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs']);
+    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','.vscode','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs']);
     assert.deepEqual(readdirSync(resolve(app, 'logic')).sort(), ['src','tests']);
     env.EXACT_APP_DIR = app;
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
@@ -77,7 +77,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     assert.notEqual(JSON.parse(readFileSync(receipt, 'utf8')).inputs, before.inputs);
     assert.equal(readFileSync(hostReceipt, 'utf8'), hostBefore, 'a logic edit retains the completed host');
     assert.deepEqual(readdirSync(app).filter(file => !['.shells','artifacts','target','dist','dist.previous','app.contract.d.ts'].includes(file)).sort(),
-      ['.gitignore','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
+      ['.gitignore','.vscode','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
   } finally {
     rmSync(directory, {recursive:true, force:true});
   }
@@ -93,9 +93,10 @@ test('generated commands run from an external author directory with quoted paths
     // Its commands are its own runner's verbs, as an app's are (LLP 1086; the platformer's diary, R1).
     const verbs=created.stdout.split('\n').filter(line=>line.startsWith('  bun exact.mjs ')).map(line=>line.trim().split(/\s+/)[2]);
     assert.deepEqual(verbs,['test-rust','web','test','agent','mac','windows','prove'],created.stdout);
-    const runner=readFileSync(resolve(app,'exact.mjs'),'utf8');
-    for (const verb of verbs) assert.ok(new RegExp(`^  '?${verb}'?: \\[`,'m').test(runner),verb);
-    assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game[\\/]README\.md[^]*## The authoring diary[^]*<!-- exact:end -->/);
+    const usage=spawnSync(process.execPath,['exact.mjs','nope'],{cwd:app,encoding:'utf8'}).stderr;
+    const runnerVerbs=new Set(/Usage: bun exact\.mjs <([^>]*)>/.exec(usage)[1].split('|'));
+    for (const verb of [...verbs, 'lock', 'shells']) assert.ok(runnerVerbs.has(verb),verb);
+    assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game[\\/]README\.md[^]*feedback status[^]*<!-- exact:end -->/);
     const inspect=resolve(directory,'inspect command.mjs');
     writeFileSync(inspect,`import {readFileSync} from 'node:fs'; import {resolve} from 'node:path';
       const [script,...args]=process.argv.slice(2); const path=resolve(script); readFileSync(path);
@@ -110,6 +111,8 @@ test('generated commands run from an external author directory with quoted paths
     // building or opening a host. Argument and app-path forwarding are real.
     const sdk=resolve(directory,'recording SDK');
     mkdirSync(resolve(sdk,'host/windows'),{recursive:true});
+    mkdirSync(resolve(sdk,'scripts'),{recursive:true});
+    for (const file of ['app-cli.mjs', 'bun.mjs']) cpSync(resolve(import.meta.dir, '../scripts', file), resolve(sdk, 'scripts', file));
     writeFileSync(resolve(sdk,'host/windows/build.mjs'),`console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));`);
     const windows=spawnSync(process.execPath,['exact.mjs','windows','--release','--run'],{cwd:app,env:{...process.env,EXACT2:sdk},encoding:'utf8'});
     assert.equal(windows.status,0,windows.stderr);
@@ -188,6 +191,7 @@ test('shell test CLI honors an app path and keeps the no-path SDK sweep', () => 
     for (const file of ['Cargo.toml', '.cargo/config.toml', 'app/shells.mjs', 'app/shells.lock'])
       cpSync(resolve(import.meta.dir, file), resolve(sdk, file));
     cpSync(resolve(import.meta.dir, '../rust-toolchain.toml'), resolve(parent, 'rust-toolchain.toml'));
+    symlinkSync(resolve(import.meta.dir, '../scripts'), resolve(parent, 'scripts')); // shells.mjs imports ../../scripts/app.mjs
     cpSync(resolve(import.meta.dir, 'new'), resolve(sdk, 'new'), {recursive:true});
     const fixture = resolve(sdk, 'games/fixture'), bench = resolve(sdk, 'bench/example');
     for (const app of [external, fixture, bench]) {
@@ -205,13 +209,13 @@ if (args[0] === 'run' && args.at(-1) === process.env.SCOPE_BAKE_FAIL) process.ex
 if (args[0] === 'test' && process.cwd() === process.env.SCOPE_TEST_FAIL) process.exit(7);\n`);
     chmodSync(cargo, 0o755);
     const target = resolve(parent, 'target with spaces');
-    const run = (args, {bakeFail='', testFail=resolve(fixture, '.shells')} = {}) => {
+    const run = (args, {bakeFail='', testFail=resolve(fixture, '.shells'), targetDir=target} = {}) => {
       writeFileSync(calls, '');
-      const result = spawnSync(process.execPath, [resolve(sdk, 'app/shells.mjs'), ...args], {
-        cwd:parent, encoding:'utf8', env:{...process.env, PATH:`${bin}:${process.env.PATH}`,
-          CARGO_TARGET_DIR:target, SCOPE_CALLS:calls, SCOPE_BAKE_FAIL:bakeFail,
-          SCOPE_TEST_FAIL:testFail, SCOPE_SENTINEL:'carried'},
-      });
+      const env = {...process.env, PATH:`${bin}:${process.env.PATH}`,
+        CARGO_TARGET_DIR:targetDir, SCOPE_CALLS:calls, SCOPE_BAKE_FAIL:bakeFail,
+        SCOPE_TEST_FAIL:testFail, SCOPE_SENTINEL:'carried'};
+      if (targetDir === null) delete env.CARGO_TARGET_DIR;
+      const result = spawnSync(process.execPath, [resolve(sdk, 'app/shells.mjs'), ...args], {cwd:parent, encoding:'utf8', env});
       const commands = readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
       return {result, commands, bakes:commands.filter(command => command.args[0] === 'run'),
         tests:commands.filter(command => command.args[0] === 'test')};
@@ -224,6 +228,10 @@ if (args[0] === 'test' && process.cwd() === process.env.SCOPE_TEST_FAIL) process
     assert.equal(selected.bakes[0].cwd, sdk);
     assert.ok(selected.commands.every(command => command.target === target && command.sentinel === 'carried'));
     assert.deepEqual(selected.tests.map(command => command.cwd), [resolve(external, '.shells')]);
+    // Unset, each game builds into its own target, never the SDK's shared one.
+    const own = run([external, '--test'], {targetDir:null});
+    assert.deepEqual(own.commands.filter(command => command.args[0] !== 'metadata').map(command => command.target),
+      ['run','clippy','test'].map(() => resolve(external, 'target')));
     const all = run(['--test']);
     assert.equal(all.result.status, 1, 'a failing fixture must fail the sweep');
     assert.deepEqual(all.bakes.map(command => command.args.at(-1)), [fixture, bench]);
@@ -580,12 +588,13 @@ test('a captured lock exact2 moved past is named at a build, at generation and a
     const generated=spawnSync(process.execPath,[resolve(import.meta.dir,'app/shells.mjs'),dir],{encoding:'utf8'});
     assert.equal(generated.status,0,generated.stderr);
     assert.ok(named(generated.stderr.replace(/^warning: /,'')),generated.stderr);
-    // A runner generated before the verb existed is told to update first.
+    // A runner generated before the verb existed is told to update first; the launcher update writes has it.
     const runner=resolve(dir,'exact.mjs');
-    writeFileSync(runner,readFileSync(runner,'utf8').replace(/^\s*lock: \[.*\n/m,''));
+    writeFileSync(runner,"#!/usr/bin/env bun\nconst verbs = {\n  web: ['host/web/dev.mjs'],\n};\n");
     assert.ok(capturedLockDrift(dir).includes(`\`bun exact.mjs update\`, then \`bun exact.mjs lock\`, in ${dir}`));
     assert.match(createApp(dir,{update:true}),/exact2 moved since this game's Cargo.lock was captured/);
-    assert.match(readFileSync(resolve(dir,'exact.mjs'),'utf8'),/lock: \['game\/app\/shells\.mjs', import\.meta\.dir, '--lock'\]/);
+    assert.match(readFileSync(resolve(dir,'exact.mjs'),'utf8'),/scripts\/app-cli\.mjs[^]*game: true,/);
+    assert.ok(capturedLockDrift(dir).includes(`\`bun exact.mjs lock\` in ${dir}`));
     assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),text);
   } finally {rmSync(root,{recursive:true,force:true});}
 }, 180000);

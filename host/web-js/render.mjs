@@ -18,6 +18,14 @@ import { createDocument } from './dom.js';
 
 const DEADLINE = 3000;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+// Use Place's default zone inside each realm, keeping Intl prototypes and exceptions local to that render.
+const utcIntl = new vm.Script(`{
+  const argsInUTC = ([locales, options]) => [locales, options === null || options?.timeZone !== undefined ? options : Object.create(Object(options), { timeZone: { value: 'UTC' } })];
+  Intl.DateTimeFormat = new Proxy(Intl.DateTimeFormat, {
+    apply: (target, receiver, args) => Reflect.apply(target, receiver, argsInUTC(args)),
+    construct: (target, args, derived) => Reflect.construct(target, argsInUTC(args), derived),
+  });
+}`);
 
 /** The renderer for one built dist: its server bundle compiled once. */
 export function renderer(dist) {
@@ -37,21 +45,31 @@ export function renderer(dist) {
   const title = shell.indexOf('<title>'), stop = shell.indexOf('>\n', shell.indexOf('<meta name="viewport"', title)) + 2;
   const root = ROOT?.index ?? -1, entry = shell.indexOf(ENTRY), rootAttrs = ROOT?.[1] ?? '';
   const viewport = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
-  const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, '<html lang="en" dir="ltr">') + `<script>${capture}</script>\n`
+  // The document's language is the shell's, which the build wrote from the manifest's `lang` (LLP 1115.000 D4.6).
+  const language = /<html[^>]* lang="([^"]*)"/.exec(shell)?.[1] || 'en-US';
+  const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, `<html lang="${language}" dir="ltr">`) + `<script>${capture}</script>\n`
     + (preload ? shell.slice(stop, root) : shell.slice(stop, root).replace(/<link rel="modulepreload" href="[^"]*">\n/g, ''));
   /** A render begun: its route's policy and the page's head, known before
    * any data is asked; `finish` settles it and composes the rest. */
   async function begin(location) {
     const document = createDocument(shell);
+    // The bake's page facts (runner/src/page.rs): visible, online, focused, no share sheet or pickers.
+    Object.assign(document, { visibilityState: 'visible', hasFocus: () => true });
     const url = new URL(location, 'http://render.invalid');
     const ctx = vm.createContext({
       document, location: { pathname: url.pathname, search: url.search, href: url.href, origin: '' },
+      navigator: { onLine: true, language },
+      getComputedStyle: () => ({ fontSize: '16px' }), devicePixelRatio: 1,
       history: { replaceState() {}, pushState() {}, go() {} }, localStorage: { length: 0, key() {}, getItem() { return null; } },
       addEventListener() {}, removeEventListener() {}, requestAnimationFrame: () => 0,
+      // No reader's device facts: use runner/src/viewport.rs's default size and media bits.
+      innerWidth: 390, innerHeight: 844,
+      matchMedia: media => ({ media, matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
       setTimeout, clearTimeout, queueMicrotask, performance, console, fetch, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder,
       WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, crypto, __exactRender: true, __files: files,
     });
     ctx.globalThis = ctx; ctx.self = ctx;
+    utcIntl.runInContext(ctx);
     script.runInContext(ctx);
     const info = await ctx.__start();
     // The capture script imports the entry by the policy; an interaction

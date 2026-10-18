@@ -1,0 +1,8 @@
+{
+  "borderRadius": {
+    "default": {
+      "value": "{borderRadius.lg}",
+      "type": "borderRadius"
+    }
+  }
+}

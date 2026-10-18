@@ -36,8 +36,9 @@ pub(crate) const RUST_ABI: u32 = 3;
 /// own prelude (`js/src/prelude.js`, compiled into the host): moved when the
 /// prelude learns something a bundle cannot do without and an older prelude
 /// would silently ignore. 1: `fetch`'s `exactBodyFrom` (LLP 1108 D6 R2),
-/// which an older prelude would send as an empty body.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 1;
+/// which an older prelude would send as an empty body. 2: `fetch`'s
+/// `redirect`, which an older prelude would ignore and follow.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 2;
 /// The domain separator over the canonical inputs.
 const DOMAIN: &str = "exact2 compatibility id v1\n";
 
@@ -122,6 +123,28 @@ pub fn compatibility_id_sources(
     grants: Option<&str>,
     rust_grants: Option<&str>,
 ) -> Result<Compat, String> {
+    compatibility_id_sources_with_entries(
+        app_dir,
+        platform,
+        target,
+        manifest,
+        grants,
+        rust_grants,
+        None,
+    )
+}
+
+/// Reuse entry plans already compiled for source declarations and refresh checks.
+/// With `None`, compatibility generation compiles the manifest's entries itself.
+pub fn compatibility_id_sources_with_entries(
+    app_dir: &Path,
+    platform: &str,
+    target: &str,
+    manifest: &Manifest,
+    grants: Option<&str>,
+    rust_grants: Option<&str>,
+    entries: Option<&std::collections::BTreeMap<String, contract::snapshot::Entry>>,
+) -> Result<Compat, String> {
     // Cargo must rebake even when only the explicit trust selection changes.
     // External apps call this same entrypoint from their own build scripts.
     if std::env::var_os("OUT_DIR").is_some() {
@@ -158,14 +181,22 @@ pub fn compatibility_id_sources(
         if matches!(platform, "ios" | "macos") {
             crate::link::name_into(&mut compat, manifest, Path::new(&out))?;
         }
+        let compiled;
+        let entries = match entries {
+            Some(entries) => entries,
+            None => {
+                compiled = contract::snapshot::entries(app_dir)?;
+                &compiled
+            }
+        };
         crate::receipt::emit(
             &mut compat,
             &trust,
             app_dir,
-            platform,
-            target,
+            (platform, target),
             manifest,
             Path::new(&out),
+            entries,
         )?;
     }
     Ok(compat)
@@ -210,6 +241,28 @@ pub(crate) fn compatibility_digest(inputs: &serde_json::Value) -> String {
     digest[..16].iter().map(|b| format!("{b:02x}")).collect()
 }
 
+fn commands_digest() -> String {
+    let mut h = Sha256::new();
+    for name in contract_syntax::HOST_COMMANDS {
+        let shape = match *name {
+            "share" => "3",
+            "showNotification" => "5",
+            "closeNotification" | "stopSounds" => "1",
+            "playSounds" => "1:4|5|6",
+            "playSound" => "6",
+            "sendMIDI" => "3",
+            "scrollIntoView" => "4|7",
+            "saveFile" => "3|4",
+            _ => "positional",
+        };
+        h.update(format!("{name}:{shape}\n"));
+    }
+    h.finalize()[..16]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 fn compatibility_with_trust(
     app_dir: &Path,
     platform: &str,
@@ -243,7 +296,7 @@ fn compatibility_with_trust(
     let (channel, origin) = if binary_only {
         (String::new(), None)
     } else {
-        manifest.channel()
+        manifest.channel()?
     };
     if trust == "production"
         && (store != "0" || origin.is_some())
@@ -326,6 +379,9 @@ fn compatibility_with_trust(
         "kernelSchema": format!("{:016x}", exact_kernel::SCHEMA_DIGEST),
         "formatVersion": exact_plan::FORMAT_VERSION,
         "formatDigest": format!("{:016x}", exact_plan::FORMAT_DIGEST),
+        // @ref LLP 1114.001 D1 — an OTA plan with a changed fixed command
+        // shape must not run in a binary that reads its old arguments.
+        "commands": commands_digest(),
         "abi": { "c": abi_version()?, "gpuModule": GPU_MODULE_ABI, "storeCodec": if binary_only { Value::Null } else { json!(exact_update::STORE_CODEC) } },
         "executors": executors,
         "rustMode": rust_mode,
@@ -336,7 +392,10 @@ fn compatibility_with_trust(
         // without the executor refuses the build; a change is a new cohort.
         "typescriptPlacement": manifest.placement("typescript", platform)?,
         "rustPlacement": manifest.placement("rust", platform)?,
-        "dataCrate": data_crate(app_dir)?,
+        // A binary that replaces its Rust module binds the module's ABI,
+        // target and grants above, never the source it was first built
+        // from: an edit there is an update, not a new cohort (LLP 1029.000 §7).
+        "dataCrate": if rust_mode == "off" { data_crate(app_dir)? } else { Value::Null },
         // Each shader's reflected interface digest (LLP 1030 D8) — entry
         // points, bindings, layouts, inputs, outputs, overrides, never the
         // text — so a colour edit does not move the id and a binding edit
@@ -376,6 +435,26 @@ fn compatibility_with_trust(
         "store": { "L": store, "acceptedKinds": if binary_only { vec![] } else { kinds } },
         "app": manifest.id,
     });
+    if matches!(platform, "macos" | "ios") {
+        if let Some(handlers) = manifest.json.get("protocol_handlers") {
+            if !handlers.as_array().is_some_and(Vec::is_empty) {
+                inputs["protocolHandlers"] = handlers.clone();
+            }
+        }
+    }
+    let widgets = manifest.widgets()?;
+    if !widgets.is_empty() {
+        inputs["widgets"] = json!(widgets
+            .iter()
+            .map(|w| json!({"kind":w.kind,"families":w.families,"title":w.title,"description":w.description}))
+            .collect::<Vec<_>>());
+    }
+    let activities = manifest.live_activities()?;
+    if !activities.is_empty() {
+        inputs["liveActivities"] = json!(activities.iter().map(|a| json!({
+            "kind":a.kind, "title":a.title, "description":a.description, "push":a.push, "frequent":a.frequent
+        })).collect::<Vec<_>>());
+    }
     // Which GPU artifact owns which surface (LLP 1009 D6): the manifest's
     // modules, bound into the cohort — a routing change is a new binary. An
     // app with one artifact carries no key, so its id and bytes are as before.
@@ -444,10 +523,12 @@ fn executors(app_dir: &Path, platform: &str) -> Vec<String> {
 
 /// The data crate's source-input digest (LLP 1030 D3a): its tree, the
 /// workspace lockfile, the toolchain — never its compiled output, which a
-/// `wasm32` build can keep while the native build moved.
+/// `wasm32` build can keep while the native build moved. A `data/` without
+/// a `Cargo.toml` is no crate: TypeScript modules there are the bundle's,
+/// and an edit to them is an update, not a new cohort.
 fn data_crate(app_dir: &Path) -> Result<serde_json::Value, String> {
     let dir = app_dir.join("data");
-    if !dir.is_dir() {
+    if !dir.join("Cargo.toml").is_file() {
         return Ok(serde_json::Value::Null);
     }
     let mut files = Vec::new();
@@ -471,17 +552,30 @@ fn data_crate(app_dir: &Path) -> Result<serde_json::Value, String> {
         Some(r) => serde_json::Value::String(r?),
         None => serde_json::Value::Null,
     };
+    let toolchain = toolchain().map_or(serde_json::Value::Null, serde_json::Value::String);
+    Ok(
+        serde_json::json!({ "tree": tree, "files": files.len(), "lockfile": lockfile, "toolchain": toolchain }),
+    )
+}
+
+/// The toolchain's version line (`$RUSTC --version`), asked once per process and per
+/// `RUSTC`: a process computes many ids, and a compiler does not change under it.
+fn toolchain() -> Option<String> {
+    static ASKED: std::sync::Mutex<Vec<(String, Option<String>)>> =
+        std::sync::Mutex::new(Vec::new());
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
-    let toolchain = std::process::Command::new(rustc)
+    let mut asked = ASKED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, version)) = asked.iter().find(|(name, _)| *name == rustc) {
+        return version.clone();
+    }
+    let version = std::process::Command::new(&rustc)
         .arg("--version")
         .output()
         .ok()
         .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .map_or(serde_json::Value::Null, serde_json::Value::String);
-    Ok(
-        serde_json::json!({ "tree": tree, "files": files.len(), "lockfile": lockfile, "toolchain": toolchain }),
-    )
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+    asked.push((rustc, version.clone()));
+    version
 }
 
 /// Every file under `root`, as paths relative to it, skipping a `target`
@@ -653,6 +747,114 @@ mod tests {
     }
 
     #[test]
+    fn widget_gallery_labels_require_a_new_binary_cohort() {
+        let dir = app("widget-label-cohort");
+        let mut manifest = Manifest::read(&dir).unwrap();
+        manifest.json["widgets"] = serde_json::json!([{"kind":"card","families":["systemSmall"],
+            "component":"Card","props":"Props","refresh":"refresh","preview":{}}]);
+        let build = |manifest: &Manifest| {
+            compatibility_with_trust(
+                &dir,
+                "ios",
+                "aarch64-apple-ios",
+                manifest,
+                Some(""),
+                "development",
+            )
+            .unwrap()
+        };
+        let original = build(&manifest);
+        for key in ["title", "description"] {
+            let mut labelled = manifest.clone();
+            labelled.json["widgets"][0][key] = serde_json::json!("Next trains");
+            assert_ne!(original.id, build(&labelled).id, "{key} is generated Swift");
+        }
+        manifest.json["widgets"][0]["preview"] = serde_json::json!({"title":"new preview"});
+        assert_eq!(
+            original.id,
+            build(&manifest).id,
+            "preview props ride the bundle"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn activity_state_rides_the_bundle_and_capabilities_require_a_binary() {
+        let dir = app("activity-cohort");
+        let mut m = Manifest::read(&dir).unwrap();
+        m.json["live_activities"] =
+            serde_json::json!([{"kind":"train","component":"Train","state":"State","preview":{}}]);
+        let build = |m: &Manifest| {
+            compatibility_with_trust(&dir, "ios", "aarch64-apple-ios", m, Some(""), "development")
+                .unwrap()
+        };
+        let original = build(&m);
+        for key in ["title", "description", "push", "frequent"] {
+            let mut changed = m.clone();
+            changed.json["live_activities"][0][key] = if key == "push" || key == "frequent" {
+                serde_json::json!(true)
+            } else {
+                serde_json::json!("Train")
+            };
+            assert_ne!(
+                original.id,
+                build(&changed).id,
+                "{key} changes generated Swift or entitlements"
+            );
+        }
+        m.json["live_activities"][0]["state"] = serde_json::json!("NextState");
+        m.json["live_activities"][0]["preview"] = serde_json::json!({"title":"New state"});
+        assert_eq!(
+            original.id,
+            build(&m).id,
+            "state shapes and preview values ride the bundle"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn list_scroll_offset_requires_a_new_binary_cohort() {
+        use sha2::{Digest, Sha256};
+        let digest = |list_shape: &str| {
+            let mut h = Sha256::new();
+            for name in contract_syntax::HOST_COMMANDS {
+                let shape = match *name {
+                    "share" => "3",
+                    "showNotification" => "5",
+                    "closeNotification" | "stopSounds" => "1",
+                    "playSounds" => "1:4|5|6",
+                    "playSound" => "6",
+                    "sendMIDI" => "3",
+                    "scrollIntoView" => list_shape,
+                    "saveFile" => "3|4",
+                    _ => "positional",
+                };
+                h.update(format!("{name}:{shape}\n"));
+            }
+            h.finalize()[..16]
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        };
+        let dir = app("scroll-offset-cohort");
+        let manifest = Manifest::read(&dir).unwrap();
+        let current = compatibility_with_trust(
+            &dir,
+            "macos",
+            "aarch64-apple-darwin",
+            &manifest,
+            Some(""),
+            "development",
+        )
+        .unwrap();
+        let mut previous = current.inputs.clone();
+        previous["commands"] = serde_json::json!(digest("4|6"));
+        assert_eq!(current.inputs["commands"], digest("4|7"));
+        assert_ne!(current.id, super::compatibility_digest(&previous));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn mixed_source_ownership_is_hashed_even_when_the_host_ceiling_is_unchanged() {
         let dir = app("mixed-source-grants");
         let manifest = Manifest::read(&dir).unwrap();
@@ -674,6 +876,10 @@ mod tests {
         );
         assert_eq!(compat.inputs["javascriptGrants"], javascript);
         assert_eq!(compat.inputs["rustGrants"], rust);
+        assert_eq!(compat.inputs["commands"], super::commands_digest());
+        let mut without_commands = compat.inputs.clone();
+        without_commands.as_object_mut().unwrap().remove("commands");
+        assert_ne!(compat.id, super::compatibility_digest(&without_commands));
         let first = compat.id.clone();
         super::source_scopes(&mut compat, &format!("{rust}\n{javascript}"), rust);
         assert_eq!(
@@ -890,8 +1096,60 @@ mod tests {
         std::fs::remove_file(dir.join("app.ts")).unwrap();
         // A byte in the data crate is identity.
         std::fs::write(dir.join("data/src/lib.rs"), "pub struct App; // moved\n").unwrap();
-        assert_ne!(with_icon, id(&dir, "ios"), "a data crate edit moves it");
+        let moved = id(&dir, "ios");
+        assert_ne!(with_icon, moved, "a data crate edit moves it");
+        // A `data/` of TypeScript modules is no crate: its edits are not identity.
+        std::fs::remove_file(dir.join("data/Cargo.toml")).unwrap();
+        let typescript = id(&dir, "ios");
+        std::fs::write(dir.join("data/src/lib.rs"), "pub struct App; // again\n").unwrap();
+        assert_eq!(
+            typescript,
+            id(&dir, "ios"),
+            "a data/ without Cargo.toml is not a crate"
+        );
+        assert_ne!(typescript, moved);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn protocol_handler_templates_move_apple_compatibility() {
+        let dir = app("protocol-identity");
+        let manifest = std::fs::read_to_string(dir.join("app.json")).unwrap();
+        let original = id(&dir, "macos");
+        let undeclared = Manifest::read(&dir).unwrap();
+        let inputs = compatibility_with_trust(
+            &dir,
+            "macos",
+            "aarch64-apple-darwin",
+            &undeclared,
+            Some(""),
+            "development",
+        )
+        .unwrap()
+        .inputs;
+        assert!(inputs.get("protocolHandlers").is_none());
+        let with = |template: &str| {
+            std::fs::write(
+                dir.join("app.json"),
+                manifest.replacen(
+                    '{',
+                    &format!(
+                        r#"{{"protocol_handlers":[{{"protocol":"exacttest","url":"{template}"}}],"#
+                    ),
+                    1,
+                ),
+            )
+            .unwrap();
+            id(&dir, "macos")
+        };
+        let first = with("/open?u=%s");
+        assert_ne!(original, first, "registering a scheme needs a new cohort");
+        assert_ne!(
+            first,
+            with("/callback?u=%s"),
+            "a template edit needs a new cohort"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1049,6 +1307,37 @@ mod tests {
             );
             ids.push(receipt.id);
         }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_replaceable_rust_module_keeps_its_source_out_of_the_cohort() {
+        let dir = app("rust-source");
+        std::fs::create_dir_all(dir.join("data/src")).unwrap();
+        let mut manifest = Manifest::read(&dir).unwrap();
+        let id = |manifest: &Manifest, source: &str| {
+            std::fs::write(dir.join("data/src/lib.rs"), source).unwrap();
+            let receipt = compatibility_with_trust(
+                &dir,
+                "macos",
+                "aarch64-apple-darwin",
+                manifest,
+                Some(""),
+                "production",
+            )
+            .unwrap();
+            (receipt.id, receipt.inputs["dataCrate"].clone())
+        };
+        manifest.json["deploy"] = serde_json::json!({"signing":{"key":"k","keys":{"k":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}}});
+        manifest.json["rust"] =
+            serde_json::json!({"mode":"native","module":{"package":"app-logic"}});
+        let (before, data) = id(&manifest, "pub const A: u8 = 1;");
+        assert!(data.is_null(), "{data}");
+        assert_eq!(id(&manifest, "pub const A: u8 = 2;").0, before);
+        manifest.json["rust"] = serde_json::json!({"mode":"off","module":{"package":"app-logic"}});
+        let (off, data) = id(&manifest, "pub const A: u8 = 1;");
+        assert!(!data.is_null());
+        assert_ne!(id(&manifest, "pub const A: u8 = 2;").0, off);
         let _ = std::fs::remove_dir_all(dir);
     }
 

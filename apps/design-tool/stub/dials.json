@@ -1,0 +1,3338 @@
+{
+ "describe": {
+  "files": {
+   "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+   "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+  },
+  "ir": {
+   "axes": [
+    {
+     "name": "dark-style",
+     "under": "dark",
+     "values": [
+      "black",
+      "dim"
+     ]
+    },
+    {
+     "name": "density",
+     "under": null,
+     "values": [
+      "regular",
+      "compact"
+     ]
+    }
+   ],
+   "components": [
+    {
+     "identity": "app.contract#Card",
+     "name": "Card",
+     "params": [
+      {
+       "control": "color",
+       "default": "accent.fill",
+       "group": "Colour",
+       "help": null,
+       "kind": "color",
+       "label": "Fill",
+       "name": "app.contract#Card.fill",
+       "options": null,
+       "param": "fill",
+       "pinned": [],
+       "priority": 1,
+       "range": null,
+       "set": null,
+       "short": "Card.fill",
+       "step": null,
+       "token": "param.fbc96c5e4.Card.fill",
+       "values": [
+        "#1083feff",
+        "#1083feff",
+        "#1083feff",
+        "#1083feff"
+       ]
+      },
+      {
+       "control": "slider",
+       "default": "8px",
+       "group": "Shape",
+       "help": null,
+       "kind": "length",
+       "label": "Padding",
+       "name": "app.contract#Card.pad",
+       "options": null,
+       "param": "pad",
+       "pinned": [],
+       "priority": 1,
+       "range": [
+        0,
+        24
+       ],
+       "set": {
+        "line": 68,
+        "value": "12px",
+        "whens": 0
+       },
+       "short": "Card.pad",
+       "step": 1,
+       "token": "param.fbc96c5e4.Card.pad",
+       "values": [
+        "12px",
+        "12px",
+        "12px",
+        "12px"
+       ]
+      },
+      {
+       "control": "select",
+       "default": "surface.card",
+       "group": "Colour",
+       "help": null,
+       "kind": "color",
+       "label": "Tone",
+       "name": "app.contract#Card.tone",
+       "options": [
+        "surface.card",
+        "surface.inset"
+       ],
+       "param": "tone",
+       "pinned": [
+        "surface.card"
+       ],
+       "priority": 3,
+       "range": null,
+       "set": {
+        "line": 69,
+        "value": "#eeeeee",
+        "whens": 0
+       },
+       "short": "Card.tone",
+       "step": null,
+       "token": "param.fbc96c5e4.Card.tone",
+       "values": [
+        "#eeeeeeff",
+        "#eeeeeeff",
+        "#eeeeeeff",
+        "#eeeeeeff"
+       ]
+      },
+      {
+       "control": "token",
+       "default": "150ms",
+       "group": "Motion",
+       "help": null,
+       "kind": "duration",
+       "label": "Fade",
+       "name": "app.contract#Card.fade",
+       "options": null,
+       "param": "fade",
+       "pinned": [],
+       "priority": 2,
+       "range": null,
+       "set": null,
+       "short": "Card.fade",
+       "step": null,
+       "token": "param.fbc96c5e4.Card.fade",
+       "values": [
+        "150ms",
+        "150ms",
+        "150ms",
+        "150ms"
+       ]
+      }
+     ]
+    },
+    {
+     "identity": "app.tamber#MapCard",
+     "name": "MapCard",
+     "params": [
+      {
+       "control": "color",
+       "default": "accent.fill",
+       "group": null,
+       "help": null,
+       "kind": "color",
+       "label": "Pin",
+       "name": "app.tamber#MapCard.pin",
+       "options": null,
+       "param": "pin",
+       "pinned": [],
+       "priority": 1,
+       "range": null,
+       "set": null,
+       "short": "MapCard.pin",
+       "step": null,
+       "token": "param.f25020289.MapCard.pin",
+       "values": [
+        "#1083feff",
+        "#1083feff",
+        "#1083feff",
+        "#1083feff"
+       ]
+      },
+      {
+       "control": "stepper",
+       "default": "12",
+       "group": null,
+       "help": null,
+       "kind": "number",
+       "label": "Zoom",
+       "name": "app.tamber#MapCard.zoom",
+       "options": null,
+       "param": "zoom",
+       "pinned": [],
+       "priority": 2,
+       "range": [
+        1,
+        20
+       ],
+       "set": null,
+       "short": "MapCard.zoom",
+       "step": 1,
+       "token": "param.f25020289.MapCard.zoom",
+       "values": [
+        "12",
+        "12",
+        "12",
+        "12"
+       ]
+      },
+      {
+       "control": "slider",
+       "default": "300ms",
+       "group": null,
+       "help": null,
+       "kind": "duration",
+       "label": "Pan",
+       "name": "app.tamber#MapCard.pan",
+       "options": null,
+       "param": "pan",
+       "pinned": [],
+       "priority": 2,
+       "range": [
+        0,
+        1000
+       ],
+       "set": null,
+       "short": "MapCard.pan",
+       "step": 50,
+       "token": "param.f25020289.MapCard.pan",
+       "values": [
+        "300ms",
+        "300ms",
+        "300ms",
+        "300ms"
+       ]
+      },
+      {
+       "control": "token",
+       "default": "icon.star",
+       "group": null,
+       "help": null,
+       "kind": "icon",
+       "label": "Glyph",
+       "name": "app.tamber#MapCard.glyph",
+       "options": null,
+       "param": "glyph",
+       "pinned": [],
+       "priority": 2,
+       "range": null,
+       "set": null,
+       "short": "MapCard.glyph",
+       "step": null,
+       "token": "param.f25020289.MapCard.glyph",
+       "values": [
+        {
+         "material": "star",
+         "sf": "star",
+         "svg": null
+        },
+        {
+         "material": "star",
+         "sf": "star",
+         "svg": null
+        },
+        {
+         "material": "star",
+         "sf": "star",
+         "svg": null
+        },
+        {
+         "material": "star",
+         "sf": "star",
+         "svg": null
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "dials": [
+    {
+     "kind": "color",
+     "meta": {
+      "control": "color",
+      "group": "Colour",
+      "label": "Accent",
+      "priority": "1"
+     },
+     "name": "accent",
+     "range": null,
+     "value": "#1083feff"
+    },
+    {
+     "kind": "number",
+     "meta": {
+      "control": "slider",
+      "group": "Colour",
+      "label": "Lift",
+      "priority": "2",
+      "step": "0.01"
+     },
+     "name": "lift",
+     "range": [
+      "0",
+      "0.5"
+     ],
+     "value": "0.1"
+    },
+    {
+     "kind": "number",
+     "meta": {
+      "group": "Tone"
+     },
+     "name": "chroma",
+     "range": [
+      "0",
+      "0.3"
+     ],
+     "value": "0.1"
+    },
+    {
+     "kind": "number",
+     "meta": {
+      "control": "stepper",
+      "group": "Tone",
+      "priority": "1",
+      "step": "5"
+     },
+     "name": "hue",
+     "range": [
+      "0",
+      "360"
+     ],
+     "value": "200"
+    },
+    {
+     "kind": "number",
+     "meta": {
+      "group": "Tone",
+      "priority": "3"
+     },
+     "name": "fine",
+     "range": [
+      "0",
+      "5e-3"
+     ],
+     "value": "0.001"
+    },
+    {
+     "kind": "color",
+     "meta": {
+      "control": "select",
+      "group": "Colour",
+      "options": "#1083fe|#f00|brand.red",
+      "priority": "3"
+     },
+     "name": "paint",
+     "range": null,
+     "value": "#ff0000ff"
+    },
+    {
+     "kind": "number",
+     "meta": {
+      "group": "Tone",
+      "label": "Warmth",
+      "priority": "3",
+      "step": "1"
+     },
+     "name": "warmth",
+     "range": [
+      "0",
+      "60"
+     ],
+     "value": "20"
+    },
+    {
+     "kind": "number",
+     "meta": {
+      "control": "none"
+     },
+     "name": "shade",
+     "range": [
+      "0",
+      "0.5"
+     ],
+     "value": "0.2"
+    },
+    {
+     "kind": "length",
+     "meta": {
+      "control": "slider",
+      "group": "Space",
+      "label": "Gap",
+      "priority": "1",
+      "step": "2px"
+     },
+     "name": "gap",
+     "range": [
+      "0px",
+      "24px"
+     ],
+     "value": "8px"
+    },
+    {
+     "kind": "length",
+     "meta": {
+      "control": "stepper",
+      "group": "Space",
+      "priority": "2"
+     },
+     "name": "inset",
+     "range": [
+      "0px",
+      "16px"
+     ],
+     "value": "4px"
+    }
+   ],
+   "digest": "0cb7e31012acc1dc",
+   "exports": null,
+   "format": 1,
+   "icons": [
+    {
+     "material": "star",
+     "name": "icon.star",
+     "sf": "star",
+     "svg": null
+    }
+   ],
+   "name": "dials",
+   "tokens": [
+    {
+     "dials": [],
+     "entries": [
+      0,
+      0,
+      1,
+      1
+     ],
+     "fallback": [
+      "#ffffffff",
+      "#000000ff"
+     ],
+     "kind": "color",
+     "name": "surface.page",
+     "role": null,
+     "values": [
+      "light-dark(#ffffffff, #000000ff)",
+      "light-dark(#ffffffff, #15202bff)"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": [
+      0,
+      0,
+      1,
+      1
+     ],
+     "fallback": [
+      "#f1f3f5ff",
+      "#16181cff"
+     ],
+     "kind": "color",
+     "name": "surface.card",
+     "role": null,
+     "values": [
+      "light-dark(#f1f3f5ff, #16181cff)",
+      "light-dark(#f1f3f5ff, #1e2732ff)"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": [
+      0,
+      1,
+      0,
+      1
+     ],
+     "fallback": [
+      "#f8f9faff",
+      "#101214ff"
+     ],
+     "kind": "color",
+     "name": "surface.inset",
+     "role": null,
+     "values": [
+      "light-dark(#f8f9faff, #101214ff)",
+      "light-dark(#eef0f2ff, #0c0e10ff)"
+     ]
+    },
+    {
+     "dials": [
+      "accent"
+     ],
+     "entries": null,
+     "fallback": [
+      "#1083feff",
+      "#1083feff"
+     ],
+     "kind": "color",
+     "name": "accent.fill",
+     "role": null,
+     "values": [
+      "#1083feff"
+     ]
+    },
+    {
+     "dials": [
+      "accent",
+      "lift"
+     ],
+     "entries": null,
+     "fallback": [
+      "#3da4ffff",
+      "#3da4ffff"
+     ],
+     "kind": "color",
+     "name": "accent.soft",
+     "role": null,
+     "values": [
+      "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)"
+     ]
+    },
+    {
+     "dials": [
+      "gap"
+     ],
+     "entries": null,
+     "fallback": [
+      "8px",
+      "8px"
+     ],
+     "kind": "length",
+     "name": "space.gap",
+     "role": null,
+     "values": [
+      "8px"
+     ]
+    },
+    {
+     "dials": [
+      "inset"
+     ],
+     "entries": null,
+     "fallback": [
+      "4px",
+      "4px"
+     ],
+     "kind": "length",
+     "name": "space.inset",
+     "role": null,
+     "values": [
+      "4px"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "0px 1px 3px light-dark(#000000ff, #ffffffff)",
+      "0px 1px 3px light-dark(#000000ff, #ffffffff)"
+     ],
+     "kind": "box-shadow",
+     "name": "shadow.card",
+     "role": null,
+     "values": [
+      "0px 1px 3px light-dark(#000000ff, #ffffffff)"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "12px",
+      "12px"
+     ],
+     "kind": "length",
+     "name": "space.edge",
+     "role": null,
+     "values": [
+      "12px"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": [
+      0,
+      1,
+      0,
+      1
+     ],
+     "fallback": [
+      "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#f8f9faff, #101214ff)",
+      "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#f8f9faff, #101214ff)"
+     ],
+     "kind": "box-shadow",
+     "name": "shadow.ring",
+     "role": null,
+     "values": [
+      "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#f8f9faff, #101214ff)",
+      "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#eef0f2ff, #0c0e10ff)"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "0px 1px 2px #00000080",
+      "0px 1px 2px #00000080"
+     ],
+     "kind": "text-shadow",
+     "name": "shadow.text",
+     "role": null,
+     "values": [
+      "0px 1px 2px #00000080"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "600 1.25rem/1.25",
+      "600 1.25rem/1.25"
+     ],
+     "kind": "type",
+     "name": "type.title",
+     "role": null,
+     "values": [
+      "600 1.25rem/1.25"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "0.5",
+      "0.5"
+     ],
+     "kind": "number",
+     "name": "opacity.muted",
+     "role": null,
+     "values": [
+      "0.5"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "150ms",
+      "150ms"
+     ],
+     "kind": "duration",
+     "name": "duration.fast",
+     "role": null,
+     "values": [
+      "150ms"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "cubic-bezier(0.2, 0, 0, 1)",
+      "cubic-bezier(0.2, 0, 0, 1)"
+     ],
+     "kind": "easing",
+     "name": "easing.standard",
+     "role": null,
+     "values": [
+      "cubic-bezier(0.2, 0, 0, 1)"
+     ]
+    },
+    {
+     "dials": [
+      "chroma",
+      "hue"
+     ],
+     "entries": null,
+     "fallback": [
+      "#0d9298ff",
+      "#0d9298ff"
+     ],
+     "kind": "color",
+     "name": "tone.base",
+     "role": null,
+     "values": [
+      "oklch(0.6 0.1 200)"
+     ]
+    },
+    {
+     "dials": [
+      "warmth"
+     ],
+     "entries": null,
+     "fallback": [
+      "#d68585ff",
+      "#d68585ff"
+     ],
+     "kind": "color",
+     "name": "tone.warm",
+     "role": null,
+     "values": [
+      "oklch(0.7 0.1 20)"
+     ]
+    },
+    {
+     "dials": [
+      "fine"
+     ],
+     "entries": null,
+     "fallback": [
+      "#7f8080ff",
+      "#7f8080ff"
+     ],
+     "kind": "color",
+     "name": "tone.fine",
+     "role": null,
+     "values": [
+      "oklch(0.6 0.001 200)"
+     ]
+    },
+    {
+     "dials": [
+      "paint"
+     ],
+     "entries": null,
+     "fallback": [
+      "#ff0000ff",
+      "#ff0000ff"
+     ],
+     "kind": "color",
+     "name": "paint.pick",
+     "role": null,
+     "values": [
+      "#ff0000ff"
+     ]
+    },
+    {
+     "dials": [
+      "accent",
+      "shade"
+     ],
+     "entries": null,
+     "fallback": [
+      "#0042b9ff",
+      "#0042b9ff"
+     ],
+     "kind": "color",
+     "name": "tone.deep",
+     "role": null,
+     "values": [
+      "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "#0f1419ff",
+      "#e7e9eaff"
+     ],
+     "kind": "color",
+     "name": "text.primary",
+     "role": null,
+     "values": [
+      "light-dark(#0f1419ff, #e7e9eaff)"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "#3c3c4399",
+      "#ebebf599"
+     ],
+     "kind": "color",
+     "name": "text.system",
+     "role": null,
+     "values": [
+      "-exact-secondary-label"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "#ffffffff",
+      "#ffffffff"
+     ],
+     "kind": "color",
+     "name": "ink.on-brand",
+     "role": null,
+     "scheme": "fixed",
+     "values": [
+      "#ffffffff"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "#0f1419ff",
+      "#e7e9eaff"
+     ],
+     "kind": "color",
+     "name": "-exact-label",
+     "role": "label",
+     "values": [
+      "light-dark(#0f1419ff, #e7e9eaff)"
+     ]
+    }
+   ],
+   "tuples": 4
+  },
+  "meta": {
+   "dials": {
+    "accent": [
+     [
+      "control",
+      "color"
+     ],
+     [
+      "group",
+      "Colour"
+     ],
+     [
+      "priority",
+      "1"
+     ],
+     [
+      "label",
+      "Accent"
+     ]
+    ],
+    "chroma": [
+     [
+      "group",
+      "Tone"
+     ]
+    ],
+    "fine": [
+     [
+      "group",
+      "Tone"
+     ],
+     [
+      "priority",
+      "3"
+     ]
+    ],
+    "gap": [
+     [
+      "step",
+      "2px"
+     ],
+     [
+      "control",
+      "slider"
+     ],
+     [
+      "group",
+      "Space"
+     ],
+     [
+      "priority",
+      "1"
+     ],
+     [
+      "label",
+      "Gap"
+     ]
+    ],
+    "hue": [
+     [
+      "step",
+      "5"
+     ],
+     [
+      "control",
+      "stepper"
+     ],
+     [
+      "group",
+      "Tone"
+     ],
+     [
+      "priority",
+      "1"
+     ]
+    ],
+    "inset": [
+     [
+      "control",
+      "stepper"
+     ],
+     [
+      "group",
+      "Space"
+     ],
+     [
+      "priority",
+      "2"
+     ]
+    ],
+    "lift": [
+     [
+      "step",
+      "0.01"
+     ],
+     [
+      "control",
+      "slider"
+     ],
+     [
+      "group",
+      "Colour"
+     ],
+     [
+      "priority",
+      "2"
+     ],
+     [
+      "label",
+      "Lift"
+     ]
+    ],
+    "paint": [
+     [
+      "control",
+      "select"
+     ],
+     [
+      "options",
+      "#1083fe|#f00|brand.red"
+     ],
+     [
+      "group",
+      "Colour"
+     ],
+     [
+      "priority",
+      "3"
+     ]
+    ],
+    "shade": [
+     [
+      "control",
+      "none"
+     ]
+    ],
+    "warmth": [
+     [
+      "step",
+      "1"
+     ],
+     [
+      "group",
+      "Tone"
+     ],
+     [
+      "priority",
+      "3"
+     ],
+     [
+      "label",
+      "Warmth"
+     ]
+    ]
+   },
+   "tokens": {
+    "-exact-label": [],
+    "accent.fill": [],
+    "accent.soft": [],
+    "duration.fast": [],
+    "easing.standard": [],
+    "ink.on-brand": [
+     [
+      "scheme",
+      "fixed"
+     ]
+    ],
+    "opacity.muted": [],
+    "paint.pick": [],
+    "shadow.card": [],
+    "shadow.ring": [],
+    "shadow.text": [],
+    "space.edge": [],
+    "space.gap": [],
+    "space.inset": [],
+    "surface.card": [],
+    "surface.inset": [],
+    "surface.page": [],
+    "text.primary": [
+     [
+      "pair",
+      "surface.page"
+     ]
+    ],
+    "text.system": [],
+    "tone.base": [],
+    "tone.deep": [],
+    "tone.fine": [],
+    "tone.warm": [
+     [
+      "pair",
+      "surface.page"
+     ]
+    ],
+    "type.title": []
+   }
+  },
+  "pairs": {
+   "text.primary": [
+    {
+     "fallback": null,
+     "name": "surface.page",
+     "token": true
+    }
+   ],
+   "tone.warm": [
+    {
+     "fallback": null,
+     "name": "surface.page",
+     "token": true
+    }
+   ]
+  },
+  "warnings": [
+   {
+    "col": 3,
+    "file": "app.tamber",
+    "id": "tamber-contrast",
+    "line": 48,
+    "message": "`tone.warm` on `surface.page` is 2.78:1 in light: below 4.5:1, WCAG's ratio for text"
+   }
+  ]
+ },
+ "resolve": {
+  "surface.page": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "surface.page",
+   "tuples": [
+    {
+     "dark": "#000000ff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#000000ff",
+      "light": "#ffffffff"
+     },
+     "value": "light-dark(#ffffffff, #000000ff)"
+    },
+    {
+     "dark": "#000000ff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#000000ff",
+      "light": "#ffffffff"
+     },
+     "value": "light-dark(#ffffffff, #000000ff)"
+    },
+    {
+     "dark": "#15202bff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#15202bff",
+      "light": "#ffffffff"
+     },
+     "value": "light-dark(#ffffffff, #15202bff)"
+    },
+    {
+     "dark": "#15202bff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#15202bff",
+      "light": "#ffffffff"
+     },
+     "value": "light-dark(#ffffffff, #15202bff)"
+    }
+   ]
+  },
+  "surface.card": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "surface.card",
+   "tuples": [
+    {
+     "dark": "#16181cff",
+     "light": "#f1f3f5ff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#16181cff",
+      "light": "#f1f3f5ff"
+     },
+     "value": "light-dark(#f1f3f5ff, #16181cff)"
+    },
+    {
+     "dark": "#16181cff",
+     "light": "#f1f3f5ff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#16181cff",
+      "light": "#f1f3f5ff"
+     },
+     "value": "light-dark(#f1f3f5ff, #16181cff)"
+    },
+    {
+     "dark": "#1e2732ff",
+     "light": "#f1f3f5ff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#1e2732ff",
+      "light": "#f1f3f5ff"
+     },
+     "value": "light-dark(#f1f3f5ff, #1e2732ff)"
+    },
+    {
+     "dark": "#1e2732ff",
+     "light": "#f1f3f5ff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#1e2732ff",
+      "light": "#f1f3f5ff"
+     },
+     "value": "light-dark(#f1f3f5ff, #1e2732ff)"
+    }
+   ]
+  },
+  "surface.inset": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "surface.inset",
+   "tuples": [
+    {
+     "dark": "#101214ff",
+     "light": "#f8f9faff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#101214ff",
+      "light": "#f8f9faff"
+     },
+     "value": "light-dark(#f8f9faff, #101214ff)"
+    },
+    {
+     "dark": "#0c0e10ff",
+     "light": "#eef0f2ff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#0c0e10ff",
+      "light": "#eef0f2ff"
+     },
+     "value": "light-dark(#eef0f2ff, #0c0e10ff)"
+    },
+    {
+     "dark": "#101214ff",
+     "light": "#f8f9faff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#101214ff",
+      "light": "#f8f9faff"
+     },
+     "value": "light-dark(#f8f9faff, #101214ff)"
+    },
+    {
+     "dark": "#0c0e10ff",
+     "light": "#eef0f2ff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#0c0e10ff",
+      "light": "#eef0f2ff"
+     },
+     "value": "light-dark(#eef0f2ff, #0c0e10ff)"
+    }
+   ]
+  },
+  "accent.fill": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "accent.fill",
+   "tuples": [
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    },
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    },
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    },
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    }
+   ]
+  },
+  "accent.soft": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "accent.soft",
+   "tuples": [
+    {
+     "dark": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#3da4ffff",
+      "light": "#3da4ffff"
+     },
+     "value": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)"
+    },
+    {
+     "dark": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#3da4ffff",
+      "light": "#3da4ffff"
+     },
+     "value": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)"
+    },
+    {
+     "dark": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#3da4ffff",
+      "light": "#3da4ffff"
+     },
+     "value": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)"
+    },
+    {
+     "dark": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#3da4ffff",
+      "light": "#3da4ffff"
+     },
+     "value": "oklch(0.7219322910474176 0.20498756752551014 255.8600088970723)"
+    }
+   ]
+  },
+  "space.gap": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "space.gap",
+   "tuples": [
+    {
+     "amount": 8,
+     "kind": "length",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "unit": "px",
+     "value": "8px"
+    },
+    {
+     "amount": 8,
+     "kind": "length",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "unit": "px",
+     "value": "8px"
+    },
+    {
+     "amount": 8,
+     "kind": "length",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "unit": "px",
+     "value": "8px"
+    },
+    {
+     "amount": 8,
+     "kind": "length",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "unit": "px",
+     "value": "8px"
+    }
+   ]
+  },
+  "space.inset": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "space.inset",
+   "tuples": [
+    {
+     "amount": 4,
+     "kind": "length",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "unit": "px",
+     "value": "4px"
+    },
+    {
+     "amount": 4,
+     "kind": "length",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "unit": "px",
+     "value": "4px"
+    },
+    {
+     "amount": 4,
+     "kind": "length",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "unit": "px",
+     "value": "4px"
+    },
+    {
+     "amount": 4,
+     "kind": "length",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "unit": "px",
+     "value": "4px"
+    }
+   ]
+  },
+  "shadow.card": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "shadow.card",
+   "tuples": [
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "shadows": [
+      {
+       "color": "light-dark(#000000ff, #ffffffff)",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        3
+       ]
+      }
+     ],
+     "value": "0px 1px 3px light-dark(#000000ff, #ffffffff)"
+    },
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "shadows": [
+      {
+       "color": "light-dark(#000000ff, #ffffffff)",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        3
+       ]
+      }
+     ],
+     "value": "0px 1px 3px light-dark(#000000ff, #ffffffff)"
+    },
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "shadows": [
+      {
+       "color": "light-dark(#000000ff, #ffffffff)",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        3
+       ]
+      }
+     ],
+     "value": "0px 1px 3px light-dark(#000000ff, #ffffffff)"
+    },
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "shadows": [
+      {
+       "color": "light-dark(#000000ff, #ffffffff)",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        3
+       ]
+      }
+     ],
+     "value": "0px 1px 3px light-dark(#000000ff, #ffffffff)"
+    }
+   ]
+  },
+  "space.edge": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "space.edge",
+   "tuples": [
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "unit": "px",
+     "value": "12px"
+    },
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "unit": "px",
+     "value": "12px"
+    },
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "unit": "px",
+     "value": "12px"
+    },
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "unit": "px",
+     "value": "12px"
+    }
+   ]
+  },
+  "shadow.ring": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "shadow.ring",
+   "tuples": [
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "shadows": [
+      {
+       "color": "#00000033",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      },
+      {
+       "color": "light-dark(#f8f9faff, #101214ff)",
+       "inset": true,
+       "lengths": [
+        0,
+        0,
+        0,
+        1
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#f8f9faff, #101214ff)"
+    },
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "shadows": [
+      {
+       "color": "#00000033",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      },
+      {
+       "color": "light-dark(#eef0f2ff, #0c0e10ff)",
+       "inset": true,
+       "lengths": [
+        0,
+        0,
+        0,
+        1
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#eef0f2ff, #0c0e10ff)"
+    },
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "shadows": [
+      {
+       "color": "#00000033",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      },
+      {
+       "color": "light-dark(#f8f9faff, #101214ff)",
+       "inset": true,
+       "lengths": [
+        0,
+        0,
+        0,
+        1
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#f8f9faff, #101214ff)"
+    },
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "shadows": [
+      {
+       "color": "#00000033",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      },
+      {
+       "color": "light-dark(#eef0f2ff, #0c0e10ff)",
+       "inset": true,
+       "lengths": [
+        0,
+        0,
+        0,
+        1
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#eef0f2ff, #0c0e10ff)"
+    }
+   ]
+  },
+  "shadow.text": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "shadow.text",
+   "tuples": [
+    {
+     "kind": "text-shadow",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "shadows": [
+      {
+       "color": "#00000080",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000080"
+    },
+    {
+     "kind": "text-shadow",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "shadows": [
+      {
+       "color": "#00000080",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000080"
+    },
+    {
+     "kind": "text-shadow",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "shadows": [
+      {
+       "color": "#00000080",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000080"
+    },
+    {
+     "kind": "text-shadow",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "shadows": [
+      {
+       "color": "#00000080",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000080"
+    }
+   ]
+  },
+  "type.title": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "type.title",
+   "tuples": [
+    {
+     "family": null,
+     "kind": "type",
+     "leading": "1.25",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "size": "1.25rem",
+     "style": null,
+     "value": "600 1.25rem/1.25",
+     "weight": 600
+    },
+    {
+     "family": null,
+     "kind": "type",
+     "leading": "1.25",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "size": "1.25rem",
+     "style": null,
+     "value": "600 1.25rem/1.25",
+     "weight": 600
+    },
+    {
+     "family": null,
+     "kind": "type",
+     "leading": "1.25",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "size": "1.25rem",
+     "style": null,
+     "value": "600 1.25rem/1.25",
+     "weight": 600
+    },
+    {
+     "family": null,
+     "kind": "type",
+     "leading": "1.25",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "size": "1.25rem",
+     "style": null,
+     "value": "600 1.25rem/1.25",
+     "weight": 600
+    }
+   ]
+  },
+  "opacity.muted": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "opacity.muted",
+   "tuples": [
+    {
+     "amount": 0.5,
+     "kind": "number",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "value": "0.5"
+    },
+    {
+     "amount": 0.5,
+     "kind": "number",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "value": "0.5"
+    },
+    {
+     "amount": 0.5,
+     "kind": "number",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "value": "0.5"
+    },
+    {
+     "amount": 0.5,
+     "kind": "number",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "value": "0.5"
+    }
+   ]
+  },
+  "duration.fast": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "duration.fast",
+   "tuples": [
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "ms": 150,
+     "value": "150ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "ms": 150,
+     "value": "150ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "ms": 150,
+     "value": "150ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "ms": 150,
+     "value": "150ms"
+    }
+   ]
+  },
+  "easing.standard": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "easing.standard",
+   "tuples": [
+    {
+     "kind": "easing",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "value": "cubic-bezier(0.2, 0, 0, 1)"
+    },
+    {
+     "kind": "easing",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "value": "cubic-bezier(0.2, 0, 0, 1)"
+    },
+    {
+     "kind": "easing",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "value": "cubic-bezier(0.2, 0, 0, 1)"
+    },
+    {
+     "kind": "easing",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "value": "cubic-bezier(0.2, 0, 0, 1)"
+    }
+   ]
+  },
+  "tone.base": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "tone.base",
+   "tuples": [
+    {
+     "dark": "oklch(0.6 0.1 200)",
+     "light": "oklch(0.6 0.1 200)",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#0d9298ff",
+      "light": "#0d9298ff"
+     },
+     "value": "oklch(0.6 0.1 200)"
+    },
+    {
+     "dark": "oklch(0.6 0.1 200)",
+     "light": "oklch(0.6 0.1 200)",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#0d9298ff",
+      "light": "#0d9298ff"
+     },
+     "value": "oklch(0.6 0.1 200)"
+    },
+    {
+     "dark": "oklch(0.6 0.1 200)",
+     "light": "oklch(0.6 0.1 200)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#0d9298ff",
+      "light": "#0d9298ff"
+     },
+     "value": "oklch(0.6 0.1 200)"
+    },
+    {
+     "dark": "oklch(0.6 0.1 200)",
+     "light": "oklch(0.6 0.1 200)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#0d9298ff",
+      "light": "#0d9298ff"
+     },
+     "value": "oklch(0.6 0.1 200)"
+    }
+   ]
+  },
+  "tone.warm": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "tone.warm",
+   "tuples": [
+    {
+     "dark": "oklch(0.7 0.1 20)",
+     "light": "oklch(0.7 0.1 20)",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#d68585ff",
+      "light": "#d68585ff"
+     },
+     "value": "oklch(0.7 0.1 20)"
+    },
+    {
+     "dark": "oklch(0.7 0.1 20)",
+     "light": "oklch(0.7 0.1 20)",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#d68585ff",
+      "light": "#d68585ff"
+     },
+     "value": "oklch(0.7 0.1 20)"
+    },
+    {
+     "dark": "oklch(0.7 0.1 20)",
+     "light": "oklch(0.7 0.1 20)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#d68585ff",
+      "light": "#d68585ff"
+     },
+     "value": "oklch(0.7 0.1 20)"
+    },
+    {
+     "dark": "oklch(0.7 0.1 20)",
+     "light": "oklch(0.7 0.1 20)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#d68585ff",
+      "light": "#d68585ff"
+     },
+     "value": "oklch(0.7 0.1 20)"
+    }
+   ]
+  },
+  "tone.fine": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "tone.fine",
+   "tuples": [
+    {
+     "dark": "oklch(0.6 0.001 200)",
+     "light": "oklch(0.6 0.001 200)",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#7f8080ff",
+      "light": "#7f8080ff"
+     },
+     "value": "oklch(0.6 0.001 200)"
+    },
+    {
+     "dark": "oklch(0.6 0.001 200)",
+     "light": "oklch(0.6 0.001 200)",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#7f8080ff",
+      "light": "#7f8080ff"
+     },
+     "value": "oklch(0.6 0.001 200)"
+    },
+    {
+     "dark": "oklch(0.6 0.001 200)",
+     "light": "oklch(0.6 0.001 200)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#7f8080ff",
+      "light": "#7f8080ff"
+     },
+     "value": "oklch(0.6 0.001 200)"
+    },
+    {
+     "dark": "oklch(0.6 0.001 200)",
+     "light": "oklch(0.6 0.001 200)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#7f8080ff",
+      "light": "#7f8080ff"
+     },
+     "value": "oklch(0.6 0.001 200)"
+    }
+   ]
+  },
+  "paint.pick": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "paint.pick",
+   "tuples": [
+    {
+     "dark": "#ff0000ff",
+     "light": "#ff0000ff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#ff0000ff",
+      "light": "#ff0000ff"
+     },
+     "value": "#ff0000ff"
+    },
+    {
+     "dark": "#ff0000ff",
+     "light": "#ff0000ff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#ff0000ff",
+      "light": "#ff0000ff"
+     },
+     "value": "#ff0000ff"
+    },
+    {
+     "dark": "#ff0000ff",
+     "light": "#ff0000ff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#ff0000ff",
+      "light": "#ff0000ff"
+     },
+     "value": "#ff0000ff"
+    },
+    {
+     "dark": "#ff0000ff",
+     "light": "#ff0000ff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#ff0000ff",
+      "light": "#ff0000ff"
+     },
+     "value": "#ff0000ff"
+    }
+   ]
+  },
+  "tone.deep": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "tone.deep",
+   "tuples": [
+    {
+     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#0042b9ff",
+      "light": "#0042b9ff"
+     },
+     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
+    },
+    {
+     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#0042b9ff",
+      "light": "#0042b9ff"
+     },
+     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
+    },
+    {
+     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#0042b9ff",
+      "light": "#0042b9ff"
+     },
+     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
+    },
+    {
+     "dark": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "light": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#0042b9ff",
+      "light": "#0042b9ff"
+     },
+     "value": "oklch(0.42193229104741764 0.20498756752551014 255.8600088970723)"
+    }
+   ]
+  },
+  "text.primary": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "text.primary",
+   "tuples": [
+    {
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
+     },
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+    },
+    {
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
+     },
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+    },
+    {
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
+     },
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+    },
+    {
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
+     },
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+    }
+   ]
+  },
+  "text.system": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "text.system",
+   "tuples": [
+    {
+     "fallback": {
+      "dark": "#ebebf599",
+      "light": "#3c3c4399"
+     },
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "residual": true,
+     "value": "-exact-secondary-label"
+    },
+    {
+     "fallback": {
+      "dark": "#ebebf599",
+      "light": "#3c3c4399"
+     },
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "residual": true,
+     "value": "-exact-secondary-label"
+    },
+    {
+     "fallback": {
+      "dark": "#ebebf599",
+      "light": "#3c3c4399"
+     },
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "residual": true,
+     "value": "-exact-secondary-label"
+    },
+    {
+     "fallback": {
+      "dark": "#ebebf599",
+      "light": "#3c3c4399"
+     },
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "residual": true,
+     "value": "-exact-secondary-label"
+    }
+   ]
+  },
+  "ink.on-brand": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "ink.on-brand",
+   "tuples": [
+    {
+     "dark": "#ffffffff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#ffffffff",
+      "light": "#ffffffff"
+     },
+     "value": "#ffffffff"
+    },
+    {
+     "dark": "#ffffffff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#ffffffff",
+      "light": "#ffffffff"
+     },
+     "value": "#ffffffff"
+    },
+    {
+     "dark": "#ffffffff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#ffffffff",
+      "light": "#ffffffff"
+     },
+     "value": "#ffffffff"
+    },
+    {
+     "dark": "#ffffffff",
+     "light": "#ffffffff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#ffffffff",
+      "light": "#ffffffff"
+     },
+     "value": "#ffffffff"
+    }
+   ]
+  },
+  "-exact-label": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "-exact-label",
+   "tuples": [
+    {
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
+     },
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+    },
+    {
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
+     },
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+    },
+    {
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
+     },
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+    },
+    {
+     "dark": "#e7e9eaff",
+     "light": "#0f1419ff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#e7e9eaff",
+      "light": "#0f1419ff"
+     },
+     "value": "light-dark(#0f1419ff, #e7e9eaff)"
+    }
+   ]
+  },
+  "app.contract#Card.fill": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "app.contract#Card.fill",
+   "tuples": [
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    },
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    },
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    },
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    }
+   ]
+  },
+  "app.contract#Card.pad": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "app.contract#Card.pad",
+   "tuples": [
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "unit": "px",
+     "value": "12px"
+    },
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "unit": "px",
+     "value": "12px"
+    },
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "unit": "px",
+     "value": "12px"
+    },
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "unit": "px",
+     "value": "12px"
+    }
+   ]
+  },
+  "app.contract#Card.tone": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "app.contract#Card.tone",
+   "tuples": [
+    {
+     "dark": "#eeeeeeff",
+     "light": "#eeeeeeff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#eeeeeeff",
+      "light": "#eeeeeeff"
+     },
+     "value": "#eeeeeeff"
+    },
+    {
+     "dark": "#eeeeeeff",
+     "light": "#eeeeeeff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#eeeeeeff",
+      "light": "#eeeeeeff"
+     },
+     "value": "#eeeeeeff"
+    },
+    {
+     "dark": "#eeeeeeff",
+     "light": "#eeeeeeff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#eeeeeeff",
+      "light": "#eeeeeeff"
+     },
+     "value": "#eeeeeeff"
+    },
+    {
+     "dark": "#eeeeeeff",
+     "light": "#eeeeeeff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#eeeeeeff",
+      "light": "#eeeeeeff"
+     },
+     "value": "#eeeeeeff"
+    }
+   ]
+  },
+  "app.contract#Card.fade": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "app.contract#Card.fade",
+   "tuples": [
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "ms": 150,
+     "value": "150ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "ms": 150,
+     "value": "150ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "ms": 150,
+     "value": "150ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "ms": 150,
+     "value": "150ms"
+    }
+   ]
+  },
+  "app.tamber#MapCard.pin": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "app.tamber#MapCard.pin",
+   "tuples": [
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    },
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    },
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    },
+    {
+     "dark": "#1083feff",
+     "light": "#1083feff",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "srgb": {
+      "dark": "#1083feff",
+      "light": "#1083feff"
+     },
+     "value": "#1083feff"
+    }
+   ]
+  },
+  "app.tamber#MapCard.zoom": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "app.tamber#MapCard.zoom",
+   "tuples": [
+    {
+     "amount": 12,
+     "kind": "number",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "value": "12"
+    },
+    {
+     "amount": 12,
+     "kind": "number",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "value": "12"
+    },
+    {
+     "amount": 12,
+     "kind": "number",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "value": "12"
+    },
+    {
+     "amount": 12,
+     "kind": "number",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "value": "12"
+    }
+   ]
+  },
+  "app.tamber#MapCard.pan": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "app.tamber#MapCard.pan",
+   "tuples": [
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "ms": 300,
+     "value": "300ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "ms": 300,
+     "value": "300ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "ms": 300,
+     "value": "300ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "ms": 300,
+     "value": "300ms"
+    }
+   ]
+  },
+  "app.tamber#MapCard.glyph": {
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "token": "app.tamber#MapCard.glyph",
+   "tuples": [
+    {
+     "kind": "icon",
+     "material": "star",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "sf": "star",
+     "svg": null
+    },
+    {
+     "kind": "icon",
+     "material": "star",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "sf": "star",
+     "svg": null
+    },
+    {
+     "kind": "icon",
+     "material": "star",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "sf": "star",
+     "svg": null
+    },
+    {
+     "kind": "icon",
+     "material": "star",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "sf": "star",
+     "svg": null
+    }
+   ]
+  }
+ },
+ "explain": {
+  "surface.page": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "surface.page",
+   "value": "light-dark(#ffffff, #000000)",
+   "whens": [
+    {
+     "value": "light-dark(#ffffff, #15202b)",
+     "when": [
+      {
+       "axis": "dark-style",
+       "value": "dim"
+      }
+     ]
+    }
+   ]
+  },
+  "surface.card": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "surface.card",
+   "value": "light-dark(#f1f3f5, #16181c)",
+   "whens": [
+    {
+     "value": "light-dark(#f1f3f5, #1e2732)",
+     "when": [
+      {
+       "axis": "dark-style",
+       "value": "dim"
+      }
+     ]
+    }
+   ]
+  },
+  "surface.inset": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "surface.inset",
+   "value": "light-dark(#f8f9fa, #101214)",
+   "whens": [
+    {
+     "value": "light-dark(#eef0f2, #0c0e10)",
+     "when": [
+      {
+       "axis": "density",
+       "value": "compact"
+      }
+     ]
+    }
+   ]
+  },
+  "accent.fill": {
+   "dials": [
+    "accent"
+   ],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "accent.fill",
+   "value": "accent",
+   "whens": []
+  },
+  "accent.soft": {
+   "dials": [
+    "accent",
+    "lift"
+   ],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "accent.soft",
+   "value": "oklch(from accent calc(l + lift) c h)",
+   "whens": []
+  },
+  "space.gap": {
+   "dials": [
+    "gap"
+   ],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "space.gap",
+   "value": "gap",
+   "whens": []
+  },
+  "space.inset": {
+   "dials": [
+    "inset"
+   ],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "space.inset",
+   "value": "inset",
+   "whens": []
+  },
+  "shadow.card": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "shadow.card",
+   "value": "0px 1px 3px light-dark(#000000, #ffffff)",
+   "whens": []
+  },
+  "space.edge": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "space.edge",
+   "value": "12px",
+   "whens": []
+  },
+  "shadow.ring": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [
+    "surface.inset"
+   ],
+   "token": "shadow.ring",
+   "value": "0px 1px 2px #00000033, inset 0px 0px 0px 1px surface.inset",
+   "whens": []
+  },
+  "shadow.text": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "shadow.text",
+   "value": "0px 1px 2px #00000080",
+   "whens": []
+  },
+  "type.title": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "type.title",
+   "value": "600 1.25rem/1.25",
+   "whens": []
+  },
+  "opacity.muted": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "opacity.muted",
+   "value": "0.5",
+   "whens": []
+  },
+  "duration.fast": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "duration.fast",
+   "value": "150ms",
+   "whens": []
+  },
+  "easing.standard": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "easing.standard",
+   "value": "cubic-bezier(0.2, 0, 0, 1)",
+   "whens": []
+  },
+  "tone.base": {
+   "dials": [
+    "chroma",
+    "hue"
+   ],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "tone.base",
+   "value": "oklch(0.6 chroma hue)",
+   "whens": []
+  },
+  "tone.warm": {
+   "dials": [
+    "warmth"
+   ],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "tone.warm",
+   "value": "oklch(0.7 0.1 warmth)",
+   "whens": []
+  },
+  "tone.fine": {
+   "dials": [
+    "fine"
+   ],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "tone.fine",
+   "value": "oklch(0.6 fine 200)",
+   "whens": []
+  },
+  "paint.pick": {
+   "dials": [
+    "paint"
+   ],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "paint.pick",
+   "value": "paint",
+   "whens": []
+  },
+  "tone.deep": {
+   "dials": [
+    "accent",
+    "shade"
+   ],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "tone.deep",
+   "value": "oklch(from accent calc(l - shade) c h)",
+   "whens": []
+  },
+  "text.primary": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "text.primary",
+   "value": "light-dark(#0f1419, #e7e9ea)",
+   "whens": []
+  },
+  "text.system": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "text.system",
+   "value": "-exact-secondary-label",
+   "whens": []
+  },
+  "ink.on-brand": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "ink.on-brand",
+   "value": "#ffffff",
+   "whens": []
+  },
+  "-exact-label": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [
+    "text.primary"
+   ],
+   "token": "-exact-label",
+   "value": "text.primary",
+   "whens": []
+  },
+  "app.contract#Card.fill": {
+   "dials": [
+    "accent"
+   ],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [
+    "accent.fill"
+   ],
+   "token": "app.contract#Card.fill",
+   "value": "accent.fill",
+   "whens": []
+  },
+  "app.contract#Card.pad": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "app.contract#Card.pad",
+   "value": "12px",
+   "whens": []
+  },
+  "app.contract#Card.tone": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "app.contract#Card.tone",
+   "value": "#eeeeee",
+   "whens": []
+  },
+  "app.contract#Card.fade": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "app.contract#Card.fade",
+   "value": "150ms",
+   "whens": []
+  },
+  "app.tamber#MapCard.pin": {
+   "dials": [
+    "accent"
+   ],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [
+    "accent.fill"
+   ],
+   "token": "app.tamber#MapCard.pin",
+   "value": "accent.fill",
+   "whens": []
+  },
+  "app.tamber#MapCard.zoom": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "app.tamber#MapCard.zoom",
+   "value": "12",
+   "whens": []
+  },
+  "app.tamber#MapCard.pan": {
+   "dials": [],
+   "files": {
+    "app.contract": "1738d2baa880a87523c209dbd3573a25c386c4602fe96da9faaf91684c2265f2",
+    "app.tamber": "5338c521374cfcd73b02b6070f00f5a81d22a4db30ba0e0b38704ba3022735dc"
+   },
+   "names": [],
+   "token": "app.tamber#MapCard.pan",
+   "value": "300ms",
+   "whens": []
+  }
+ }
+}

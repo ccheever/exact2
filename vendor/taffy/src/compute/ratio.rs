@@ -25,7 +25,7 @@ pub(crate) struct Ratio {
     /// Width ÷ height, finite and positive.
     ratio: f32,
     /// What a border-box size loses to be of the related box.
-    inset: Size<f32>,
+    pub(crate) inset: Size<f32>,
 }
 
 impl Ratio {
@@ -135,10 +135,18 @@ pub(crate) fn sizes_through_ratio(
 /// style does not size (`sized`); a sized axis keeps its own limit only.
 pub(crate) fn transfer_into_unsized(
     limits: Size<Option<f32>>,
-    ratio: Option<f32>,
+    ratio: Option<Ratio>,
     sized: Size<bool>,
 ) -> Size<Option<f32>> {
-    let transferred = limits.maybe_apply_aspect_ratio(ratio);
+    // EXACT PATCH 39: limits are border-box sizes; transfer in the box
+    // the ratio relates, leaving padding and border fixed.
+    let transferred = match ratio {
+        Some(ratio) => Size {
+            width: limits.width.or_else(|| limits.height.map(|h| ratio.width(h))),
+            height: limits.height.or_else(|| limits.width.map(|w| ratio.height(w))),
+        },
+        None => limits,
+    };
     Size {
         width: if sized.width { limits.width } else { transferred.width },
         height: if sized.height { limits.height } else { transferred.height },
@@ -179,14 +187,21 @@ pub(crate) fn minimum_ratio_width(
     let style = tree.get_core_container_style(node);
     if style.aspect_ratio().is_none() || !style.size().width.is_auto()
         || !style.min_size().width.is_auto() || style.is_compressible_replaced()
-        || style.overflow().x.is_scroll_container() || style.overflow().y.is_scroll_container()
-        || style.size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b)).is_none() {
+        || style.overflow().x.is_scroll_container() || style.overflow().y.is_scroll_container() {
         return None;
     }
+    let height = style.size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))?;
     let pb = (style.padding().resolve_or_zero(parent.width, |v, b| tree.calc(v, b))
         + style.border().resolve_or_zero(parent.width, |v, b| tree.calc(v, b))).sum_axes();
-    let adjustment = if style.box_sizing() == BoxSizing::ContentBox { pb.width } else { 0.0 };
-    let max = style.max_size().width.maybe_resolve(parent.width, |v, b| tree.calc(v, b)).map(|w| w + adjustment);
+    let ratio = Ratio::of(&style, pb)?;
+    let adjustment = if style.box_sizing() == BoxSizing::ContentBox { pb } else { Size::ZERO };
+    let min_height = style.min_size().height.maybe_resolve(parent.height, |v, b| tree.calc(v, b))
+        .maybe_add(adjustment.height);
+    let max = style.max_size().maybe_resolve(parent, |v, b| tree.calc(v, b)).maybe_add(adjustment);
+    // EXACT PATCH 50: the content-only probe omits the definite height's
+    // transfer (CSS Sizing 4 §5.1, Flexbox §4.5). Keep the larger suggestion,
+    // transferring the clamped height in the box the ratio relates.
+    let transferred = ratio.width((height + adjustment.height).maybe_clamp(min_height, max.height));
     drop(style);
     let intrinsic = tree.measure_child_size(
         node,
@@ -197,5 +212,5 @@ pub(crate) fn minimum_ratio_width(
         crate::AbsoluteAxis::Horizontal,
         crate::geometry::Line::FALSE,
     );
-    Some(intrinsic.maybe_min(max))
+    Some(f32_max(intrinsic, transferred).maybe_min(max.width))
 }

@@ -75,6 +75,11 @@ in the property's own units; `settle_time` is the first at-rest sample on the
 frames on the same grid, the last exactly `to` at offset 1. A spring's
 `transition-duration` must be `0` (`SpringDeclaresDuration`); its delay must be
 nonnegative.
+Admission refuses finite parameters whose derived coefficients or f32-range
+probe samples overflow. Sampling normalizes larger finite releases before
+evaluating the closed form, uses `expm1` to retain small differences in the
+overdamped branch, and saturates any result outside f64's range; this keeps
+all three damping regimes finite without changing ordinary samples.
 
 ## 5. Transition semantics (`transition.rs`, `engine.rs`)
 

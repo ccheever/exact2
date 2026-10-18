@@ -20,7 +20,7 @@ const SOURCE: &str = "component App
     show = false
   view
     column
-      when show
+      if show
         canvas surface=spark(n) width=100 height=50 testId=\"c\"
       canvas surface=globe(n) testId=\"g\"
 ";
@@ -35,6 +35,8 @@ struct Log {
     retired: Vec<(u64, u32)>,
     /// Each draw's request was for a `display-p3` canvas.
     p3: Vec<bool>,
+    /// Reply with a list that does not read.
+    malformed: bool,
 }
 
 struct Spark(Rc<RefCell<Log>>);
@@ -80,6 +82,13 @@ impl DataSource for Spark {
                 .parked
                 .push((request.canvas, request.generation, request.seq));
             return Drawn::Later;
+        }
+        if self.0.borrow().malformed {
+            self.0.borrow_mut().frames.push(request.frame);
+            return Drawn::Now(DrawReply {
+                lists: vec![vec![0xff; 8]],
+                ..Default::default()
+            });
         }
         let result = self.draw_2d(request.surface, request.args, ctx, &request.frame);
         Drawn::Now(DrawReply {
@@ -262,6 +271,26 @@ fn a_later_reply_applies_only_with_live_stamps() {
         .take_canvas_lists()
         .iter()
         .any(|l| !l.fresh && l.animating));
+}
+
+/// A list that does not read starts a new generation and draws it once
+/// more; a source that keeps replying so is not asked again until
+/// something else changes, so a host drawing whenever one is owed
+/// (LLP 1072 §8.5) does not draw it forever.
+#[test]
+fn a_malformed_reply_is_retried_once() {
+    let (mut r, log) = boot();
+    log.borrow_mut().malformed = true;
+    let view = r.canvas_views()[0];
+    r.set_canvas_geometry(view, geometry(10.0, 10.0, 1.0));
+    let mut turns = 0;
+    while r.canvas_owed(&|_| true) && turns < 10 {
+        r.draw_canvases(&|_| true);
+        r.take_canvas_lists();
+        turns += 1;
+    }
+    assert!(!r.canvas_owed(&|_| true), "still owed after {turns} turns");
+    assert_eq!(log.borrow().frames.len(), 2, "the first draw and one retry");
 }
 
 #[test]

@@ -74,12 +74,7 @@ extension NodeView {
             l.masksToBounds = false
             return
         }
-        let uniform = number("border_width")
-        let content = bounds.insetBy(
-            left: number("border_width_left", uniform) + number("padding_left"),
-            top: number("border_width_top", uniform) + number("padding_top"),
-            right: number("border_width_right", uniform) + number("padding_right"),
-            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+        let content = contentBox()
         let object = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: style["object_fit"]?.string ?? "fill")
         let rect = bitmap.displayRect(object)
         let shown = object.intersection(content)
@@ -127,7 +122,7 @@ extension NodeView {
     /// unless it is `background-attachment: fixed` (`gradientLayered`).
     func applyGradientLayer() {
         let fixed = gradientLayered
-        guard !cssVisibilityHidden, !drawsPaint || fixed, surface == nil, let gradient = Gradient(style["background_image"]), !gradient.isConic else {
+        guard !cssVisibilityHidden, !drawsPaint || fixed, surface == nil, let gradient = Gradient(style["background_image"]), !gradient.needsDrawing else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil
             presenter?.fixedGradients.remove(self)
             return
@@ -164,7 +159,7 @@ extension NodeView {
     /// gradient would repaint the box every frame. Over a box `draw(_:)`
     /// paints (corners of different radii: a chat bubble) the layer is
     /// masked to the outline, over the drawn fill — and over a drawn
-    /// border, which is owed. Several layers, a conic one, or another
+    /// border, which is owed. Several layers, a conic or repeating one, or another
     /// `background-clip` draw as before, unfixed.
     var gradientLayered: Bool { gradientFixed && !gradientDraws && backgroundClip == "border-box" }
 
@@ -199,7 +194,9 @@ extension NodeView {
     /// where the overflow clips.
     func applyBoxLayer() {
         defer { syncEllipticalClip(); applyColorRanges() }
-        let background = cgColor("background_color")
+        let authored = cgColor("background_color")
+        let ground = authored == nil ? fieldGround : nil
+        let background = authored ?? ground
         let fill = background.flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]
@@ -226,21 +223,27 @@ extension NodeView {
         // unless none can reach it: they are clipped, scrolled, or painted
         // through a surface. Then it is the layer's own, which Core Animation
         // paints over the sublayers.
-        let own = clipsToBounds || clipBox != nil || scroll != nil || overlay != nil
+        let own = clipsToBounds || clipBox != nil || scrollView != nil || groupedOwner || overlay != nil
         // Sides in one colour that differ only in width, square-cornered and
         // under the children (a row's `border-bottom` separator): each side
         // a rectangle of one shape layer. Where two sides meet, the web's
         // mitred join is that same colour, so their union paints the same,
         // and the view keeps no backing store of its size for a hairline.
         let drawn = widths.indices.filter { widths[$0] > 0 }
+        let patterned = drawn.contains { ["dotted", "dashed"].contains(style["border_style_" + sides[$0]]?.string ?? "solid") }
         let sideColor = drawn.first.map { colors[$0] }
-        let edges = !oneBorder && !own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { colors[$0] == sideColor }
-        boxDrawn = !away && (!((oneBorder || edges) && oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
+        let edges = !patterned && !oneBorder && !own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { colors[$0] == sideColor }
+        boxDrawn = !away && (patterned || !((oneBorder || edges) && oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
-        let cornerRadius = onLayer && oneRadius && (shape == nil || continuous) ? radius : 0
+        var cornerRadius = onLayer && oneRadius && (shape == nil || continuous) ? radius : 0
+        // The design's Field under a field's own bezel: on the bezel's corners.
+        if ground != nil, onLayer, cornerRadius == 0, !isCellField {
+            cornerRadius = FieldChromeCache.textareaRadius
+            corners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
+        }
         let border = !onLayer || away || cssVisibilityHidden ? nil : edges ? sideColor : width > 0 ? colors[0] : nil
         applyShadow(outline: roundedPath(in: bounds).cgPath)
         CATransaction.begin(); CATransaction.setDisableActions(true)

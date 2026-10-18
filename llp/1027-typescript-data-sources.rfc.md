@@ -19,6 +19,10 @@ recorded in D6 (2026-09-07).
 D11 — a source may adopt the compiled value the runner already holds for
 its query, so an app keeps its list data once, not twice.
 
+**Amendment (2026-10-16, Charlie's euxy goal: the port starts faster than
+its native ports):** a kept answer may be 256 KiB, not 4 KiB, by its
+measured boot cost (D4, "Kept up to 256 KiB").
+
 **Tooling runtime (Charlie, 2026-09-14):** Bun replaces Node for the bake and
 repository scripts. Rolldown remains the app bundler, and `hermesc` remains the
 bytecode compiler; the resident producer and existing dev server retain their behavior.
@@ -483,8 +487,9 @@ such an answer needs is one store entry and its result is a fifty-byte
 record, so the runner now **keeps the answer**: the last fresh value of
 every store-reading resource is written beside the app's secrets under
 `exact.kept.<resource>` (arguments and value, canonical bytes; never
-granted to the app, never counted as a read, never a revision; capped at
-8 KB), persisted by the host like any store write. At a boot whose source
+granted to the app, never counted as a read, never a revision; capped,
+at 4 KiB as built and 256 KiB since 2026-10-16, below), persisted by the
+host like any store write. At a boot whose source
 is not ready (`DataSource::ready`, false for an unloaded module) the
 first frame shows the kept answer if its arguments still match and its
 value still fits, else the compiled **empty-store placeholder** the bake
@@ -500,7 +505,7 @@ uses for cached login state. `js/tests/castle.rs` drives all three.
 **Identifying arguments (LLP 1027.005, accepted 2026-10-02).** A declaration
 `source(call, …) with context, …` sends all arguments to its source, and a
 change to any argument asks again. Its kept entry contains only the call's
-identifying arguments and the value, under the same 8 KB bound and encoding.
+identifying arguments and the value, under the same bound and encoding.
 At a boot whose source is unready, that persisted entry may seed the first
 frame only when its argument count and identifying values match and its
 value fits the current shape. Without `with`, all arguments identify the
@@ -526,7 +531,8 @@ Crew port found it (report D14). Apple now routes `exact.kept.*` to
 one listing at launch, and the app's own secrets stay in the Keychain
 (`host/apple/src/store.rs`, `Platform`). The host adds that one kv grant
 itself; the app still cannot read a kept answer. The web keeps them in
-page storage as before; Linux keeps nothing.
+page storage as before; Linux then kept nothing (since LLP 1027.007 D13 it keeps
+them in the same kv scope, written with the commit).
 
 **Written off the commit (2026-10-05).** Each kept answer was written in
 the commit that kept it (a file, a rename, a sync), on the owner thread,
@@ -540,6 +546,82 @@ write is journaled at a later commit, by the successor of a host a reload
 replaced; an answer a crash (or macOS's sudden termination) loses is
 fetched again. The app's secrets stay synchronous (LLP 1018).
 
+**Kept up to 256 KiB (amended 2026-10-16, Charlie's euxy goal: the port
+starts faster than its native ports).** The bound was 4 KiB as built (this
+text said 8 KB, which the code never was), sized for "a session, a list of
+names".
+The euxy port's splash types on the active pattern from its library
+resource, a 60 KB answer, so it was never kept: every launch showed the
+unlit splash until Hermes and `app.ts` answered after first pixel, and
+waited for that answer before the 900 ms type-on and fade began. The SwiftUI
+port reads its library (a JSON file in Application Support) synchronously
+before its first frame, as a native app does. What the bound protects,
+measured on an iPhone 17 simulator (iOS 27, Release, an M-series Mac; the
+median of 100 rounds of `ibex2`'s kv `FileStore` and the runner's
+`Value::decode` and shape check on a library-shaped answer):
+
+| Kept entry | Read (listing, open) | Decode | Shape check | Boot, in all | Encode at the commit | Write (writer thread) |
+|---|---|---|---|---|---|---|
+| 4 KiB | 0.58 ms | 0.01 ms | 0.00 ms | 0.62 ms | 0.01 ms | 10.2 ms |
+| 64 KiB | 0.54 ms | 0.10 ms | 0.01 ms | 0.69 ms | 0.05 ms | 9.4 ms |
+| 256 KiB | 0.40 ms | 0.46 ms | 0.08 ms | 0.95 ms | 0.17 ms | 8.9 ms |
+| 1 MiB | 0.61 ms | 1.00 ms | 0.18 ms | 1.85 ms | 0.36 ms | 9.6 ms |
+
+- *Boot read and decode.* The file read is a directory listing and an open,
+  the same at any size (0.4 to 0.6 ms from run to run); decoding and
+  checking the shape grow at 1 to 2 µs per KiB. From run to run the whole
+  is 0.8 to 0.95 ms at 256 KiB, 1.2 to 1.4 ms at 512 KiB and 1.8 to 2.4 ms
+  at 1 MiB.
+- *The commit.* Encoding runs on the main thread at each fresh answer; the
+  write, a fresh file synced and renamed, is the writer thread's and costs
+  its `fsync`, about 9 ms at any size.
+- *Disk and the writer's memory.* One file per store-reading resource, and
+  at most one waiting value per key: each at most the bound, and all of
+  them at most the total below.
+- *Staleness.* Unchanged by size: admission is still by identity and shape,
+  and `data_ready` still asks again.
+- *Page storage.* The wasm web target keeps answers in `localStorage` as
+  base64 (`exact.secret.exact.kept.<resource>`), in the origin's quota of
+  about 5 M characters that the app's secrets and persisted states share; a
+  256 KiB answer takes about 350 K of it. The default JS target keeps none.
+  Linux keeps them in the same kv scope as Apple (LLP 1027.007 D13),
+  written with the commit.
+
+The kept answers are also bounded together, at twice one answer's bound
+(512 KiB): the runner, which knows every entry, forgets the longest others
+when keeping one would pass it, in the same commit, and says so (`kept
+answers are at most 512 KiB together: forgot …`), and the Apple and Linux
+hosts read no more than that into a launch's snapshot. The read, decode and
+shape check run before the first frame on the thread that boots the runner,
+the main thread on Apple (`snapshot_in`, then `kept_seed`): two entries of
+256 KiB, listed, read and decoded, took 1.9 to 2.0 ms on the simulator,
+measured while the Mac ran at a load average near 300 (one 4 KiB entry took
+1.1 to 1.3 ms under the same load, so most of it is the file system). A
+physical phone is not measured. The total also bounds a native host's disk
+beside the app's own files and the page's share of its quota (about 700 K
+characters). The page treats the kept answers as the cache they are
+(`navigation.js`, `storeInPage`): a secret or persisted state the quota
+refuses sets every kept answer aside and is written again, and the kept
+answers are put back if it still fails; a kept answer the quota refuses
+leaves the older one, which the next launch may still match, and is warned.
+Native stores are files under the app's container, with no quota a cache
+could exhaust before a secret: the total is their bound.
+
+So one answer may be 256 KiB of identifying arguments and value, four times
+what a first screen like euxy's needs, and two such answers fit together; a
+third is kept by forgetting the longest other, whose screen shows its
+placeholder at the next launch. An answer over 256 KiB is forgotten and `too
+big to keep` is said once, naming the bound. On the port (Release, iPhone 17 simulator, a 440-pattern
+library, median of 10 launches each, alternating), time to interactive (the
+splash's fade complete) went from 1494 ms to 1114 ms (another set: 1549 to
+1117 ms); the SwiftUI and UIKit ports measured 1210 and 1275 ms on a
+simulator of the same model. Its first frame now shows the splash typing on
+the active pattern, and lays out the screen beneath it too (242 views, first
+draw at 398 ms; 137 views at 270 ms before), work the old launch did once the
+answer came. The port also had to stop identifying its library by the
+launch's clock: `library() with time.epochAtZero`, since an epoch that
+differs at every launch never matches the kept entry (LLP 1027.005).
+
 **Storage readers (2026-09-07):** the same `resources.reader` marker covers
 filesystem and SQLite access. A storage call records an external read even when
 bake refuses it; it does not invent a secret read or key. Storage-backed resources
@@ -552,6 +634,23 @@ every resource that showed a compiled answer, even one whose arguments are
 the bake's. Only an `else` row is not asked. The module at launch is not the
 module the bake ran, and the web asks it at launch. Feed's no-argument
 `explore()` stayed empty on macOS while the web filled it (LLP 1048.003 D6).
+
+**A store holding secrets passes the build-time answer over (approved
+2026-10-10 via lead).** A store reader's compiled answer is the bake's,
+from an empty store: signed out by construction, and indistinguishable to
+the app from a real answer. At a boot whose source is not ready and whose
+store opened holding a granted secret, that answer is known not to describe
+this device, so a store reader with no kept answer to show (none, or one refused)
+shows its declared `else` placeholder instead, pending, and `data_ready`
+asks it as any placeholder (the Bluesky clone's signed-in launch flashed
+`myFeeds`' signed-out empty list). Without an `else` the build-time answer
+stands, as before; so does it at a store with no granted secret, a fresh
+install's. The runner's own `exact.kept.*` and `exact.state.*` entries are not
+secrets. The launch's snapshot decides, not a write before readiness: the
+store's answer then is the source's to give at `data_ready`. The
+journal says `<resource> shows its placeholder until its source answers:
+the store holds secrets its build-time answer did not see`. The Rust runner
+does this; the web JS target's `rt.js` does not yet (QUEUE).
 
 The alternative — create the engine before boot, since it is 0.3 ms —
 was considered and not taken, not because the number is large but because the rule
@@ -579,7 +678,8 @@ captures app-local `app.ts`/Contract sources, generates those declarations,
 runs the pinned TypeScript checker and Rolldown, compiles with `hermesc`, and
 bakes through that HBC with an empty store. Rolldown is already in this repo's
 toolchain; the Bun command below describes the original probe, not this producer.
-Imports outside the captured app refuse; npm dependency capture remains owed.
+Imports outside the captured app refuse; a package's code is captured as the
+bundle reaches it (below, "D5 Package code").
 A package's declarations are captured for the type check alone (below, "D5
 Type-only package imports").
 As of 2026-09-13, the snapshot also carries `.ttf`/`.otf` fonts and every
@@ -893,8 +993,8 @@ The checker therefore reads a package's types from the capture, and
   is refused by the same `--listFiles` check. A package's own `declare global`
   is its author's; this is a type boundary, not a sandbox (above).
 - **Not in this slice.** A package whose types are `.ts` sources rather than
-  declarations does not resolve from the capture; npm runtime capture remains
-  owed; the native wasm dev loop (`dev.mjs --wasm`) does not watch packages.
+  declarations does not resolve from the capture; package code came later
+  ("D5 Package code"); the native wasm dev loop (`dev.mjs --wasm`) does not watch packages.
   Packages are found by scanning the captured sources for specifiers, not
   by a parser: a match that is no import stages declarations nobody reads.
 - **Review (GPT-6 Astra, 2026-10-08).** Folded: the one-shot check, the
@@ -908,6 +1008,116 @@ Qualification: `type_only_package_imports_check_alike_and_package_code_never_run
 bake over a fixture with a nested dependency and an `@types` companion; a
 scratch `exact new` app with `snapback4@0.4.13` and `snapback4 types` builds,
 type-checks and passes `bun exact.mjs test web`.
+
+#### D5 Package code (2026-10-16, implemented)
+
+**Implementer:** Claude, for the euxy port (FRICTION 1: `import … from
+'qrcode/lib/core/qrcode'` was refused, so the porter bundled the package into
+a `// @ts-nocheck` `src/qrcode.ts` by hand).
+
+A data module imports pure-JavaScript packages installed in `node_modules`
+(ESM or CommonJS; `.js`, `.mjs`, `.cjs`, JSON; `exports`, `main` and the
+`browser` field) and the app's own `.js` files, on every target that runs it.
+
+- **Captured as reached.** The shared plugin (`typescript.mjs`
+  `capturedSources`, in the one-shot, resident and web producers) resolves
+  each package import from where its importer really is, copies the file it
+  leads to into the stage under `node_modules/.packages/<name>@<version>/`
+  with every `package.json` between it and the package root (`type`,
+  `sideEffects`), and returns the copy; a captured file's own imports resolve
+  the same way. Only the copies load. Nothing a bundle does not reach is
+  taken, so a package's Node entry or CLI costs nothing until imported. A
+  name and version that are not npm's (`"version": "../../x"`) are refused,
+  and no write leaves `.packages`.
+- **Recorded.** The stage's `__exact_packages.json` lists each file with
+  where it was read and its SHA-256, each resolution (importer, specifier,
+  kind, the copy it reached), and each package's installed paths: where
+  Node's lookup found it, a link as a link. A package's digest covers its
+  files and the resolutions that reached it, so a retargeted or swapped link
+  is another capture; the receipt's `packages` carries the digests (absent
+  with none). A Cargo bake prints `rerun-if-changed` for each installed path,
+  which Cargo walks with the link's own time, and for each captured file
+  where it was read (a package reached through a file link has no installed
+  path); the JS dev loop watches each
+  package tree and each installed entry, as it does declarations. Two
+  installs of one `name@version` are refused (`install one`): a place in the
+  stage, which a bundle's output names, is the same on every machine.
+- **One graph.** Every bundle of the module resolves as a browser bundle
+  does (`platform: 'browser'`), so the page and Hermes run the same file of a
+  package; `process.env.NODE_ENV` is `"production"`. A bundle of the existing
+  apps is byte-identical to the `neutral` platform's. No build runs app or
+  package code to learn about the module: `appId`, `grants` and the export
+  names are read from app.ts's syntax (`staticFacts`), so each of `appId`
+  and `grants` is a constant (a string, a template or `+` of constants, an
+  array of them `.join(…)`, or a top-level `const` holding one), and every
+  producer refuses another by name and place. (The web build had imported
+  `app.ts` into Bun, whose resolver takes a package's Node entry; a `node:vm`
+  realm is no boundary either: on Bun 1.4.2 its global's constructor reaches
+  `process`, and promise jobs outlive its timeout.) Every import from a
+  captured file is recorded, a `paths` alias's too, and the web's page and
+  server bundles take `app.ts` from the capture and replay those
+  resolutions (`replayCaptured`): any other import, absolute or relative, is
+  refused there, save the host module the build injects.
+- **Refused, by package, version and file,** in every producer: an import of
+  a Node built-in a `browser` field does not replace; a `.node` file or a
+  package with `binding.gyp`/`gypfile`; an import that is not installed, the
+  app's own included; and, in package code and the app's own JavaScript, a
+  use of the DOM's globals (`window`, `document`, `navigator`, …), Node's
+  (`process` but `process.env.NODE_ENV`, `Buffer`, `global`, `__dirname`,
+  `__filename`) or a computed `require`, bare or as a member of `globalThis`
+  or `self`, that no enclosing scope binds and no dominating `typeof` test
+  guards (its `&&`, `?:` or `if`, or an earlier `if (typeof x …) return`); a
+  member of the global object's other names (`window`, `frames`, `parent`,
+  `top`, `opener`); and code from a string (`Function`, `eval` direct or
+  indirect, `import()` of a computed name). A `try` guards nothing. A package's use of the clock is the executor's to
+  refuse when it runs (a date library's `isToday` is not refused for being
+  bundled); the app's own code keeps the build-time refusal.
+- **Absent alike.** Hermes's realm has no DOM or Node globals and no other
+  name for its global object; the web's module bindings hide the page's
+  (`ts-fetch.js`: bare names bind to `undefined`; the module's `globalThis`
+  is a proxy over a target of its own, whose reads, `in`, own descriptors and
+  keys leave out `window`, `self`, `frames`, `parent`, `top`, `opener` and the
+  DOM and Node names), so a feature test answers the same on both. They are
+  absent, not throwing getters: a getter would make `typeof document` throw
+  and break the feature tests packages are written with.
+- **A portability boundary, not a security one.** These checks keep a
+  module that runs on Hermes from quietly depending on the page. They do
+  not contain hostile code: on the web the module runs in the page's realm,
+  as the app's own code always has, and a language-level path to the page
+  (a function's `constructor`) stays open. An npm package is code the author
+  chose, trusted as their own; no capability boundary is attempted on the
+  web.
+- **Types.** The app's `.js` files are typed from their code (`allowJs`, not
+  checked; the refusals above check them); its `.d.ts` files are in the check
+  as in an editor's project, so an untyped package takes a `declare module`.
+
+Qualification: `js/bake/tests/packages.rs` drives the web build, the resident
+and the one-shot producers: ESM and CommonJS packages, a nested dependency, a
+`browser` condition and field, `.mjs`/`.cjs`/JSON and an app `.js` file bake,
+boot and draw from the `browser` file, the unselected Node entry with a side
+effect never runs, recorded digests are the files' bytes and the receipt's
+are the record's, and a second bake is identical; the web build there makes
+its server bundle too, so both replays run; a retargeted and a swapped
+install link change the capture; each refusal above (an unrelated `typeof`, a
+shadowing parameter elsewhere, a `try`, `globalThis.localStorage`,
+`globalThis.top`, `Function`, an indirect `eval`, a computed `import()`, a
+missing direct dependency, the app's own `Buffer`, a traversing version) is
+refused in all three with the package's code never run; an aliased
+`document` is absent on Hermes; computed `grants` are refused by every
+producer and a constant one built of a template and `.join` is read; a
+package-shaped `paths` alias bakes and replays; replay resolves a recorded
+absolute import to its captured file and refuses an unrecorded absolute,
+relative or package import; and Cargo's watched paths include a captured
+file reached through a file link. The euxy port with its hand-bundled `src/qrcode.ts`
+replaced by `import { create } from 'qrcode/lib/core/qrcode'` (and a `declare
+module`) bakes `qrcode@1.5.4` and `dijkstrajs@1.0.3` into the receipt and, on
+an iOS 27 simulator, answers the share card byte for byte as before (URL,
+path, size) and draws the same QR. Its web build passes, but its page does
+not boot on this checkout before or after the change (`exactTransport`: "is
+not a function", a JS-target fault apart from this one); a scratch app
+answering the same URL with the same `qrPath` over the package draws the
+identical path on the web. Every TypeScript app in `apps/` builds on the JS
+target, and Shelf runs there.
 
 ### D6 — The web: the browser is the executor; one wasm import; the same module under two loaders
 
@@ -941,9 +1151,9 @@ lets a frame render first; on the bench's mobile profile that frame held a
 press's request 60–80 ms. A source's GET now leaves when the source records it:
 `module-glue.js` starts it when the origin is one of the module's own
 `net.fetch` grants and the request has no body, and the runner's `request` op
-for the same method, URL and headers, with `cache: default` and redirects
-refused (LLP 1016 D2), claims the response in flight instead of fetching. Admission and the
-answer are unchanged: a GET the turn doesn't report is aborted as the turn
+for the same method, URL and headers, with `cache: default` and
+redirects followed (LLP 1016 D2), claims the response in flight instead of
+fetching. Admission and the answer are unchanged: a GET the turn doesn't report is aborted as the turn
 ends, and one the runner doesn't claim while the report is delivered is aborted
 a task later. The glue also loads the body reader at data readiness. RealWorld
 (nine runs, load 33): a press after a 3-second read, 313 → 252 ms (React 211);
@@ -1365,7 +1575,11 @@ uses app-scoped IndexedDB files and pinned official SQLite WASM in a dedicated
 worker. Each file operation is transactional; SQLite holds a Web Lock on its
 file and shared ancestor locks until close, preventing another connection or a
 filesystem mutation from losing committed data. Same-tab filesystem mutations
-serialize; conflicts with other tabs or live databases return `Unavailable`.
+serialize; conflicts with other tabs or live databases wait for Web Locks,
+bounded by 10 seconds for the whole acquisition (EX4, Charlie, 2026-10-12).
+A timeout aborts the pending request, releases all acquired ancestors and
+returns `Unavailable`/`EBUSY` naming the path and wait. A database still owns
+its file until close; waiting never grants two handles the same image.
 Database bytes are ordinary SQLite files in the same namespace. Single-file reads
 fetch only the requested IndexedDB record; directory listing reads its directory
 record and descendant keys in the same transaction, without file contents. Read

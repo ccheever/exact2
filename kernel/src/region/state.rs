@@ -376,8 +376,7 @@ impl RegionState {
             arena,
             root,
             shell_frames,
-            &shell_geometry.field_content,
-            &shell_geometry.button_bases,
+            &shell_geometry.facts,
             true,
             &mut changed,
         );
@@ -385,8 +384,7 @@ impl RegionState {
             arena,
             root,
             &frames,
-            &geometry.field_content,
-            &geometry.button_bases,
+            &geometry.facts,
             current || selected.is_none(),
             &mut changed,
         );
@@ -579,8 +577,19 @@ impl Candidate<'_> {
     }
 }
 impl TextMeasurer for Candidate<'_> {
+    fn measure_reservation(&mut self, request: &TextMeasureRequest<'_>) -> Option<TextMetrics> {
+        // Width samples are not canonical paragraph sources or paint artifacts.
+        self.measurer.measure_reservation(request)
+    }
     fn field_chrome(&mut self, request: &crate::FieldChromeRequest) -> crate::FieldChrome {
         self.measurer.field_chrome(request)
+    }
+    fn field_text(
+        &mut self,
+        kind: crate::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        self.measurer.field_text(kind, request)
     }
     fn height_free(&self) -> bool {
         self.height_free
@@ -793,7 +802,7 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     if !attached {
         return Err(bad());
     }
-    let s = arena.style(b.owner.index);
+    let s = arena.effective_style(b.owner.index);
     let sized = |v: Dimension| {
         matches!(v,Dimension::Points(x) if x>=0.) || matches!(v,Dimension::Percent(x) if x>=0.)
     };
@@ -857,7 +866,7 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
         return false;
     }
     let root = arena.style(parent);
-    let s = arena.style(owner);
+    let s = arena.effective_style(owner);
     let definite = |d| {
         matches!(d, Dimension::Points(n) | Dimension::Percent(n)
         if n.is_finite() && n >= 0.)
@@ -891,8 +900,7 @@ fn publish(
     arena: &mut NodeArena,
     root: u32,
     frames: &[RegionFrame],
-    field_content: &crate::id::IdMap<NodeKey, Frame>,
-    button_bases: &crate::id::IdMap<NodeKey, Option<f32>>,
+    facts: &super::BoxFacts,
     current: bool,
     changed: &mut Vec<NodeKey>,
 ) {
@@ -900,21 +908,20 @@ fn publish(
         let Some(s) = arena.resolve(f.node) else {
             continue;
         };
-        let frame = if arena.is_inline_run(s) {
-            Frame::default()
-        } else {
-            f.frame
-        };
+        let inline = arena.is_inline_run(s);
+        let frame = if inline { Frame::default() } else { f.frame };
         let moved = !arena.frame(s).bits_eq(frame) || arena.flags(s).has(NodeFlags::CREATED);
         let hidden = arena.style(s).display == crate::Display::None;
         arena.set_frame(s, frame);
         arena.set_content(s, f.content);
-        if let Some(&content) = field_content.get(&f.node) {
+        let inset = facts.insets.get(&f.node).copied().unwrap_or_default();
+        arena.set_inset(s, (!inline).then_some(inset));
+        if let Some(&content) = facts.field_content.get(&f.node) {
             arena.field_content.insert(s, content);
         } else {
             arena.field_content.remove(&s);
         }
-        if let Some(&basis) = button_bases.get(&f.node) {
+        if let Some(&basis) = facts.button_bases.get(&f.node) {
             arena.button_bases.insert(s, basis);
         } else {
             arena.button_bases.remove(&s);
@@ -941,5 +948,12 @@ fn publish(
         } else {
             flags.remove(NodeFlags::GEOMETRY_CHANGED)
         }
+    }
+}
+
+impl RegionState {
+    /// Mark the colours it holds: the content's inherited style.
+    pub(crate) fn wide_colors(&self, m: &mut crate::style::wide::WideMark) {
+        crate::style::wide::Colors::colors(&self.inherited, m);
     }
 }

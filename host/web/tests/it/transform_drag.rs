@@ -37,7 +37,7 @@ const SOURCE: &str = r#"component App
       button testId="zoom" press=zoomIn width=80 height=24
       button testId="unbind" press=unbind width=80 height=24
       button testId="remove" press=remove width=80 height=24
-      when shown
+      if shown
         column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
           column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"
             column testId="handle" transformDragFor=reference transformgeometry=geometry transformrelease=finish
@@ -1077,4 +1077,49 @@ fn a_refusing_timer_is_reported_and_the_release_still_commits() {
         "the timer's refusal is reported: {reply}"
     );
     assert_eq!(count(&host, "released"), 1.0);
+}
+
+#[test]
+fn passed_over_transform_target_is_journaled_until_its_binding_disappears() {
+    let source = SOURCE
+        .replace("  state zoom = 1", r#"  state otherShown = true
+  state otherReference = "other-photo"
+  action toggleBinding
+    otherReference = otherReference == "" ? "other-photo" : ""
+  action toggleOther
+    otherShown = !otherShown
+  state zoom = 1"#)
+        .replace("      text `${released}", r#"      button testId="toggle-binding" press=toggleBinding width=80 height=24
+      button testId="toggle-other" press=toggleOther width=80 height=24
+      if otherShown
+        column width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
+          column id="other-photo" testId="other-photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0
+            column transformDragFor=otherReference transformgeometry=geometry transformrelease=finish
+            column transformDragFor=otherReference transformgeometry=geometry transformrelease=finish
+      text `${released}"#);
+    let (mut host, _, _) = boot_source(&source);
+    let message = |host: &Host<NoData>| {
+        format!(
+        "transformDragFor: target view #{} passed over for owner view #{}; one owner (first valid, never stolen; LLP 1071)",
+        id(host, "other-photo"), id(host, "photo")
+    )
+    };
+    let logs = |host: &Host<NoData>| host.agent(r#"{"op":"logs"}"#);
+    assert!(logs(&host).contains(&message(&host)), "{}", logs(&host));
+    let reports = |host: &Host<NoData>| logs(host).matches("passed over for owner").count();
+    assert_eq!(reports(&host), 1, "two handles for one skipped target");
+    host.advance(1.0);
+    assert_eq!(reports(&host), 1, "reconcile must not repeat the report");
+    press(&mut host, "toggle-binding", 2.0);
+    assert_eq!(reports(&host), 1, "an invalid binding is silent");
+    press(&mut host, "toggle-binding", 3.0);
+    assert_eq!(reports(&host), 2, "a valid binding reappeared");
+    press(&mut host, "toggle-other", 4.0);
+    assert_eq!(reports(&host), 2);
+    press(&mut host, "toggle-other", 5.0);
+    assert_eq!(reports(&host), 3, "a retired target was remounted");
+    assert!(logs(&host).contains(&message(&host)));
+    press(&mut host, "remove", 6.0);
+    host.advance(7.0);
+    assert_eq!(reports(&host), 3, "the remaining target becomes owner");
 }

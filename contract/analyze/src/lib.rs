@@ -15,10 +15,10 @@
 mod arity;
 mod calls;
 mod gates;
-mod payload;
+mod rereads;
 mod sends;
 
-pub use payload::handler_arity_message;
+pub use contract_types::handler_arity_message;
 
 use contract_syntax::{Component, Expr, File, Node, Span};
 use contract_types::{Checked, Ref, Scope, Shapes, Ty};
@@ -170,7 +170,26 @@ pub fn check_routes_root(file: &File, root_file: bool) -> Result<(), AnalyzeErro
             );
         }
     }
+    // @ref LLP 1095 D4 — the theme is the app's, declared once at its root;
+    // a package's own tokens wait on LLP 1121 D11.
+    if let Some(theme) = &file.theme {
+        if !root_file {
+            return err(
+                "analyze-theme-not-root",
+                "`theme` belongs to the app's root file: a package's views use the app's names",
+                theme.span,
+            );
+        }
+    }
     Ok(())
+}
+
+/// `analyze-read-after-assign` (@ref LLP 1116.003 D6): each read of a state
+/// or mutation slot that its action assigned before it on a path to it,
+/// which sees the value from before the action. Lowering reports them as
+/// warnings; a read behind a call is [`check_all`]'s refusal instead.
+pub fn read_after_assign(checked: &Checked<'_>) -> Vec<AnalyzeError> {
+    rereads::check(&checked.expanded.root)
 }
 
 /// Analyze the authored file using its type-checked expansion.
@@ -213,11 +232,11 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         let ct = &types.components[ci];
         let scoped = if ci == 0 { &expanded.root } else { c };
         let scope = types.component_scope(scoped, ct);
-        errors.extend(check_tasks(c).err());
+        errors.extend(check_tasks(c));
         // The root's actions with every call expanded: a caller's sends and
         // writes and its callees' are one commit (LLP 1088 D8, LLP 1089 D3,
         // D5, D6).
-        errors.extend(check_mutation_then(scoped).err());
+        errors.extend(check_mutation_then(scoped));
         errors.extend(sends::check(scoped));
         if ci == 0 {
             errors.extend(calls::check(scoped));
@@ -228,7 +247,7 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
             actions: scoped,
             shapes: &types.shapes,
         };
-        errors.extend(check_view(&c.view, &scope, &view).err());
+        errors.extend(check_view(&c.view, &scope, &view));
     }
     errors.extend(check_controls(&expanded.root.view, false).err());
     errors.extend(arity::check(file, types, &expanded.root).err());
@@ -241,45 +260,47 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
 
 /// `mutation m as shape T then action` names an action that takes nothing:
 /// it reads the answer from `m`, as the view does (LLP 1016.001).
-fn check_mutation_then(c: &Component) -> Result<(), AnalyzeError> {
+fn check_mutation_then(c: &Component) -> Vec<AnalyzeError> {
+    let mut errors = Vec::new();
     for m in &c.mutations {
-        let Some((name, span)) = &m.then else {
-            continue;
-        };
-        let Some(a) = c.actions.iter().find(|a| &a.name == name) else {
-            return err(
-                "analyze-unknown-action",
-                format!("`{name}` is not an action"),
-                *span,
-            );
-        };
-        if !a.params.is_empty() {
-            return err(
-                "analyze-handler-arity",
-                format!(
-                    "`{}` takes {} parameter(s); an answer passes none (read it from `{}`)",
-                    a.name,
-                    a.params.len(),
-                    m.name
-                ),
-                *span,
-            );
-        }
-        if let Some(send) = a
-            .effects()
-            .into_iter()
-            .find(|e| e.send && e.target == m.name)
-        {
-            // Through a call, the call is named (LLP 1089 D5).
-            let through = match send.call {
-                Some((callee, call)) => format!(
-                    " (it calls `{}` at line {}, which sends it)",
-                    contract_syntax::inline::calls::shown(callee),
-                    call.line
-                ),
-                None => String::new(),
+        let result = (|| -> Result<(), AnalyzeError> {
+            let Some((name, span)) = &m.then else {
+                return Ok(());
             };
-            return err(
+            let Some(a) = c.actions.iter().find(|a| &a.name == name) else {
+                return err(
+                    "analyze-unknown-action",
+                    format!("`{name}` is not an action"),
+                    *span,
+                );
+            };
+            if !a.params.is_empty() {
+                return err(
+                    "analyze-handler-arity",
+                    format!(
+                        "`{}` takes {} parameter(s); an answer passes none (read it from `{}`)",
+                        a.name,
+                        a.params.len(),
+                        m.name
+                    ),
+                    *span,
+                );
+            }
+            if let Some(send) = a
+                .effects()
+                .into_iter()
+                .find(|e| e.send && e.target == m.name)
+            {
+                // Through a call, the call is named (LLP 1089 D5).
+                let through = match send.call {
+                    Some((callee, call)) => format!(
+                        " (it calls `{}` at line {}, which sends it)",
+                        contract_syntax::inline::calls::shown(callee),
+                        call.line
+                    ),
+                    None => String::new(),
+                };
+                return err(
                 "analyze-then-self-send",
                 format!(
                     "`{}` cannot send `{}`{through}: it runs when that mutation answers. To repeat while a condition holds, declare a root task: `task NAME when COND`, with `every(ms, action)` on the next indented line",
@@ -287,48 +308,69 @@ fn check_mutation_then(c: &Component) -> Result<(), AnalyzeError> {
                 ),
                 send.span,
             );
-        }
+            }
+            Ok(())
+        })();
+        errors.extend(result.err());
     }
-    Ok(())
+    errors
 }
 
-fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
-    for t in &c.tasks {
-        let Some(a) = c.actions.iter().find(|a| a.name == t.timer.1) else {
-            return err(
-                "analyze-unknown-action",
-                format!("`{}` is not an action", t.timer.1),
-                t.timer.2,
-            );
-        };
-        if !a.params.is_empty() {
-            return err(
-                "analyze-handler-arity",
-                format!(
-                    "`{}` takes {} parameter(s); a timer passes none",
-                    a.name,
-                    a.params.len()
-                ),
-                t.timer.2,
-            );
-        }
+fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
+    let mut errors = Vec::new();
+    // A task's action, and a sequence's `ended=` (LLP 1125 D2): each runs
+    // as a timer does, with no arguments.
+    let ended = c.sequences.iter().filter_map(|q| q.ended.as_ref());
+    for (name, span) in c
+        .tasks
+        .iter()
+        .map(|t| (&t.timer.1, t.timer.2))
+        .chain(ended.map(|(n, s)| (n, *s)))
+    {
+        let result = (|| -> Result<(), AnalyzeError> {
+            let Some(a) = c.actions.iter().find(|a| &a.name == name) else {
+                return err(
+                    "analyze-unknown-action",
+                    format!("`{name}` is not an action"),
+                    span,
+                );
+            };
+            if !a.params.is_empty() {
+                return err(
+                    "analyze-handler-arity",
+                    format!(
+                        "`{}` takes {} parameter(s); a timer passes none",
+                        a.name,
+                        a.params.len()
+                    ),
+                    span,
+                );
+            }
+            Ok(())
+        })();
+        errors.extend(result.err());
     }
-    Ok(())
+    errors
 }
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 59] = [
+pub const HANDLERS: [&str; 69] = [
     "press",
     "change",
     "input",
     // A file input's picker was dismissed (LLP 1069.002 D2).
     "cancel",
+    "close",
+    "toggle",
     "select",
     "hover",
     "focus",
     "blur",
+    "focusin",
+    "focusout",
     "key",
+    "keycapture",
     // DOM's `keyup`: the key's release, a modifier's included, bubbling as
     // `key` (keydown) does, with the same name and `KeyboardEvent` (#140).
     "keyup",
@@ -336,6 +378,9 @@ pub const HANDLERS: [&str; 59] = [
     "load",
     "message",
     "contextmenu",
+    // A list row's swipe to delete (LLP 1116.020 D1): lowering expands it
+    // to the row's swipe and its Delete button's `press`.
+    "delete",
     "dblclick",
     // A touch or button went down on the node, and came up or was cancelled
     // (DOM's names; Charlie, 2026-10-03: hold-to-record, LLP 1005 §3); the
@@ -355,6 +400,11 @@ pub const HANDLERS: [&str; 59] = [
     // DOM's `beforeunload` (studio diary R17): the window closing or the app
     // quitting; an action calling `preventDefault()` keeps it open.
     "beforeunload",
+    "beforeinput",
+    // `MIDIInput`'s event (LLP 1125 D8), heard as `beforeunload` is: by every
+    // mounted element that declares it; it may hand its action a
+    // `MIDIMessageEvent`.
+    "midimessage",
     // DOM's `wheel` (studio diary R3): a wheel's or a trackpad's scroll, and
     // a pinch as a Control-held wheel; it may hand its action a `WheelEvent`.
     "wheel",
@@ -364,6 +414,9 @@ pub const HANDLERS: [&str; 59] = [
     "swiperight",
     "refresh",
     "scroll",
+    // DOM's `scrollend`: a scroll finished, its momentum or animation
+    // included; no payload.
+    "scrollend",
     "pan",
     // A pan that began ended (LLP 1057 §10.6 phase 2): release velocity.
     "panrelease",
@@ -400,6 +453,7 @@ pub const HANDLERS: [&str; 59] = [
     // The element resize event, ResizeObserver's: an action given to
     // `resize`, whose string is CSS's property ([`is_handler`]).
     "resize",
+    "intersect",
 ];
 
 /// Whether `name=value` is a handler: one of [`HANDLERS`], except `resize`
@@ -417,7 +471,9 @@ pub fn is_handler(name: &str, value: &Expr) -> bool {
 /// may then offer its record ([`contract_types::event_record`]).
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
-        "change" | "input" | "key" | "keyup" | "message" | "navigate" | "error" => Some("string"),
+        "change" | "input" | "key" | "keycapture" | "keyup" | "message" | "navigate" | "error" => {
+            Some("string")
+        }
         "timeupdate" | "durationchange" => Some("number"),
         "hover" | "fullscreenchange" => Some("bool"),
         "select" => Some("MarkdownSelection"),
@@ -475,9 +531,17 @@ struct View<'a> {
     shapes: &'a Shapes,
 }
 
-fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), AnalyzeError> {
-    let file = view.file;
+fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Vec<AnalyzeError> {
+    let mut errors = Vec::new();
     for n in nodes {
+        check_node(n, scope, view, &mut errors);
+    }
+    errors
+}
+
+fn check_node(n: &Node, scope: &Scope, view: &View<'_>, errors: &mut Vec<AnalyzeError>) {
+    let file = view.file;
+    let result = (|| -> Result<(), AnalyzeError> {
         match n {
             Node::Children { .. } => {}
             Node::Element {
@@ -489,10 +553,19 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
                 let control = contract_syntax::payload_control(tag, attrs);
                 for a in attrs {
                     if is_handler(&a.name, &a.value) {
-                        check_handler(&a.name, &a.value, scope, a.span, control, view)?;
+                        errors.extend(check_handler(&a.name, &a.value, scope, a.span, control, view).map_err(
+                            |mut e| {
+                                // A hyphenated tag is a native module's (LLP 1024 D1): an
+                                // event's name there is the box's handler, never a prop.
+                                if tag.contains('-') && e.id == "analyze-handler-shape" {
+                                    e.message.push_str(&format!("; on `{tag}` `{}` is an event, so give the module prop another name", a.name));
+                                }
+                                e
+                            },
+                        ).err());
                     }
                 }
-                check_view(children, scope, view)?;
+                errors.extend(check_view(children, scope, view));
             }
             Node::Use {
                 name,
@@ -500,7 +573,7 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
                 children,
                 span,
             } => {
-                check_view(children, scope, view)?;
+                errors.extend(check_view(children, scope, view));
                 if !file.components.iter().any(|x| &x.name == name) {
                     return err(
                         "analyze-unknown-component",
@@ -522,8 +595,8 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
             Node::When {
                 then, otherwise, ..
             } => {
-                check_view(then, scope, view)?;
-                check_view(otherwise, scope, view)?;
+                errors.extend(check_view(then, scope, view));
+                errors.extend(check_view(otherwise, scope, view));
             }
             Node::Each {
                 var,
@@ -539,19 +612,20 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
                 };
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item);
-                check_view(body, &inner, view)?;
+                errors.extend(check_view(body, &inner, view));
             }
             Node::Match { some, none, .. } => {
                 let mut inner = scope.clone();
                 inner.push_region(Some((some.0.clone(), Ref::Bound(0), Ty::Unknown)));
-                check_view(&some.1, &inner, view)?;
+                errors.extend(check_view(&some.1, &inner, view));
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                check_view(none, &none_scope, view)?;
+                errors.extend(check_view(none, &none_scope, view));
             }
         }
-    }
-    Ok(())
+        Ok(())
+    })();
+    errors.extend(result.err());
 }
 
 fn check_handler(
@@ -597,7 +671,12 @@ fn check_handler(
     let given = args.len();
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if let Ref::Action(index) = r {
-        let valid = handler_accepts(attr, given, params);
+        let checked_attr = if attr == "selectionchange" && control == Some("field") {
+            "beforeinput"
+        } else {
+            attr
+        };
+        let valid = handler_accepts(checked_attr, given, params);
         if !valid {
             let declared = view.actions.actions.get(index as usize);
             let params: Vec<(String, Ty)> = declared
@@ -684,4 +763,88 @@ fn check_controls(nodes: &[Node], in_canvas: bool) -> Result<(), AnalyzeError> {
         }
     }
     Ok(())
+}
+
+/// Advice for reactive resource arguments that depend on the frame clock.
+/// State stops the dependency walk: an action samples it once, rather than every frame.
+/// @ref LLP 1086 D12 — EX7 resource freshness diagnostics.
+pub fn resource_clock_warnings(file: &File) -> Vec<AnalyzeError> {
+    fn live(expr: &Expr, names: &BTreeMap<String, bool>) -> bool {
+        use contract_syntax::TemplatePart;
+        match expr {
+            Expr::Call(name, args, _) => {
+                name == "performanceNow"
+                    || names.get(name) == Some(&true)
+                    || args.iter().any(|e| live(e, names))
+            }
+            Expr::Ident(name, _) => names.get(name) == Some(&true),
+            Expr::List(args, _) => args.iter().any(|e| live(e, names)),
+            Expr::Template(parts, _) => parts
+                .iter()
+                .any(|p| matches!(p, TemplatePart::Expr(e) if live(e, names))),
+            Expr::Some(e, _)
+            | Expr::Unary(_, e, _)
+            | Expr::Member(e, _, _)
+            | Expr::NamedArg(_, e, _)
+            | Expr::Typed(e, _, _) => live(e, names),
+            Expr::Binary(_, a, b, _) => live(a, names) || live(b, names),
+            Expr::Ternary(a, b, c, _) => live(a, names) || live(b, names) || live(c, names),
+            Expr::Match {
+                subject,
+                var,
+                some,
+                none,
+                ..
+            } => {
+                let mut inner = names.clone();
+                inner.remove(var);
+                live(subject, names) || live(some, &inner) || live(none, names)
+            }
+            Expr::Arrow { params, body, .. } => {
+                let mut inner = names.clone();
+                for p in params {
+                    inner.remove(p);
+                }
+                live(body, &inner)
+            }
+            Expr::Let {
+                name, value, body, ..
+            } => {
+                let mut inner = names.clone();
+                inner.insert(name.clone(), live(value, names));
+                live(body, &inner)
+            }
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) => false,
+        }
+    }
+    let mut functions = BTreeMap::new();
+    // Forward function references and derives settle in at most one pass per declaration.
+    for _ in 0..=file.fns.len() {
+        for f in &file.fns {
+            let mut scope = functions.clone();
+            for param in &f.params {
+                scope.remove(&param.name);
+            }
+            functions.insert(f.name.clone(), live(&f.body, &scope));
+        }
+    }
+    let mut out = Vec::new();
+    for c in &file.components {
+        let mut scope = functions.clone();
+        for binding in &c.states {
+            scope.insert(binding.name.clone(), false);
+        }
+        for _ in 0..=c.derives.len() {
+            for binding in &c.derives {
+                scope.insert(binding.name.clone(), live(&binding.expr, &scope));
+            }
+        }
+        for r in &c.resources {
+            if r.args.iter().any(|e| live(e, &scope)) {
+                out.push(AnalyzeError { id: "analyze-resource-clock", span: r.span, related: Vec::new(),
+                    message: format!("resource `{}`: performanceNow() changes its arguments every frame and re-requests data; sample the clock into state in an action, then pass that state (or refresh on one shared timer)", r.name) });
+            }
+        }
+    }
+    out
 }

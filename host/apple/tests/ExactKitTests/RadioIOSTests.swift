@@ -3,11 +3,12 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// x2apps survey #2 on UIKit, which has no radio: a drawn circle whose tap
-/// checks it and unchecks the rest of its group at once, fires `input` then
-/// `change` with its value, nothing when it was checked, and shows the bound
-/// group after the commit; the arrows move the focus and the check; the
-/// agent's tree says radio. UIKit, so a simulator runs it:
+/// x2apps survey #2 on UIKit, which has no radio: the SF Symbols pair at
+/// the reader's body size with a 44-point target (LLP 1115.000 D13.2),
+/// whose tap checks it and unchecks the rest of its group at once, fires
+/// `input` then `change` with its value, nothing when it was checked, and
+/// shows the bound group after the commit; the arrows move the focus and
+/// the check; the agent's tree says radio. UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
 final class RadioIOSTests: XCTestCase {
     private var window: UIWindow!
@@ -80,6 +81,79 @@ final class RadioIOSTests: XCTestCase {
         XCTAssertEqual(shown(p), [3], "an action that wrote nothing: the group shows its bound state")
         XCTAssertFalse(try XCTUnwrap(p.controls.controls[4]).isEnabled)
         XCTAssertEqual(p.controls.observation(try XCTUnwrap(p.views[3]))?["view"] as? String, "radio")
+    }
+
+    /// LLP 1115.000 D13.2: a radio is the platform's symbols at the body
+    /// text's size, as the checkbox's mark is, where it had been Safari's
+    /// 16-point circle at every text size; a finger has 44 points to hit.
+    func testARadioIsTheSymbolPairScaledWithTheBodyTextWithAFingersTarget() throws {
+        let p = presenter()
+        let red = try XCTUnwrap(p.controls.controls[2] as? ExactRadio), green = try XCTUnwrap(p.controls.controls[3] as? ExactRadio)
+        let symbol = UIImage.SymbolConfiguration(pointSize: red.side)
+        let size = red.intrinsicContentSize
+        XCTAssertEqual(size.width, UIFontMetrics(forTextStyle: .body).scaledValue(for: 22, compatibleWith: red.traitCollection).rounded(.up),
+                       "UIKit's 22-point circle at the body text's size, not Safari's 16-point circle")
+        XCTAssertEqual(size, ExactCheckbox(frame: .zero).intrinsicContentSize, "the checkbox's size")
+        XCTAssertEqual(red.mark(on: true, tint: .systemBlue)?.pngData(), UIImage(systemName: "circle.inset.filled", withConfiguration: symbol)?.withTintColor(.systemBlue, renderingMode: .alwaysOriginal).pngData(), "checked: the filled symbol")
+        XCTAssertEqual(green.mark(on: false, tint: .systemGray)?.pngData(), UIImage(systemName: "circle", withConfiguration: symbol)?.withTintColor(.systemGray, renderingMode: .alwaysOriginal).pngData(), "unchecked: the empty circle")
+        // It follows the reader's text size, as the body text beside it does.
+        let large = ExactRadio(frame: .zero)
+        window.addSubview(large)
+        large.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
+        large.updateTraitsIfNeeded()
+        XCTAssertGreaterThan(large.intrinsicContentSize.width, size.width * 1.5)
+        // To 44 points, about where UIKit's list checkmark stops (LLP 1116.019 D1).
+        XCTAssertEqual(large.intrinsicContentSize.width, 44)
+        large.removeFromSuperview()
+        // The mark as drawn: ink at the centre only when checked.
+        red.frame = CGRect(origin: .zero, size: size)
+        func centre(_ radio: ExactRadio) -> UInt8 {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            let image = UIGraphicsImageRenderer(bounds: radio.bounds, format: format).image { _ in radio.draw(radio.bounds) }
+            let cg = image.cgImage!, w = cg.width, h = cg.height
+            var data = [UInt8](repeating: 0, count: w * h * 4)
+            let ctx = CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return data[((h / 2) * w + w / 2) * 4 + 3]
+        }
+        green.frame = CGRect(origin: .zero, size: size)
+        XCTAssertGreaterThan(centre(red), 200, "checked: its centre is filled")
+        XCTAssertEqual(centre(green), 0, "unchecked: an empty circle")
+        // A finger's target: 44 points each way, though the mark is smaller.
+        XCTAssertLessThan(size.width, 44)
+        let middle = CGPoint(x: red.bounds.midX, y: red.bounds.midY)
+        for (dx, dy) in [(-21.0, 0.0), (0.0, -21.0), (0.0, 21.0)] {
+            XCTAssertTrue(red.point(inside: CGPoint(x: middle.x + dx, y: middle.y + dy), with: nil), "\(dx), \(dy) is within 22 points of its middle")
+        }
+        XCTAssertFalse(red.point(inside: CGPoint(x: middle.x - 23, y: middle.y), with: nil))
+        // To its right, where no other radio is: the last of the row.
+        let blue = try XCTUnwrap(p.controls.controls[5] as? ExactRadio)
+        XCTAssertTrue(blue.point(inside: CGPoint(x: blue.bounds.midX + 21, y: blue.bounds.midY), with: nil))
+        // In the page: a touch beside the mark, outside its node's box, reaches it.
+        let node = try XCTUnwrap(p.views[2])
+        p.controls.sync()
+        let beside = red.convert(CGPoint(x: red.bounds.minX - 6, y: red.bounds.midY), to: window)
+        XCTAssertFalse(node.convert(node.bounds, to: window).contains(beside), "past the node's box")
+        XCTAssertTrue(window.hitTest(beside, with: nil) === red, "and still the radio's")
+        // Two radios 30 points apart: their margins overlap, and each touch
+        // between them is the nearer mark's.
+        let a = red.convert(CGPoint(x: red.bounds.midX, y: red.bounds.midY), to: window), b = green.convert(CGPoint(x: green.bounds.midX, y: green.bounds.midY), to: window)
+        XCTAssertEqual(b.x - a.x, 30, accuracy: 0.5)
+        XCTAssertTrue(window.hitTest(CGPoint(x: a.x + 13, y: a.y), with: nil) === red, "13 points from red, 17 from green")
+        XCTAssertTrue(window.hitTest(CGPoint(x: a.x + 17, y: a.y), with: nil) === green, "17 points from red, 13 from green")
+    }
+
+    func testARIAUnavailableRadioKeepsItsTraitAfterRefusedChange() throws {
+        let p = presenter()
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["accessibilityDisabled": "true"]]]))
+        let green = try XCTUnwrap(p.controls.controls[3] as? ExactRadio)
+        XCTAssertTrue(green.accessibilityTraits.contains(.notEnabled))
+        accepts = false
+        tap(green)
+        XCTAssertEqual(shown(p), [2])
+        XCTAssertTrue(green.isEnabled, "ARIA state leaves input enabled")
+        XCTAssertTrue(green.accessibilityTraits.contains(.notEnabled))
     }
 
     func testTheArrowsMoveFocusAndCheckAndTheAgentTypesTrue() throws {

@@ -155,6 +155,15 @@ fn a_mounted_directory_is_captured_beside_app_ts_and_nothing_else_of_it() {
             "{bad}"
         );
     }
+    // A missing one says where it was resolved from.
+    std::fs::write(
+        app.join("app.json"),
+        r#"{"typescript":{"sources":{"core":"../missing"}}}"#,
+    )
+    .unwrap();
+    assert!(sources(&app)
+        .unwrap_err()
+        .contains("../missing, resolved from the app's directory"));
 }
 
 #[test]
@@ -266,4 +275,58 @@ fn native_resource_trees_are_not_captured_as_typescript_or_assets() {
     let captured = sources(&app.0).unwrap();
     assert_eq!(captured.len(), 1);
     assert!(captured.contains_key(std::path::Path::new("app.json")));
+}
+
+/// A Cargo bake reruns on each package's installed paths and on each
+/// captured file where it was read: a package reached through a file link
+/// has no installed path, and its files are still watched.
+#[test]
+fn cargo_watches_captured_package_files_and_installed_paths() {
+    let stage = Scratch::new(&std::env::temp_dir()).unwrap();
+    std::fs::write(
+        stage.0.join("__exact_packages.json"),
+        r#"{"packages":[["a@1.0.0","/real/a",["/app/node_modules/a"]],["b@1.0.0","/real/b",[]]],"files":[["b@1.0.0","extra.js","/real/b/extra.js","x"]],"edges":[],"digests":{"a@1.0.0":"d"}}"#,
+    )
+    .unwrap();
+    let code = super::package_code(&stage.0).unwrap();
+    for path in ["/app/node_modules/a", "/real/b/extra.js"] {
+        assert!(
+            code.watched.contains(&std::path::PathBuf::from(path)),
+            "{path}"
+        );
+    }
+    assert_eq!(code.packages["a@1.0.0"], "d");
+}
+
+/// A bake made outside Cargo gives the archive only what Rust compiles: its
+/// entry reads the plan the link carries, and a plan an earlier bake in
+/// Cargo left is gone; a file whose bytes did not change keeps its time.
+#[test]
+fn a_linked_bake_gives_the_archive_what_rust_compiles() {
+    let baked = Scratch::new(&std::env::temp_dir()).unwrap();
+    let out = Scratch::new(&std::env::temp_dir()).unwrap();
+    for name in super::COMPILED {
+        std::fs::write(baked.0.join(name), name).unwrap();
+    }
+    std::fs::write(baked.0.join("app.plan"), "plan").unwrap();
+    std::fs::write(out.0.join("app.plan"), "stale").unwrap();
+    std::fs::write(out.0.join("module.rs"), "module.rs").unwrap();
+    let kept = std::fs::metadata(out.0.join("module.rs"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    super::take_baked(&baked.0, &out.0).unwrap();
+    for name in super::COMPILED {
+        assert_eq!(std::fs::read_to_string(out.0.join(name)).unwrap(), name);
+    }
+    let modified = std::fs::metadata(out.0.join("module.rs"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(modified, kept);
+    assert_eq!(
+        std::fs::read_to_string(out.0.join("baked.rs")).unwrap(),
+        super::LINKED
+    );
+    assert!(!out.0.join("app.plan").exists());
 }

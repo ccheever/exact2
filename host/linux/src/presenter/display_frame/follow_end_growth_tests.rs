@@ -21,12 +21,12 @@ const SOURCE: &str = r#"component App
   state count = 20
   action grow
     count = 200
-  resource rows = growthRows(count) as shape list<number>
+  resource rows = growthRows(count) as shape number[]
   view
     column width=320 height=240
       box testId="grow" press=grow height=24
       list virtualized=true scrollFollowEnd=true width=320 height=180 testId="port"
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=24
 "#;
 
@@ -110,7 +110,7 @@ fn boot_end_from(
 ) -> (Presenter<GrowthRows>, Boundary) {
     let source = template.replace("scrollFollowEnd=true", &format!("scrollFollowEnd={follow}"));
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(&source).unwrap().encode(),
+        &crate::test_plan(&source),
         GrowthRows,
         (320., 240.),
         1.,
@@ -314,8 +314,7 @@ fn replacement_runtime_cannot_adopt_pending_old_model_scroll() {
     grow_before_adapter(&mut p, &before);
     assert!(p.after_commit().is_none());
     let b = submit(&mut p).unwrap();
-    p.reload(&contract::compile(SOURCE).unwrap().encode(), GrowthRows)
-        .unwrap();
+    p.reload(&crate::test_plan(SOURCE), GrowthRows).unwrap();
     let replacement = boundary(&p, "replacement-before-old-B-ACK");
     assert_eq!(
         replacement.snapshot.count, 200,

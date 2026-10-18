@@ -406,6 +406,8 @@ fn text_is_measured_through_the_registered_callback() {
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         390.0,
         844.0,
@@ -491,6 +493,8 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         390.0,
         844.0,
@@ -515,6 +519,8 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         390.0,
         844.0,
@@ -541,6 +547,8 @@ fn an_invalid_viewport_plan_boot_keeps_the_running_host() {
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         390.0,
         844.0,
@@ -562,6 +570,8 @@ fn an_invalid_viewport_plan_boot_keeps_the_running_host() {
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         f32::NAN,
         844.0,
@@ -591,6 +601,8 @@ fn an_invalid_initial_viewport_publishes_no_host() {
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         f32::NAN,
         844.0,
@@ -617,6 +629,8 @@ fn a_refused_fresh_boot_keeps_the_running_host() {
         wake: None,
         wake_ctx: std::ptr::null_mut(),
         canvas_text: None,
+        symbol: None,
+        time_format: None,
     };
     let mut bridge: Bridge<NoData> = Bridge::new();
     let len = bridge.boot(&running, NoData, hooks, 390.0, 844.0);
@@ -648,6 +662,8 @@ fn two_prepared_sessions_keep_their_live_hosts_until_both_accept() {
         wake: None,
         wake_ctx: std::ptr::null_mut(),
         canvas_text: None,
+        symbol: None,
+        time_format: None,
     };
     let mut a: Bridge<NoData> = Bridge::new();
     let mut b: Bridge<NoData> = Bridge::new();
@@ -702,6 +718,8 @@ fn the_plan_font_catalog_and_family_runs_cross_the_host_seam_before_layout() {
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         390.0,
         844.0,
@@ -876,7 +894,7 @@ fn the_insets_re_send_the_styles_that_read_them_and_move_what_they_pad() {
 
 /// The exports for a fixture app: two runtimes in one thread, each with its
 /// own plan and clock; a destroyed or invented handle refused by name.
-mod handles {
+pub(crate) mod handles {
     use exact_runner::{DataError, DataSource, Value};
     use std::cell::Cell;
     use std::sync::OnceLock;
@@ -964,13 +982,13 @@ mod handles {
     exact_apple::host!(Fixture, baked(), compat(), delivery(), std::ptr::null());
 }
 
-fn out(rt: u32, len: u32) -> String {
+pub(crate) fn out(rt: u32, len: u32) -> String {
     let p = handles::exact_out(rt);
     assert!(!p.is_null());
     String::from_utf8(unsafe { std::slice::from_raw_parts(p, len as usize) }.to_vec()).unwrap()
 }
 
-fn put(rt: u32, bytes: &[u8]) -> usize {
+pub(crate) fn put(rt: u32, bytes: &[u8]) -> usize {
     let p = handles::exact_in(rt, bytes.len());
     assert!(!p.is_null(), "runtime {rt} has no input buffer");
     unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len()) };
@@ -1189,9 +1207,9 @@ fn a_multi_timer_advance_creates_children_before_attaching_them() {
     every(100, tick)
   view
     column testId="parent"
-      when phase == 1
+      if phase == 1
         text "typing"
-      when phase >= 2
+      if phase >= 2
         text "reply" testId="reply"
 "#,
     )
@@ -1330,7 +1348,7 @@ fn created_listeners_follow_the_final_tree_in_single_and_bulk_batches() {
     phase = phase + 1
   view
     column
-      when phase == 1
+      if phase == 1
         column
           text "next" press=next contextmenu=next testId="go"
           text "plain" testId="plain"

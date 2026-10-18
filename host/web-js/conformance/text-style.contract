@@ -1,0 +1,14 @@
+// Synthetic conformance plan: a text style's weight (LLP 1115.000 D12.2)
+// through the `font` shorthand, bound and static, and a heading whose level
+// is bound, each beside a bound weight that may say nothing (`none`): the
+// style's weight then, on both web targets.
+component App
+  state big = false
+  action flip
+    big = not big
+  view
+    column testId="root" padding=8 gap=4
+      button testId="flip" press=flip "Flip"
+      text testId="heading" role="heading" aria-level=(big ? 1 : 5) "Section heading"
+      text testId="bound" font=(big ? "-exact-body" : "-exact-headline") font-weight=(big ? 300 : none) "Bound shorthand"
+      text testId="static" font="-exact-headline" font-weight=(big ? 300 : none) "Static shorthand"

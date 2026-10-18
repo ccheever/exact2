@@ -6,7 +6,8 @@ use ibex2::{
     grant::GrantSet,
     stdlib::{
         app_fs::AppDirectories,
-        fs::{Abandoned, CompressedImage, Document},
+        fs::{DocumentError, DocumentLease},
+        fs_image::{self, CancelResult},
     },
 };
 use std::{
@@ -43,20 +44,25 @@ impl Session {
     /// A storage session under `grants`: the app's directories where the
     /// host configured them, and always the documents the person chose
     /// (`doc:`, LLP 1069.010 D1), which need none, as a Rust source's do.
-    pub fn open(grants: &str, wait: Duration) -> Result<Self, String> {
+    pub fn open(grants: &str, wait: Duration, owner: u64) -> Result<Self, String> {
         let grants = GrantSet::parse(grants).map_err(|e| e.to_string())?;
         let context = Context::new(grants);
+        context
+            .set_storage_limits(ibex2::stdlib::fs::ResultLimits {
+                bytes: exact_data::storage::MAX_BYTES,
+            })
+            .map_err(|e| e.to_string())?;
         context
             .set_sqlite_provider(Arc::new(ibex2_sqlite::SqliteProvider))
             .map_err(|e| e.to_string())?;
         context
-            .set_documents(Arc::new(documents))
+            .set_documents(Arc::new(move |path, _access| documents(path, owner)))
             .map_err(|e| e.to_string())?;
         // Only where there is a codec: elsewhere ibex2 refuses the call as
         // unsupported before reading the source (LLP 1069.002 A1.3).
         if cfg!(target_vendor = "apple") {
             context
-                .set_image_codec(Arc::new(image_codec))
+                .set_image_codec(Arc::new(ImageCodec), image_limits())
                 .map_err(|e| e.to_string())?;
         }
         Ok(Self {
@@ -68,18 +74,25 @@ impl Session {
 
     /// Activate app directories after the native module has received their
     /// paths, but before storage is materialized in JavaScript.
-    pub fn configure(&self, paths: &Directories) -> Result<(), String> {
+    pub fn configure(&self, paths: &Directories, read_only: bool) -> Result<(), String> {
         for path in [&paths.data, &paths.cache, &paths.temporary] {
             if !path.is_absolute() {
                 return Err("app storage roots must be absolute".into());
             }
-            std::fs::create_dir_all(path).map_err(|e| format!("app storage: {e}"))?;
+            if !read_only {
+                std::fs::create_dir_all(path).map_err(|e| format!("app storage: {e}"))?;
+            }
         }
+        #[cfg(unix)]
+        let directories = if read_only {
+            AppDirectories::snapshot(&paths.data, &paths.cache, &paths.temporary)
+        } else {
+            AppDirectories::new(&paths.data, &paths.cache, &paths.temporary)
+        };
+        #[cfg(not(unix))]
+        let directories = AppDirectories::new(&paths.data, &paths.cache, &paths.temporary);
         self.context
-            .set_app_directories(
-                AppDirectories::new(&paths.data, &paths.cache, &paths.temporary)
-                    .map_err(|e| e.to_string())?,
-            )
+            .set_app_directories(directories.map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())
     }
 
@@ -110,6 +123,9 @@ impl Session {
         let context = self.context.clone();
         let alive = self.alive.clone();
         let wait = self.wait;
+        // Capture only work visible to this owner-thread turn. A retired
+        // waiter can never discover or cancel a later generation's jobs.
+        let work = context.image_work().handles();
         Box::new(move || {
             let mut deadline = Instant::now() + wait;
             loop {
@@ -137,26 +153,34 @@ impl Session {
                     return retired_outcome();
                 }
                 if Instant::now() >= deadline {
-                    // Giving up: an `fs.compressImage` that has not written
-                    // loses the right to, so nothing lands after this failure
-                    // and the queue moves on safely; one that has written is
-                    // waited for (LLP 1069.002 A1.5).
-                    // Asked under the registry's lock: once retired, no call
-                    // issued after is this waiter's to abandon.
-                    let abandoned = context.abandon_image_work_if(&live);
+                    let mut abandoned = false;
+                    let mut committed = false;
+                    for handle in &work {
+                        if !live() {
+                            return retired_outcome();
+                        }
+                        match handle.cancel() {
+                            CancelResult::Abandoned => abandoned = true,
+                            CancelResult::CommitStarted | CancelResult::Settled(Ok(_)) => {
+                                committed = true
+                            }
+                            CancelResult::Settled(Err(_)) => {}
+                        }
+                    }
                     if !live() {
                         return retired_outcome();
                     }
-                    // A completion that arrived after the last look is a
-                    // result, not a failure: one written is kept until the
-                    // owner takes its completion, so it is seen either way.
-                    if abandoned == Abandoned::Written || context.wait(Duration::ZERO) {
+                    // Cancellation that loses publication returns immediately.
+                    // This embedder waits outside Ibex locks and delivers the
+                    // actual result instead of claiming nothing was written.
+                    if committed || (!abandoned && context.wait(Duration::ZERO)) {
                         deadline = Instant::now() + Duration::from_secs(5);
                         continue;
                     }
-                    let message = match abandoned {
-                        Abandoned::Abandoned => IMAGE_ABANDONED,
-                        _ => "storage continuation timed out",
+                    let message = if abandoned {
+                        IMAGE_ABANDONED
+                    } else {
+                        "storage continuation timed out"
                     };
                     return Outcome::Failed {
                         kind: FailureKind::Aborted,
@@ -180,30 +204,69 @@ pub(crate) fn refusal(live: bool, reaches: bool, agent: bool) -> Result<Option<S
 
 /// The documents a host minted ([`exact_data::documents`]), as ibex2's
 /// table: the one a Rust source's storage requests resolve through.
-fn documents(path: &str) -> Result<Document, String> {
+fn documents(path: &str, owner: u64) -> Result<DocumentLease, DocumentError> {
     use exact_data::documents::{resolve, Resolved};
-    Ok(match resolve(path)? {
-        Resolved::Root(name) => Document::Root(name),
-        Resolved::Real { directory, path } => Document::Real { directory, path },
-    })
+    let resolved = resolve(path, owner).map_err(DocumentError::from)?;
+    let guard = std::sync::Arc::new(());
+    match resolved {
+        Resolved::Root(name) => DocumentLease::root(name, guard),
+        Resolved::Real {
+            directory,
+            path,
+            selected_file: true,
+        } => DocumentLease::selected_file(directory, path, guard),
+        Resolved::Real {
+            directory,
+            path,
+            selected_file: false,
+        } => DocumentLease::directory(directory, path, guard),
+    }
 }
 
 /// The platform's image codec ([`exact_data::image`]), as ibex2's
 /// (`fs.compressImage`, LLP 1069.002 A1): the one a Rust source's storage
 /// requests run too.
-pub(crate) fn image_codec(
-    bytes: &[u8],
-    max_dimension: u32,
-    max_bytes: u64,
-    deadline: Instant,
-) -> Result<CompressedImage, String> {
-    exact_data::image::compress(bytes, max_dimension, max_bytes, deadline).map(|c| {
-        CompressedImage {
+pub(crate) struct ImageCodec;
+fn image_limits() -> fs_image::WorkLimits {
+    fs_image::WorkLimits {
+        max_job_bytes: 640 << 20,
+        max_dimension: exact_data::image::MAX_DIMENSION,
+        ..fs_image::WorkLimits::default()
+    }
+}
+impl fs_image::ImageCodec for ImageCodec {
+    fn limits(&self) -> fs_image::CodecLimits {
+        fs_image::CodecLimits {
+            max_pixels: exact_data::image::MAX_SOURCE_PIXELS,
+            max_scratch_bytes: 512 << 20,
+        }
+    }
+    fn encode(
+        &self,
+        bytes: &[u8],
+        request: fs_image::ImageRequest,
+        control: &fs_image::WorkControl,
+    ) -> Result<fs_image::CompressedImage, ibex2::boundary::HostError> {
+        exact_data::image::compress_controlled(
+            bytes,
+            request.max_dimension,
+            request.max_bytes,
+            control.deadline(),
+            &|| {
+                control
+                    .check()
+                    .map_err(|e| exact_data::image::failure("timeout", e))
+            },
+            control.limits().max_pixels,
+            control.limits().max_scratch_bytes,
+        )
+        .map(|c| fs_image::CompressedImage {
             bytes: c.bytes,
             width: c.width,
             height: c.height,
-        }
-    })
+        })
+        .map_err(ibex2::boundary::HostError::Failed)
+    }
 }
 
 /// Whether `grants` reach documents (`fs.read doc:/`, `fs.write doc:/`):
@@ -219,8 +282,8 @@ pub(crate) fn reaches_documents(grants: &str) -> bool {
 impl Drop for Session {
     fn drop(&mut self) {
         self.alive.store(false, Ordering::Release);
-        // An `fs.compressImage` still running when its module is unloaded
-        // writes nothing; one mid-write is let finish (LLP 1069.002 A1.5).
-        let _ = self.context.abandon_image_work();
+        // Close admission and abandon cancellable work without waiting under
+        // a shared lock. An already-started publication retains its real result.
+        self.context.image_work().close();
     }
 }

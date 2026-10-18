@@ -23,7 +23,7 @@ shape Thread
   time: string
   unread: bool
 shape Inbox
-  threads: list<Thread>
+  threads: Thread[]
   unread: number
 shape Message
   id: string
@@ -37,7 +37,7 @@ shape Conversation
   name: string
   initials: string
   kind: string
-  messages: list<Message>
+  messages: Message[]
   streaming: bool
   error: string
 shape Turn
@@ -53,9 +53,9 @@ shape Article
   title: string
   deck: string
   pull: string
-  body: list<string>
+  body: string[]
 shape Library
-  articles: list<Article>
+  articles: Article[]
   lead: string
 shape Hour
   id: string
@@ -69,7 +69,7 @@ shape Weather
   high: string
   low: string
   place: string
-  hours: list<Hour>
+  hours: Hour[]
 shape ModelChoice
   id: string
   name: string
@@ -81,24 +81,24 @@ shape Intelligence
   keyHint: string
   model: string
   modelName: string
-  models: list<ModelChoice>
+  models: ModelChoice[]
 
 // The system's surfaces: near-black and near-white, the scheme's choice.
 style Page
-  background-color="light-dark(#f4f4f6, #000000)"
-  color="light-dark(#0b0b0c, #f5f5f7)"
+  background-color="page"
+  color="fore"
 style Card
-  background-color="light-dark(#ffffff, #161618)"
-  border-radius=16
+  background-color="card"
+  border-radius="radiusCard"
   overflow="hidden"
 style Hairline
   border-bottom-style="solid"
   border-bottom-width=0.5
-  border-color="light-dark(#d9d9de, #2a2a2e)"
+  border-color="rule"
 style Muted
-  color="light-dark(#6e6e75, #9a9aa0)"
+  color="muted"
 style Title
-  font-family="Exciting Lilt"
+  font-family="liltFace"
   font-weight=700
   font-size=34
   line-height="40px"
@@ -129,9 +129,9 @@ component StatusBar
   view
     row width="100%" box-sizing="border-box" height=30 align-items="center" justify-content="space-between" padding-left=28 padding-right=24 flex-shrink=0
       button press=press testId="status-time" height=30 display="flex" flex-direction="row" align-items="center"
-        text time font-family="Exciting Lilt" font-weight=700 font-size=17 color=tone
+        text time font-family="liltFace" font-weight=700 font-size=17 color=tone
       row align-items="center" gap=7
-        when airplane
+        if airplane
           svg viewBox="0 0 24 24" width=16 height=16
             path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" fill=tone
         else
@@ -160,12 +160,12 @@ component AppTile
     press: action
   view
     button press=press testId=`app-${id}` aria-label=label -exact-press-scale=0.94 width=78 display="flex" flex-direction="column" align-items="center" gap=7
-      column width=66 height=66 border-radius=17 background-color=tile align-items="center" justify-content="center" position="relative"
-        text glyph font-family="Exciting" font-weight=900 font-size=(small ? 24 : 34) line-height="40px" color=ink
-        when badge > 0
-          column position="absolute" top=-6 right=-6 min-width=22 height=22 border-radius=11 background-color="#ff6a2b" align-items="center" justify-content="center" padding-left=6 padding-right=6 box-sizing="border-box"
-            text toString(badge) font-size=12 font-weight=700 color="#ffffff"
-      text label font-size=12 font-weight=500 color="#ffffffd9" line-clamp=1
+      column width=66 height=66 border-radius="radiusTile" background-color=tile align-items="center" justify-content="center" position="relative"
+        text glyph font-family="glyphFace" font-weight=900 font-size=(small ? 24 : 34) line-height="40px" color=ink
+        if badge > 0
+          column position="absolute" top=-6 right=-6 min-width=22 height=22 border-radius=11 background-color="signal" align-items="center" justify-content="center" padding-left=6 padding-right=6 box-sizing="border-box"
+            text badge.toString() font-size=12 font-weight=700 color="paper"
+      text label font-size=12 font-weight=500 color="onDark85" line-clamp=1
 
 // The same tile in the dock, without a label.
 component DockTile
@@ -176,8 +176,8 @@ component DockTile
     ink: string
     press: action
   view
-    button press=press testId=`dock-${id}` aria-label=id -exact-press-scale=0.94 width=66 height=66 border-radius=17 background-color=tile display="flex" flex-direction="row" align-items="center" justify-content="center"
-      text glyph font-family="Exciting" font-weight=900 font-size=34 line-height="40px" color=ink
+    button press=press testId=`dock-${id}` aria-label=id -exact-press-scale=0.94 width=66 height=66 border-radius="radiusTile" background-color=tile display="flex" flex-direction="row" align-items="center" justify-content="center"
+      text glyph font-family="glyphFace" font-weight=900 font-size=34 line-height="40px" color=ink
 
 // A notification card on the lock screen: the app's mark, who, what, when.
 component Notice
@@ -190,14 +190,14 @@ component Notice
     time: string
     press: action
   view
-    button press=press testId=`notice-${id}` width="100%" display="flex" flex-direction="row" gap=12 padding=14 box-sizing="border-box" border-radius=22 background-color="#ffffff1c" align-items="flex-start" animation="settle 420ms ease-out" text-align="start"
-      column width=40 height=40 border-radius=10 background-color="#f5f5f7" align-items="center" justify-content="center" flex-shrink=0
-        text glyph font-family="Exciting" font-weight=900 font-size=22 line-height="26px" color="#0b0b0c"
+    button press=press testId=`notice-${id}` width="100%" display="flex" flex-direction="row" gap=12 padding=14 box-sizing="border-box" border-radius="radiusNotice" background-color="veil11" align-items="flex-start" animation="settle 420ms ease-out" text-align="start"
+      column width=40 height=40 border-radius="radiusWell" background-color="mist" align-items="center" justify-content="center" flex-shrink=0
+        text glyph font-family="glyphFace" font-weight=900 font-size=22 line-height="26px" color="ink"
       column flex=1 min-width=0 gap=2
         row justify-content="space-between" align-items="baseline" gap=8
-          text title font-family="Exciting Lilt" font-weight=700 font-size=17 color="#ffffff" flex=1 min-width=0 line-clamp=1
-          text time font-size=13 color="#ffffff8c" flex-shrink=0
-        text body font-size=15 color="#ffffffe0" line-clamp=3 line-height=1.3
+          text title font-family="liltFace" font-weight=700 font-size=17 color="paper" flex=1 min-width=0 line-clamp=1
+          text time font-size=13 color="onDark55" flex-shrink=0
+        text body font-size=15 color="onDark88" line-clamp=3 line-height=1.3
 
 // A Settings row: a mark on a gray tile, a title, an optional value, a chevron.
 component SettingsRow
@@ -211,13 +211,13 @@ component SettingsRow
     press: action
   view
     button press=press testId=`row-${id}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=12 padding-left=16 min-height=46 text-align="start"
-      column width=30 height=30 border-radius=8 background-color="light-dark(#2c2c2e, #3a3a3c)" align-items="center" justify-content="center" flex-shrink=0
-        text glyph font-family="Exciting" font-weight=900 font-size=16 line-height="20px" color="#ffffff"
-      row flex=1 min-width=0 align-self="stretch" align-items="center" gap=8 padding-right=14 padding-top=11 padding-bottom=11 border-bottom-style="solid" border-bottom-width=(last ? 0 : 0.5) border-color="light-dark(#d9d9de, #2a2a2e)"
-        text title font-size=(17 * scale) flex=1 min-width=0 color="light-dark(#0b0b0c, #f5f5f7)"
-        text value font-size=(16 * scale) color="light-dark(#6e6e75, #9a9aa0)" flex-shrink=0 line-clamp=1
+      column width=30 height=30 border-radius="radiusSmallWell" background-color="iconWell" align-items="center" justify-content="center" flex-shrink=0
+        text glyph font-family="glyphFace" font-weight=900 font-size=16 line-height="20px" color="paper"
+      row flex=1 min-width=0 align-self="stretch" align-items="center" gap=8 padding-right=14 padding-top=11 padding-bottom=11 border-bottom-style="solid" border-bottom-width=(last ? 0 : 0.5) border-color="rule"
+        text title font-size=(17 * scale) flex=1 min-width=0 color="fore"
+        text value font-size=(16 * scale) color="muted" flex-shrink=0 line-clamp=1
         svg viewBox="0 0 24 24" width=18 height=18 flex-shrink=0
-          path d="M9 6l6 6-6 6" fill="none" stroke="light-dark(#b4b4ba, #5a5a5e)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
+          path d="M9 6l6 6-6 6" fill="none" stroke="chevron" stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
 
 // A Settings row whose right side is the platform's switch, tinted monochrome.
 component SwitchRow
@@ -231,11 +231,11 @@ component SwitchRow
     set: action
   view
     row width="100%" box-sizing="border-box" align-items="center" gap=12 padding-left=16 min-height=46
-      column width=30 height=30 border-radius=8 background-color="light-dark(#2c2c2e, #3a3a3c)" align-items="center" justify-content="center" flex-shrink=0
-        text glyph font-family="Exciting" font-weight=900 font-size=16 line-height="20px" color="#ffffff"
-      row flex=1 min-width=0 align-self="stretch" align-items="center" gap=8 padding-right=14 padding-top=8 padding-bottom=8 border-bottom-style="solid" border-bottom-width=(last ? 0 : 0.5) border-color="light-dark(#d9d9de, #2a2a2e)"
-        text title font-size=(17 * scale) flex=1 min-width=0 color="light-dark(#0b0b0c, #f5f5f7)"
-        input type="checkbox" switch checked=on change=set testId=`switch-${id}` aria-label=title accent-color="light-dark(#0b0b0c, #e5e5ea)" margin=0 flex-shrink=0
+      column width=30 height=30 border-radius="radiusSmallWell" background-color="iconWell" align-items="center" justify-content="center" flex-shrink=0
+        text glyph font-family="glyphFace" font-weight=900 font-size=16 line-height="20px" color="paper"
+      row flex=1 min-width=0 align-self="stretch" align-items="center" gap=8 padding-right=14 padding-top=8 padding-bottom=8 border-bottom-style="solid" border-bottom-width=(last ? 0 : 0.5) border-color="rule"
+        text title font-size=(17 * scale) flex=1 min-width=0 color="fore"
+        input type="checkbox" switch checked=on change=set testId=`switch-${id}` aria-label=title accent-color="controlTint" margin=0 flex-shrink=0
 
 // The back button at the top of a pushed page.
 component BackButton
@@ -246,8 +246,8 @@ component BackButton
   view
     button press=press testId=`back-${id}` height=44 display="flex" flex-direction="row" align-items="center" gap=2 padding-right=8
       svg viewBox="0 0 24 24" width=26 height=26
-        path d="M15 5l-7 7 7 7" fill="none" stroke="light-dark(#0b0b0c, #f5f5f7)" stroke-width=2.2 stroke-linecap="round" stroke-linejoin="round"
-      text label font-size=17 color="light-dark(#0b0b0c, #f5f5f7)"
+        path d="M15 5l-7 7 7 7" fill="none" stroke="fore" stroke-width=2.2 stroke-linecap="round" stroke-linejoin="round"
+      text label font-size=17 color="fore"
 
 // A message bubble: mine in the scheme's ink, theirs on a gray, the
 // assistant's with a caret while it is still writing.
@@ -260,10 +260,10 @@ component Bubble
     scale: number
   view
     row width="100%" justify-content=(role == "me" ? "flex-end" : "flex-start") testId=`bubble-${id}`
-      row max-width="82%" padding-top=9 padding-bottom=9 padding-left=14 padding-right=14 border-radius=20 align-items="flex-end" gap=2 background-color=(role == "me" ? "light-dark(#0b0b0c, #f5f5f7)" : "light-dark(#e9e9ee, #202024)")
-        text (streaming and body == "" ? "Thinking" : body) font-size=(17 * scale) line-height=1.32 white-space="pre-wrap" overflow-wrap="anywhere" color=(role == "me" ? "light-dark(#ffffff, #0b0b0c)" : "light-dark(#0b0b0c, #f5f5f7)")
-        when streaming
-          box width=3 height=(17 * scale) border-radius=1 margin-bottom=2 background-color="#ff6a2b" animation="blink 900ms ease-in-out infinite"
+      row max-width="82%" padding-top=9 padding-bottom=9 padding-left=14 padding-right=14 border-radius="radiusBubble" align-items="flex-end" gap=2 background-color=(role == "me" ? "fore" : "theirBubble")
+        text (streaming and body == "" ? "Thinking" : body) font-size=(17 * scale) line-height=1.32 white-space="pre-wrap" overflow-wrap="anywhere" color=(role == "me" ? "reverse" : "fore")
+        if streaming
+          box width=3 height=(17 * scale) border-radius=1 margin-bottom=2 background-color="signal" animation="blink 900ms ease-in-out infinite"
 
 // The home indicator: tapping it goes home, as the gesture would.
 component HomeBar

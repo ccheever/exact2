@@ -4,15 +4,15 @@ shape Item
   id: string
 
 component App
-  resource items = items("at") as shape list<Item>
+  resource items = items("at") as shape Item[]
   state i = 0
-  derive got = match at(items, i) { case some(x) => x.id, case none => "none" }
-  derive inRange = at(items, i) != none
-  derive expectIn = i > -1 - length(items) and i < length(items)
+  derive got = match items.at(i) { case some(x) => x.id, case none => "none" }
+  derive inRange = items.at(i) != none
+  derive expectIn = i > -1 - items.length and i < items.length
   derive agrees = inRange == expectIn
-  derive nanIdx = at(items, 0 / 0) == first(items)
-  derive fracNeg = at(items, -0.5) == first(items)
-  derive fracPos = at(items, 0.9) == first(items)
+  derive nanIdx = items.at(0 / 0) == first(items)
+  derive fracNeg = items.at(-0.5) == first(items)
+  derive fracPos = items.at(0.9) == first(items)
   action set(v: number)
     i = v
   view

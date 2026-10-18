@@ -1,0 +1,107 @@
+// LLP 1116.003: a tab's last row scrolls clear of the floating tab bar on
+// iOS. Each tab's root is one kind of scroller — a plain `scroll`, a plain
+// `list`, a grouped `list appearance="auto"` — and pushes a screen of the
+// next kind, every one long enough to scroll. Scrolled to its end, each
+// one's last row ends above the bar's top, and its content still runs under
+// the glass (TabEdgeIOSTests).
+routes nav
+  tab scrolls "/"
+    scrollsPushed "/scrolls/pushed"
+  tab plain "/plain"
+    plainPushed "/plain/pushed"
+  tab grouped "/grouped"
+    groupedPushed "/grouped/pushed"
+
+component TabEdge
+  state rows = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30"]
+  action pick(name: string)
+    nav = select(nav, name)
+  action open
+    nav = push(nav, nav.tab == "scrolls" ? path("scrollsPushed") : nav.tab == "plain" ? path("plainPushed") : path("groupedPushed"))
+  view
+    main navigationKey=`${top(nav).id}`
+      navigationBack="back"
+      testId="app"
+      width="100%"
+      height="100%"
+      display="flex"
+      flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        for t in nav.tabs key = t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            for e in t.stack key = e.id
+              column navigationKey=`${e.id}`
+                navigationScroll=`content-${e.id}`
+                testId=`route-${e.name}`
+                position="absolute"
+                inset=0
+                display="flex"
+                flex-direction="column"
+                header display="flex" align-items="center" padding="8px 16px"
+                  text e.name role="heading" aria-level=(t.stack.length == 1 ? 1 : 2)
+                // A menu between the header and the scroller, and a dialog
+                // after it, take no place in the route's flow, open or closed.
+                if e.name == "scrolls"
+                  column id="sort-menu" popover="auto" role="menu" aria-label="Sort" testId="sort-menu"
+                    button press=open popovertarget="sort-menu" popovertargetaction="hide" testId="sort-first"
+                      text "First"
+                // A pushed screen is the next kind: scroll → plain list → grouped list → scroll.
+                if e.name == "scrolls" or e.name == "groupedPushed"
+                  scroll id=`content-${e.id}` testId=`content-${e.name}` flex=1 min-height=0
+                    for r in rows key = r
+                      button press=open
+                        testId=`${e.name}-${r}`
+                        padding="12px 16px"
+                        text-align="start"
+                        text `Row ${r}`
+                else if e.name == "plain" or e.name == "scrollsPushed"
+                  list id=`content-${e.id}` testId=`content-${e.name}` flex=1 min-height=0
+                    for r in rows key = r
+                      button press=open
+                        testId=`${e.name}-${r}`
+                        padding="12px 16px"
+                        text-align="start"
+                        text `Row ${r}`
+                else
+                  list id=`content-${e.id}`
+                    testId=`content-${e.name}`
+                    appearance="auto"
+                    listStyle="inset-grouped"
+                    flex=1
+                    min-height=0
+                    section
+                      for r in rows key = r
+                        button press=open testId=`${e.name}-${r}`
+                          text `Row ${r}`
+                if e.name == "scrolls"
+                  dialog id="confirm" role="alertdialog" aria-label="Open a row?" testId="confirm"
+                    text "The first row opens."
+                    button commandfor="confirm" command="close"
+                      text "Cancel"
+                    button press=open commandfor="confirm" command="close"
+                      text "Open"
+      row role="tablist" testId="tabs"
+        button role="tab"
+          aria-controls="panel-scrolls"
+          aria-selected=(nav.tab == "scrolls")
+          press=pick("scrolls")
+          testId="tab-scrolls"
+          flex=1
+          image "symbol:home"
+          text "Scroll"
+        button role="tab"
+          aria-controls="panel-plain"
+          aria-selected=(nav.tab == "plain")
+          press=pick("plain")
+          testId="tab-plain"
+          flex=1
+          image "symbol:layers"
+          text "Plain"
+        button role="tab"
+          aria-controls="panel-grouped"
+          aria-selected=(nav.tab == "grouped")
+          press=pick("grouped")
+          testId="tab-grouped"
+          flex=1
+          image "symbol:chart"
+          text "Grouped"

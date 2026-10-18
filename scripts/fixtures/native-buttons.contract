@@ -4,14 +4,18 @@
 // draw their title in the label colour), an SF Symbol by name, a long title
 // in a narrow button,
 // and glass buttons in a glass group with a
-// fading one. The platform draws each; the web draws its stated look.
+// fading one, and a value chosen from three, a radio group of radios (LLP
+// 1116.004 D5.2). The platform draws each; the web draws its stated look.
 component NativeButtons
   state presses = 0
   state fading = false
+  state period = "Week"
   action go
     presses = presses + 1
   action fade
     fading = not fading
+  action choose(p: string)
+    period = p
   view
     column testId="native-buttons" height="100%" overflow-y="auto" box-sizing="border-box" padding=16 gap=10 background-color="light-dark(#ffffff, #000000)"
       text `presses ${presses}` testId="count"
@@ -178,3 +182,7 @@ component NativeButtons
           text "Unlock"
         button appearance="auto" buttonStyle="glass" press=fade testId="g3" opacity=(fading ? 0.3 : 1)
           text "Fade"
+      row role="radiogroup" aria-label="Period" testId="period" align-self="stretch"
+        for p in ["Day", "Week", "Month"] key=p
+          button role="radio" aria-checked=(period == p) press=choose(p) testId=`period-${p}` flex=1
+            text p

@@ -13,7 +13,7 @@ extension NodeView {
         let invert = style["smart_invert"]?.string ?? "auto"
         let ignores = invert == "ignore" || ["image", "video", "canvas"].contains(kind)
         if accessibilityIgnoresInvertColors != ignores { accessibilityIgnoresInvertColors = ignores }
-        if let sv = scroll { applyScrollEdge(sv) }
+        if let sv = scrollView { applyScrollEdge(sv) }
         applyHoverEffect()
     }
 
@@ -72,8 +72,9 @@ final class HoverEffect: NSObject, UIPointerInteractionDelegate {
 #endif
 
 /// D15: a paragraph whose text changed under `-exact-content-transition: numeric`
-/// rolls in from below (from above for `numeric-countdown`), as SwiftUI's
-/// numeric text does. The whole line rolls: the raster is one picture.
+/// rolls the way SwiftUI's numeric text does: a rising number comes in from
+/// above, a falling one (and any `numeric-countdown`) from below. The whole
+/// line rolls: the raster is one picture.
 enum NumeralRoll {
     private static var key = 0
     /// Answers the roll it began, for the layer of the text's HDR shadow,
@@ -87,7 +88,8 @@ enum NumeralRoll {
         guard mode != "none", let last, last != text, ink.contents != nil, !UIAccessibility.isReduceMotionEnabled else { return nil }
         let roll = CATransition()
         roll.type = .push
-        roll.subtype = mode == "numeric-countdown" ? .fromTop : .fromBottom
+        let down = mode == "numeric-countdown" || leadingNumber(text) < leadingNumber(last)
+        roll.subtype = down ? .fromBottom : .fromTop
         roll.duration = 0.3
         roll.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         ink.add(roll, forKey: "exact.numeric")

@@ -196,8 +196,8 @@ impl Perf {
         }
         write!(
             out,
-            ",\"draws\":{},\"instances\":{},\"triangles\":{}",
-            self.stats.draws, self.stats.instances, self.stats.triangles
+            ",\"draws\":{},\"instances\":{},\"triangles\":{},\"directFrames\":{}",
+            self.stats.draws, self.stats.instances, self.stats.triangles, self.stats.direct_frames
         )
         .unwrap();
         write!(

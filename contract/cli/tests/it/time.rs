@@ -49,6 +49,294 @@ fn the_date_arrives_as_one_commit_and_bad_facts_are_refused() {
     assert_eq!(text(&r), "1790000000000/120");
 }
 
+/// A host that knows the date at launch boots under it: the first frame
+/// reads it, and telling the same fact after commits nothing; an invalid
+/// fact boots on zero, as before.
+#[test]
+fn a_date_known_at_launch_is_read_from_the_first_frame() {
+    let plan = contract::bake(contract::compile(APP).unwrap(), NoData).unwrap();
+    let boot = |time| {
+        exact_runner::time::launching(time, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let at = exact_runner::time::WallTime {
+        epoch_at_zero: 1_790_000_000_000.0,
+        utc_offset: -420.0,
+    };
+    let mut r = boot(Some(at));
+    assert_eq!(text(&r), "1790000000000/-420");
+    assert!(r.set_time(1_790_000_000_000.0, -420.0).unwrap().is_none());
+    let bad = exact_runner::time::WallTime {
+        epoch_at_zero: f64::NAN,
+        utc_offset: 0.0,
+    };
+    assert_eq!(text(&boot(Some(bad))), "0/0");
+    // Outside `launching`, nothing is left behind, a panic inside included.
+    let outside = || {
+        Runner::boot(
+            plan.clone(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    assert_eq!(text(&outside()), "0/0");
+    let unwound = std::panic::catch_unwind(|| {
+        exact_runner::time::launching(Some(at), || panic!("a boot that fails"))
+    });
+    assert!(unwound.is_err());
+    assert_eq!(text(&outside()), "0/0");
+}
+
+/// Where the viewer is, known at launch: the first frame reads the locale,
+/// zone and seed, and the same place told after commits nothing; a place
+/// that does not validate boots on the defaults.
+#[test]
+fn a_place_known_at_launch_is_read_from_the_first_frame() {
+    const PLACE_APP: &str = "shape Time\n  locale: string\n  timeZone: string\n  seed: number\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}/${time.timeZone}/${time.seed}` testId=\"date\"\n";
+    let plan = contract::bake(contract::compile(PLACE_APP).unwrap(), NoData).unwrap();
+    let boot = |place: Option<exact_runner::time::Place>| {
+        let launch = exact_runner::time::Launch { time: None, place };
+        exact_runner::time::launching_with(launch, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let place = |locale: &str| exact_runner::time::Place {
+        locale: locale.into(),
+        time_zone: "America/Los_Angeles".into(),
+        seed: 7.0,
+    };
+    let mut r = boot(Some(place("fr-FR")));
+    assert_eq!(text(&r), "fr-FR/America/Los_Angeles/7");
+    assert!(r
+        .set_place("fr-FR", "America/Los_Angeles", Some(7.0))
+        .unwrap()
+        .is_none());
+    assert_eq!(text(&boot(Some(place("")))), "en-US/UTC/0");
+    assert_eq!(text(&boot(None)), "en-US/UTC/0");
+}
+
+/// Euxy's library: a store-reading source passed the date after `with`,
+/// whose answer stamps it. The bake's date is unknown (zero), so its answer
+/// is left out of the plan (LLP 1027.000.000 D2): a fresh install's first
+/// frame shows the placeholder, never patterns stamped at 1970, and the
+/// device's source is asked with the launch's date once it is ready. A
+/// resource that reads the date through a derive, or by its offset, is left
+/// out too; one that reads none of it is compiled as before.
+#[test]
+fn the_bake_compiles_no_answer_asked_at_its_unknown_date() {
+    const LIBRARY: &str = "shape Time\n  epochAtZero: number\n  utcOffset: number\nshape Library\n  loaded: bool\n  stamp: number\ncomponent App\n  resource time = exactTime() as shape Time\n  derive date = time.epochAtZero + performanceNow()\n  resource lib = loadLibrary() with time.epochAtZero as shape Library else empty(loaded=false)\n  resource dated = loadLibrary(date) as shape Library\n  resource zoned = loadLibrary(time.utcOffset) as shape Library\n  resource chips = loadLibrary(1) as shape Library\n  view\n    text `${lib.loaded}/${lib.stamp}|${dated.stamp}|${chips.stamp}` testId=\"date\"\n";
+    struct Library(std::rc::Rc<std::cell::Cell<bool>>);
+    impl DataSource for Library {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            let stamp = match args.first() {
+                Some(Value::Number(n)) => *n,
+                _ => -1.0,
+            };
+            Ok(Value::record(vec![Value::Bool(true), Value::Number(stamp)]))
+        }
+        fn ready(&self) -> bool {
+            self.0.get()
+        }
+    }
+    let ready = || std::rc::Rc::new(std::cell::Cell::new(true));
+    let plan = contract::bake(contract::compile(LIBRARY).unwrap(), Library(ready())).unwrap();
+    let compiled = |name: &str| {
+        plan.resources
+            .iter()
+            .any(|r| plan.str(r.name) == name && r.initial.len > 0)
+    };
+    assert!(!compiled("lib") && !compiled("dated") && !compiled("zoned"));
+    assert!(compiled("chips"));
+
+    // A module loaded after the first pixel, on a host that knows the date.
+    let loaded = std::rc::Rc::new(std::cell::Cell::new(false));
+    let at = exact_runner::time::WallTime {
+        epoch_at_zero: 1_790_000_000_000.0,
+        utc_offset: 60.0,
+    };
+    let mut r = exact_runner::time::launching(Some(at), || {
+        Runner::boot(
+            plan.clone(),
+            Library(loaded.clone()),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+    })
+    .unwrap();
+    let shown = |r: &Runner<Library>| {
+        let key = r.kernel().find_by_test_id("date")[0];
+        let node = r.kernel().node_by_key(key).unwrap();
+        node.props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    assert_eq!(shown(&r), "false/0|0|1");
+    loaded.set(true);
+    r.data_ready().unwrap();
+    assert_eq!(shown(&r), "true/1790000000000|1790000000000|1");
+    assert_eq!(
+        r.resource("zoned"),
+        Some(&Value::record(vec![Value::Bool(true), Value::Number(60.0)]))
+    );
+}
+
+/// The date reaches a resource's arguments by more than a derive: through
+/// another resource asked with it (and a field of its answer), a state an
+/// action assigns it (directly or through a `let`), and a state copied
+/// from another dated state, and a state the date only decides: written in
+/// either arm of a branch on it, or from a conditional expression on it.
+/// None of those answers is compiled. States that copy each other without
+/// the date terminate the analysis and keep theirs, as does a write after
+/// the dated branch has joined.
+#[test]
+fn the_bake_follows_the_date_through_resources_and_states() {
+    const APP: &str = r#"shape Time
+  epochAtZero: number
+shape Stamp
+  at: number
+component App
+  resource time = exactTime() as shape Time
+  resource stamp = stampOf(time.epochAtZero) as shape Stamp
+  resource viaResource = answer() with stamp.at as shape number
+  state at = 0
+  state held = 0
+  state copied = 0
+  state a = 0
+  state b = 0
+  state flag = 0
+  state other = 0
+  state after = 0
+  state pick = 0
+  action decide
+    if time.epochAtZero > 0
+      flag = 1
+    else
+      other = 1
+    after = 2
+  action choose
+    pick = time.epochAtZero > 0 ? 2 : 1
+  action prime
+    at = time.epochAtZero
+    let t = time.epochAtZero + 1
+    held = t
+  action copy
+    copied = at
+  action swap
+    a = b
+    b = a
+  task boot mount
+    after(1, prime)
+  resource viaAction = answer() with at as shape number
+  resource viaLet = answer(held) as shape number
+  resource viaCopy = answer(copied) as shape number
+  resource cycle = answer(a + b) as shape number
+  resource decided = answer(flag) as shape number
+  resource otherwise = answer(other) as shape number
+  resource joined = answer(after) as shape number
+  resource picked = answer(pick) as shape number
+  resource plain = answer(1) as shape number
+  view
+    text "{viaResource}{viaAction}{viaLet}{viaCopy}{cycle}{decided}{otherwise}{joined}{picked}{plain}"
+"#;
+    struct Source;
+    impl DataSource for Source {
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            let n = match args.first() {
+                Some(Value::Number(n)) => *n,
+                _ => 7.0,
+            };
+            Ok(match source {
+                "stampOf" => Value::record(vec![Value::Number(n)]),
+                _ => Value::Number(n),
+            })
+        }
+    }
+    let plan = contract::bake(contract::compile(APP).unwrap(), Source).unwrap();
+    let compiled = |name: &str| {
+        plan.resources
+            .iter()
+            .find(|r| plan.str(r.name) == name)
+            .unwrap_or_else(|| panic!("no resource {name}"))
+            .initial
+            .len
+            > 0
+    };
+    for dated in [
+        "stamp",
+        "viaResource",
+        "viaAction",
+        "viaLet",
+        "viaCopy",
+        "decided",
+        "otherwise",
+        "picked",
+    ] {
+        assert!(
+            !compiled(dated),
+            "{dated} is asked at the bake's date: not compiled"
+        );
+    }
+    assert!(compiled("cycle") && compiled("joined") && compiled("plain"));
+}
+
+/// The runner says which resources read the date in one pass over the
+/// plan, which the bake asks once: here a chain of 300 resources, each
+/// asked with the one before, from the date, beside 300 that are not.
+#[test]
+fn the_resources_reading_the_date_are_found_in_one_pass() {
+    let mut src = String::from(
+        "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  resource d0 = answer(time.epochAtZero) as shape number\n  resource p0 = answer(0) as shape number\n",
+    );
+    for i in 1..300 {
+        src.push_str(&format!(
+            "  resource d{i} = answer(d{}) as shape number\n  resource p{i} = answer(p{}) as shape number\n",
+            i - 1,
+            i - 1
+        ));
+    }
+    src.push_str("  view\n    text \"{d299}{p299}\"\n");
+    struct Source;
+    impl DataSource for Source {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            Ok(args.first().cloned().unwrap_or(Value::Number(0.0)))
+        }
+    }
+    let plan = contract::compile(&src).unwrap();
+    let r = Runner::boot(
+        plan,
+        Source,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let dated = r.resources_reading_clock();
+    for (i, row) in r.plan().resources.iter().enumerate() {
+        let name = r.plan().str(row.name);
+        assert_eq!(dated[i], name.starts_with('d'), "{name}");
+    }
+}
+
 const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";
 
 #[test]
@@ -122,7 +410,14 @@ fn the_launch_seed_arrives_as_a_host_fact_and_nothing_else_is_one() {
         .set_place("en-GB", "Europe/London", Some(123_456_789.0))
         .unwrap()
         .is_none());
-    for bad in [-1.0, 0.5, f64::NAN, 9_007_199_254_740_992.0] {
+    // Below 2^32 (LLP 1116.005 D5): a seed past it is refused, not wrapped.
+    for bad in [
+        -1.0,
+        0.5,
+        f64::NAN,
+        4_294_967_296.0,
+        9_007_199_254_740_991.0,
+    ] {
         assert!(matches!(
             r.set_place("fr-FR", "Europe/Paris", Some(bad)),
             Err(RunnerError::InvalidPlace)
@@ -133,6 +428,9 @@ fn the_launch_seed_arrives_as_a_host_fact_and_nothing_else_is_one() {
             "bad seed refuses the whole place"
         );
     }
+    r.set_place("en-GB", "Europe/London", Some(4_294_967_295.0))
+        .unwrap();
+    assert_eq!(text(&r), "4294967295|en-GB", "2^32 - 1 is the largest seed");
 }
 
 // ---------------------------------------------------------------- gated tasks
@@ -272,7 +570,7 @@ fn a_key_change_re_arms_a_nan_key_refuses_and_negative_zero_is_zero() {
     assert_eq!(
         r.timer_due_ms(),
         Some(1600.0),
-        "`-0` is `0`, as an `each` key"
+        "`-0` is `0`, as a `for` key"
     );
 }
 
@@ -538,7 +836,7 @@ fn a_gate_refusal_rolls_back_row_slots_and_requests() {
   n: number
 component App
   state bad = false
-  resource items = items() as shape list<string>
+  resource items = items() as shape string[]
   mutation m as shape Ack
   action go
     send m = later()
@@ -549,7 +847,7 @@ component App
     after(1000, tick)
   view
     column
-      each it in items key=it
+      for it in items key=it
         Row(id=it, go=go)
 component Row
   props
@@ -623,7 +921,7 @@ fn a_gate_takes_a_bool_a_key_a_scalar_and_neither_reads_the_clock() {
     says(
         "key=p",
         "type-task-key",
-        "a task's `key=` is a string, number or bool, as an `each` key is; this one is P",
+        "a task's `key=` is a string, number or bool, as a `for` key is; this one is P",
     );
     let clock = "A gate is read at commits, not as the clock moves, so an `after` gated on `performanceNow()` cannot be dropped before it fires, and an `every` stops up to an interval late. Gate on state (`toast != \"\"`) and let `after(5000, …)` measure the time";
     says(
@@ -650,9 +948,9 @@ fn a_gate_takes_a_bool_a_key_a_scalar_and_neither_reads_the_clock() {
 #[test]
 fn now_is_refused_with_both_repairs_at_its_span() {
     let cases = [
-        ("  derive d = 1 + now()\n  view\n    text toString(d)\n", 4, 18),
+        ("  derive d = 1 + now()\n  view\n    text d.toString()\n", 4, 18),
         ("  view\n    text `${now()}`\n", 5, 13),
-        ("  state at = 0\n  action stamp\n    at = now() + 7 * 86400000\n  view\n    text toString(at)\n", 6, 10),
+        ("  state at = 0\n  action stamp\n    at = now() + 7 * 86400000\n  view\n    text at.toString()\n", 6, 10),
         ("  state at = 0\n  action set(t: number)\n    at = t\n  view\n    button \"s\" press=set(now())\n", 8, 26),
     ];
     for (body, line, col) in cases {
@@ -679,17 +977,17 @@ fn now_is_refused_with_both_repairs_at_its_span() {
         );
     }
     let e = contract::compile(
-        "fn f(): number = now()\ncomponent App\n  view\n    text toString(f())\n",
+        "fn f(): number = now()\ncomponent App\n  view\n    text f().toString()\n",
     )
     .unwrap_err();
     assert_eq!(e.id, "type-now-renamed", "{e}");
     // An app's own `fn now` shadows the refusal as it would a roster name.
-    contract::compile("fn now(): number = 7\ncomponent App\n  view\n    text toString(now())\n")
+    contract::compile("fn now(): number = 7\ncomponent App\n  view\n    text now().toString()\n")
         .unwrap();
     // The web's spellings meet the same repairs.
     for web in ["Date.now()", "performance.now()"] {
         let e = contract::compile(&format!(
-            "component App\n  view\n    text toString({web})\n"
+            "component App\n  view\n    text ({web}).toString()\n"
         ))
         .unwrap_err();
         assert!(
@@ -698,4 +996,70 @@ fn now_is_refused_with_both_repairs_at_its_span() {
             "{web}: {e}"
         );
     }
+}
+
+#[test]
+fn live_resource_arguments_warn_through_derives_and_functions_but_sampled_state_does_not() {
+    let file = contract_syntax::parse(
+        r#"
+fn clockValue(): number = performanceNow()
+shape Reply
+  value: number
+component App
+  state sampledAt = 0
+  derive live = clockValue() + 1
+  derive forwarded = live
+  resource direct = read(performanceNow()) as shape Reply else empty()
+  resource indirect = read(forwarded) as shape Reply else empty()
+  resource context = read() with performanceNow() as shape Reply else empty()
+  resource sampled = read(sampledAt) as shape Reply else empty()
+  action tick
+    sampledAt = performanceNow()
+  view
+    text direct.value
+"#,
+    )
+    .unwrap();
+    let warnings = contract_analyze::resource_clock_warnings(&file);
+    assert_eq!(warnings.len(), 3);
+    assert!(warnings[0].message.contains("`direct`"));
+    assert!(warnings[1].message.contains("`indirect`"));
+    assert!(warnings[2].message.contains("`context`"));
+    assert!(warnings
+        .iter()
+        .all(|w| w.id == "analyze-resource-clock" && w.message.contains("sample")));
+}
+
+#[test]
+fn resource_clock_advice_keeps_json_build_success_and_stdout_valid() {
+    let root = std::env::temp_dir().join(format!("exact-clock-advice-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("app.contract");
+    std::fs::write(&path, "shape Reply\n  value: number\ncomponent App\n  resource reply = read(performanceNow()) as shape Reply else empty()\n  view\n    text `${reply.value}`\n").unwrap();
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    // The advice is among the array's warnings, and stderr is empty.
+    let reply = serde_json::from_slice::<serde_json::Value>(&run.stdout).unwrap();
+    let advice = reply.as_array().unwrap();
+    assert!(!advice.is_empty(), "{reply}");
+    assert!(
+        advice
+            .iter()
+            .all(|w| w["id"] == "analyze-resource-clock" && w["severity"] == "warning"),
+        "{reply}"
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+    let human = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&human.stderr).contains("analyze-resource-clock"));
+    std::fs::remove_dir_all(root).unwrap();
 }

@@ -10,7 +10,10 @@
 // under `startAccessingSecurityScopedResource` while the session lives: a
 // no-op for today's unsandboxed builds, the call a sandboxed one needs, and
 // what a security-scoped bookmark would be made from (ruled: the Mac App
-// Store stays possible).
+// Store stays possible). A drive that shows UIKit's own presentations
+// (`--touch platform`) keeps the hold and presents the real picker too: what
+// the person chooses there answers the hold, and the agent's answer, or
+// `back`, closes it.
 import Foundation
 import UniformTypeIdentifiers
 #if canImport(UIKit)
@@ -21,7 +24,7 @@ import AppKit
 
 extension ExactSession {
     /// This session's number in the library's document table.
-    var documentOwner: UInt64 { UInt64(UInt(bitPattern: ObjectIdentifier(self).hashValue)) }
+    var documentOwner: UInt64 { UInt64(runtime.rt) }
 
     private func documentCall(_ request: [String: Any]) -> [String: Any] {
         var request = request
@@ -75,6 +78,7 @@ extension Picker {
     /// `showSaveFilePicker(id, suggestedName)`, from any action.
     func document(_ name: String, _ args: [Any]) {
         var request: [String: Any] = ["command": name, "agent": ExactEnv.agentMode]
+        if ExactEnv.agentMode && !ExactEnv.agentPaints { request["present"] = true }
         if let id = args.first as? String { request["id"] = id }
         if args.count > 1 {
             if let multiple = args[1] as? Bool { request["multiple"] = multiple }
@@ -84,6 +88,7 @@ extension Picker {
         let view = (ruling["view"] as? NSNumber)?.uint32Value
         if ruling["refused"] != nil { if let view { documentCancelled(view, name) }; return }
         guard ruling["present"] as? Bool == true, let view else { return }
+        if let ticket = (ruling["ticket"] as? NSNumber)?.uint64Value { documentTickets[view] = ticket }
         presentDocument(name, view: view, multiple: ruling["multiple"] as? Bool ?? false,
                         suggestedName: ruling["suggestedName"] as? String ?? "")
     }
@@ -95,13 +100,25 @@ extension Picker {
               let name = ["open-file": "showOpenFilePicker", "open-directory": "showDirectoryPicker",
                           "save-file": "showSaveFilePicker"][capability],
               let view = (reply["node"] as? NSNumber)?.uint32Value else { return }
+        // The real picker shown beside the hold closes, its outcome the agent's.
+        if documentTickets.removeValue(forKey: view) != nil { closeDocument(view) }
         if reply["answered"] as? String == "cancel" { documentCancelled(view, name); return }
         let paths = (request["text"] as? String ?? "").split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         documentsChosen(view, paths.map { URL(fileURLWithPath: $0) }, name)
     }
 
+    /// A shown picker's outcome answers its hold, as `type @t <paths>` or
+    /// `tap @t cancel` would (journalled, never echoed); nil is a cancel.
+    private func answerHold(_ view: UInt32, _ urls: [URL]?) {
+        guard let ticket = documentTickets.removeValue(forKey: view) else { return }
+        var ask: [String: Any] = ["op": urls == nil ? "tap" : "type", "ticket": ticket]
+        if let urls { ask["text"] = urls.map(\.path).joined(separator: "\n") } else { ask["choice"] = "cancel" }
+        if let data = try? JSONSerialization.data(withJSONObject: ask) { _ = session.agent(String(decoding: data, as: UTF8.self)) }
+    }
+
     func documentsChosen(_ view: UInt32, _ urls: [URL], _ name: String) {
+        answerHold(view, urls.isEmpty ? nil : urls)
         let docs = urls.compactMap { session.mintDocument($0) }
         guard !docs.isEmpty else { session.log("\(name): refused: nothing to open"); documentCancelled(view, name); return }
         session.log("\(name): chosen")
@@ -115,6 +132,7 @@ extension Picker {
     }
 
     func documentCancelled(_ view: UInt32, _ name: String) {
+        answerHold(view, nil)
         session.log("\(name): cancelled")
         session.apply(session.runtime.pickerCancel(view, now: session.now()))
     }
@@ -141,14 +159,14 @@ extension Picker {
         // tvOS has no document picker.
         session.log("\(name): refused: no document picker"); documentCancelled(view, name)
     }
+    func closeDocument(_: UInt32) {}
 }
 #elseif canImport(UIKit)
 extension Picker {
     func presentDocument(_ name: String, view: UInt32, multiple: Bool, suggestedName: String) {
-        guard var controller = session.presenter.root.window?.rootViewController else {
+        guard let controller = ViewPresentation.presenter(for: session.presenter.views[view] ?? session.presenter.root) else {
             session.log("\(name): refused: no window"); documentCancelled(view, name); return
         }
-        while let presented = controller.presentedViewController { controller = presented }
         let picker: UIDocumentPickerViewController
         switch name {
         case "showDirectoryPicker":
@@ -170,18 +188,43 @@ extension Picker {
         }
         picker.delegate = self
         documentRequests[ObjectIdentifier(picker)] = (view, name)
+        if documentTickets[view] != nil { documentShown[view] = picker }
         controller.present(picker, animated: true)
     }
+
+    /// Close the picker shown for real at `view`, its outcome said elsewhere.
+    func closeDocument(_ view: UInt32) {
+        guard let picker = documentShown.removeValue(forKey: view) else { return }
+        documentRequests[ObjectIdentifier(picker)] = nil
+        picker.dismiss(animated: !ExactEnv.agentFreezes)
+    }
+
+    /// `back` with a real picker up (`--touch platform`): the newest closes,
+    /// cancelled, as its Cancel button closes it. False with none.
+    func agentBackDocument() -> Bool {
+        guard let (view, picker) = documentShown.max(by: { $0.key < $1.key }),
+              let (_, name) = documentRequests[ObjectIdentifier(picker)] else { return false }
+        closeDocument(view)
+        documentCancelled(view, name)
+        return true
+    }
+
+    /// Whether a picker shown for real has yet to finish arriving (ShareSheet.arriving).
+    var documentArriving: Bool { documentShown.values.contains { $0.presentingViewController == nil || $0.isBeingPresented } }
 
     /// A document picker's outcome; `false` when `controller` is not one.
     func documentFinished(_ controller: UIDocumentPickerViewController, urls: [URL]?) -> Bool {
         guard let (view, name) = documentRequests.removeValue(forKey: ObjectIdentifier(controller)) else { return false }
+        documentShown[view] = nil
         if let urls, !urls.isEmpty { documentsChosen(view, urls, name) } else { documentCancelled(view, name) }
         return true
     }
 }
 #else
 extension Picker {
+    /// AppKit's panels are never shown beside a hold: no drive shows them (`--touch platform` is iOS's).
+    func closeDocument(_: UInt32) {}
+
     func presentDocument(_ name: String, view: UInt32, multiple: Bool, suggestedName: String) {
         let panel: NSSavePanel
         if name == "showSaveFilePicker" {

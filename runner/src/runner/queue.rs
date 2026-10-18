@@ -147,7 +147,7 @@ impl<D: DataSource> Runner<D> {
                     .front()
                     .is_some_and(|w| exact_plan::runner_owned_source(&w.source));
             if self.queues.waits(m) && self.idle(m) && ready {
-                self.queues.next_due[m] = self.now_ms;
+                self.queues.next_due[m] = self.armed_at();
             }
         }
     }
@@ -253,6 +253,8 @@ impl<D: DataSource> Runner<D> {
         };
         let waiting = self.queues.waiting[m].len();
         self.log(format!("{name} next ({waiting} waiting)"));
+        // Inside next's checkpoint: a refused settlement restores the old failure.
+        self.failed_mut[m] = None;
         let later = match self.ask_send(m, &head.source, &head.args) {
             Ok(Asked::Now(slot, value)) => {
                 self.slots[slot] = value;
@@ -260,6 +262,7 @@ impl<D: DataSource> Runner<D> {
                 None
             }
             Ok(Asked::Later(request)) => Some(request),
+            Ok(Asked::Failed) => None,
             Err(e) => return Err((e, NextRefusal::Ask)),
         };
         self.sync_pending_flags();
@@ -269,7 +272,7 @@ impl<D: DataSource> Runner<D> {
         // Answered at once, it has landed: what it changes is asked, as an
         // action's or a reply's landing asks it. In flight, its write shows
         // through the overlay.
-        if later.is_none() {
+        if self.landed.contains(&m) {
             for r in self.declared_refreshes(m) {
                 self.force_refresh(r);
             }
@@ -333,6 +336,7 @@ impl<D: DataSource> Runner<D> {
 pub(super) enum Asked {
     Now(usize, Value),
     Later(Request),
+    Failed,
 }
 
 impl<D: DataSource> Runner<D> {
@@ -346,13 +350,30 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Asked, RunnerError> {
         let ty = self.plan.mutations[m].ty;
         let name = |plan: &Plan| plan.str(plan.mutations[m].name).to_string();
+        self.snapshot_sockets();
+        self.mutation_requests += 1;
         let answer = self
             .data
             .answer_for(Target::Mutation(m), &mut self.store, source, args);
+        // What its source staged on sockets goes out only with an answer
+        // now that conforms (LLP 1016.000 D7); what the turns after its
+        // source sent goes whatever it answers (the amendment of 2026-10-18).
+        self.stage_answer(Target::Mutation(m));
+        let staged = self.store.take_sockets();
         // A mutation's console lines, including a refusal, reach the agent's
         // logs whether the answer comes now or the send waited its turn.
         for line in self.data.take_logs() {
             self.log(line);
+        }
+        if let Err(DataError::Failed(code, why, reason)) = &answer {
+            self.failed_mut[m] = Some(crate::failure::Failure {
+                code: *code,
+                message: why.clone(),
+                reason: reason.clone(),
+            });
+            self.log(super::lines::send_failed_now(&name(&self.plan), why));
+            self.end_write(m, None);
+            return Ok(Asked::Failed);
         }
         let answer = answer.map_err(|error| RunnerError::Data {
             resource: name(&self.plan),
@@ -363,11 +384,30 @@ impl<D: DataSource> Runner<D> {
                 if !self.conforms(&v, ty) {
                     return Err(self.shape(name(&self.plan), &v, ty));
                 }
+                if let Err(why) = self.stage_sockets(m, staged) {
+                    self.log(super::lines::send_failed_now(&name(&self.plan), &why));
+                    self.end_write(m, None);
+                    return Ok(Asked::Failed);
+                }
                 let slot = self.mutation_slot(m)?;
                 self.land_write(m, None, &v);
                 Ok(Asked::Now(slot, Value::some(v)))
             }
+            Answer::Later(_) if !staged.is_empty() => {
+                let why = "a socket mutation must answer synchronously";
+                self.log(super::lines::send_failed_now(&name(&self.plan), why));
+                self.end_write(m, None);
+                Ok(Asked::Failed)
+            }
             Answer::Later(request) => Ok(Asked::Later(request)),
         }
+    }
+}
+
+impl<D: DataSource> Runner<D> {
+    /// Mutation source requests issued this incarnation, excluding continuations and reads.
+    /// Monotonic across a refused commit: the source was actually asked.
+    pub fn mutation_requests(&self) -> u64 {
+        self.mutation_requests
     }
 }

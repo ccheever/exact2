@@ -9,13 +9,28 @@ use crate::{block_on, load_gpu, Frame, Gpu, Surface};
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// Whether a missing prerequisite fails a test rather than skipping it:
+/// `EXACT_REQUIRED=1`, which the async lane sets (scripts/coverage.mjs).
+pub fn required() -> bool {
+    std::env::var("EXACT_REQUIRED").as_deref() == Ok("1")
+}
+
 /// Skip only a classified absent adapter; device and configuration failures fail tests.
+/// Under [`required`] an absent adapter fails too.
 pub fn device_or_skip<T>(result: Result<T, String>) -> Option<T> {
+    device_or(result, required())
+}
+
+/// [`device_or_skip`] with the policy given.
+pub fn device_or<T>(result: Result<T, String>, required: bool) -> Option<T> {
     match result {
         Ok(gpu) => Some(gpu),
-        Err(reason) if reason.starts_with("no adapter:") => {
-            eprintln!("SKIP GPU test: {reason}");
+        Err(reason) if reason.starts_with("no adapter:") && !required => {
+            eprintln!("SKIP missing gpu: {reason}");
             None
+        }
+        Err(reason) if reason.starts_with("no adapter:") => {
+            panic!("missing gpu: {reason} (EXACT_REQUIRED=1)")
         }
         Err(reason) => panic!("GPU device request failed: {reason}"),
     }
@@ -86,6 +101,27 @@ impl Pixels {
 /// This machine's device, or why there is none — a fixture skips, saying so.
 pub fn device() -> Result<Gpu, String> {
     block_on(load_gpu(wgpu::Instance::default(), None)).map_err(|error| error.to_string())
+}
+
+/// This machine's device without the `withheld` features: what a device that
+/// lacks them draws (full-precision shading, say), beside `device`'s.
+pub fn device_without(withheld: wgpu::Features) -> Result<Gpu, String> {
+    let instance = wgpu::Instance::default();
+    let adapter = block_on(instance.request_adapter(&Default::default()))
+        .map_err(|error| error.to_string())?;
+    let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("exact fixture"),
+        required_limits: crate::requested_limits(adapter.limits()),
+        required_features: adapter.features() & crate::requested_features() & !withheld,
+        ..Default::default()
+    }))
+    .map_err(|error| error.to_string())?;
+    Ok(Gpu {
+        instance,
+        adapter,
+        device,
+        queue,
+    })
 }
 
 /// One frame of `surface` into a fresh `Rgba8Unorm` texture of the frame's

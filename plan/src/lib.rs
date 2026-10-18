@@ -27,6 +27,20 @@
 pub mod asm;
 pub mod builder;
 pub mod bytes;
+mod entry;
+pub use entry::entry_identifier;
+/// ActivityKit's ordered placement identities (LLP 1126.001 WP8).
+pub const ACTIVITY_PLACEMENTS: [&str; 8] = [
+    "lockScreen",
+    "compactLeading",
+    "compactTrailing",
+    "minimal",
+    "expanded.leading",
+    "expanded.trailing",
+    "expanded.center",
+    "expanded.bottom",
+];
+
 pub mod shared;
 pub mod strings;
 pub mod value;
@@ -72,6 +86,8 @@ pub enum PlanError {
         available: usize,
     },
     BadMagic,
+    /// A running host received a snapshot, or the snapshot reader received another entry.
+    WrongEntry,
     UnsupportedVersion(u32),
     FormatDigestMismatch {
         expected: u64,
@@ -99,7 +115,7 @@ pub enum PlanError {
     UnknownValueTag(u8),
     NonFiniteValue,
     ValueTooDeep,
-    /// A region's arm count does not match its kind (`when`/`match` 2, `each` 1).
+    /// A region's arm count does not match its kind (`if`/`match` 2, `for` 1).
     RegionArms {
         region: u32,
         kind: RegionKind,
@@ -221,6 +237,42 @@ impl Plan {
     /// progress. Called by the generated `validate`, so every loaded or built
     /// plan has passed it.
     pub fn validate_semantics(&self) -> Result<(), PlanError> {
+        let activity = !self.activity_slots.is_empty();
+        if self.snapshot_entry.is_empty() {
+            if self.snapshot_refresh.is_some() || activity {
+                return Err(PlanError::WrongEntry);
+            }
+        } else if self.snapshot_refresh.is_some() == activity {
+            return Err(PlanError::WrongEntry);
+        }
+        if activity {
+            if self.activity_slots.len() != ACTIVITY_PLACEMENTS.len() {
+                return Err(PlanError::WrongEntry);
+            }
+            let roots: Vec<_> = self
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.parent == Some(NodesId(0)) && n.arm.is_none())
+                .map(|(i, _)| i as u32)
+                .collect();
+            for (i, slot) in self.activity_slots.iter().enumerate() {
+                if self.str(slot.name) != ACTIVITY_PLACEMENTS[i]
+                    || roots.get(i) != Some(&slot.root.0)
+                {
+                    return Err(PlanError::WrongEntry);
+                }
+            }
+            if roots.len() != ACTIVITY_PLACEMENTS.len()
+                || !self.slots.iter().any(|s| {
+                    self.str(s.name) == "snapshot_state"
+                        && s.owner.is_none()
+                        && self.type_(s.ty).kind == TypeKind::Record
+                })
+            {
+                return Err(PlanError::WrongEntry);
+            }
+        }
         // @ref LLP 1038 D2 — declaration order and the one root router slot.
         let mut notfound = false;
         for (i, route) in self.routes.iter().enumerate() {
@@ -257,13 +309,29 @@ impl Plan {
                 });
             }
         }
-        // A late slot is a root slot: an owned one is its instance's.
+        // A late slot is a root slot: an owned one is its instance's. A
+        // persisted one is an authored root slot of a small setting (LLP
+        // 1116 D5).
         for (i, slot) in self.slots.iter().enumerate() {
-            if slot.late && (slot.owner.is_some() || self.locale == Some(SlotsId(i as u32))) {
+            let here = Some(SlotsId(i as u32));
+            if slot.late && (slot.owner.is_some() || self.locale == here) {
                 return Err(PlanError::BadReference {
                     table: "slots",
                     row: i as u32,
                     field: "late",
+                });
+            }
+            if slot.persist
+                && (slot.owner.is_some()
+                    || slot.late
+                    || self.locale == here
+                    || self.router == here
+                    || !self.persistable(slot.ty))
+            {
+                return Err(PlanError::BadReference {
+                    table: "slots",
+                    row: i as u32,
+                    field: "persist",
                 });
             }
         }
@@ -437,6 +505,28 @@ impl Plan {
         {
             return Err(PlanError::GenericStacks);
         }
+        // @ref LLP 1121 D8 — looks by node, then state, one a state a node
+        // (hosts binary-search by node).
+        if let Some(i) = self
+            .looks
+            .windows(2)
+            .position(|pair| (pair[0].node.0, pair[0].state) >= (pair[1].node.0, pair[1].state))
+        {
+            return Err(PlanError::BadReference {
+                table: "looks",
+                row: i as u32 + 1,
+                field: "node",
+            });
+        }
+        // A look is `:hover` (1) or `:focus-visible` (2): `:active` (0) lowers
+        // to the press paint (LLP 1121 D8 as amended 2026-10-18).
+        if let Some(i) = self.looks.iter().position(|l| !(1..=2).contains(&l.state)) {
+            return Err(PlanError::BadReference {
+                table: "looks",
+                row: i as u32,
+                field: "state",
+            });
+        }
         self.validate_texts()?;
         self.validate_site_depth()?;
         self.validate_acyclic_types()
@@ -535,6 +625,20 @@ impl Plan {
         Ok(())
     }
 
+    /// Whether a slot of type `ty` may be persisted (LLP 1116 D5): a number,
+    /// string or bool, or an option or list of one.
+    pub fn persistable(&self, ty: TypesId) -> bool {
+        let scalar = |t: TypesId| {
+            matches!(
+                self.type_(t).kind,
+                TypeKind::Number | TypeKind::String | TypeKind::Bool
+            )
+        };
+        let t = self.type_(ty);
+        scalar(ty)
+            || (matches!(t.kind, TypeKind::Option | TypeKind::List) && t.elem.is_some_and(scalar))
+    }
+
     /// The region whose instance frame holds an owned slot's value: its
     /// owning arm's region. `None` for a root slot.
     pub fn owner_region(&self, slot: &SlotsRow) -> Option<RegionsId> {
@@ -609,6 +713,90 @@ pub fn is_portable_asset_path(source: &str) -> bool {
         .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
+/// Whether `member`, one unquoted member of a `font-family` list, is a
+/// family name as CSS parses it (CSS Fonts 4 §2.1 `<custom-ident>+`): CSS
+/// identifiers separated by whitespace. A lone identifier may not be a
+/// CSS-wide keyword or `default`, and a complete generic family may not
+/// begin a longer name. Chrome, Firefox and WebKit agree on each case
+/// (`CSS.supports("font-family", …)`, 2026-10-12); compiled literals and
+/// run-time strings are checked by this one rule.
+pub fn is_css_family_name(member: &str) -> bool {
+    const SPACE: [char; 5] = [' ', '\t', '\n', '\r', '\x0c'];
+    let start = |c: char| c.is_ascii_alphabetic() || c == '_' || !c.is_ascii();
+    let escape =
+        |rest: &str| rest.starts_with('\\') && !rest[1..].starts_with(['\n', '\r', '\x0c']);
+    let mut idents = Vec::new();
+    let mut rest = member.trim_matches(SPACE);
+    while !rest.is_empty() {
+        let mut chars = rest.chars();
+        let first = chars.next().unwrap();
+        let second = chars.as_str();
+        let begins = if first == '-' {
+            second.starts_with('-') || second.starts_with(start) || escape(second)
+        } else {
+            start(first) || escape(rest)
+        };
+        if !begins {
+            return false;
+        }
+        let mut i = 0;
+        while i < rest.len() {
+            let tail = &rest[i..];
+            if escape(tail) {
+                // `\` then up to six hex digits and one whitespace, or any
+                // one other character; at the end, U+FFFD.
+                let hex = tail[1..]
+                    .bytes()
+                    .take(6)
+                    .take_while(u8::is_ascii_hexdigit)
+                    .count();
+                i += 1 + match hex {
+                    0 => tail[1..].chars().next().map_or(0, char::len_utf8),
+                    n => n + usize::from(tail[1 + n..].starts_with(SPACE)),
+                };
+                continue;
+            }
+            let c = tail.chars().next().unwrap();
+            if start(c) || c.is_ascii_digit() || c == '-' {
+                i += c.len_utf8();
+            } else if SPACE.contains(&c) {
+                break;
+            } else {
+                return false;
+            }
+        }
+        idents.push(&rest[..i]);
+        rest = rest[i..].trim_start_matches(SPACE);
+    }
+    let is = |ident: &str, words: &[&str]| words.iter().any(|w| ident.eq_ignore_ascii_case(w));
+    match idents.as_slice() {
+        [] => false,
+        [one] => !is(
+            one,
+            &[
+                "inherit",
+                "initial",
+                "unset",
+                "revert",
+                "revert-layer",
+                "default",
+            ],
+        ),
+        [first, ..] => !is(
+            first,
+            &[
+                "serif",
+                "sans-serif",
+                "cursive",
+                "fantasy",
+                "monospace",
+                "system-ui",
+                "math",
+            ],
+        ),
+    }
+}
+
 impl std::fmt::Display for PlanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
@@ -624,6 +812,8 @@ pub const RUNNER_OWNED_SOURCES: &[&str] = &[
     "exactPage",
     "exactSurface",
     "exactTime",
+    "exactTransport",
+    "exactMIDI",
 ];
 
 /// Whether the runner answers `name` ([`RUNNER_OWNED_SOURCES`]).

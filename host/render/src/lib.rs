@@ -143,6 +143,18 @@ pub enum Ids {
     Any,
 }
 
+/// The kernel's document writer for whose runtime adopts the page: the
+/// JavaScript runtime's writes no bare text style's rows, as its template
+/// writes none (LLP 1115.000 D12.2).
+fn project_for<D: DataSource>(
+    ids: Ids,
+) -> fn(&Runner<D>) -> Result<Document, exact_web::document::DocumentError> {
+    match ids {
+        Ids::Runtime => project,
+        Ids::Any => exact_web::document::project_for_js,
+    }
+}
+
 /// Whether the tree a runner settles to projects as the tree one booted from
 /// its checkpoint builds, view ids apart. Regions, rows and bindings follow
 /// state; what could differ is only state fixed where a slot is first made:
@@ -288,7 +300,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
             // would have refused: the page renders again, with a kernel,
             // which writes it or reports the refusal as ever.
             Err(why) if projection == Projection::Auto => {
-                println!("render {location}: with a kernel ({why})");
+                crate::log(format_args!("render {location}: with a kernel ({why})"));
                 retire(page, data);
                 return render_with_at(
                     plan,
@@ -309,7 +321,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
         }
     } else if ids == Ids::Any && projects_as_booted(plan) {
         Some((
-            project(&page.runner).map_err(|e| e.to_string())?,
+            project_for(ids)(&page.runner).map_err(|e| e.to_string())?,
             page.runner.handlers(),
         ))
     } else {
@@ -328,7 +340,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
     let (document, handlers) = match settled_tree {
         Some(settled) => settled,
         None => {
-            let booted = Runner::boot_checkpoint(
+            let mut booted = Runner::boot_checkpoint(
                 plan.clone(),
                 Anonymous::new(data()),
                 Kernel::with_monospace_on_demand(),
@@ -339,8 +351,11 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
                 location,
             )
             .map_err(|e| format!("boot from the checkpoint: {e:?}"))?;
+            booted
+                .build_every_tab()
+                .map_err(|e| format!("boot from the checkpoint: {e:?}"))?;
             (
-                project(&booted).map_err(|e| e.to_string())?,
+                project_for(ids)(&booted).map_err(|e| e.to_string())?,
                 booted.handlers(),
             )
         }
@@ -384,6 +399,8 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     now_ms: f64,
     on_boot: Option<OnBoot<'_, D>>,
 ) -> Result<Settling<D>, String> {
+    // Both complete documents and streamed JS pages settle through this entry.
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     // A renderer runs any plan it is handed: every capability is linked
     // (LLP 1047 D7), so a projection never meets one it can't write.
     exact_web::link(exact_web_capabilities::ALL);
@@ -446,6 +463,11 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
         ),
         Err(e) => return Err(format!("boot: {e:?}")),
     };
+    // A rendered page holds every tab panel, which the JS target adopts at
+    // boot, building every one (LLP 1075.003 §9.14).
+    runner
+        .build_every_tab()
+        .map_err(|e| format!("boot: {e:?}"))?;
     // The boot document, before any answer: a route's `paint=boot`
     // (LLP 1048.005).
     if let Some(on_boot) = on_boot {
@@ -599,6 +621,19 @@ fn warm_realms() -> bool {
 pub(crate) fn retire_renders() {
     let retired = RETIRED.with(|r| std::mem::take(&mut *r.borrow_mut()));
     drop(retired);
+}
+
+/// Drop this render thread's JavaScript runtimes while its supporting
+/// thread-locals are still available.
+pub(crate) fn shutdown_render_thread() {
+    let retired = RETIRED.with(|r| std::mem::take(&mut *r.borrow_mut()));
+    let made = MADE.with(|m| m.borrow_mut().take());
+    let realms = REALMS.with(|r| std::mem::take(&mut *r.borrow_mut()));
+    let executors = EXECUTORS.with(|e| std::mem::take(&mut *e.borrow_mut()));
+    drop(retired);
+    drop(made);
+    drop(realms);
+    drop(executors);
 }
 
 /// Make this worker's next render's module realm now (LLP 1048.000 D10's
@@ -1027,19 +1062,7 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
                 return ExitCode::FAILURE;
             }
         };
-        println!("serving http://{}/", server.addr());
-        let _ = std::io::Write::flush(&mut std::io::stdout());
-        drain_on_signal(server.stopper());
-        return match server.run(data) {
-            Ok(()) => {
-                println!("drained");
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                eprintln!("render: serve: {e}");
-                ExitCode::FAILURE
-            }
-        };
+        return run_server(server, data);
     }
     if build {
         match build_locations(&decoded) {
@@ -1133,12 +1156,40 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
         line.push('}');
         println!("{line}");
     }
+    shutdown_render_thread();
     if failed {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
     }
 }
+
+// Losing the log reader must not interrupt a response or SIGTERM's drain.
+fn log(line: std::fmt::Arguments<'_>) {
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{line}");
+    let _ = stdout.flush();
+}
+
+fn run_server<D: DataSource + 'static>(server: Server, data: fn() -> D) -> std::process::ExitCode {
+    use std::process::ExitCode;
+    log(format_args!("serving http://{}/", server.addr()));
+    drain_on_signal(server.stopper());
+    match server.run(data) {
+        Ok(()) => {
+            log(format_args!("drained"));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("render: serve: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod stdout_tests;
 
 /// SIGTERM or SIGINT drains the server (D10): a restart loses no render
 /// in flight.
@@ -1159,8 +1210,7 @@ fn drain_on_signal(stopper: Stopper) {
             while !SIGNALLED.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(20));
             }
-            println!("draining");
-            let _ = std::io::Write::flush(&mut std::io::stdout());
+            log(format_args!("draining"));
             stopper.stop();
         });
 }

@@ -46,6 +46,136 @@ public typealias EventFn = @convention(c) (
 public typealias ReplyFn = @convention(c) (
     UnsafeMutableRawPointer?, UInt32, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32
 ) -> Void
+/// Receives an asset's bytes from `ReadFn`; not called for a missing asset.
+public typealias SinkFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+/// The host's read of an app asset by name (`deck/app.js`), through the
+/// session's resolver: the embedded bundle, a delivered generation, or the
+/// dev URL's. Called off the main thread.
+public typealias ReadFn = @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, SinkFn?) -> Void
+private var assetReader: ReadFn?
+
+/// The app's assets as an origin, `exact-app://app/<name>`, so a bundled
+/// page's relative URLs (scripts, styles, fonts, chunks, workers, wasm)
+/// resolve to the files beside it, as they do beside the page on the web
+/// (@ref LLP 1020.001 D1). WebKit refuses a handler for `http(s)`, so the
+/// origin is a scheme of its own; WebKit treats it as a secure context.
+/// One per web view: the configuration retains it, and it holds its arm
+/// weakly.
+private final class AssetScheme: NSObject, WKURLSchemeHandler {
+    static let scheme = "exact-app"
+    static let origin = "exact-app://app"
+    static let base = URL(string: "exact-app://app/")!
+    static let reads = DispatchQueue(label: "exact.web.assets", qos: .userInitiated, attributes: .concurrent)
+    /// What is served: the trees a web build publishes beside the app's
+    /// page for a page to live in, never the rest of what the resolver can
+    /// read (the bundle's resources, or the working directory of a bare
+    /// development executable) (@ref LLP 1020.001 D2).
+    static let trees = ["assets/", "deck/"]
+    weak var arm: WebArm?
+    /// Tasks WebKit stopped: a stopped task must not be answered.
+    var stopped = Set<ObjectIdentifier>()
+
+    func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
+        guard let url = task.request.url else { return }
+        // Only a web view showing a bundled page serves the origin: a remote
+        // guest cannot read the app's assets through it.
+        guard let arm, arm.assetPage != nil else { return refuse(task, url, logging: false) }
+        // The wrapper an iOS page needs is served at the page's own origin,
+        // so a framed page keeps first-party storage, as a direct one does
+        // (@ref LLP 1020.001 D4).
+        if !arm.direct, url.absoluteString == arm.wrapperURL.absoluteString, let wrapper = arm.wrapperDocument {
+            let body = Data(wrapper.utf8)
+            task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [
+                "Content-Type": "text/html; charset=utf-8", "Content-Length": String(body.count), "Cache-Control": "no-store"])!)
+            task.didReceive(body)
+            task.didFinish()
+            return
+        }
+        // A direct page's own response carries its `sandbox`, as the
+        // synthetic local document's does (@ref LLP 1020 §10).
+        let sandbox = arm.direct && arm.assetPage?.absoluteString == url.absoluteString ? arm.sandbox : nil
+        let range = task.request.value(forHTTPHeaderField: "Range")
+        let id = ObjectIdentifier(task)
+        let name = String(url.path.drop(while: { $0 == "/" }))
+        guard url.host == "app", AssetScheme.trees.contains(where: name.hasPrefix) else { return refuse(task, url, logging: true) }
+        AssetScheme.reads.async {
+            let bytes = AssetScheme.read(name)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.stopped.remove(id) == nil else { return }
+                guard let bytes else { return self.refuse(task, url, logging: true) }
+                var headers = ["Content-Type": AssetScheme.type(url.pathExtension), "Accept-Ranges": "bytes", "Cache-Control": "no-cache"]
+                if let sandbox { headers["Content-Security-Policy"] = "sandbox \(sandbox)" }
+                var status = 200, body = bytes
+                if let range, let (from, to) = AssetScheme.bytes(range, count: bytes.count) {
+                    status = 206
+                    body = bytes.subdata(in: from..<(to + 1))
+                    headers["Content-Range"] = "bytes \(from)-\(to)/\(bytes.count)"
+                }
+                headers["Content-Length"] = String(body.count)
+                task.didReceive(HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!)
+                task.didReceive(body)
+                task.didFinish()
+            }
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {
+        stopped.insert(ObjectIdentifier(task))
+    }
+
+    func refuse(_ task: WKURLSchemeTask, _ url: URL, logging: Bool) {
+        if logging {
+            let trees = AssetScheme.trees.joined(separator: " or ")
+            FileHandle.standardError.write(Data("exact: iframe \(arm?.src ?? ""): \(url.absoluteString) is not an app asset under \(trees)\n".utf8))
+        }
+        task.didReceive(HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "0"])!)
+        task.didFinish()
+    }
+
+    static func read(_ name: String) -> Data? {
+        guard let assetReader else { return nil }
+        final class Box { var data: Data? }
+        let box = Box()
+        let sink: SinkFn = { context, bytes, length in
+            Unmanaged<Box>.fromOpaque(context!).takeUnretainedValue().data = Data(UnsafeBufferPointer(start: bytes, count: Int(length)))
+        }
+        let utf8 = Array(name.utf8)
+        withExtendedLifetime(box) {
+            utf8.withUnsafeBufferPointer { assetReader($0.baseAddress, UInt32($0.count), Unmanaged.passUnretained(box).toOpaque(), sink) }
+        }
+        return box.data
+    }
+
+    /// The types a browser is strict about are named exactly: a module
+    /// script refuses any other JavaScript type, and streaming wasm
+    /// compilation requires `application/wasm`.
+    static func type(_ ext: String) -> String {
+        switch ext.lowercased() {
+        case "js", "mjs": return "text/javascript; charset=utf-8"
+        case "wasm": return "application/wasm"
+        case "html", "htm": return "text/html; charset=utf-8"
+        case "css": return "text/css; charset=utf-8"
+        case "json", "map": return "application/json"
+        default:
+            let type = UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
+            return type.hasPrefix("text/") ? "\(type); charset=utf-8" : type
+        }
+    }
+
+    /// One `bytes=` range (RFC 9110 §14.1.2), as media elements ask for.
+    static func bytes(_ header: String, count: Int) -> (Int, Int)? {
+        guard count > 0, header.hasPrefix("bytes="), !header.contains(",") else { return nil }
+        let parts = header.dropFirst(6).split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        if parts[0].isEmpty {
+            guard let suffix = Int(parts[1]), suffix > 0 else { return nil }
+            return (max(0, count - suffix), count - 1)
+        }
+        guard let from = Int(parts[0]), from < count else { return nil }
+        let to = parts[1].isEmpty ? count - 1 : min(Int(parts[1]) ?? count - 1, count - 1)
+        return to >= from ? (from, to) : nil
+    }
+}
 
 private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     let id: UInt32
@@ -79,6 +209,10 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     var pageBridge = false
     /// The guest is a bundled page: its failed sub-resources are logged.
     var localGuest = false
+    /// A bundled HTML page's URL under `AssetScheme`, while one is served.
+    var assetPage: URL?
+    /// The wrapper `AssetScheme` serves around such a page on iOS.
+    var wrapperDocument: String?
     /// A bundled page's origin: loopback HTTP, a secure context (as the web
     /// dev loop's `http://127.0.0.1` page is) that WebKit holds to no
     /// mixed-content blocking. Under an `https:` origin WebKit refuses every
@@ -108,12 +242,15 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         // view (@ref LLP 1020 D2, LLP 1068 §0.1 Q3: views are not pooled).
         let configuration = WebArm.template.copy() as! WKWebViewConfiguration
         configuration.userContentController = controller
+        let assets = AssetScheme()
+        configuration.setURLSchemeHandler(assets, forURLScheme: AssetScheme.scheme)
         #if os(macOS)
         webView = ExactWebView(frame: .zero, configuration: configuration)
         #else
         webView = WKWebView(frame: .zero, configuration: configuration)
         #endif
         super.init()
+        assets.arm = self
         #if EXACT_DEVELOPMENT
         // Safari's platform inspector sees only this guest, not Exact's
         // native tree. Production arms never compile this opt-in (#101).
@@ -209,8 +346,9 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     /// One document per row, as a platform web view is used: a local
-    /// document is the web view's own document at the synthetic origin
-    /// (its `sandbox` as a CSP `sandbox` header, which WebKit enforces on
+    /// document is the web view's own document, a bundled page at its
+    /// `AssetScheme` URL and an app file at the synthetic origin (its
+    /// `sandbox` as a CSP `sandbox` header, which WebKit enforces on
     /// a top-level document, opaque origin included), and an unsandboxed
     /// http(s) `src` is loaded as itself. Only a sandboxed remote `src`
     /// keeps the wrapper and its inner `<iframe>`: WebKit cannot sandbox a
@@ -237,6 +375,8 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             : web?.scheme?.lowercased() == "http" ? "http://exact.invalid" : "https://exact.invalid"
         wrapperURL = URL(string: "\(origin)/frame/\(id)/index.html")!
         localGuest = local != nil && error == nil
+        assetPage = localGuest ? src.flatMap(WebArm.assetURL) : nil
+        if assetPage != nil { wrapperURL = URL(string: "\(AssetScheme.origin)/.exact/frame/\(id)/index.html")! }
         #if os(iOS)
         // iOS lays a top-level document out by its viewport `<meta>` (980
         // CSS px without one); a frame ignores it and takes its box. Only a
@@ -250,12 +390,21 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         setPageBridge(!direct)
         guard direct else {
             let request = URLRequest(url: wrapperURL, cachePolicy: .reloadIgnoringLocalCacheData)
-            webView.loadSimulatedRequest(request, responseHTML: wrapper(error: error))
+            if assetPage != nil {
+                wrapperDocument = wrapper(error: nil)
+                webView.load(request)
+            } else {
+                webView.loadSimulatedRequest(request, responseHTML: wrapper(error: error))
+            }
             return
         }
         expectedOrigin = guestOrigin(remote: remote, local: local != nil)
         if let web, local == nil {
             webView.load(URLRequest(url: web))
+            return
+        }
+        if let assetPage {
+            webView.load(URLRequest(url: assetPage, cachePolicy: .reloadIgnoringLocalCacheData))
             return
         }
         var headers = ["Content-Type": "text/html; charset=utf-8"]
@@ -265,7 +414,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
                                      response: response, responseData: Data((local ?? "").utf8))
     }
 
-    /// A local file that is not text (a PDF, an image) is the web view's
+    /// A non-HTML local file (plain text, a PDF, an image) is the web view's
     /// own document under its content type, as Chrome shows such
     /// a frame by the type its server sent: WebKit's PDF view for a PDF, not
     /// its bytes as HTML text (#115, @ref LLP 1020 §10).
@@ -273,6 +422,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         let url = URL(string: "\(WebArm.localOrigin)/frame/\(id)/index.html")!
         wrapperURL = url
         localGuest = true
+        assetPage = nil
         direct = true
         setPageBridge(false)
         expectedOrigin = guestOrigin(remote: nil, local: true)
@@ -318,7 +468,8 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     func wrapper(error: String?) -> String {
         let local = error.map(errorDocument) ?? src.flatMap(localDocument)
         let remote = local == nil ? src.flatMap(remoteSource) : nil
-        let source = local.map { " srcdoc=\"\(attribute($0))\"" }
+        let source = (error == nil ? assetPage : nil).map { " src=\"\(attribute($0.absoluteString))\"" }
+            ?? local.map { " srcdoc=\"\(attribute($0))\"" }
             ?? remote.map { " src=\"\(attribute($0))\"" }
             ?? ""
         let restriction = sandbox.map { " sandbox=\"\(attribute($0))\"" } ?? ""
@@ -362,7 +513,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     func guestOrigin(remote: String?, local: Bool) -> String? {
         let tokens = Set((sandbox ?? "").split(whereSeparator: { $0.isWhitespace }).map(String.init))
         if sandbox != nil, !tokens.contains("allow-same-origin") { return "null" }
-        if local { return WebArm.localOrigin }
+        if local { return assetPage == nil ? WebArm.localOrigin : AssetScheme.origin }
         guard let remote, let url = URL(string: remote),
               let scheme = url.scheme?.lowercased(),
               (scheme == "http" || scheme == "https"),
@@ -379,16 +530,25 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         return text.replacingOccurrences(of: "<", with: "\\u003c")
     }
 
-    /// A local `src` whose file type is not text: its bytes and content type.
-    /// Text (HTML, XHTML, XML, plain text) keeps the box-width document an
-    /// iOS frame needs (`fitsItsBox`); no extension, or an unknown type, too.
+    /// HTML keeps the box-width wrapper an iOS frame needs (`fitsItsBox`).
+    /// Every other known type keeps its MIME; text must never become HTML.
     func localFile(_ source: String) -> (Data, String)? {
         let path = source.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)[0]
             .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
         let ext = (String(path) as NSString).pathExtension
-        guard !ext.isEmpty, let file = UTType(filenameExtension: ext), !file.conforms(to: .text),
-              let type = file.preferredMIMEType?.lowercased(), let bytes = localBytes(source) else { return nil }
+        let type = UTType(filenameExtension: ext)?.preferredMIMEType?.lowercased()
+            ?? (source.hasPrefix("app:/") ? "application/octet-stream" : nil)
+        guard let type, type != "text/html", let bytes = localBytes(source) else { return nil }
         return (bytes, type)
+    }
+
+    /// A schemeless `src` (not `app:/`) under `AssetScheme`, its query and
+    /// fragment kept: `/deck/index.html` is `exact-app://app/deck/index.html`.
+    static func assetURL(_ source: String) -> URL? {
+        guard !source.hasPrefix("//"), URL(string: source)?.scheme == nil, !source.hasPrefix("app:"),
+              let url = URL(string: source, relativeTo: AssetScheme.base)?.absoluteURL,
+              AssetScheme.trees.contains(where: String(url.path.dropFirst()).hasPrefix) else { return nil }
+        return url
     }
 
     func localDocument(_ source: String) -> String? {
@@ -399,9 +559,10 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         if let suppliedDocument { return suppliedDocument }
         // Hosted http(s) decks keep their URL. A scheme-less src — including
         // `URL(string:)` returning nil for a leading-dot relative path — is a
-        // file under EXACT_ASSETS: an HTML one inlined as srcdoc, another
-        // served under its type. Query and fragment
-        // are URL metadata, not part of the filesystem path.
+        // file under EXACT_ASSETS. An HTML one is then served by URL under
+        // `AssetScheme`; these bytes decide only how it is placed on iOS
+        // (`fitsItsBox`). Another is served under its type. Query and
+        // fragment are URL metadata, not part of the filesystem path.
         if let scheme = URL(string: source)?.scheme?.lowercased(),
            scheme == "http" || scheme == "https" || scheme == "data" || scheme == "about" || scheme == "blob" {
             return nil
@@ -412,9 +573,6 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             .map { URL(fileURLWithPath: $0) }
             ?? Bundle.main.resourceURL
             ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        // Only single-file fixtures materialize this way: a multi-file
-        // bundle's subresources do not resolve under srcdoc. Hosted https
-        // decks have a scheme and never enter this path.
         let root = base.resolvingSymlinksInPath().standardizedFileURL.path
         let file = base.appendingPathComponent(String(relative))
             .resolvingSymlinksInPath().standardizedFileURL
@@ -466,7 +624,8 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         }
         if message.name == "exactAgent" {
             if let body = message.body as? [String: Any] {
-                if localGuest, let failed = body["failed"] as? String {
+                // `AssetScheme` logs its own misses.
+                if localGuest, let failed = body["failed"] as? String, !failed.hasPrefix("\(AssetScheme.scheme):") {
                     FileHandle.standardError.write(Data("exact: iframe \(src ?? ""): \(failed) did not load (\(WebArm.whyFailed(failed)))\n".utf8))
                 }
                 return
@@ -645,6 +804,11 @@ public func exactWebPlatformView(_ handle: UnsafeMutableRawPointer?) -> UnsafeMu
 @_cdecl("exact_web_set_src")
 public func exactWebSetSrc(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ present: UInt32) {
     arm(handle)?.setSrc(present == 0 ? nil : String(decoding: UnsafeBufferPointer(start: bytes, count: Int(length)), as: UTF8.self))
+}
+
+@_cdecl("exact_web_set_reader")
+public func exactWebSetReader(_ read: ReadFn?) {
+    assetReader = read
 }
 
 @_cdecl("exact_web_set_document")

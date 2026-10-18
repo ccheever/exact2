@@ -13,11 +13,15 @@ build = "build.rs"
 [[bin]]
 name = "caltrain-linux"
 path = "src/main.rs"
+test = false
+bench = false
 
 # The pages as documents (LLP 1048.000 D9): the web build's render entry.
 [[bin]]
 name = "caltrain-render"
 path = "src/bin/caltrain-render.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

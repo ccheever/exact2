@@ -1,0 +1,37 @@
+// LLP 1116.005 D4: a large title stays as the content under the bar changes
+// in place, on iOS. Chat-rooms' shape: a large title over a grouped list that
+// collapses it; a failed load's reason appearing between the two, so the list
+// no longer follows the header and nothing collapses the title; and an error
+// view in the list's place (StillTitleIOSTests).
+routes nav
+  rooms "/"
+
+component StillTitle
+  state failed = false
+  state gone = false
+  action fail
+    failed = true
+  action recover
+    failed = false
+  action lose
+    gone = true
+  view
+    main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="rooms-list" position="absolute" inset=0 display="flex" flex-direction="column"
+          header display="flex" align-items="center" padding="8px 16px"
+            text "Rooms" role="heading" aria-level=1
+          if failed
+            text "Can’t reach the server." color="-exact-system-red" padding="8px 16px 0" testId="rooms-error"
+          if gone
+            column flex=1 align-items="center" justify-content="center" testId="rooms-gone"
+              text "No rooms."
+          else
+            list id="rooms-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0 testId="rooms-list"
+              section
+                button press=fail testId="fail"
+                  text "Fail"
+                button press=recover testId="recover"
+                  text "Recover"
+                button press=lose testId="lose"
+                  text "Lose"

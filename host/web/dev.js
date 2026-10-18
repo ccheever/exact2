@@ -54,7 +54,8 @@ const utf8Compare = (a, b) => {
   for (let i = 0; i < Math.min(aa.length, bb.length); i++) if (aa[i] !== bb[i]) return aa[i] - bb[i];
   return aa.length - bb.length;
 };
-const validName = (name) => typeof name === "string" && /^(assets|deck|shaders)\//.test(name)
+// The trees a generation carries (serve.mjs `listAssets`), entry plans (`plans/`) among them.
+const validName = (name) => typeof name === "string" && /^(assets|deck|shaders|plans)\//.test(name)
   && !name.includes("\\") && !name.includes(":") && !name.includes("\0")
   && name.split("/").every((part) => part && part !== "." && part !== "..");
 const sameOrigin = (path, base) => {
@@ -139,7 +140,7 @@ async function fetchGeneration(message, signal, first = false) {
     plan: { bytes: plan.bytes.length, sha256: plan.sha256 },
     ...(rust ? { rust: Object.fromEntries(Object.keys(rust).sort().map(k => [k, { module: {bytes:rust[k].module.bytes,sha256:rust[k].module.sha256}, receipt:{bytes:rust[k].receipt.bytes,sha256:rust[k].receipt.sha256}, ...(k !== "wasm" ? {target:rust[k].target} : {}) }])) } : {}) };
   if (await digest(encoder.encode(JSON.stringify(canonical))) !== identity.generation) throw new Error("the generation digest does not bind its complete manifest");
-  return { ...identity, plan: plan.bytes, assets, module, rust: rustPayload, fetchMs: performance.now() - started };
+  return { ...identity, plan: plan.bytes, planSha256: plan.sha256, assets, module, rust: rustPayload, fetchMs: performance.now() - started };
 }
 
 // Fetches may finish in any order. Only the latest request can enter the
@@ -215,18 +216,28 @@ if (es) {
   // The module loader uses this implementation on trusted LAN HTTP too.
   globalThis.exact.moduleDigest = digest;
   let retry = null;
+  // Inspect mode's outline, hidden on a new generation (set below).
+  let outlineNone = () => {};
   const client = generationClient({ fetchGeneration, programChanged: () => { clearTimeout(retry); location.reload(); },
     apply: async (candidate, current) => {
       if (!current()) return false;
       const t = performance.now();
-      const accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust);
+      // (A hold command meanwhile is the new generation's: `rehold` or the server's replay has it.)
+      swaps += 1;
+      let accepted = false;
+      try { accepted = await globalThis.exact.reloadGeneration(candidate.plan, candidate.assets, current, candidate.module, candidate.rust, true); } finally { swaps -= 1; if (!accepted) rehold(); }
       if (accepted) {
         navigator.sendBeacon(`/__dev/reloaded?epoch=${candidate.epoch}&seq=${candidate.seq}&dom=${Date.now()}&fetch=${candidate.fetchMs.toFixed(1)}&boot=${(performance.now() - t).toFixed(1)}`);
         requestAnimationFrame(() => navigator.sendBeacon(`/__dev/painted?epoch=${candidate.epoch}&seq=${candidate.seq}&paint=${Date.now()}`));
       }
       return accepted;
     },
-    applied: () => { clearTimeout(retry); show(null); },
+    // A new generation runs its plan's own design: the live one since, if any, comes after.
+    // And the pin held, set again on its runner; its status says the new generation,
+    // and the design its runner runs (read from it: /__dev/design is 204 when the
+    // plan's own is the one to run, so no live answer would say it).
+    // An inspect outline drawn on the old generation's boxes goes.
+    applied: (candidate) => { clearTimeout(retry); if (stillUntil) stillEnds(); show(null); generations += 1; outlineNone(); delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; knownPlan(candidate?.planSha256); if (channel.held) command(channel.held); else if (channel.nonce) status(); rehold(); },
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
@@ -257,6 +268,547 @@ if (es) {
     };
     slot.ready?.();
   }
+  // The live table (LLP 1121 stage 4): a batch applies on its base; a stale
+  // build asks for the snapshot. A frame before boot waits for it, the
+  // latest only (a snapshot carries the whole design).
+  let designing = Promise.resolve();
+  // A scrub's status, taken once its drag rests.
+  let statusLater = null;
+  // Applied in place (the wasm's `exact_design_rows`): its batch is the
+  // page's only when `live` says applied.
+  // `still()`, after every wait, says whether the frame is still this page's.
+  const apply = async (frame, still = () => true) => {
+    const x = globalThis.exact;
+    await x.ready;
+    if (!still()) return { live: "structure" };
+    if (typeof x.wasm?.exact_design_rows !== "function") return { live: "unsupported" };
+    const n = x.wasm.exact_design_rows(x.writeIn(JSON.stringify(frame))), out = JSON.parse(x.readOut(n));
+    // A scrub's frames say the design once the drag rests (a status reads the
+    // root's computed style and posts, each frame otherwise), the commit's
+    // own report with it; one the runner dropped (an older frame) moves
+    // nothing, and leaves the rest as it was.
+    const moves = typeof out.design === "string" && out.design !== x.designDigest;
+    if (out.live === "applied") {
+      if (frame.scrub && moves) { clearTimeout(statusLater); statusLater = setTimeout(status, 150); scrubSend = true; try { unmoving(() => x.send(n)); } finally { scrubSend = false; } }
+      else x.send(n);
+    }
+    if (moves) { x.designDigest = out.design; if (!frame.scrub) status(); }
+    if (out.unsupported) { console.warn("exact dev: the wide colour table is full: a colour was refused, its rows keep their value"); report({ kind: "unsupported", what: "batch", detail: "the wide colour table is full: a colour was refused" }); }
+    return out;
+  };
+  // A scrub's frame (LLP 1121 D13) shows with no transition, as the tool
+  // drags it: every transition off while its rows are set and styled, then
+  // back on, with nothing left to move.
+  const unmoving = (apply) => {
+    const root = document.documentElement;
+    if (!document.getElementById("x-scrub-still")) {
+      const sheet = document.createElement("style");
+      sheet.setAttribute("id", "x-scrub-still");
+      sheet.textContent = "[data-x-scrub],[data-x-scrub] *,[data-x-scrub] *::before,[data-x-scrub] *::after{transition:none!important}";
+      document.head.append(sheet);
+    }
+    // Off through the drag (one style change of the whole page as it starts
+    // and one as it rests, not two each frame), its last values styled
+    // before transitions come back.
+    if (!root.hasAttribute("data-x-scrub")) root.setAttribute("data-x-scrub", "");
+    try { apply(); } finally {
+      clearTimeout(stillUntil);
+      stillUntil = setTimeout(stillEnds, 150);
+    }
+  };
+  let stillUntil = null, scrubSend = false;
+  const stillEnds = () => { clearTimeout(stillUntil); stillUntil = null; void document.documentElement.offsetWidth; document.documentElement.removeAttribute("data-x-scrub"); };
+  // One at a time, in the stream's order: a snapshot fetched is never older
+  // than a batch applied before it.
+  // A snapshot asked for under one generation is that generation's: one
+  // that lands after the next is dropped (that one asks again).
+  let generations = 0;
+  const snapshot = async () => {
+    const asked = generations, still = () => asked === generations, response = await fetch("/__dev/design", { cache: "no-store" });
+    if (response.status !== 200 || !still()) return;
+    const frame = await response.json();
+    if (still()) await apply(frame, still);
+  };
+  const syncDesign = () => { designing = designing.then(snapshot).catch((error) => console.error("exact dev:", String(error))); };
+  const design = (frame) => {
+    designing = designing.then(async () => {
+      const out = await apply(frame);
+      // A batch for another structure: a generation is on its way, which
+      // syncs when applied.
+      if (out.live === "stale") await snapshot();
+      else if (out.live.startsWith("refused")) console.error("exact dev:", out.live);
+    }).catch((error) => console.error("exact dev:", String(error)));
+  };
+  // The build channel (LLP 1122 D4): this page registers with its stream's
+  // nonce, reports its effective facts, and takes `pin` and `inspect` from
+  // the design server's clients; the other commands are reserved, and
+  // answered unsupported. Every report waits for the stream's registration.
+  const channel = { nonce: null, registered: null, revision: null, before: null, held: null, hold: null, holdLatest: null, plan: null, told: null };
+  let applying = null;
+  // The tab's own id, kept across its reloads (sessionStorage); a duplicated
+  // tab, which copies that storage, takes another when this one answers.
+  const buildId = (async () => {
+    const fresh = () => `web-${crypto.getRandomValues(new Uint32Array(2)).join("")}`;
+    let id;
+    try { id = sessionStorage.getItem("exact.dev.build"); } catch { return fresh(); }
+    const tabs = typeof BroadcastChannel === "function" ? new BroadcastChannel("exact.dev.build") : null;
+    if (id && tabs) {
+      const mine = id;
+      const taken = await new Promise((done) => { tabs.onmessage = (e) => { if (e.data === `taken:${mine}`) done(true); }; tabs.postMessage(`who:${mine}`); setTimeout(() => done(false), 60); });
+      if (taken) id = null;
+    }
+    id ??= fresh();
+    // Answered for any id this tab holds, one it just made included: a tab
+    // duplicated from it copies that too.
+    if (tabs) { const own = id; tabs.onmessage = (e) => { if (e.data === `who:${own}`) tabs.postMessage(`taken:${own}`); }; }
+    try { sessionStorage.setItem("exact.dev.build", id); } catch { /* storage refused */ }
+    return id;
+  })();
+  // A report gives up after 10 s; a registration waits as long as it takes
+  // (its answer is what every report on the stream waits for).
+  const post = (nonce, body, ms) => fetch("/__dev/report", { method: "POST", body: JSON.stringify({ nonce, ...body }), ...(ms ? { signal: AbortSignal.timeout(ms) } : {}) });
+  // A report goes on the stream it was made on, once that stream's
+  // registration answers: one that a new stream (a reconnect) replaced
+  // meanwhile is dropped. Reports go one at a time, in the order made, so a
+  // refusal never crosses the status after it (the server binds a refusal
+  // to the frame's status). A new stream starts its own queue, and a post
+  // gives up after 10 s, so one stuck request holds up nothing for long.
+  let reports = { nonce: null, tail: Promise.resolve() };
+  const report = (body) => {
+    const { nonce, registered } = channel;
+    if (!nonce) return Promise.resolve();
+    if (reports.nonce !== nonce) reports = { nonce, tail: Promise.resolve() };
+    const queue = reports;
+    return (queue.tail = queue.tail.then(async () => {
+      if (!(await registered) || channel.nonce !== nonce || channel.registered !== registered) return;
+      await post(nonce, body, 10_000).catch(() => {});
+    }));
+  };
+  const wasmCall = async (name, ...args) => { const x = globalThis.exact; await x.ready; if (typeof x.wasm?.[name] !== "function") return null; const n = x.wasm[name](...args), out = JSON.parse(x.readOut(n)); x.send(n); return out; };
+  const modes = async () => { const x = globalThis.exact; await x.ready; return x.wasm?.exact_set_mode ? JSON.parse(x.readOut(x.wasm.exact_set_mode(x.writeIn("?")))).modes ?? null : null; };
+  // The design this build runs: the runner's, said beside any answer (a
+  // batch for no structure changes nothing).
+  const designNow = async () => { const x = globalThis.exact; await x.ready; if (typeof x.wasm?.exact_design_rows !== "function") return null; const out = JSON.parse(x.readOut(x.wasm.exact_design_rows(x.writeIn(JSON.stringify({ kind: "tamber-batch", structure: "", base: "", design: "", tokens: [] })))));  return out.design ?? null; };
+  // The root's own size, the app's `setRootFontSize` rule set aside (navigation.js `beneathApp`).
+  const hostSize = () => { const rule = document.getElementById("exact-root-font-size"); if (rule) rule.disabled = true; try { return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16; } finally { if (rule) rule.disabled = false; } };
+  // The facts as they paint: the root's `color-scheme` (the app's
+  // `setScheme` over the pin's, over the browser's `light dark`), resolved by
+  // the system's scheme, which is a pin's while one is held.
+  // The digest of the plan this page runs, which its source map names
+  // (tamber/1.8): read from the runner once per generation.
+  // (None said is kept too: asked again only with the next generation. A
+  // generation this page verified says its plan's digest itself.)
+  let planDigestOf, planDigestNow = null;
+  function knownPlan(sha256) { if (typeof sha256 === "string") { planDigestNow = sha256; planDigestOf = globalThis.exact.generation ?? null; } }
+  const planDigest = async () => {
+    const x = globalThis.exact;
+    await x.ready;
+    if (planDigestOf !== (x.generation ?? null)) {
+      try { const sites = typeof x.wasm?.exact_agent === "function" ? ask({ op: "sites" }) : null; planDigestNow = typeof sites?.planDigest === "string" ? sites.planDigest : null; } catch { planDigestNow = null; }
+      planDigestOf = x.generation ?? null;
+    }
+    return planDigestNow;
+  };
+  const facts = async () => {
+    const rootStyle = getComputedStyle(document.documentElement), cs = rootStyle.colorScheme;
+    const scheme = /dark/.test(cs) && !/light/.test(cs) ? "dark" : /light/.test(cs) && !/dark/.test(cs) ? "light" : globalThis.exact.systemScheme ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const contrast = matchMedia("(prefers-contrast: more)").matches ? "more" : matchMedia("(prefers-contrast: less)").matches ? "less" : "no-preference";
+    return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision };
+  };
+  const status = async () => { clearTimeout(statusLater); statusLater = null; const body = await facts(); channel.told = JSON.stringify(body); report(body); };
+  // The facts change under the page too, and by the app's own `setScheme`,
+  // `setMode` and `setRootFontSize`: after its commits, once a turn, a status
+  // when they moved.
+  for (const query of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)"]) matchMedia(query).addEventListener?.("change", () => { if (channel.nonce) status(); });
+  let due = false;
+  const committed = () => {
+    // A scrub frame's own commit is said once the drag rests, with these facts.
+    if (due || !channel.nonce || scrubSend) return;
+    due = true;
+    setTimeout(() => {
+      designing = designing.then(async () => {
+        due = false;
+        const body = await facts();
+        if (JSON.stringify(body) !== channel.told) { channel.told = JSON.stringify(body); report(body); }
+      }).catch((error) => console.error("exact dev:", String(error)));
+    }, 0);
+  };
+  globalThis.exact.ready?.then?.(() => { globalThis.exact.committed = committed; });
+  const pin = async (frame) => {
+    const root = document.documentElement.style, p = frame.pin;
+    // What it was before the first pin, handed back by `none`; each pin
+    // replaces the whole set.
+    channel.before ??= { fontSize: root.fontSize, hostFont: root.getPropertyValue("--exact-host-font-size"), mode: await modes() };
+    const x = globalThis.exact, pins = (m) => Object.entries(m).map(([a, v]) => `${a}=${v}`).join(",");
+    // The scheme is the system's, beneath the app's `setScheme` (the root's
+    // own style): a rule over the page's `light dark`, and the system scheme
+    // the runner's `prefers-color-scheme` reads (navigation.js
+    // `preferences`), told as the browser's change is.
+    const sheet = document.getElementById("exact-dev-pin") ?? document.head.appendChild(Object.assign(document.createElement("style"), { id: "exact-dev-pin" }));
+    sheet.textContent = p?.scheme ? `:root{color-scheme:${p.scheme}}` : "";
+    if ((x.systemScheme ?? null) !== (p?.scheme ?? null)) { x.systemScheme = p?.scheme ?? null; dispatchEvent(new Event("resize")); }
+    // The root font size as `prefer` sets it (navigation.js): the size an
+    // app's percentage is of, too.
+    root.fontSize = p?.rootFontSize ? `${p.rootFontSize}px` : channel.before.fontSize;
+    if (p?.rootFontSize) root.setProperty("--exact-host-font-size", root.fontSize);
+    else if (channel.before.hostFont) root.setProperty("--exact-host-font-size", channel.before.hostFont);
+    else root.removeProperty("--exact-host-font-size");
+    await wasmCall("exact_set_root_font_size", hostSize());
+    const mode = pins({ ...(channel.before.mode ?? {}), ...(p?.mode ?? {}) });
+    if (mode) {
+      // A mode refused leaves the modes before the first pin, not the last pin's.
+      const out = await wasmCall("exact_set_mode", x.writeIn(mode));
+      if (out?.error) { report({ kind: "unsupported", what: "pin.mode", detail: out.error, revision: frame.revision }); const back = pins(channel.before.mode ?? {}); if (back) await wasmCall("exact_set_mode", x.writeIn(back)); }
+    }
+    // A page cannot override the browser's `prefers-contrast`.
+    if (p?.contrast) report({ kind: "unsupported", what: "pin.contrast", detail: "a web page cannot pin the browser's contrast", revision: frame.revision });
+    if (!p) channel.before = null;
+    channel.held = p ? frame : null;
+    channel.revision = frame.revision;
+    status();
+  };
+  // Inspect mode (LLP 1122 D4, D5; T2b), from a design-server client's
+  // `inspect {on}`: a banner with a close control (and Escape) says so; the
+  // page takes every input itself (pointer, mouse, touch, wheel, keys,
+  // gestures, and guest frames, which stop taking pointer input), so nothing
+  // reaches the app; a hovered node is outlined, and a press released where
+  // it began (a click, a tap) selects it. The node is the one the browser's
+  // hit test finds, as a real tap's listener is the element under it
+  // (`data-view`); a hit on the host's own chrome (an error bar, the open-in
+  // bar) selects nothing. Its report is the runner's own `layout` answer
+  // (`node`): its site, instance path, the modes it is in, and its rows,
+  // with the digests the build runs. Development pages only: dev.js is not
+  // in a release.
+  const INSPECT_EVENTS = ["change", "input", "focus", "blur", "focusout", "compositionend", "cancel", "gotpointercapture", "lostpointercapture", "scroll", "scrollend", "drag", "dragenter", "dragover", "dragleave", "dragend", "pointerdown", "pointerup", "pointercancel", "pointerover", "pointerout", "pointerenter", "pointerleave", "click", "dblclick", "auxclick", "contextmenu", "mousedown", "mouseup", "mouseover", "mouseout", "touchstart", "touchmove", "touchend", "touchcancel", "wheel", "keydown", "keyup", "keypress", "beforeinput", "gesturestart", "gesturechange", "gestureend", "dragstart", "drop"];
+  const inspecting = { on: false, banner: null, outline: null, shield: null, cover: null, close: null, selected: null, press: null, seq: null, left: null, session: null };
+  // A new generation: the outline drawn on its boxes goes, and the chrome is
+  // made again if its tree took it away.
+  outlineNone = () => { if (inspecting.outline) inspecting.outline.style.display = "none"; unmark(); if (inspecting.on) chrome(); };
+  const REPORT_BYTES = 60 * 1024;
+  const ask = (request) => { const x = globalThis.exact; return JSON.parse(x.readOut(x.wasm.exact_agent(x.writeIn(JSON.stringify(request))))); };
+  // The node under a point, as a tap there would find it: the topmost
+  // element (this inspector's own chrome aside), when it is the app's and
+  // not one leaving; nothing when the host's chrome is on top.
+  const nodeAt = (x, y) => {
+    const root = globalThis.exact.root;
+    // A guest frame is hit as itself (its view), the shield lifted for the
+    // reading only.
+    if (inspecting.shield) inspecting.shield.disabled = true;
+    let hit;
+    try { hit = document.elementsFromPoint(x, y).find((e) => e !== inspecting.cover && !inspecting.banner?.contains(e)); } finally { if (inspecting.shield) inspecting.shield.disabled = false; }
+    if (!hit || !root?.contains(hit) || hit.closest("[data-exiting]")) return null;
+    // The view the runner knows by that element, as a tap's listener does.
+    for (let view = hit.closest("[data-view]"); view; view = view.parentElement?.closest("[data-view]")) {
+      const id = Number(view.dataset.view);
+      if (globalThis.exact.views?.get(id) === view) return { id, el: view };
+    }
+    return null;
+  };
+  const outline = (el) => {
+    if (!inspecting.outline) return;
+    if (!el) { inspecting.outline.style.display = "none"; return; }
+    const r = el.getBoundingClientRect();
+    Object.assign(inspecting.outline.style, { display: "block", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  };
+  const bytes = (value) => new TextEncoder().encode(JSON.stringify(value)).length;
+  // The selection's report: the runner's answer for the node, and the
+  // digests and pin revision the build runs; trimmed to the report's room
+  // (counted in bytes, as the server does), and said so; refused, named, if
+  // even the node's identity does not fit.
+  const selectedReport = async (id, click = null) => {
+    const x = globalThis.exact;
+    await x.ready;
+    if (x.stages?.()?.inspection === "staged") return { kind: "unsupported", what: "inspect", detail: "this build's inspection stage is not loaded" };
+    const node = ask({ op: "node", id, plan: true });
+    if (node.error) return { kind: "unsupported", what: "inspect", detail: node.error };
+    const design = x.designDigest ?? await designNow();
+    // (Under the inspect command it was made in: one replaced since is refused.)
+    // (And a click's token, which the outline answering it names.)
+    const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, ...(click ? { click } : {}), plan: channel.plan, design, revision: channel.revision });
+    let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), held: x.heldOf?.(x.views?.get(id))?.held ?? null, trimmed: false };
+    if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, token }) => ({ name, value, source, from, token })), trimmed: true };
+    while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
+    if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
+    return envelope(selected);
+  };
+  // A selection is its node in a generation: a refresh after another
+  // generation finds the node by its site and instance path again, or says
+  // it is gone.
+  // A click's selection carries a token (`click`), and the outline that
+  // answers it names it (tamber/1.7): that one leaves the page where it is,
+  // since the copy clicked is under the pointer. A refresh of it re-sends
+  // its token, so an answer to either report stays put. A token is this
+  // page's inspect session (a random prefix, new each time inspect mode
+  // starts) and a counter, so any click of the session is known, however
+  // many are on their way.
+  let clicks = 0;
+  const select = async (id, clicked = false, click = null) => {
+    const seq = inspecting.seq;
+    if (clicked) click = `${inspecting.session ??= crypto.getRandomValues(new Uint32Array(2)).join("")}.${++clicks}`;
+    const report_ = await selectedReport(id, click);
+    // Left (or another command came) meanwhile: not published.
+    if (!inspecting.on || inspecting.seq !== seq) return;
+    if (report_.kind === "selected") inspecting.selected = { id, click, generation: globalThis.exact.generation, plan: report_.selected.planDigest, site: report_.selected.site, instance: JSON.stringify(report_.selected.instance) };
+    report(report_);
+  };
+  const refresh = async () => {
+    const was = inspecting.selected;
+    if (!was || !inspecting.on) return;
+    if (was.generation !== globalThis.exact.generation) {
+      // Sites and regions are a plan's own: only under the same plan is the
+      // node found again by them.
+      let found = null;
+      for (const [id] of globalThis.exact.views ?? []) {
+        const node = ask({ op: "node", id, plan: true });
+        if (node.error || node.planDigest !== was.plan) break;
+        if (node.site === was.site && JSON.stringify(node.instance ?? []) === was.instance) {
+          // Two copies with the same path (a repeated key): which one is not
+          // known, so neither.
+          if (found != null) { found = null; break; }
+          found = id;
+        }
+      }
+      if (found == null) { inspecting.selected = null; report({ kind: "unsupported", what: "inspect", detail: "the selected node is gone in this generation: select it again" }); return; }
+      was.id = found;
+    }
+    await select(was.id, false, was.click);
+  };
+  const swallow = (event) => {
+    if (!inspecting.on) return;
+    if (event.type === "keydown" && event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); setInspect(false, true); return; }
+    // The inspector's own controls are handled here, their events never
+    // passing through the app's handlers (a banner inside an app dialog).
+    if (inspecting.banner?.contains(event.target)) {
+      event.stopImmediatePropagation();
+      if (event.type === "wheel") event.preventDefault();
+      if (event.type === "click" && inspecting.close?.contains(event.target)) setInspect(false, true);
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    // A press released where it began, by mouse, pen or finger, selects.
+    if (event.type === "scroll") place();
+    if (event.type === "pointerdown") { chrome(); inspecting.press = { x: event.clientX, y: event.clientY, id: event.pointerId }; }
+    if (event.type === "pointerup" && inspecting.press?.id === event.pointerId) {
+      const { x, y } = inspecting.press;
+      inspecting.press = null;
+      if (Math.hypot(event.clientX - x, event.clientY - y) <= 10) { const hit = nodeAt(event.clientX, event.clientY); outline(hit?.el ?? null); if (hit) void select(hit.id, true); }
+    }
+    if (event.type === "pointercancel") inspecting.press = null;
+  };
+  const hover = (event) => { if (!inspecting.on) return; event.stopImmediatePropagation(); chrome(); const hit = nodeAt(event.clientX, event.clientY); outline(hit?.el ?? null); };
+  // The gate is on the window from the page's start, so it runs before any
+  // listener the app's host adds later (a gesture's, a GPU surface's); it
+  // does nothing until inspect mode is on.
+  for (const type of INSPECT_EVENTS) addEventListener(type, swallow, { capture: true, passive: false });
+  addEventListener("pointermove", hover, { capture: true });
+  // No field or guest frame takes focus meanwhile (its keys would not meet
+  // the gate).
+  addEventListener("focusin", (event) => { if (inspecting.on && !inspecting.banner?.contains(event.target)) event.target?.blur?.(); }, { capture: true });
+  // A guest frame that takes focus itself: the parent window loses it, and
+  // focus goes back to the inspector's close control.
+  addEventListener("resize", () => { if (inspecting.on) place(); });
+  addEventListener("blur", () => { if (inspecting.on && document.activeElement?.tagName === "IFRAME") inspecting.close?.focus(); });
+  const topLayer = (el) => { try { el.popover = "manual"; el.showPopover(); } catch { /* no popover: a fixed element */ } };
+  // The inspector's chrome (banner, outline, guest-frame shield), made
+  // again when a new tree or a modal took it away.
+  const topModal = () => { try { return [...document.querySelectorAll("dialog")].findLast((d) => d.matches(":modal")) ?? null; } catch { return null; } };
+  const chrome = () => {
+    const modal = topModal();
+    if (inspecting.banner?.isConnected && inspecting.outline?.isConnected && inspecting.shield?.isConnected && inspecting.cover?.isConnected && (!modal || modal.contains(inspecting.banner))) return;
+    inspecting.banner?.remove(); inspecting.outline?.remove(); inspecting.shield?.remove(); inspecting.cover?.remove();
+    const banner = inspecting.banner = document.createElement("div");
+    banner.id = "exact-inspect";
+    banner.setAttribute("role", "status");
+    banner.style.cssText = "position:fixed;inset:8px auto auto 50%;margin:0;transform:translateX(-50%);z-index:2147483647;display:flex;gap:8px;align-items:center;padding:6px 10px;border:0;border-radius:8px;background:#1d4ed8;color:#fff;font:13px system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3)";
+    banner.textContent = "Inspecting: click a view to select it";
+    const close = inspecting.close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "×";
+    close.setAttribute("aria-label", "Stop inspecting (Escape)");
+    close.style.cssText = "border:0;background:transparent;color:#fff;font-size:16px;cursor:pointer;padding:0 2px";
+    banner.append(close);
+    const box = inspecting.outline = document.createElement("div");
+    box.style.cssText = "position:fixed;display:none;margin:0;padding:0;border:0;z-index:2147483646;pointer-events:none;outline:2px solid #1d4ed8;background:rgba(29,78,216,.12)";
+    // Guest frames take no pointer input: a press there is their view's.
+    const shield = inspecting.shield = document.createElement("style");
+    shield.textContent = "iframe, frame, embed, object { pointer-events: none !important; }";
+    document.head.append(shield);
+    // A transparent cover over the whole page takes the pointer, so no
+    // view sees it (no hover, enter or leave, no press on a guest frame);
+    // a press is read through it (`nodeAt`).
+    const cover = inspecting.cover = document.createElement("div");
+    cover.style.cssText = "position:fixed;inset:0;margin:0;padding:0;border:0;width:auto;height:auto;z-index:2147483644;background:transparent;touch-action:none";
+    // Inside the topmost open modal dialog, if one is, so its controls are
+    // not inert; else the body. Made again when a modal opens later.
+    (modal ?? document.body).append(cover, box, banner);
+    // The outlines go with the chrome.
+    for (const { mark } of marks) (modal ?? document.body).append(mark);
+    // Above the app's own top layer (an open dialog), where one exists.
+    topLayer(cover); topLayer(box); topLayer(banner);
+  };
+  const setInspect = (on, local = false) => {
+    if (on === inspecting.on) { if (on) chrome(); return; }
+    inspecting.on = on;
+    // Kept across a reload of this tab, so input stays gated until the
+    // server says how it holds inspect mode (its replay on registering).
+    try { if (on) sessionStorage.setItem("exact.dev.inspect", String(inspecting.seq ?? "")); else sessionStorage.removeItem("exact.dev.inspect"); } catch { /* storage refused */ }
+    if (!on) inspecting.selected = null;
+    // Left here (Escape, the close control): the server and its clients
+    // are told, so no one owns inspect mode on this page any more.
+    if (!on && local) { inspecting.left = inspecting.seq; try { sessionStorage.setItem("exact.dev.inspect.left", String(inspecting.seq ?? "")); } catch { /* storage refused */ } report({ kind: "selected", selected: null, inspect: inspecting.seq, plan: channel.plan, revision: channel.revision }); }
+    if (on) {
+      // Out of any field or guest frame, so no key goes there (the gate is
+      // on already, so the field's blur and change reach no app handler).
+      document.activeElement?.blur?.();
+      chrome();
+    } else {
+      inspecting.banner?.remove(); inspecting.outline?.remove(); inspecting.shield?.remove(); inspecting.cover?.remove(); unmark(); inspecting.session = null;
+      inspecting.banner = inspecting.outline = inspecting.shield = inspecting.cover = inspecting.close = inspecting.press = null;
+    }
+  };
+  // `outline {sites, plan}` (D4, D5): every copy of the selected node, the
+  // views of those plan sites, outlined while inspect mode is on (the first
+  // scrolled into view, unless the frame answers a click here (`click`);
+  // then measured; kept on them as the page scrolls and resizes). A frame for another plan leaves the outlines as they are (a
+  // host never reads a source map: the server resolves sites); an empty one
+  // clears them; `clear` too.
+  const marks = [];
+  // A marked view that changes size (a font-size pin, a commit) is outlined
+  // where it is now.
+  const resized = typeof ResizeObserver === "function" ? new ResizeObserver(() => place()) : null;
+  const unmark = () => { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); };
+  const place = () => {
+    for (const { mark, el } of marks) {
+      const r = el.getBoundingClientRect();
+      Object.assign(mark.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, display: el.isConnected ? "block" : "none" });
+    }
+  };
+  const outlineSites = (frame) => {
+    if (frame.clear) { unmark(); return; }
+    if (!inspecting.on) return;
+    const views = ask({ op: "sites" });
+    if (views.error || views.planDigest !== frame.plan || !Array.isArray(frame.sites)) return;
+    unmark();
+    const wanted = new Set(frame.sites);
+    const found = views.sites.filter(([, site]) => wanted.has(site)).map(([id]) => globalThis.exact.views?.get(id)).filter((el) => el?.isConnected);
+    // The outline answering a click here (its token) scrolls nothing: that
+    // copy is (or was) under the pointer. Any other (the tool's Outline)
+    // brings the first in.
+    if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) found[0]?.scrollIntoView({ block: "nearest" });
+    for (const el of found) {
+      const mark = document.createElement("div");
+      mark.dataset.exactOutline = "";
+      mark.style.cssText = "position:fixed;margin:0;padding:0;border:0;z-index:2147483645;pointer-events:none;outline:2px dashed #1d4ed8";
+      (inspecting.banner?.parentElement ?? document.body).append(mark);
+      marks.push({ mark, el });
+      resized?.observe(el);
+    }
+    place();
+  };
+  // `hold {revision, hold}` (LLP 1122 D4, D8; *1.11*): `{site, instance, state}` of this page's plan, the view by
+  // its site and instance path (exactly one, as a refresh finds it), held by the input glue as the real state; null
+  // lets it go. What it holds or let go, and why, is reported (`held`), to every client.
+  // A new generation's tree takes the hold again (the glue let it go unsaid with the old tree): under the same plan
+  // here; under another the server replays it, its site corresponded, once the status says the new plan.
+  const canonical = (v) => JSON.stringify(v ?? [], (_, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
+  let swaps = 0;
+  // A hold frame names the plan its site addresses (`plan`; else it is bound, as it arrives, to the generation it
+  // addresses and that generation's digest): under another plan, a generation swapped in since or swapping now, it is
+  // nothing, unsaid; the server's replay after the status that names the new plan corresponds it, and `rehold` takes
+  // it under the same plan. A revision the page ended itself (input, disabled, gone, a refusal) is not taken again
+  // when its frame comes again (a poll's resent answer); a lower revision is a new server's, and forgets them.
+  const holdAt = new WeakMap(), ended = new Set();
+  // (`epoch`: the server's run the revisions are of; a let-go of an earlier run's hold ends nothing now.)
+  let lastRevision = 0, epoch = 0;
+  const end = (revision, of) => { if (of !== epoch) return; ended.add(revision); if (ended.size > 64) ended.delete(ended.values().next().value); };
+  const digestNow = () => {
+    const x = globalThis.exact;
+    if (planDigestOf === (x.generation ?? null)) return planDigestNow;
+    try { const sites = typeof x.wasm?.exact_agent === "function" ? ask({ op: "sites" }) : null; return typeof sites?.planDigest === "string" ? sites.planDigest : null; } catch { return null; }
+  };
+  const bindHold = (frame) => { const was = holdAt.get(frame); holdAt.set(frame, { gen: globalThis.exact.generation ?? null, digest: digestNow(), epoch: was?.epoch ?? epoch, stream: was ? was.stream : channel.nonce }); };
+  const rehold = async () => {
+    const kept = channel.hold;
+    if (!kept || swaps || (await planDigest()) !== kept.digest || channel.hold !== kept || channel.holdLatest !== kept.frame) return;
+    bindHold(kept.frame);
+    command(kept.frame);
+  };
+  const hold = async (frame) => {
+    const at = holdAt.get(frame) ?? { gen: globalThis.exact.generation ?? null, digest: null, epoch, stream: channel.nonce };
+    for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise((ok) => setTimeout(ok, 50)); // the input glue loads after paint
+    // Only the latest frame applies (a replay queued before a newer clear does not), and only on the stream it came
+    // on (a new one's server knows nothing of it).
+    const holds = globalThis.exact.hold, h = frame.hold, revision = frame.revision;
+    const current = () => channel.holdLatest === frame && at.stream === channel.nonce && at.epoch === epoch;
+    if (!current() || (h && ended.has(revision))) return;
+    const digest = swaps ? null : await planDigest();
+    if (!current()) return;
+    const addressed = typeof frame.plan === "string" ? frame.plan : at.digest;
+    const moved = addressed ? digest !== addressed : at.gen !== null && (globalThis.exact.generation ?? null) !== at.gen;
+    if (h && (swaps || moved)) { channel.hold = addressed ? { frame, digest: addressed } : null; return; }
+    channel.hold = h ? { frame, digest } : null;
+    if (!holds) { report({ kind: "unsupported", what: "hold", detail: "the input glue is not loaded", revision }); return; }
+    if (!h) { holds(null); report({ kind: "held", state: null, revision }); return; }
+    let found = null, two = false;
+    for (const [id] of globalThis.exact.views ?? []) {
+      const node = ask({ op: "node", id, plan: true });
+      if (node.error || globalThis.exact.views.get(id)?.closest?.("[data-exiting]")) continue; // a leaving view is no match
+      if (node.site === h.site && canonical(node.instance) === canonical(h.instance)) { if (found != null) { two = true; break; } found = id; }
+    }
+    const el = found != null && !two ? globalThis.exact.views.get(found) : null;
+    applying = revision;
+    // (No one view there: the one held before is let go too.)
+    const r = el ? holds(el, h.state, (reason) => {
+      // (The same frame taken again, a resent one or `rehold`'s, replaces nothing.)
+      if (reason === "replaced" && applying === revision) return;
+      if (at.epoch !== epoch || at.stream !== channel.nonce) return; // a hold of an earlier stream's: no news to this one
+      if (channel.hold?.frame === frame) channel.hold = null;
+      if (reason !== "replaced") end(revision, at.epoch);
+      report({ kind: "held", state: null, reason, revision });
+    }) : (holds(null), { reason: "gone" });
+    applying = null;
+    if (r.reason && channel.hold?.frame === frame) channel.hold = null;
+    if (r.reason) end(revision, at.epoch);
+    report(r.reason ? { kind: "held", state: null, reason: r.reason, revision } : { kind: "held", state: h.state, revision });
+  };
+  const inspect = async (frame) => {
+    // `{refresh: true}`: the selection again, under the digests now.
+    // (`status: true`: its status again first, one lost on the way.)
+    if (frame.refresh) { if (frame.status) await status(); await refresh(); return; }
+    // The command's number, which a local exit names, so a later owner's
+    // command is not undone by it.
+    // A replay of the command this page left itself (a new stream before
+    // the server heard the exit) is the exit again, not on.
+    if (frame.on && frame.seq != null && frame.seq === inspecting.left) { report({ kind: "selected", selected: null, inspect: frame.seq, plan: channel.plan, revision: channel.revision }); return; }
+    inspecting.left = null;
+    try { sessionStorage.removeItem("exact.dev.inspect.left"); } catch { /* storage refused */ }
+    // Another command (another owner, or off and on): a node selected
+    // under the last is not this one's to report again.
+    if ((frame.seq ?? null) !== inspecting.seq) inspecting.selected = null;
+    inspecting.seq = frame.seq ?? null;
+    setInspect(frame.on === true);
+    if (inspecting.on) try { sessionStorage.setItem("exact.dev.inspect", String(inspecting.seq ?? "")); } catch { /* storage refused */ }
+  };
+  // A reload of a tab that was inspecting starts inspecting, until the
+  // server's replay on registering says otherwise.
+  // (The command it was on by is kept with it, so an exit before the
+  // replay names it.)
+  try {
+    const kept = sessionStorage.getItem("exact.dev.inspect"), left = sessionStorage.getItem("exact.dev.inspect.left");
+    if (kept != null) { inspecting.seq = kept === "" ? null : Number(kept); setInspect(true); }
+    // An exit the server may not have heard: its replay is answered with it.
+    else if (left) inspecting.left = Number(left);
+  } catch { /* storage refused */ }
+  const command = (frame) => {
+    designing = designing.then(() => {
+      if (frame.kind === "pin") return pin(frame);
+      if (frame.kind === "inspect") return inspect(frame);
+      if (frame.kind === "outline") return outlineSites(frame);
+      if (frame.kind === "hold") return hold(frame);
+      report({ kind: "unsupported", what: frame.kind });
+    }).catch((error) => console.error("exact dev:", String(error)));
+  };
   es.onmessage = (event) => {
     let message;
     try { message = JSON.parse(event.data); } catch { show("the dev stream sent invalid JSON"); return; }
@@ -275,6 +827,27 @@ if (es) {
         navigator.sendBeacon(`/__dev/gpu?g=${message.gpu}&swap=${result.ms.toFixed(1)}`);
       })().catch(error => { show(String(error), "gpu"); console.error('exact dev:', error); });
       return;
+    }
+    if (message.kind === "tamber-batch" || message.kind === "tamber-snapshot") { design(message); return; }
+    if (message.kind === "hold") {
+      if (message.revision < lastRevision) { ended.clear(); epoch += 1; }
+      lastRevision = message.revision;
+      channel.holdLatest = message;
+      bindHold(message);
+    }
+    if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold") { command(message); return; }
+    if (message.hello && message.nonce && message.nonce !== channel.nonce) {
+      const nonce = channel.nonce = message.nonce;
+      // A new stream may be a new server's: a hold of the one before ends nothing, and says nothing, now.
+      epoch += 1; ended.clear(); lastRevision = 0;
+      channel.plan ??= message.generation ?? null;
+      // Reports wait for this; a refused registration sends none.
+      channel.registered = (async () => {
+        await globalThis.exact.ready;
+        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin", "inspect", "hold"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
+        return answer.ok;
+      })().catch(() => false);
+      status();
     }
     if (message.ready === false) return;
     client.receive(message);

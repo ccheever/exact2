@@ -179,7 +179,7 @@ impl Backend for ObservedRaster {
         self.raster.finish()
     }
 }
-fn observe(p: &mut Presenter<Empty>, reference: Option<Calls>) -> Calls {
+fn observe(p: &mut Presenter<()>, reference: Option<Calls>) -> Calls {
     let calls = Rc::new(RefCell::new(Observation::default()));
     p.brush.replace_backend(Box::new(ObservedRaster {
         raster: Raster::new(),
@@ -221,12 +221,12 @@ fn app(fractional: bool) -> String {
 "##
     )
 }
-fn fixture(plan: &[u8], region: bool) -> Presenter<Empty> {
+fn fixture(plan: &[u8], region: bool) -> Presenter<()> {
     let assets = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"));
     let (mut p, error) = if region {
         Presenter::boot_with_content_region(
             plan,
-            Empty,
+            (),
             (400., 600.),
             1.,
             assets,
@@ -239,7 +239,7 @@ fn fixture(plan: &[u8], region: bool) -> Presenter<Empty> {
             },
         )
     } else {
-        Presenter::boot_with(plan, Empty, (400., 600.), 1., assets, PainterChoice::Cpu)
+        Presenter::boot_with(plan, (), (400., 600.), 1., assets, PainterChoice::Cpu)
     }
     .unwrap();
     assert!(error.is_none(), "{error:?}");
@@ -251,7 +251,7 @@ fn fixture(plan: &[u8], region: bool) -> Presenter<Empty> {
     assert!(p.last_frame_succeeded);
     p
 }
-fn wheel(p: &mut Presenter<Empty>, dy: f32) {
+fn wheel(p: &mut Presenter<()>, dy: f32) {
     let port = id(p, "port");
     let at = natural_point(p, port);
     p.wheel_at(at.0, at.1, 0., dy);
@@ -265,8 +265,8 @@ fn frame_bits(f: exact_kernel::Frame) -> [u32; 4] {
 }
 fn compare(
     label: &str,
-    ordinary: &mut Presenter<Empty>,
-    region: &mut Presenter<Empty>,
+    ordinary: &mut Presenter<()>,
+    region: &mut Presenter<()>,
     a: &Calls,
     b: &Calls,
     retained: bool,

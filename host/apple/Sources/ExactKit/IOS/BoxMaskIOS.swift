@@ -23,6 +23,10 @@ extension NodeView {
         // (`Surface.swift`) until it ends.
         guard surface == nil else { return }
         let outline = shapedOutline(), effect = materialView, image = style["mask_image"]
+        // Most boxes are masked by nothing and never were: they keep no state
+        // (an associated object, about 0.5 KB a view) to learn so.
+        if outline == nil, effect == nil, image == nil, clipPath == nil, clipBox == nil, !hasBoxFilter,
+           layer.mask == nil, BoxMaskState.existing(self) == nil { return }
         // A material's mask view replaces the elliptical outline its radius
         // put on (`BorderPaint.clip`), so it carries that outline too.
         let effectOutline = effect == nil || image == nil ? nil : BorderPaint.uncircular(in: bounds, radii: cornerSizes(in: bounds))
@@ -41,7 +45,7 @@ extension NodeView {
         if let effect {
             if let gradient = Gradient(image) {
                 let view: UIView
-                if gradient.isConic {
+                if gradient.needsDrawing {
                     let pixels = UIImageView(frame: effect.bounds)
                     pixels.image = gradient.image(size: effect.bounds.size, scale: traitCollection.displayScale, dark: drawsDark).map { UIImage(cgImage: $0) }
                     view = pixels
@@ -73,9 +77,9 @@ extension NodeView {
     func composedMask(shaped: CALayer?) -> CALayer? {
         let clip = clipMask(shaped: shaped)
         guard let gradient = Gradient(style["mask_image"]) else { return clip }
-        if gradient.isConic {
-            // A conic mask is pixels (LLP 1077 D5).
-            let m = ConicMaskLayer()
+        if gradient.needsDrawing {
+            // Conic and repeating masks use the drawn pixels (LLP 1077 D5, LLP 1066).
+            let m = GradientImageMaskLayer()
             m.frame = layer.bounds
             m.contents = gradient.image(size: layer.bounds.size, scale: traitCollection.displayScale, dark: drawsDark)
             m.mask = clip

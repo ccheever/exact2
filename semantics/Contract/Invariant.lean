@@ -41,7 +41,7 @@ inductive VNode.In : VNode → List VNode → Prop
 theorem findTestId_in {id : String} :
     ∀ {vs : List VNode} {m}, findTestId id vs = .some m → VNode.In m vs
   | [], _, h => by simp [findTestId] at h
-  | ⟨_, _, _, _, _, _, _, _, cs⟩ :: rest, m, h => by
+  | { children := cs, .. } :: rest, m, h => by
     rw [findTestId] at h
     split at h
     · cases h; exact .head
@@ -122,12 +122,15 @@ theorem render_handlers : ∀ fuel,
         cases node with
         | element tag pos props hs children =>
           simp only [Except.bind_ok_iff, Except.pure_ok_iff] at hx
-          obtain ⟨_, _, _, _, ⟨kids, l3⟩, hk, hx⟩ := hx
+          obtain ⟨_, _, _, _, _, _, ⟨kids, l3⟩, hk, hx⟩ := hx
           simp only [Prod.mk.injEq] at hx
           obtain ⟨rfl, -⟩ := hx
           simp only [Node.handlerList]
-          exact .single (fun _ h => List.mem_append_left _ h)
-            ((ihR hk).mono fun _ h => List.mem_append_right _ h)
+          refine .single (fun _ h => List.mem_append_left _ h) ?_
+          split at hk
+          · exact (ihR hk).mono fun _ h => List.mem_append_right _ h
+          · simp only [Except.pure_ok_iff, Prod.mk.injEq] at hk
+            rw [← hk.1]; exact .nil
         | when tag c thn els =>
           simp only [Except.bind_ok_iff] at hx
           obtain ⟨v, _, hx⟩ := hx
@@ -167,12 +170,26 @@ theorem render_handlers : ∀ fuel,
 
 /-! ## What a step can change -/
 
-theorem update_render {p o slots store now prev force st r}
-    (h : update p o slots store now prev force = .ok (st, r)) :
-    ∃ cx, render fuel cx [] p.view [] = r := by
+theorem renderTabs_render : ∀ n {cx view live},
+    renderTabs n cx = .ok (view, live) →
+    ∃ cy, render fuel cy [] cx.env.prog.view [] = .ok (view, live)
+  | 0, _, _, _, h => nomatch h
+  | n + 1, cx, view, live, h => by
+    simp only [renderTabs, Except.bind_ok_iff] at h
+    obtain ⟨⟨vs, ls⟩, hr, h⟩ := h
+    split at h
+    · simp only [Except.pure_ok_iff, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      exact ⟨cx, hr⟩
+    · have ih := renderTabs_render n h
+      exact ih
+
+theorem update_render {p o slots store now prev force old st view live}
+    (h : update p o slots store now prev force old = .ok (st, .ok (view, live))) :
+    ∃ cx, render fuel cx [] p.view [] = .ok (view, live) := by
   simp only [update, Except.bind_ok_iff, Except.ok_ok_iff, Prod.mk.injEq] at h
-  obtain ⟨_, _, -, rfl⟩ := h
-  exact ⟨_, rfl⟩
+  obtain ⟨_, _, _, hr⟩ := h
+  exact renderTabs_render fuel hr
 
 /-- An action keeps its timers' actions (its gate step moves only their
 deadlines, LLP 1092 D8), and its view is the old one or the program's view
@@ -458,7 +475,7 @@ theorem advance_preserves {p o} (I : Config → Prop) (A : List String)
 /-- A boot is refused with the empty configuration, or it initialized the
 slots, started the timers and rendered the program's view. -/
 theorem boot_cases {p o c out} (h : boot p o = (c, out)) :
-    c = Config.empty ∨ ∃ slots₀ timers st live, initSlots p = .ok slots₀ ∧
+    c = Config.empty ∨ ∃ slots₀ timers st live, initSlots p o = .ok slots₀ ∧
       startTimers p slots₀ = .ok timers ∧ lateSlots p st slots₀ = .ok c.slots ∧
       (∃ cx, render fuel cx [] p.view [] = .ok (c.view, live)) ∧
       c.timers.map (·.action) = timers.map (·.action) := by
@@ -467,7 +484,7 @@ theorem boot_cases {p o c out} (h : boot p o = (c, out)) :
   all_goals first
     | exact .inl (Prod.mk.inj h).1.symm
     | (simp only [Prod.mk.injEq] at h; obtain ⟨rfl, -⟩ := h
-       exact .inr ⟨_, _, _, _, by assumption, by assumption, by assumption, ⟨_, by assumption⟩,
+       exact .inr ⟨_, _, _, _, by assumption, by assumption, by assumption, renderTabs_render fuel (by assumption),
          gateStep_actions (by assumption)⟩)
 
 theorem foldlM_inv {α β ε : Type} {f : β → α → Except ε β} (P : β → Prop) :
@@ -517,11 +534,13 @@ theorem startTimers_actions {p slots timers} (h : startTimers p slots = .ok time
     exact List.mem_map_of_mem ht
 
 /-- Where a slot's value at boot comes from: a root state's initializer
-(or `()`, for a late slot before boot settlement), or a mutation, which
-starts as `none`, or the router slot, which starts at the launch of `/`. -/
+(or `()`, for a late slot before boot settlement, or the device's stored
+value of its type, for a persisted state), or a mutation, which starts as
+`none`, or the router slot, which starts at the launch of `/`. -/
 def SlotOrigin (p : Program) (x : String) (v : Value) : Prop :=
   (∃ st ∈ p.states, st.name = x ∧ st.owner = .none ∧
-    ((st.late = true ∧ v = .unit) ∨ ∃ env, EvalR env false [] st.init v)) ∨
+    ((st.late = true ∧ v = .unit) ∨ (∃ env, EvalR env false [] st.init v) ∨
+     (st.persist = true ∧ conforms p v st.ty = true))) ∨
   (∃ m ∈ p.mutations, m.name = x ∧ v = .none) ∨
   (p.router = .some x ∧ ∃ r, Route.launch p.routes "/" = .ok r ∧ v = Route.routerValue p.routes r)
 
@@ -585,7 +604,10 @@ theorem boot_slots_origin {p o c out} (h : boot p o = (c, out)) :
       · exact hb x v hx
       · simp only [List.mem_singleton, Prod.mk.injEq] at hx
         obtain ⟨rfl, rfl⟩ := hx
-        exact .inl ⟨a, ha, rfl, by simpa using ‹¬a.owner.isSome = true›, .inr ⟨_, eval_sound hw⟩⟩
+        have hown : a.owner = .none := by simpa using ‹¬a.owner.isSome = true›
+        rcases restore_cases p o a w with hr | ⟨hp, -, hc⟩
+        · rw [hr]; exact .inl ⟨a, ha, rfl, hown, .inr (.inl ⟨_, eval_sound hw⟩)⟩
+        · exact .inl ⟨a, ha, rfl, hown, .inr (.inr ⟨hp, hc⟩)⟩
     intro x v hx
     rcases List.mem_append.mp hx with hx | hx
     · exact this x v hx
@@ -608,7 +630,7 @@ theorem boot_slots_origin {p o c out} (h : boot p o = (c, out)) :
   · exact hb x v hx
   · have hown : a.owner = .none := by
       cases h' : a.owner <;> simp_all
-    exact .inl ⟨a, ha, rfl, hown, .inr ⟨_, eval_sound hw⟩⟩
+    exact .inl ⟨a, ha, rfl, hown, .inr (.inl ⟨_, eval_sound hw⟩)⟩
 
 /-! ## Runs -/
 

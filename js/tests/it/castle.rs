@@ -45,6 +45,8 @@ component App
     send probe = refused()
   action refusedLater
     send probe = refusedLater()
+  action refusedWhy(offline: string)
+    send probe = refusedWhy(offline)
   action parallel
     send probe = parallel()
 
@@ -59,7 +61,7 @@ component App
       button press=logout aria-label="Log out" testId="logout"
         text "Log out"
       text remembered.username testId="remembered"
-      when busy
+      if busy
         text "busy" testId="busy"
       match session
         case some(s)
@@ -89,7 +91,7 @@ fn unloaded() -> Module {
 }
 
 fn store() -> Store {
-    Store::new(GRANTS, Vec::<(String, String)>::new())
+    Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new())
 }
 
 fn response(status: u16, body: &str) -> Outcome {
@@ -183,7 +185,7 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
             )
             .unwrap_err();
         assert!(
-            matches!(&error, DataError::Unavailable(message) if message.contains("maxResponseBytes")),
+            matches!(&error, DataError::Failed(exact_runner::failure::FailureCode::Error, message, _) if message.contains("maxResponseBytes")),
             "{error:?}"
         );
         assert_eq!(m.in_flight(), 0);
@@ -295,12 +297,65 @@ fn a_body_fetch_refuses_is_refused_before_any_request() {
     }
 }
 
+#[test]
+fn fetch_carries_its_redirect_mode_and_refuses_an_unknown_one() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource result = redirected(\"manual\") as shape string\n  resource thrown = redirectThrows() as shape string\n  resource aborted = redirectAborted() as shape string\n  view\n    column\n      text result\n      text thrown\n      text aborted\n").unwrap());
+    let mut s = store();
+    for (mode, expected) in [
+        ("", exact_runner::Redirect::Follow),
+        ("follow", exact_runner::Redirect::Follow),
+        ("manual", exact_runner::Redirect::Manual),
+        ("error", exact_runner::Redirect::Error),
+    ] {
+        let request = later(m.answer(&mut s, "redirected", &[Value::str(mode)]).unwrap());
+        assert_eq!(request.redirect, expected, "{mode:?}");
+    }
+    // A manual redirect is the response: its Location is the module's to read.
+    later(
+        m.answer(&mut s, "redirected", &[Value::str("manual")])
+            .unwrap(),
+    );
+    let moved = Outcome::Response(Response {
+        status: 302,
+        headers: vec![("location".into(), "app.example:/callback?code=c0de".into())],
+        body: Vec::new(),
+    });
+    assert_eq!(
+        now(m
+            .parse(&mut s, "redirected", &[Value::str("manual")], moved)
+            .unwrap()),
+        Value::str("302 app.example:/callback?code=c0de")
+    );
+    // An unknown mode is refused before anything is asked of the host.
+    let before = m.in_flight();
+    let error = m
+        .answer(&mut s, "redirected", &[Value::str("sideways")])
+        .unwrap_err();
+    assert!(
+        matches!(&error, DataError::Failed(exact_runner::failure::FailureCode::Error, message, _) if message.contains("redirect")),
+        "{error:?}"
+    );
+    assert_eq!(m.in_flight(), before);
+    // A getter that throws rejects the fetch's promise, so the source's `catch` recovers.
+    assert_eq!(
+        now(m.answer(&mut s, "redirectThrows", &[]).unwrap()),
+        Value::str("recovered: no mode")
+    );
+    assert_eq!(
+        now(m.answer(&mut s, "redirectAborted", &[]).unwrap()),
+        Value::str("TypeError: redirect must be follow, manual or error")
+    );
+    assert_eq!(m.in_flight(), before);
+}
+
 fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
     Outcome::Message(exact_runner::Message {
         event: String::new(),
         id: id.into(),
         data: data.into(),
         coalesced,
+        binary: None,
     })
 }
 
@@ -509,7 +564,7 @@ fn a_failed_fetch_is_a_fetch_error_the_module_turns_into_its_own_words() {
 
 /// Hermes watches a fetch's signal through Ibex's abort hooks, which an
 /// app's listener cannot stop, and leaves no listener behind (review r4a
-/// 7, 8; the browser realm's listener is js/web/tests/browser.rs's).
+/// 7, 8; the browser realm's listener is js/web/tests/it/browser.rs's).
 #[test]
 fn a_reused_signal_gains_no_listener_per_fetch() {
     let mut m = module();
@@ -573,9 +628,36 @@ fn a_rejection_let_through_keeps_its_class() {
         };
         let err = m.parse(&mut s, "refusedLater", &[], failed).unwrap_err();
         match code {
-            Some(code) => assert_eq!(err, DataError::Failed(code, message), "{kind:?}"),
+            Some(code) => assert_eq!(
+                err,
+                DataError::Failed(code, message, String::new()),
+                "{kind:?}"
+            ),
             None => assert_eq!(err, DataError::Unavailable(message), "{kind:?}"),
         }
+    }
+}
+
+/// LLP 1109 D3, amended (the author's ruling of 2026-10-12): an error's
+/// `reason` crosses the seam as `failure(x).reason`, its code unchanged.
+#[test]
+fn a_thrown_reason_crosses_the_seam() {
+    use exact_runner::failure::FailureCode;
+    for (offline, code, reason) in [
+        ("", FailureCode::Error, "SLOT_FULL"),
+        ("yes", FailureCode::Offline, "E_OFFLINE"),
+    ] {
+        let mut m = module();
+        let mut s = store();
+        let args = [Value::str(offline)];
+        later(m.answer(&mut s, "refusedWhy", &args).unwrap());
+        let err = m
+            .parse(&mut s, "refusedWhy", &args, response(200, "{}"))
+            .unwrap_err();
+        assert_eq!(
+            err,
+            DataError::Failed(code, format!("{reason}: no"), reason.into())
+        );
     }
 }
 
@@ -585,7 +667,7 @@ fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     let mut s = store();
     assert!(matches!(
         m.answer(&mut s, "refused", &[]),
-        Err(DataError::Unavailable(ref e)) if e == "refused on purpose"
+        Err(DataError::Failed(exact_runner::failure::FailureCode::Error, ref e, _)) if e == "refused on purpose"
     ));
     later(m.answer(&mut s, "refusedLater", &[]).unwrap());
     assert!(matches!(
@@ -594,7 +676,7 @@ fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     ));
     assert!(matches!(
         m.answer(&mut s, "stuck", &[]),
-        Err(DataError::Unavailable(ref e)) if e.contains("pending on nothing")
+        Err(DataError::Failed(exact_runner::failure::FailureCode::Error, ref e, _)) if e.contains("pending on nothing")
     ));
     // A reply for nothing in flight, and a fetching source at bake.
     assert!(matches!(
@@ -1028,7 +1110,7 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
 
     // The keychain was cleared underneath: the kept answer shows for a
     // frame, then the engine corrects it.
-    let cleared: Vec<(String, String)> = snapshot
+    let cleared: Vec<(String, Vec<u8>)> = snapshot
         .into_iter()
         .filter(|(n, _)| n != "castle.session")
         .collect();

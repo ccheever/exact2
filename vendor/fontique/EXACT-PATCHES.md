@@ -11,9 +11,9 @@ DirectWrite or Core Text; LLP 1085.000 §3).
 - Upstream VCS revision: eea3503dd6cf17130cbb07348e0ff2c918300e94
 - Root `[patch.crates-io]` (and `game/`, `snapback4/`) selects this copy.
 
-Every patch below is upstream status **to send**. Remove a patch when a
-pinned upstream release supplies the same behaviour and the tests named here
-pass.
+The numbered patches below are upstream status **to send**. Remove a patch
+when a pinned upstream release supplies the same behaviour and the tests named
+here pass.
 
 1. **Font admission (G2).** `FontInfo::from_font_ref` refuses a face with no
    `head` table (some bitmap-only faces have `bhed` instead) or with
@@ -49,4 +49,21 @@ pass.
    (`a_script_without_families_of_its_own_takes_the_last_resort`: every
    script's list is what a copy per script gave).
 
-All other archive files are byte-for-byte upstream.
+5. **Pinned declared weight.** `FontInfo::with_pinned_weight` keeps a
+   declaration's `wght` coordinate, clamped to the file's axis range,
+   separately from its matching weight. Synthesis emits that coordinate
+   even when the request equals the declaration, and never substitutes the
+   requested weight or faux bold. Linux enables it for declared faces before
+   Parley shapes, so advances, normalized coordinates and presenter settings
+   agree. Reversed or NaN axis bounds leave the face unpinned. Static faces
+   and installed variable fonts retain their behavior.
+   Tests: `host/linux/src/text/variable_face_tests.rs`.
+
+`Cargo.toml` also carries the empty `[workspace]` boundary described below;
+retain it when updating. All remaining archive files are byte-for-byte upstream.
+
+## Cargo workspace boundary
+
+`Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
+Exact worktree does not attach this excluded path dependency to the enclosing
+checkout. This is an Exact integration patch to retain when updating.

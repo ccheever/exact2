@@ -1,0 +1,44 @@
+// `range(n)` (LLP 1017.003 §Refused, 2026-10-17): the whole numbers 0 to
+// n - 1; a count that is not a whole number at least 0 refuses the commit
+// that would make it, and one past the list bound is outside the semantics.
+component App
+  state n = 3
+  derive xs = range(n)
+  derive window = range(10).slice(2, 5)
+  derive total = sum(range(n + 1))
+  derive squares = range(n).map(i => i * i).join(",")
+  action set(v: number)
+    n = v
+  view
+    column
+      text xs.join(",") testId="xs"
+      text `${range(0).length} ${range(-0).length} ${window.join(",")}` testId="edges"
+      for i in range(n) key=i
+        text `${i}` testId=`row-${i}`
+      button "zero" press=set(0) testId="zero"
+      button "five" press=set(5) testId="five"
+      button "half" press=set(2.5) testId="half"
+      button "negative" press=set(-1) testId="negative"
+      button "huge" press=set(70000) testId="huge"
+
+test "counts from zero"
+  expect text "xs" == "0,1,2"
+  expect state total == 6
+  expect state squares == "0,1,4"
+  expect text "edges" == "0 0 2,3,4"
+  tap "five"
+  expect text "xs" == "0,1,2,3,4"
+  expect text "row-4" == "4"
+  tap "zero"
+  expect state xs == []
+
+test "a count that is not whole refuses the commit"
+  tap "half"
+  expect state n == 3
+  tap "negative"
+  expect state n == 3
+  expect text "xs" == "0,1,2"
+
+test "past the bound"
+  tap "huge"
+  expect state n == 3

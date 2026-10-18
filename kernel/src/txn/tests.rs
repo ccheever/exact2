@@ -32,6 +32,136 @@ fn tall(id: u32, height: f64) -> Op {
     }
 }
 
+/// `color` on `id`, written by its author or implied by the compiler.
+fn colour(id: u32, value: &str, written: bool) -> Op {
+    let mut patch = StyleProps::default();
+    patch
+        .set_dynamic(StyleId::TextColor, &StyleValue::Text(value.into()))
+        .unwrap();
+    if written {
+        patch.written.set(StyleId::TextColor);
+    }
+    Op::SetStyle {
+        id,
+        patch: Box::new(patch),
+    }
+}
+
+/// LLP 1115.000 D2: "written" is a fact each row carries. A patch says it
+/// for each row it sets, the node keeps it beside the row, and a child that
+/// only inherits the value has no row and so no bit.
+#[test]
+fn a_node_keeps_which_of_its_rows_its_author_wrote() {
+    let mut ops = create([1, 2, 3], NodeType::View);
+    ops.extend([children(1, &[2, 3]), Op::AttachRoot { id: 1 }]);
+    ops.extend([colour(1, "#111111", true), colour(2, "#111111", false)]);
+    let mut k = kernel(&ops);
+    let wrote = |k: &Kernel, id: u32| k.node(id).unwrap().style.written;
+    let row = crate::StyleMask::of(StyleId::TextColor);
+    assert_eq!(wrote(&k, 1), row, "the author's row");
+    assert!(
+        wrote(&k, 2).is_empty(),
+        "the compiler's row: set, not written"
+    );
+    assert!(k.node(2).unwrap().style.mask.has(StyleId::TextColor));
+    // Inherited: the value arrives, the bit does not.
+    let child = k.node(3).unwrap();
+    let computed = child.computed_style(crate::StyleMask::INHERITED);
+    assert_eq!(computed.text_color, k.node(1).unwrap().style.text_color);
+    assert!(computed.written.is_empty() && child.style.written.is_empty());
+    // A written value equal to the parent's is still written; the same
+    // value with another bit is a change the node's hosts hear of.
+    let touched = k.apply(0, 2, &[colour(2, "#111111", true)]).unwrap();
+    assert_eq!(wrote(&k, 2), row);
+    assert!(touched.touched.contains(&k.node(2).unwrap().key));
+    // Another row's patch leaves the bit; the row's own patch replaces it.
+    k.apply(0, 3, &[tall(1, 40.0)]).unwrap();
+    assert_eq!(wrote(&k, 1), row);
+    k.apply(0, 4, &[colour(1, "#222222", false)]).unwrap();
+    assert!(wrote(&k, 1).is_empty(), "the winner's bit");
+    // A cleared row has no bit.
+    k.apply(
+        0,
+        5,
+        &[Op::ClearStyle {
+            id: 2,
+            mask: row,
+            written: false,
+        }],
+    )
+    .unwrap();
+    assert!(wrote(&k, 2).is_empty() && !k.node(2).unwrap().style.mask.has(StyleId::TextColor));
+}
+
+#[test]
+fn explicit_clear_intent_changes_without_an_own_value() {
+    let color = StyleId::TextColor;
+    let row = crate::StyleMask::of(color);
+    let mut ops = create([1, 2, 3], NodeType::View);
+    ops.extend([children(1, &[2]), Op::AttachRoot { id: 1 }]);
+    ops.push(colour(1, "#123456", true));
+    let mut k = kernel(&ops);
+    let clear = |id| {
+        let mut patch = StyleProps::default();
+        patch.written = row;
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    };
+    let initial = k.node(3).unwrap().text_color();
+    for id in [2, 3] {
+        let before = k.node(id).unwrap().text_color();
+        let receipt = k.apply(0, 2, &[clear(id)]).unwrap();
+        let node = k.node(id).unwrap();
+        assert!(!node.style.mask.has(color));
+        assert!(node.style.written.has(color));
+        assert_eq!(node.text_color(), before);
+        assert!(
+            receipt.touched.contains(&node.key),
+            "intent is observable even at the same color"
+        );
+        assert!(k.apply(0, 3, &[clear(id)]).unwrap().touched.is_empty());
+    }
+    k.apply(0, 3, &[tall(2, 40.0)]).unwrap();
+    assert!(!k.node(2).unwrap().style.mask.has(color));
+    assert!(k.node(2).unwrap().style.written.has(color));
+    k.apply(0, 4, &[colour(1, "#654321", true)]).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().text_color(),
+        k.node(1).unwrap().text_color()
+    );
+    k.apply(0, 5, &[children(1, &[])]).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().text_color(),
+        initial,
+        "detaching does not freeze inherited ink"
+    );
+    k.apply(0, 6, &[children(1, &[2])]).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().text_color(),
+        k.node(1).unwrap().text_color()
+    );
+    k.apply(0, 7, &[colour(2, "#654321", true)]).unwrap();
+    assert!(k.node(2).unwrap().style.mask.has(color));
+    k.apply(0, 8, &[clear(2)]).unwrap();
+    assert!(!k.node(2).unwrap().style.mask.has(color));
+    assert!(k.node(2).unwrap().style.written.has(color));
+    let removed = k
+        .apply(
+            0,
+            9,
+            &[Op::ClearStyle {
+                id: 2,
+                mask: row,
+                written: false,
+            }],
+        )
+        .unwrap();
+    assert!(removed.touched.contains(&k.node(2).unwrap().key));
+    assert!(!k.node(2).unwrap().style.written.has(color));
+}
+
 fn prop(id: u32, prop: PropId, value: &str) -> Op {
     Op::SetProp {
         id,
@@ -48,14 +178,96 @@ fn work(f: impl FnOnce()) -> (usize, usize) {
 }
 
 /// Frames of `ids` after one layout, and whether the engine holds exactly
-/// the live nodes.
+/// the live layout boxes (inline runs belong to their paragraph).
 fn laid_out(k: &mut Kernel, ids: &[u32]) -> (Vec<(u32, Frame)>, bool) {
     k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
     let frames = ids
         .iter()
         .map(|&id| (id, k.node(id).unwrap().frame))
         .collect();
-    (frames, k.engine_nodes() == k.live_count())
+    let boxes = k
+        .arena()
+        .iter_live()
+        .filter(|s| !k.arena().is_inline_run(*s))
+        .count();
+    (frames, k.engine_nodes() == boxes)
+}
+
+#[test]
+fn inline_runs_need_no_engine_nodes_and_promote_with_current_style() {
+    let mut first = create([1, 5], NodeType::View);
+    first.extend(create(2..5, NodeType::Text));
+    first.extend([
+        prop(3, PropId::Text, "alpha"),
+        prop(4, PropId::Text, " beta"),
+        children(3, &[4]),
+        children(2, &[3]),
+        children(1, &[2, 5]),
+        Op::AttachRoot { id: 1 },
+    ]);
+    let batches = [
+        first,
+        vec![tall(3, 37.0), prop(4, PropId::Text, " changed inline")],
+        vec![children(5, &[3])],
+        vec![children(2, &[3])],
+        vec![children(2, &[])],
+        vec![children(5, &[3]), children(2, &[3]), children(5, &[3])],
+        vec![
+            Op::DestroyView { id: 3 },
+            Op::CreateView {
+                id: 3,
+                node_type: NodeType::Text,
+            },
+            prop(3, PropId::Text, "reused"),
+            children(2, &[3]),
+        ],
+        vec![children(2, &[]), Op::AttachRoot { id: 3 }],
+    ];
+    for on_demand in [false, true] {
+        let mut k = if on_demand {
+            Kernel::with_monospace_on_demand()
+        } else {
+            Kernel::with_monospace()
+        };
+        for (round, batch) in batches.iter().enumerate() {
+            k.apply(0, round as u64, batch).unwrap();
+            let mut rebuilt = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+            let mut replay = Kernel::with_monospace();
+            for (i, ops) in batches[..=round].iter().enumerate() {
+                replay.apply(0, i as u64, ops).unwrap();
+            }
+            for root in k.roots() {
+                for tree in [&mut k, &mut rebuilt, &mut replay] {
+                    tree.compute_layout(root, Offer::definite(400.0, 800.0))
+                        .unwrap();
+                }
+            }
+            for slot in k.arena().iter_live() {
+                let arena = k.arena();
+                assert_eq!(arena.taffy(slot).is_none(), arena.is_inline_run(slot));
+                let id = arena.local_id(slot);
+                let frame = k.node(id).unwrap().frame;
+                assert_eq!(
+                    frame,
+                    rebuilt.node(id).unwrap().frame,
+                    "round {round}: rebuild {id}"
+                );
+                assert_eq!(
+                    frame,
+                    replay.node(id).unwrap().frame,
+                    "round {round}: replay {id}"
+                );
+            }
+            if round == 0 {
+                assert_eq!(k.engine_nodes(), 3);
+                assert_eq!(k.live_count(), 5);
+            }
+            if round == 2 || round == 5 {
+                assert_eq!(k.node(3).unwrap().frame.height, 37.0);
+                assert_eq!(k.node(4).unwrap().frame, Frame::default());
+            }
+        }
+    }
 }
 
 /// Moving N children in one op and destroying N children one op each
@@ -338,4 +550,240 @@ fn trees_past_the_depth_bound_are_refused_whole() {
             .join()
             .unwrap();
     }
+}
+
+#[test]
+fn continuation_rejects_misuse_and_never_publishes_a_failed_commit() {
+    use crate::{ApplyError, KernelError};
+    let mut k = kernel(&create([1], NodeType::View));
+    let (epoch, history) = (k.epoch(), k.receipts().count());
+    assert!(matches!(
+        k.continue_document_commit(&[]),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.finish_document_commit(),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    let invalid = [tall(1, 20.0), Op::DestroyView { id: 99 }];
+    assert!(matches!(
+        k.begin_document_commit(0, 2, &invalid, None),
+        Err(KernelError::Apply(_))
+    ));
+    assert_eq!(k.node(1).unwrap().style.height, crate::Dimension::Auto);
+    // Rejected initial validation did not reserve a continuation.
+    k.begin_document_commit(0, 2, &[tall(1, 30.0)], None)
+        .unwrap();
+    assert!(matches!(
+        k.begin_document_commit(0, 3, &[], None),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.apply(0, 3, &[]),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.apply_document(0, 3, &[], None),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.continue_document_commit(&invalid),
+        Err(KernelError::Apply(ApplyError::UnknownView { .. }))
+    ));
+    assert_eq!(
+        k.node(1).unwrap().style.height,
+        crate::Dimension::Points(30.0)
+    );
+    assert_eq!((k.epoch(), k.receipts().count()), (epoch, history));
+    assert!(matches!(
+        k.finish_document_commit(),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.continue_document_commit(&[]),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.apply(0, 3, &[]),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert_eq!((k.epoch(), k.receipts().count()), (epoch, history));
+    k.reset();
+    k.apply(0, 3, &create([1], NodeType::View)).unwrap();
+}
+
+#[test]
+fn continuation_preserves_detached_and_unchanged_commit_behavior() {
+    let mut detached = Kernel::detached();
+    let invalid = [Op::DestroyView { id: 99 }];
+    let expected = detached.apply_document(7, 2, &invalid, None).unwrap();
+    detached
+        .begin_document_commit(7, 2, &invalid, None)
+        .unwrap();
+    detached.continue_document_commit(&invalid).unwrap();
+    assert!(detached.apply(0, 3, &[]).is_err());
+    assert_eq!(detached.finish_document_commit().unwrap(), expected);
+    assert_eq!(detached.live_count(), 0);
+    assert_eq!(detached.receipts().count(), 0);
+
+    let mut k = kernel(&create([1], NodeType::View));
+    let (epoch, history) = (k.epoch(), k.receipts().count());
+    k.begin_document_commit(7, 2, &[], None).unwrap();
+    k.continue_document_commit(&[]).unwrap();
+    let receipt = k.finish_document_commit().unwrap();
+    assert_eq!(
+        receipt,
+        crate::CommitReceipt {
+            batch: 2,
+            root_id: 7,
+            epoch,
+            ..Default::default()
+        }
+    );
+    assert_eq!((k.epoch(), k.receipts().count()), (epoch, history + 1));
+}
+
+#[test]
+fn continuation_filters_and_deduplicates_final_live_display_keys() {
+    let display = |id, value: &str| {
+        let mut patch = StyleProps::default();
+        patch
+            .set_dynamic(StyleId::Display, &StyleValue::Text(value.into()))
+            .unwrap();
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    };
+    let mut k = kernel(&create([1, 2], NodeType::View));
+    let old = k.node(2).unwrap().key;
+    k.begin_document_commit(0, 2, &[display(1, "none"), display(2, "none")], None)
+        .unwrap();
+    k.continue_document_commit(&[display(1, "flex"), Op::DestroyView { id: 2 }])
+        .unwrap();
+    k.continue_document_commit(&create([2], NodeType::View))
+        .unwrap();
+    k.continue_document_commit(&[display(2, "none")]).unwrap();
+    let fresh = k.node(2).unwrap().key;
+    assert_ne!(old, fresh);
+    let receipt = k.finish_document_commit().unwrap();
+    assert_eq!(receipt.display_changed, vec![k.node(1).unwrap().key, fresh]);
+    assert_eq!(receipt.created, vec![fresh]);
+    assert_eq!(receipt.destroyed, vec![old]);
+    assert_eq!(receipt.touched, vec![k.node(1).unwrap().key]);
+}
+
+#[test]
+fn continuation_resynchronizes_text_created_in_an_earlier_phase() {
+    for on_demand in [false, true] {
+        for promote in [true, false] {
+            let mut k = if on_demand {
+                Kernel::with_monospace_on_demand()
+            } else {
+                Kernel::with_monospace()
+            };
+            let mut initial = create([1], NodeType::View);
+            initial.extend(create([2], NodeType::Text));
+            initial.extend([children(1, &[2]), Op::AttachRoot { id: 1 }]);
+            k.apply(0, 1, &initial).unwrap();
+            let mut height = StyleProps::default();
+            height
+                .set_dynamic(StyleId::Height, &StyleValue::Text("2em".into()))
+                .unwrap();
+            let mut first = create([3], NodeType::Text);
+            first.extend([
+                Op::SetStyle {
+                    id: 3,
+                    patch: Box::new(height),
+                },
+                prop(3, PropId::Text, "alpha"),
+            ]);
+            first.push(if promote {
+                children(2, &[3])
+            } else {
+                children(1, &[2, 3])
+            });
+            k.begin_document_commit(0, 2, &first, None).unwrap();
+            // Move directly: the source parent's children are pruned by the op.
+            // Lifecycle creation identity persists, but text ownership must sync
+            // again when a later phase promotes or demotes this same allocation.
+            let mut font = StyleProps::default();
+            font.set_dynamic(StyleId::FontSize, &StyleValue::Number(20.0))
+                .unwrap();
+            k.continue_document_commit(&[
+                Op::SetStyle {
+                    id: 1,
+                    patch: Box::new(font),
+                },
+                if promote {
+                    children(1, &[2, 3])
+                } else {
+                    children(2, &[3])
+                },
+            ])
+            .unwrap();
+            let receipt = k.finish_document_commit().unwrap();
+            let key = k.node(3).unwrap().key;
+            assert_eq!(receipt.created, vec![key]);
+            assert_eq!(k.receipts().last(), Some(receipt));
+            k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
+            let slot = k.arena().slot_of(3).unwrap();
+            assert_eq!(
+                k.arena().taffy(slot).is_some(),
+                promote,
+                "on_demand={on_demand}, promote={promote}: final text ownership"
+            );
+            let mut rebuilt = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+            rebuilt
+                .compute_layout(1, Offer::definite(400.0, 800.0))
+                .unwrap();
+            assert_eq!(k.node(3).unwrap().frame, rebuilt.node(3).unwrap().frame);
+            assert_eq!(
+                k.node(3).unwrap().style.height,
+                crate::Dimension::Points(40.0)
+            );
+            if promote {
+                assert_eq!(k.node(3).unwrap().frame.height, 40.0);
+            }
+        }
+    }
+}
+
+/// @ref LLP 1121 D8 — a node's looks hold the look rows only, set or
+/// cleared (a written-only `width` is refused, as a set one is), each state
+/// once; they go with the node.
+#[test]
+fn looks_take_the_look_rows_only_and_go_with_the_node() {
+    use crate::{LOOK_FOCUS_VISIBLE, LOOK_HOVER};
+    let mut k = kernel(&create([1], NodeType::View));
+    let mut fill = StyleProps::default();
+    fill.set_dynamic(
+        StyleId::BackgroundColor,
+        &StyleValue::Text("#ff0000".into()),
+    )
+    .unwrap();
+    let mut width = StyleProps::default();
+    width.written.set(StyleId::Width);
+    let mut opacity = StyleProps::default();
+    opacity.written.set(StyleId::Opacity);
+    for (looks, ok) in [
+        (vec![(LOOK_HOVER, width)], false),
+        (
+            vec![
+                (LOOK_FOCUS_VISIBLE, fill.clone()),
+                (LOOK_HOVER, fill.clone()),
+            ],
+            false,
+        ),
+        (
+            vec![(LOOK_HOVER, fill.clone()), (LOOK_FOCUS_VISIBLE, opacity)],
+            true,
+        ),
+    ] {
+        let applied = k.apply(1, 2, &[Op::SetLooks { id: 1, looks }]).is_ok();
+        assert_eq!(applied, ok);
+    }
+    assert_eq!(k.node(1).unwrap().looks().len(), 2);
+    k.apply(2, 3, &[Op::DestroyView { id: 1 }]).unwrap();
+    assert!(k.node(1).is_none());
 }

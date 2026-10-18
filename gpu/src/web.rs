@@ -1,9 +1,8 @@
 //! The web ABI: wasm-bindgen exports the glue calls after the module's
 //! wasm is fetched on demand (LLP 1009 D2).
 
-use crate::{json, Frame, Module, Registry};
+use crate::{json, Frame, Module, Registry, SurfaceRef};
 use std::cell::RefCell;
-use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
 thread_local! {
@@ -116,8 +115,8 @@ pub async fn recover(
             let config = inst.config.as_ref().unwrap();
             inst.surface.device_ready(gpu.device.features());
             inst.surface
-                .prepare_assets(&gpu.device, &gpu.queue, config.format);
-            inst.presentation = Some(Arc::new(target));
+                .prepare_assets(&gpu.device, &gpu.queue, crate::view_format(config));
+            inst.presentation = Some(SurfaceRef::new(target));
         }
         if module
             .device_lost

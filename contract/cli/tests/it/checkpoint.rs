@@ -136,7 +136,7 @@ fn boot(
         checkpoint,
         store
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (k.to_string(), v.as_bytes().to_vec()))
             .collect(),
         Delivery::default(),
         Default::default(),

@@ -50,6 +50,44 @@ final class PressFeedbackMacTests: XCTestCase {
         XCTAssertEqual(pressed, [1], "the click is the tap it was")
     }
 
+    func testABubbledPopoverPressReleasesItsAncestorsScaleAsAnInPagePressDoes() throws {
+        let (p, ancestor) = fixture()
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        func click(_ source: NodeView) {
+            source.mouseDown(with: event(source, .leftMouseDown, source.bounds.midX, source.bounds.midY))
+            XCTAssertTrue(ancestor.pressed)
+            XCTAssertEqual(ancestor.press.to, 0.97)
+            ancestor.press.start -= 1 // The down has settled before the lift.
+            source.mouseUp(with: event(source, .leftMouseUp, source.bounds.midX, source.bounds.midY))
+            XCTAssertFalse(ancestor.pressed)
+            XCTAssertFalse(ancestor.press.idle, "the release eases instead of resetting to identity")
+            XCTAssertFalse(ancestor.press.releaseHeld)
+            XCTAssertEqual(ancestor.press.from, 0.97)
+            XCTAssertEqual(ancestor.press.to, 1)
+            let halfway = ancestor.press.factor(at: ancestor.press.start + PressFeedback.duration / 2)
+            XCTAssertGreaterThan(halfway, 0.97)
+            XCTAssertLessThan(halfway, 1)
+        }
+        click(ancestor)
+        p.menus.painted = true
+        p.apply(wireBatch([
+            ["op": "create", "id": 2, "kind": "view", "props": ["popover": "manual", "id": "feedback"]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Plain content"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3]],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 160, "h": 80],
+            ["op": "frame", "id": 3, "x": 10, "y": 10, "w": 140, "h": 40],
+        ]))
+        defer { p.menus.reset() }
+        p.menus.action("showPopover", ["feedback"])
+        let popover = try XCTUnwrap(p.views[2]), source = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(p.menus.isOpen(popover))
+        XCTAssertFalse(source.isDescendant(of: ancestor))
+        click(source)
+        XCTAssertNil(p.mouseChain.bubbledPress, "completion clears the contact, keeping the release")
+        XCTAssertEqual(presses, [1, 1])
+    }
+
     /// A `text` with its own `press` is clicked, as a `<span onClick>` is,
     /// rather than selected (spreadsheet F12).
     func testATextWithAPressIsClicked() throws {
@@ -75,11 +113,174 @@ final class PressFeedbackMacTests: XCTestCase {
         XCTAssertEqual(v.press.to, 1)
     }
 
-    func testANodeWithoutTheRowGivesNoFeedback() {
-        let (_, v) = fixture(style: [:])
-        v.pressed = true
-        XCTAssertTrue(v.press.idle)
+    /// The alpha of a wash's mask at a point of the node (0 where the node
+    /// has no ink, so nothing is tinted there).
+    private func ink(_ node: NodeView, at point: CGPoint) throws -> CGFloat {
+        let wash = try XCTUnwrap(node.layer?.sublayers?.first { $0.name == "exact.pressWash" })
+        let mask = try XCTUnwrap(wash.mask)
+        XCTAssertEqual(mask.frame, wash.bounds, "the picture fills the wash")
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = try XCTUnwrap(CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.translateBy(x: -point.x, y: -point.y)
+        mask.render(in: context)
+        return CGFloat(pixel[3]) / 255
+    }
+
+    /// LLP 1115.000 D6 on the Mac: a pressable that declares no feedback
+    /// shows AppKit's pressed effect while the mouse is down inside it, as a
+    /// borderless `NSButton` does: a wash over its own ink, darker in a light
+    /// appearance and lighter in a dark one, on at once and off at once, and
+    /// no scale. (It showed nothing: "macOS: AppKit's custom views show none".)
+    func testAPressableThatDeclaresNoFeedbackShowsThePlatformsPressedLook() throws {
+        let (p, v) = fixture(style: ["background_color": [240, 240, 245, 255]])
+        window.appearance = NSAppearance(named: .aqua)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertTrue(v.platformPressTints)
+        XCTAssertFalse(v.pressTinted)
+        v.mouseDown(with: event(v, .leftMouseDown, 100, 50))
+        XCTAssertTrue(v.pressed)
+        XCTAssertTrue(v.pressTinted, "the mouse is down inside it")
+        XCTAssertTrue(v.press.idle, "the platform's look is no scale")
         XCTAssertEqual(v.layer?.affineTransform(), .identity)
+        let wash = try XCTUnwrap(v.layer?.sublayers?.first { $0.name == "exact.pressWash" })
+        XCTAssertEqual(wash.backgroundColor?.components, [0, 0.16], "light: black, the system's pressed effect at white")
+        XCTAssertEqual(wash.frame, v.bounds)
+        XCTAssertEqual(wash.zPosition, 1, "over the node's own views")
+        XCTAssertGreaterThan(try ink(v, at: CGPoint(x: 100, y: 50)), 0.99, "masked by the node's own picture: its box is ink")
+        v.mouseDragged(with: event(v, .leftMouseDragged, 260, 50))
+        XCTAssertTrue(v.pressed)
+        XCTAssertFalse(v.pressTinted, "outside, the look lets go, as a button's highlight does")
+        v.mouseDragged(with: event(v, .leftMouseDragged, 190, 60))
+        XCTAssertTrue(v.pressTinted, "back inside, it shows again")
+        v.mouseUp(with: event(v, .leftMouseUp, 190, 60))
+        XCTAssertFalse(v.pressTinted, "off at once on release")
+        XCTAssertEqual(pressed, [1], "the click is the tap it was")
+        // A dark appearance lightens: white at 0.18, the effect at black.
+        window.appearance = NSAppearance(named: .darkAqua)
+        v.pressed = true
+        XCTAssertEqual(v.layer?.sublayers?.first { $0.name == "exact.pressWash" }?.backgroundColor?.components, [1, 0.18])
+        v.pressed = false
+        window.appearance = nil
+        // Where the node paints nothing, nothing is tinted: no box around a text button's glyphs.
+        let (_, bare) = fixture(style: [:])
+        bare.pressed = true
+        XCTAssertTrue(bare.pressTinted)
+        XCTAssertEqual(try ink(bare, at: CGPoint(x: 100, y: 50)), 0, "an unpainted pressable has no ink to tint")
+        bare.pressed = false
+    }
+
+    /// A default yields only to the author's version of the same state, and
+    /// a native control and a list's row keep their own.
+    func testThePlatformsPressedLookYieldsToTheAuthorsAndIsNotForARowOrANativeControl() throws {
+        // Authored press feedback replaces it, whatever its value.
+        for scale in [0.97, 1.0] {
+            let (_, v) = fixture(style: ["press_scale": .number(scale)])
+            XCTAssertFalse(v.platformPressTints)
+            v.pressed = true
+            XCTAssertFalse(v.pressTinted, "press_scale \(scale): only the author's feedback")
+            XCTAssertEqual(v.press.to, CGFloat(scale))
+            v.pressed = false
+            window.close()
+        }
+        let (p, v) = fixture(style: [:])
+        // A `hover` handler only observes: it replaces nothing.
+        v.handlers = ["press", "hover"]
+        XCTAssertTrue(v.platformPressTints)
+        // The author paints the pressed state from the pointer's own events.
+        v.handlers = ["press", "pointerdown"]
+        XCTAssertFalse(v.platformPressTints)
+        v.handlers = ["press", "pointerup"]
+        XCTAssertFalse(v.platformPressTints)
+        // Not pressable: nothing to show.
+        v.handlers = ["hover"]
+        XCTAssertFalse(v.platformPressTints)
+        v.handlers = ["press"]
+        // A row of a list, the list's child or a section's in it: its press is the cell's (D16).
+        let list = NodeView(id: 2, kind: "list", presenter: p), section = NodeView(id: 3, kind: "view", presenter: p)
+        section.props["semanticTag"] = "section"
+        list.frame = NSRect(x: 0, y: 200, width: 300, height: 150); section.frame = list.bounds
+        p.root.addSubview(list); p.views[2] = list; p.views[3] = section
+        list.container.addSubview(v)
+        XCTAssertTrue(v.isListRow)
+        XCTAssertFalse(v.platformPressTints)
+        v.pressed = true
+        XCTAssertFalse(v.pressTinted, "a list's row is not tinted")
+        v.pressed = false
+        list.container.addSubview(section); section.container.addSubview(v)
+        XCTAssertTrue(v.isListRow, "a section's row is the list's too")
+        XCTAssertFalse(v.platformPressTints)
+        // An item of a list that scrolls sideways is a carousel's card, not a row (as on the web host).
+        list.container.addSubview(v)
+        let sideways = try XCTUnwrap(CollectionSnapshot(["view": 2, "revision": 1, "scrollSequence": 1, "totalExtent": 600.0, "axis": "x", "rows": [[String: Any]]()]))
+        p.collections.entries[2] = CollectionHost.Entry(sideways)
+        XCTAssertFalse(v.isListRow)
+        XCTAssertTrue(v.platformPressTints, "a carousel's card shows the press")
+        p.collections.entries[2] = nil
+        XCTAssertTrue(v.isListRow)
+        // A native control keeps its own feedback: no wash is laid over it.
+        let native = NodeView(id: 4, kind: "control", presenter: p)
+        native.props["type"] = "button"; native.handlers = ["press"]
+        native.frame = NSRect(x: 0, y: 0, width: 80, height: 24)
+        p.root.addSubview(native); p.views[4] = native
+        XCTAssertFalse(native.platformPressTints)
+        // A scrim covering the window shows nothing, as on iOS.
+        let scrim = NodeView(id: 5, kind: "view", presenter: p)
+        scrim.handlers = ["press"]
+        p.root.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        scrim.frame = p.root.bounds
+        p.root.addSubview(scrim); p.views[5] = scrim
+        XCTAssertFalse(scrim.platformPressTints)
+    }
+
+    /// A disabled custom pressable shows as a disabled control does, at half
+    /// its opacity, and takes no press; a native control and a list's row
+    /// are not dimmed by this.
+    func testADisabledCustomPressableDimsAndTakesNoPress() throws {
+        let (p, v) = fixture(style: [:])
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertEqual(v.alphaValue, 1)
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"]]]))
+        XCTAssertEqual(v.alphaValue, 0.5, "as AppKit draws a disabled borderless button's content")
+        v.mouseDown(with: event(v, .leftMouseDown, 100, 50))
+        v.mouseUp(with: event(v, .leftMouseUp, 100, 50))
+        XCTAssertEqual(pressed, [], "and it takes no press")
+        XCTAssertFalse(v.pressTinted)
+        // The author's opacity is multiplied in, as it arrives and as it changes.
+        p.apply(wireBatch([["op": "present", "id": 1, "property": "opacity", "x": 0.8]]))
+        XCTAssertEqual(v.alphaValue, 0.4, accuracy: 1e-9)
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "false"]]]))
+        XCTAssertEqual(v.alphaValue, 0.8, accuracy: 1e-9, "enabled again, its own opacity")
+        // A box that is not pressable has no disabled state (`disabled` means nothing on a box).
+        v.handlers = []
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"]]]))
+        XCTAssertEqual(v.alphaValue, 0.8, accuracy: 1e-9)
+        v.handlers = ["press"]
+        XCTAssertEqual(v.alphaValue, 0.4, accuracy: 1e-9, "a handler makes it one")
+        // A list's row keeps its look for the cell (D16): dimmed nowhere here.
+        let list = NodeView(id: 2, kind: "list", presenter: p)
+        list.frame = NSRect(x: 0, y: 200, width: 300, height: 150)
+        p.root.addSubview(list); p.views[2] = list
+        list.container.addSubview(v)
+        XCTAssertEqual(v.alphaValue, 0.8, accuracy: 1e-9, "mounted as a row, it is the list's")
+    }
+
+    /// One whose author styles its own disabled state (Contract's
+    /// `disabledStyled`, LLP 1115.000 D6) keeps the author's look, and still
+    /// takes no press.
+    func testADisabledPressableItsAuthorStylesIsNotDimmed() throws {
+        let (p, v) = fixture(style: [:])
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true", "disabledStyled": "true"]]]))
+        XCTAssertEqual(v.alphaValue, 1, "the author's look, not the dim")
+        v.mouseDown(with: event(v, .leftMouseDown, 100, 50))
+        v.mouseUp(with: event(v, .leftMouseUp, 100, 50))
+        XCTAssertEqual(pressed, [], "and it takes no press")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"], "clear": ["disabledStyled"]]]))
+        XCTAssertEqual(v.alphaValue, 0.5, "without the mark, the dim")
     }
 
     func testThePressFoldsIntoTheEnginesScaleAboutTheOrigin() throws {

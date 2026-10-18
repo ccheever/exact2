@@ -1,5 +1,5 @@
 //! Views: every slot shown in a `text` with a `testId`, buttons and inputs
-//! bound to actions, `when`/`match`/`each` blocks, and child components
+//! bound to actions, `if`/`match`/`for` blocks, and child components
 //! with their own state, used once or once per row.
 
 use super::action::Writes;
@@ -13,10 +13,10 @@ const LABELS: &[&str] = &["go", "tap", "+", "do it", "Save", "×", "next", "☆"
 #[derive(Clone)]
 struct Ctx {
     env: Env,
-    /// `env` without the states typed only by a write: what a `when`,
-    /// `match` or `each` head reads (it is typed as a derive is).
+    /// `env` without the states typed only by a write: what an `if`,
+    /// `match` or `for` head reads (it is typed as a derive is).
     heads: Env,
-    /// Enclosing `each` index names, outermost first.
+    /// Enclosing `for` index names, outermost first.
     ixs: Vec<String>,
     /// The root's states and the enclosing rows' items and indexes: all a
     /// prop that a child's state starts from may read.
@@ -216,7 +216,7 @@ impl Gen<'_> {
     }
 
     /// A `testId` attribute value, and the concrete ids it takes for the
-    /// first few rows of every enclosing `each`.
+    /// first few rows of every enclosing `for`.
     fn tid(&mut self, base: &str, ixs: &[String]) -> (String, Vec<String>) {
         if ixs.is_empty() {
             return (quote(base), vec![base.to_string()]);
@@ -297,7 +297,7 @@ impl Gen<'_> {
             }
             2 => {
                 let c = self.expr(&ctx.heads, &Ty::Bool, 2, false);
-                out.push_str(&format!("{pad}when {c}\n"));
+                out.push_str(&format!("{pad}if {c}\n"));
                 self.arm_child(ctx, indent + 2, out);
                 self.items(ctx, depth - 1, indent + 2, out);
                 if self.rng.chance(1, 2) {
@@ -332,7 +332,7 @@ impl Gen<'_> {
                 let list = self.expr(&ctx.heads, &Ty::list(t.clone()), 2, false);
                 let it = self.fresh("it");
                 let ix = self.fresh("ix");
-                out.push_str(&format!("{pad}each {it}, {ix} in {list} key={ix}\n"));
+                out.push_str(&format!("{pad}for {it}, {ix} in {list} key={ix}\n"));
                 let mut row = ctx.clone();
                 row.env = row.env.with(&it, t.clone()).with(&ix, Ty::Num);
                 row.heads = row.heads.with(&it, t.clone()).with(&ix, Ty::Num);
@@ -356,7 +356,7 @@ impl Gen<'_> {
         }
     }
 
-    /// Now and then a stateful child at the head of a `when` or `match`
+    /// Now and then a stateful child at the head of an `if` or `match`
     /// arm: the arm instance owns its state, so hiding the arm and showing
     /// it again starts the child afresh. Its props read the arm's
     /// enclosing scope (`ctx`), never the `match` binder.
@@ -373,7 +373,7 @@ impl Gen<'_> {
         }
     }
 
-    /// `Ck(idx=…, …)`: a literal `idx` outside an `each`, the row index
+    /// `Ck(idx=…, …)`: a literal `idx` outside a `for`, the row index
     /// plus an offset inside one, so every instance's ids differ.
     fn use_child(&mut self, ctx: &Ctx, k: usize, indent: usize, out: &mut String) {
         let child = self.children[k].clone();

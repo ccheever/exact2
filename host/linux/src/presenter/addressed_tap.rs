@@ -19,10 +19,20 @@ impl<D: DataSource> Presenter<D> {
     /// refused; one without never presses a control inside it.
     pub fn tap_at(&mut self, id: ViewId, at: Option<(f32, f32)>) -> Result<String, String> {
         self.boxes();
-        if self.host.route_visibility(id).1 || self.placement_hidden(id) {
+        // An open surface of the top layer takes the tap: its own row is
+        // chosen, and the page under it is inert.
+        if let Some(result) = self.surface_tap(id) {
+            return result;
+        }
+        // What a shell's bar stands for is chosen in the bar: the page
+        // holds no box for it.
+        if let Some(result) = self.bar_tap(id) {
+            return result;
+        }
+        if !self.alert_allows(id) || self.host.route_visibility(id).1 || self.placement_hidden(id) {
             return Err(format!("view {id} is hidden or inert"));
         }
-        if crate::navigation::popover_invoker(self.host.kernel(), id) {
+        if !self.has_windows() && crate::navigation::popover_invoker(self.host.kernel(), id) {
             return Err(crate::navigation::POPOVER_UNSUPPORTED.into());
         }
         let b = self
@@ -106,6 +116,39 @@ impl<D: DataSource> Presenter<D> {
             ));
         }
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
+        // The pointer's `pointerdown` and `pointerup` there before the press,
+        // in DOM's order, as `pointer_down` and `pointer_up` send a real one's.
+        // What they do to the tree never sends the press elsewhere: the
+        // target is the one the pointer went down on, as a real contact keeps
+        // it, and a tap whose target they took away or replaced presses nothing.
+        let target = |p: &mut Self| {
+            let hit = p.hit(x, y)?;
+            let pressed = p
+                .control_target(hit)
+                .or_else(|| p.handler_target(hit, EventKind::Press))
+                .unwrap_or(hit);
+            p.host.kernel().node(pressed).map(|n| n.key)
+        };
+        let before = target(self);
+        // While the pointer is held (a contact, a button) this press is
+        // another finger's: the hold keeps its own `pointerup`, and the
+        // driver refuses an agent's press then (one finger at a time).
+        let free = self.pointer_held.is_none() && self.contact_position().is_none();
+        if free {
+            let down = self.pointer_pressed(x, y, now);
+            let up = self.pointer_lifted(Some((x, y)), now);
+            if let Some(error) = down.or(up) {
+                return Err(error);
+            }
+        }
+        if free && target(self) != before {
+            self.hatch_tapped(mark, x, y);
+            return Ok(format!(
+                "{{\"tapped\":{id},\"at\":[{},{}],\"pressed\":null}}",
+                num(r2(x)),
+                num(r2(y))
+            ));
+        }
         let activated = self.press_at(x, y, now);
         self.hatch_tapped(mark, x, y);
         if actual.is_some() && activated.is_none() {
@@ -138,15 +181,16 @@ impl<D: DataSource> Presenter<D> {
     /// Whether `id` has a press of its own: a `press` handler, a link or a
     /// surface control's `action` — disabled or not (a disabled one presses
     /// nothing, and a tap that names it presses nothing inside it).
-    fn presses_itself(&self, id: ViewId) -> bool {
+    pub(super) fn presses_itself(&self, id: ViewId) -> bool {
         let kernel = self.host.kernel();
-        kernel.node(id).is_some_and(|n| {
-            n.props.str(PropId::Action).is_some() || n.props.str(PropId::Href).is_some()
-        }) || self
-            .host
-            .runner()
-            .handlers_of(id)
-            .contains(&EventKind::Press)
+        kernel
+            .node(id)
+            .is_some_and(|n| n.props.str(PropId::Action).is_some() || n.props.link().is_some())
+            || self
+                .host
+                .runner()
+                .handlers_of(id)
+                .contains(&EventKind::Press)
     }
 
     /// Whether a press reaching `id` is taken by `id` itself, as `press_at`
@@ -158,13 +202,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(node) = self.host.kernel().node(id) else {
             return false;
         };
-        let invoker = (node.node_type == NodeType::Pressable
-            || exact_kernel::ControlKind::of(node.node_type, node.props)
-                == Some(exact_kernel::ControlKind::Button))
-            && node
-                .props
-                .str(PropId::Popovertarget)
-                .is_some_and(|t| !t.is_empty());
+        let invoker = exact_kernel::Invocation::of(self.host.kernel(), &node).is_some();
         let control = node.node_type == NodeType::Control
             && !matches!(node.props.str(PropId::Type), Some("button" | "progress"));
         invoker
@@ -207,7 +245,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// Strictly inside `ancestor` in the kernel's tree.
-    fn is_inside(&self, node: ViewId, ancestor: ViewId) -> bool {
+    pub(super) fn is_inside(&self, node: ViewId, ancestor: ViewId) -> bool {
         let kernel = self.host.kernel();
         let mut at = kernel.node(node).and_then(|n| n.parent);
         while let Some(p) = at {

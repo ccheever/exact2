@@ -8,16 +8,17 @@
 //! against the app's data source and writes every resource's boot value into
 //! the plan, so the first frame on a device needs no host and no seam. The
 //! compiler is, for one frame, a host.
-
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-
+pub mod functions;
+mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
 /// `semantics/README.md`).
 pub mod lean;
 mod logic;
 mod manifest;
 mod map;
+mod midi;
 pub mod native;
 pub mod picker;
 mod resolve;
@@ -26,22 +27,29 @@ mod sources;
 mod strings;
 mod surface;
 mod symbols;
+mod tests_json;
+pub use tests_json::tests_json;
+pub mod snapshot;
+/// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
+pub mod tamber_params;
+pub mod tamber_uses;
 pub mod terminal;
 mod typescript;
-
+pub use contract_lower::vocab::collection_edge_refusal;
 pub use contract_types::strings::Strings;
 /// The data seam, re-exported for an app's build script: the bake asks the
 /// crate its grants for the compatibility id (`Caltrain.grants()`).
 pub use exact_runner::DataSource;
 pub use logic::{apple_linked, rust_entry, web_linked, web_rust_mode};
-pub use manifest::Manifest;
+pub use manifest::{Activity, Manifest, Widget};
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
-pub use sources::{Package, Source, SourceGraph};
+pub use sources::{
+    code_beside, design_path, with_contract_texts, with_design_text, Package, Source, SourceGraph,
+};
 pub use symbols::symbols_json;
-pub use typescript::typescript;
-
+pub use typescript::{design_exports, typescript, typescript_exporting};
 /// The app's strings tables (LLP 1060 D1), `None` for an app without a
 /// `strings` directory, every refusal in one message: the bake reads grant
 /// purposes from them (LLP 1069.008 D1).
@@ -53,14 +61,12 @@ pub fn strings_tables(app_root: &Path) -> Result<Option<std::sync::Arc<Strings>>
             .join("\n")
     })
 }
-
-use contract_syntax::{Expr, File, Span, Step, TapForm, TestDecl};
+use contract_syntax::{File, Span, Step, TestDecl};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{Plan, ResourcesId};
 use exact_runner::{Runner, RunnerError};
 use std::path::{Path, PathBuf};
-
 /// A refusal from `bake`: the runner's, or the layout lint's (LLP 1017 P1d).
 #[derive(Debug)]
 pub enum BakeError {
@@ -78,7 +84,6 @@ pub enum BakeError {
         site: Option<exact_plan::NodesId>,
     },
 }
-
 impl std::fmt::Display for BakeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -98,18 +103,14 @@ impl std::fmt::Display for BakeError {
         }
     }
 }
-
 impl std::error::Error for BakeError {}
-
 impl From<RunnerError> for BakeError {
     fn from(e: RunnerError) -> Self {
         BakeError::Runner(e)
     }
 }
-
 /// The viewport the lint lays the first frame out at: a phone, in points.
 pub const LINT_VIEWPORT: (f32, f32) = (390.0, 844.0);
-
 /// A related authored location, with its own independently resolved file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RelatedLocation {
@@ -120,7 +121,6 @@ pub struct RelatedLocation {
     /// Why this declaration or binding is relevant.
     pub note: String,
 }
-
 /// Any rejection from any pass, with its stable id and span.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompileError {
@@ -137,15 +137,28 @@ pub struct CompileError {
     /// Other authored declarations or bindings involved in this rejection.
     pub related: Box<[RelatedLocation]>,
 }
-
 impl CompileError {
+    /// A warning (LLP 1116 D6): lowering's non-fatal diagnostic, which fails
+    /// no build and no test and is reported after the refusals.
+    pub fn warning(e: contract_lower::LowerError) -> CompileError {
+        CompileError {
+            pass: "warning",
+            ..CompileError::from(e)
+        }
+    }
+    /// Whether this is a warning, not a refusal.
+    pub fn is_warning(&self) -> bool {
+        self.pass == "warning"
+    }
     /// A machine-readable diagnostic (LLP 1035.005 D2). Columns are one-based
     /// UTF-8 byte offsets with an exclusive end; zero means no source range.
     /// Standalone source has a null file. Every related location owns its file;
-    /// no location is guessed from message text.
+    /// no location is guessed from message text. `severity` is `"error"` for
+    /// a refusal and `"warning"` for a warning (LLP 1116 D6).
     pub fn to_json(&self) -> String {
         serde_json::json!({
             "id": self.id,
+            "severity": if self.is_warning() { "warning" } else { "error" },
             "message": self.message,
             "file": self.file.as_ref().map(|file| file.to_string_lossy()),
             "line": self.span.line,
@@ -162,13 +175,13 @@ impl CompileError {
         .to_string()
     }
 }
-
 impl std::fmt::Display for CompileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(file) = &self.file {
             write!(f, "{}:", file.display())?;
         }
-        write!(f, "{} [{}] {}", self.span, self.id, self.message)?;
+        let severity = if self.is_warning() { "warning " } else { "" };
+        write!(f, "{} {severity}[{}] {}", self.span, self.id, self.message)?;
         for related in self.related.iter() {
             write!(f, "\n  ")?;
             if let Some(file) = &related.file {
@@ -179,9 +192,7 @@ impl std::fmt::Display for CompileError {
         Ok(())
     }
 }
-
 impl std::error::Error for CompileError {}
-
 macro_rules! from_pass {
     ($ty:path, $pass:expr) => {
         impl From<$ty> for CompileError {
@@ -198,7 +209,6 @@ macro_rules! from_pass {
         }
     };
 }
-
 from_pass!(contract_syntax::SyntaxError, "syntax");
 from_pass!(contract_types::TypeError, "types");
 impl From<contract_analyze::AnalyzeError> for CompileError {
@@ -222,13 +232,29 @@ impl From<contract_analyze::AnalyzeError> for CompileError {
     }
 }
 from_pass!(contract_lower::LowerError, "lower");
-
+/// A source text's components' `param.` names as their tokens (LLP 1121
+/// D15), as the loader writes them for a file; a text with no path is
+/// `app.contract`, as an app's root is.
+pub(crate) fn params(file: &mut contract_syntax::File) -> Result<(), CompileError> {
+    for c in &mut file.components {
+        c.params
+            .identity
+            .get_or_insert_with(|| format!("app.contract#{}", c.name));
+    }
+    let mut refused = contract_lower::params::rewrite(file);
+    refused.extend(contract_lower::params::unused(file));
+    match refused.into_iter().next() {
+        Some(e) => Err(e.into()),
+        None => Ok(()),
+    }
+}
 /// Compile one source text to a validated plan. A text has no path, so a
 /// `use … from "./file.contract"` in it cannot be resolved: compile a file
 /// that uses others with [`compile_path`].
 pub fn compile(src: &str) -> Result<Plan, CompileError> {
     let mut file = contract_syntax::parse(src)?;
     contract_syntax::resolve_clock_timelines(&mut file)?;
+    params(&mut file)?;
     if let Some(u) = file.uses.first() {
         return Err(CompileError {
             pass: "use",
@@ -245,20 +271,42 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
     }
     compile_file(file, None)
 }
-
+/// [`compile`], with the warnings beside its result (LLP 1116 D6): every
+/// one the text earns once it type-checks, whether it then compiled or not.
+pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileError>) {
+    let mut warned = Vec::new();
+    let result = contract_syntax::parse(src)
+        .map_err(CompileError::from)
+        .and_then(|mut file| {
+            contract_syntax::resolve_clock_timelines(&mut file)?;
+            params(&mut file)?;
+            picker::check(&file, None).map_err(first)?;
+            compile_file_warned(
+                &file,
+                None,
+                None,
+                false,
+                contract_lower::Profile::Web,
+                Some(&mut warned),
+            )
+            .map(|(plan, _)| plan)
+            .map_err(first)
+        });
+    (result, warned)
+}
 /// [`compile`] for a terminal entry (LLP 1101): the terminal admission
 /// profile first, then the plan with the terminal's field sheet — what
 /// [`compile_path_terminal`] does for a file, for a test's source text.
 pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
     let mut file = contract_syntax::parse(src)?;
     contract_syntax::resolve_clock_timelines(&mut file)?;
+    params(&mut file)?;
     terminal::check(&file).map_err(first)?;
     picker::check(&file, None).map_err(first)?;
     compile_file_output(&file, None, None, false, contract_lower::Profile::Terminal)
         .map(|(plan, _)| plan)
         .map_err(first)
 }
-
 /// Compile a file by path, resolving every `use … from "./other.contract"`
 /// (LLP 1017 P8): the used file is loaded the same way, transitively, and
 /// all of its declarations — shapes, styles, components — are merged into
@@ -270,14 +318,13 @@ pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
 pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
     compile_path_source(path, &read_source(path)?)
 }
-
 /// Compile a file with the development map of the nodes it produces.
 pub fn compile_path_mapped(path: &Path) -> Result<(Plan, SourceMap), CompileError> {
     compile_path_source_mapped(path, &read_source(path)?)
 }
-
 fn read_source(path: &Path) -> Result<String, CompileError> {
-    let src = std::fs::read_to_string(path).map_err(|e| CompileError {
+    let read = sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok);
+    let src = read.map_err(|e| CompileError {
         pass: "use",
         id: "contract-use-unreadable".into(),
         message: e.to_string(),
@@ -287,7 +334,6 @@ fn read_source(path: &Path) -> Result<String, CompileError> {
     })?;
     Ok(src)
 }
-
 /// Compile source bytes with their file path for relative `use` and font
 /// resolution. Unlike [`compile_path`], this never re-reads the root file;
 /// callers that watch a file can compile the exact snapshot they observed.
@@ -296,16 +342,15 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
         .map(|(plan, _)| plan)
         .map_err(first)
 }
-
-/// At most this many diagnostics from one compile.
+/// At most this many diagnostics from one compile, except retired spellings.
 pub const MAX_DIAGNOSTICS: usize = 20;
-
 /// Compile a file by path, as [`compile_path`] does, and report every
 /// independent refusal rather than the first: within a pass each
 /// declaration, statement, element and attribute is checked whatever its
 /// neighbours' fate, a misspelled or mistyped call site comes before what
 /// it broke, and a pass runs only when the ones before it succeeded. At
-/// most [`MAX_DIAGNOSTICS`]. `mapped` also returns the development map.
+/// most [`MAX_DIAGNOSTICS`], except retired spellings, which are all reported.
+/// `mapped` also returns the development map.
 pub fn compile_path_all(
     path: &Path,
     mapped: bool,
@@ -344,6 +389,7 @@ pub fn compile_path_source_mapped(
 /// from, and the loader's refusals if it stopped (LLP 1091 D10): what a
 /// capture copies, a watcher watches, and a deploy freezes.
 pub fn source_graph(path: &Path) -> SourceGraph {
+    // The server's planned text of the root, where it has one (stage 8 D).
     let refused = |message: String| SourceGraph {
         sources: Vec::new(),
         packages: Vec::new(),
@@ -357,7 +403,7 @@ pub fn source_graph(path: &Path) -> SourceGraph {
             related: Box::new([]),
         }],
     };
-    let src = match std::fs::read_to_string(path) {
+    let src = match sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok) {
         Ok(src) => src,
         Err(e) => return refused(format!("{}: {e}", path.display())),
     };
@@ -495,6 +541,18 @@ pub fn surface_findings(path: &Path) -> Result<SurfaceFindings, Vec<CompileError
     })
 }
 
+/// Non-blocking advice for resource arguments fed by a live frame clock.
+/// Includes imported derives and functions, with the authored resource location.
+pub fn resource_clock_warnings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    let app_root = app_root(path)?;
+    let (file, sources) = sources::load(path, &src, &app_root)?;
+    Ok(contract_analyze::resource_clock_warnings(&file)
+        .into_iter()
+        .map(|e| sources.resolve(e.into()))
+        .collect())
+}
+
 /// Compile a terminal entry (LLP 1101 D2): the terminal profile's refusals,
 /// every one, then the ordinary compile.
 pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {
@@ -516,11 +574,48 @@ pub fn compile_path_all_unchecked(
     path: &Path,
     mapped: bool,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
-    let src = read_source(path).map_err(|e| vec![e])?;
-    compile_path_checked(path, &src, mapped, false, contract_lower::Profile::Web)
+    compile_path_all_warned(path, mapped).0
 }
 
-fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
+/// What a build's result and warnings are: the plan or the refusals, and
+/// beside either the warnings (LLP 1116 D6), which never fail it.
+pub type Warned = (
+    Result<(Plan, Option<SourceMap>), Vec<CompileError>>,
+    Vec<CompileError>,
+);
+
+/// [`compile_path_all_unchecked`], with the warnings beside the result
+/// (LLP 1116 D6): every one the checked file earns, at most
+/// [`contract_lower::MAX_WARNINGS`], whether lowering then succeeded or
+/// refused. A file the type checker refuses has none.
+pub fn compile_path_all_warned(path: &Path, mapped: bool) -> Warned {
+    compile_path_all_warned_with(path, mapped, false)
+}
+
+/// [`compile_path_all`], surface arguments checked, with the warnings beside
+/// the result as [`compile_path_all_warned`] gives them: what a build (the
+/// web's, a bake) prints, so they reach whoever ran it and not only
+/// `contract build` (LLP 1116.004 D7).
+pub fn compile_path_all_with_warnings(path: &Path, mapped: bool) -> Warned {
+    compile_path_all_warned_with(path, mapped, true)
+}
+
+fn compile_path_all_warned_with(path: &Path, mapped: bool, surfaces: bool) -> Warned {
+    let mut warned = Vec::new();
+    let result = read_source(path).map_err(|e| vec![e]).and_then(|src| {
+        compile_path_warned(
+            path,
+            &src,
+            mapped,
+            surfaces,
+            contract_lower::Profile::Web,
+            Some(&mut warned),
+        )
+    });
+    (result, warned)
+}
+
+pub(crate) fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
     let source_root = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -551,6 +646,17 @@ fn compile_path_checked(
     mapped: bool,
     surfaces: bool,
     profile: contract_lower::Profile,
+) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
+    compile_path_warned(path, src, mapped, surfaces, profile, None)
+}
+
+fn compile_path_warned(
+    path: &Path,
+    src: &str,
+    mapped: bool,
+    surfaces: bool,
+    profile: contract_lower::Profile,
+    warned: Option<&mut Vec<CompileError>>,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
     let app_root = app_root(path)?;
     let (file, sources) = sources::load(path, src, &app_root)?;
@@ -583,8 +689,22 @@ fn compile_path_checked(
         all
     };
     let strings = strings::load(&app_root, path).map_err(joined)?;
-    let (mut plan, sites) = compile_file_output(&file, Some(&app_root), strings, mapped, profile)
-        .map_err(|all| {
+    let mut own = match warned {
+        Some(_) => grants::check(&file, &app_root, strings.as_deref()),
+        None => Vec::new(),
+    };
+    let compiled = compile_file_warned(
+        &file,
+        Some(&app_root),
+        strings,
+        mapped,
+        profile,
+        warned.is_some().then_some(&mut own),
+    );
+    if let Some(warned) = warned {
+        warned.extend(own.into_iter().map(|e| sources.resolve(e)));
+    }
+    let (mut plan, sites) = compiled.map_err(|all| {
         joined(
             all.into_iter()
                 .map(|e| sources.resolve(e))
@@ -668,296 +788,6 @@ pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
         .collect())
 }
 
-/// The tests as JSON for the driver: `[{"name":…,"steps":[{"op":…}]}]`,
-/// written by hand — no serde anywhere in the runtime (LLP 1012).
-pub fn tests_json(tests: &[TestDecl]) -> String {
-    fn q(s: &str, out: &mut String) {
-        out.push('"');
-        for c in s.chars() {
-            match c {
-                '"' => out.push_str("\\\""),
-                '\\' => out.push_str("\\\\"),
-                '\n' => out.push_str("\\n"),
-                '\t' => out.push_str("\\t"),
-                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-                c => out.push(c),
-            }
-        }
-        out.push('"');
-    }
-    let mut s = String::from("[");
-    for (ti, t) in tests.iter().enumerate() {
-        if ti > 0 {
-            s.push(',');
-        }
-        s.push_str("{\"name\":");
-        q(&t.name, &mut s);
-        s.push_str(",\"steps\":[");
-        for (si, step) in t.steps.iter().enumerate() {
-            if si > 0 {
-                s.push(',');
-            }
-            let line = step.span().line;
-            match step {
-                Step::Tap {
-                    target,
-                    form,
-                    modifiers,
-                    ..
-                } => {
-                    s.push_str("{\"op\":\"tap\",\"target\":");
-                    q(target, &mut s);
-                    s.push_str(",\"form\":");
-                    match form {
-                        TapForm::Press => s.push_str("\"press\""),
-                        TapForm::Hover => s.push_str("\"hover\""),
-                        TapForm::Dblclick => s.push_str("\"dblclick\""),
-                        TapForm::Contextmenu => s.push_str("\"contextmenu\""),
-                        TapForm::Into(key) => {
-                            s.push_str("\"into\",\"key\":");
-                            q(key, &mut s);
-                        }
-                        TapForm::Pinch { scale, at } => {
-                            s.push_str(&format!("\"pinch\",\"scale\":{scale}"));
-                            if let Some((x, y)) = at {
-                                s.push_str(&format!(",\"at\":[{x},{y}]"));
-                            }
-                        }
-                        // @ref LLP 1098 D10 — the platform's action, never a press.
-                        TapForm::MediaSession { action, seconds } => {
-                            s.push_str("\"mediasession\",\"action\":");
-                            q(action, &mut s);
-                            if let Some(n) = seconds {
-                                s.push_str(&format!(",\"seconds\":{n}"));
-                            }
-                        }
-                    }
-                    if !modifiers.is_empty() {
-                        s.push_str(",\"modifiers\":");
-                        q(modifiers, &mut s);
-                    }
-                }
-                Step::Drag {
-                    target,
-                    dx,
-                    dy,
-                    to,
-                    from,
-                    mouse,
-                    press,
-                    over,
-                    hold,
-                    during,
-                    ..
-                } => {
-                    s.push_str("{\"op\":\"drag\",\"target\":");
-                    q(target, &mut s);
-                    match to {
-                        // LLP 1094 D12: the driver's `drag to`.
-                        Some((to, at)) => {
-                            s.push_str(",\"to\":");
-                            q(to, &mut s);
-                            if let Some((x, y)) = at {
-                                s.push_str(&format!(",\"at\":[{x},{y}]"));
-                            }
-                        }
-                        None => s.push_str(&format!(",\"dx\":{dx},\"dy\":{dy}")),
-                    }
-                    if let Some((x, y)) = from {
-                        s.push_str(&format!(",\"from\":[{x},{y}]"));
-                    }
-                    if *mouse {
-                        s.push_str(",\"mouse\":true");
-                    }
-                    for (name, ms) in [("press", press), ("over", over), ("hold", hold)] {
-                        if let Some(ms) = ms {
-                            s.push_str(&format!(",\"{name}\":{ms}"));
-                        }
-                    }
-                    if !during.is_empty() {
-                        s.push_str(",\"during\":[");
-                        for (i, op) in during.iter().enumerate() {
-                            if i > 0 {
-                                s.push(',');
-                            }
-                            q(op, &mut s);
-                        }
-                        s.push(']');
-                    }
-                }
-                Step::Size { width, height, .. } => {
-                    s.push_str(&format!(
-                        "{{\"op\":\"size\",\"width\":{width},\"height\":{height}"
-                    ));
-                }
-                Step::Epoch { value, .. } => {
-                    s.push_str("{\"op\":\"epoch\",\"value\":");
-                    q(value, &mut s);
-                }
-                Step::TimeZone { zone, .. } => {
-                    s.push_str("{\"op\":\"time-zone\",\"value\":");
-                    q(zone, &mut s);
-                }
-                Step::Locale { tag, .. } => {
-                    s.push_str("{\"op\":\"locale\",\"value\":");
-                    q(tag, &mut s);
-                }
-                Step::Seed { seed, .. } => {
-                    s.push_str(&format!("{{\"op\":\"seed\",\"value\":{seed}"));
-                }
-                Step::Type {
-                    target,
-                    text,
-                    append,
-                    ..
-                } => {
-                    s.push_str("{\"op\":\"type\",\"target\":");
-                    q(target, &mut s);
-                    s.push_str(",\"text\":");
-                    q(text, &mut s);
-                    s.push_str(&format!(",\"append\":{append}"));
-                }
-                Step::Reload { .. } => s.push_str("{\"op\":\"reload\""),
-                Step::Close { .. } => s.push_str("{\"op\":\"close\""),
-                Step::BeforeData { .. } => s.push_str("{\"op\":\"before-data\""),
-                Step::FailFetch { prefix, times, .. } => {
-                    s.push_str("{\"op\":\"fail-fetch\",\"prefix\":");
-                    q(prefix, &mut s);
-                    match times {
-                        Some(n) => s.push_str(&format!(",\"times\":{n}")),
-                        None => s.push_str(",\"times\":null"),
-                    }
-                }
-                Step::PassFetch { prefix, .. } => {
-                    s.push_str("{\"op\":\"pass-fetch\",\"prefix\":");
-                    q(prefix, &mut s);
-                }
-                Step::Resize { width, height, .. } => {
-                    s.push_str(&format!(
-                        "{{\"op\":\"resize\",\"width\":{width},\"height\":{height}"
-                    ));
-                }
-                Step::Key {
-                    target,
-                    key,
-                    phase,
-                    duration,
-                    ..
-                } => {
-                    s.push_str("{\"op\":\"key\",\"target\":");
-                    q(target, &mut s);
-                    s.push_str(",\"key\":");
-                    q(key, &mut s);
-                    if let Some(phase) = phase {
-                        s.push_str(",\"phase\":");
-                        q(phase, &mut s);
-                    }
-                    if let Some(ms) = duration {
-                        s.push_str(&format!(",\"for\":{ms}"));
-                    }
-                }
-                Step::Pick { target, paths, .. } => {
-                    s.push_str("{\"op\":\"pick\",\"target\":");
-                    q(target, &mut s);
-                    s.push_str(",\"paths\":[");
-                    for (i, path) in paths.iter().enumerate() {
-                        if i > 0 {
-                            s.push(',');
-                        }
-                        q(path, &mut s);
-                    }
-                    s.push(']');
-                }
-                Step::Clipboard {
-                    target, edit, text, ..
-                } => {
-                    s.push_str("{\"op\":\"clipboard\",\"target\":");
-                    q(target, &mut s);
-                    s.push_str(",\"edit\":");
-                    q(edit, &mut s);
-                    s.push_str(",\"text\":");
-                    q(text, &mut s);
-                }
-                Step::Clock { arg, .. } => {
-                    s.push_str("{\"op\":\"clock\",\"arg\":");
-                    q(arg, &mut s);
-                }
-                Step::Screenshot { path, .. } => {
-                    s.push_str("{\"op\":\"screenshot\",\"path\":");
-                    q(path, &mut s);
-                }
-                Step::ExpectTree {
-                    target, present, ..
-                } => {
-                    s.push_str("{\"op\":\"expect-tree\",\"target\":");
-                    q(target, &mut s);
-                    s.push_str(&format!(",\"present\":{present}"));
-                }
-                Step::ExpectText { target, value, .. } => {
-                    s.push_str("{\"op\":\"expect-text\",\"target\":");
-                    q(target, &mut s);
-                    s.push_str(",\"value\":");
-                    q(value, &mut s);
-                }
-                Step::ExpectSound {
-                    src,
-                    present,
-                    at,
-                    gain,
-                    ends,
-                    by,
-                    ..
-                } => {
-                    s.push_str("{\"op\":\"expect-sound\",\"src\":");
-                    q(src, &mut s);
-                    s.push_str(&format!(",\"present\":{present}"));
-                    for (key, n) in [("at", at), ("gain", gain), ("ends", ends)] {
-                        if let Some(n) = n {
-                            s.push_str(&format!(",\"{key}\":{n}"));
-                        }
-                    }
-                    if let Some(by) = by {
-                        s.push_str(",\"by\":");
-                        q(by, &mut s);
-                    }
-                }
-                Step::ExpectMediaSession { field, value, .. } => {
-                    s.push_str("{\"op\":\"expect-mediasession\",\"field\":");
-                    q(field, &mut s);
-                    s.push_str(",\"value\":");
-                    match value {
-                        Some(v) => q(v, &mut s),
-                        None => s.push_str("null"),
-                    }
-                }
-                Step::ExpectMediaSessionAction {
-                    action, present, ..
-                } => {
-                    s.push_str("{\"op\":\"expect-mediasession\",\"action\":");
-                    q(action, &mut s);
-                    s.push_str(&format!(",\"present\":{present}"));
-                }
-                Step::ExpectState { name, value, .. } => {
-                    s.push_str("{\"op\":\"expect-state\",\"name\":");
-                    q(name, &mut s);
-                    s.push_str(",\"value\":");
-                    match value {
-                        Expr::Number(n, _) => s.push_str(&format!("{n}")),
-                        Expr::Str(t, _) => q(t, &mut s),
-                        Expr::Bool(b, _) => s.push_str(&format!("{b}")),
-                        Expr::List(items, _) if items.is_empty() => s.push_str("[]"),
-                        _ => s.push_str("null"),
-                    }
-                }
-            }
-            s.push_str(&format!(",\"line\":{line}}}"));
-        }
-        s.push_str("]}");
-    }
-    s.push(']');
-    s
-}
-
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
     // Media alone: a text has no app, so no `file_handlers` (LLP 1069.002 D1).
     picker::check(&file, None).map_err(first)?;
@@ -978,6 +808,22 @@ fn compile_file_output(
     strings: Option<std::sync::Arc<contract_types::strings::Strings>>,
     mapped: bool,
     profile: contract_lower::Profile,
+) -> Result<(Plan, Option<contract_lower::Sites>), Vec<CompileError>> {
+    compile_file_warned(file, asset_root, strings, mapped, profile, None)
+}
+
+/// [`compile_file_output`], adding to `warned`, when given, the warnings of
+/// a file the type checker accepts (LLP 1116 D6). After analysis succeeds,
+/// warnings use lowering's typography and control decisions, even if lowering
+/// refuses. An analysis failure uses the checked tree alone. A compile nobody
+/// reads warnings from does not look for them.
+fn compile_file_warned(
+    file: &File,
+    asset_root: Option<&Path>,
+    strings: Option<std::sync::Arc<contract_types::strings::Strings>>,
+    mapped: bool,
+    profile: contract_lower::Profile,
+    warned: Option<&mut Vec<CompileError>>,
 ) -> Result<(Plan, Option<contract_lower::Sites>), Vec<CompileError>> {
     // Each pass runs on what the one before it accepted, and reports all of
     // its own refusals.
@@ -1006,10 +852,29 @@ fn compile_file_output(
     contract_analyze::check_routes_root(file, true).map_err(CompileError::from)?;
     let checked = contract_types::check_all(file, mapped, contract_lower::tags::style, strings)
         .map_err(|all| with_lint(each(all, hint)))?;
-    let analysis =
-        contract_analyze::check_all(&checked).map_err(|all| with_lint(each(all, hint)))?;
-    contract_lower::lower_all(&checked, &analysis, asset_root, mapped, profile)
-        .map_err(|all| each(all, |e| e))
+    let analysis = contract_analyze::check_all(&checked);
+    let mut lower_warnings = Vec::new();
+    let result = match analysis {
+        Ok(analysis) => contract_lower::lower_all(
+            &checked,
+            &analysis,
+            asset_root,
+            mapped,
+            profile,
+            warned.as_ref().map(|_| &mut lower_warnings),
+        )
+        .map_err(|all| each(all, |e| e)),
+        Err(all) => {
+            if warned.is_some() {
+                lower_warnings = contract_lower::warnings(&checked);
+            }
+            Err(with_lint(each(all, hint)))
+        }
+    };
+    if let Some(warned) = warned {
+        warned.extend(lower_warnings.into_iter().map(CompileError::warning));
+    }
+    result
 }
 
 /// Boot the plan once against `data` and write every resource's boot value
@@ -1024,6 +889,7 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     let runner = first_frame(&plan, data, true)?;
     let mut b = PlanBuilder::from_plan(plan);
     let pending: Vec<String> = runner.pending().into_iter().map(|(n, _)| n).collect();
+    let dated = runner.resources_reading_clock();
     for i in 0..runner.plan().resources.len() {
         let name = runner
             .plan()
@@ -1046,9 +912,13 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         // without a ticket (a source not ready).
         // @ref LLP 1069.005 D2 — nor is an answer that drew randomness: its
         // value would be one draw every install shares.
+        // @ref LLP 1027.000.000 D2 — nor is an answer asked at the bake's
+        // date, which is unknown (zero): a launch would show it as the
+        // device's, as a fresh install's "edited 20743d ago".
         if pending.contains(&name)
             || runner.resource_is_placeholder(&name)
             || runner.resource_draws_entropy(&name)
+            || dated.get(i) == Some(&true)
         {
             continue;
         }
@@ -1111,7 +981,14 @@ fn first_frame<D: DataSource>(
     data: D,
     answered: bool,
 ) -> Result<Runner<D>, BakeError> {
-    use exact_runner::{delivery, page, viewport};
+    use exact_runner::{delivery, page, transport, viewport};
+    fact_shape(
+        plan,
+        exact_runner::midi::SOURCE,
+        exact_runner::midi::FIELDS,
+        "bake-midi-field",
+    )?;
+    midi::shape(plan)?;
     fact_shape(
         plan,
         delivery::SOURCE,
@@ -1125,6 +1002,12 @@ fn first_frame<D: DataSource>(
         "bake-viewport-field",
     )?;
     fact_shape(plan, page::SOURCE, page::FIELDS, "bake-page-field")?;
+    fact_shape(
+        plan,
+        transport::SOURCE,
+        transport::FIELDS,
+        "bake-transport-field",
+    )?;
     surface::shape(plan)?;
     let mut runner = Runner::boot(
         plan.clone(),
@@ -1215,7 +1098,7 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
             continue;
         };
         let test_id = node.props.iter().find_map(|(id, v)| match v {
-            PropValue::Str(s) if id.name() == "testId" => Some(s.clone()),
+            PropValue::Str(s) if id.name() == "testId" => Some(s.to_string()),
             _ => None,
         });
         let at = match &test_id {
@@ -1268,10 +1151,13 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
                 if node.node_type == NodeType::Pressable
                     || node.props.str(exact_kernel::PropId::Type) == Some("button") =>
             {
+                if hidden(kernel, node) {
+                    continue;
+                }
                 if node.frame.width > 0.0 && node.frame.height > 0.0 {
                     continue;
                 }
-                if !answered && !styled_out(kernel, node) {
+                if (!answered && !styled_out(kernel, node)) || in_placeholder(kernel, node) {
                     continue;
                 }
                 let mut stack = node.children();
@@ -1302,6 +1188,19 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
     Ok(())
 }
 
+/// Whether a node is in the split's own placeholder (LLP 1116.006 D2): no box
+/// but where a wide window's split shows it, which this layout is not.
+fn in_placeholder(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
+    let mut at = Some(node);
+    while let Some(n) = at {
+        if n.props.str(exact_kernel::PropId::NavigationSplit) == Some("placeholder") {
+            return true;
+        }
+        at = n.parent.and_then(|p| kernel.node(p));
+    }
+    false
+}
+
 /// Whether a node's zero area is its style's: `display: none` on it or an
 /// ancestor, or a zero `width` or `height` of its own.
 fn styled_out(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
@@ -1309,6 +1208,10 @@ fn styled_out(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
     if zero(node.style.width) || zero(node.style.height) {
         return true;
     }
+    hidden(kernel, node)
+}
+
+fn hidden(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
     let mut at = Some(node);
     while let Some(n) = at {
         if matches!(n.style.display, exact_kernel::Display::None) {

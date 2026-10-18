@@ -5,7 +5,10 @@
 //! without moving the focus; each `input` and `change` reports it, and the
 //! field's `select` fires as the person or a command makes one.
 use super::*;
-use exact_runner::{ControlValue, FieldSelection, SelectionDirection};
+use crate::text::field::Cursor;
+use exact_runner::{ControlValue, FieldSelection, InputDetails, SelectionDirection};
+use std::rc::Rc;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// A field's selection as this host keeps it, beside the value it indexes.
 #[derive(Debug, Clone)]
@@ -18,11 +21,32 @@ pub(crate) struct FieldMark {
     /// Set by `setSelectionRange` or `select()`: a command that sets that
     /// same selection again fires no `select`.
     by_command: bool,
+    upstream: bool,
+    preferred_x: Option<f32>,
 }
 
 /// A string's length in UTF-16 code units, the DOM's offsets' unit.
 pub(super) fn utf16_len(text: &str) -> u32 {
     text.encode_utf16().count().try_into().unwrap_or(u32::MAX)
+}
+
+/// `text` cut to the room `maxlength` leaves for it in `value` with
+/// `selection` replaced, as a browser cuts an insertion: the limit less the
+/// code units kept outside the selection, so none in a value already over it.
+pub(super) fn fit<'a>(
+    text: &'a str,
+    value: &str,
+    selection: FieldSelection,
+    limit: Option<usize>,
+) -> &'a str {
+    let Some(limit) = limit else { return text };
+    // What `replace` removes: offsets inside a surrogate pair fall back to its start.
+    let removed = utf16_len(&value[byte_at(value, selection.start)..byte_at(value, selection.end)]);
+    let kept = utf16_len(value) - removed;
+    let room = u32::try_from(limit)
+        .unwrap_or(u32::MAX)
+        .saturating_sub(kept);
+    &text[..byte_at(text, room)]
 }
 
 /// The byte index of UTF-16 offset `at` in `text`: clamped to its end, and
@@ -50,16 +74,36 @@ pub(super) fn replace(
     (next, FieldSelection::caret(caret))
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum TextBoundary {
+    Scalar,
+    Grapheme,
+}
+
+impl TextBoundary {
+    fn step(self, text: &str, at: u32, forward: bool) -> u32 {
+        match self {
+            Self::Scalar => step(text, at, forward),
+            Self::Grapheme => grapheme_step(text, at, forward),
+        }
+    }
+}
+
 /// Backspace (`forward`: Delete): the selection, else the character before
 /// (after) the caret; `None` when there is nothing to delete.
 pub(super) fn delete(
     text: &str,
     selection: FieldSelection,
     forward: bool,
+    boundary: TextBoundary,
 ) -> Option<(String, FieldSelection)> {
     let mut s = selection;
     if s.start == s.end {
-        let other = step(text, s.start, forward);
+        let other = if forward {
+            boundary.step(text, s.start, true)
+        } else {
+            step(text, s.start, false)
+        };
         if other == s.start {
             return None;
         }
@@ -82,6 +126,17 @@ fn step(text: &str, at: u32, forward: bool) -> u32 {
         Some(c) => at - c.len_utf16() as u32,
         None => at,
     }
+}
+
+fn grapheme_step(text: &str, at: u32, forward: bool) -> u32 {
+    let byte = byte_at(text, at);
+    let mut boundaries = text.grapheme_indices(true).map(|(i, _)| i);
+    let next = if forward {
+        boundaries.find(|i| *i > byte).unwrap_or(text.len())
+    } else {
+        boundaries.take_while(|i| *i < byte).last().unwrap_or(0)
+    };
+    utf16_len(&text[..next])
 }
 
 /// The start (`end`: the end) of the line `at` is on: a textarea's line
@@ -109,6 +164,7 @@ pub(super) fn moved(
     key: &str,
     extend: bool,
     textarea: bool,
+    boundary: TextBoundary,
 ) -> Option<FieldSelection> {
     let s = selection;
     let (anchor, focus) = match s.direction {
@@ -116,8 +172,8 @@ pub(super) fn moved(
         _ => (s.start, s.end),
     };
     let to = |at: u32| match key {
-        "ArrowLeft" => Some(step(text, at, false)),
-        "ArrowRight" => Some(step(text, at, true)),
+        "ArrowLeft" => Some(boundary.step(text, at, false)),
+        "ArrowRight" => Some(boundary.step(text, at, true)),
         "Home" => Some(line_edge(text, at, false, textarea)),
         "End" => Some(line_edge(text, at, true, textarea)),
         _ => None,
@@ -141,7 +197,63 @@ pub(super) fn moved(
     })
 }
 
+fn toward(s: FieldSelection, focus: u32, extend: bool) -> FieldSelection {
+    if !extend {
+        return FieldSelection::caret(focus);
+    }
+    let anchor = if s.direction == SelectionDirection::Backward {
+        s.end
+    } else {
+        s.start
+    };
+    FieldSelection {
+        start: anchor.min(focus),
+        end: anchor.max(focus),
+        direction: match focus.cmp(&anchor) {
+            std::cmp::Ordering::Less => SelectionDirection::Backward,
+            std::cmp::Ordering::Greater => SelectionDirection::Forward,
+            std::cmp::Ordering::Equal => SelectionDirection::None,
+        },
+    }
+}
+
+/// Linux word arrows cross one word or a run of punctuation and symbols, skipping whitespace.
+fn word_step(text: &str, at: u32, forward: bool) -> u32 {
+    let mut words: Vec<(usize, usize, bool)> = Vec::new();
+    for (start, part) in text.split_word_bound_indices() {
+        if part.chars().all(char::is_whitespace) {
+            continue;
+        }
+        let nonword = part.unicode_words().next().is_none();
+        if let Some(last) = words
+            .last_mut()
+            .filter(|last| nonword && last.2 && last.1 == start)
+        {
+            last.1 += part.len();
+        } else {
+            words.push((start, start + part.len(), nonword));
+        }
+    }
+    let byte = byte_at(text, at);
+    let next = if forward {
+        words
+            .iter()
+            .find(|w| w.1 > byte)
+            .map_or(text.len(), |w| w.1)
+    } else {
+        words.iter().rev().find(|w| w.0 < byte).map_or(0, |w| w.0)
+    };
+    utf16_len(&text[..next])
+}
+
 impl<D: DataSource> Presenter<D> {
+    /// Where the latest frame painted field `id`'s label and value (a fresh
+    /// frame when stale), as `bars()` names the bars' texts.
+    pub fn field_texts(&mut self, id: ViewId) -> Option<crate::paint::FieldTexts> {
+        self.boxes();
+        self.brush.labels.texts(id)
+    }
+
     /// What `id` shows: typed text kept against its bound value, else that
     /// value (LLP 1069.001 D4). A selection indexes this, not the prop a
     /// later write replaced.
@@ -149,10 +261,57 @@ impl<D: DataSource> Presenter<D> {
         self.field_text(id)
     }
 
-    /// A text field's selection: the one kept for the text it shows, else a
-    /// caret at its end (where a field the person has not moved in types).
-    /// A value rewritten since (an action that writes another) puts the
-    /// caret at the new text's end, as HTML's `value` setter does.
+    /// Compare runtime writes against the selection before the commit. Only
+    /// plain fields start at 0-0: Markdown owns its selection on the web.
+    pub(super) fn sync_field_values(&mut self) {
+        let changed = self.host.values.take_fields();
+        let kernel = self.host.kernel();
+        self.fields.retain(|id, _| kernel.node(*id).is_some());
+        for key in changed {
+            let Some(node) = self.host.kernel().node_by_key(key) else {
+                continue;
+            };
+            let id = node.id;
+            let markdown = node.props.str(PropId::Markup) == Some("markdown");
+            let value = self.field_value(id);
+            let after = FieldSelection::at_end(&value);
+            let before = match self.fields.get(&id) {
+                Some(mark) if mark.value == value => continue,
+                Some(mark) => mark.selection,
+                None if value.is_empty() => continue,
+                None if markdown => after,
+                None => FieldSelection::caret(0),
+            };
+            self.mark_field_from(id, &value, before, after, false);
+        }
+    }
+
+    fn has_selection_api(&self, id: ViewId) -> bool {
+        self.host.kernel().node(id).is_some_and(|node| {
+            node.props.str(PropId::SemanticTag) == Some("textarea")
+                || matches!(
+                    node.props.str(PropId::Type).unwrap_or("text"),
+                    "text" | "search" | "url" | "tel" | "password"
+                )
+        })
+    }
+
+    pub(super) fn reported_selection(
+        &self,
+        id: ViewId,
+        value: &str,
+        selection: FieldSelection,
+    ) -> FieldSelection {
+        if self.has_selection_api(id) {
+            selection
+        } else {
+            // navigation.js uses the value's end when the DOM reports null.
+            FieldSelection::at_end(value)
+        }
+    }
+
+    /// The caret used to edit also exists in email and number inputs,
+    /// whose DOM selection API cannot read or write it.
     pub(crate) fn field_selection(&self, id: ViewId) -> FieldSelection {
         let value = self.field_value(id);
         match self.fields.get(&id) {
@@ -161,8 +320,8 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// Keep `selection` for `id` while its value is `value`; marks of nodes
-    /// gone are dropped.
+    /// Keep a selection against the value it indexes. Call before replacing
+    /// the displayed value so the comparison sees the previous selection.
     pub(crate) fn mark_field(
         &mut self,
         id: ViewId,
@@ -170,35 +329,226 @@ impl<D: DataSource> Presenter<D> {
         selection: FieldSelection,
         by_command: bool,
     ) {
-        let kernel = self.host.kernel();
-        self.fields.retain(|id, _| kernel.node(*id).is_some());
+        let before = self.field_selection(id);
+        self.mark_field_from(id, value, before, selection, by_command);
+    }
+
+    fn mark_field_from(
+        &mut self,
+        id: ViewId,
+        value: &str,
+        before: FieldSelection,
+        selection: FieldSelection,
+        by_command: bool,
+    ) {
+        if before != selection {
+            self.field_change_tasks.insert(id);
+        }
         self.fields.insert(
             id,
             FieldMark {
                 selection,
                 value: value.to_owned(),
                 by_command,
+                upstream: false,
+                preferred_x: None,
             },
         );
         self.dirty = true;
+        // A field the shell hosts shows a command's selection itself.
+        if by_command {
+            self.hosted_commanded(id, selection);
+        }
     }
 
-    /// A press puts the caret at a text field's end: this host finds no
-    /// character under the pointer, and typing there appends as before.
-    pub(crate) fn press_field(&mut self, id: ViewId) {
+    /// [`Presenter::mark_field`] for a selection the shell's own field
+    /// already shows (LLP 1115.001 D8): kept for the next `input`, and
+    /// nothing here is painted again for it.
+    pub(super) fn note_field(&mut self, id: ViewId, value: &str, selection: FieldSelection) {
+        let mark = FieldMark {
+            selection,
+            value: value.to_owned(),
+            by_command: false,
+            upstream: false,
+            preferred_x: None,
+        };
+        self.fields.insert(id, mark);
+    }
+
+    pub(crate) fn field_cursor(&self, id: ViewId) -> Cursor {
+        let selection = self.field_selection(id);
+        Cursor {
+            offset: if selection.direction == SelectionDirection::Backward {
+                selection.start
+            } else {
+                selection.end
+            },
+            upstream: self
+                .fields
+                .get(&id)
+                .is_some_and(|m| m.value == self.field_value(id) && m.upstream),
+        }
+    }
+
+    fn field_boundary(&self, id: ViewId) -> TextBoundary {
+        if self.host.kernel().node(id).is_some_and(|node| {
+            node.props.str(PropId::Type) == Some("password") || crate::fields::hosts(&node)
+        }) {
+            // A password paints one bullet per scalar. The hosted agent
+            // path leaves native grapheme editing to the shell's input.
+            TextBoundary::Scalar
+        } else {
+            TextBoundary::Grapheme
+        }
+    }
+
+    fn current_field(
+        &mut self,
+        id: ViewId,
+        value: &str,
+    ) -> Option<Rc<crate::paint::field::PaintedField>> {
         if self
             .host
             .kernel()
             .node(id)
-            .is_some_and(|n| n.node_type == NodeType::TextInput)
+            .is_some_and(|n| crate::fields::hosts(&n))
         {
-            let value = self.field_value(id);
-            self.mark_field(id, &value, FieldSelection::at_end(&value), false);
+            return None;
+        }
+        self.boxes();
+        let field = self.brush.field_text.get(&id)?.clone();
+        if field.value == value {
+            Some(field)
+        } else {
+            // Keep the acknowledged placement, but never index newer text
+            // with the paragraph from a picture still waiting for its flip.
+            Some(Rc::new(field.for_value(&mut self.text.borrow_mut(), value)))
+        }
+    }
+
+    /// A press indexes the same paragraph and placement that paint the value.
+    pub(crate) fn press_field(&mut self, id: ViewId, x: f32, y: f32) {
+        if !self
+            .host
+            .kernel()
+            .node(id)
+            .is_some_and(|n| n.node_type == NodeType::TextInput && !crate::fields::hosts(&n))
+        {
+            return;
+        }
+        self.boxes();
+        let (x, y) = self
+            .boxes
+            .iter()
+            .find(|b| b.id == id)
+            .map_or((x, y), |b| b.field_point(x, y));
+        let value = self.field_value(id);
+        if let Some(cursor) = self.current_field(id, &value).and_then(|f| f.hit(x, y)) {
+            self.mark_field(
+                id,
+                &value,
+                FieldSelection::caret(cursor.offset.min(utf16_len(&value))),
+                false,
+            );
+            if let Some(mark) = self.fields.get_mut(&id) {
+                mark.upstream = cursor.upstream;
+            }
+        }
+    }
+
+    fn move_field(
+        &mut self,
+        id: ViewId,
+        key: &str,
+        value: &str,
+        selection: FieldSelection,
+        textarea: bool,
+    ) {
+        let modifiers = self.modifiers();
+        let cursor = self.field_cursor(id);
+        let boundary = self.field_boundary(id);
+        let field = if textarea && !modifiers.ctrl {
+            self.current_field(id, value)
+        } else {
+            None
+        };
+        let mut preferred_x = None;
+        let (to, upstream) = if modifiers.ctrl {
+            let at = word_step(value, cursor.offset, key == "ArrowRight");
+            (toward(selection, at, modifiers.shift), false)
+        } else if let Some(field) = field
+            .as_ref()
+            .filter(|_| matches!(key, "ArrowUp" | "ArrowDown" | "Home" | "End"))
+        {
+            let to = if matches!(key, "ArrowUp" | "ArrowDown") {
+                let x = self
+                    .fields
+                    .get(&id)
+                    .and_then(|m| m.preferred_x)
+                    .unwrap_or_else(|| field.geometry.caret(cursor).0);
+                preferred_x = Some(x);
+                field.geometry.vertical(cursor, x, key == "ArrowDown")
+            } else {
+                field.geometry.edge(cursor, key == "End")
+            };
+            (
+                toward(selection, to.offset.min(utf16_len(value)), modifiers.shift),
+                to.upstream,
+            )
+        } else if let Some(field) = field
+            .as_ref()
+            .filter(|_| matches!(key, "ArrowLeft" | "ArrowRight"))
+        {
+            let forward = key == "ArrowRight";
+            let collapse = !modifiers.shift && selection.start != selection.end;
+            let to = if !collapse
+                && field.geometry.wrap_boundary(cursor.offset)
+                && cursor.upstream == forward
+            {
+                Cursor {
+                    offset: cursor.offset,
+                    upstream: !forward,
+                }
+            } else {
+                let offset = if collapse {
+                    if forward {
+                        selection.end
+                    } else {
+                        selection.start
+                    }
+                } else {
+                    boundary.step(value, cursor.offset, forward)
+                };
+                Cursor {
+                    offset,
+                    upstream: !forward && field.geometry.wrap_boundary(offset),
+                }
+            };
+            (toward(selection, to.offset, modifiers.shift), to.upstream)
+        } else {
+            let Some(to) = moved(value, selection, key, modifiers.shift, textarea, boundary) else {
+                return;
+            };
+            (to, false)
+        };
+        self.mark_field(id, value, to, false);
+        if let Some(mark) = self.fields.get_mut(&id) {
+            mark.upstream = upstream;
+            mark.preferred_x = preferred_x;
+        }
+        if modifiers.shift && to.start != to.end && to != selection {
+            self.field_select(id, value, to, self.host.now());
         }
     }
 
     /// HTML's `select` at a text field, where it has a handler.
-    fn field_select(&mut self, id: ViewId, value: &str, selection: FieldSelection, now_ms: f64) {
+    pub(super) fn field_select(
+        &mut self,
+        id: ViewId,
+        value: &str,
+        selection: FieldSelection,
+        now_ms: f64,
+    ) {
         if !self
             .host
             .runner()
@@ -207,7 +557,10 @@ impl<D: DataSource> Presenter<D> {
         {
             return;
         }
-        let event = Event::FieldSelect(value.to_owned(), selection);
+        let event = Event::FieldSelect(
+            value.to_owned(),
+            self.reported_selection(id, value, selection),
+        );
         if let Some(e) = self.host.dispatch_at(id, event, now_ms) {
             eprintln!("exact: {e}");
         }
@@ -269,6 +622,12 @@ impl<D: DataSource> Presenter<D> {
                 return;
             }
         };
+        if !self.has_selection_api(id) {
+            self.host.log(format!(
+                "setSelectionRange \"{name}\" refused: input has no text selection"
+            ));
+            return;
+        }
         let at = |i: usize| {
             args.get(i)
                 .and_then(exact_plan::Value::as_number)
@@ -281,6 +640,172 @@ impl<D: DataSource> Presenter<D> {
             .unwrap_or_default();
         let len = utf16_len(&self.field_value(id));
         self.command_select(id, FieldSelection::clamped(at(1), at(2), direction, len));
+    }
+
+    /// HTML's scripted range edit: no user-change/undo transaction, one
+    /// replacement input, and a selection that never moves the focus.
+    pub(crate) fn set_range_text(&mut self, args: &[exact_plan::Value]) {
+        let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
+            return;
+        };
+        let result = (|| {
+            let id = self.text_field(name)?;
+            let node = self.host.kernel().node(id).ok_or("no live field")?;
+            let textarea = node.props.str(PropId::SemanticTag) == Some("textarea");
+            if node.props.str(PropId::Markup) == Some("markdown")
+                || (!textarea
+                    && !matches!(
+                        node.props.str(PropId::Type).unwrap_or("text"),
+                        "text" | "search" | "url" | "tel" | "password"
+                    ))
+            {
+                return Err("not a plain text field");
+            }
+            let text = args
+                .get(1)
+                .and_then(exact_plan::Value::as_str)
+                .ok_or("replacement required")?;
+            let old = self.field_selection(id);
+            let (start, end) = if args.len() == 2 {
+                (old.start, old.end)
+            } else {
+                let number = |i: usize| {
+                    args.get(i)
+                        .and_then(exact_plan::Value::as_number)
+                        .ok_or("offset required")
+                };
+                let at =
+                    |n| FieldSelection::clamped(n, n, SelectionDirection::None, u32::MAX).start;
+                (at(number(2)?), at(number(3)?))
+            };
+            if start > end {
+                return Err("start exceeds end");
+            }
+            let mode = args
+                .get(4)
+                .and_then(exact_plan::Value::as_str)
+                .unwrap_or("preserve");
+            let value: Vec<u16> = self.field_value(id).encode_utf16().collect();
+            let start = (start as usize).min(value.len());
+            let end = (end as usize).min(value.len());
+            let units: Vec<u16> = text.encode_utf16().collect();
+            let after = start + units.len();
+            let delta = units.len() as i64 - (end - start) as i64;
+            let (a, b) = match mode {
+                "select" => (start as u32, after as u32),
+                "start" => (start as u32, start as u32),
+                "end" => (after as u32, after as u32),
+                "preserve" => (
+                    if old.start > end as u32 {
+                        (i64::from(old.start) + delta) as u32
+                    } else if old.start > start as u32 {
+                        start as u32
+                    } else {
+                        old.start
+                    },
+                    if old.end > end as u32 {
+                        (i64::from(old.end) + delta) as u32
+                    } else if old.end > start as u32 {
+                        after as u32
+                    } else {
+                        old.end
+                    },
+                ),
+                _ => return Err("invalid selectionMode"),
+            };
+            let next = String::from_utf16_lossy(&[&value[..start], &units, &value[end..]].concat());
+            let next = if textarea {
+                next.replace("\r\n", "\n").replace('\r', "\n")
+            } else {
+                next.replace(['\r', '\n'], "")
+            };
+            let next = if !textarea && node.props.str(PropId::Type) == Some("url") {
+                next.trim_matches([' ', '\t', '\n', '\r', '\u{c}'])
+                    .to_owned()
+            } else {
+                next
+            };
+            let selection = FieldSelection::clamped(
+                f64::from(a),
+                f64::from(b),
+                SelectionDirection::None,
+                utf16_len(&next),
+            );
+            Ok((id, next, selection, old != selection))
+        })();
+        let (id, next, selection, moved) = match result {
+            Ok(edit) => edit,
+            Err(reason) => {
+                self.host
+                    .log(format!("setRangeText \"{name}\" refused: {reason}"));
+                return;
+            }
+        };
+        let bound = self.bound_text(id);
+        self.mark_field(id, &next, selection, true);
+        self.host.values.watch(id, Some(bound.clone()));
+        self.chosen.insert(id, (next.clone(), bound.clone()));
+        if self
+            .host
+            .runner()
+            .handlers_of(id)
+            .contains(&EventKind::Input)
+        {
+            if let Some(error) = self.host.dispatch_at(
+                id,
+                Event::Input(ControlValue::Edit(
+                    next.clone(),
+                    selection,
+                    InputDetails {
+                        input_type: "insertReplacementText".into(),
+                        data: args.get(1).and_then(|v| v.as_str()).map(str::to_owned),
+                        ..Default::default()
+                    },
+                )),
+                self.host.now(),
+            ) {
+                self.host.log(format!("setRangeText: {error}"));
+            }
+            if let Some(error) = self.after_commit() {
+                self.host.log(format!("setRangeText: {error}"));
+            }
+        }
+        self.keep_typed(id, next.clone(), bound);
+        if moved {
+            self.field_select_tasks.push(id);
+        }
+    }
+
+    pub(super) fn drain_field_select_tasks(&mut self) {
+        for id in std::mem::take(&mut self.field_change_tasks) {
+            if self
+                .host
+                .runner()
+                .handlers_of(id)
+                .contains(&EventKind::Selectionchange)
+            {
+                let value = self.field_value(id);
+                let selection = self.reported_selection(id, &value, self.field_selection(id));
+                let event = Event::FieldSelectionChange(value, selection);
+                if let Some(e) = self
+                    .host
+                    .dispatch_at(id, event, self.host.now())
+                    .or(self.after_commit())
+                {
+                    eprintln!("exact: {e}");
+                }
+            }
+        }
+        for id in std::mem::take(&mut self.field_select_tasks) {
+            if self.host.kernel().node(id).is_some() {
+                self.field_select(
+                    id,
+                    &self.field_value(id),
+                    self.field_selection(id),
+                    self.host.now(),
+                );
+            }
+        }
     }
 
     /// `selectText(id)`: focused, as `focus()` does, and its whole text
@@ -312,7 +837,7 @@ impl<D: DataSource> Presenter<D> {
     /// which carries the selection. The watch is the bound value from before
     /// the dispatch, so a write during the edit replaces the typed text and
     /// one that writes nothing leaves it (LLP 1069.001 D4).
-    fn field_edit(
+    pub(super) fn field_edit(
         &mut self,
         id: ViewId,
         next: String,
@@ -320,24 +845,96 @@ impl<D: DataSource> Presenter<D> {
         bound: String,
         now_ms: f64,
     ) {
+        if let Some(e) =
+            self.apply_field_edit(id, next, after, bound, now_ms, InputDetails::default())
+        {
+            eprintln!("exact: {e}");
+        }
+    }
+
+    pub(super) fn edit_field(
+        &mut self,
+        id: ViewId,
+        next: String,
+        after: FieldSelection,
+        now: f64,
+        mut edit: InputDetails,
+    ) -> Option<String> {
+        let bound = self.bound_text(id);
+        match self.before_input(id, &edit, now) {
+            Err(e) => Some(e),
+            Ok(false) => None,
+            Ok(true) => {
+                edit.cancelable = false;
+                self.apply_field_edit(id, next, after, bound, now, edit)
+            }
+        }
+    }
+
+    /// The field's `beforeinput` for `edit`: whether the edit goes ahead
+    /// (not prevented, and the field still there with the value it had).
+    pub(super) fn before_input(
+        &mut self,
+        id: ViewId,
+        edit: &InputDetails,
+        now: f64,
+    ) -> Result<bool, String> {
+        if !self
+            .host
+            .runner()
+            .handlers_of(id)
+            .contains(&EventKind::Beforeinput)
+        {
+            return Ok(true);
+        }
+        let value = self.field_text(id);
+        let selection = self.reported_selection(id, &value, self.field_selection(id));
+        let event = Event::BeforeInput(value.clone(), selection, edit.clone());
+        if let Some(e) = self
+            .host
+            .dispatch_at(id, event, now)
+            .or(self.after_commit())
+        {
+            return Err(e);
+        }
+        let queued = self.commands.len();
+        self.commands.retain(|c| c.name != "preventDefault");
+        Ok(!((edit.cancelable && queued != self.commands.len())
+            || self.host.kernel().node(id).is_none()
+            || self.field_text(id) != value))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn apply_field_edit(
+        &mut self,
+        id: ViewId,
+        next: String,
+        after: FieldSelection,
+        bound: String,
+        now_ms: f64,
+        edit: InputDetails,
+    ) -> Option<String> {
         self.edited = Some(id);
         self.mark_field(id, &next, after, false);
         self.host.values.watch(id, Some(bound.clone()));
-        if self
+        // The input handler sees the edited field. An unchanged binding
+        // must not reset its selection while that handler commits.
+        self.chosen.insert(id, (next.clone(), bound.clone()));
+        let error = if self
             .host
             .runner()
             .handlers_of(id)
             .contains(&EventKind::Input)
         {
-            let event = Event::Input(ControlValue::Field(next.clone(), after));
-            if let Some(e) = self.host.dispatch_at(id, event, now_ms) {
-                eprintln!("exact: {e}");
-            }
-            if let Some(e) = self.after_commit() {
-                eprintln!("exact: {e}");
-            }
-        }
+            let reported = self.reported_selection(id, &next, after);
+            let event = Event::Input(ControlValue::Edit(next.clone(), reported, edit));
+            self.host.dispatch_at(id, event, now_ms)
+        } else {
+            None
+        };
+        let error = error.or(self.after_commit());
         self.keep_typed(id, next, bound);
+        error
     }
 
     /// A key's default action in the focused text field: Enter submits an
@@ -360,7 +957,6 @@ impl<D: DataSource> Presenter<D> {
                 exact_kernel::control::text_maxlength(node.props),
             )
         };
-        let bound = self.bound_text(id);
         // What earlier commits replaced goes first: this edit starts from what shows.
         self.forget_replaced_choices();
         let value = self.field_text(id);
@@ -377,22 +973,22 @@ impl<D: DataSource> Presenter<D> {
                 }
                 return;
             }
-            "ArrowLeft" | "ArrowRight" | "Home" | "End" if !chord => {
-                let extend = self.modifiers().shift;
-                let Some(to) = moved(&value, selection, name, extend, textarea) else {
-                    return;
-                };
-                self.mark_field(id, &value, to, false);
-                if extend && to.start != to.end && to != selection {
-                    self.field_select(id, &value, to, now_ms);
-                }
+            "ArrowLeft" | "ArrowRight" | "Home" | "End" | "ArrowUp" | "ArrowDown"
+                if !chord
+                    || (self.modifiers().ctrl
+                        && !self.modifiers().meta
+                        && matches!(name, "ArrowLeft" | "ArrowRight")) =>
+            {
+                self.move_field(id, name, &value, selection, textarea);
                 return;
             }
             "Enter" => replace(&value, selection, "\n"),
-            "Backspace" | "Delete" => match delete(&value, selection, name == "Delete") {
-                Some(edit) => edit,
-                None => return,
-            },
+            "Backspace" | "Delete" => {
+                match delete(&value, selection, name == "Delete", self.field_boundary(id)) {
+                    Some(edit) => edit,
+                    None => return,
+                }
+            }
             s if s.chars().count() == 1 && !chord => replace(&value, selection, s),
             _ => return,
         };
@@ -403,7 +999,26 @@ impl<D: DataSource> Presenter<D> {
         }) {
             return;
         }
-        self.field_edit(id, next, after, bound, now_ms);
+        let (input_type, data) = match name {
+            "Backspace" => ("deleteContentBackward", None),
+            "Delete" => ("deleteContentForward", None),
+            "Enter" => ("insertLineBreak", None),
+            _ => ("insertText", Some(name.to_owned())),
+        };
+        if let Some(e) = self.edit_field(
+            id,
+            next,
+            after,
+            now_ms,
+            InputDetails {
+                input_type: input_type.into(),
+                data,
+                cancelable: true,
+                is_composing: false,
+            },
+        ) {
+            eprintln!("exact: {e}");
+        }
     }
 
     /// A paste's default action at an editable text field: the text in at
@@ -422,17 +1037,28 @@ impl<D: DataSource> Presenter<D> {
             }
             exact_kernel::control::text_maxlength(node.props)
         };
-        let bound = self.bound_text(id);
         self.forget_replaced_choices();
         let value = self.field_text(id);
         let selection = self.field_selection(id);
-        let mut text = text.to_owned();
-        if let Some(limit) = limit {
-            let room = (limit as u32)
-                .saturating_sub(utf16_len(&value) - (selection.end - selection.start));
-            text.truncate(byte_at(&text, room));
-        }
+        let text = fit(text, &value, selection, limit).to_owned();
         let (next, after) = replace(&value, selection, &text);
-        self.field_edit(id, next, after, bound, now_ms);
+        if let Some(e) = self.edit_field(
+            id,
+            next,
+            after,
+            now_ms,
+            InputDetails {
+                input_type: "insertFromPaste".into(),
+                data: Some(text),
+                cancelable: true,
+                is_composing: false,
+            },
+        ) {
+            eprintln!("exact: {e}");
+        }
     }
 }
+
+#[cfg(test)]
+#[path = "field_geometry_tests.rs"]
+mod field_geometry_tests;

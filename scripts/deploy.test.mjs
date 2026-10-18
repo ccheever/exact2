@@ -16,10 +16,11 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSy
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { copyStaticTreeIfPresent, webEnvelope } from '../host/web/serve.mjs';
+import { captureAssets, assetCards, copyStaticTreeIfPresent, webEnvelope, publicFileCards, listAssets, readStaticFile, readDevGeneration, retainDevGeneration } from '../host/web/serve.mjs';
 import { resolveApp, withAppFixture } from './app.mjs';
-import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishStream, renderTable, snapshotOf, streamHead } from './deploy.mjs';
-import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, sha256 } from './origin.mjs';
+import { appdropPlan, renderAppdrop, writeLink } from './deploy-appdrop.mjs';
+import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishRoot, publishStream, renderTable, snapshotOf as capturedSnapshotOf, streamHead } from './deploy.mjs';
+import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, sha256, webReleasePath } from './origin.mjs';
 // Minimal compiler receipts for origin protocol fixtures below; capability
 // behavior is tested independently with declared requirements.
 const fixtureBuild = (id, bundle) => ({version:1,compat:{id,inputs:{store:{L:'A'},executors:[]},target:'fixture'},
@@ -340,13 +341,16 @@ async function rejects(action, matches) {
   const unsupported=classifyArtifacts(shader,installed);
   const grants=structuredClone(moved);grants.graph.artifacts[0].requires.grantCeiling='net.fetch https://new/';
   const refused=classifyArtifacts(grants,installed);
-  // A TypeScript bundle on a newer prelude (LLP 1108 D6 R2: `exactBodyFrom`) is
-  // no bundle for a cohort whose prelude predates it, and is for one as new or newer.
-  const runtime=structuredClone(moved);runtime.graph.artifacts[0].requires.typescriptRuntime=1;
-  const olderPrelude=classifyArtifacts(runtime,installed);
-  const newerPrelude=classifyArtifacts(runtime,{...installed,compat:{...installed.compat,inputs:{...installed.compat.inputs,typescriptRuntime:2}}});
+  // A TypeScript bundle on a newer prelude (LLP 1108 D6 R2: `exactBodyFrom`, then
+  // `redirect`) is no bundle for a cohort whose prelude predates it, and is for one
+  // as new or newer: runtime 1 would follow a redirect a runtime-2 bundle refused.
+  const runtime=structuredClone(moved);runtime.graph.artifacts[0].requires.typescriptRuntime=2;
+  const prelude=n=>({...installed,compat:{...installed.compat,inputs:{...installed.compat.inputs,typescriptRuntime:n}}});
+  const olderPrelude=classifyArtifacts(runtime,installed), runtimeOne=classifyArtifacts(runtime,prelude(1));
+  const samePrelude=classifyArtifacts(runtime,prelude(2)), newerPrelude=classifyArtifacts(runtime,prelude(3));
   result('a bundle needing a newer TypeScript runtime is refused by an older cohort only',
-    !olderPrelude.bundle&&olderPrelude.missing[0].includes('typescriptRuntime')&&newerPrelude.bundle, JSON.stringify({olderPrelude,newerPrelude}));
+    !olderPrelude.bundle&&olderPrelude.missing[0].includes('typescriptRuntime')&&!runtimeOne.bundle&&runtimeOne.missing[0].includes('runtime 2 or later; this cohort\'s is 1')
+    &&samePrelude.bundle&&newerPrelude.bundle, JSON.stringify({olderPrelude,runtimeOne,samePrelude,newerPrelude}));
   result('artifact graph separates binary changes, compatible older cohorts, and named missing dependencies',
     same.binary&&same.bundle&&old.binary&&old.bundle&&old.warnings[0].includes('will run the old code')
     &&!absent.bundle&&absent.missing[0].includes('sources.camera')&&!unsupported.bundle&&unsupported.missing[0].includes('gpuSurfaces.map')
@@ -383,6 +387,11 @@ async function rejects(action, matches) {
 
 { // Edit diagnostics own and remove large captured Git trees, including on callback failure.
   const app = resolveApp('caltrain'), previous = process.env.CARGO_TARGET_DIR;
+  const traceDir = mkdtempSync(join(tmpdir(), 'exact-diagnostic-git-')), trace = join(traceDir, 'trace.json');
+  const previousTrace = process.env.GIT_TRACE2_EVENT;
+  writeFileSync(trace, '');
+  process.env.GIT_TRACE2_EVENT = trace;
+  let gitStarts;
   let source, run, isolated = false, installed = false, caught = false, why = '';
   try {
     await withAppFixture(app, async f => {
@@ -394,11 +403,23 @@ async function rejects(action, matches) {
       // Rolldown from it), installed as an output, not committed as source.
       installed = existsSync(join(f.exactRoot, 'node_modules/.bin/rolldown'))
         && spawnSync('git', ['ls-files', 'node_modules'], { cwd: f.exactRoot, env: f.env, encoding: 'utf8' }).stdout === '';
+      f.git(['commit', '--allow-empty', '-qm', 'Diagnostic follow-up']);
       writeFileSync(join(f.app.dir, 'diagnostic-private.txt'), 'captured only');
       for (let i = 0; i < 5000; i++) writeFileSync(join(source, `cleanup-${i}`), 'private');
       throw new Error('expected diagnostic callback failure');
     });
   } catch (error) { caught = error.message === 'expected diagnostic callback failure'; why = caught ? '' : error.message; }
+  finally {
+    if (previousTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
+    else process.env.GIT_TRACE2_EVENT = previousTrace;
+    try { gitStarts = readFileSync(trace, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(event => event.event === 'start'); }
+    finally { rmSync(traceDir, { recursive: true, force: true }); }
+  }
+  // Check invocation, not whether a detached collector happens to beat cleanup.
+  result('diagnostic Git commits do not start automatic maintenance',
+    gitStarts.filter(event => event.argv.includes('commit')).length === 2
+    && !gitStarts.some(event => event.argv.includes('maintenance') || event.argv.includes('gc')),
+    gitStarts.map(event => event.argv.join(' ')).join('\n'));
   // A fixture that could not start (a cold Cargo cache offline: run `cargo fetch`) says so.
   result('diagnostic source and outputs are isolated and cleaned on failure', isolated && installed && caught
     && !existsSync(source ?? '/missing') && !existsSync(run ?? '/missing')
@@ -410,6 +431,10 @@ async function rejects(action, matches) {
 // separate stage, and generated ids in the same clock tick do not collide.
 {
   const fixture = mkdtempSync(join(tmpdir(), 'exact-source-snapshot-'));
+  const compiler = join(fixture, 'contract-stub');
+  writeFileSync(compiler, '#!/usr/bin/env bun\nconsole.log(JSON.stringify({packages:[],sources:[{origin:"app",path:process.argv.at(-1)}],consulted:[],errors:[]}));\n');
+  chmodSync(compiler, 0o755);
+  const snapshotOf = (app, opts, exactRoot) => capturedSnapshotOf(app, { ...opts, compiler }, exactRoot);
   const init = (repo, files) => {
     mkdirSync(repo, { recursive: true });
     spawnSync('git', ['init', '-q'], { cwd: repo });
@@ -944,3 +969,105 @@ async function rejects(action, matches) {
     shown.join('\n'));
 }
 
+{
+  // The AppDrop lane: only an iOS binary row owes AppDrop a version, a binary goes up once, and the first deploy creates the link.
+  const state = mkdtempSync(join(tmpdir(), 'exact-appdrop-'));
+  process.env.EXACT_APPDROP_STATE = join(state, 'appdrop.json');
+  process.env.APPDROP_HOME = join(state, 'cli');
+  const app = { id: 'com.example.app', name: 'example', manifest: { deploy: { appdrop: { url: 'https://appdrop.app/d/k3m9x2p7qa/' } } } };
+  const fresh = { ...app, manifest: { deploy: { appdrop: {} } } };
+  const builds = { ios: { binary: { sha256: 'a'.repeat(64) }, compat: { inputs: { store: { L: '0' } } } } };
+  const binary = { rows: [{ kind: 'binary', platform: 'ios', compatibilityId: 'c'.repeat(64), action: 'binary' }] };
+  const bundleOnly = { rows: [{ kind: 'stream', platform: 'ios', compatibilityId: 'c'.repeat(64), action: 'bundle' }] };
+  const first = appdropPlan(app, binary, builds), create = appdropPlan(fresh, binary, builds);
+  writeFileSync(process.env.EXACT_APPDROP_STATE, JSON.stringify({ 'https://appdrop.app/d/k3m9x2p7qa': { binary: 'a'.repeat(64), revision: 4 } }));
+  const again = appdropPlan(app, binary, builds);
+  mkdirSync(process.env.APPDROP_HOME);
+  writeFileSync(join(process.env.APPDROP_HOME, 'drops.json'), JSON.stringify({ zz: { url: 'https://appdrop.app/d/zzzzzzzzzz', bundleId: 'com.example.app', savedAt: '2026-10-01' }, other: { url: 'https://appdrop.app/d/oooooooooo', bundleId: 'com.other' } }));
+  const adopted = appdropPlan(fresh, binary, builds);
+  const manifestPath = join(state, 'app.json');
+  writeFileSync(manifestPath, '{\n  "deploy": {\n    "store": { "ios": "0" },\n    "appdrop": {}\n  }\n}\n');
+  writeLink(manifestPath, 'https://appdrop.app/d/k3m9x2p7qa');
+  const written = readFileSync(manifestPath, 'utf8');
+  let refused = '';
+  try { appdropPlan({ ...app, manifest: { deploy: { appdrop: { url: 'https://appdrop.app/d/k3m9x2p7qa/manage#secret' } } } }, binary, builds); } catch (e) { refused = e.message; }
+  delete process.env.EXACT_APPDROP_STATE; delete process.env.APPDROP_HOME; rmSync(state, { recursive: true, force: true });
+  result('AppDrop: an iOS binary row creates the link once, then uploads each new binary once; bundle rows and an update link in app.json do not',
+    first?.action === 'upload' && first.url === 'https://appdrop.app/d/k3m9x2p7qa' && first.id === 'k3m9x2p7qa'
+      && create?.action === 'create' && renderAppdrop(create).endsWith('create (after the streams)')
+      && adopted?.action === 'upload' && adopted.url === 'https://appdrop.app/d/zzzzzzzzzz' && adopted.adopted
+      && again?.action === 'current' && renderAppdrop(again).includes('revision 4 already') && renderAppdrop(first).endsWith('upload (after the streams)')
+      && appdropPlan(app, bundleOnly, builds) === null && appdropPlan({ ...app, manifest: {} }, binary, builds) === null
+      && written.includes('"appdrop": { "url": "https://appdrop.app/d/k3m9x2p7qa" }') && written.includes('"store": { "ios": "0" }')
+      && refused.includes('share link'),
+    JSON.stringify({ first, create, adopted, again, written, refused }));
+}
+
+{
+  const card = { name: 'plans/trains.plan', sha256: 'a'.repeat(64), bytes: Buffer.from('snapshot') };
+  const app = { id: 'test.widgets', displayName: 'Widgets' };
+  const bundle = { plan: { bytes: Buffer.from('app'), sha256: 'b'.repeat(64), formatVersion: 5, kernelSchema: '0'.repeat(16) }, assets: [card] };
+  const head = streamHead({ app, bundle, stream: { channel: 'prod', compatibilityId: 'c'.repeat(32) }, seq: 1, release: 'widgets' });
+  result('entry plans index the signed asset cards in the same stream',
+    JSON.stringify(head.plans.trains) === JSON.stringify(head.assets[0]) && head.plan.sha256 === bundle.plan.sha256);
+}
+
+
+test('snapshot plans are public files and authenticated dev generation assets', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-public-plans-'));
+  try {
+    const body = Buffer.from('snapshot'), name = 'plans/card.plan';
+    mkdirSync(join(dir, 'plans'));
+    writeFileSync(join(dir, name), body);
+    const files = await publicFileCards(dir);
+    if (!files.some(file => file.name === name && file.bytes === body.length)) throw new Error('entry absent from public cards');
+    if (readStaticFile(dir, '/' + name)?.body.toString() !== 'snapshot') throw new Error('entry not served');
+    const epoch = 'b'.repeat(32), captured = captureAssets(dir), cache = join(dir, 'cache');
+    const id = 'test.widget', plan = Buffer.alloc(36 + id.length);
+    plan.write('EXPL'); plan.writeUInt32LE(4, 4); plan.writeBigUInt64LE(1n, 16);
+    plan.writeUInt32LE(id.length, 32); plan.write(id, 36);
+    const published = webEnvelope({id,displayName:'Widget'}, plan, assetCards(captured));
+    published.dev = {epoch,seq:1};
+    for (const card of published.assets) card.url = `/__dev/generation/${epoch}/1/${card.name}`;
+    captured.set('exact.json', Buffer.from(JSON.stringify(published)));
+    retainDevGeneration(cache, epoch, 1, captured);
+    const envelope = JSON.parse(readDevGeneration(cache, `/__dev/generation/${epoch}/1/exact.json`).body);
+    if (envelope.plans.card.name !== name || envelope.plans.card.sha256 !== sha256(body) || envelope.plans.card.url !== envelope.assets[0].url) throw new Error('published envelope omitted the captured entry');
+    if (readDevGeneration(cache, `/__dev/generation/${epoch}/1/${name}`)?.body.toString() !== 'snapshot') throw new Error('entry absent from dev generation');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+
+// The first build may compile the web modules when the machine cache is cold.
+test('a production web root serves every authenticated asset card, including activity schemas and types', async () => {
+  const root = resolve(import.meta.dir, '..');
+  mkdirSync(join(root, 'target'), {recursive:true});
+  const dir = mkdtempSync(join(root, 'target/web-activity-root-'));
+  try {
+    const id = 'test.activity-root', app = {id, displayName:'Activity root'};
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({name:app.displayName, app:{id, name:app.displayName}}));
+    writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "Activity root"\n');
+    const bake = join(dir, 'bake'), web = join(dir, 'web'), origin = new DirectoryOrigin(join(dir, 'origin'));
+    const build = (out, args = []) => {
+      const run = spawnSync(process.execPath, ['host/web-js/build.mjs', 'activity-root', '--out', out, '--render', 'none', ...args],
+        {cwd:root, env:{...process.env, EXACT_APP_DIR:dir}, encoding:'utf8'});
+      if (run.status !== 0) throw new Error(run.stdout + run.stderr);
+    };
+    build(bake);
+    for (const [name, body] of [['plans/card.plan', 'snapshot'], ['activities/card.schema.json', '{"type":"object"}'], ['activities/card.d.ts', 'export type State = {};']]) {
+      mkdirSync(dirname(join(bake, name)), {recursive:true});
+      writeFileSync(join(bake, name), body);
+    }
+    writeFileSync(join(bake, 'exact.json'), JSON.stringify(webEnvelope(app, readFileSync(join(bake, 'app.plan')), assetCards(captureAssets(bake)))));
+    build(web, ['--production', '--plan', join(bake, 'app.plan')]);
+    const published = await publishRoot({origin, row:{}, web});
+    const envelope = JSON.parse(readStaticFile(origin.dir, `/${webReleasePath(published.root)}/exact.json`)?.body ?? 'null');
+    if (!envelope?.assets.some(card => card.name === 'activities/card.schema.json')) throw new Error('activity schema absent from published envelope');
+    for (const card of [envelope.plan, ...envelope.assets]) {
+      const body = readStaticFile(origin.dir, card.url)?.body;
+      if (!body || body.length !== card.bytes || sha256(body) !== card.sha256) throw new Error(`published card is not served: ${card.url}`);
+    }
+    rmSync(join(web, 'activities/card.schema.json'));
+    if (!await rejects(() => publishRoot({origin, row:{}, web}), error => error.message.includes('web envelope does not bind activities/card.schema.json'))) throw new Error('missing asset was published');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+}, 300000);

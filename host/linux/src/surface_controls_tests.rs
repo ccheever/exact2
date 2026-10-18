@@ -1,18 +1,7 @@
 use super::*;
 #[path = "surface_controls_tests/wheel.rs"]
 mod wheel;
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(
-        &mut self,
-        n: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, exact_runner::DataError> {
-        Err(exact_runner::DataError::UnknownSource(n.into()))
-    }
-}
-fn find(p: &Presenter<NoData>, name: &str) -> u32 {
+fn find(p: &Presenter<()>, name: &str) -> u32 {
     p.host
         .preorder()
         .into_iter()
@@ -27,10 +16,10 @@ fn find(p: &Presenter<NoData>, name: &str) -> u32 {
         })
         .unwrap()
 }
-fn fixture() -> (Presenter<NoData>, PathBuf) {
+fn fixture() -> (Presenter<()>, PathBuf) {
     fixture_with_hud_removal(false)
 }
-fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
+fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<()>, PathBuf) {
     let source = r#"component Controls
   state removed = false
   state text = ""
@@ -45,7 +34,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     column
       input testId="editor" value=text input=change width=100 height=30
       canvas testId="a" width=100 height=100
-        when !removed
+        if !removed
           button testId="a-jump" action="jump" width=100 height=100
             box testId="label" width=100 height=100
       canvas testId="b" width=100 height=100
@@ -57,7 +46,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     let source = if remove_hud {
         source.replace(
             "        button testId=\"hud-remove\" press=remove width=100 height=30",
-            "        when !removed\n          button testId=\"hud-remove\" press=remove width=100 height=30",
+            "        if !removed\n          button testId=\"hud-remove\" press=remove width=100 height=30",
         )
     } else {
         source.to_owned()
@@ -65,12 +54,12 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     boot(&source, &["a", "b", "raw"])
 }
 /// A presenter over `source` whose canvases named by testId are worlds of the probe module.
-fn boot(source: &str, canvases: &[&str]) -> (Presenter<NoData>, PathBuf) {
+fn boot(source: &str, canvases: &[&str]) -> (Presenter<()>, PathBuf) {
     let (path, compat) = super::tests::fixture();
     let plan = contract::compile(source).unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
-        NoData,
+        (),
         (100., 360.),
         1.,
         path.parent().unwrap().into(),
@@ -101,7 +90,7 @@ fn boot(source: &str, canvases: &[&str]) -> (Presenter<NoData>, PathBuf) {
     p.boxes();
     (p, path)
 }
-fn restore(p: &mut Presenter<NoData>, name: &str, contacts: Value) {
+fn restore(p: &mut Presenter<()>, name: &str, contacts: Value) {
     let id = find(p, name);
     let c = p.surfaces.canvases.get_mut(&id).unwrap();
     c.restore_input = true;
@@ -111,7 +100,7 @@ fn restore(p: &mut Presenter<NoData>, name: &str, contacts: Value) {
     );
     p.restore_controls();
 }
-fn done(p: Presenter<NoData>, path: PathBuf) {
+fn done(p: Presenter<()>, path: PathBuf) {
     drop(p);
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
@@ -328,7 +317,7 @@ fn r13_named_and_empty_arguments_reach_linux_gpu_binding() {
         .unwrap();
         let (mut p, _) = Presenter::boot(
             &plan.encode(),
-            NoData,
+            (),
             (100., 100.),
             1.,
             path.parent().unwrap().into(),
@@ -453,7 +442,7 @@ fn a_hardware_shortcut_keyup_does_not_stick_the_key_in_the_world() {
     gone = true
   view
     column
-      when !gone
+      if !gone
         button aria-keyshortcuts="Escape" press=go testId="go" height=24
           text "go"
       canvas testId="world" key=key width=100 height=100
@@ -462,7 +451,7 @@ fn a_hardware_shortcut_keyup_does_not_stick_the_key_in_the_world() {
         &["world"],
     );
     let world = find(&p, "world");
-    let text = |p: &Presenter<NoData>, id: &str| {
+    let text = |p: &Presenter<()>, id: &str| {
         p.host
             .kernel()
             .node(find(p, id))
@@ -472,7 +461,7 @@ fn a_hardware_shortcut_keyup_does_not_stick_the_key_in_the_world() {
             .unwrap_or("")
             .to_string()
     };
-    let shown = |p: &Presenter<NoData>, name: &str| {
+    let shown = |p: &Presenter<()>, name: &str| {
         p.host.preorder().into_iter().any(|id| {
             p.host
                 .kernel()
@@ -561,7 +550,7 @@ fn r15_pointer_completion_preserves_a_replacement_buttons_autofocus() {
     done = true
   view
     column
-      when done
+      if done
         button autofocus testId="next" width=100 height=30
       else
         button press=finish testId="start" width=100 height=30
@@ -570,7 +559,7 @@ fn r15_pointer_completion_preserves_a_replacement_buttons_autofocus() {
     .unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
-        NoData,
+        (),
         (100., 60.),
         1.,
         path.parent().unwrap().into(),
@@ -606,7 +595,7 @@ fn e11_pointer_press_keeps_ordinary_focus_and_allows_new_autofocus() {
   view
     column
       button press=finish testId="start" width=100 height=30
-      when done
+      if done
         button {} testId="next" width=100 height=30
 "#,
             if overlay { "autofocus" } else { "" }
@@ -614,7 +603,7 @@ fn e11_pointer_press_keeps_ordinary_focus_and_allows_new_autofocus() {
         .unwrap();
         let (mut p, _) = Presenter::boot(
             &plan.encode(),
-            NoData,
+            (),
             (100., 60.),
             1.,
             path.parent().unwrap().into(),
@@ -669,7 +658,7 @@ fn blur_clears_raw_hold_without_focus() {
     done(p, path);
 }
 
-fn last_input(p: &Presenter<NoData>) -> (u32, u32, Value) {
+fn last_input(p: &Presenter<()>) -> (u32, u32, Value) {
     let abi = &p.surfaces.abis[""];
     unsafe {
         let text = std::ffi::CStr::from_ptr(abi
@@ -871,7 +860,7 @@ fn held_canvas_contact_streams_down_moves_and_up_to_the_canvas() {
     let (mut p, path) = fixture();
     let raw = find(&p, "raw");
     let (ox, oy, _, _) = p.rect_of(raw).unwrap();
-    let ask = |p: &mut Presenter<NoData>, q: Value| -> Value {
+    let ask = |p: &mut Presenter<()>, q: Value| -> Value {
         serde_json::from_str(&crate::agent::contact::answer(p, &q)).unwrap()
     };
     let before = unsafe {
@@ -945,7 +934,7 @@ fn canvas_pointer_carries_motion_hover_and_the_other_buttons() {
     let (mut p, path) = fixture();
     let raw = find(&p, "raw");
     let (ox, oy, _, _) = p.rect_of(raw).unwrap();
-    let phase = |p: &Presenter<NoData>| {
+    let phase = |p: &Presenter<()>| {
         let (_, _, e) = last_input(p);
         (
             e["phase"].as_str().unwrap().to_string(),
@@ -1003,7 +992,7 @@ fn a_lost_pointer_holds_no_button_and_the_canvas_hears_its_release() {
     let (mut p, path) = fixture();
     let raw = find(&p, "raw");
     let (ox, oy, _, _) = p.rect_of(raw).unwrap();
-    let last = |p: &Presenter<NoData>| {
+    let last = |p: &Presenter<()>| {
         let (_, count, e) = last_input(p);
         (
             count,
@@ -1044,7 +1033,7 @@ fn the_agents_canvas_taps_are_a_finger_and_its_hover_a_mouse() {
     let (mut p, path) = fixture();
     let raw = find(&p, "raw");
     let (ox, oy, _, _) = p.rect_of(raw).unwrap();
-    let kind = |p: &Presenter<NoData>| {
+    let kind = |p: &Presenter<()>| {
         let (_, _, e) = last_input(p);
         (
             e["phase"].as_str().unwrap().to_string(),
@@ -1252,5 +1241,22 @@ fn agent_primary_mouse_after_touch_preserves_device_identity_and_refusal_atomici
         .contains("held contact"));
     assert_eq!(last_input(&p).1, count);
     p.pointer_lost(1.).unwrap();
+    done(p, path);
+}
+
+#[test]
+fn a_finger_drag_focuses_its_input_canvas_at_down() {
+    let (mut p, path) = boot(
+        "component App\n  view\n    canvas testId=\"world\" tabindex=0 width=100 height=100\n",
+        &["world"],
+    );
+    let world = find(&p, "world");
+    p.set_pointer_kind(crate::presenter::PointerKind::Touch);
+    assert!(p.pointer_down(20., 20., 0.).unwrap());
+    assert_eq!(p.focus(), Some(world));
+    assert!(p.pointer_move(50., 20., 1.).unwrap());
+    assert_eq!(p.focus(), Some(world));
+    assert!(p.pointer_up(50., 20., 2.).unwrap());
+    assert_eq!(p.focus(), Some(world));
     done(p, path);
 }

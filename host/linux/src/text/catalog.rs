@@ -116,6 +116,43 @@ pub(super) struct Catalog {
 }
 
 impl Catalog {
+    pub(super) fn install_runtime(
+        &mut self,
+        compiled: usize,
+        lists: &[String],
+    ) -> std::ops::Range<u16> {
+        let first = self.families.len() as u16;
+        for list in lists
+            .iter()
+            .skip(self.families.len().saturating_sub(compiled))
+        {
+            let mut chosen = FamilyChoice::SansSerif;
+            for member in exact_runner::bridge::runtime_family_members(list) {
+                let name = member.name;
+                let generic = match name.to_ascii_lowercase().as_str() {
+                    "serif" | "ui-serif" => Some(FamilyChoice::Serif),
+                    "monospace" | "ui-monospace" => Some(FamilyChoice::Monospace),
+                    "system-ui" | "ui-sans-serif" | "sans-serif" | "ui-rounded" => {
+                        Some(FamilyChoice::SansSerif)
+                    }
+                    _ => None,
+                };
+                if let Some(generic) = generic.filter(|_| !member.quoted) {
+                    chosen = generic;
+                    break;
+                }
+                if fonts::installed_family(&mut self.fonts.collection, &name) {
+                    chosen = FamilyChoice::Declared(name);
+                    break;
+                }
+            }
+            self.families.push(chosen);
+        }
+        let end = self.families.len() as u16;
+        self.normal
+            .retain(|(family, ..), _| !(*family >= first && *family < end));
+        first..end
+    }
     /// The installed faces, with `sans-serif`, `serif` and `monospace` settled
     /// as the host settles them.
     pub(super) fn new() -> Self {
@@ -217,32 +254,13 @@ impl Catalog {
         catalog
     }
 
-    /// The installed faces plus every face in `dir`, `sans` its sans-serif
-    /// (fixtures over the machine's fallback).
+    /// Whether a glyph actually rendered from a colour bitmap strike.
     #[cfg(test)]
-    pub(super) fn installed_with(dir: &Path, sans: &str) -> Self {
-        let installed = fonts::installed();
-        let mut registry = Registry {
-            collection: installed.collection.clone(),
-            files: installed.files.clone(),
-            ..Registry::default()
-        };
-        registry.add(super::font_cache::scan(dir));
-        let mut catalog =
-            Self::with_collection(registry.collection, Arc::new(registry.files), "en-US");
-        let generics = fonts::Generics {
-            sans: sans.into(),
-            ..installed.generics.clone()
-        };
-        catalog.settle_generics(&generics);
-        catalog
-    }
-
-    /// Whether a glyph renders as a colour image (a bitmap or colour outline).
-    #[cfg(test)]
-    pub(super) fn renders_color(&mut self, key: GlyphKey) -> bool {
-        self.render(key)
-            .is_some_and(|i| i.content == swash::scale::image::Content::Color)
+    pub(super) fn renders_color_bitmap(&mut self, key: GlyphKey) -> bool {
+        self.render(key).is_some_and(|i| {
+            matches!(i.source, Source::ColorBitmap(_))
+                && i.content == swash::scale::image::Content::Color
+        })
     }
 
     /// The same faces and plan families for another document language: its
@@ -386,7 +404,8 @@ impl Catalog {
                         FontWeight::new(f32::from(face.weight)),
                         parsed.axes(),
                         parsed.charmap_index(),
-                    );
+                    )
+                    .with_pinned_weight();
                     staged.push((face.weight, face.italic, info));
                 }
                 if failed || staged.len() != family.faces.len as usize {
@@ -428,13 +447,9 @@ impl Catalog {
         next
     }
 
-    /// The face CSS font matching picks for a run's family, weight and style.
-    pub(super) fn resolved_face_id(
-        &mut self,
-        family: u16,
-        weight: u16,
-        italic: bool,
-    ) -> Option<FaceId> {
+    /// The face CSS font matching picks for a run's family, weight and
+    /// style, as font data.
+    fn resolved_face(&mut self, family: u16, weight: u16, italic: bool) -> Option<FontData> {
         let choice = self
             .families
             .get(family as usize)
@@ -454,13 +469,21 @@ impl Catalog {
         ));
         let mut found = None;
         query.matches_with(|font| {
-            found = Some(FaceId {
-                blob: font.blob.id(),
-                index: font.index,
-            });
+            found = Some(FontData::new(font.blob.clone(), font.index));
             QueryStatus::Stop
         });
         found
+    }
+
+    /// The face CSS font matching picks for a run's family, weight and style.
+    pub(super) fn resolved_face_id(
+        &mut self,
+        family: u16,
+        weight: u16,
+        italic: bool,
+    ) -> Option<FaceId> {
+        self.resolved_face(family, weight, italic)
+            .map(|f| FaceId::of(&f))
     }
     pub(super) fn declared_face_id(
         &self,
@@ -507,6 +530,26 @@ impl Catalog {
         self.normal.insert(key, height);
         height
     }
+    /// The run's own font's ascent, cap height, x-height and descent, in
+    /// points: the root inline box's metrics `text-box-trim` cuts to (Inline
+    /// Layout 3 §4.2), never a fallback's or an inline child's.
+    /// The face is the one CSS font matching picks for the run, whatever
+    /// characters it covers: a face with no Latin `x` is still its own root.
+    pub(super) fn edge_metrics(&mut self, run: &Run) -> [f32; 4] {
+        let font = self.resolved_face(run.family, run.weight, run.italic);
+        match font.and_then(|f| self.raw_metrics(&f)) {
+            Some(m) if m.units_per_em > 0 => {
+                let scale = run.size / m.units_per_em as f32;
+                [m.ascent, m.cap_height, m.x_height, m.descent.abs()].map(|v| v * scale)
+            }
+            _ => [
+                run.size * 0.9,
+                run.size * 0.7,
+                run.size * 0.5,
+                run.size * 0.3,
+            ],
+        }
+    }
     pub(super) fn line_height(&mut self, run: &Run) -> f32 {
         run.line_height
             .unwrap_or_else(|| self.normal_line_height(run))
@@ -549,7 +592,21 @@ impl Catalog {
                 ascent: m.ascent,
                 descent: m.descent,
                 leading: m.leading,
+                cap_height: m.cap_height,
+                x_height: m.x_height,
             }
+        });
+        // An older OS/2 table has no cap or x height: the top of `H` and of
+        // `x`, as browsers read them then.
+        let m = m.map(|mut m| {
+            let top = |ch| glyph_top(font.data.data(), font.index, ch);
+            if m.cap_height <= 0.0 {
+                m.cap_height = top('H').unwrap_or(m.ascent);
+            }
+            if m.x_height <= 0.0 {
+                m.x_height = top('x').unwrap_or(m.units_per_em as f32 / 2.0);
+            }
+            m
         });
         self.raw.insert(id, m);
         m
@@ -827,4 +884,16 @@ impl FamilyChoice {
             FamilyChoice::Declared(name) => QueryFamily::Named(name),
         }
     }
+}
+
+/// The top of a character's glyph above the baseline, in font units.
+fn glyph_top(data: &[u8], index: u32, ch: char) -> Option<f32> {
+    use skrifa::MetadataProvider;
+    let font = skrifa::FontRef::from_index(data, index).ok()?;
+    let glyph = font.charmap().map(ch)?;
+    let metrics = font.glyph_metrics(
+        skrifa::instance::Size::unscaled(),
+        skrifa::instance::LocationRef::default(),
+    );
+    metrics.bounds(glyph).map(|b| b.y_max).filter(|y| *y > 0.0)
 }

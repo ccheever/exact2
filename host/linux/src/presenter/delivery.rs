@@ -1,4 +1,6 @@
 use super::*;
+use crate::host::LET_GO_AFTER;
+use std::time::Instant;
 
 impl<D: DataSource> Presenter<D> {
     /// Attach the update store (LLP 1026 D9): what it has to say reaches
@@ -20,6 +22,33 @@ impl<D: DataSource> Presenter<D> {
     /// Connect the existing development URL loop; polling starts after first pixel.
     pub fn set_development(&mut self, url: Option<String>, identity: Option<String>) {
         self.dev = url.map(|url| crate::fetch::Poller::new(url, self.compat.clone(), identity));
+        // Its answers wake the executor's fd, so a host that turns only when
+        // woken (the Android reader's canvas host) takes them at once.
+        let waker = self.executor.waker();
+        if let Some(dev) = self.dev.as_mut() {
+            *dev.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(waker);
+        }
+        // What the build channel's registration names (LLP 1122 D4).
+        if let Some(link) = self.dev.as_mut().and_then(|dev| dev.link.as_mut()) {
+            link.design = Some(self.host.runner().design());
+            link.plan_digest = Some(self.host.runner().inspection_digest().to_string());
+        }
+    }
+
+    /// Milliseconds from `now` until a turn is owed: the next timer, or the
+    /// development poll's next tick when sooner (attached, and the first
+    /// pixel out: it polls after). A host that turns only when woken asks
+    /// this (the Android reader's canvas host).
+    pub fn turn_due_ms(&self, now: f64) -> Option<f64> {
+        let timer = self.timer_due_ms().map(|due| (due - now).max(0.0));
+        let dev = self.dev.as_ref().filter(|_| self.painted);
+        let poll = dev
+            .and_then(|d| d.due_in())
+            .map(|d| d.as_secs_f64() * 1000.0);
+        match (timer, poll) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// Apply a finished URL generation without blocking the presentation thread.
@@ -27,20 +56,86 @@ impl<D: DataSource> Presenter<D> {
         if !self.painted {
             return;
         }
+        self.tick_development();
+        // The build channel (LLP 1122 D4): the frames its tick took, the
+        // commands dispatched before any generation is handled.
+        self.serve_build_channel();
+        self.apply_development(data);
+    }
+
+    /// The development poll's tick alone: its workers started when due, an
+    /// answer taken (a generation kept for [`Self::poll_development`] to
+    /// apply). A frame that must stay quick (a scroll step on the Android
+    /// reader) still ticks, so a due poll is never left waiting on it.
+    pub fn tick_development(&mut self) {
+        if !self.painted {
+            return;
+        }
         match self.dev.as_mut().map(|dev| dev.poll()) {
-            Some(Ok(Some(generation))) => self.pending_dev = Some(generation),
+            // A poll that began before the generation installed brings it again: not twice.
+            Some(Ok(Some(generation)))
+                if self.dev.as_ref().unwrap().identity.as_ref() == Some(&generation.identity) => {}
+            Some(Ok(Some(generation))) => {
+                // A newer generation waits its own second; the poll fetching
+                // the held one again does not restart it.
+                if self.pending_dev.as_ref().map(|g| &g.identity) != Some(&generation.identity) {
+                    self.dev.as_mut().unwrap().held_since = None;
+                }
+                self.pending_dev = Some(generation);
+            }
             Some(Err(error)) => eprintln!("exact url: {error}; keeping the running app"),
             _ => {}
         }
+    }
+
+    /// Install the generation a tick kept, when it may go.
+    fn apply_development(&mut self, data: impl FnOnce() -> D) {
         if let Some(generation) = self.pending_dev.take() {
-            match self.reload_module(&generation.plan, data(), generation.module.clone()) {
-                Ok(_) => self.dev.as_mut().unwrap().identity = Some(generation.identity),
+            let let_go = self
+                .dev
+                .as_ref()
+                .and_then(|dev| dev.held_since)
+                .is_some_and(|t| t.elapsed() >= LET_GO_AFTER);
+            match self.reload_module(&generation.plan, data(), generation.module.clone(), let_go) {
+                Ok(_) => {
+                    let waker = self.executor.waker();
+                    let dev = self.dev.as_mut().unwrap();
+                    dev.identity = Some(generation.identity);
+                    // A new executor, so its waker (and a new wake
+                    // descriptor, which the Android reader watches again).
+                    *dev.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(waker);
+                    // The generation runs the design it was built with; one
+                    // applied live while it downloaded is newer. The next
+                    // tick's snapshot (or 204, the plan's own) converges.
+                    if let Some(link) = dev.link.as_mut() {
+                        link.snapshot = true;
+                    }
+                    self.repin();
+                    self.rehold();
+                    self.report_status();
+                }
                 Err(HostError::PreparingModule) => self.pending_dev = Some(generation),
+                Err(HostError::RequestsPending) => {
+                    self.dev
+                        .as_mut()
+                        .unwrap()
+                        .held_since
+                        .get_or_insert_with(Instant::now);
+                    self.pending_dev = Some(generation);
+                }
                 Err(error) => eprintln!("exact url: candidate refused: {error}"),
             }
+            if self.pending_dev.is_none() {
+                self.dev.as_mut().unwrap().held_since = None;
+            }
+        }
+        // The live table: the snapshot and the commands poll's batches.
+        if self.pending_dev.is_none() {
+            self.serve_live();
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn prepare_logic(
         &self,
         plan: &[u8],
@@ -49,14 +144,13 @@ impl<D: DataSource> Presenter<D> {
         text: &Shared,
         carried: &mut exact_runner::Carried,
         delivery: &exact_runner::Delivery,
+        let_go: bool,
     ) -> Result<D, HostError> {
         let Some(module) = module else {
             return Ok(admitted);
         };
-        if self.host.runner().has_pending() {
-            return Err(HostError::Asset(
-                "Rust replacement waits for pending requests; retry after they settle".into(),
-            ));
+        if !let_go && self.host.runner().has_pending() {
+            return Err(HostError::RequestsPending);
         }
         let data = module
             .replacement(plan, &admitted)
@@ -112,6 +206,12 @@ impl<D: DataSource> Presenter<D> {
         self.activate_first_pixel();
         // No hatch runs before first pixel (LLP 1075.003.000.001 §2.1).
         self.connect_hatches();
+    }
+
+    /// First pixel has been acknowledged ([`Presenter::first_pixel`]).
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn first_pixel_told(&self) -> bool {
+        self.painted
     }
 
     /// The deferred data module has yet to activate, and has not failed to:
@@ -189,6 +289,7 @@ impl<D: DataSource> Presenter<D> {
             &text,
             &mut carried,
             &delivery,
+            false,
         )?;
         let (mut host, error) = Host::boot_with(
             &candidate.plan,
@@ -376,3 +477,7 @@ mod tests {
         assert_eq!(p.brush.rank_passes, passes + 1);
     }
 }
+
+#[cfg(test)]
+#[path = "delivery_tests.rs"]
+mod let_go_tests;

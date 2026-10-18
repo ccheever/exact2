@@ -35,7 +35,7 @@ pub enum Kind {
     ArgType,
     /// `==`/`!=` with a right operand of another type.
     Eq,
-    /// A condition (`?:`, `if`, `when`) that is a number.
+    /// A condition (`?:`, `if`) that is a number.
     Cond,
 }
 
@@ -53,6 +53,11 @@ const KINDS: [Kind; 7] = [
 enum Role {
     Plain,
     Cond,
+    /// A host command's argument as written: its type is the command's
+    /// signature, which the Lean judgments leave to the Rust checker
+    /// (`Contract/Types.lean`), so a literal there is not swapped for one of
+    /// another type. What it contains is mutated as anywhere else.
+    HostArg,
 }
 
 /// Visit every expression of a file in preorder, with whether it stands as
@@ -98,7 +103,17 @@ fn walk_stmts(ss: &mut [Stmt], f: &mut dyn FnMut(&mut Expr, Role) -> bool) -> bo
         let stop = match s {
             Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => walk_expr(expr, Role::Plain, f),
             // A call is expansion's, never an authored tree's (LLP 1089).
-            Stmt::Command { args, .. } | Stmt::Send { args, .. } | Stmt::Call { args, .. } => {
+            // The parser writes a call of the component's own action as a
+            // command too; only a host's is the Rust checker's alone.
+            Stmt::Command { name, args, .. } => {
+                let role = if contract_syntax::HOST_COMMANDS.contains(&name.as_str()) {
+                    Role::HostArg
+                } else {
+                    Role::Plain
+                };
+                args.iter_mut().any(|a| walk_expr(a, role, f))
+            }
+            Stmt::Send { args, .. } | Stmt::Call { args, .. } => {
                 args.iter_mut().any(|a| walk_expr(a, Role::Plain, f))
             }
             Stmt::Refresh { .. } => false,
@@ -205,11 +220,12 @@ fn walk_expr(e: &mut Expr, role: Role, f: &mut dyn FnMut(&mut Expr, Role) -> boo
             TemplatePart::Expr(x) => walk_expr(x, Role::Plain, f),
             TemplatePart::Text(_) => false,
         }),
-        Expr::Some(x, _)
-        | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _)
-        | Expr::Unary(_, x, _)
-        | Expr::Typed(x, _, _) => walk_expr(x, Role::Plain, f),
+        // A named argument's value is in its call's place (`gain=` of a
+        // host command is still the command's signature).
+        Expr::NamedArg(_, x, _) => walk_expr(x, role, f),
+        Expr::Some(x, _) | Expr::Member(x, _, _) | Expr::Unary(_, x, _) | Expr::Typed(x, _, _) => {
+            walk_expr(x, Role::Plain, f)
+        }
         Expr::Call(_, args, _) | Expr::List(args, _) => {
             args.iter_mut().any(|a| walk_expr(a, Role::Plain, f))
         }
@@ -238,7 +254,9 @@ fn walk_expr(e: &mut Expr, role: Role, f: &mut dyn FnMut(&mut Expr, Role) -> boo
 
 fn applies(kind: Kind, e: &Expr, role: Role) -> bool {
     match kind {
-        Kind::Literal => matches!(e, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)),
+        Kind::Literal => {
+            role != Role::HostArg && matches!(e, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..))
+        }
         Kind::Field => matches!(e, Expr::Member(..)),
         Kind::ArgAdd => matches!(e, Expr::Call(..)),
         Kind::ArgDrop | Kind::ArgType => matches!(e, Expr::Call(_, args, _) if !args.is_empty()),

@@ -437,6 +437,56 @@ fn a_projected_tablist_reserves_its_native_height_and_releases_it() {
     assert_eq!(frame(&mut kernel, 1).1, 20.0);
 }
 
+/// LLP 1116.004 D5.2: a radio group drawn as the platform's segmented
+/// control reserves its height as a tablist does; another role is refused.
+#[test]
+fn a_projected_radio_group_reserves_its_native_height() {
+    use exact_kernel::{PropId, PropValue};
+    let (mut kernel, _) = tree(None);
+    for (version, role) in [(2u64, "group"), (3, "radiogroup")] {
+        kernel
+            .apply(
+                1,
+                version,
+                &[Op::SetProp {
+                    id: 1,
+                    prop: PropId::AccessibilityRole,
+                    value: PropValue::Str(role.into()),
+                }],
+            )
+            .unwrap();
+        let measured = kernel.set_intrinsic_size(1, Some((390.0, 32.0)));
+        assert_eq!(measured.is_ok(), role == "radiogroup", "{role}");
+    }
+    assert_eq!(frame(&mut kernel, 1).1, 32.0);
+    // LLP 1116.019 D1: the control's height is its box's, so the radios it
+    // hides, grown with the text, do not make it taller; a tablist, which
+    // may be a tab bar, keeps the height as a minimum.
+    kernel
+        .apply(
+            3,
+            4,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(image_style(&[(StyleId::Height, 50.0)])),
+            }],
+        )
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 1).1, 32.0, "a radio group");
+    kernel
+        .apply(
+            4,
+            5,
+            &[Op::SetProp {
+                id: 1,
+                prop: PropId::AccessibilityRole,
+                value: PropValue::Str("tablist".into()),
+            }],
+        )
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 1).1, 50.0, "a tablist");
+}
+
 #[test]
 fn a_tab_bar_minimum_moves_siblings_without_overriding_explicit_css_min_height() {
     use exact_kernel::{PropId, PropValue};
@@ -497,6 +547,107 @@ fn a_tab_bar_minimum_moves_siblings_without_overriding_explicit_css_min_height()
         assert_eq!(frame(&mut kernel, 2), (390.0, 20.0));
         assert_eq!(kernel.node(3).unwrap().frame.y, 20.0);
     }
+}
+
+/// LLP 1116.004 D2 (unit-converter, round 6): a projected tablist's width
+/// report is its control's narrowest, the automatic minimum width in place
+/// of its hidden tabs' own, so a segmented control in a grouped row shrinks
+/// to the row instead of overflowing it by the tabs' widths. An explicit
+/// `min-width` still wins.
+#[test]
+fn a_projected_tablist_shrinks_to_its_row_by_its_controls_narrowest() {
+    use exact_kernel::{PropId, PropValue};
+    let mut kernel = Kernel::with_monospace();
+    let mut row = image_style(&[(StyleId::Width, 300.0)]);
+    row.display = Display::Flex;
+    row.mask.set(StyleId::Display);
+    let mut tablist = StyleProps::default();
+    tablist.display = Display::Flex;
+    tablist.mask.set(StyleId::Display);
+    tablist.flex_grow = 1.0;
+    tablist.mask.set(StyleId::FlexGrow);
+    let tab = || {
+        Box::new(image_style(&[
+            (StyleId::Width, 200.0),
+            (StyleId::MinWidth, 200.0),
+            (StyleId::Height, 30.0),
+        ]))
+    };
+    let mut ops: Vec<_> = (1..=4)
+        .map(|id| Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        })
+        .collect();
+    ops.extend([
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(row),
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(tablist),
+        },
+        Op::SetStyle {
+            id: 3,
+            patch: tab(),
+        },
+        Op::SetStyle {
+            id: 4,
+            patch: tab(),
+        },
+        Op::SetProp {
+            id: 2,
+            prop: PropId::AccessibilityRole,
+            value: PropValue::Str("tablist".into()),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    kernel.apply(0, 1, &ops).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 2),
+        (400.0, 30.0),
+        "authored: the tabs overflow the row"
+    );
+    kernel.set_intrinsic_size(2, Some((1.0, 32.0))).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 2),
+        (300.0, 32.0),
+        "projected: the row's width"
+    );
+    kernel.set_intrinsic_size(2, None).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 2).0,
+        400.0,
+        "the projection gone, the tabs' own minimum"
+    );
+    kernel.set_intrinsic_size(2, Some((1.0, 32.0))).unwrap();
+    let mut explicit = StyleProps::default();
+    explicit.min_width = Dimension::Points(350.0);
+    explicit.mask.set(StyleId::MinWidth);
+    kernel
+        .apply(
+            1,
+            2,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(explicit),
+            }],
+        )
+        .unwrap();
+    assert_eq!(
+        frame(&mut kernel, 2),
+        (350.0, 32.0),
+        "an authored min-width wins"
+    );
 }
 
 // Native modules and built-in controls share preferred-size layout, without

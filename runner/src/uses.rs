@@ -105,11 +105,31 @@ pub enum Capability {
     /// (LLP 1047.001). The browser plays them, so the web links nothing for
     /// it.
     Transitions,
+    /// iOS's photo picker (LLP 1047.001.000 E): a file input whose `accept`
+    /// is only images and videos, or is computed. Linking it costs every
+    /// launch PhotosUI's images, so a document input does not; the picker
+    /// itself is [`Capability::Picker`].
+    MediaPicker,
+    /// The sign-in sheet behind `openAuthSession` (LLP 1047.001.000 E):
+    /// never set by a plan, since a data source's requests are the source's;
+    /// the bake links it for an app whose grants name `auth.session`, and a
+    /// manifest's `link` may name it.
+    AuthSession,
+    /// A text's numerals rolling as they change, per glyph
+    /// (`-exact-content-transition`, LLP 1077 D15): on Apple, SwiftUI's
+    /// numeric text, whose framework an app links only for this (LLP
+    /// 1115.003 D3). A plan uses it when it binds the row.
+    Numerals,
+    /// A date or time control (`input type="date"`, `"time"` or
+    /// `"datetime-local"`): on Android its picker is Compose Material 3's,
+    /// which an app links only for it (LLP 1115.001.000 D2). Every other
+    /// host shows its platform's own picker and links nothing for it.
+    Dates,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 26] = [
+    pub const ALL: [Capability; 30] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -136,6 +156,10 @@ impl Capability {
         Capability::GroupedLists,
         Capability::Io,
         Capability::Transitions,
+        Capability::MediaPicker,
+        Capability::AuthSession,
+        Capability::Numerals,
+        Capability::Dates,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -167,6 +191,10 @@ impl Capability {
             Capability::GroupedLists => "grouped_lists",
             Capability::Io => "io",
             Capability::Transitions => "transitions",
+            Capability::MediaPicker => "media_picker",
+            Capability::AuthSession => "auth_session",
+            Capability::Numerals => "numerals",
+            Capability::Dates => "dates",
         }
     }
 
@@ -281,6 +309,13 @@ pub fn uses(plan: &Plan) -> Uses {
                 Some(PropId::Type) if can_be(binding, &|v| v == "file") => {
                     uses = uses.with(Capability::Picker);
                 }
+                Some(PropId::Type)
+                    if can_be(binding, &|v| {
+                        matches!(v, "date" | "time" | "datetime-local")
+                    }) =>
+                {
+                    uses = uses.with(Capability::Dates);
+                }
                 _ => {}
             },
             BindingKind::Style => {
@@ -300,6 +335,9 @@ pub fn uses(plan: &Plan) -> Uses {
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::TextTransform) {
                     uses = uses.with(Capability::TextTransform);
+                }
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::ContentTransition) {
+                    uses = uses.with(Capability::Numerals);
                 }
                 if matches!(
                     StyleId::from_bit(u32::from(binding.id)),
@@ -375,7 +413,7 @@ pub fn uses(plan: &Plan) -> Uses {
     if format {
         uses = uses.with(Capability::Format);
     }
-    // `toLowerCase` maps through the same case tables (LLP 1088 D2).
+    // `toLowerCase` and `toUpperCase` map through the same case tables (LLP 1088 D2).
     if lowercase {
         uses = uses.with(Capability::TextTransform);
     }
@@ -402,7 +440,40 @@ pub fn uses(plan: &Plan) -> Uses {
     if geometry {
         uses = uses.with(Capability::Geometry);
     }
+    if shows_media_picker(plan) {
+        uses = uses.with(Capability::MediaPicker);
+    }
     uses
+}
+
+/// Whether a file input of `plan` can take iOS's photo picker: its `type`
+/// can be `file` and its `accept`, as the host reads it, is a non-empty list
+/// of only `image/…` and `video/…` types, or is computed. `showPicker` names
+/// an input, so the inputs decide.
+fn shows_media_picker(plan: &Plan) -> bool {
+    let media = |accept: &str| {
+        let types: Vec<String> = accept
+            .split(',')
+            .map(|t| t.trim().to_ascii_lowercase())
+            .filter(|t| !t.is_empty())
+            .collect();
+        !types.is_empty()
+            && types
+                .iter()
+                .all(|t| t.starts_with("image/") || t.starts_with("video/"))
+    };
+    plan.nodes.iter().any(|node| {
+        let prop = |id: PropId| {
+            node.bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .find(|b| b.kind == BindingKind::Prop && b.id == id as u16)
+        };
+        let file = prop(PropId::Type)
+            .is_some_and(|b| constant_str(plan, plan.code(b.expr)).is_none_or(|v| v == "file"));
+        file && prop(PropId::Accept)
+            .is_some_and(|b| constant_str(plan, plan.code(b.expr)).is_none_or(media))
+    })
 }
 
 /// Whether `plan` can show an SVG island (LLP 1055.000 D10, D14): a `mask`
@@ -466,7 +537,7 @@ pub fn svg_filters(plan: &Plan) -> bool {
 }
 
 /// Whether any code range calls a `format` entry, whether any reads
-/// geometry (`frame`, `measure`, `elementFromPoint`), and whether any calls `toLowerCase`: each
+/// geometry (`frame`, `measure`, `elementFromPoint`), and whether any calls `toLowerCase` or `toUpperCase`: each
 /// validated body walked whole, so no call a run can reach is missed.
 fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
     let (mut format, mut geometry, mut lowercase) = (false, false, false);
@@ -478,12 +549,18 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
                         Stdlib::FormatDate
                         | Stdlib::FormatNumber
                         | Stdlib::ToFixed
-                        | Stdlib::FormatDecimal,
+                        | Stdlib::FormatDecimal
+                        | Stdlib::FormatDay,
                     ) => format = true,
-                    Some(Stdlib::Frame | Stdlib::Measure | Stdlib::ElementFromPoint) => {
-                        geometry = true
-                    }
-                    Some(Stdlib::ToLowerCase) => lowercase = true,
+                    Some(
+                        Stdlib::Frame
+                        | Stdlib::RangeFrame
+                        | Stdlib::Measure
+                        | Stdlib::ElementFromPoint
+                        | Stdlib::ElementsFromPoint
+                        | Stdlib::QuerySelectorAll,
+                    ) => geometry = true,
+                    Some(Stdlib::ToLowerCase | Stdlib::ToUpperCase) => lowercase = true,
                     _ => {}
                 }
             }
@@ -493,10 +570,41 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
 }
 
 /// Whether any code range runs a host command named one of `names`.
-/// Whether `plan` declares a sound or runs one of the voice table's
-/// commands (LLP 1096): what links the JS target's table and its output.
+/// Whether `plan` declares a sound or a sequence, or runs one of the voice
+/// table's commands (LLP 1096; LLP 1125 D3): what links the JS target's
+/// table and its output.
 pub fn runs_sounds(plan: &Plan) -> bool {
-    !plan.sounds.is_empty() || runs_command(plan, &["playSound", "playSounds", "stopSounds"])
+    !plan.sounds.is_empty()
+        || !plan.sequences.is_empty()
+        || runs_command(plan, &["playSound", "playSounds", "stopSounds"])
+}
+
+/// Whether `plan` asks for MIDI ports or hears an input (LLP 1125 D6–D8):
+/// it reads `exactMIDI`, runs `sendMIDI` or `requestMIDIAccess`, declares a
+/// `midimessage` handler, or plays a sequence with `clockOut=`. What loads a
+/// host's MIDI arm (rulings #10); a sequence's notes alone do not, since
+/// without access no note is sent.
+pub fn uses_midi(plan: &Plan) -> bool {
+    plan.resources
+        .iter()
+        .any(|r| plan.str(r.source) == crate::midi::SOURCE)
+        || runs_command(plan, &["sendMIDI", "requestMIDIAccess"])
+        || plan.nodes.iter().any(|n| {
+            n.handlers
+                .iter()
+                .any(|h| plan.handler(h).event == exact_plan::EventKind::Midimessage)
+        })
+        || plan.sequences.iter().any(|q| {
+            constant_str(plan, plan.code(q.clock_out)) != Some("")
+                || constant_str(plan, plan.code(q.clock)) != Some("")
+        })
+}
+
+/// Whether the runner keeps a MIDI queue the agent shows (`state.midi`):
+/// for a plan that [`uses_midi`] or declares a sequence, whose notes and
+/// clock go on it. The JS target bundles midi.js then.
+pub fn keeps_midi(plan: &Plan) -> bool {
+    uses_midi(plan) || !plan.sequences.is_empty()
 }
 
 fn runs_command(plan: &Plan, names: &[&str]) -> bool {

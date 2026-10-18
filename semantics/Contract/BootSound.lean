@@ -140,8 +140,8 @@ theorem initEnvOKE {p : Program} (hp : WellTyped p) {k : Nat} {slots : List (Str
     simp only [compScope, List.mem_append, List.mem_map, Prod.mk.injEq]
     exact .inl (.inl (.inl ⟨s, List.mem_of_mem_take hs, rfl, rfl⟩))
 
-theorem initSlots_good {p : Program} (hp : WellTyped p) :
-    GoodW Strict (fun s => ∀ x v, (x, v) ∈ s → BootOK p (lateNames p.states) x v) (initSlots p) := by
+theorem initSlots_good {p : Program} {o : Oracle} (hp : WellTyped p) :
+    GoodW Strict (fun s => ∀ x v, (x, v) ∈ s → BootOK p (lateNames p.states) x v) (initSlots p o) := by
   have N := Names.of hp.names
   unfold initSlots
   refine GoodW.bind (foldlM_goodW (InitInv p) ?_ p.states [] ⟨0, rfl, by simp, by simp⟩) fun s hs => ?_
@@ -192,7 +192,7 @@ theorem initSlots_good {p : Program} (hp : WellTyped p) :
     · simp only [throw, throwThe, MonadExceptOf.throw, bind, Except.bind, GoodW]; exact refusedS _
     · next hc =>
       refine app _ ⟨isSlot_of_state ham, .inl ?_⟩
-      rw [slotTy_state hp.names ham]; simpa using hc
+      rw [slotTy_state hp.names ham]; exact restore_conforms (by simpa using hc)
   · obtain ⟨_, _, _, hb⟩ := hs
     intro x v hx
     rcases List.mem_append.mp hx with hx | hx
@@ -328,7 +328,7 @@ theorem boot_sound {p : Program} (hp : WellTyped p) (o : Oracle) : OutcomeOK (bo
   split
   · next e he => exact ofW (initSlots_good hp) he
   next slots₀ hi =>
-  have hb := initSlots_good hp
+  have hb := initSlots_good (o := o) hp
   rw [hi] at hb
   have hpres := initSlots_present hi
   split
@@ -362,11 +362,10 @@ theorem boot_sound {p : Program} (hp : WellTyped p) (o : Oracle) : OutcomeOK (bo
   split
   · trivial
   · next e he =>
-    exact ofW ((render_good hp (E := Strict) (fun _ h hn => ⟨h, hn⟩) fuel).1
+    exact ofW (renderTabs_good hp (E := Strict) (fun _ h hn => ⟨h, hn⟩) fuel
       (cx := { env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 },
-               store := [] })
-      ⟨rfl, hs, hpres.of_keys hkeys, RowsOK.nil, hok.1, hok.2⟩ (.inl hc) StoreOK.nil StoreOK.nil LocalsOK.nil
-      hp.view) he
+               store := [], tabs := { every := o.everyTab } })
+      ⟨rfl, hs, hpres.of_keys hkeys, RowsOK.nil, hok.1, hok.2⟩ (.inl hc) StoreOK.nil) he
 
 /-! ## Runs -/
 

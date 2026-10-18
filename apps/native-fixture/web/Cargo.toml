@@ -10,6 +10,14 @@ build = "build.rs"
 [lib]
 name = "native_fixture_web"
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "native-fixture-dev"
+path = "src/bin/native-fixture-dev.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

@@ -102,6 +102,14 @@ pub struct CRequest {
     pub lang: *const u8,
     /// Its length in bytes.
     pub lang_len: usize,
+    /// CSS `text-box-trim`: 0 none, 1 trim-start, 2 trim-end, 3 trim-both.
+    pub text_box_trim: u8,
+    /// `text-box-edge`'s over edge: 0 text, 1 cap, 2 ex.
+    pub text_box_over: u8,
+    /// `text-box-edge`'s under edge: 0 text, 1 alphabetic.
+    pub text_box_under: u8,
+    /// CSS `text-wrap-style`: 0 auto, 1 balance (LLP 1001 §6).
+    pub text_wrap_style: u8,
 }
 
 /// What the callback returns.
@@ -123,6 +131,19 @@ pub type MeasureFn = extern "C" fn(ctx: *mut c_void, request: *const CRequest) -
 /// paragraph `request` answers: writes `min(count, cap)` and returns `count`.
 pub type LinesFn =
     extern "C" fn(ctx: *mut c_void, request: *const CRequest, out: *mut f32, cap: usize) -> usize;
+
+/// A system symbol's natural size (an Apple symbol name, UTF-8, at a point
+/// size and CSS weight): writes width and height and answers 1, or 0 when it
+/// cannot say. Called on the runtime's thread with the context
+/// `exact_set_measure` was given.
+pub type SymbolFn = extern "C" fn(
+    ctx: *mut c_void,
+    name: *const u8,
+    len: usize,
+    font_size: f32,
+    font_weight: u16,
+    out: *mut f32,
+) -> u8;
 
 /// One declared face in the synchronous boot catalog callback. The UTF-8
 /// strings live for the duration of the callback and are not NUL-terminated.
@@ -162,7 +183,7 @@ pub type FontsFn = extern "C" fn(ctx: *mut c_void, catalog: *const CFontCatalog)
 
 /// Project the validated plan's tables across the host-only font seam. This
 /// is deliberately separate from `exact_out()`, whose payload remains ops.
-pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
+pub fn install_fonts(plan: &Plan, runtime: &[String], callback: FontsFn, ctx: *mut c_void) {
     let mut faces = Vec::new();
     for (stack_index, stack) in plan.stacks.iter().enumerate() {
         if stack_index < 8 {
@@ -203,6 +224,39 @@ pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
             }
         }
     }
+    let runtime_members: Vec<_> = runtime
+        .iter()
+        .enumerate()
+        .flat_map(|(i, list)| {
+            exact_runner::bridge::runtime_family_members(list)
+                .into_iter()
+                .map(move |member| (member, (plan.stacks.len() + i) as u16))
+        })
+        .collect();
+    for (member, stack) in &runtime_members {
+        let name = &member.name;
+        let generic = !member.quoted
+            && matches!(
+                name.to_ascii_lowercase().as_str(),
+                "system-ui"
+                    | "ui-sans-serif"
+                    | "sans-serif"
+                    | "ui-serif"
+                    | "serif"
+                    | "ui-monospace"
+                    | "monospace"
+                    | "ui-rounded"
+            );
+        faces.push(CFontFace {
+            family: name.as_ptr(),
+            family_len: name.len(),
+            source: "".as_ptr(),
+            source_len: 0,
+            stack: *stack,
+            weight: u16::from(generic),
+            italic: 0,
+        });
+    }
     let catalog = CFontCatalog {
         faces: faces.as_ptr(),
         count: faces.len(),
@@ -213,10 +267,16 @@ pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
 /// A kernel measurer backed by the app's callback.
 pub struct CallbackMeasurer {
     f: MeasureFn,
+    time_format: Option<crate::time::TimeFormatFn>,
     field_chrome: Option<crate::control_text::FieldChromeFn>,
     button_measure: Option<crate::control_text::ButtonMeasureFn>,
     measure_revision: Option<std::rc::Rc<std::cell::Cell<u64>>>,
     lines: Option<LinesFn>,
+    symbol: Option<SymbolFn>,
+    /// Each symbol's answer by its Apple name, point size and weight, under
+    /// the measuring traits of `symbols_revision`
+    symbols: std::collections::HashMap<(String, u32, u16), Option<(f32, f32)>>,
+    symbols_revision: u64,
     ctx: *mut c_void,
     memo: identified::Memo,
     /// The document language (`TextMeasurer::set_language`), for `hyphens: auto`.
@@ -230,10 +290,14 @@ impl CallbackMeasurer {
     pub fn new(f: MeasureFn, ctx: *mut c_void, lines: Option<LinesFn>) -> CallbackMeasurer {
         CallbackMeasurer {
             f,
+            time_format: None,
             field_chrome: None,
             button_measure: None,
             measure_revision: None,
             lines,
+            symbol: None,
+            symbols: Default::default(),
+            symbols_revision: 0,
             ctx,
             memo: identified::Memo::default(),
             language: String::new(),
@@ -265,12 +329,24 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
 }
 
 impl CallbackMeasurer {
+    /// Install the platform date formatter beside text measurement.
+    pub fn with_time_format(mut self, f: Option<crate::time::TimeFormatFn>) -> Self {
+        self.time_format = f;
+        self
+    }
+
     /// Install the optional UIKit chrome callback with the text engine's context.
     pub fn with_field_chrome(
         mut self,
         callback: Option<crate::control_text::FieldChromeFn>,
     ) -> Self {
         self.field_chrome = callback;
+        self
+    }
+
+    /// Measure system symbols with `f` (`TextMeasurer::symbol_size`).
+    pub fn with_symbol(mut self, f: Option<SymbolFn>) -> Self {
+        self.symbol = f;
         self
     }
 
@@ -369,6 +445,10 @@ impl CallbackMeasurer {
             },
             lang: self.language.as_ptr(),
             lang_len: self.language.len(),
+            text_box_trim: request.paragraph.text_box_trim as u8,
+            text_box_over: request.paragraph.text_box_edge.over() as u8,
+            text_box_under: request.paragraph.text_box_edge.under() as u8,
+            text_wrap_style: request.paragraph.text_wrap_style as u8,
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.
@@ -393,6 +473,12 @@ fn sanitize(m: CMetrics) -> TextMetrics {
 }
 
 impl TextMeasurer for CallbackMeasurer {
+    fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
+        match self.time_format {
+            Some(f) => crate::time::format(f, self.ctx, r),
+            None => exact_kernel::time::english(r),
+        }
+    }
     fn measure_revision(&self) -> u64 {
         self.measure_revision
             .as_ref()
@@ -415,6 +501,36 @@ impl TextMeasurer for CallbackMeasurer {
     ) -> Option<exact_kernel::ButtonMeasure> {
         self.button_measure
             .map(|f| crate::control_text::button_measure(f, self.ctx, request))
+    }
+
+    fn symbol_size(&mut self, request: &exact_kernel::SymbolRequest<'_>) -> Option<(f32, f32)> {
+        let f = self.symbol?;
+        let revision = self.measure_revision();
+        if revision != self.symbols_revision {
+            self.symbols_revision = revision;
+            self.symbols.clear();
+        }
+        let name = exact_kernel::apple_symbol_name(request.role);
+        let key = (
+            name.to_string(),
+            request.font_size.to_bits(),
+            request.font_weight,
+        );
+        if let Some(known) = self.symbols.get(&key) {
+            return *known;
+        }
+        let mut out = [0f32; 2];
+        let answered = f(
+            self.ctx,
+            name.as_ptr(),
+            name.len(),
+            request.font_size,
+            request.font_weight,
+            out.as_mut_ptr(),
+        );
+        let size = (answered == 1).then_some((out[0], out[1]));
+        self.symbols.insert(key, size);
+        size
     }
 
     fn set_language(&mut self, language: &str) {

@@ -8,3 +8,4 @@ publish = false
 [dependencies]
 exact-plan = { path = "../../../plan" }
 exact-runner = { path = "../../../runner" }
+libm = "0.2"

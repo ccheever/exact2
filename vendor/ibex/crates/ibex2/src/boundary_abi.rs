@@ -875,6 +875,22 @@ pub unsafe extern "C" fn ibex2_async_begin(
         std::slice::from_raw_parts(argv, argc)
     };
 
+    let Some(op) = AsyncOp::from_u32(op) else {
+        return 1;
+    };
+    if op == AsyncOp::FsCompressImage {
+        if raw.len() != 4 {
+            return 1;
+        }
+        for (index, value) in raw.iter().enumerate() {
+            match (index, value.borrow()) {
+                (0 | 1, Ok(HostArg::Str(text))) if text.len() <= 32_768 => {}
+                (2 | 3, Ok(HostArg::Number(_))) => {}
+                _ => return 1,
+            }
+        }
+    }
+
     // Owned snapshot: the worker outlives this call, so it cannot borrow.
     let mut owned = Vec::with_capacity(raw.len());
     for value in raw {
@@ -889,12 +905,6 @@ pub unsafe extern "C" fn ibex2_async_begin(
         }
     }
 
-    let Some(op) = AsyncOp::from_u32(op) else {
-        return 1;
-    };
-    // `fs.compressImage`'s right to write, registered now, on the guest's
-    // thread, before the embedder can start waiting on it (Exact patch 9).
-    let gate = (op == AsyncOp::FsCompressImage).then(|| state.begin_image_work(task_id));
     // A JS wrapper may become unreachable as soon as this host call returns.
     // Snapshot handle-backed inputs while its native owner must still be live;
     // no worker may resolve a Headers registry id later.
@@ -908,19 +918,33 @@ pub unsafe extern "C" fn ibex2_async_begin(
     // every call. Nothing here consults ambient state.
     let grants = clone_grants(grants).unwrap_or_else(|| std::sync::Arc::new(GrantSet::none()));
 
+    // Register tracked work on the owner thread, before enqueueing any payload/provider work.
+    let image_job = if op == AsyncOp::FsCompressImage {
+        Some(prepare_image_args(&owned, &state, grants.clone(), task_id))
+    } else {
+        None
+    };
+
+    if let Some(Err(error)) = &image_job {
+        state.queue.complete(task_id, Err(error.clone()));
+        return 0;
+    }
     // Counted before the thread starts, so the loop cannot see an idle moment
     // between "started" and "running".
     state.task_started();
     let work = move || {
-        let result = match fetch_headers {
-            Ok(headers) => run_async(op, &owned, headers, &state, &grants, gate.as_deref()),
-            Err(error) => Err(error),
+        let result = match image_job {
+            Some(Ok(job)) => job.execute().map(|image| {
+                HostValue::Str(format!("{}\t{}\t{}", image.width, image.height, image.size))
+            }),
+            Some(Err(error)) => Err(error),
+            None => match fetch_headers {
+                Ok(headers) => run_async(op, &owned, headers, &state, &grants),
+                Err(error) => Err(error),
+            },
         };
         if !state.is_shutdown() {
             state.queue.complete(task_id, result);
-        } else if gate.is_some() {
-            // No completion will be taken: its right ends here.
-            state.end_image_work(task_id);
         }
         state.task_finished();
     };
@@ -930,6 +954,46 @@ pub unsafe extern "C" fn ibex2_async_begin(
         crate::pool::run(work);
     }
     0
+}
+
+fn prepare_image_args(
+    args: &[HostValue],
+    state: &crate::task::RuntimeState,
+    grants: std::sync::Arc<GrantSet>,
+    task_id: u64,
+) -> Result<crate::stdlib::fs_image::ImageJob, HostError> {
+    let (
+        Some(HostValue::Str(from)),
+        Some(HostValue::Str(to)),
+        Some(HostValue::Number(dimension)),
+        Some(HostValue::Number(bytes)),
+    ) = (args.first(), args.get(1), args.get(2), args.get(3))
+    else {
+        return Err(HostError::InvalidArgument(
+            "compressImage expects from, to, maxDimension, maxBytes".into(),
+        ));
+    };
+    if !dimension.is_finite()
+        || dimension.fract() != 0.0
+        || *dimension <= 0.0
+        || *dimension > u32::MAX as f64
+        || !bytes.is_finite()
+        || bytes.fract() != 0.0
+        || *bytes <= 0.0
+        || *bytes > 9_007_199_254_740_991.0
+    {
+        return Err(HostError::InvalidArgument("invalid image bounds".into()));
+    }
+    state.prepare_image(
+        task_id,
+        grants,
+        from,
+        to,
+        crate::stdlib::fs_image::ImageRequest {
+            max_dimension: *dimension as u32,
+            max_bytes: *bytes as u64,
+        },
+    )
 }
 
 /// The delegating ops. `fetch` joins this list once the adapter is proven.
@@ -956,7 +1020,6 @@ enum AsyncOp {
     FsCopyFile = host_opcodes::async_ops::FS_COPY_FILE,
     FsRealpath = host_opcodes::async_ops::FS_REALPATH,
     FsAtomicWriteFile = host_opcodes::async_ops::FS_ATOMIC_WRITE_FILE,
-    /// Exact patch 9: decode, scale and encode an image file as a JPEG.
     FsCompressImage = host_opcodes::async_ops::FS_COMPRESS_IMAGE,
     SqliteOpen = host_opcodes::sqlite_async::OPEN,
     SqlitePrepare = host_opcodes::sqlite_async::PREPARE,
@@ -1047,7 +1110,6 @@ fn run_async(
     fetch_headers: Option<crate::stdlib::fetch::Headers>,
     state: &crate::task::RuntimeState,
     grants: &GrantSet,
-    gate: Option<&crate::stdlib::fs::CommitGate>,
 ) -> Result<HostValue, HostError> {
     if (host_opcodes::sqlite_async::OPEN..=host_opcodes::sqlite_async::STATEMENT_CLOSE)
         .contains(&(op as u32))
@@ -1055,10 +1117,14 @@ fn run_async(
         return crate::sqlite_abi::run(op as u32, args, state, grants);
     }
     if let Some(fs_op) = fs_op_for(op) {
-        return run_fs(fs_op, args, grants, state);
-    }
-    if op == AsyncOp::FsCompressImage {
-        return run_compress_image(args, grants, state, gate);
+        return run_fs(
+            fs_op,
+            args,
+            grants,
+            state.app_directories(),
+            state.documents(),
+            state.storage_limits(),
+        );
     }
     match op {
         AsyncOp::Fetch => {
@@ -1153,42 +1219,6 @@ fn fs_op_for(op: AsyncOp) -> Option<crate::stdlib::fs::FsOp> {
     })
 }
 
-/// `fs.compressImage(from, to, maxDimension, maxBytes)` (Exact patch 9):
-/// `"width\theight\tsize"`, flat as `stat`'s record is.
-fn run_compress_image(
-    args: &[HostValue],
-    grants: &GrantSet,
-    state: &crate::task::RuntimeState,
-    gate: Option<&crate::stdlib::fs::CommitGate>,
-) -> Result<HostValue, HostError> {
-    let path = |index: usize| match args.get(index) {
-        Some(HostValue::Str(text)) => Ok(text.as_str()),
-        _ => Err(HostError::InvalidArgument(
-            "compressImage expects two paths".into(),
-        )),
-    };
-    let limit = |index: usize, max: f64| match args.get(index) {
-        Some(HostValue::Number(n)) if n.fract() == 0.0 && (1.0..=max).contains(n) => Ok(*n),
-        _ => Err(HostError::InvalidArgument(format!(
-            "compressImage expects integer limits from 1 to {max}"
-        ))),
-    };
-    let file = crate::stdlib::fs::compress_image(
-        grants,
-        state.app_directories(),
-        state.image_codec(),
-        path(0)?,
-        path(1)?,
-        limit(2, f64::from(u32::MAX))? as u32,
-        limit(3, 9_007_199_254_740_991.0)? as u64,
-        gate,
-    )?;
-    Ok(HostValue::Str(format!(
-        "{}\t{}\t{}",
-        file.width, file.height, file.size
-    )))
-}
-
 /// Normalize, admit, then act — in that order, always.
 ///
 /// Normalizing after the check would let `/data/../etc/passwd` pass a `/data`
@@ -1197,9 +1227,11 @@ fn run_fs(
     op: crate::stdlib::fs::FsOp,
     args: &[HostValue],
     grants: &GrantSet,
-    state: &crate::task::RuntimeState,
+    directories: Option<&crate::stdlib::app_fs::AppDirectories>,
+    documents: Option<&crate::stdlib::fs::Documents>,
+    limits: crate::stdlib::fs::ResultLimits,
 ) -> Result<HostValue, HostError> {
-    use crate::stdlib::fs::{run, run_document, FsResult, DOCUMENT_PREFIX};
+    use crate::stdlib::fs::{run_with_limits, FsResult};
 
     let path_arg = |index: usize| -> Result<&str, HostError> {
         match args.get(index) {
@@ -1234,11 +1266,16 @@ fn run_fs(
     }
 
     Ok(
-        match if path.starts_with(DOCUMENT_PREFIX) {
-            run_document(grants, state.documents(), op, path, data)?
-        } else {
-            run(grants, state.app_directories(), op, path, destination, data)?
-        } {
+        match run_with_limits(
+            grants,
+            directories,
+            documents,
+            limits,
+            op,
+            path,
+            destination,
+            data,
+        )? {
             FsResult::Done => HostValue::Undefined,
             FsResult::Bytes(bytes) => HostValue::Bytes(bytes),
             FsResult::Text(text) => HostValue::Str(text),
@@ -1315,6 +1352,50 @@ pub unsafe extern "C" fn ibex2_take_task(
             1
         }
     }
+}
+
+/// Take the runtime's drive flag for one borrowed-adapter delivery or cycle
+/// (LLP 0071 D5). Returns a retained reference to the state, which
+/// [`ibex2_adapter_end_drive`] releases with the flag, or null when a
+/// delivery, a cycle or an owning pump already holds the flag: the state then
+/// outlives the guard even if the caller's `Context` is dropped meanwhile.
+///
+/// # Safety
+/// `state` must be null or a live runtime state.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_adapter_begin_drive(
+    state: *const crate::task::RuntimeState,
+) -> *const crate::task::RuntimeState {
+    match crate::task::clone_queue(state) {
+        Some(state) if state.begin_drive() => std::sync::Arc::into_raw(state),
+        _ => std::ptr::null(),
+    }
+}
+
+/// Admit every timer due on the runtime's clock, for a borrowed adapter's
+/// cycle (LLP 0071 D5); returns how many.
+///
+/// # Safety
+/// `state` must be null or a live runtime state.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_adapter_admit_due_timers(
+    state: *const crate::task::RuntimeState,
+) -> c_int {
+    crate::task::borrow_state(state).map_or(0, |state| state.admit_due_timers() as c_int)
+}
+
+/// Release the drive flag and the reference [`ibex2_adapter_begin_drive`]
+/// returned.
+///
+/// # Safety
+/// `held` must be a non-null value `ibex2_adapter_begin_drive` returned, released once.
+#[no_mangle]
+pub unsafe extern "C" fn ibex2_adapter_end_drive(held: *const crate::task::RuntimeState) {
+    if held.is_null() {
+        return;
+    }
+    let state = std::sync::Arc::from_raw(held);
+    state.end_drive();
 }
 
 /// Release a value produced by `ibex2_host_call`.

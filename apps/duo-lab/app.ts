@@ -73,7 +73,8 @@ function imageRows() {
 // --------------------------------------------------------- Reflow's document
 function document() {
   const next = lcg(951);
-  const parts: string[] = ['# Reflow', '', 'A long document for the text caches: headings, paragraphs, lists and code, laid out at 951 points and again at 466.', ''];
+  // The screen's title is the document's heading
+  const parts: string[] = ['A long document for the text caches: headings, paragraphs, lists and code, laid out at 951 points and again at 466.', ''];
   for (let h = 1; h <= 14; h++) {
     parts.push(`## ${h}. ${sentence(next, 3).slice(0, -1)}`, '');
     for (let p = 0; p < 4; p++) parts.push(paragraph(next, 5 + Math.floor(next() * 4)), '');

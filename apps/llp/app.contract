@@ -10,7 +10,35 @@
 // (`packages/reading`), shared with `apps/markdown`; `Blocks` is this
 // reader's own layout of them.
 
-use Theme, Run, Cell, Block, Runs, SchemeButton from "@exact/reading"
+// The readers' palette (LLP 1095 D4), one `light-dark()` pair an entry; a
+// row names an entry (`color="ink"`). The dark half is warm rather than
+// blue-black, so the same documents read as the same documents, and its text
+// sits below white-on-black contrast, which is what makes a long document
+// comfortable at night. `apps/llp`, `apps/markdown` and
+// `apps/markdown-stress` say the same palette: a theme is the root's.
+theme
+  page="light-dark(#ffffff, #17181b)" // behind the document
+  chrome="light-dark(#f6f5f1, #1e1f23)" // header, index, outline
+  edge="light-dark(#e2e1d9, #2f3138)" // the hairlines between them
+  ink="light-dark(#22221b, #d4d1c9)" // running prose
+  strongInk="light-dark(#16160f, #f1eee7)" // headings
+  softInk="light-dark(#8a8a80, #8b8c92)" // metadata, markers, captions
+  faintInk="light-dark(#b0b0a2, #63656d)" // the quietest text there is
+  accent="light-dark(#4a5a3a, #a2b585)" // the brand mark, a number
+  code="light-dark(#8a3020, #e0a189)" // a code span's text
+  codeBg="light-dark(#f4f4f0, #23252b)" // behind a code block
+  fieldBg="light-dark(#ffffff, #212329)" // inside a text field
+  fieldEdge="light-dark(#d5d4cc, #3a3d45)" // its border
+  pill="light-dark(#e5e8dc, #2f3a28)" // a chosen row
+  pillInk="light-dark(#2c3520, #d6e4c4)" // text on a pill
+  control="light-dark(#e8e7e0, #2a2c32)" // a button that is not a pill
+  quoteEdge="light-dark(#d3d3c8, #3b3e46)" // the rule on a quote
+  quoteInk="light-dark(#55554a, #a6a39b)" // a quote's text
+  warnBg="light-dark(#fdecea, #3a1e1b)" // behind a refusal
+  warnEdge="light-dark(#f5c6c0, #5d302a)" // its border
+  warnInk="light-dark(#8a1c12, #f0a89c)" // its text
+
+use Run, Cell, Block, Runs, SchemeButton from "@exact/reading"
 
 shape Entry
   id: string
@@ -29,7 +57,7 @@ shape Index
   project: string
   total: number
   shown: number
-  entries: list<Entry>
+  entries: Entry[]
 
 shape Heading
   id: string
@@ -49,8 +77,8 @@ shape Doc
   failed: bool
   section: number
   count: number
-  blocks: list<Block>
-  outline: list<Heading>
+  blocks: Block[]
+  outline: Heading[]
 
 // The system's colour scheme, beneath whatever `setScheme` chose (LLP
 // 1069.000 D1): CSS's `prefers-color-scheme`, on every host.
@@ -72,13 +100,6 @@ component Llp
   // Which appearance the reader asked for; `system` follows the OS.
   state scheme = "system"
 
-  // The palette, as tokens rather than as literals scattered through the
-  // view: exact1 called this Facet and made it a signal-backed capability;
-  // here the tokens are data and `provide` carries them, the same idea in
-  // the language's own terms (LLP 1033 D6). Since LLP 1034 each token is a
-  // CSS `light-dark()` pair the host resolves, so this record is one
-  // constant and is never re-asked when the appearance changes.
-  resource theme = theme() as shape Theme
   // What the system is set to. Only read when `scheme` is `system`.
   resource media = exactViewport() as shape SystemMedia
   resource index = index(asked, query, overlay, newest) as shape Index
@@ -117,28 +138,26 @@ component Llp
   derive iconSet = (scheme == "system" ? media.prefersColorScheme : scheme) == "dark" ? "-dark" : ""
   derive searching = query != ""
   derive sectioned = doc.section >= 0
-  derive hasOutline = not isEmpty(doc.outline)
+  derive hasOutline = not doc.outline.isEmpty()
   // The window says which project is open, not just which app this is
   // (LLP 1033 D7): the folder the corpus lives in, from `head` (LLP
   // 1069.010 D6).
   derive title = index.project != "" ? `LLP — ${index.project}` : "LLP"
 
-  provide
-    theme
   view
-    main testId="llp-main" width="100%" height="100%" background-color=theme.page
+    main testId="llp-main" width="100%" height="100%" background-color="page"
       head title=title
       column width="100%" height="100%"
-        header width="100%" padding=10 gap=8 background-color=theme.chrome border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge box-sizing="border-box"
+        header width="100%" padding=10 gap=8 background-color="chrome" border-bottom-style="solid" border-bottom-width=1 border-color="edge" box-sizing="border-box"
           row gap=8 align-items="center" width="100%"
             Chip(label="Files", on=showIndex, press=toggleIndex, testId="index-toggle")
             // The node every open route ends at: ⌘O, a Finder double-click,
             // `llpview llp/`, a followed cross-reference, a sidebar row.
-            input appearance="none" value=asked change=openFile placeholder="Path to an llp/ directory" aria-label="Path to an llp directory" testId="open-file" flex=1 padding=7 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=12 color=theme.ink
-            input appearance="none" value=query input=search placeholder="Search the corpus" aria-label="Search the corpus" testId="search" width=240 padding=7 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=12 color=theme.ink
-            when searching
+            input appearance="none" value=asked change=openFile placeholder="Path to an llp/ directory" aria-label="Path to an llp directory" testId="open-file" flex=1 padding=7 border-radius=8 border-style="solid" border-width=1 border-color="fieldEdge" background-color="fieldBg" font-size=12 color="ink"
+            input appearance="none" value=query input=search placeholder="Search the corpus" aria-label="Search the corpus" testId="search" width=240 padding=7 border-radius=8 border-style="solid" border-width=1 border-color="fieldEdge" background-color="fieldBg" font-size=12 color="ink"
+            if searching
               button appearance="none" press=clearSearch aria-label="Clear the search" testId="clear-search" padding=6
-                text `${index.shown} of ${index.total}` font-size=12 color=theme.softInk
+                text `${index.shown} of ${index.total}` font-size=12 color="softInk"
             Chip(label="Outline", on=showOutline, press=toggleOutline, testId="outline-toggle")
             // Appearance: system, light, dark — the icons exact1's blog used
             // (`js/src/blog/lib/icons.ts`: monitor, sun, moon), rasterised
@@ -149,18 +168,18 @@ component Llp
             SchemeButton(name="system", icon="assets/monitor", label="Follow the system", chosen=scheme, icons=iconSet, press=chooseScheme)
             SchemeButton(name="light", icon="assets/sun", label="Light", chosen=scheme, icons=iconSet, press=chooseScheme)
             SchemeButton(name="dark", icon="assets/moon", label="Dark", chosen=scheme, icons=iconSet, press=chooseScheme)
-        when doc.failed
-          row width="100%" padding=10 gap=8 background-color=theme.warnBg border-bottom-style="solid" border-bottom-width=1 border-color=theme.warnEdge box-sizing="border-box" testId="open-failed"
-            text "Could not open" font-size=12 font-weight=700 color=theme.warnInk
-            text doc.message font-size=12 color=theme.warnInk testId="open-message"
+        if doc.failed
+          row width="100%" padding=10 gap=8 background-color="warnBg" border-bottom-style="solid" border-bottom-width=1 border-color="warnEdge" box-sizing="border-box" testId="open-failed"
+            text "Could not open" font-size=12 font-weight=700 color="warnInk"
+            text doc.message font-size=12 color="warnInk" testId="open-message"
         // `min-height: 0` is what lets the panes below scroll rather than
         // grow: a flex item's default `min-height: auto` is its content, so
         // a row holding a 4,000-point document is 4,000 points tall and the
         // window merely clips it. The web has the same rule and the same fix.
         row flex=1 min-height=0 width="100%"
           // The corpus, in number order, sub-documents under their parents.
-          when showIndex
-            column width=300 height="100%" box-sizing="border-box" background-color=theme.chrome border-right-style="solid" border-right-width=1 border-color=theme.edge
+          if showIndex
+            column width=300 height="100%" box-sizing="border-box" background-color="chrome" border-right-style="solid" border-right-width=1 border-color="edge"
               // What changes the list, above the list. Outside the scroll,
               // so they stay put while it moves: a filter you have to
               // scroll back up to reach is a filter you stop using.
@@ -175,73 +194,67 @@ component Llp
                 Chip(label="newest", on=newest, press=toggleNewest, testId="order-toggle")
               scroll flex=1 min-height=0 width="100%" overflow-x="hidden" overscroll-behavior="contain" testId="index"
                 column width="100%" box-sizing="border-box" padding=8 padding-top=0 gap=1
-                  when isEmpty(index.entries)
+                  if index.entries.isEmpty()
                     view padding=10
-                      text "No documents here" font-size=12 color=theme.softInk testId="index-empty"
-                  each e in index.entries key=e.id
+                      text "No documents here" font-size=12 color="softInk" testId="index-empty"
+                  for e in index.entries key=e.id
                     IndexRow(entry=e, open=openFile, searching=searching)
           scroll flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document"
             column width="100%" align-items="center" padding-top=24 padding-bottom=72
               column width="100%" max-width=720 padding-left=32 padding-right=32 box-sizing="border-box" gap=2
                 DocHeader(doc=doc, sectioned=sectioned, all=showAll)
-                each b in doc.blocks key=b.id
+                for b in doc.blocks key=b.id
                   Blocks(block=b)
-          when showOutline and hasOutline
-            scroll width=250 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color=theme.chrome border-left-style="solid" border-left-width=1 border-color=theme.edge testId="outline"
+          if showOutline and hasOutline
+            scroll width=250 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color="chrome" border-left-style="solid" border-left-width=1 border-color="edge" testId="outline"
               column width="100%" box-sizing="border-box" padding=10 gap=1
                 button press=showAll aria-label="The whole document" testId="outline-all" width="100%" text-align="start"
-                  when sectioned
+                  if sectioned
                     view width="100%" box-sizing="border-box" padding=6 border-radius=6
-                      text "Whole document" font-size=12 color=theme.softInk
+                      text "Whole document" font-size=12 color="softInk"
                   else
-                    view width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color=theme.pill
-                      text "Whole document" font-size=12 font-weight=700 color=theme.pillInk
-                each h in doc.outline key=h.id
+                    view width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color="pill"
+                      text "Whole document" font-size=12 font-weight=700 color="pillInk"
+                for h in doc.outline key=h.id
                   OutlineRow(heading=h, show=showSection)
 
 // What is open, and the way back out of a single section.
 component DocHeader
-  inject
-    theme: Theme
   props
     doc: Doc
     sectioned: bool
     all: action
   view
-    column width="100%" gap=6 padding-bottom=10 border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge testId="doc-header"
+    column width="100%" gap=6 padding-bottom=10 border-bottom-style="solid" border-bottom-width=1 border-color="edge" testId="doc-header"
       row gap=8 align-items="baseline"
-        when doc.number != ""
-          text `LLP ${doc.number}` font-size=12 font-weight=800 letter-spacing=0.8 color=theme.accent testId="doc-number"
-        when doc.kind != ""
-          text doc.kind font-size=11 font-weight=600 color=theme.softInk testId="doc-kind"
-        when doc.status != ""
-          text doc.status font-size=11 color=theme.softInk testId="doc-status"
-        text doc.name font-size=11 color=theme.faintInk
-      when sectioned
+        if doc.number != ""
+          text `LLP ${doc.number}` font-size=12 font-weight=800 letter-spacing=0.8 color="accent" testId="doc-number"
+        if doc.kind != ""
+          text doc.kind font-size=11 font-weight=600 color="softInk" testId="doc-kind"
+        if doc.status != ""
+          text doc.status font-size=11 color="softInk" testId="doc-status"
+        text doc.name font-size=11 color="faintInk"
+      if sectioned
         row gap=8 align-items="center"
-          text `Showing one section · ${doc.count} blocks` font-size=11 color=theme.softInk testId="section-note"
-          button press=all aria-label="Show the whole document" testId="section-clear" padding=4 border-radius=6 background-color=theme.control
-            text "Whole document" font-size=11 font-weight=600 color=theme.ink
+          text `Showing one section · ${doc.count} blocks` font-size=11 color="softInk" testId="section-note"
+          button press=all aria-label="Show the whole document" testId="section-clear" padding=4 border-radius=6 background-color="control"
+            text "Whole document" font-size=11 font-weight=600 color="ink"
 
 component IndexRow
-  inject
-    theme: Theme
   props
     entry: Entry
     open: action
     searching: bool
   view
     button press=open(entry.path) aria-label=entry.title testId=`entry-${entry.number}` width="100%" text-align="start"
-      when entry.current
-        column width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color=theme.pill padding-left=(8 + entry.depth * 16) gap=1
-          IndexLine(entry=entry, weight=400, color=theme.pillInk, searching=searching)
+      if entry.current
+        column width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color="pill" padding-left=(8 + entry.depth * 16) gap=1
+          IndexLine(entry=entry, weight=400, color="pillInk", searching=searching)
       else
         column width="100%" box-sizing="border-box" padding=6 border-radius=6 padding-left=(8 + entry.depth * 16) gap=1
-          IndexLine(entry=entry, weight=400, color=theme.ink, searching=searching)
+          IndexLine(entry=entry, weight=400, color="ink", searching=searching)
 
 component IndexLine
-  inject
-    theme: Theme
   props
     entry: Entry
     weight: number
@@ -255,32 +268,30 @@ component IndexLine
       // number's box narrower than the number, and `1030.000` wrapped onto a
       // second line. 60 points is the width of the longest number this
       // corpus has (a dotted sub-document) at this size and weight.
-      text entry.number font-size=11 font-weight=700 color=theme.softInk width=60 flex-shrink=0
+      text entry.number font-size=11 font-weight=700 color="softInk" width=60 flex-shrink=0
       text entry.title font-size=12 font-weight=weight color=color flex=1 min-width=0
     row gap=6 align-items="center" padding-left=66
-      when entry.kind != ""
-        text entry.kind font-size=10 color=theme.faintInk
-      when entry.overlay != ""
-        text entry.overlay font-size=10 font-weight=700 color=theme.accent
-      when entry.status != ""
-        text entry.status font-size=10 color=theme.faintInk
-      when searching and entry.hits > 0
-        text `${entry.hits}` font-size=10 font-weight=700 color=theme.accent
+      if entry.kind != ""
+        text entry.kind font-size=10 color="faintInk"
+      if entry.overlay != ""
+        text entry.overlay font-size=10 font-weight=700 color="accent"
+      if entry.status != ""
+        text entry.status font-size=10 color="faintInk"
+      if searching and entry.hits > 0
+        text `${entry.hits}` font-size=10 font-weight=700 color="accent"
 
 // There is no scrolling to an anchor in v1, so an outline row *shows* its
 // section rather than jumping to it — for a document of 16,000 words that is
 // the better of the two anyway.
 component OutlineRow
-  inject
-    theme: Theme
   props
     heading: Heading
     show: action
   view
     button press=show(heading.at) aria-label=heading.text testId=`outline-${heading.at}` width="100%" text-align="start"
-      when heading.current
-        view width="100%" box-sizing="border-box" padding=5 border-radius=6 background-color=theme.pill padding-left=(6 + heading.level * 10)
-          text heading.text font-size=11 font-weight=700 color=theme.pillInk
+      if heading.current
+        view width="100%" box-sizing="border-box" padding=5 border-radius=6 background-color="pill" padding-left=(6 + heading.level * 10)
+          text heading.text font-size=11 font-weight=700 color="pillInk"
       else
         view width="100%" box-sizing="border-box" padding=5 border-radius=6 padding-left=(6 + heading.level * 10)
           text heading.text font-size=11 color=(heading.level < 3 ? "#4a4a40" : "#7a7a6e")
@@ -288,72 +299,68 @@ component OutlineRow
 // ---- the general reader's document, unchanged (see the note at the top) ----
 
 component Blocks
-  inject
-    theme: Theme
   props
     block: Block
   view
-    when block.kind == "heading"
+    if block.kind == "heading"
       column width="100%" padding-top=22 padding-bottom=4 testId=`block-${block.id}`
-        text aria-level=block.depth color=theme.strongInk line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
+        text role="heading" aria-level=block.depth font-size="1em" font-weight=400 color="strongInk" line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
           Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
     else
-      when block.kind == "paragraph"
+      if block.kind == "paragraph"
         view width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
-          text color=theme.ink line-height=1.625
+          text color="ink" line-height=1.625
             Runs(runs=block.runs, size=16, weight=400)
       else
-        when block.kind == "item"
+        if block.kind == "item"
           row width="100%" box-sizing="border-box" padding-top=2 padding-bottom=2 padding-left=(4 + block.depth * 22) testId=`block-${block.id}`
-            text block.marker font-size=16 line-height=1.625 color=theme.softInk width=26
-            text flex=1 color=theme.ink line-height=1.625
+            text block.marker font-size=16 line-height=1.625 color="softInk" width=26
+            text flex=1 color="ink" line-height=1.625
               Runs(runs=block.runs, size=16, weight=400)
         else
-          when block.kind == "code"
+          if block.kind == "code"
             view width="100%" padding-top=8 padding-bottom=8 testId=`block-${block.id}`
-              view background-color=theme.codeBg border-radius=10 padding=14 width="100%" box-sizing="border-box"
-                text block.text font-family="ui-monospace" font-size=13 line-height="20px" color=theme.ink white-space="pre-wrap"
+              view background-color="codeBg" border-radius=10 padding=14 width="100%" box-sizing="border-box"
+                text block.text font-family="ui-monospace" font-size=13 line-height="20px" color="ink" white-space="pre-wrap"
           else
-            when block.kind == "quote"
+            if block.kind == "quote"
               row width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
-                view width=3 background-color=theme.quoteEdge border-radius=2
+                view width=3 background-color="quoteEdge" border-radius=2
                 view flex=1 padding-left=16
-                  text color=theme.quoteInk line-height=1.625
+                  text color="quoteInk" line-height=1.625
                     Runs(runs=block.runs, size=16, weight=400)
             else
-              when block.kind == "rule"
-                view width="100%" height=1 background-color=theme.edge margin-top=22 margin-bottom=22 testId=`block-${block.id}`
+              if block.kind == "rule"
+                view width="100%" height=1 background-color="edge" margin-top=22 margin-bottom=22 testId=`block-${block.id}`
               else
-                when block.kind == "table-row"
-                  row width="100%" border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge testId=`block-${block.id}`
-                    each c in block.cells key=c.id
+                if block.kind == "table-row"
+                  row width="100%" border-bottom-style="solid" border-bottom-width=1 border-color="edge" testId=`block-${block.id}`
+                    for c in block.cells key=c.id
                       view flex=1 padding=8
-                        when block.header
-                          text color=theme.strongInk line-height="20px"
+                        if block.header
+                          text color="strongInk" line-height="20px"
                             Runs(runs=c.runs, size=13, weight=700)
                         else
-                          text color=theme.ink line-height="20px"
+                          text color="ink" line-height="20px"
                             Runs(runs=c.runs, size=13, weight=400)
                 else
-                  when block.kind == "image"
+                  if block.kind == "image"
                     column width="100%" padding-top=10 padding-bottom=10 gap=6 testId=`block-${block.id}`
                       image block.href width="100%" object-fit="contain" aria-label=block.text
-                      when block.text != ""
-                        text block.text font-size=12 color=theme.faintInk
+                      if block.text != ""
+                        text block.text font-size=12 color="faintInk"
                   else
                     view width="100%" padding-top=4 padding-bottom=4 testId=`block-${block.id}`
-                      text block.text font-family="ui-monospace" font-size=12 color=theme.faintInk
+                      text block.text font-family="ui-monospace" font-size=12 color="faintInk"
 
 // One header control: on or off, said with a fill rather than a weight so
 // pressing it never changes its width.
 component Chip
-  inject
-    theme: Theme
   props
     label: string
     on: bool
     press: action
     testId: string
   view
-    button press=press aria-label=label testId=testId padding=6 border-radius=6 background-color=(on ? theme.pill : theme.control)
-      text label font-size=12 font-weight=600 color=(on ? theme.pillInk : theme.softInk)
+    button press=press aria-label=label testId=testId padding=6 border-radius=6 background-color=(on ? "pill" : "control")
+      text label font-size=12 font-weight=600 color=(on ? "pillInk" : "softInk")

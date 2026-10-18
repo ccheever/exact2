@@ -100,6 +100,7 @@ fn layout_reports_resolved_and_skipped_paragraphs() {
             &[Op::ClearStyle {
                 id: 2,
                 mask: StyleMask::of(StyleId::Height),
+                written: false,
             }],
         )
         .unwrap();

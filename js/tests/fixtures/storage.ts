@@ -1,7 +1,7 @@
 import type { Storage } from "../../../vendor/ibex/crates/ibex2/src/bindings/storage";
 type Store = { get(name:string):string|null; set(name:string,value:string):void; forget(name:string):void };
 const appId = "dev.exact.storage-test";
-const grants = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+const grants = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
 
 // Work queued behind whatever the module started last, the way an app serializes its
 // database operations. The second answer's storage calls run in a later microtask.
@@ -104,6 +104,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     try { return {text:String((await native!.later({value})).text)}; }
     catch(error:any) { return {text:'refused: ' + error.message}; }
   }
+  if (op === 'native-direct') return {text: String(native!.call({value}).text)}; // no bake branch
   if (op === 'native' || op === 'native-fetch') {
     if (!native?.available) return {text: 'no native module'};
     try {
@@ -128,6 +129,20 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
       try { await step(); out.push("allowed"); }
       catch (error: any) { out.push(error.message.includes("doc:/") ? "refused" : "wrong namespace"); }
     }
+    return {text: out.join(" ")};
+  }
+  // LLP 1069.010.000 D1, D2a: the answer watches a chosen file and its
+  // folder, and a write that expects a stale stat is refused.
+  if (op === "doc-watch") {
+    const folder = value.slice(0, value.lastIndexOf("/"));
+    storage.fs.watch(value);
+    storage.fs.watch(folder, { recursive: true });
+    const read = await storage.fs.stat(value), out: string[] = [];
+    await storage.fs.writeFile(value, bytes("someone else's longer text"));
+    try { await storage.fs.atomicWriteFile(value, bytes("mine"), { expect: read }); out.push("written"); }
+    catch (e: any) { out.push(e.kind + " " + e.code); }
+    await storage.fs.atomicWriteFile(value, bytes("mine"), { expect: await storage.fs.stat(value) });
+    out.push("then written");
     return {text: out.join(" ")};
   }
   // A folder the person chose (LLP 1069.010 D1), `value` its `doc:` path:
@@ -206,6 +221,14 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     await storage.fs.atomicWriteFile(ordered, new Uint8Array(Array.from(before + value).map(c => c.charCodeAt(0))));
     store.set("session", value);
     return {text: value};
+  }
+  if (op === "write-only") {
+    await storage.fs.atomicWriteFile('app:/cache/widget-hidden', new Uint8Array([1]));
+    return {text:'written'};
+  }
+  if (op === "copy-to-write-only") {
+    await storage.fs.copyFile(path, 'app:/cache/widget-copy');
+    return {text:'copied'};
   }
   if (op === "file" || op === "file-kept") {
     await storage.fs.atomicWriteFile(path, new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
@@ -324,6 +347,10 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     catch (_) { return {text: value + ":empty"}; }
   }
   if (op === "read-at") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/" + value)))};
+  if (op === "read-size") {
+    try { return {text:String((await storage.fs.readFile(value)).byteLength)}; }
+    catch (error:any) { return {text:error.message}; }
+  }
   if (op === "read") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))};
   if (op === "refused") {
     try { await storage.fs.writeFile("app:/cache/no", new Uint8Array([1])); }

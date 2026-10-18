@@ -46,7 +46,8 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
     for (const r of waiting.splice(0)) if (isFinite(prior)) classify(r, prior);
     if (isFinite(floor)) prior = floor;
   }
-  function activity() {
+  function activity(event) {
+    if (event?.exactFlowCapture) return;
     active = performance.now();
     if (!raf && document.visibilityState === 'visible') { lifetime.segments++; last = null; floor = Infinity; recent = []; raf = requestAnimationFrame(tick); }
   }
@@ -104,7 +105,7 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
       console.info(r.path ? `exact: trace saved to ${r.path}` : `exact: trace refused: ${r.error}`);
     } catch (e) { log(`trace refused: ${e.message}`); }
   };
-  addEventListener('keydown', e => { if (e.altKey && e.shiftKey && e.code === 'KeyT') { e.preventDefault(); save(); } }, true);
+  addEventListener('keydown', e => { if (e.exactFlowCapture) return; if (e.altKey && e.shiftKey && e.code === 'KeyT') { e.preventDefault(); save(); } }, true);
   const sampler = {
     /** Save Trace, as ⌥⇧T asks for it (a hatch's `diagnostics.saveTrace()`, LLP 1075.003.000.001 §3.3). */
     save,
