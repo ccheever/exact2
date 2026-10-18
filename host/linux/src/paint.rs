@@ -1348,24 +1348,19 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     } else {
         node.style
     };
-    let mut y = if s.mask.has(StyleId::OverflowY) {
+    let y = if s.mask.has(StyleId::OverflowY) {
         s.overflow_y
     } else if node.node_type.scrolls_by_default() {
         Overflow::Auto
     } else {
         Overflow::Visible
     };
-    let mut x = if s.mask.has(StyleId::OverflowX) {
+    let x = if s.mask.has(StyleId::OverflowX) {
         s.overflow_x
     } else {
         Overflow::Visible
     };
-    if x == Overflow::Visible && y != Overflow::Visible {
-        x = Overflow::Auto;
-    } else if y == Overflow::Visible && x != Overflow::Visible {
-        y = Overflow::Auto;
-    }
-    (x, y)
+    (x.computed(y), y.computed(x))
 }
 
 /// A scroll container's content extent: the kernel's scrollable overflow,

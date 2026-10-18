@@ -1101,6 +1101,18 @@ fn align_content(v: AlignContent) -> Option<taffy::style::AlignContent> {
     })
 }
 
+impl Overflow {
+    /// CSS Overflow 3 §3.1: visible/clip compute to auto/hidden beside
+    /// a scrolling axis; together they remain non-scrolling.
+    pub fn computed(self, other: Self) -> Self {
+        match self {
+            Self::Visible if !matches!(other, Self::Visible | Self::Clip) => Self::Auto,
+            Self::Clip if !matches!(other, Self::Visible | Self::Clip) => Self::Hidden,
+            value => value,
+        }
+    }
+}
+
 fn overflow(v: Overflow) -> taffy::style::Overflow {
     match v {
         Overflow::Visible => taffy::style::Overflow::Visible,
@@ -1260,23 +1272,15 @@ impl StyleProps {
             // scroller scrolls (`sticky.rs`).
             PositionType::Sticky => taffy::style::Position::Relative,
         };
-        let overflow_y = if !self.mask.has(StyleId::OverflowY) && node_type.scrolls_by_default() {
-            taffy::style::Overflow::Scroll
+        let y = if !self.mask.has(StyleId::OverflowY) && node_type.scrolls_by_default() {
+            Overflow::Auto
         } else {
-            overflow(self.overflow_y)
+            self.overflow_y
         };
-        // CSS Overflow 3 §3.1: clip/visible remain non-scrolling together;
-        // beside hidden/scroll they compute to hidden/auto respectively.
-        use taffy::style::Overflow as O;
-        let computed = |value, other: O| match value {
-            O::Visible if other.is_scroll_container() => O::Scroll,
-            O::Clip if other.is_scroll_container() => O::Hidden,
-            value => value,
-        };
-        let overflow_x = overflow(self.overflow_x);
+        let x = self.overflow_x;
         s.overflow = taffy::geometry::Point {
-            x: computed(overflow_x, overflow_y),
-            y: computed(overflow_y, overflow_x),
+            x: overflow(x.computed(y)),
+            y: overflow(y.computed(x)),
         };
         s.scrollbar_width = 0.0;
 
