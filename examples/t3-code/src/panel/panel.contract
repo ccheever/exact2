@@ -127,20 +127,25 @@ component PanelHeaderBar
     menuTab = id
   state dragTab = ""
   state dragStartX = 0
+  state dragDx = 0
   state draggingTab = false
   action beginTabDrag(id: string, x: number)
     dragTab = id
     dragStartX = x
+    dragDx = 0
     draggingTab = false
   action moveTab(dx: number, dy: number)
-    let activeDrag = dragTab != "" and (draggingTab or max(dx, 0 - dx) >= 6)
+    let total = dragDx + dx
+    dragDx = total
+    let activeDrag = dragTab != "" and (draggingTab or max(total, 0 - total) >= 6)
     if activeDrag
-      let pointerX = dragStartX + dx
+      let pointerX = dragStartX + total
       let toIndex = panel.tabs.filter((tab) => tab.id != dragTab and pointerX >= frame(`panel-tab-row-${tab.id}`).x + frame(`panel-tab-row-${tab.id}`).width / 2).length
       draggingTab = true
       local("surface-move", dragTab, `${toIndex}`)
   action endTabDrag(dx: number, dy: number)
     dragTab = ""
+    dragDx = 0
     draggingTab = false
   view
     row height=52 flex-shrink=0 padding-left="0.5rem" padding-right="0.8125rem" box-sizing="border-box" align-items="center" gap="0.25rem" position="relative" z-index=20 testId="panel-tabbar"

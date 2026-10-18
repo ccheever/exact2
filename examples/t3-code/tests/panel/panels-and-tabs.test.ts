@@ -49,6 +49,48 @@ describe('panel layout belongs to the owning thread', () => {
     header.call('moveTab', local, scope, [150, 0]); expect(calls).toEqual([['surface-move', 'a', '2']]);
     header.call('endTabDrag', local, scope, [150, 0]); expect(local.dragTab).toBe('');
   });
+  test('smooth native pan increments cross the neighboring tab midpoint', () => {
+    const header = contractComponent('panel.contract', 'PanelHeaderBar'), local = header.state(), calls: unknown[][] = [];
+    const scope = { max: Math.max, panel: { tabs: [{ id: 'a' }, { id: 'b' }] },
+      frame: (id: string) => ({ x: id.endsWith('a') ? 749 : 805.48, width: id.endsWith('a') ? 52.48 : 53.11 }),
+      local: (...args: unknown[]) => calls.push(args) };
+    header.call('beginTabDrag', local, scope, ['a', 783.24]);
+    // The 80pt/400ms native contact emits 24 increments after its initial slop.
+    for (const dx of [6.4, ...Array(23).fill(3.2)]) header.call('moveTab', local, scope, [dx, 0]);
+    expect(local.dragDx).toBeCloseTo(80);
+    expect(calls.at(-1)).toEqual(['surface-move', 'a', '1']);
+    header.call('endTabDrag', local, scope, [0, 0]);
+    expect([local.dragTab, local.dragDx, local.draggingTab]).toEqual(['', 0, false]);
+  });
+  test('small increments accumulate through the threshold and reverse across a midpoint', () => {
+    const header = contractComponent('panel.contract', 'PanelHeaderBar'), local = header.state(), calls: unknown[][] = [];
+    const scope = { max: Math.max, panel: { tabs: [{ id: 'a' }, { id: 'b' }] },
+      frame: (id: string) => ({ x: id.endsWith('a') ? 0 : 64, width: 60 }), local: (...args: unknown[]) => calls.push(args) };
+    header.call('beginTabDrag', local, scope, ['a', 20]);
+    for (const dx of [2, 2]) header.call('moveTab', local, scope, [dx, 0]);
+    expect(calls).toEqual([]);
+    for (let step = 0; step < 38; step++) header.call('moveTab', local, scope, [2, 0]);
+    expect(calls.at(-1)).toEqual(['surface-move', 'a', '1']);
+    for (let step = 0; step < 40; step++) header.call('moveTab', local, scope, [-2, 0]);
+    expect(local.dragDx).toBe(0);
+    expect(calls.at(-1)).toEqual(['surface-move', 'a', '0']);
+  });
+  test('a second gesture resets displacement and its threshold for either direction', () => {
+    const header = contractComponent('panel.contract', 'PanelHeaderBar'), local = header.state(), calls: unknown[][] = [];
+    const scope = { max: Math.max, panel: { tabs: [{ id: 'a' }, { id: 'b' }] },
+      frame: (id: string) => ({ x: id.endsWith('a') ? 0 : 64, width: 60 }), local: (...args: unknown[]) => calls.push(args) };
+    header.call('beginTabDrag', local, scope, ['a', 20]);
+    header.call('moveTab', local, scope, [100, 0]);
+    header.call('endTabDrag', local, scope, [0, 0]);
+    header.call('beginTabDrag', local, scope, ['b', 94]); calls.length = 0;
+    header.call('moveTab', local, scope, [-4, 0]); expect(calls).toEqual([]);
+    for (let step = 0; step < 38; step++) header.call('moveTab', local, scope, [-2, 0]);
+    expect(local.dragDx).toBe(-80);
+    expect(calls.at(-1)).toEqual(['surface-move', 'b', '0']);
+    header.call('beginTabDrag', local, scope, ['a', 20]); calls.length = 0;
+    header.call('moveTab', local, scope, [4, 0]);
+    expect([local.dragDx, local.draggingTab, calls.length]).toEqual([4, false, 0]);
+  });
 });
 
 describe('reopen the most recently closed view', () => {
