@@ -776,7 +776,7 @@ mod tests {
         });
         let frame = crate::FrameInput {
             environment: Environment {
-                background: Some([0.5; 3]),
+                background: Some([0.5; 3].into()),
                 fog: Some(Fog::linear(18., 60.)),
                 bloom: None,
                 tone_mapping: ToneMapping::None,

@@ -841,7 +841,7 @@ impl Quads {
                 };
                 let at = self.sprite_data.len();
                 self.sprite_data
-                    .push(quad(center, x, y, s.color, uv, mode, s.cutoff));
+                    .push(quad(center, x, y, s.color.0, uv, mode, s.cutoff));
                 if s.alpha == AlphaMode::Blend {
                     self.order.push(Order {
                         kind: Kind::Sprite(index),

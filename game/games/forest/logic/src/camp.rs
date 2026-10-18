@@ -98,7 +98,7 @@ pub fn environment(dark: f32) -> Environment {
         ground: mix3(DAY_SKY.2, NIGHT_SKY.2, dark),
         ambient: math::lerp(0.6, 0.35, dark),
         fog: Some(Fog {
-            color: Some(fog),
+            color: Some(Color(fog)),
             ..Fog::new(math::lerp(0.007, 0.03, dark), 0.04)
         }),
         bloom: Some(Bloom {

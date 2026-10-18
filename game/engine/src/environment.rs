@@ -1,11 +1,12 @@
-use crate::{Data, Resource};
+use crate::{Color, Data, Resource};
 
 /// Linear sky colours and optional atmospheric/post-processing effects.
 /// Absence of this resource has the same presentation as its default.
 #[derive(Clone, Copy, Debug, PartialEq, Resource)]
 pub struct Environment {
-    /// Optional flat background, independent of ambient illumination.
-    pub background: Option<[f32; 3]>,
+    /// Optional flat background, independent of ambient illumination:
+    /// `Some(Color::hex("#7daba3"))`.
+    pub background: Option<Color<3>>,
     /// Overhead sky radiance.
     pub zenith: [f32; 3],
     /// Horizon sky radiance and default fog colour.
@@ -148,8 +149,8 @@ impl SceneSamples {
 /// Height fog, or near/far fog along the camera's forward axis.
 #[derive(Clone, Copy, Debug, PartialEq, Data)]
 pub struct Fog {
-    /// Linear colour; None uses the horizon.
-    pub color: Option<[f32; 3]>,
+    /// Fog colour, `Some(Color::hex("#7daba3"))`; None uses the horizon.
+    pub color: Option<Color<3>>,
     /// Extinction per metre at Y=0.
     pub density: f32,
     /// Exponential height falloff per metre.

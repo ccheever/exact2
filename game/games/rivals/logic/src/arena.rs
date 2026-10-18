@@ -99,9 +99,9 @@ pub fn cover_points() -> Vec<Vec3> {
 /// Spawn the floor, walls, cover, lights and fog.
 pub fn build(w: &mut World) {
     w.insert_resource(Environment {
-        background: Some([0.55, 0.70, 0.86]),
+        background: Some(Color([0.55, 0.70, 0.86])),
         fog: Some(Fog {
-            color: Some([0.55, 0.70, 0.86]),
+            color: Some(Color([0.55, 0.70, 0.86])),
             ..Fog::new(0.004, 0.02)
         }),
         ..Environment::default()

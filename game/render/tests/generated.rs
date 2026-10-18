@@ -17,7 +17,7 @@ impl Game for Props {
     type Args = Options;
     fn setup(w: &mut World, args: &Options) {
         w.insert_resource(Environment {
-            background: Some([0.15, 0.22, 0.3]),
+            background: Some([0.15, 0.22, 0.3].into()),
             bloom: None,
             fog: None,
             ..Default::default()

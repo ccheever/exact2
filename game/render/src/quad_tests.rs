@@ -85,7 +85,7 @@ impl Game for Layers {
     type Args = ();
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             bloom: None,
             fog: None,
             ..Environment::default()
@@ -101,7 +101,7 @@ impl Game for Layers {
             w.spawn((
                 Transform::default().with_scale(if i == 0 { [-1., 1., 1.] } else { [1.; 3] }),
                 Sprite {
-                    color,
+                    color: color.into(),
                     layer,
                     ..Sprite::new("white.tex", [2., 2.])
                 },
@@ -111,7 +111,7 @@ impl Game for Layers {
             w.spawn((
                 Transform::at(x, 0., 0.),
                 Sprite {
-                    color: [1., 1., 1., 0.5],
+                    color: [1., 1., 1., 0.5].into(),
                     alpha: AlphaMode::Mask,
                     cutoff,
                     ..Sprite::new("white.tex", [2., 2.])
@@ -442,7 +442,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
         type Args = ();
         fn setup(w: &mut World, _: &()) {
             w.insert_resource(Environment {
-                background: Some([0.; 3]),
+                background: Some([0.; 3].into()),
                 bloom: None,
                 fog: None,
                 ..Default::default()
@@ -451,7 +451,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
             w.spawn((
                 Transform::default(),
                 Sprite {
-                    color: [0., 0., 1., 0.5],
+                    color: [0., 0., 1., 0.5].into(),
                     ..Sprite::new("white.tex", [2., 2.])
                 },
                 Emitter {

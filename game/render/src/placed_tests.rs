@@ -205,7 +205,7 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
         type Args = ();
         fn setup(w: &mut World, _: &()) {
             w.insert_resource(exact_game::Environment {
-                background: Some([0.; 3]),
+                background: Some([0.; 3].into()),
                 fog: None,
                 bloom: None,
                 ..Default::default()

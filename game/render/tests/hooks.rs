@@ -20,7 +20,7 @@ impl<const SINGLE: bool> Game for TestGame<SINGLE> {
     const ID: &'static str = "public-render-hooks";
     fn setup(world: &mut World, _: &()) {
         world.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             bloom: None,
             fog: None,
             ..Default::default()
@@ -635,7 +635,7 @@ impl<const OUTLINED: bool, const SINGLE: bool> Game for MaterialGame<OUTLINED, S
             DirectionalLight::default(),
         ));
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             fog: None,
             bloom: None,
             ..Default::default()
@@ -859,7 +859,7 @@ impl<const PREPASS: bool, const CUSTOM_FIRST: bool> Game for Coplanar<PREPASS, C
         }
         w.spawn((Transform::at(0., 0., 5.), Camera::default()));
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ambient: 0.,
             fog: None,
             bloom: None,

@@ -16,7 +16,7 @@ impl Game for Shifted {
     type Args = Look;
     fn setup(w: &mut World, _: &Look) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             bloom: None,
             fog: None,
             ..Default::default()

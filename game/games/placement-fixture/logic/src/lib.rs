@@ -22,7 +22,7 @@ impl Game for SmallGame {
     }
     fn setup(w: &mut World, args: &Options) {
         w.insert_resource(Environment {
-            background: Some([0.04, 0.08, 0.12]),
+            background: Some(Color([0.04, 0.08, 0.12])),
             fog: None,
             bloom: None,
             ..Default::default()

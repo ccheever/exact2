@@ -1146,7 +1146,7 @@ impl Game for Socketed {
     type Args = SocketLook;
     fn setup(w: &mut World, _: &SocketLook) {
         w.insert_resource(exact_game::Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             bloom: None,
             fog: None,
             ..Default::default()

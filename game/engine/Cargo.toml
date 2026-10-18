@@ -11,3 +11,5 @@ ryu = { version = "1.0.23", features = ["small"] }
 exact-game-derive = { path = "../derive" }
 exact-plan = { path = "../../plan" }
 exact-motion = { path = "../../motion" }
+# CSS colour text, the parser Contract uses (`Color::hex`).
+exact-color = { path = "../../color" }

@@ -385,7 +385,7 @@ fn offsets(w: &World) -> u64 {
 fn tints(w: &World) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
     for (e, t) in w.query::<&exact_game::Tint>().iter() {
-        let words = (t.color.iter().chain(&t.emissive))
+        let words = (t.color.0.iter().chain(&t.emissive))
             .map(|v| v.to_bits())
             .chain([e.index(), e.generation()]);
         for word in words {
@@ -398,11 +398,11 @@ fn tints(w: &World) -> u64 {
 /// spacing) multiplied, emission added.
 fn tinted(out: &mut [f32], t: &exact_game::Tint) {
     for c in 0..3 {
-        out[c] *= t.color[c];
+        out[c] *= t.color.0[c];
         out[6 + c] += t.emissive[c];
     }
     if out[3] >= 0. {
-        out[3] *= t.color[3];
+        out[3] *= t.color.0[3];
     }
 }
 impl Versions {

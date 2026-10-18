@@ -242,7 +242,7 @@ mod tests {
                 }),
             }),
             environment: Environment {
-                background: Some([0.; 3]),
+                background: Some([0.; 3].into()),
                 fog: None,
                 bloom: None,
                 ..Default::default()
@@ -492,7 +492,7 @@ mod tests {
                 sun: None,
                 environment: Environment {
                     ambient: 0.,
-                    background: Some([0.; 3]),
+                    background: Some([0.; 3].into()),
                     fog: None,
                     bloom: None,
                     tone_mapping: ToneMapping::None,

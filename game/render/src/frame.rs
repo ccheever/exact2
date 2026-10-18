@@ -17,7 +17,7 @@ pub(crate) fn has_sky(frame: &FrameInput<'_>, map: bool) -> bool {
         || e.ground != e.horizon
         || (e.sun_disc > 0.0 && frame.sun.is_some())
         || e.fog.is_some_and(|fog| {
-            fog.linear.is_none() && fog.density > 0.0 && fog.color.is_some_and(|c| c != e.horizon)
+            fog.linear.is_none() && fog.density > 0.0 && fog.color.is_some_and(|c| c.0 != e.horizon)
         })
 }
 
@@ -26,7 +26,7 @@ pub(crate) fn clear_color(frame: &FrameInput<'_>) -> wgpu::Color {
     let sky = frame
         .environment
         .background
-        .unwrap_or(frame.environment.horizon);
+        .map_or(frame.environment.horizon, |c| c.0);
     wgpu::Color {
         r: sky[0] as f64,
         g: sky[1] as f64,
@@ -71,7 +71,7 @@ pub(crate) fn uniform(
     data[68..71].copy_from_slice(&frame.environment.horizon);
     data[71] = frame.environment.sun_disc;
     if let Some(fog) = frame.environment.fog {
-        data[72..75].copy_from_slice(&fog.color.unwrap_or(frame.environment.horizon));
+        data[72..75].copy_from_slice(&fog.color.map_or(frame.environment.horizon, |c| c.0));
         data[75] = fog.density.max(0.0);
         data[76] = fog.height_falloff.max(0.0);
         if let Some([near, far]) = fog.linear {

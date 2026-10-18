@@ -15,7 +15,7 @@ impl Game for SmallGame {
     }
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
-            background: Some([0.025, 0.04, 0.08]),
+            background: Some(Color([0.025, 0.04, 0.08])),
             fog: None,
             bloom: None,
             ..Environment::default()
@@ -30,11 +30,13 @@ impl Game for SmallGame {
                         size: Vec2::new(640., 140.),
                         frame: [32, 0, 16, 16],
                         layer: i as i32,
-                        color: [
-                            [0.18, 0.23, 0.38, 1.],
-                            [0.18, 0.34, 0.40, 0.8],
-                            [0.25, 0.45, 0.37, 0.7],
-                        ][i],
+                        color: Color(
+                            [
+                                [0.18, 0.23, 0.38, 1.],
+                                [0.18, 0.34, 0.40, 0.8],
+                                [0.25, 0.45, 0.37, 0.7],
+                            ][i],
+                        ),
                         ..Sprite::new("strip.tex", [640., 140.])
                     },
                 ),

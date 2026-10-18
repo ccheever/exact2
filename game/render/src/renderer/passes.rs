@@ -272,7 +272,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let sky = frame
             .environment
             .background
-            .unwrap_or(frame.environment.horizon);
+            .map_or(frame.environment.horizon, |c| c.0);
         // A direct frame draws into the target, through its own MSAA attachment at 4x.
         let direct = state.direct.then(|| self.direct_targets.as_ref().unwrap());
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

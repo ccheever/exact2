@@ -1091,7 +1091,7 @@ mod e10_tests {
         type Args = ();
         fn setup(w: &mut World, _: &()) {
             w.insert_resource(Environment {
-                background: Some([0.; 3]),
+                background: Some([0.; 3].into()),
                 fog: None,
                 ..Default::default()
             });

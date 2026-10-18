@@ -208,7 +208,7 @@ fn a_direct_frame_draws_what_the_tone_pass_draws() {
             illuminance: 4.0,
             shadows: None,
         });
-        f.environment.background = Some([0.3, 0.5, 2.0]);
+        f.environment.background = Some([0.3, 0.5, 2.0].into());
         f.environment.zenith = [0.4; 3];
         f.environment.horizon = [0.4; 3];
         f.environment.ground = [0.4; 3];

@@ -336,7 +336,7 @@ fn sky_and_far_object_converge_in_height_fog() {
         f.environment.fog = Some(Fog {
             density: 0.02,
             height_falloff: 0.1,
-            color: custom.then_some(color),
+            color: custom.then_some(color.into()),
             linear: None,
         });
         let p = render(&gpu, &mut r, &texture, &f);
@@ -488,7 +488,7 @@ fn fog_camera_crosses_exponent_clamp() {
         f.environment.fog = Some(Fog {
             density,
             height_falloff: 0.1,
-            color: Some([0.5; 3]),
+            color: Some([0.5; 3].into()),
             linear: None,
         });
         let a = (-0.1 * f64::from(start)).clamp(-40.0, 40.0).exp();

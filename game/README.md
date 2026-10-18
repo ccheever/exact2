@@ -267,7 +267,9 @@ The dev compiler retains its last good plan on an error.
 | Follow the player | Attach `Follow`; the scene steps it after the tick. Call `scene::follow(w)` explicitly to choose an earlier order. |
 | Find a nearby unlit beacon | `w.nearest_xz_mut::<Beacon>("player", 1.5, \|b\| !b.lit)` returns its entity and mutable component together. |
 | Count for the HUD | `w.count::<Beacon>(\|b\| b.lit)` |
-| Grid and fog | `Material::grid(color, spacing)` and the saved `Environment`/`Fog` resource |
+| Colour a surface | `Material::hex("#527b65")` (any CSS colour Contract takes: hex, `forestgreen`, `rgb(…)`); `Material::srgb(r, g, b)` for a picker's 0–1 floats. `Material::rgb` takes linear light, the renderer's own space, where 0.5 is not mid-grey; reach for it only for computed light |
+| Sky, fog, tint and sprite colours | `Environment.background`, `Fog.color`, `Tint.color` and `Sprite.color` are a `Color`: `Some(Color::hex("#bad6d1"))`; `[r, g, b].into()` keeps linear values |
+| Grid and fog | `Material::grid(Color::hex("#6f8486"), spacing)` and the saved `Environment`/`Fog` resource |
 | Fade a glowing mesh | Attach `Glow(Tween)` to `Material::glow`; retarget once and let the renderer sample at frame time. |
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |

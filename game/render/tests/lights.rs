@@ -35,7 +35,7 @@ impl Game for Lights {
             ambient: 0.,
             bloom: None,
             fog: None,
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ..Default::default()
         });
         w.spawn((

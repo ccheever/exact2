@@ -239,8 +239,10 @@ crack narrower than a texel.
 
 `FrameInput::default()` supplies a shadowed sun, gradient sky, [environment
 light](#environment-lighting) and bloom. Supply matching view/projection/camera
-position. All colours are linear. `Bloom` and `Fog` are re-exports of the engine's
-saved types.
+position. The renderer works in linear light: a `Color` or `Material::hex` written as
+CSS is decoded once, when it is constructed, and arrays it is handed (`Material::rgb`,
+light colours, emission) are already linear. `Bloom` and `Fog` are re-exports of the
+engine's saved types.
 
 - Sun shadows default to 60 m, three 2048² Depth32Float cascades, practical splits
   (lambda 0.7), rotation-invariant fitting spheres and texel snapping. Casters up

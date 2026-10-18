@@ -112,7 +112,7 @@ fn image_with_draws(
         ..Default::default()
     };
     f.environment = exact_game_render::Environment {
-        background: Some([0.; 3]),
+        background: Some([0.; 3].into()),
         zenith: [1.; 3],
         horizon: [1.; 3],
         ground: [1.; 3],
@@ -473,7 +473,7 @@ fn node_materials_tint_and_light_named_nodes_of_one_instance() {
     };
     f.environment.fog = None;
     f.environment.bloom = None;
-    f.environment.background = Some([0.; 3]);
+    f.environment.background = Some([0.; 3].into());
     let stats = renderer.draw(&texture.create_view(&Default::default()), (128, 64), &f);
     // One merged draw: each part's look follows its vertices.
     assert_eq!(stats.instances, 1);
@@ -555,7 +555,7 @@ fn static_parts_sharing_a_material_draw_once_and_look_the_same() {
         };
         f.environment.fog = None;
         f.environment.bloom = None;
-        f.environment.background = Some([0.; 3]);
+        f.environment.background = Some([0.; 3].into());
         let stats = renderer.draw(&texture.create_view(&Default::default()), (160, 64), &f);
         (stats, fixture::read(&gpu, &texture).unwrap())
     };
@@ -691,7 +691,7 @@ fn animated_rigid_parts_sharing_a_material_draw_once_and_follow_their_nodes() {
         };
         f.environment.fog = None;
         f.environment.bloom = None;
-        f.environment.background = Some([0.; 3]);
+        f.environment.background = Some([0.; 3].into());
         let stats = renderer.draw(&texture.create_view(&Default::default()), (128, 128), &f);
         (stats, fixture::read(&gpu, &texture).unwrap())
     };
@@ -792,7 +792,7 @@ fn draw_armoured(
     };
     f.environment.fog = None;
     f.environment.bloom = None;
-    f.environment.background = Some([0.; 3]);
+    f.environment.background = Some([0.; 3].into());
     let stats = renderer.draw(&texture.create_view(&Default::default()), (128, 64), &f);
     (stats, fixture::read(gpu, &texture).unwrap())
 }
@@ -1097,7 +1097,7 @@ fn parts_of_several_materials_draw_once_and_look_the_same() {
         };
         f.environment.fog = None;
         f.environment.bloom = None;
-        f.environment.background = Some([0.; 3]);
+        f.environment.background = Some([0.; 3].into());
         f.environment.ambient = 0.4;
         let stats = renderer.draw(&texture.create_view(&Default::default()), (192, 64), &f);
         (stats, fixture::read(&gpu, &texture).unwrap())

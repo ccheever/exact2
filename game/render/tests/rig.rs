@@ -16,7 +16,7 @@ impl Game for Walkers {
     type Args = ();
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
-            background: Some([0.55, 0.7, 0.85]),
+            background: Some([0.55, 0.7, 0.85].into()),
             bloom: None,
             fog: None,
             ..Default::default()
@@ -241,7 +241,7 @@ impl<const CPU: bool> Game for Posed<CPU> {
         w.spawn_named("actor", (Transform::default(), mesh));
         w.spawn((Transform::at(0., 0., 4.), Camera::default()));
         w.insert_resource(Environment {
-            background: Some([0., 0., 0.]),
+            background: Some([0., 0., 0.].into()),
             bloom: None,
             fog: None,
             ..Default::default()

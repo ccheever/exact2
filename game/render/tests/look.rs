@@ -47,7 +47,7 @@ impl Game for Fade {
     type Args = FadeArgs;
     fn setup(w: &mut World, args: &FadeArgs) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ambient: 1.,
             zenith: [1.; 3],
             horizon: [1.; 3],
@@ -194,7 +194,7 @@ fn sky_with(gpu: &Gpu, look: glam::Vec3, visible: bool, rotation: f32, resident:
     f.environment.fog = None;
     f.environment.bloom = None;
     f.environment.sun_disc = 0.;
-    f.environment.background = Some([0.; 3]);
+    f.environment.background = Some([0.; 3].into());
     r.draw(&texture.create_view(&Default::default()), (32, 32), &f);
     fixture::read(gpu, &texture).unwrap().at(16, 16)
 }
@@ -230,7 +230,7 @@ impl Game for Terrain {
     type Args = ();
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ambient: 1.,
             zenith: [1.; 3],
             horizon: [1.; 3],
@@ -324,7 +324,7 @@ impl Game for Sparks {
     type Args = SparkArgs;
     fn setup(w: &mut World, args: &SparkArgs) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             fog: None,
             bloom: None,
             ..Default::default()
@@ -656,7 +656,7 @@ impl Game for Lod {
     type Args = LodArgs;
     fn setup(w: &mut World, args: &LodArgs) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             ambient: 1.,
             zenith: [1.; 3],
             horizon: [1.; 3],
@@ -765,7 +765,7 @@ impl<const SINGLE: bool> Game for Soft<SINGLE> {
     type Args = SoftArgs;
     fn setup(w: &mut World, args: &SoftArgs) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             fog: None,
             bloom: None,
             ..Default::default()
@@ -918,9 +918,9 @@ impl Game for FogQuads {
     type Args = FogArgs;
     fn setup(w: &mut World, args: &FogArgs) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             fog: (args.mode != 0).then(|| Fog {
-                color: Some([0., 1., 0.]),
+                color: Some([0., 1., 0.].into()),
                 ..if args.mode == 1 {
                     Fog::linear(0., 10.)
                 } else {
@@ -935,7 +935,7 @@ impl Game for FogQuads {
         w.spawn((
             Transform::at(-1., 0., 0.),
             Sprite {
-                color: [1., 0., 0., 0.5],
+                color: [1., 0., 0., 0.5].into(),
                 ..Sprite::new("white.tex", [0.6, 0.6])
             },
         ));

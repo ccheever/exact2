@@ -27,7 +27,7 @@ impl Game for Beacons {
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
         w.insert_resource(Environment {
-            background: Some([0.49, 0.67, 0.64]),
+            background: Some(Color([0.49, 0.67, 0.64])),
             ..Environment::default()
         });
         w.spawn((

@@ -76,7 +76,7 @@ pub(super) fn town(
 ) -> World {
     let mut w = World::new(60, 1);
     w.insert_resource(Environment {
-        background: Some(CLEAR),
+        background: Some(CLEAR.into()),
         zenith: [0.55, 0.6, 0.66],
         horizon: [0.4, 0.42, 0.45],
         ground: [0.12; 3],
@@ -84,7 +84,7 @@ pub(super) fn town(
         sun_disc: 0.,
         exposure,
         fog: Some(Fog {
-            color: Some(CLEAR),
+            color: Some(CLEAR.into()),
             ..Fog::linear(5., 16.)
         }),
         bloom: bloom.then(Bloom::default),
@@ -150,7 +150,7 @@ pub(super) fn town(
         w.spawn((
             Transform::at(0.4, 2., 0.6),
             Sprite {
-                color: [1., 1., 1., 0.85],
+                color: [1., 1., 1., 0.85].into(),
                 ..Sprite::new("tag.tex", [1.4, 0.6])
             },
         ));
@@ -371,7 +371,7 @@ fn a_translucent_fragment_over_light_above_one_blends_with_one() {
     // fragment to the target before it blends, the HDR path only after.
     let mut w = World::new(60, 1);
     w.insert_resource(Environment {
-        background: Some([0.; 3]),
+        background: Some([0.; 3].into()),
         ambient: 0.,
         fog: None,
         bloom: None,

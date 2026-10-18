@@ -7,7 +7,7 @@ impl Game for SmallGame {
     type Args = ();
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
-            background: Some([0.015, 0.025, 0.05]),
+            background: Some(Color([0.015, 0.025, 0.05])),
             fog: None,
             bloom: None,
             ..Environment::default()

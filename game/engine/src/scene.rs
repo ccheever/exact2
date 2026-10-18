@@ -384,23 +384,44 @@ impl Default for Material {
 }
 
 impl Material {
-    /// Opaque linear RGB with the default surface properties.
+    /// Opaque base colour written as CSS, the documented way to colour a
+    /// surface: `Material::hex("#527b65")`, `Material::hex("forestgreen")`.
+    /// Decoded to linear light ([`crate::Color::hex`]); a hex alpha is kept.
+    pub fn hex(css: &str) -> Self {
+        Self {
+            color: crate::Color::hex(css).0,
+            ..Self::default()
+        }
+    }
+    /// Opaque base colour from sRGB-encoded channels in 0–1, as a colour picker
+    /// shows them.
+    pub fn srgb(r: f32, g: f32, b: f32) -> Self {
+        Self {
+            color: crate::Color::srgb(r, g, b).0,
+            ..Self::default()
+        }
+    }
+    /// Opaque base colour in linear light, the renderer's own space: 0.5 is
+    /// half the light, not mid-grey on screen (that is `srgb(0.5, …)`, linear
+    /// 0.214). Prefer [`Material::hex`] for colours chosen by eye.
     pub fn rgb(r: f32, g: f32, b: f32) -> Self {
         Self {
             color: [r, g, b, 1.0],
             ..Self::default()
         }
     }
-    /// A world-space grid on any surface; colour is the base, spacing is in metres.
-    /// Lines use screen-space derivatives and fade to their average below a pixel.
-    pub fn grid(color: [f32; 3], spacing: f32) -> Self {
+    /// A world-space grid on any surface: `Material::grid(Color::hex("#708587"), 1.0)`.
+    /// The colour is the base, spacing is in metres. Lines use screen-space
+    /// derivatives and fade to their average below a pixel.
+    pub fn grid(color: impl Into<crate::Color<3>>, spacing: f32) -> Self {
         assert!(
             spacing.is_finite() && spacing > 0.0,
             "grid spacing must be positive and finite"
         );
+        let [r, g, b] = color.into().0;
         Self {
             grid_spacing: spacing,
-            ..Self::rgb(color[0], color[1], color[2])
+            ..Self::rgb(r, g, b)
         }
     }
     /// Emissive black surface. HDR values bloom with the default Environment;
@@ -604,21 +625,21 @@ impl Default for Opacity {
     }
 }
 
-/// A primitive's drawn look on top of its `Material`: linear RGBA multiplying
+/// A primitive's drawn look on top of its `Material`: a colour multiplying
 /// its base colour and linear emission added, for this entity only (not
 /// inherited). A hit flash, a team tint, a pulse. Presentation state, written
 /// by `Game::present`; never saved or hashed. Models use `NodeMaterials`.
 #[derive(Clone, Copy, Debug, PartialEq, crate::Presentation)]
 pub struct Tint {
-    /// Linear RGBA multiplying the base colour.
-    pub color: [f32; 4],
+    /// RGBA multiplying the base colour: `Color::hex("#ff000080")`.
+    pub color: crate::Color,
     /// Linear emission added.
     pub emissive: [f32; 3],
 }
 impl Default for Tint {
     fn default() -> Self {
         Self {
-            color: [1.0; 4],
+            color: crate::Color::default(),
             emissive: [0.0; 3],
         }
     }
