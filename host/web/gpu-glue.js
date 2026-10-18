@@ -407,8 +407,10 @@ function frame(now) {
 }
 
 function schedule() { if ((!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
+// An editable element takes the keyboard from a world (its `focusin` blurs it), and the pads with it.
+const editable = target => target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
 // Pads go to the world whose canvas has focus, as keys do.
-padPoller(() => [...surfaces.values()].find(e => e.pads && live(e.view) === e && e.host.contains(document.activeElement)) ?? null);
+padPoller(() => [...surfaces.values()].find(e => e.pads && live(e.view) === e && e.host.contains(document.activeElement) && !editable(document.activeElement)) ?? null);
 
 // Creation/binding is a hard result. Staging never publishes or attaches listeners.
 function create(entry, module, carry) {
@@ -621,7 +623,6 @@ function listen(entry) {
     delete entry.restoredCarry;
   };
   entry.resampleHeld();
-  const editable = target => target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
   const blur = event => {
     entry.resampleHeld();
     for (const [id, owner] of controls) sendControl(event, owner, "cancel", id);
