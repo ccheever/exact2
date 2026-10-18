@@ -1,6 +1,6 @@
 // ComposerPromptEditorTiptap's source projection at T3 Code 9c161462c9.
 import { highlight } from '../highlight/timeline-highlight';
-import { composerMarkdown, type ComposerDecorations } from './composer-markdown';
+import { composerMarkdown, type ComposerBlockOrigin, type ComposerDecorations } from './composer-markdown';
 import { codeLanguageEntry, codeLanguageLabel, languageOfInfoString } from './composer-code-languages';
 import { chipDecorations, composerChips, type ComposerChip } from './composer-source-chips';
 import type { ComposerRange } from './composer-markdown-inline';
@@ -14,6 +14,7 @@ export type ComposerRichInput = {
   owner: string; value: string; styling: boolean; literal: boolean;
   skills: Readonly<Record<string, string>>;
   literalRanges: readonly ComposerRange[];
+  blockOrigins?: readonly ComposerBlockOrigin[];
   chips?: readonly ComposerChip[];
   chipFaces?: readonly { kind: string; atomLabel: string }[];
 };
@@ -22,7 +23,7 @@ export type ComposerRichInput = {
  *  carries that signature back to Contract instead of mutating a newer draft. */
 export function composerRichProjection(input: ComposerRichInput): ComposerRichProjection {
   const chips = input.literal ? [] : [...input.chips ?? composerChips(input.value)];
-  const parsed = composerMarkdown(input.value, { styling: input.styling && !input.literal, atoms: chipDecorations(chips, input.skills, input.chipFaces), literal: input.literalRanges });
+  const parsed = composerMarkdown(input.value, { styling: input.styling && !input.literal, atoms: chipDecorations(chips, input.skills, input.chipFaces), literal: input.literalRanges, blockOrigins: input.blockOrigins });
   const headers: ComposerCodeHeader[] = [];
   for (const block of parsed.blocks) {
     if (block.kind !== 'code') continue;

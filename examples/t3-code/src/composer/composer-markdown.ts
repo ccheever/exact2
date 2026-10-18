@@ -13,6 +13,9 @@ export type ComposerDecorationBlock = ComposerSpan & { marker: string };
 export type ComposerAtom = ComposerSpan & { label: string };
 export type ComposerDecorations = { value: string; spans: ComposerSpan[]; blocks: ComposerDecorationBlock[]; hidden: ComposerHidden[]; atoms: ComposerAtom[] };
 export type ComposerMarkdown = { decorations: ComposerDecorations; blocks: ComposerBlock[] };
+// Live gestures can keep a restored Markdown prefix literal, or promote a
+// bullet's checkbox body without changing the shared field's source.
+export type ComposerBlockOrigin = { start: number; kind: 'paragraph' | 'bullet' | 'task' };
 
 export function composerLines(source: string): ComposerLine[] {
   const lines: ComposerLine[] = [];
@@ -36,7 +39,8 @@ export function isClosingFence(line: string, fence: string): boolean {
   return run !== undefined && run[0] === fence[0] && run.length >= fence.length;
 }
 
-function textBlock(line: ComposerLine): Exclude<ComposerBlock, { kind: 'code' | 'rule' }> {
+function textBlock(line: ComposerLine, origin?: ComposerBlockOrigin['kind']): Exclude<ComposerBlock, { kind: 'code' | 'rule' }> {
+  if (origin === 'paragraph') return { kind: 'paragraph', ...line, prefix: '', contentStart: line.start };
   const heading = /^(#{1,6})([ \t]+)([^\n]*)$/.exec(line.text);
   if (heading?.[1] && heading[2]) {
     const prefix = heading[1] + heading[2];
@@ -44,10 +48,12 @@ function textBlock(line: ComposerLine): Exclude<ComposerBlock, { kind: 'code' | 
   }
   const quote = /^(>[ \t]*)([^\n]*)$/.exec(line.text);
   if (quote?.[1]) return { kind: 'quote', ...line, prefix: quote[1], contentStart: line.start + quote[1].length };
-  const task = /^([ \t]*)-([ \t]+)\[([ xX])\]([ \t]*)([^\n]*)$/.exec(line.text);
+  const task = origin === 'bullet' ? null : (origin === 'task'
+    ? /^([ \t]*)[-*+]([ \t]+)\[([ xX])\]([ \t]*)([^\n]*)$/
+    : /^([ \t]*)-([ \t]+)\[([ xX])\]([ \t]*)([^\n]*)$/).exec(line.text);
   if (task && (task[4] || !task[5])) {
-    const indent = task[1] ?? '', prefix = `${indent}-${task[2]}[${task[3]}]${task[4]}`;
-    return { kind: 'list', ...line, list: 'task', indent, marker: '-', checked: task[3]?.toLowerCase() === 'x', prefix, contentStart: line.start + prefix.length };
+    const indent = task[1] ?? '', marker = line.text.charAt(indent.length), prefix = `${indent}${marker}${task[2]}[${task[3]}]${task[4]}`;
+    return { kind: 'list', ...line, list: 'task', indent, marker, checked: task[3]?.toLowerCase() === 'x', prefix, contentStart: line.start + prefix.length };
   }
   const list = /^([ \t]*)(\d+[.)]|[-*+])([ \t]+|$)/.exec(line.text);
   if (list?.[2]) {
@@ -58,14 +64,16 @@ function textBlock(line: ComposerLine): Exclude<ComposerBlock, { kind: 'code' | 
 }
 
 /** Every range points into `source`; parsing never rewrites the stored draft. */
-export function composerMarkdown(source: string, options: { styling?: boolean; atoms?: readonly ComposerAtom[]; literal?: readonly ComposerRange[] } = {}): ComposerMarkdown {
+export function composerMarkdown(source: string, options: { styling?: boolean; atoms?: readonly ComposerAtom[]; literal?: readonly ComposerRange[]; blockOrigins?: readonly ComposerBlockOrigin[] } = {}): ComposerMarkdown {
   const decorations: ComposerDecorations = { value: source, spans: [], blocks: [], hidden: [], atoms: [] }, blocks: ComposerBlock[] = [];
   const lines = composerLines(source), atoms = options.atoms ?? [], literal = [...options.literal ?? [], ...atoms];
+  const origins = new Map(options.blockOrigins?.map(origin => [origin.start, origin.kind]));
   const conceal = (start: number, end: number) => { if (end > start) decorations.hidden.push({ start, end, reveal: null }); };
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
     if (!line) continue;
-    const opening = options.styling !== false ? parseOpeningFence(line.text) : null;
+    const origin = origins.get(line.start);
+    const opening = options.styling !== false && origin !== 'paragraph' ? parseOpeningFence(line.text) : null;
     if (opening && line.after > line.end) {
       let last = index + 1;
       while (last < lines.length && !isClosingFence(lines[last]?.text ?? '', opening.fence)) last++;
@@ -81,13 +89,13 @@ export function composerMarkdown(source: string, options: { styling?: boolean; a
       index = close ? last : lines.length;
       continue;
     }
-    if (options.styling !== false && /^([-*_])(?:[ \t]*\1){2,}[ \t]*\r?$/.test(line.text)) {
+    if (options.styling !== false && origin === undefined && /^([-*_])(?:[ \t]*\1){2,}[ \t]*\r?$/.test(line.text)) {
       blocks.push({ kind: 'rule', start: line.start, end: line.end });
       decorations.blocks.push({ name: 'cmp-rule', start: line.start, end: line.end, marker: 'rule' });
       conceal(line.start, line.end);
       continue;
     }
-    const block: Exclude<ComposerBlock, { kind: 'code' | 'rule' }> = options.styling === false ? { kind: 'paragraph', ...line, prefix: '', contentStart: line.start } : textBlock(line);
+    const block: Exclude<ComposerBlock, { kind: 'code' | 'rule' }> = options.styling === false ? { kind: 'paragraph', ...line, prefix: '', contentStart: line.start } : textBlock(line, origin);
     blocks.push(block);
     if (block.kind === 'heading' || block.kind === 'quote' || block.kind === 'list') {
       const depth = block.kind === 'list' ? Math.min(8, block.indent.replace(/\t/g, '  ').length / 2 | 0) : 0;
