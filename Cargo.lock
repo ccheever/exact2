@@ -1519,6 +1519,7 @@ version = "0.1.0"
 name = "exact-markdown-editor"
 version = "0.1.0"
 dependencies = [
+ "exact-kernel",
  "exact-markdown",
 ]
 
