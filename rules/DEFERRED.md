@@ -594,12 +594,13 @@ reading. Nothing that isn't HTML is added by it.
   view transitions moved behind the deck lane. LLP 1020 §6. What stays no from
   exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
   author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
-- **Expanded (scoped user approval, 2026-10-19; LLP 1020 §11):** the existing
-  `postMessage(text, iframeId)` command carries string replies and host-initiated
-  theme, shortcut and MCP-context updates to one live iframe on Apple and both
-  web executors. It unblocks interactive embedded documents without an app-owned
-  native bridge. The existing canvas queue remains unchanged. No new tag,
-  structured clone, permission broker or browser navigation controller is admitted.
+- **Proposed, not admitted (LLP 1020 §11; draft #777):** addressed iframe string
+  replies and host-initiated theme, shortcut and MCP-context updates for interactive
+  T3 Code documents. Daehyeon Mun authorized the consumer work on 2026-10-18 UTC
+  (2026-10-19 KST); that authorization is not Charlie's framework waiver. No
+  doing-list take or named, dated waiver is recorded. Framework expansion remains
+  pending Charlie; LLP 1020 D2r's reply-only boundary remains binding. The draft
+  implementation and its evidence do not move this proposal onto the doing-list.
 - **Expanded (LLP 1096; admitted by the orchestrator under Charlie's
   2026-10-04 delegation, "make decisions without me"):** short sounds an
   action can schedule: a `sound` declaration (a WAV in `assets/`, at most 10
