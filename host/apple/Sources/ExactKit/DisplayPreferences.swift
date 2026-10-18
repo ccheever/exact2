@@ -10,6 +10,9 @@ import AppKit
 #else
 import UIKit
 #endif
+#if os(iOS)
+import GameController
+#endif
 
 enum DisplayPreferences {
     /// What an agent's `prefer` set, in place of the platform's settings.
@@ -31,6 +34,12 @@ enum DisplayPreferences {
     /// What an agent's `prefer` (or a test) set for Bold Text; off from
     /// launch under the agent (LLP 1069.007 D2).
     nonisolated(unsafe) static var agentBoldText: Bool? = ExactEnv.agentMode ? false : nil {
+        didSet { changed() }
+    }
+    /// What an agent's `prefer` set for `pointer` and `hover` (LLP 1132 D10);
+    /// the device class's from launch under the agent, so a drive never reads
+    /// whether the machine running it has a mouse (LLP 1069.007 D2).
+    nonisolated(unsafe) static var agentInput: Preferences? = ExactEnv.agentMode ? .platformInput : nil {
         didSet { changed() }
     }
     private static let agentChanged = Notification.Name("ExactDisplayPreferencesChanged")
@@ -82,6 +91,17 @@ enum DisplayPreferences {
         return UIAccessibility.isBoldTextEnabled
         #endif
     }
+    /// `pointer` and `hover` (LLP 1132 D10): the device class's, except that
+    /// an iPad with a trackpad or mouse attached points with it, as Safari on
+    /// iPadOS answers.
+    static var input: Preferences {
+        if let agentInput { return agentInput }
+        #if os(iOS)
+        return .primaryInput(touchScreen: true, pointingDevice: GCMouse.current != nil)
+        #else
+        return .platformInput
+        #endif
+    }
     /// `color-gamut` (LLP 1100 D9). Neither platform reports a rec2020 panel.
     static var gamut: String {
         if let agentGamut { return agentGamut }
@@ -117,7 +137,7 @@ enum DisplayPreferences {
         #endif
         let high = view.map { DisplayRange.headroom($0) > 1 } ?? highDynamicRange
         return Preferences(reducedMotion: reducedMotion, reducedTransparency: reducedTransparency,
-            contrast: contrast, dark: systemDark, gamut: displayGamut, highDynamicRange: high,
+            contrast: contrast, dark: systemDark, input: input, gamut: displayGamut, highDynamicRange: high,
             displayMode: Preferences.DisplayMode(rawValue: displayMode(view)) ?? .standalone, boldText: boldText).rawValue
     }
 
@@ -152,10 +172,16 @@ enum DisplayPreferences {
         // view reports it, ExactViewIOS) or, when made elsewhere, on return.
         let names = [UIAccessibility.reduceMotionStatusDidChangeNotification, UIAccessibility.reduceTransparencyStatusDidChangeNotification,
                      UIAccessibility.darkerSystemColorsStatusDidChangeNotification, UIAccessibility.boldTextStatusDidChangeNotification,
-                     UIApplication.didBecomeActiveNotification, agentChanged]
+                     UIApplication.didBecomeActiveNotification, agentChanged] + pointingDevices
         return names.map { center.addObserver(forName: $0, object: nil, queue: .main) { _ in changed() } }
         #endif
     }
+    #if os(iOS)
+    /// A trackpad or mouse attached or removed changes `pointer` and `hover`.
+    private static let pointingDevices: [Notification.Name] = [.GCMouseDidConnect, .GCMouseDidDisconnect]
+    #elseif !os(macOS)
+    private static let pointingDevices: [Notification.Name] = []
+    #endif
     static func forget(_ tokens: [NSObjectProtocol]) {
         #if os(macOS)
         tokens.forEach { token in

@@ -13,6 +13,7 @@ They are compiled directly from these pages by `engine/src/recipes.rs`.
 | Turn a first-person camera | [Mouse look](mouse-look.md) | Engine look tests |
 | Play on a landing edge | [Sound on contact](sound-on-contact.md) | Audio fixture |
 | Spawn at an interval | [Spawner](spawner.md) | Particle fixture |
+| Show touch controls on a touch screen | [Touch controls](touch-controls.md) | Starter |
 | Answer a command | [Door message](door-message.md) | Engine HUD and events |
 | Draw a ring and a translucent halo | [Halo](halo.md) | Beacons |
 | Save a slot | [Save slot](save-slot.md) | Starter restore tests |

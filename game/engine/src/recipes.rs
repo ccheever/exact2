@@ -18,6 +18,9 @@ pub mod sound_on_contact {}
 /// Spawn on the simulation clock.
 #[doc = include_str!("../../recipes/spawner.md")]
 pub mod spawner {}
+/// Show on-screen controls on a touch screen.
+#[doc = include_str!("../../recipes/touch-controls.md")]
+pub mod touch_controls {}
 /// Receive a command from Contract.
 #[doc = include_str!("../../recipes/door-message.md")]
 pub mod door_message {}

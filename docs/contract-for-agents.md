@@ -2457,6 +2457,16 @@ mode on the web, `fullscreen` or `standalone` on macOS, `standalone` on other
 native hosts. Declare it on the resource's shape; `state.device.displayMode`
 reports it too. `prefer display-mode fullscreen` substitutes it on Apple;
 browser drivers refuse that override, so test real fullscreen transitions. This reads the window, not a fullscreen navigation route.
+`exactViewport().pointer` and `.hover` are CSS's `pointer` (`fine`, `coarse`,
+`none`) and `hover` (`hover`, `none`) for the primary input: the web's media
+queries; `fine` and `hover` on macOS, Linux and Windows, and `coarse` and `none`
+on a Linux or Android touch screen; on iOS `coarse` and `none`, or `fine` and
+`hover` while an iPad has a trackpad or mouse attached; `none` and `none` on tvOS.
+They change while the app runs. Show a game's on-screen stick under `coarse`
+(the starter does, `game/recipes/touch-controls.md`), never by platform. Under the
+agent each is the device class's from launch; `prefer pointer coarse` and
+`prefer hover none` substitute them. Chrome emulates a touch screen, so it takes
+`coarse` with `none` and `fine` with `hover`, and refuses `pointer none`.
 `exactPage` answers `visibilityState`, `onLine`, `canShare`,
 `canShareFiles` and `canSharePictures` (whether `share(files=…)` takes
 `app:/` files and an element's `"#id"`; the web never takes a picture),
