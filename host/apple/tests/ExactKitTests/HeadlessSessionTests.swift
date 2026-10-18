@@ -86,6 +86,19 @@ final class HeadlessSessionTests: XCTestCase {
         XCTAssertFalse(kept.hasSuffix(" "))
         XCTAssertLessThanOrEqual(tight.width, 90.5)
         XCTAssertEqual(tight.segments.map(\.text).joined(), tight.text)
+        // The kept text is what Core Text's truncation kept: the longest
+        // prefix of the broken text that fits the line's width with the
+        // token (a truncated run still reports the whole run's string range).
+        let font = try XCTUnwrap(node("clamped-tight").runs.first?.font)
+        func width(_ text: String) -> CGFloat {
+            let attributed = NSAttributedString(string: text, attributes: [kCTFontAttributeName as NSAttributedString.Key: font])
+            return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(attributed), nil, nil, nil))
+        }
+        let broken = "fox jumps over the lazy dog"
+        XCTAssertLessThanOrEqual(width(kept + "…"), tight.width + 0.5, "the kept prefix fits with the token")
+        var longer = kept
+        for ch in broken.dropFirst(kept.count) { longer.append(ch); if ch != " " { break } }
+        XCTAssertGreaterThan(width(longer + "…"), tight.width + 0.5, "one more character would not: \(longer)")
         let hyphen = try XCTUnwrap(node("hyphen").lines.first)
         XCTAssertEqual(hyphen.range, NSRange(location: 0, length: 3))
         XCTAssertEqual(hyphen.text, "ab-")

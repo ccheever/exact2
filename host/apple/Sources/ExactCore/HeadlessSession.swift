@@ -346,6 +346,14 @@ fileprivate final class HeadlessLines {
     /// Where a clamped line's kept text ends: past the last glyph the ellipsized
     /// line keeps from the broken text (the token's glyphs sit at the stripped
     /// end, `TextEngine.clampedLine`), with trailing breaks and spaces removed.
+    /// A truncated line's run still reports the string range of the run it
+    /// was cut from, so a run's end says nothing about what was kept: a
+    /// glyph covers the characters up to the next glyph's index (the least
+    /// index above its own, whatever the visual order), and a run's last
+    /// glyph the composed character sequence at its index. The token's own
+    /// glyph is attributed to the index of the first character it displaced,
+    /// so it is told apart by what it is: the font's "…" where the source
+    /// has none.
     private static func kept(_ line: CTLine, range: NSRange, source: NSString) -> Int {
         let breaks: Set<Int> = [9, 10, 13, 32, 0x2028, 0x2029]
         var stripped = NSMaxRange(range)
@@ -356,11 +364,19 @@ fileprivate final class HeadlessLines {
             guard count > 0 else { continue }
             var indices = [CFIndex](repeating: 0, count: count)
             CTRunGetStringIndices(run, CFRange(location: 0, length: count), &indices)
-            let range = CTRunGetStringRange(run)
-            for (i, index) in indices.enumerated() where index >= range.location && index < stripped {
-                // A glyph's characters run to the next glyph's index, or the run's end.
-                let next = i + 1 < count ? indices[i + 1] : range.location + range.length
-                kept = max(kept, min(max(next, index + 1), stripped))
+            var glyphs = [CGGlyph](repeating: 0, count: count)
+            CTRunGetGlyphs(run, CFRange(location: 0, length: count), &glyphs)
+            var token: CGGlyph = 0
+            if let font = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName as String] {
+                var ellipsis: UniChar = 0x2026
+                CTFontGetGlyphsForCharacters(font as! CTFont, &ellipsis, &token, 1)
+            }
+            let shown = zip(indices, glyphs)
+                .filter { index, glyph in index >= range.location && index < stripped && !(glyph == token && token != 0 && source.character(at: index) != 0x2026) }
+                .map(\.0).sorted()
+            for (i, index) in shown.enumerated() {
+                let end = i + 1 < shown.count ? shown[i + 1] : NSMaxRange(source.rangeOfComposedCharacterSequence(at: index))
+                kept = max(kept, min(max(end, index + 1), stripped))
             }
         }
         while kept > range.location && breaks.contains(Int(source.character(at: kept - 1))) { kept -= 1 }

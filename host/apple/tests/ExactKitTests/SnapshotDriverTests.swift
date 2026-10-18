@@ -246,16 +246,7 @@ final class SnapshotDriverTests: XCTestCase {
                         guard family.content.contains(box) else { continue }
                         // Ink in the line's last fifth, none in the 6 pt past its end.
                         XCTAssertGreaterThan(try ink(image, in: CGRect(x: box.maxX - box.width / 5, y: box.minY, width: box.width / 5, height: box.height)), 0, "\(entry) \(type.name): \(line.text)")
-                        let past = try ink(image, in: CGRect(x: box.maxX + 2, y: box.minY, width: 4, height: box.height))
-                        if line.text.hasSuffix("…") && past > 0 {
-                            // WP1's kept prefix of a clamped line is a glyph longer than
-                            // Core Text's truncation kept (its ink passes the kernel's width).
-                            XCTExpectFailure("WP1: a clamped line's kept prefix (\(line.text)) is wider than the truncated line") {
-                                XCTAssertEqual(past, 0, "\(entry) \(type.name): past \(line.text)")
-                            }
-                        } else {
-                            XCTAssertEqual(past, 0, "\(entry) \(type.name): past \(line.text)")
-                        }
+                        XCTAssertEqual(try ink(image, in: CGRect(x: box.maxX + 2, y: box.minY, width: 4, height: box.height)), 0, "\(entry) \(type.name): past \(line.text)")
                         lines += 1
                     }
                 }
