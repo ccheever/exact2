@@ -384,12 +384,17 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     weak var item: UINavigationItem?
     /// The field scrolls away with the content only while it is empty
     /// (`NavigationHost.searchField`), and never when its author made it
-    /// `position: sticky`, CSS's word for a box that stays in view as its
-    /// scroller scrolls (React Navigation's `hideWhenScrolling={false}`).
+    /// stick vertically, CSS's way to keep a box in view as its scroller
+    /// scrolls (React Navigation's `hideWhenScrolling={false}`): `position:
+    /// sticky` with a `top` or `bottom` that is not `auto` (CSS Positioned
+    /// Layout 3 §3.4: a box with both `auto` does not stick on that axis).
     func applyHiding() {
         #if os(iOS)
         guard let item else { return }
-        let hides = (field?.props["value"] ?? "").isEmpty && field?.style["position_type"]?.string != "sticky"
+        let sticks = field.map { f in
+            f.style["position_type"]?.string == "sticky" && ["top", "bottom"].contains { f.style[$0]?.length(basis: 0) != nil }
+        } ?? false
+        let hides = (field?.props["value"] ?? "").isEmpty && !sticks
         if item.hidesSearchBarWhenScrolling != hides { item.hidesSearchBarWhenScrolling = hides }
         #endif
     }
