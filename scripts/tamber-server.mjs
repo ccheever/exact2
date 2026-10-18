@@ -81,7 +81,7 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { buildChannel } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
-import { current, join, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { current, join, paramsOf, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 
@@ -225,7 +225,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       refreshed.delete(build.id);
       // (A selection that does not name its plan joins with no map: read-only.)
       const map = report.selected.planDigest ? mapOf(report.selected.planDigest) : null;
-      const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir) });
+      const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir), params: params.map });
       send({ event: 'selection', seq: ++seq, epoch, ...selection });
       // Outlined as the client that owns inspect mode on that build, naming
       // the click it answers (its page does not scroll for it).
@@ -361,6 +361,16 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (first && known.size === 0) { first = false; for (const [path, d] of Object.entries(reply.ok.files)) known.set(path, d); }
     else { first = false; publish(reply.ok.files, { changed: null, client: null }, [...known.keys()].filter(path => !(path in reply.ok.files))); }
     watchAll(Object.keys(reply.ok.files));
+    learnParams(reply.ok.files);
+  };
+  // The app's component params (LLP 1122 T3), read again when its files
+  // move: the join names a row's param by them, never by its IR token.
+  const params = { key: null, map: new Map() };
+  const learnParams = files => {
+    const key = JSON.stringify(files);
+    if (params.key === key) return;
+    params.key = key;
+    ask({ method: 'describe' }).then(r => { if (params.key === key && r?.ok) params.map = paramsOf(r.ok.ir); }, () => {});
   };
   const refresh = () => ask({ method: 'hello' }, { wait: first ? 0 : answerMs, done: read });
   // The app's directory (where a new design beside it appears) and the
