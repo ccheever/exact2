@@ -19,12 +19,12 @@ const detail: Obj = { provider: 'github', projectId: 'p1', repository: 'lane/san
 
 function setup() {
   const entry: FleetEntry = { key: KEY_B, origin: 'http://127.0.0.1:16361', environmentId: 'env-b', phase: 'connected', message: '', traceId: '', generation: 4, synchronized: 4, lastEvent: 0,
-    subscriptions: {}, config: { environment: { label: 'Lane B', platform: { machine: 'laptop' }, capabilities: { pullRequests: true, threadPullRequests: true } } }, scopes: [], error: '', requested: true,
+    subscriptions: {}, config: { environment: { label: 'Lane B', platform: { machine: 'laptop' }, capabilities: { pullRequests: true, threadPullRequests: true } } }, scopes: ['orchestration:read', 'source-control:write', 'orchestration:operate'], error: '', requested: true,
     shell: { ...initialShell(), projects: [{ id: 'b1', title: 'sandbox', workspaceRoot: '/b/sandbox', repositoryIdentity: identity }] } };
   fleet.entries.set(KEY_B, entry);
   const requests: Obj[] = [], adopted: Obj[] = [];
   const client = {
-    environmentId: 'env-a', origin: 'http://127.0.0.1:16360', connection: 'connected', statusMessage: '', scopes: [], threadId: '', projectId: 'p1', ready: true, revision: 0, generation: 1, error: '',
+    environmentId: 'env-a', origin: 'http://127.0.0.1:16360', connection: 'connected', statusMessage: '', scopes: ['orchestration:read', 'source-control:write', 'orchestration:operate'], threadId: '', projectId: 'p1', ready: true, revision: 0, generation: 1, error: '',
     get draftKey() { return `env-a:${this.threadId || `new:${this.projectId}`}`; },
     local: { drafts: {} as Record<string, string>, composerControls: { contexts: {} as Record<string, Obj> }, selections: {} as Record<string, Obj> },
     config: { environment: { label: 'Lane A', platform: { machine: 'desktop' }, capabilities: { pullRequests: true, threadPullRequests: true } }, settings: {} },

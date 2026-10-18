@@ -14,6 +14,7 @@ const capabilities = { projectSettingsOverrides: true };
 function focused(settings: Obj = {}) {
   const calls: Obj[] = [];
   const client = {
+    scopes: ['settings:write'],
     local: { deviceSettings: {}, clientSettings: decodeClientPrefs({}), groupingMode: 'repository', groupingOverrides: {} },
     ready: true, environmentId: 'env-a', origin: 'http://127.0.0.1:16100', writable: true, calls,
     config: { environment: { environmentId: 'env-a', label: 'Lane A', capabilities }, settings: { projectSettingsOverrides: {}, ...settings } } as Obj,
@@ -43,7 +44,7 @@ function entry(key: string, environmentId: string, label: string, settings: Obj,
   const shell = applyShell(initialShell(), { snapshotSequence: 1, projects: [{ id: `p-${environmentId}`, title: 'App', workspaceRoot: `/b/${environmentId}`,
     repositoryIdentity: { canonicalKey: 'github.com/acme/app' } }], threads: [] });
   return { key, origin: key.split('\n')[0]!, environmentId, phase, message: '', traceId: '', generation: 2, synchronized: 2, lastEvent: 0, subscriptions: {},
-    config: { environment: { environmentId, label, capabilities }, settings: { projectSettingsOverrides: {}, ...settings } }, shell, scopes: [], error: '', requested: true };
+    config: { environment: { environmentId, label, capabilities }, settings: { projectSettingsOverrides: {}, ...settings } }, shell, scopes: ['orchestration:read', 'settings:write'], error: '', requested: true };
 }
 function nativeFor(calls: Obj[] = [], fail = new Set<string>()): Native {
   return { available: true, watch() {}, async later(request) {

@@ -1,3 +1,4 @@
+import { requireRpcPermissions } from '../connections/command-permissions';
 // A background environment as a provider-setup host: the welcome shows
 // every chosen computer's Codex rows (WelcomeWizard.tsx ConnectedAgentsStep, one
 // OnboardingCodexSetup per instance and environment), so a computer the app is not focused on
@@ -24,7 +25,8 @@ export class FleetSetupHost implements CodexHost {
   get environmentId(): string { return this.entry.environmentId; }
   get shell() { return this.entry.shell; }
   get ready(): boolean { return this.entry.phase === 'connected' && this.entry.synchronized === this.entry.generation; }
-  get writable(): boolean { return this.ready && this.entry.scopes.includes('orchestration:operate'); }
+  get scopes(): string[] { return this.entry.scopes; }
+  get writable(): boolean { return this.ready && this.entry.scopes.includes('providers:manage'); }
   /** A managed Codex setup's command target on this environment (codex-setup-host.ts codexTarget). */
   setupTarget(instanceId: string): string { return `${this.entry.key}\t${instanceId}`; }
   /** New ids from this environment's session (the transport's `ids`), as T3Client.ids. */
@@ -35,6 +37,7 @@ export class FleetSetupHost implements CodexHost {
   }
   /** `native` is this environment's fleet native (EnvironmentFleet.native). */
   async rpc(native: Native, method: string, payload: Obj): Promise<Obj> {
+    requireRpcPermissions(this.entry.scopes, { op: 'request', method, payload });
     const generation = this.entry.generation;
     const reply = await bridgeReply(native, { op: 'request', method, payload, generation });
     if (!reply.ok) throw new ClientError(reply.error?.message || 'The request failed.', reply.error?.kind || 'transport', reply.error?.uncertain === true);

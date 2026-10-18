@@ -1,3 +1,4 @@
+import { can } from '../connections/command-permissions';
 import { parseScopedThreadKey } from '../terminal/terminal-ui-state';
 import { addTerminalSurface, focusPanelTerminal, terminalPanelLocal, terminalPanelView, panelTerminalLabel, terminalSurfaceCloseCopy, installTerminalPanelCleanup, type PanelTerminal } from '../terminal/terminal-panel';
 import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerView, type TerminalDrawerView } from '../terminal/terminal-drawer-view';
@@ -151,12 +152,12 @@ export function availability(client: T3Client) {
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   return {
     terminal: terminalAvailable(client),
-    files: !!project && !!workspaceOf(client).cwd,
+    files: can(client, 'filesystem:read') && !!project && !!workspaceOf(client).cwd,
     // ChatView `deviceAvailable={activeThreadRef !== null}`: a draft has its thread ref too (its id is allocated on open).
     device: !!client.environmentId && (!!client.threadId || !!client.projectId),
     pullRequests: !!thread && capabilities(client).threadPullRequests === true && visiblePullRequests(thread.pullRequests).length > 0,
     pullRequest: !!threadPrTarget(client), // supportsPullRequests && threadPullRequestPanelTarget
-    diff: !!client.threadId && client.ready && !diffNotGit(client), // ChatView: isServerThread && isGitRepo
+    diff: !!client.threadId && can(client, 'filesystem:read') && !diffNotGit(client), // ChatView: isServerThread && isGitRepo
   };
 }
 

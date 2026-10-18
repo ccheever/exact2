@@ -1,3 +1,4 @@
+import { can, requirePermission } from '../connections/command-permissions';
 // The right panel's Browser tabs over a native WKWebView (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/web/src/components/preview/{addBrowserSurface,openPreviewSession,closePreviewSession,usePreviewBridge,
 // PreviewView}.ts(x), apps/web/src/rightPanelStore.ts `openBrowser`/`reconcileBrowserSurfaces`,
@@ -158,6 +159,7 @@ export function reconcileBrowserSurfaces(state: PanelState, tabIds: readonly str
 
 /** addBrowserSurface (the "+" menu's Browser row, B): a new session under the profile, then its tab. */
 export async function addBrowserSurface(client: T3Client, native: Native, state: PanelState, profileId?: string): Promise<string> {
+  requirePermission(client.scopes, 'preview:operate');
   // A new thread's draft has its id from the start in the reference (activeThreadRef); here it is allocated now.
   if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
   const ref = activeRef(client);
@@ -281,6 +283,7 @@ async function applyTabDefaults(client: T3Client, native: Native, created: reado
   }
 }
 async function nativeOp(client: T3Client, native: Native, request: Obj): Promise<Obj> {
+  if (request.op !== 'browserClose') requirePermission(client.scopes, 'preview:operate');
   const reply = await client.raw(native, request);
   return reply.ok ? obj(reply.value) : {};
 }
@@ -395,11 +398,13 @@ export function revealServerSessions(client: T3Client, state: PanelState, ref: S
 /** The panel's effects before it projects (usePreviewSession, the reconcile effect, usePreviewBridge, ElectronBrowserHost). */
 export async function browserPrepare(client: T3Client, native: Native | null | undefined, state: PanelState): Promise<void> {
   if (!native?.available) return;
+  const operate = can(client, 'preview:operate'), read = can(client, 'orchestration:read');
+  if (!operate && !read) { await retainServerStreams(client, []); return; }
   const ref = activeRef(client), host = browserHost(client);
   installBrowserCleanup(client, native);
-  adoptAutomationTabs(client); // tabs the previewAutomation host opened (browser-automation.ts)
+  if (operate) adoptAutomationTabs(client); // tabs the previewAutomation host opened (browser-automation.ts)
   try {
-    if (ref && client.connection === 'connected' && ref.environmentId === client.environmentId) {
+    if (read && ref && client.connection === 'connected' && ref.environmentId === client.environmentId) {
       await listPreviewSessions(client, native, ref);
       revealServerSessions(client, state, ref);
       // The reference reconciles on every session change; here once the thread was listed (a tab the panel shows is
@@ -407,19 +412,21 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
       // restoreRightPanel takes only a panel with no surfaces).
       if (client.ready && host.listed.get(scopedThreadKey(ref)) === client.generation) reconcileBrowserSurfaces(state, Object.keys(host.store.read(ref).sessions), scopedThreadKey(ref));
     }
-    await mirrorNativeState(client, native);
-    await openRequestedLinks(client, native); // a page's target=_blank links (browser-links.ts)
-    await syncNativeSessions(client, native);
-    // Part 3: Annotate's settled picks reach the composer once each (browser-capture.ts).
-    adoptCaptureNative(client, native);
-    await applyCaptureResults(client, native, liveTabKeys(client));
-    await cancelHiddenPicks(client, native, shownRuntimeId(client, state)); // PreviewView's unmount: a hidden tab's pick ends
-    await navigationPrepare(client, native, state);
-    await automationPrepare(client, native); // the previewAutomation host (browser-automation.ts)
+    if (operate) {
+      await mirrorNativeState(client, native);
+      await openRequestedLinks(client, native); // a page's target=_blank links (browser-links.ts)
+      await syncNativeSessions(client, native);
+      // Part 3: Annotate's settled picks reach the composer once each (browser-capture.ts).
+      adoptCaptureNative(client, native);
+      await applyCaptureResults(client, native, liveTabKeys(client));
+      await cancelHiddenPicks(client, native, shownRuntimeId(client, state)); // PreviewView's unmount: a hidden tab's pick ends
+      await navigationPrepare(client, native, state);
+      await automationPrepare(client, native); // the previewAutomation host (browser-automation.ts)
+    }
     const active = state.visible ? state.surfaces.find(surface => surface.id === state.active) : undefined;
     const shown = active?.browser && ref ? effectiveNav(client, ref, active.browser.tabId) : null;
     const floatingId = floatingTabOf(client), floating = ref && floatingId && floatingId !== shown?.snapshot?.tabId ? effectiveNav(client, ref, floatingId) : null;
-    const slots = [shown, floating].filter((slot): slot is NonNullable<typeof shown> => !!slot && slot.snapshot?.runtime === 'server');
+    const slots = (read ? [shown, floating] : []).filter((slot): slot is NonNullable<typeof shown> => !!slot && slot.snapshot?.runtime === 'server');
     await retainServerStreams(client, slots.map(slot => slot.runtimeId));
     for (const slot of slots) {
       await drainServerNotices(client, native, slot.runtimeId, tabId => {
@@ -434,6 +441,7 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
 
 // ── The chrome row's commands (`surface-browser-<op>`, PreviewView's handlers) ───────────────────
 export async function browserLocal(client: T3Client, native: Native, state: PanelState, op: string, id: string, value: string): Promise<string> {
+  if (!op.startsWith('artifact-') && op !== 'annotation-held') requirePermission(client.scopes, 'preview:operate');
   const host = browserHost(client);
   if (op === 'open') return addBrowserSurface(client, native, state, value || undefined);
   // Part 3: a toast's artifact buttons (id = the file) and the floating player's pill (id = its runtime tab).
