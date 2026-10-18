@@ -1,4 +1,4 @@
-// Per-thread preview state (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
+// Per-thread preview state (T3 Code 9c161462c9, MIT, see LICENSE-T3:
 // apps/web/src/previewStateStore.ts; apps/web/src/browser/previewRuntimeTabId.ts;
 // packages/contracts/src/preview.ts `PreviewNavStatus`, `PreviewSessionSnapshot`). A Browser tab is a
 // server preview session (`preview.open`, keyed by thread and tab); this store keeps each thread's
@@ -24,6 +24,12 @@ export type PreviewSessionSnapshot = {
   canGoForward: boolean;
   viewport?: PreviewViewportSetting;
   profileId?: string;
+  runtime?: 'desktop' | 'server';
+  colorScheme?: 'system' | 'light' | 'dark';
+  zoomFactor?: number;
+  automationOwner?: string;
+  reveal?: boolean;
+  revealRequest?: { id: string; force: boolean };
   updatedAt: string;
 };
 
@@ -269,5 +275,11 @@ export function readSnapshot(value: unknown): PreviewSessionSnapshot | null {
     threadId: raw.threadId, tabId: raw.tabId, navStatus, canGoBack: raw.canGoBack === true, canGoForward: raw.canGoForward === true,
     ...(raw.viewport && typeof raw.viewport === 'object' ? { viewport: raw.viewport as PreviewViewportSetting } : {}),
     ...(typeof raw.profileId === 'string' ? { profileId: raw.profileId } : {}), updatedAt: text(raw.updatedAt),
+    ...(raw.runtime === 'desktop' || raw.runtime === 'server' ? { runtime: raw.runtime } : {}),
+    ...(raw.colorScheme === 'system' || raw.colorScheme === 'light' || raw.colorScheme === 'dark' ? { colorScheme: raw.colorScheme } : {}),
+    ...(typeof raw.zoomFactor === 'number' && Number.isFinite(raw.zoomFactor) && raw.zoomFactor > 0 ? { zoomFactor: raw.zoomFactor } : {}),
+    ...(typeof raw.automationOwner === 'string' ? { automationOwner: raw.automationOwner } : {}),
+    ...(typeof raw.reveal === 'boolean' ? { reveal: raw.reveal } : {}),
+    ...(raw.revealRequest && typeof raw.revealRequest === 'object' && typeof (raw.revealRequest as Record<string, unknown>).id === 'string' ? { revealRequest: { id: String((raw.revealRequest as Record<string, unknown>).id), force: (raw.revealRequest as Record<string, unknown>).force === true } } : {}),
   };
 }
